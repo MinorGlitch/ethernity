@@ -7,7 +7,6 @@ from pathlib import Path
 
 from ethernity.crypto import decrypt_bytes, encrypt_bytes_with_passphrase
 from ethernity.encoding.chunking import DEFAULT_CHUNK_SIZE, chunk_payload, reassemble_payload
-from ethernity.formats.compression import wrap_payload, unwrap_payload
 from ethernity.config import DEFAULT_PAPER_SIZE, load_app_config
 from ethernity.formats.envelope_codec import (
     build_single_file_manifest,
@@ -44,10 +43,7 @@ def main() -> int:
     if grid_total <= 0:
         raise RuntimeError("invalid grid size")
 
-    payload, ciphertext, passphrase, frames = _fit_payload_to_grid(
-        grid_total,
-        compression=config.compression,
-    )
+    payload, ciphertext, passphrase, frames = _fit_payload_to_grid(grid_total)
     doc_id = hashlib.blake2b(ciphertext, digest_size=16).digest()
     frames = chunk_payload(ciphertext, doc_id=doc_id, frame_type=FrameType.MAIN_DOCUMENT)
     qr_frames = frames
@@ -86,8 +82,7 @@ def main() -> int:
     recovered_ciphertext = reassemble_payload(scanned_frames)
 
     recovered_envelope = decrypt_bytes(recovered_ciphertext, passphrase=passphrase)
-    envelope, _compression_info = unwrap_payload(recovered_envelope)
-    _manifest, recovered_payload = decode_envelope(envelope)
+    _manifest, recovered_payload = decode_envelope(recovered_envelope)
     recovered_path.write_bytes(recovered_payload)
 
     if recovered_payload != payload:
@@ -115,7 +110,7 @@ def _dedupe_frames(frames):
     return deduped
 
 
-def _fit_payload_to_grid(grid_total: int, *, compression):
+def _fit_payload_to_grid(grid_total: int):
     base_payload = b"Scan demo payload.\n" * 200
     max_payload_len = max(1, grid_total * DEFAULT_CHUNK_SIZE)
     payload_len = max_payload_len
@@ -124,8 +119,7 @@ def _fit_payload_to_grid(grid_total: int, *, compression):
         payload = base_payload[:payload_len]
         manifest = build_single_file_manifest("scan-demo.bin", payload)
         envelope = encode_envelope(payload, manifest)
-        wrapped, _compression_info = wrap_payload(envelope, compression)
-        ciphertext, passphrase = encrypt_bytes_with_passphrase(wrapped, passphrase=None)
+        ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
         if not passphrase:
             raise RuntimeError("age did not return a passphrase")
         doc_id = hashlib.blake2b(ciphertext, digest_size=16).digest()

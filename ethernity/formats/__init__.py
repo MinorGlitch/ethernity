@@ -1,4 +1,3 @@
-from .compression import CompressionConfig, CompressionInfo, unwrap_payload, wrap_payload
 from .envelope_codec import (
     MAGIC as ENVELOPE_MAGIC,
     VERSION as ENVELOPE_VERSION,
@@ -13,8 +12,6 @@ from .envelope_codec import (
 from .envelope_types import EnvelopeManifest, ManifestFile, PayloadPart
 
 __all__ = [
-    "CompressionConfig",
-    "CompressionInfo",
     "ENVELOPE_MAGIC",
     "ENVELOPE_VERSION",
     "EnvelopeManifest",
@@ -27,6 +24,4 @@ __all__ = [
     "encode_envelope",
     "encode_manifest",
     "extract_payloads",
-    "unwrap_payload",
-    "wrap_payload",
 ]

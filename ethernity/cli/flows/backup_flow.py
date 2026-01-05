@@ -45,7 +45,6 @@ def run_backup(
 
     with _status("Starting backup...", quiet=status_quiet):
         from ...encoding.chunking import chunk_payload
-        from ...formats.compression import wrap_payload
         from ...formats.envelope_codec import build_manifest_and_payload, encode_envelope
         from ...formats.envelope_types import PayloadPart
         from ...render import FallbackSection, RenderInputs, render_frames_to_pdf
@@ -59,7 +58,7 @@ def run_backup(
         ]
         manifest, payload = build_manifest_and_payload(parts, sealed=plan.sealed)
         envelope = encode_envelope(payload, manifest)
-        wrapped_envelope, compression_info = wrap_payload(envelope, config.compression)
+        wrapped_envelope = envelope
 
     encrypt_recipients: list[str] = []
     key_lines: list[str] = []
@@ -79,9 +78,6 @@ def run_backup(
                 base_dir=base_dir,
                 manifest=manifest,
                 envelope=envelope,
-                wrapped_envelope=wrapped_envelope,
-                compression=config.compression,
-                compression_info=compression_info,
                 plan=plan,
                 recipients=[],
                 passphrase=passphrase,
@@ -121,9 +117,6 @@ def run_backup(
                 base_dir=base_dir,
                 manifest=manifest,
                 envelope=envelope,
-                wrapped_envelope=wrapped_envelope,
-                compression=config.compression,
-                compression_info=compression_info,
                 plan=plan,
                 recipients=encrypt_recipients,
                 passphrase=passphrase,

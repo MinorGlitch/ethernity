@@ -6,8 +6,6 @@ from pathlib import Path
 
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.encoding.chunking import chunk_payload, frame_to_fallback_lines
-from ethernity.formats.compression import wrap_payload
-from ethernity.formats.compression import CompressionConfig
 from ethernity.formats.envelope_codec import build_single_file_manifest, encode_envelope
 from ethernity.encoding.framing import Frame, FrameType, encode_frame
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
@@ -25,8 +23,7 @@ class TestEndToEndSharding(unittest.TestCase):
             with prepend_path(tmp_path):
                 manifest = build_single_file_manifest("payload.bin", payload)
                 envelope = encode_envelope(payload, manifest)
-                wrapped, _info = wrap_payload(envelope, config=_dummy_compression())
-                ciphertext, passphrase = encrypt_bytes_with_passphrase(wrapped, passphrase=None)
+                ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
                 doc_id = hashlib.blake2b(ciphertext, digest_size=16).digest()
                 doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
                 sign_priv, sign_pub = generate_signing_keypair()
@@ -97,8 +94,7 @@ class TestEndToEndSharding(unittest.TestCase):
             with prepend_path(tmp_path):
                 manifest = build_single_file_manifest("payload.bin", payload)
                 envelope = encode_envelope(payload, manifest)
-                wrapped, _info = wrap_payload(envelope, config=_dummy_compression())
-                ciphertext, passphrase = encrypt_bytes_with_passphrase(wrapped, passphrase=None)
+                ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
                 doc_id = hashlib.blake2b(ciphertext, digest_size=16).digest()
                 doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
                 sign_priv, sign_pub = generate_signing_keypair()
@@ -158,10 +154,6 @@ class TestEndToEndSharding(unittest.TestCase):
                 with suppress_output():
                     run_recover_command(args)
                 self.assertEqual(output_path.read_bytes(), payload)
-
-
-def _dummy_compression() -> CompressionConfig:
-    return CompressionConfig(enabled=False, algorithm="zstd", level=3)
 
 
 if __name__ == "__main__":

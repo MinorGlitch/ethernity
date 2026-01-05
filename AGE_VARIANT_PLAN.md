@@ -200,8 +200,7 @@ Key sections to include:
 - `ethernity/render/templating.py`: Jinja2 rendering for TOML templates.
 - `ethernity/formats/envelope_types.py`: envelope manifest types + CBOR helpers.
 - `ethernity/formats/envelope_codec.py`: envelope encode/decode + payload builders.
-- `ethernity/formats/compression.py`: compression wrapping + config.
-- `ethernity/config/loader.py`: TOML config loader + QR/compression parsing.
+- `ethernity/config/loader.py`: TOML config loader + QR parsing.
 - `ethernity/config/installer.py`: default config/template installer.
 - `ethernity/templates/`: layout templates (`.toml.j2`) for main/recovery/shard docs.
 - `ethernity/config/`: preset TOML configs (A4 default, Letter optional).
@@ -220,7 +219,6 @@ Key sections to include:
 - segno
 - fpdf2
 - jinja2
-- zstandard (optional compression)
 - pillow (optional, QR scan helpers)
 - pypdf (tests/inspection)
 - zxing-cpp (optional QR scanning)
@@ -252,7 +250,6 @@ Key sections to include:
 
 ## Open Questions / To Decide Later
 - Confirm PyCryptodome version pinning and compatibility.
-- Optional compression before age (zstd) for QR count reduction.
 - Decide whether to include per-shard AEAD wrapping (separate key storage).
 - Decide on base32-in-QR encoding mode + UX.
 - Define expand-shards workflow.
@@ -286,7 +283,6 @@ Key sections to include:
   - balanced chunk sizing (evenly filled QR density)
   - multi-file inputs (recursive directories, base-dir relative paths, duplicate path guard)
   - passphrase sharding (Shamir split/join, shard payload format v3)
-  - compression wrapper (disabled by default; zstd optional via config)
   - packaging (`ethernity` package + console script + package data)
   - tests: unit, integration, end-to-end (CLI + sharding)
 - Partly implemented:

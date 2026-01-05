@@ -8,7 +8,7 @@ from unittest import mock
 
 from ethernity import cli
 from ethernity.config import load_app_config
-from ethernity.formats.compression import MAGIC as COMPRESSION_MAGIC
+from ethernity.formats.envelope_codec import MAGIC as ENVELOPE_MAGIC
 from ethernity.core.models import DocumentMode, DocumentPlan, KeyMaterial, ShardingConfig
 
 
@@ -103,7 +103,7 @@ class TestCliBackup(unittest.TestCase):
             encrypt_mock.assert_called_once()
             args, kwargs = encrypt_mock.call_args
             self.assertEqual(kwargs["recipients"], ["age1recipient"])
-            self.assertTrue(args[0].startswith(COMPRESSION_MAGIC))
+            self.assertTrue(args[0].startswith(ENVELOPE_MAGIC))
             self.assertEqual(result.generated_identity, "AGE-SECRET-KEY-TEST")
             self.assertEqual(result.generated_recipient, "age1recipient")
             self.assertEqual(result.passphrase_used, None)

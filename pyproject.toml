@@ -16,7 +16,6 @@ dependencies = [
     "pillow",
     "pypdf",
     "segno",
-    "zstandard",
     "zxing-cpp",
     "coverage>=7.13.1",
 ]

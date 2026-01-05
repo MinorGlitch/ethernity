@@ -6,8 +6,6 @@ from pathlib import Path
 
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.encoding.chunking import chunk_payload, payload_to_fallback_lines
-from ethernity.formats.compression import wrap_payload
-from ethernity.formats.compression import CompressionConfig
 from ethernity.formats.envelope_codec import (
     build_manifest_and_payload,
     build_single_file_manifest,
@@ -28,8 +26,7 @@ class TestIntegrationRecover(unittest.TestCase):
             with prepend_path(tmp_path):
                 manifest = build_single_file_manifest("payload.bin", payload)
                 envelope = encode_envelope(payload, manifest)
-                wrapped, _info = wrap_payload(envelope, config=_dummy_compression())
-                ciphertext, passphrase = encrypt_bytes_with_passphrase(wrapped, passphrase=None)
+                ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
                 doc_id = hashlib.blake2b(ciphertext, digest_size=16).digest()
                 frames = chunk_payload(
                     ciphertext,
@@ -72,8 +69,7 @@ class TestIntegrationRecover(unittest.TestCase):
             with prepend_path(tmp_path):
                 manifest = build_single_file_manifest("payload.bin", payload)
                 envelope = encode_envelope(payload, manifest)
-                wrapped, _info = wrap_payload(envelope, config=_dummy_compression())
-                ciphertext, passphrase = encrypt_bytes_with_passphrase(wrapped, passphrase=None)
+                ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
                 doc_id = hashlib.blake2b(ciphertext, digest_size=16).digest()
                 lines = payload_to_fallback_lines(
                     ciphertext,
@@ -124,8 +120,7 @@ class TestIntegrationRecover(unittest.TestCase):
             with prepend_path(tmp_path):
                 manifest = build_single_file_manifest("payload.bin", payload)
                 envelope = encode_envelope(payload, manifest)
-                wrapped, _info = wrap_payload(envelope, config=_dummy_compression())
-                ciphertext, passphrase = encrypt_bytes_with_passphrase(wrapped, passphrase=None)
+                ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
                 doc_id = hashlib.blake2b(ciphertext, digest_size=16).digest()
                 frames = chunk_payload(
                     ciphertext,
@@ -170,8 +165,7 @@ class TestIntegrationRecover(unittest.TestCase):
             write_fake_age_script(tmp_path)
             with prepend_path(tmp_path):
                 envelope = encode_envelope(payload, manifest)
-                wrapped, _info = wrap_payload(envelope, config=_dummy_compression())
-                ciphertext, passphrase = encrypt_bytes_with_passphrase(wrapped, passphrase=None)
+                ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
                 doc_id = hashlib.blake2b(ciphertext, digest_size=16).digest()
                 lines = payload_to_fallback_lines(
                     ciphertext,
@@ -204,10 +198,6 @@ class TestIntegrationRecover(unittest.TestCase):
 
                 self.assertEqual((output_dir / "alpha.txt").read_bytes(), b"alpha")
                 self.assertEqual((output_dir / "beta" / "beta.txt").read_bytes(), b"beta")
-
-
-def _dummy_compression() -> CompressionConfig:
-    return CompressionConfig(enabled=False, algorithm="zstd", level=3)
 
 
 if __name__ == "__main__":

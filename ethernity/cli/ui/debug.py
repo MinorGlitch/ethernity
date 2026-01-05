@@ -89,9 +89,6 @@ def _print_pre_encryption_debug(
     base_dir: Path | None,
     manifest: bytes | EnvelopeManifest,
     envelope: bytes,
-    wrapped_envelope: bytes,
-    compression: object,
-    compression_info: object,
     plan: DocumentPlan,
     recipients: list[str],
     passphrase: str | None,
@@ -112,9 +109,6 @@ def _print_pre_encryption_debug(
     if base_dir:
         print(f"- base dir: {base_dir}")
     print(f"- envelope bytes: {len(envelope)}")
-    print(f"- wrapped envelope bytes: {len(wrapped_envelope)}")
-    print(f"- compression: {compression}")
-    print(f"- compression info: {compression_info}")
     print(f"- mode: {plan.mode.value}")
     print(f"- sealed: {plan.sealed}")
     if recipients:
@@ -151,10 +145,6 @@ def _print_pre_encryption_debug(
 
     print("Envelope (hex):")
     print(_hexdump(envelope, max_bytes=debug_max_bytes))
-    print()
-
-    print("Wrapped envelope (hex):")
-    print(_hexdump(wrapped_envelope, max_bytes=debug_max_bytes))
     print()
 
     print("Payload z-base-32:")

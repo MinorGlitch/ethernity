@@ -331,7 +331,6 @@ def run_recover_command(args: argparse.Namespace) -> int:
                         console.print("Recovery cancelled.")
                         return 1
 
-    from ...formats.compression import unwrap_payload
     from ...formats.envelope_codec import decode_envelope, extract_payloads
 
     with _status("Decrypting and unpacking payload...", quiet=quiet):
@@ -340,8 +339,7 @@ def run_recover_command(args: argparse.Namespace) -> int:
         else:
             plaintext = decrypt_bytes(ciphertext, identities=identities)
 
-        envelope, _compression_info = unwrap_payload(plaintext)
-        manifest, payload = decode_envelope(envelope)
+        manifest, payload = decode_envelope(plaintext)
         extracted = extract_payloads(manifest, payload)
     if interactive:
         with _wizard_stage(

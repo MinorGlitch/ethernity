@@ -7,7 +7,6 @@ from typing import Callable, TypeVar
 import tomllib
 
 from ..encoding.qr_payloads import normalize_qr_payload_encoding
-from ..formats.compression import CompressionConfig
 from ..qr.codec import QrConfig
 from .installer import (
     DEFAULT_RECOVERY_TEMPLATE_PATH,
@@ -28,7 +27,6 @@ class AppConfig:
     context: dict[str, object]
     qr_config: QrConfig
     qr_payload_encoding: str
-    compression: "CompressionConfig"
 
 
 def load_app_config(path: str | Path | None = None, *, paper_size: str | None = None) -> AppConfig:
@@ -63,7 +61,6 @@ def load_app_config(path: str | Path | None = None, *, paper_size: str | None = 
     qr_payload_encoding = normalize_qr_payload_encoding(
         _parse_optional_str(qr_section.get("payload_encoding"))
     )
-    compression = build_compression_config(_get_dict(data, "compression"))
     return AppConfig(
         template_path=template_path,
         recovery_template_path=recovery_path,
@@ -71,16 +68,6 @@ def load_app_config(path: str | Path | None = None, *, paper_size: str | None = 
         context=context,
         qr_config=qr_config,
         qr_payload_encoding=qr_payload_encoding,
-        compression=compression,
-    )
-
-
-def build_compression_config(cfg: dict[str, object] | None = None) -> CompressionConfig:
-    cfg = cfg or {}
-    return CompressionConfig(
-        enabled=bool(cfg.get("enabled", False)),
-        algorithm=str(cfg.get("algorithm", "zstd")),
-        level=_parse_int(cfg.get("level"), default=3),
     )
 
 

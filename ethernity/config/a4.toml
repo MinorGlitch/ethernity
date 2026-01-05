@@ -88,11 +88,6 @@ fallback_group_size = 4
 fallback_line_length = 0
 fallback_line_count = 10
 
-[compression]
-enabled = false
-algorithm = "zstd"
-level = 3
-
 [qr]
 error = "Q"
 scale = 4

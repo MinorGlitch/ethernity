@@ -22,11 +22,6 @@ path = 456
 [shard_template]
 path = 789
 
-[compression]
-enabled = true
-algorithm = "zstd"
-level = "5"
-
 [qr]
 scale = "6"
 border = 2.0
@@ -57,8 +52,6 @@ light = [4, 5, 6, 7]
         self.assertEqual(config.qr_config.dark, (1, 2, 3))
         self.assertEqual(config.qr_config.light, (4, 5, 6, 7))
         self.assertFalse(config.qr_config.boost_error)
-        self.assertTrue(config.compression.enabled)
-        self.assertEqual(config.compression.level, 5)
 
 
 if __name__ == "__main__":
