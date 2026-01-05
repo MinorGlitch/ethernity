@@ -1,0 +1,104 @@
+[template]
+path = "templates/main_document.toml.j2"
+
+[recovery_template]
+path = "templates/recovery_document.toml.j2"
+
+[shard_template]
+path = "templates/shard_document.toml.j2"
+
+[context]
+paper_size = "A4"
+margin_mm = 14
+header_height_mm = 16
+instructions_gap_mm = 4
+header_font = "Helvetica"
+title_size = 20
+subtitle_size = 10
+meta_size = 8
+header_layout = "split"
+header_split_left_ratio = 0.7
+title_style = "B"
+subtitle_style = "I"
+meta_style = "I"
+title_color = [15, 30, 45]
+subtitle_color = [70, 80, 90]
+meta_color = [120, 130, 140]
+header_divider_enabled = true
+header_divider_gap_mm = 2.5
+header_divider_thickness_mm = 0.5
+header_divider_color = [15, 30, 45]
+title = "Main Document"
+subtitle = "Paper Backup"
+instructions_font = "Helvetica"
+instructions_size = 9
+instructions_line_height_mm = 4.5
+instructions_label = "Instructions"
+instructions_label_size = 7
+instructions_label_style = "B"
+instructions_label_color = [90, 100, 110]
+instructions_label_layout = "column"
+instructions_label_column_mm = 24
+instructions_label_gap_mm = 2
+instructions_indent_mm = 0
+instructions_text_color = [30, 40, 50]
+instructions = [
+  "Scan all QR codes in any order.",
+  "Use the Recovery Document for text fallback if needed.",
+]
+keys_gap_mm = 3
+keys_font = "Courier"
+keys_size = 8
+keys_line_height_mm = 4.0
+keys_label = "Keys"
+keys_label_font = "Helvetica"
+keys_label_size = 7
+keys_label_style = "B"
+keys_label_color = [90, 100, 110]
+keys_label_layout = "column"
+keys_label_column_mm = 24
+keys_label_gap_mm = 2
+keys_indent_mm = 0
+keys_text_color = [30, 40, 50]
+recovery_title = "Recovery Document"
+recovery_subtitle = "Keys + Text Fallback"
+recovery_instructions = [
+  "This document contains recovery keys and full text fallback.",
+  "Keep it separate from the QR document.",
+]
+shard_title = "Shard Document"
+shard_instructions = [
+  "This document is one shard of the passphrase.",
+  "Keep shards separate and secure.",
+]
+qr_size_mm = 58
+gap_mm = 3
+max_cols = 3
+max_rows = 4
+text_gap_mm = 2.5
+fallback_font = "Courier"
+fallback_size = 7
+fallback_line_height_mm = 3.2
+fallback_label_font = "Helvetica"
+fallback_label_size = 10
+fallback_label_style = "B"
+fallback_label_color = [15, 30, 45]
+fallback_label_align = "C"
+fallback_group_size = 4
+fallback_line_length = 0
+fallback_line_count = 10
+
+[compression]
+enabled = false
+algorithm = "zstd"
+level = 3
+
+[qr]
+error = "Q"
+scale = 4
+border = 4
+kind = "png"
+dark = "#0f1f2e"
+light = "#ffffffff"
+module_shape = "rounded"
+payload_encoding = "binary"

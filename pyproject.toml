@@ -1,0 +1,36 @@
+[project]
+name = "ethernity"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "cbor2",
+    "mnemonic",
+    "typer>=0.12.3",
+    "rich>=13.7.0",
+    "shellingham>=1.5.4",
+    "fpdf2",
+    "jinja2",
+    "pycryptodome",
+    "pillow",
+    "pypdf",
+    "segno",
+    "zstandard",
+    "zxing-cpp",
+    "coverage>=7.13.1",
+]
+
+[project.scripts]
+ethernity = "ethernity.cli:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ethernity", "ethernity.*"]
+
+[tool.setuptools.package-data]
+ethernity = ["templates/*.toml.j2", "config/*.toml"]

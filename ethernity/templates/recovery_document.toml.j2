@@ -1,0 +1,82 @@
+[page]
+size = "{{ paper_size }}"
+margin_mm = {{ margin_mm }}
+header_height_mm = {{ header_height_mm }}
+instructions_gap_mm = {{ instructions_gap_mm }}
+keys_gap_mm = {{ keys_gap_mm | default(2) }}
+
+[header]
+font_family = "{{ header_font }}"
+title_size = {{ title_size }}
+subtitle_size = {{ subtitle_size }}
+meta_size = {{ meta_size }}
+layout = "{{ header_layout | default("split") }}"
+split_left_ratio = {{ header_split_left_ratio | default(0.64) }}
+title_style = "{{ title_style | default("") }}"
+subtitle_style = "{{ subtitle_style | default("") }}"
+meta_style = "{{ meta_style | default("") }}"
+title_color = {{ title_color | default([0, 0, 0]) }}
+subtitle_color = {{ subtitle_color | default([0, 0, 0]) }}
+meta_color = {{ meta_color | default([0, 0, 0]) }}
+divider_enabled = {{ "true" if (header_divider_enabled | default(false)) else "false" }}
+divider_gap_mm = {{ header_divider_gap_mm | default(1.5) }}
+divider_thickness_mm = {{ header_divider_thickness_mm | default(0.4) }}
+divider_color = {{ header_divider_color | default([120, 120, 120]) }}
+title = "{{ recovery_title }}"
+subtitle = "{{ recovery_subtitle }}"
+doc_id_label = "Document ID:"
+doc_id = "{{ doc_id }}"
+page_label = "Page {{ page_num }} / {{ page_total }}"
+
+[instructions]
+font_family = "{{ instructions_font }}"
+font_size = {{ instructions_size }}
+line_height_mm = {{ instructions_line_height_mm }}
+label = "{{ instructions_label | default("") }}"
+label_layout = "{{ instructions_label_layout | default("column") }}"
+label_font_family = "{{ instructions_label_font | default(instructions_font) }}"
+label_size = {{ instructions_label_size | default(7) }}
+label_style = "{{ instructions_label_style | default("B") }}"
+label_color = {{ instructions_label_color | default([110, 120, 130]) }}
+label_column_mm = {{ instructions_label_column_mm | default(24) }}
+label_gap_mm = {{ instructions_label_gap_mm | default(2) }}
+indent_mm = {{ instructions_indent_mm | default(0) }}
+text_color = {{ instructions_text_color | default([0, 0, 0]) }}
+lines = [
+{% for line in recovery_instructions %}
+  "{{ line }}"{% if not loop.last %},{% endif %}
+{% endfor %}
+]
+
+[keys]
+font_family = "{{ keys_font }}"
+font_size = {{ keys_size }}
+line_height_mm = {{ keys_line_height_mm }}
+label = "{{ keys_label | default("") }}"
+label_layout = "{{ keys_label_layout | default("column") }}"
+label_font_family = "{{ keys_label_font | default(header_font) }}"
+label_size = {{ keys_label_size | default(7) }}
+label_style = "{{ keys_label_style | default("B") }}"
+label_color = {{ keys_label_color | default([110, 120, 130]) }}
+label_column_mm = {{ keys_label_column_mm | default(24) }}
+label_gap_mm = {{ keys_label_gap_mm | default(2) }}
+indent_mm = {{ keys_indent_mm | default(0) }}
+text_color = {{ keys_text_color | default([0, 0, 0]) }}
+lines = [
+{% for line in key_lines %}
+  "{{ line }}"{% if not loop.last %},{% endif %}
+{% endfor %}
+]
+
+[fallback]
+font_family = "{{ fallback_font }}"
+font_size = {{ fallback_size }}
+line_height_mm = {{ fallback_line_height_mm }}
+label_font_family = "{{ fallback_label_font | default(header_font) }}"
+label_size = {{ fallback_label_size | default(fallback_size) }}
+label_style = "{{ fallback_label_style | default("B") }}"
+label_color = {{ fallback_label_color | default([90, 100, 110]) }}
+label_align = "{{ fallback_label_align | default("C") }}"
+group_size = {{ fallback_group_size }}
+line_length = {{ fallback_line_length }}
+line_count = {{ fallback_line_count }}

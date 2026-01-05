@@ -1,0 +1,10 @@
+{
+  "include": ["ethernity"],
+  "exclude": [
+    "build",
+    "backup-*",
+    "**/__pycache__",
+    "ethernity.egg-info",
+    "tests"
+  ]
+}
