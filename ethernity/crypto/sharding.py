@@ -8,7 +8,7 @@ import cbor2
 from Crypto.Protocol.SecretSharing import Shamir
 
 from .signing import DOC_HASH_LEN, ED25519_PUB_LEN, ED25519_SEED_LEN, ED25519_SIG_LEN, sign_shard
-from .validation import require_bytes, require_length
+from ..core.validation import require_bytes, require_length
 
 SHARD_VERSION = 3
 KEY_TYPE_PASSPHRASE = "passphrase"
@@ -181,4 +181,3 @@ def decode_shard_payload(data: bytes) -> ShardPayload:
         sign_pub=sign_pub,
         signature=signature,
     )
-

@@ -4,15 +4,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from pathlib import Path
-import tempfile
-from typing import Any, Sequence, cast
+from typing import Sequence
 
-from fpdf import FPDF, XPos, YPos
+from fpdf import FPDF
 
-from .chunking import frame_to_fallback_lines, payload_to_fallback_lines, reassemble_payload
-from .framing import Frame, encode_frame
-from .qr_codec import QrConfig, qr_bytes
-from .templating import render_template
+from ..encoding.chunking import frame_to_fallback_lines, payload_to_fallback_lines, reassemble_payload
+from ..encoding.framing import Frame
+from ..qr.codec import QrConfig
 
 
 @dataclass(frozen=True)
@@ -250,115 +248,6 @@ def _compute_layout(
     return layout, fallback_lines
 
 
-def render_frames_to_pdf(inputs: RenderInputs) -> None:
-    if not inputs.frames:
-        raise ValueError("frames cannot be empty")
-
-    base_context = dict(inputs.context)
-    base_context.setdefault("doc_id", inputs.frames[0].doc_id.hex())
-    if inputs.key_lines is not None:
-        base_context.setdefault("key_lines", list(inputs.key_lines))
-    else:
-        base_context.setdefault("key_lines", [])
-
-    initial_cfg = render_template(
-        inputs.template_path,
-        {**base_context, "page_num": 1, "page_total": 1},
-    )
-    page_cfg = initial_cfg.get("page", {})
-    keys_cfg = initial_cfg.get("keys", {})
-    paper_format = _page_format(page_cfg)
-
-    pdf = FPDF(unit="mm", format=cast(Any, paper_format))
-    pdf.set_auto_page_break(False)
-
-    key_lines = list(inputs.key_lines) if inputs.key_lines is not None else keys_cfg.get("lines", [])
-    layout, fallback_lines = _compute_layout(inputs, initial_cfg, pdf, key_lines)
-    key_lines = list(layout.key_lines)
-    base_context["key_lines"] = list(key_lines)
-
-    qr_config = inputs.qr_config or QrConfig()
-
-    for page_idx in range(layout.total_pages):
-        page_num = page_idx + 1
-        cfg = render_template(
-            inputs.template_path,
-            {**base_context, "page_num": page_num, "page_total": layout.total_pages},
-        )
-        pdf.add_page()
-        _draw_header(pdf, cfg.get("header", {}), layout.margin, layout.header_height)
-        _draw_instructions(pdf, cfg.get("instructions", {}), layout.margin, layout.instructions_y)
-        _draw_keys(pdf, cfg.get("keys", {}), key_lines, layout.margin, layout.keys_y)
-
-        if inputs.render_qr:
-            page_start = page_idx * layout.per_page
-            frames_in_page = min(layout.per_page, len(inputs.frames) - page_start)
-            rows_for_page = layout.rows
-            if frames_in_page > 0:
-                rows_for_page = math.ceil(frames_in_page / layout.cols)
-            gap_y = layout.gap
-            if not inputs.render_fallback:
-                if layout.gap_y_override is not None and rows_for_page == layout.rows:
-                    gap_y = layout.gap_y_override
-                else:
-                    gap_y = _expand_gap_to_fill(
-                        layout.usable_h_grid, layout.qr_size, layout.gap, rows_for_page
-                    )
-
-            qr_payloads = list(inputs.qr_payloads) if inputs.qr_payloads is not None else [
-                encode_frame(frame) for frame in inputs.frames
-            ]
-            if len(qr_payloads) != len(inputs.frames):
-                raise ValueError("qr_payloads length must match frames")
-
-            for row in range(layout.rows):
-                remaining = frames_in_page - row * layout.cols
-                if remaining <= 0:
-                    break
-                cols_in_row = min(layout.cols, remaining)
-                if cols_in_row == 1:
-                    gap_x = layout.gap
-                    x_start = layout.margin + (layout.usable_w - layout.qr_size) / 2
-                else:
-                    gap_x = _expand_gap_to_fill(
-                        layout.usable_w, layout.qr_size, layout.gap, cols_in_row
-                    )
-                    x_start = layout.margin
-
-                for col in range(cols_in_row):
-                    frame_idx = page_start + row * layout.cols + col
-                    x = x_start + col * (layout.qr_size + gap_x)
-                    y = layout.content_start_y + row * (layout.qr_size + gap_y)
-
-                    qr_image = qr_bytes(qr_payloads[frame_idx], **_qr_kwargs(qr_config))
-                    _place_qr(pdf, qr_image, x, y, layout.qr_size)
-
-        if inputs.render_fallback and fallback_lines:
-            start = page_idx * layout.fallback_lines_per_page
-            end = start + layout.fallback_lines_per_page
-            lines = fallback_lines[start:end]
-            if lines:
-                if inputs.render_qr:
-                    grid_height = layout.rows * layout.qr_size + (layout.rows - 1) * layout.gap
-                    fallback_y = layout.content_start_y + grid_height + layout.text_gap
-                else:
-                    fallback_y = layout.content_start_y
-                cell_margin = pdf.c_margin
-                pdf.c_margin = 0
-                _draw_fallback_lines(
-                    pdf,
-                    cfg.get("fallback", {}),
-                    layout.margin,
-                    fallback_y,
-                    layout.fallback_width,
-                    lines,
-                    layout.line_height,
-                )
-                pdf.c_margin = cell_margin
-
-    pdf.output(str(inputs.output_path))
-
-
 def _fallback_lines_from_sections(
     sections: Sequence[FallbackSection],
     *,
@@ -394,219 +283,6 @@ def _calc_cells(usable: float, cell: float, gap: float, max_cells: int | None) -
     if max_cells is not None:
         return min(count, int(max_cells))
     return count
-
-
-def _draw_header(pdf: FPDF, cfg: dict, margin: float, header_height: float) -> None:
-    font = cfg.get("font_family", "Helvetica")
-    title = cfg.get("title", "")
-    subtitle = cfg.get("subtitle", "")
-    doc_id_label = cfg.get("doc_id_label", "")
-    doc_id = cfg.get("doc_id", "")
-    page_label = cfg.get("page_label", "")
-    layout = str(cfg.get("layout", "stacked")).lower()
-    split_ratio = cfg.get("split_left_ratio", 0.65)
-    title_style = cfg.get("title_style", "")
-    subtitle_style = cfg.get("subtitle_style", "")
-    meta_style = cfg.get("meta_style", "")
-    title_color = _parse_color(cfg.get("title_color"))
-    subtitle_color = _parse_color(cfg.get("subtitle_color"))
-    meta_color = _parse_color(cfg.get("meta_color"))
-
-    pdf.set_xy(margin, margin)
-
-    if layout == "split":
-        try:
-            ratio = float(split_ratio)
-        except (TypeError, ValueError):
-            ratio = 0.65
-        ratio = max(0.5, min(ratio, 0.8))
-        usable_w = pdf.w - 2 * margin
-        left_w = usable_w * ratio
-        right_w = usable_w - left_w
-        x_left = margin
-        x_right = margin + left_w
-
-        y_left = margin
-        if title:
-            pdf.set_font(font, style=title_style, size=cfg.get("title_size", 14))
-            _apply_text_color(pdf, title_color)
-            pdf.set_xy(x_left, y_left)
-            pdf.cell(left_w, _line_height(pdf), title, align="L")
-            y_left += _line_height(pdf)
-        if subtitle:
-            pdf.set_font(font, style=subtitle_style, size=cfg.get("subtitle_size", 10))
-            _apply_text_color(pdf, subtitle_color)
-            pdf.set_xy(x_left, y_left)
-            pdf.cell(left_w, _line_height(pdf), subtitle, align="L")
-            y_left += _line_height(pdf)
-
-        right_lines: list[str] = []
-        if page_label:
-            right_lines.append(page_label)
-        if doc_id_label or doc_id:
-            right_lines.append(f"{doc_id_label} {doc_id}".strip())
-
-        y_right = margin
-        if right_lines:
-            pdf.set_font(font, style=meta_style, size=cfg.get("meta_size", 8))
-            _apply_text_color(pdf, meta_color)
-            for line in right_lines:
-                pdf.set_xy(x_right, y_right)
-                pdf.cell(right_w, _line_height(pdf), line, align="R")
-                y_right += _line_height(pdf)
-
-        content_bottom = max(y_left, y_right)
-        divider_enabled = bool(cfg.get("divider_enabled", False))
-        if divider_enabled:
-            gap = float(cfg.get("divider_gap_mm", 2))
-            thickness = float(cfg.get("divider_thickness_mm", 0.4))
-            divider_color = _parse_color(cfg.get("divider_color")) or (80, 80, 80)
-            y = content_bottom + gap
-            pdf.set_draw_color(*divider_color)
-            pdf.set_line_width(thickness)
-            pdf.line(margin, y, pdf.w - margin, y)
-        _apply_text_color(pdf, (0, 0, 0))
-        return
-
-    if title:
-        pdf.set_font(font, style=title_style, size=cfg.get("title_size", 14))
-        _apply_text_color(pdf, title_color)
-        pdf.cell(0, _line_height(pdf), title, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-    if subtitle:
-        pdf.set_font(font, style=subtitle_style, size=cfg.get("subtitle_size", 10))
-        _apply_text_color(pdf, subtitle_color)
-        pdf.cell(0, _line_height(pdf), subtitle, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-
-    if doc_id_label or doc_id or page_label:
-        pdf.set_font(font, style=meta_style, size=cfg.get("meta_size", 8))
-        _apply_text_color(pdf, meta_color)
-        if doc_id_label or doc_id:
-            pdf.cell(
-                0,
-                _line_height(pdf),
-                f"{doc_id_label} {doc_id}".strip(),
-                new_x=XPos.LMARGIN,
-                new_y=YPos.NEXT,
-            )
-        if page_label:
-            pdf.cell(0, _line_height(pdf), page_label, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-
-    divider_enabled = bool(cfg.get("divider_enabled", False))
-    if divider_enabled:
-        gap = float(cfg.get("divider_gap_mm", 2))
-        thickness = float(cfg.get("divider_thickness_mm", 0.4))
-        divider_color = _parse_color(cfg.get("divider_color")) or (80, 80, 80)
-        y = pdf.get_y() + gap
-        pdf.set_draw_color(*divider_color)
-        pdf.set_line_width(thickness)
-        pdf.line(margin, y, pdf.w - margin, y)
-
-    _apply_text_color(pdf, (0, 0, 0))
-
-
-def _draw_instructions(pdf: FPDF, cfg: dict, x: float, y: float) -> None:
-    lines = cfg.get("lines", [])
-    _draw_lines(pdf, cfg, lines, x, y)
-
-
-def _draw_keys(pdf: FPDF, cfg: dict, lines: Sequence[str], x: float, y: float) -> None:
-    _draw_lines(pdf, cfg, lines, x, y)
-
-
-def _draw_fallback_lines(
-    pdf: FPDF,
-    cfg: dict,
-    x: float,
-    y: float,
-    width: float,
-    lines: Sequence[str],
-    line_height: float,
-) -> None:
-    if not lines:
-        return
-
-    font = cfg.get("font_family", "Courier")
-    font_size = cfg.get("font_size", 8)
-    text_color = _parse_color(cfg.get("text_color"))
-    label_font = cfg.get("label_font_family", font)
-    label_size = cfg.get("label_size", font_size)
-    label_style = cfg.get("label_style", "B")
-    label_color = _parse_color(cfg.get("label_color"))
-    label_align = str(cfg.get("label_align", "C")).strip().upper()
-    if label_align not in {"L", "C", "R"}:
-        label_align = "C"
-
-    for line in lines:
-        if _is_fallback_label_line(line):
-            pdf.set_font(label_font, style=label_style, size=label_size)
-            _apply_text_color(pdf, label_color)
-            pdf.set_xy(x, y)
-            pdf.cell(width, line_height, line.strip(), align=label_align)
-        else:
-            pdf.set_font(font, size=font_size)
-            _apply_text_color(pdf, text_color)
-            pdf.set_xy(x, y)
-            pdf.cell(width, line_height, line, align="L")
-        y += line_height
-
-    _apply_text_color(pdf, (0, 0, 0))
-
-
-def _draw_lines(pdf: FPDF, cfg: dict, lines: Sequence[str], x: float, y: float) -> None:
-    label = cfg.get("label")
-    if not lines and not label:
-        return
-
-    font = cfg.get("font_family", "Helvetica")
-    font_size = cfg.get("font_size", 8)
-    line_height = _body_line_height(cfg)
-    indent = _cfg_float(cfg, "indent_mm", 0.0)
-    text_color = _parse_color(cfg.get("text_color"))
-
-    label_layout = str(cfg.get("label_layout", "stacked")).lower()
-    label_text = str(label) if label else ""
-    body_x = x + indent
-    body_y = y
-
-    if label_text:
-        label_font = cfg.get("label_font_family", font)
-        label_size = cfg.get("label_size", font_size)
-        label_style = cfg.get("label_style", "")
-        label_color = _parse_color(cfg.get("label_color"))
-        label_height = _label_line_height(cfg)
-
-        if label_layout == "column":
-            label_column = _cfg_float(cfg, "label_column_mm", 0.0)
-            if label_column <= 0:
-                label_layout = "stacked"
-            else:
-                label_gap = _cfg_float(cfg, "label_gap_mm", 0.0)
-                pdf.set_font(label_font, style=label_style, size=label_size)
-                _apply_text_color(pdf, label_color)
-                pdf.set_xy(x, y)
-                pdf.cell(label_column, label_height, label_text, align="L")
-                body_x = x + label_column + label_gap + indent
-
-        if label_layout != "column":
-            label_gap = _cfg_float(cfg, "label_gap_mm", 0.0)
-            pdf.set_font(label_font, style=label_style, size=label_size)
-            _apply_text_color(pdf, label_color)
-            pdf.set_xy(x, y)
-            pdf.cell(0, label_height, label_text, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            body_x = x + indent
-            body_y = y + label_height + label_gap
-
-    if not lines:
-        _apply_text_color(pdf, (0, 0, 0))
-        return
-
-    pdf.set_font(font, size=font_size)
-    _apply_text_color(pdf, text_color)
-    pdf.set_xy(body_x, body_y)
-    for line in lines:
-        pdf.cell(0, line_height, line, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-
-    _apply_text_color(pdf, (0, 0, 0))
 
 
 def _wrap_lines_to_width(pdf: FPDF, lines: Sequence[str], max_width: float) -> list[str]:
@@ -659,20 +335,6 @@ def _text_block_width(cfg: dict, usable_w: float) -> float:
 def _is_fallback_label_line(line: str) -> bool:
     stripped = line.strip()
     return stripped.startswith("===") and stripped.endswith("===") and len(stripped) > 6
-
-
-def _place_qr(pdf: FPDF, png_bytes: bytes, x: float, y: float, size: float) -> None:
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as handle:
-        handle.write(png_bytes)
-        temp_path = handle.name
-    try:
-        pdf.image(temp_path, x=x, y=y, w=size, h=size)
-    finally:
-        Path(temp_path).unlink(missing_ok=True)
-
-
-def _line_height(pdf: FPDF, multiplier: float = 1.2) -> float:
-    return pdf.font_size * multiplier
 
 
 def _cfg_float(cfg: dict, key: str, default: float = 0.0) -> float:
@@ -758,22 +420,6 @@ def _font_line_height(size_pt: float, multiplier: float = 1.2) -> float:
     return float(size_pt) * pt_to_mm * multiplier
 
 
-def _parse_color(value: object) -> tuple[int, int, int] | None:
-    if isinstance(value, (list, tuple)) and len(value) == 3:
-        try:
-            return (int(value[0]), int(value[1]), int(value[2]))
-        except (TypeError, ValueError):
-            return None
-    return None
-
-
-def _apply_text_color(pdf: FPDF, color: tuple[int, int, int] | None) -> None:
-    if color is None:
-        pdf.set_text_color(0, 0, 0)
-        return
-    pdf.set_text_color(*color)
-
-
 def _expand_gap_to_fill(usable_w: float, cell_w: float, gap: float, cols: int) -> float:
     if cols <= 1:
         return gap
@@ -846,7 +492,3 @@ def _groups_from_line_length(line_length: int, group_size: int) -> int:
 
 def _line_length_from_groups(groups: int, group_size: int) -> int:
     return max(group_size, groups * (group_size + 1) - 1)
-
-
-def _qr_kwargs(config: QrConfig) -> dict[str, Any]:
-    return cast(dict[str, Any], vars(config))

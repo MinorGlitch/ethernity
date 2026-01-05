@@ -15,7 +15,7 @@ from . import (
 
 if TYPE_CHECKING:
     from ..core.types import BackupResult
-    from ...models import DocumentPlan
+    from ...core.models import DocumentPlan
 
 
 def _print_backup_summary(

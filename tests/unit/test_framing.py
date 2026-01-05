@@ -1,6 +1,6 @@
 import unittest
 
-from ethernity.framing import DOC_ID_LEN, Frame, FrameType, decode_frame, encode_frame
+from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, decode_frame, encode_frame
 
 
 class TestFraming(unittest.TestCase):

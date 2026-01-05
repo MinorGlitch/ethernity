@@ -4,8 +4,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from ...age_cli import MNEMONIC_WORD_COUNTS
-from ...models import DocumentMode
+from ...crypto import MNEMONIC_WORD_COUNTS
+from ...core.models import DocumentMode
 
 
 def _infer_mode(args: argparse.Namespace) -> DocumentMode:

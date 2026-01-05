@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ethernity.chunking import DEFAULT_CHUNK_SIZE, chunk_payload
+from ethernity.encoding.chunking import DEFAULT_CHUNK_SIZE, chunk_payload
 from ethernity.config import load_app_config
-from ethernity.framing import FrameType, encode_frame
-from ethernity.pdf_render import RenderInputs, render_frames_to_pdf
-from ethernity.qr_payloads import encode_qr_payload, normalize_qr_payload_encoding
+from ethernity.encoding.framing import FrameType, encode_frame
+from ethernity.render import RenderInputs, render_frames_to_pdf
+from ethernity.encoding.qr_payloads import encode_qr_payload, normalize_qr_payload_encoding
 
 
 def _context_int(context: dict[str, object], key: str, default: int) -> int:

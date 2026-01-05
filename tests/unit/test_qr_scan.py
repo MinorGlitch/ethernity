@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ethernity.qr_scan import QrScanError, _expand_paths
+from ethernity.qr.scan import QrScanError, _expand_paths
 
 
 class TestQrScanInputs(unittest.TestCase):

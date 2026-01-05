@@ -6,12 +6,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ethernity.age_cli import encrypt_bytes_with_passphrase
-from ethernity.chunking import chunk_payload
-from ethernity.compression import wrap_payload
-from ethernity.config import CompressionConfig
-from ethernity.envelope import build_single_file_manifest, encode_envelope
-from ethernity.framing import FrameType, encode_frame
+from ethernity.crypto import encrypt_bytes_with_passphrase
+from ethernity.encoding.chunking import chunk_payload
+from ethernity.formats.compression import wrap_payload
+from ethernity.formats.compression import CompressionConfig
+from ethernity.formats.envelope_codec import build_single_file_manifest, encode_envelope
+from ethernity.encoding.framing import FrameType, encode_frame
 from test_support import prepend_path, write_fake_age_script
 
 

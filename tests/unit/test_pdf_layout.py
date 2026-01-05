@@ -3,8 +3,9 @@ from pathlib import Path
 
 from fpdf import FPDF
 
-from ethernity.framing import DOC_ID_LEN, Frame, FrameType
-from ethernity.pdf_render import RenderInputs, _compute_layout
+from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
+from ethernity.render import RenderInputs
+from ethernity.render.pdf_render import _compute_layout
 
 
 class TestPdfLayout(unittest.TestCase):

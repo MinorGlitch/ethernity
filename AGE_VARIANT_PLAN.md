@@ -187,14 +187,23 @@ Key sections to include:
 - `ethernity/cli/io/`: input/output helpers (frames/files).
 - `ethernity/cli/keys/`: key material + recovery key verification.
 - `ethernity/cli/ui/`: Rich UI, prompts, summaries/debug.
-- `ethernity/age_cli.py`: age interface module.
-- `ethernity/framing.py`: QR frame encode/decode (magic/version/type/doc_id/idx/total/len/CRC).
-- `ethernity/chunking.py`: chunk sizing, z-base-32 fallback formatting.
-- `ethernity/qr_codec.py`: QR generation + decoding helpers (segno integration).
-- `ethernity/pdf_render.py`: PDF layout + QR grid rendering (fpdf2).
-- `ethernity/templating.py`: Jinja2 rendering for TOML templates.
+- `ethernity/crypto/age_cli.py`: age interface module (subprocess/pty).
+- `ethernity/crypto/passphrases.py`: mnemonic passphrase generation.
+- `ethernity/encoding/framing.py`: QR frame encode/decode (magic/version/type/doc_id/idx/total/len/CRC).
+- `ethernity/encoding/chunking.py`: chunk sizing, z-base-32 fallback formatting.
+- `ethernity/qr/codec.py`: QR generation helpers (segno integration).
+- `ethernity/qr/scan.py`: QR scanning helpers (zxing-cpp + PIL).
+- `ethernity/render/pdf_render.py`: PDF rendering orchestrator (fpdf2).
+- `ethernity/render/layout.py`: PDF layout calculations + fallback line generation.
+- `ethernity/render/draw.py`: header/instructions/key drawing helpers.
+- `ethernity/render/fallback.py`: fallback text drawing helpers.
+- `ethernity/render/templating.py`: Jinja2 rendering for TOML templates.
+- `ethernity/formats/envelope_types.py`: envelope manifest types + CBOR helpers.
+- `ethernity/formats/envelope_codec.py`: envelope encode/decode + payload builders.
+- `ethernity/formats/compression.py`: compression wrapping + config.
+- `ethernity/config/loader.py`: TOML config loader + QR/compression parsing.
+- `ethernity/config/installer.py`: default config/template installer.
 - `ethernity/templates/`: layout templates (`.toml.j2`) for main/recovery/shard docs.
-- `ethernity/config.py`: TOML config loader + defaults.
 - `ethernity/config/`: preset TOML configs (A4 default, Letter optional).
 - `demo/render_demo.py`: sample PDF demo.
 - `demo/scan_demo.py`: scan demo harness.

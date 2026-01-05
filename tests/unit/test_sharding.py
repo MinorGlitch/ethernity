@@ -2,8 +2,8 @@ import hashlib
 import unittest
 
 from ethernity import cli
-from ethernity.framing import DOC_ID_LEN, Frame, FrameType, VERSION
-from ethernity.sharding import (
+from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, VERSION
+from ethernity.crypto.sharding import (
     KEY_TYPE_PASSPHRASE,
     ShardPayload,
     decode_shard_payload,
@@ -11,7 +11,7 @@ from ethernity.sharding import (
     recover_passphrase,
     split_passphrase,
 )
-from ethernity.signing import generate_signing_keypair, sign_shard
+from ethernity.crypto.signing import generate_signing_keypair, sign_shard
 
 
 class TestSharding(unittest.TestCase):

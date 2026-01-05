@@ -6,8 +6,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
-from ethernity import qr_scan
-from ethernity.qr_scan import QrDecoder, QrScanError, _iter_scan_files, _scan_pdf
+from ethernity.qr import scan as qr_scan
+from ethernity.qr.scan import QrDecoder, QrScanError, _iter_scan_files, _scan_pdf
 
 
 @contextmanager

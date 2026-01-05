@@ -1,7 +1,7 @@
 import hashlib
 import unittest
 
-from ethernity.signing import (
+from ethernity.crypto.signing import (
     decode_auth_payload,
     encode_auth_payload,
     generate_signing_keypair,

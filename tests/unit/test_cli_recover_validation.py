@@ -5,8 +5,8 @@ from unittest import mock
 from pathlib import Path
 
 from ethernity import cli
-from ethernity.chunking import frame_to_fallback_lines
-from ethernity.framing import DOC_ID_LEN, Frame, FrameType
+from ethernity.encoding.chunking import frame_to_fallback_lines
+from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
 from test_support import suppress_output
 
 

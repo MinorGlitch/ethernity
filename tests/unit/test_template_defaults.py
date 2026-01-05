@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from ethernity.templating import render_template
+from ethernity.render.templating import render_template
 
 
 class TestTemplateDefaults(unittest.TestCase):

@@ -25,3 +25,14 @@ On first run, Ethernity copies its default configs/templates to:
 ```
 
 You can edit those files to customize the output.
+
+### Python imports
+
+Prefer the package-level exports when importing from Python:
+
+```python
+from ethernity.config import load_app_config
+from ethernity.crypto import encrypt_bytes_with_passphrase
+from ethernity.render import RenderInputs, render_frames_to_pdf
+from ethernity.formats import encode_envelope, EnvelopeManifest
+```

@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ethernity.framing import DOC_ID_LEN, Frame, FrameType
-from ethernity.pdf_render import RenderInputs, render_frames_to_pdf
+from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
+from ethernity.render import RenderInputs, render_frames_to_pdf
 
 
 class TestPdfPageCount(unittest.TestCase):

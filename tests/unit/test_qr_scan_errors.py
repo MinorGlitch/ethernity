@@ -3,8 +3,8 @@ import unittest
 import tempfile
 from pathlib import Path
 
-from ethernity import qr_scan
-from ethernity.qr_scan import QrDecoder, QrScanError
+from ethernity.qr import scan as qr_scan
+from ethernity.qr.scan import QrDecoder, QrScanError
 
 
 class TestQrScanErrors(unittest.TestCase):

@@ -4,8 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 
-from .framing import DOC_ID_LEN, Frame, FrameType, VERSION
-from .models import DocumentPlan
+from ..encoding.framing import DOC_ID_LEN, Frame, FrameType, VERSION
+from ..core.models import DocumentPlan
 
 MANIFEST_VERSION = 1
 

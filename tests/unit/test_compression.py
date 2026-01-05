@@ -1,7 +1,7 @@
 import unittest
 
-from ethernity.compression import MAGIC, unwrap_payload, wrap_payload
-from ethernity.config import CompressionConfig
+from ethernity.formats.compression import MAGIC, unwrap_payload, wrap_payload
+from ethernity.formats.compression import CompressionConfig
 
 
 class TestCompression(unittest.TestCase):

@@ -36,11 +36,11 @@ from ..ui import (
     _wizard_stage,
 )
 from ..ui.summary import _format_auth_status, _print_recover_summary
-from ...age_cli import decrypt_bytes
-from ...chunking import reassemble_payload
+from ...crypto import decrypt_bytes
+from ...encoding.chunking import reassemble_payload
 from ...config import load_app_config
-from ...framing import Frame, FrameType
-from ...qr_scan import QrScanError
+from ...encoding.framing import Frame, FrameType
+from ...qr.scan import QrScanError
 
 
 def _cli_module():
@@ -331,8 +331,8 @@ def run_recover_command(args: argparse.Namespace) -> int:
                         console.print("Recovery cancelled.")
                         return 1
 
-    from ...compression import unwrap_payload
-    from ...envelope import decode_envelope, extract_payloads
+    from ...formats.compression import unwrap_payload
+    from ...formats.envelope_codec import decode_envelope, extract_payloads
 
     with _status("Decrypting and unpacking payload...", quiet=quiet):
         if passphrase:

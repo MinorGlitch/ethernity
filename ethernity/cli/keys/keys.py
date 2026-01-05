@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from ...age_cli import parse_identities, parse_recipients
+from ...crypto import parse_identities, parse_recipients
 
 
 Parser = Callable[[str], list[str]]

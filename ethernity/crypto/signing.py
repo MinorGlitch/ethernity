@@ -8,7 +8,8 @@ import cbor2
 from Crypto.PublicKey import ECC
 from Crypto.Signature import eddsa
 
-from .validation import require_bytes, require_length
+from ..core.validation import require_bytes, require_length
+from ..encoding.varint import encode_uvarint as _encode_uvarint
 AUTH_VERSION = 1
 AUTH_DOMAIN = b"ETHERNITY-AUTH-V1"
 SHARD_DOMAIN = b"ETHERNITY-SHARD-V1"
@@ -130,17 +131,3 @@ def _key_from_public_bytes(sign_pub: bytes) -> ECC.EccKey:
     require_length(sign_pub, ED25519_PUB_LEN, label="sign_pub")
     return ECC.import_key(ED25519_PUB_DER_PREFIX + sign_pub)
 
-
-def _encode_uvarint(value: int) -> bytes:
-    if value < 0:
-        raise ValueError("value must be non-negative")
-    out = bytearray()
-    while True:
-        byte = value & 0x7F
-        value >>= 7
-        if value:
-            out.append(byte | 0x80)
-        else:
-            out.append(byte)
-            break
-    return bytes(out)

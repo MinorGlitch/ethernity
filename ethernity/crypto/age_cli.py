@@ -12,10 +12,7 @@ import termios
 from dataclasses import dataclass
 from typing import Callable, Iterable, Sequence
 
-from mnemonic import Mnemonic
-
-DEFAULT_PASSPHRASE_WORDS = 24
-MNEMONIC_WORD_COUNTS = (12, 15, 18, 21, 24)
+from .passphrases import DEFAULT_PASSPHRASE_WORDS, generate_passphrase
 
 @dataclass
 class AgeCliError(RuntimeError):
@@ -82,7 +79,7 @@ def encrypt_bytes_with_passphrase(
         return ciphertext, passphrase
 
     words = DEFAULT_PASSPHRASE_WORDS if passphrase_words is None else passphrase_words
-    generated = _generate_passphrase(words=words)
+    generated = generate_passphrase(words=words)
     ciphertext = _run_age_encrypt_passphrase(data, passphrase=generated, age_path=age_path)
     return ciphertext, generated
 
@@ -334,15 +331,6 @@ def _drain_pty_with_passphrase(
             deadline = time.monotonic() + 2.0
 
     return _drain_pty_loop(fd, proc, on_data=_on_data, on_tick=_on_tick)
-
-
-def _generate_passphrase(*, words: int = DEFAULT_PASSPHRASE_WORDS) -> str:
-    if words not in MNEMONIC_WORD_COUNTS:
-        allowed = ", ".join(str(count) for count in MNEMONIC_WORD_COUNTS)
-        raise ValueError(f"passphrase words must be one of {allowed}")
-    strength = (words // 3) * 32
-    mnemonic = Mnemonic("english")
-    return mnemonic.generate(strength=strength)
 
 
 def _safe_unlink(path: str) -> None:

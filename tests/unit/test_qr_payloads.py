@@ -1,6 +1,6 @@
 import unittest
 
-from ethernity.qr_payloads import decode_qr_payload, encode_qr_payload, normalize_qr_payload_encoding
+from ethernity.encoding.qr_payloads import decode_qr_payload, encode_qr_payload, normalize_qr_payload_encoding
 
 
 class TestQrPayloads(unittest.TestCase):

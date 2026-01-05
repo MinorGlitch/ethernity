@@ -1,6 +1,6 @@
 import unittest
 
-from ethernity.validation import require_bytes, require_length
+from ethernity.core.validation import require_bytes, require_length
 
 
 class TestValidation(unittest.TestCase):

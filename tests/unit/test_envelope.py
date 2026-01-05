@@ -1,22 +1,19 @@
 import unittest
 
-from ethernity.envelope import (
+from ethernity.formats.envelope_codec import (
     MAGIC,
-    Manifest,
-    ManifestFile,
-    MANIFEST_VERSION,
-    PayloadPart,
     build_manifest_and_payload,
     decode_envelope,
     encode_envelope,
     extract_payloads,
 )
+from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile, MANIFEST_VERSION, PayloadPart
 
 
 class TestEnvelope(unittest.TestCase):
     def test_roundtrip(self) -> None:
         payload = b"hello world"
-        manifest = Manifest(
+        manifest = EnvelopeManifest(
             format_version=MANIFEST_VERSION,
             created_at=1234.0,
             sealed=False,
@@ -39,7 +36,7 @@ class TestEnvelope(unittest.TestCase):
 
     def test_invalid_magic(self) -> None:
         payload = b"data"
-        manifest = Manifest(
+        manifest = EnvelopeManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=False,
@@ -61,7 +58,7 @@ class TestEnvelope(unittest.TestCase):
 
     def test_truncated_payload(self) -> None:
         payload = b"data"
-        manifest = Manifest(
+        manifest = EnvelopeManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=False,
@@ -82,7 +79,7 @@ class TestEnvelope(unittest.TestCase):
 
     def test_extract_payloads_hash_mismatch(self) -> None:
         payload = b"data"
-        manifest = Manifest(
+        manifest = EnvelopeManifest(
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=False,

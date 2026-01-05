@@ -8,8 +8,8 @@ from unittest import mock
 
 from ethernity import cli
 from ethernity.config import load_app_config
-from ethernity.compression import MAGIC as COMPRESSION_MAGIC
-from ethernity.models import DocumentMode, DocumentPlan, KeyMaterial, ShardingConfig
+from ethernity.formats.compression import MAGIC as COMPRESSION_MAGIC
+from ethernity.core.models import DocumentMode, DocumentPlan, KeyMaterial, ShardingConfig
 
 
 class TestCliBackup(unittest.TestCase):
@@ -38,7 +38,7 @@ class TestCliBackup(unittest.TestCase):
                 "ethernity.cli.encrypt_bytes_with_passphrase",
                 return_value=(b"ciphertext", "auto-pass"),
             ) as encrypt_mock:
-                with mock.patch("ethernity.pdf_render.render_frames_to_pdf") as render_mock:
+                with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
                     render_mock.side_effect = lambda inputs: calls.append(inputs)
                     result = cli.run_backup(
                         input_files=[input_file],
@@ -86,7 +86,7 @@ class TestCliBackup(unittest.TestCase):
                 return_value=("AGE-SECRET-KEY-TEST", "age1recipient"),
             ) as generate_mock:
                 with mock.patch("ethernity.cli.encrypt_bytes", return_value=b"ciphertext") as encrypt_mock:
-                    with mock.patch("ethernity.pdf_render.render_frames_to_pdf") as render_mock:
+                    with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
                         result = cli.run_backup(
                             input_files=[input_file],
                             base_dir=None,
@@ -137,18 +137,18 @@ class TestCliBackup(unittest.TestCase):
                 return_value=(ciphertext, "auto-pass"),
             ):
                 with mock.patch(
-                    "ethernity.signing.generate_signing_keypair",
+                    "ethernity.crypto.signing.generate_signing_keypair",
                     return_value=(sign_priv, sign_pub),
                 ):
                     with mock.patch(
-                        "ethernity.sharding.split_passphrase",
+                        "ethernity.crypto.sharding.split_passphrase",
                         return_value=[shard_stub],
                     ) as split_mock:
                         with mock.patch(
-                            "ethernity.sharding.encode_shard_payload",
+                            "ethernity.crypto.sharding.encode_shard_payload",
                             return_value=b"shard",
                         ):
-                            with mock.patch("ethernity.pdf_render.render_frames_to_pdf"):
+                            with mock.patch("ethernity.render.render_frames_to_pdf"):
                                 result = cli.run_backup(
                                     input_files=[input_file],
                                     base_dir=None,

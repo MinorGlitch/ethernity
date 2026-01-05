@@ -1,7 +1,7 @@
 import unittest
 
-from ethernity.framing import DOC_ID_LEN, FrameType
-from ethernity.manifest import build_manifest_frame, parse_manifest_frame
+from ethernity.encoding.framing import DOC_ID_LEN, FrameType
+from ethernity.formats.frame_manifest import build_manifest_frame, parse_manifest_frame
 
 
 class TestManifest(unittest.TestCase):

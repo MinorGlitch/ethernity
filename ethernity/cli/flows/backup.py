@@ -33,9 +33,9 @@ from ..ui import (
     _wizard_stage,
 )
 from ..ui.summary import _print_backup_summary
-from ...age_cli import DEFAULT_PASSPHRASE_WORDS, MNEMONIC_WORD_COUNTS
+from ...crypto import DEFAULT_PASSPHRASE_WORDS, MNEMONIC_WORD_COUNTS
 from ...config import DEFAULT_PAPER_SIZE, PAPER_CONFIGS, load_app_config
-from ...models import DocumentMode, DocumentPlan, KeyMaterial, ShardingConfig
+from ...core.models import DocumentMode, DocumentPlan, KeyMaterial, ShardingConfig
 
 
 def _prompt_passphrase_words() -> int:

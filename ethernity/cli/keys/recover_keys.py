@@ -5,7 +5,7 @@ import argparse
 
 from .keys import _load_identities
 from ..core.log import _warn
-from ...framing import Frame, FrameType
+from ...encoding.framing import Frame, FrameType
 
 
 def _resolve_recovery_keys(args: argparse.Namespace) -> tuple[str | None, list[str]]:
@@ -27,7 +27,7 @@ def _resolve_auth_payload(
     require_auth: bool,
     quiet: bool,
 ):
-    from ...signing import decode_auth_payload, verify_auth
+    from ...crypto.signing import decode_auth_payload, verify_auth
 
     if not auth_frames:
         if require_auth:
@@ -68,8 +68,8 @@ def _passphrase_from_shard_frames(
     expected_sign_pub: bytes | None,
     allow_unsigned: bool,
 ) -> str:
-    from ...sharding import ShardPayload, decode_shard_payload, recover_passphrase
-    from ...signing import verify_shard
+    from ...crypto.sharding import ShardPayload, decode_shard_payload, recover_passphrase
+    from ...crypto.signing import verify_shard
 
     shares: dict[int, ShardPayload] = {}
     doc_hash: bytes | None = expected_doc_hash

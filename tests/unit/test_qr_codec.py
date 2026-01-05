@@ -1,6 +1,6 @@
 import unittest
 
-from ethernity.qr_codec import qr_bytes
+from ethernity.qr.codec import qr_bytes
 
 
 class TestQrCodec(unittest.TestCase):

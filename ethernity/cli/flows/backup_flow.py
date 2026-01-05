@@ -14,9 +14,9 @@ from ..ui.debug import (
     _normalize_debug_max_bytes,
     _print_pre_encryption_debug,
 )
-from ...framing import Frame, FrameType, VERSION, encode_frame
-from ...models import DocumentMode, DocumentPlan, KeyMaterial
-from ...qr_payloads import encode_qr_payload, normalize_qr_payload_encoding
+from ...encoding.framing import Frame, FrameType, VERSION, encode_frame
+from ...core.models import DocumentMode, DocumentPlan, KeyMaterial
+from ...encoding.qr_payloads import encode_qr_payload, normalize_qr_payload_encoding
 
 
 def _cli_module():
@@ -44,12 +44,13 @@ def run_backup(
         raise ValueError("at least one input file is required")
 
     with _status("Starting backup...", quiet=status_quiet):
-        from ...chunking import chunk_payload
-        from ...compression import wrap_payload
-        from ...envelope import PayloadPart, build_manifest_and_payload, encode_envelope
-        from ...pdf_render import FallbackSection, RenderInputs, render_frames_to_pdf
-        from ...sharding import ShardPayload, encode_shard_payload, split_passphrase
-        from ...signing import encode_auth_payload, generate_signing_keypair, sign_auth
+        from ...encoding.chunking import chunk_payload
+        from ...formats.compression import wrap_payload
+        from ...formats.envelope_codec import build_manifest_and_payload, encode_envelope
+        from ...formats.envelope_types import PayloadPart
+        from ...render import FallbackSection, RenderInputs, render_frames_to_pdf
+        from ...crypto.sharding import ShardPayload, encode_shard_payload, split_passphrase
+        from ...crypto.signing import encode_auth_payload, generate_signing_keypair, sign_auth
 
     with _status("Preparing payload...", quiet=status_quiet):
         parts = [

@@ -2,14 +2,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-from .config import CompressionConfig
+from ..encoding.varint import decode_uvarint as _decode_uvarint
+from ..encoding.varint import encode_uvarint as _encode_uvarint
 
 MAGIC = b"AZ"
 VERSION = 1
 
 ALGO_NONE = 0
 ALGO_ZSTD = 1
+
+
+@dataclass(frozen=True)
+class CompressionConfig:
+    enabled: bool
+    algorithm: str
+    level: int
 
 
 @dataclass(frozen=True)
@@ -131,35 +138,3 @@ def _decompress_zstd(data: bytes, *, max_size: int) -> bytes:
         raise RuntimeError("zstandard is required for zstd decompression") from exc
     decompressor = zstd.ZstdDecompressor()
     return decompressor.decompress(data, max_output_size=max_size)
-
-
-def _encode_uvarint(value: int) -> bytes:
-    if value < 0:
-        raise ValueError("value must be non-negative")
-    out = bytearray()
-    while True:
-        byte = value & 0x7F
-        value >>= 7
-        if value:
-            out.append(byte | 0x80)
-        else:
-            out.append(byte)
-            break
-    return bytes(out)
-
-
-def _decode_uvarint(data: bytes, start: int) -> tuple[int, int]:
-    value = 0
-    shift = 0
-    idx = start
-    while True:
-        if idx >= len(data):
-            raise ValueError("truncated varint")
-        byte = data[idx]
-        idx += 1
-        value |= (byte & 0x7F) << shift
-        if byte & 0x80 == 0:
-            return value, idx
-        shift += 7
-        if shift > 63:
-            raise ValueError("varint too large")

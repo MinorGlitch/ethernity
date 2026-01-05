@@ -8,9 +8,10 @@ from typing import Any
 import cbor2
 
 from ..core.types import InputFile
-from ...chunking import encode_zbase32
-from ...envelope import Manifest, encode_manifest
-from ...models import DocumentPlan
+from ...encoding.fallback import encode_zbase32
+from ...formats.envelope_codec import encode_manifest
+from ...formats.envelope_types import EnvelopeManifest
+from ...core.models import DocumentPlan
 
 
 def _normalize_debug_max_bytes(value: int | None) -> int | None:
@@ -86,7 +87,7 @@ def _print_pre_encryption_debug(
     payload: bytes,
     input_files: list[InputFile],
     base_dir: Path | None,
-    manifest: bytes | Manifest,
+    manifest: bytes | EnvelopeManifest,
     envelope: bytes,
     wrapped_envelope: bytes,
     compression: object,
@@ -98,7 +99,7 @@ def _print_pre_encryption_debug(
     recipient_public: str | None,
     debug_max_bytes: int | None,
 ) -> None:
-    if isinstance(manifest, Manifest):
+    if isinstance(manifest, EnvelopeManifest):
         manifest_bytes = encode_manifest(manifest)
         manifest_display: object | None = _json_safe(manifest.to_dict())
     else:

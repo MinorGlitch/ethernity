@@ -5,15 +5,19 @@ import argparse
 import hashlib
 from pathlib import Path
 
-from ethernity.age_cli import decrypt_bytes, encrypt_bytes_with_passphrase
-from ethernity.chunking import DEFAULT_CHUNK_SIZE, chunk_payload, reassemble_payload
-from ethernity.compression import wrap_payload, unwrap_payload
+from ethernity.crypto import decrypt_bytes, encrypt_bytes_with_passphrase
+from ethernity.encoding.chunking import DEFAULT_CHUNK_SIZE, chunk_payload, reassemble_payload
+from ethernity.formats.compression import wrap_payload, unwrap_payload
 from ethernity.config import DEFAULT_PAPER_SIZE, load_app_config
-from ethernity.envelope import build_single_file_manifest, decode_envelope, encode_envelope
-from ethernity.framing import FrameType, decode_frame, encode_frame
-from ethernity.pdf_render import RenderInputs, render_frames_to_pdf
-from ethernity.qr_payloads import decode_qr_payload, encode_qr_payload, normalize_qr_payload_encoding
-from ethernity.qr_scan import QrScanError, scan_qr_payloads
+from ethernity.formats.envelope_codec import (
+    build_single_file_manifest,
+    decode_envelope,
+    encode_envelope,
+)
+from ethernity.encoding.framing import FrameType, decode_frame, encode_frame
+from ethernity.render import RenderInputs, render_frames_to_pdf
+from ethernity.encoding.qr_payloads import decode_qr_payload, encode_qr_payload, normalize_qr_payload_encoding
+from ethernity.qr.scan import QrScanError, scan_qr_payloads
 
 
 def _context_int(context: dict[str, object], key: str, default: int) -> int:

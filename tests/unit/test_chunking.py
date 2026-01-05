@@ -1,17 +1,19 @@
 import unittest
 
-from ethernity.chunking import (
-    decode_fallback_lines,
-    decode_zbase32,
-    encode_fallback_lines,
-    encode_zbase32,
+from ethernity.encoding.chunking import (
     fallback_lines_to_frame,
     frame_to_fallback_lines,
     payload_to_fallback_lines,
     reassemble_payload,
     chunk_payload,
 )
-from ethernity.framing import DOC_ID_LEN, Frame, FrameType
+from ethernity.encoding.fallback import (
+    decode_fallback_lines,
+    decode_zbase32,
+    encode_fallback_lines,
+    encode_zbase32,
+)
+from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
 
 
 class TestChunking(unittest.TestCase):

@@ -5,10 +5,11 @@ import base64
 import sys
 
 from ..core.log import _warn
-from ...chunking import ZBASE32_ALPHABET, fallback_lines_to_frame
-from ...framing import Frame, FrameType, decode_frame
-from ...qr_payloads import decode_qr_payload, normalize_qr_payload_encoding
-from ...qr_scan import QrScanError, scan_qr_payloads
+from ...encoding.fallback import ZBASE32_ALPHABET
+from ...encoding.chunking import fallback_lines_to_frame
+from ...encoding.framing import Frame, FrameType, decode_frame
+from ...encoding.qr_payloads import decode_qr_payload, normalize_qr_payload_encoding
+from ...qr.scan import QrScanError, scan_qr_payloads
 
 
 def _read_text_lines(path: str) -> list[str]:
@@ -173,13 +174,20 @@ def _frames_from_scan(paths: list[str], encoding: str) -> list[Frame]:
     if not payloads:
         raise ValueError("no QR payloads found; check the scan path and image quality")
     frames: list[Frame] = []
+    errors: list[str] = []
     encoding = normalize_qr_payload_encoding(encoding)
     for idx, payload in enumerate(payloads, start=1):
         try:
             decoded = decode_qr_payload(payload, encoding)
             frames.append(decode_frame(decoded))
         except ValueError as exc:
-            raise ValueError(f"invalid QR payload #{idx}: {exc}") from exc
+            errors.append(f"#{idx}: {exc}")
+            continue
+    if not frames:
+        if errors:
+            detail = "; ".join(errors[:3])
+            raise ValueError(f"invalid QR payloads ({len(errors)}): {detail}")
+        raise ValueError("no QR payloads found; check the scan path and image quality")
     return frames
 
 

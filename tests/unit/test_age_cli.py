@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.age_cli import (
+from ethernity.crypto import (
     AgeCliError,
     AgeKeygenError,
     decrypt_bytes,
@@ -13,13 +13,8 @@ from ethernity.age_cli import (
     generate_identity,
     parse_identities,
     parse_recipients,
-    _drain_pty_loop,
-    _drain_pty_with_passphrase,
-    _run_age_with_pty,
-    _safe_unlink,
-    _safe_write,
-    _write_temp_identities,
 )
+from ethernity.crypto import age_cli
 from test_support import write_fake_age_script
 
 
@@ -39,7 +34,9 @@ class TestAgeCli(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             age_path = write_fake_age_script(Path(tmpdir))
             data = b"payload"
-            with mock.patch("ethernity.age_cli._generate_passphrase", return_value="test-passphrase"):
+            with mock.patch(
+                "ethernity.crypto.age_cli.generate_passphrase", return_value="test-passphrase"
+            ):
                 ciphertext, passphrase = encrypt_bytes_with_passphrase(
                     data, passphrase=None, age_path=str(age_path)
                 )
@@ -119,8 +116,8 @@ sys.exit(2)
         self.assertIn("age failed", str(ctx.exception))
 
     def test_decrypt_identities_removes_temp_file(self) -> None:
-        with mock.patch("ethernity.age_cli._run_age", return_value=b"ok"):
-            with mock.patch("ethernity.age_cli.os.remove", side_effect=OSError):
+        with mock.patch("ethernity.crypto.age_cli._run_age", return_value=b"ok"):
+            with mock.patch("ethernity.crypto.age_cli.os.remove", side_effect=OSError):
                 output = decrypt_bytes(b"payload", identities=["AGE-SECRET-KEY-TEST"])
         self.assertEqual(output, b"ok")
 
@@ -171,7 +168,7 @@ sys.exit(2)
         self.assertIn("age-keygen failed", str(ctx.exception))
 
     def test_write_temp_identities(self) -> None:
-        path = _write_temp_identities(["id1", "id2\n"])
+        path = age_cli._write_temp_identities(["id1", "id2\n"])
         try:
             content = Path(path).read_text(encoding="utf-8")
         finally:
@@ -179,21 +176,21 @@ sys.exit(2)
         self.assertEqual(content, "id1\nid2\n")
 
     def test_safe_unlink_ignores_errors(self) -> None:
-        with mock.patch("ethernity.age_cli.os.remove", side_effect=OSError):
-            _safe_unlink("missing.txt")
+        with mock.patch("ethernity.crypto.age_cli.os.remove", side_effect=OSError):
+            age_cli._safe_unlink("missing.txt")
 
     def test_safe_write_ignores_errors(self) -> None:
-        with mock.patch("ethernity.age_cli.os.write", side_effect=OSError):
-            _safe_write(1, b"data")
+        with mock.patch("ethernity.crypto.age_cli.os.write", side_effect=OSError):
+            age_cli._safe_write(1, b"data")
 
     def test_drain_pty_loop_handles_read_error(self) -> None:
         class FakeProc:
             def poll(self):
                 return None
 
-        with mock.patch("ethernity.age_cli.select.select", return_value=([1], [], [])):
-            with mock.patch("ethernity.age_cli.os.read", side_effect=OSError):
-                output = _drain_pty_loop(1, FakeProc())
+        with mock.patch("ethernity.crypto.age_cli.select.select", return_value=([1], [], [])):
+            with mock.patch("ethernity.crypto.age_cli.os.read", side_effect=OSError):
+                output = age_cli._drain_pty_loop(1, FakeProc())
         self.assertEqual(output, "")
 
     def test_drain_pty_loop_drains_after_exit(self) -> None:
@@ -207,9 +204,9 @@ sys.exit(2)
         def _read(_fd, _size):
             return reads.pop(0)
 
-        with mock.patch("ethernity.age_cli.select.select", return_value=([], [], [])):
-            with mock.patch("ethernity.age_cli.os.read", side_effect=_read):
-                output = _drain_pty_loop(
+        with mock.patch("ethernity.crypto.age_cli.select.select", return_value=([], [], [])):
+            with mock.patch("ethernity.crypto.age_cli.os.read", side_effect=_read):
+                output = age_cli._drain_pty_loop(
                     1,
                     FakeProc(),
                     on_data=on_data_calls.append,
@@ -227,11 +224,11 @@ sys.exit(2)
         def _monotonic():
             return times.pop(0) if times else 3.0
 
-        with mock.patch("ethernity.age_cli.select.select", return_value=([], [], [])):
-            with mock.patch("ethernity.age_cli.os.read", return_value=b""):
-                with mock.patch("ethernity.age_cli.time.monotonic", side_effect=_monotonic):
-                    with mock.patch("ethernity.age_cli.os.write") as write_mock:
-                        _drain_pty_with_passphrase(1, FakeProc(), "secret")
+        with mock.patch("ethernity.crypto.age_cli.select.select", return_value=([], [], [])):
+            with mock.patch("ethernity.crypto.age_cli.os.read", return_value=b""):
+                with mock.patch("ethernity.crypto.age_cli.time.monotonic", side_effect=_monotonic):
+                    with mock.patch("ethernity.crypto.age_cli.os.write") as write_mock:
+                        age_cli._drain_pty_with_passphrase(1, FakeProc(), "secret")
         self.assertTrue(write_mock.called)
 
     def test_run_age_with_pty_closes_on_error(self) -> None:
@@ -241,11 +238,11 @@ sys.exit(2)
         def _drain(_fd, _proc):
             return ""
 
-        with mock.patch("ethernity.age_cli.pty.openpty", return_value=(123, 124)):
-            with mock.patch("ethernity.age_cli.subprocess.Popen", side_effect=OSError("boom")):
-                with mock.patch("ethernity.age_cli.os.close", side_effect=OSError):
+        with mock.patch("ethernity.crypto.age_cli.pty.openpty", return_value=(123, 124)):
+            with mock.patch("ethernity.crypto.age_cli.subprocess.Popen", side_effect=OSError("boom")):
+                with mock.patch("ethernity.crypto.age_cli.os.close", side_effect=OSError):
                     with self.assertRaises(OSError):
-                        _run_age_with_pty(cmd_builder=_builder, data=b"data", drain=_drain)
+                        age_cli._run_age_with_pty(cmd_builder=_builder, data=b"data", drain=_drain)
 
 
 if __name__ == "__main__":
