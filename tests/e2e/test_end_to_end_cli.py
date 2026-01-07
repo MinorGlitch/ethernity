@@ -27,6 +27,7 @@ class TestEndToEndCli(unittest.TestCase):
             with prepend_path(tmp_path):
                 env = os.environ.copy()
                 env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
+                env["ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"] = "1"
                 result = subprocess.run(
                     [
                         sys.executable,
@@ -65,6 +66,7 @@ class TestEndToEndCli(unittest.TestCase):
             with prepend_path(tmp_path):
                 env = os.environ.copy()
                 env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
+                env["ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"] = "1"
                 result = subprocess.run(
                     [
                         sys.executable,
@@ -128,6 +130,7 @@ class TestEndToEndCli(unittest.TestCase):
 
                 env = os.environ.copy()
                 env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
+                env["ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"] = "1"
                 result = subprocess.run(
                     [
                         sys.executable,

@@ -16,6 +16,14 @@ Then run it:
 ethernity --help
 ```
 
+## Tests
+
+Run the test suite:
+
+```bash
+uv run python -m unittest discover -s tests -p "test_*.py"
+```
+
 ### Config location
 
 On first run, Ethernity copies its default configs/templates to:

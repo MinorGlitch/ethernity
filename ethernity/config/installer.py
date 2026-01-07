@@ -5,6 +5,8 @@ from pathlib import Path
 import os
 import shutil
 
+from platformdirs import user_config_dir
+
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TEMPLATE_PATH = PACKAGE_ROOT / "templates/main_document.html.j2"
 DEFAULT_RECOVERY_TEMPLATE_PATH = PACKAGE_ROOT / "templates/recovery_document.html.j2"
@@ -21,12 +23,12 @@ DEFAULT_PAPER_SIZE = "A4"
 DEFAULT_CONFIG_PATH = PAPER_CONFIGS[DEFAULT_PAPER_SIZE]
 PAPER_SIZE_ENV = "ETHERNITY_PAPER_SIZE"
 XDG_CONFIG_ENV = "XDG_CONFIG_HOME"
-_XDG_CONFIG_BASE = (
-    Path(os.environ[XDG_CONFIG_ENV])
-    if os.environ.get(XDG_CONFIG_ENV)
-    else Path.home() / ".config"
+_xdg_override = os.environ.get(XDG_CONFIG_ENV)
+USER_CONFIG_DIR = (
+    Path(_xdg_override) / "ethernity"
+    if _xdg_override
+    else Path(user_config_dir("ethernity", appauthor=False))
 )
-USER_CONFIG_DIR = _XDG_CONFIG_BASE / "ethernity"
 USER_TEMPLATES_DIR = USER_CONFIG_DIR / "templates"
 USER_PAPER_CONFIGS = {key: USER_CONFIG_DIR / path.name for key, path in PAPER_CONFIGS.items()}
 USER_TEMPLATE_PATHS = {

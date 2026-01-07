@@ -1,18 +1,26 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import fcntl
 import os
-import pty
 import select
 import subprocess
 import tempfile
 import time
-import termios
 from dataclasses import dataclass
 from typing import Callable, Sequence
 
 from .passphrases import DEFAULT_PASSPHRASE_WORDS, generate_passphrase
+
+_USE_PTY = False
+if os.name != "nt":
+    try:
+        import fcntl
+        import pty
+        import termios
+    except ImportError:
+        _USE_PTY = False
+    else:
+        _USE_PTY = True
 
 @dataclass
 class AgeCliError(RuntimeError):
@@ -74,6 +82,8 @@ def _run_age_with_pty(
     data: bytes,
     drain: Callable[[int, subprocess.Popen[bytes]], str],
 ) -> tuple[bytes, str]:
+    if not _USE_PTY:
+        raise RuntimeError("PTY-based age handling is not available on this platform")
     input_path = None
     output_path = None
     master_fd = None
@@ -130,6 +140,49 @@ def _run_age_with_pty(
             _safe_unlink(output_path)
 
 
+def _run_age_with_subprocess(
+    *,
+    cmd_builder: Callable[[str, str], Sequence[str]],
+    data: bytes,
+    passphrase: str,
+    prompt_count: int,
+) -> tuple[bytes, str]:
+    input_path = None
+    output_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False) as infile:
+            infile.write(data)
+            input_path = infile.name
+        with tempfile.NamedTemporaryFile(delete=False) as outfile:
+            output_path = outfile.name
+
+        cmd = list(cmd_builder(output_path, input_path))
+        env = os.environ.copy()
+        env["AGE_PASSPHRASE"] = passphrase
+        payload = ((passphrase + "\n") * max(1, prompt_count)).encode("utf-8")
+        proc = subprocess.run(
+            cmd,
+            input=payload,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            check=False,
+        )
+        stderr = proc.stderr.decode("utf-8", errors="replace")
+        if proc.returncode != 0:
+            raise AgeCliError(cmd=cmd, returncode=proc.returncode, stderr=stderr)
+
+        with open(output_path, "rb") as handle:
+            output = handle.read()
+
+        return output, stderr
+    finally:
+        if input_path:
+            _safe_unlink(input_path)
+        if output_path:
+            _safe_unlink(output_path)
+
+
 def _run_age_encrypt_passphrase(data: bytes, *, passphrase: str, age_path: str) -> bytes:
     return _run_age_passphrase(data, passphrase=passphrase, age_path=age_path, decrypt=False)
 
@@ -154,11 +207,20 @@ def _run_age_passphrase(
         max_prompts = 1 if decrypt else 2
         return _drain_pty_with_passphrase(fd, proc, passphrase, max_prompts=max_prompts)
 
-    output, _tty_output = _run_age_with_pty(
-        cmd_builder=_builder,
-        data=data,
-        drain=_drain,
-    )
+    if _USE_PTY:
+        output, _tty_output = _run_age_with_pty(
+            cmd_builder=_builder,
+            data=data,
+            drain=_drain,
+        )
+    else:
+        prompt_count = 1 if decrypt else 2
+        output, _tty_output = _run_age_with_subprocess(
+            cmd_builder=_builder,
+            data=data,
+            passphrase=passphrase,
+            prompt_count=prompt_count,
+        )
     return output
 
 
@@ -243,5 +305,4 @@ def _safe_write(fd: int, data: bytes) -> None:
         os.write(fd, data)
     except OSError:
         pass
-
 

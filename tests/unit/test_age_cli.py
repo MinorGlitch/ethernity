@@ -1,4 +1,5 @@
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -62,6 +63,39 @@ sys.exit(2)
             with self.assertRaises(AgeCliError) as ctx:
                 encrypt_bytes_with_passphrase(b"payload", passphrase="secret", age_path=str(age_path))
         self.assertIn("age failed", str(ctx.exception))
+
+    def test_encrypt_passphrase_sets_env_without_pty(self) -> None:
+        data = b"payload"
+        captured: dict[str, object] = {}
+
+        def _run(cmd, input=None, stdout=None, stderr=None, env=None, check=None):
+            captured["env"] = env
+            captured["input"] = input
+            output_path = None
+            input_path = None
+            if "-o" in cmd:
+                idx = cmd.index("-o")
+                if idx + 1 < len(cmd):
+                    output_path = cmd[idx + 1]
+            if cmd:
+                input_path = cmd[-1]
+            if output_path and input_path:
+                with open(input_path, "rb") as src, open(output_path, "wb") as dst:
+                    dst.write(src.read())
+            return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
+        with mock.patch("ethernity.crypto.age_cli._USE_PTY", False):
+            with mock.patch("ethernity.crypto.age_cli.subprocess.run", side_effect=_run):
+                ciphertext, passphrase = encrypt_bytes_with_passphrase(
+                    data, passphrase="secret", age_path="age"
+                )
+
+        self.assertEqual(ciphertext, data)
+        self.assertEqual(passphrase, "secret")
+        env = captured.get("env")
+        self.assertIsInstance(env, dict)
+        self.assertEqual(env.get("AGE_PASSPHRASE"), "secret")
+        self.assertEqual(captured.get("input"), b"secret\nsecret\n")
 
     def test_safe_unlink_ignores_errors(self) -> None:
         with mock.patch("ethernity.crypto.age_cli.os.remove", side_effect=OSError):

@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from pathlib import Path
+import os
+import subprocess
 import sys
 
 import typer
+from playwright.sync_api import sync_playwright
 from rich.traceback import install as install_rich_traceback
 
 from .core.common import _get_version, _paper_callback, _resolve_config_and_paper, _run_cli
@@ -16,10 +20,49 @@ from .ui import (
     _configure_ui,
     _empty_recover_args,
     _prompt_home_action,
+    _progress,
 )
 from ..config import init_user_config, user_config_needs_init
 
 app = typer.Typer(add_completion=True, help="Ethernity CLI.")
+
+_PLAYWRIGHT_SKIP_ENV = "ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"
+
+
+def _playwright_chromium_installed() -> bool:
+    try:
+        with sync_playwright() as playwright:
+            executable = Path(playwright.chromium.executable_path)
+    except Exception:
+        return False
+    return executable.exists()
+
+
+def _ensure_playwright_browsers(*, quiet: bool) -> None:
+    if os.environ.get(_PLAYWRIGHT_SKIP_ENV):
+        return
+    if _playwright_chromium_installed():
+        return
+
+    with _progress(quiet=quiet) as progress:
+        task_id = None
+        if progress is not None:
+            task_id = progress.add_task(
+                "Initializing Playwright (Chromium browser)...",
+                total=1,
+            )
+        result = subprocess.run(
+            [sys.executable, "-m", "playwright", "install", "chromium"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
+            raise RuntimeError(f"Playwright install failed: {detail}")
+        if progress is not None and task_id is not None:
+            progress.update(task_id, completed=1)
 
 
 def _version_callback(value: bool) -> None:
@@ -77,7 +120,7 @@ def cli(
     init_config: bool = typer.Option(
         False,
         "--init-config",
-        help="Copy defaults to ~/.config/ethernity and exit.",
+        help="Copy defaults to the user config directory and exit.",
         is_eager=True,
         rich_help_panel="Config",
     ),
@@ -94,10 +137,15 @@ def cli(
     _configure_ui(no_color=no_color, no_animations=no_animations)
     if debug:
         install_rich_traceback(show_locals=True)
+    try:
+        _ensure_playwright_browsers(quiet=quiet)
+    except Exception as exc:
+        console_err.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(code=2)
     if init_config:
         try:
             config_dir = init_user_config()
-        except OSError as exc:
+        except Exception as exc:
             console_err.print(f"[red]Error:[/red] {exc}")
             raise typer.Exit(code=2)
         console.print(f"User config ready at {config_dir}")
@@ -105,7 +153,7 @@ def cli(
     if user_config_needs_init():
         try:
             config_dir = init_user_config()
-        except OSError as exc:
+        except Exception as exc:
             console_err.print(f"[red]Error:[/red] {exc}")
             raise typer.Exit(code=2)
         if not quiet:
