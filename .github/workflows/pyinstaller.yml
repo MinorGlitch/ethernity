@@ -2,6 +2,24 @@ name: Build PyInstaller
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag name to publish a GitHub Release (leave blank to skip release)."
+        required: false
+        type: string
+      prerelease:
+        description: "Mark release as prerelease."
+        required: false
+        type: boolean
+        default: false
+      draft:
+        description: "Create release as draft."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -22,8 +40,44 @@ jobs:
           python -m pip install ".[build]"
       - name: Build
         run: pyinstaller --clean --noconfirm ethernity.spec
+      - name: Package artifact
+        run: |
+          python - <<'PY'
+          import os
+          import zipfile
+          from pathlib import Path
+
+          dist = Path("dist")
+          output = Path(f"ethernity-{os.environ['RUNNER_OS']}.zip")
+          with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+              for path in dist.glob("ethernity*"):
+                  if path.is_dir():
+                      for file in path.rglob("*"):
+                          zf.write(file, file.relative_to(dist))
+                  else:
+                      zf.write(path, path.name)
+          print(f"Created {output}")
+          PY
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ethernity-${{ matrix.os }}
-          path: dist/ethernity*
+          path: ethernity-${{ runner.os }}.zip
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ inputs.release_tag != '' }}
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+          pattern: ethernity-*
+          merge-multiple: true
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          prerelease: ${{ inputs.prerelease }}
+          draft: ${{ inputs.draft }}
+          files: dist-artifacts/*.zip
