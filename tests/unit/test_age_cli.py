@@ -6,13 +6,8 @@ from unittest import mock
 
 from ethernity.crypto import (
     AgeCliError,
-    AgeKeygenError,
     decrypt_bytes,
-    encrypt_bytes,
     encrypt_bytes_with_passphrase,
-    generate_identity,
-    parse_identities,
-    parse_recipients,
 )
 from ethernity.crypto import age_cli
 from test_support import write_fake_age_script
@@ -24,11 +19,6 @@ class TestAgeCli(unittest.TestCase):
         path.write_text(body, encoding="utf-8")
         os.chmod(path, 0o755)
         return path
-
-    def test_parse_identities_and_recipients(self) -> None:
-        text = "\n# comment\nage1\n  age2  \n\n#another\n"
-        self.assertEqual(parse_recipients(text), ["age1", "age2"])
-        self.assertEqual(parse_identities(text), ["age1", "age2"])
 
     def test_autogen_passphrase(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -49,48 +39,6 @@ class TestAgeCli(unittest.TestCase):
             data = b"ciphertext"
             plaintext = decrypt_bytes(data, passphrase="secret", age_path=str(age_path))
             self.assertEqual(plaintext, data)
-
-    def test_encrypt_bytes_requires_valid_inputs(self) -> None:
-        with self.assertRaises(ValueError):
-            encrypt_bytes(b"payload")
-        with self.assertRaises(ValueError):
-            encrypt_bytes(b"payload", recipients=["age1"], passphrase="secret")
-        with self.assertRaises(ValueError):
-            encrypt_bytes(b"payload", recipients=[])
-
-    def test_decrypt_bytes_requires_valid_inputs(self) -> None:
-        with self.assertRaises(ValueError):
-            decrypt_bytes(b"payload")
-        with self.assertRaises(ValueError):
-            decrypt_bytes(b"payload", identities=["id"], passphrase="secret")
-        with self.assertRaises(ValueError):
-            decrypt_bytes(b"payload", identities=[])
-
-    def test_encrypt_bytes_recipient(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            age_path = write_fake_age_script(Path(tmpdir))
-            data = b"payload"
-            ciphertext = encrypt_bytes(data, recipients=["age1"], age_path=str(age_path))
-            self.assertEqual(ciphertext, data)
-
-    def test_encrypt_bytes_recipient_error(self) -> None:
-        script = """#!/usr/bin/env python3
-import sys
-sys.stderr.write("boom\\n")
-sys.exit(2)
-"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            age_path = self._write_script(Path(tmpdir), "age", script)
-            with self.assertRaises(AgeCliError) as ctx:
-                encrypt_bytes(b"payload", recipients=["age1"], age_path=str(age_path))
-        self.assertIn("boom", str(ctx.exception))
-
-    def test_encrypt_bytes_passphrase(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            age_path = write_fake_age_script(Path(tmpdir))
-            data = b"payload"
-            ciphertext = encrypt_bytes(data, passphrase="secret", age_path=str(age_path))
-            self.assertEqual(ciphertext, data)
 
     def test_encrypt_passphrase(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -114,66 +62,6 @@ sys.exit(2)
             with self.assertRaises(AgeCliError) as ctx:
                 encrypt_bytes_with_passphrase(b"payload", passphrase="secret", age_path=str(age_path))
         self.assertIn("age failed", str(ctx.exception))
-
-    def test_decrypt_identities_removes_temp_file(self) -> None:
-        with mock.patch("ethernity.crypto.age_cli._run_age", return_value=b"ok"):
-            with mock.patch("ethernity.crypto.age_cli.os.remove", side_effect=OSError):
-                output = decrypt_bytes(b"payload", identities=["AGE-SECRET-KEY-TEST"])
-        self.assertEqual(output, b"ok")
-
-    def test_generate_identity_parses_output(self) -> None:
-        script = """#!/usr/bin/env python3
-import sys
-sys.stdout.write("AGE-SECRET-KEY-TEST\\n")
-sys.stderr.write("public key: age1recipient\\n")
-"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            age_keygen_path = self._write_script(Path(tmpdir), "age-keygen", script)
-            identity, recipient = generate_identity(age_keygen_path=str(age_keygen_path))
-        self.assertEqual(identity, "AGE-SECRET-KEY-TEST")
-        self.assertEqual(recipient, "age1recipient")
-
-    def test_generate_identity_parses_recipient_field(self) -> None:
-        script = """#!/usr/bin/env python3
-import sys
-sys.stdout.write("AGE-SECRET-KEY-TEST\\n")
-sys.stderr.write("recipient: age1recipient\\n")
-"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            age_keygen_path = self._write_script(Path(tmpdir), "age-keygen", script)
-            identity, recipient = generate_identity(age_keygen_path=str(age_keygen_path))
-        self.assertEqual(identity, "AGE-SECRET-KEY-TEST")
-        self.assertEqual(recipient, "age1recipient")
-
-    def test_generate_identity_missing_output(self) -> None:
-        script = """#!/usr/bin/env python3
-import sys
-sys.stdout.write("AGE-SECRET-KEY-TEST\\n")
-"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            age_keygen_path = self._write_script(Path(tmpdir), "age-keygen", script)
-            with self.assertRaises(ValueError):
-                generate_identity(age_keygen_path=str(age_keygen_path))
-
-    def test_generate_identity_error(self) -> None:
-        script = """#!/usr/bin/env python3
-import sys
-sys.stderr.write("fail\\n")
-sys.exit(2)
-"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            age_keygen_path = self._write_script(Path(tmpdir), "age-keygen", script)
-            with self.assertRaises(AgeKeygenError) as ctx:
-                generate_identity(age_keygen_path=str(age_keygen_path))
-        self.assertIn("age-keygen failed", str(ctx.exception))
-
-    def test_write_temp_identities(self) -> None:
-        path = age_cli._write_temp_identities(["id1", "id2\n"])
-        try:
-            content = Path(path).read_text(encoding="utf-8")
-        finally:
-            os.remove(path)
-        self.assertEqual(content, "id1\nid2\n")
 
     def test_safe_unlink_ignores_errors(self) -> None:
         with mock.patch("ethernity.crypto.age_cli.os.remove", side_effect=OSError):

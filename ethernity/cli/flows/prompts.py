@@ -4,13 +4,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-from ..ui import (
-    console_err,
-    _prompt_choice,
-    _prompt_multiline,
-    _prompt_optional,
-    _validate_path,
-)
+from ..ui import _prompt_choice, _prompt_optional, _prompt_required_paths
 
 
 def _resolve_recover_output(
@@ -59,39 +53,20 @@ def _prompt_shard_inputs() -> tuple[list[str], list[str], str]:
         help_text="Choose the format you have for the shard documents.",
     )
     if choice == "fallback":
-        while True:
-            paths = _prompt_multiline(
-                "Shard fallback text file paths (one per line, blank to finish)",
-                help_text="Point at the shard fallback text files saved from the backup.",
-            )
-            if not paths:
-                console_err.print("[error]At least one shard fallback file is required.[/error]")
-                continue
-            invalid = next(
-                (error for path in paths if (error := _validate_path(path, kind="file"))),
-                None,
-            )
-            if invalid:
-                console_err.print(f"[error]{invalid}[/error]")
-                continue
-            return paths, [], "auto"
+        paths = _prompt_required_paths(
+            "Shard fallback text file paths (one per line, blank to finish)",
+            help_text="Point at the shard fallback text files saved from the backup.",
+            kind="file",
+            empty_message="At least one shard fallback file is required.",
+        )
+        return paths, [], "auto"
 
-    while True:
-        paths = _prompt_multiline(
-            "Shard frame payload file paths (one per line, blank to finish)",
-            help_text="Provide files that contain the shard QR payloads.",
-        )
-        if not paths:
-            console_err.print("[error]At least one shard frame file is required.[/error]")
-            continue
-        invalid = next(
-            (error for path in paths if (error := _validate_path(path, kind="file"))),
-            None,
-        )
-        if invalid:
-            console_err.print(f"[error]{invalid}[/error]")
-            continue
-        break
+    paths = _prompt_required_paths(
+        "Shard frame payload file paths (one per line, blank to finish)",
+        help_text="Provide files that contain the shard QR payloads.",
+        kind="file",
+        empty_message="At least one shard frame file is required.",
+    )
     encoding = _prompt_choice(
         "Shard frames encoding",
         {"auto": "Auto", "base64": "Base64", "base64url": "Base64 URL-safe", "hex": "Hex"},

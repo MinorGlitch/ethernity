@@ -6,13 +6,15 @@ from enum import Enum
 
 class DocumentMode(str, Enum):
     PASSPHRASE = "passphrase"
-    RECIPIENT = "recipient"
 
 
 class KeyMaterial(str, Enum):
-    NONE = "none"
     PASSPHRASE = "passphrase"
-    IDENTITY = "identity"
+
+
+class SigningSeedMode(str, Enum):
+    EMBEDDED = "embedded"
+    SHARDED = "sharded"
 
 
 @dataclass(frozen=True)
@@ -27,8 +29,9 @@ class DocumentPlan:
     mode: DocumentMode
     key_material: KeyMaterial
     sealed: bool
+    signing_seed_mode: SigningSeedMode = SigningSeedMode.EMBEDDED
     sharding: ShardingConfig | None = None
-    recipients: tuple[str, ...] = ()
+    signing_seed_sharding: ShardingConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -38,8 +41,9 @@ class DocumentMeta:
     mode: DocumentMode
     key_material: KeyMaterial
     sealed: bool = False
+    signing_seed_mode: SigningSeedMode = SigningSeedMode.EMBEDDED
     sharding: ShardingConfig | None = None
-    recipients: tuple[str, ...] = ()
+    signing_seed_sharding: ShardingConfig | None = None
 
     def doc_id_hex(self) -> str:
         return self.doc_id.hex()
@@ -51,12 +55,20 @@ class DocumentMeta:
             "mode": self.mode.value,
             "key_material": self.key_material.value,
             "sealed": self.sealed,
+            "signing_seed_mode": self.signing_seed_mode.value,
             "sharding": (
                 {"threshold": self.sharding.threshold, "shares": self.sharding.shares}
                 if self.sharding
                 else None
             ),
-            "recipients": list(self.recipients),
+            "signing_seed_sharding": (
+                {
+                    "threshold": self.signing_seed_sharding.threshold,
+                    "shares": self.signing_seed_sharding.shares,
+                }
+                if self.signing_seed_sharding
+                else None
+            ),
         }
 
 

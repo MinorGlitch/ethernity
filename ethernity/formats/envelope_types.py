@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-MANIFEST_VERSION = 4
+MANIFEST_VERSION = 5
 
 
 @dataclass(frozen=True)
@@ -27,6 +27,7 @@ class EnvelopeManifest:
     format_version: int
     created_at: float
     sealed: bool
+    signing_seed: bytes | None
     files: tuple[ManifestFile, ...]
 
     def to_cbor(self) -> list[object]:
@@ -43,6 +44,7 @@ class EnvelopeManifest:
             self.format_version,
             self.created_at,
             self.sealed,
+            self.signing_seed,
             prefixes,
             files,
         ]
@@ -52,18 +54,20 @@ class EnvelopeManifest:
             "format_version": self.format_version,
             "created_at": self.created_at,
             "sealed": self.sealed,
+            "signing_seed": self.signing_seed,
             "files": [file.to_dict() for file in self.files],
         }
 
     @classmethod
     def from_cbor(cls, data: object) -> "EnvelopeManifest":
-        if not isinstance(data, (list, tuple)) or len(data) < 5:
+        if not isinstance(data, (list, tuple)) or len(data) < 6:
             raise ValueError("manifest must be a list")
         format_version = data[0]
         created_at = data[1]
         sealed = data[2]
-        prefixes = data[3]
-        files_raw = data[4]
+        signing_seed = data[3]
+        prefixes = data[4]
+        files_raw = data[5]
         if not isinstance(format_version, int):
             raise ValueError("manifest format_version must be an int")
         if format_version != MANIFEST_VERSION:
@@ -72,6 +76,8 @@ class EnvelopeManifest:
             raise ValueError("manifest created_at must be a number")
         if not isinstance(sealed, bool):
             raise ValueError("manifest sealed must be a boolean")
+        if signing_seed is not None and not isinstance(signing_seed, (bytes, bytearray)):
+            raise ValueError("manifest signing_seed must be bytes or null")
         if not isinstance(prefixes, list) or not prefixes:
             raise ValueError("manifest prefixes are required")
         if prefixes[0] != "":
@@ -118,6 +124,7 @@ class EnvelopeManifest:
             format_version=format_version,
             created_at=float(created_at),
             sealed=sealed,
+            signing_seed=bytes(signing_seed) if signing_seed is not None else None,
             files=tuple(files),
         )
 

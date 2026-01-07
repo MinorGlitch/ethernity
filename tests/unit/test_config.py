@@ -5,6 +5,7 @@ from pathlib import Path
 from ethernity.config import (
     DEFAULT_RECOVERY_TEMPLATE_PATH,
     DEFAULT_SHARD_TEMPLATE_PATH,
+    DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
     DEFAULT_TEMPLATE_PATH,
     load_app_config,
 )
@@ -21,6 +22,9 @@ path = 456
 
 [shard_template]
 path = 789
+
+[signing_key_shard_template]
+path = 1011
 
 [qr]
 scale = "6"
@@ -42,6 +46,10 @@ light = [4, 5, 6, 7]
         self.assertEqual(config.template_path, DEFAULT_TEMPLATE_PATH)
         self.assertEqual(config.recovery_template_path, DEFAULT_RECOVERY_TEMPLATE_PATH)
         self.assertEqual(config.shard_template_path, DEFAULT_SHARD_TEMPLATE_PATH)
+        self.assertEqual(
+            config.signing_key_shard_template_path,
+            DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
+        )
         self.assertEqual(config.qr_payload_encoding, "binary")
         self.assertEqual(config.qr_config.scale, 6)
         self.assertEqual(config.qr_config.border, 2)

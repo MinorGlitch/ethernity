@@ -1,9 +1,11 @@
 """Config loaders and installers."""
 
 from .installer import (
+    DEFAULT_KIT_TEMPLATE_PATH,
     DEFAULT_PAPER_SIZE,
     DEFAULT_RECOVERY_TEMPLATE_PATH,
     DEFAULT_SHARD_TEMPLATE_PATH,
+    DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
     DEFAULT_TEMPLATE_PATH,
     PAPER_CONFIGS,
     init_user_config,
@@ -13,9 +15,11 @@ from .loader import AppConfig, build_qr_config, load_app_config
 
 __all__ = [
     "AppConfig",
+    "DEFAULT_KIT_TEMPLATE_PATH",
     "DEFAULT_PAPER_SIZE",
     "DEFAULT_RECOVERY_TEMPLATE_PATH",
     "DEFAULT_SHARD_TEMPLATE_PATH",
+    "DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH",
     "DEFAULT_TEMPLATE_PATH",
     "PAPER_CONFIGS",
     "build_qr_config",

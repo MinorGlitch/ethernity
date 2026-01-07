@@ -22,11 +22,17 @@ def build_single_file_manifest(
     *,
     sealed: bool = False,
     created_at: float | None = None,
+    signing_seed: bytes | None = None,
 ) -> EnvelopeManifest:
     path = _normalize_path(input_path)
     mtime = _read_mtime(input_path)
     part = PayloadPart(path=path, data=payload, mtime=mtime)
-    manifest, _payload = build_manifest_and_payload((part,), sealed=sealed, created_at=created_at)
+    manifest, _payload = build_manifest_and_payload(
+        (part,),
+        sealed=sealed,
+        created_at=created_at,
+        signing_seed=signing_seed,
+    )
     return manifest
 
 
@@ -35,6 +41,7 @@ def build_manifest_and_payload(
     *,
     sealed: bool = False,
     created_at: float | None = None,
+    signing_seed: bytes | None = None,
 ) -> tuple[EnvelopeManifest, bytes]:
     if not parts:
         raise ValueError("at least one payload part is required")
@@ -60,6 +67,7 @@ def build_manifest_and_payload(
         format_version=MANIFEST_VERSION,
         created_at=created,
         sealed=sealed,
+        signing_seed=signing_seed,
         files=tuple(files),
     )
     return manifest, bytes(payload)

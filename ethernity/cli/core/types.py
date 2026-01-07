@@ -19,6 +19,5 @@ class BackupResult:
     qr_path: str
     recovery_path: str
     shard_paths: tuple[str, ...]
+    signing_key_shard_paths: tuple[str, ...]
     passphrase_used: str | None
-    generated_identity: str | None
-    generated_recipient: str | None

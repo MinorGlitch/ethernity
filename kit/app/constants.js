@@ -1,0 +1,12 @@
+export const FRAME_MAGIC = [0x41, 0x50]; // "AP"
+export const ENVELOPE_MAGIC = [0x41, 0x59]; // "AY"
+export const FRAME_TYPE_MAIN = 0x44; // "D"
+export const FRAME_TYPE_KEY = 0x4b; // "K"
+export const FRAME_TYPE_AUTH = 0x41; // "A"
+export const SHARD_VERSION = 3;
+export const SHARD_KEY_PASSPHRASE = "passphrase";
+export const SHARD_KEY_SIGNING_SEED = "signing-seed";
+export const AUTH_VERSION = 1;
+export const AUTH_DOMAIN = "ETHERNITY-AUTH-V1";
+export const textEncoder = new TextEncoder();
+export const textDecoder = new TextDecoder();

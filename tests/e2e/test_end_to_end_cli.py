@@ -25,6 +25,7 @@ class TestEndToEndCli(unittest.TestCase):
 
             with prepend_path(tmp_path):
                 env = os.environ.copy()
+                env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
                 result = subprocess.run(
                     [
                         sys.executable,
@@ -49,6 +50,53 @@ class TestEndToEndCli(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue((output_dir / "qr_document.pdf").exists())
             self.assertTrue((output_dir / "recovery_document.pdf").exists())
+
+    def test_backup_cli_signing_key_shards(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            write_fake_age_script(tmp_path)
+            input_path = tmp_path / "input.txt"
+            input_path.write_text("backup cli payload", encoding="utf-8")
+            output_dir = tmp_path / "backup"
+            repo_root = Path(__file__).resolve().parents[2]
+
+            with prepend_path(tmp_path):
+                env = os.environ.copy()
+                env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "ethernity.cli",
+                        "--paper",
+                        "A4",
+                        "backup",
+                        "--input",
+                        str(input_path),
+                        "--output-dir",
+                        str(output_dir),
+                        "--passphrase-generate",
+                        "--shard-threshold",
+                        "2",
+                        "--shard-count",
+                        "3",
+                        "--signing-key-mode",
+                        "sharded",
+                        "--signing-key-shard-threshold",
+                        "1",
+                        "--signing-key-shard-count",
+                        "2",
+                    ],
+                    cwd=repo_root,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            signing_key_shards = list(output_dir.glob("signing-key-shard-*.pdf"))
+            self.assertEqual(len(signing_key_shards), 2)
 
     def test_recover_cli_from_frames(self) -> None:
         payload = b"recover cli payload"
@@ -77,6 +125,7 @@ class TestEndToEndCli(unittest.TestCase):
                 output_path = tmp_path / "recovered.bin"
 
                 env = os.environ.copy()
+                env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
                 result = subprocess.run(
                     [
                         sys.executable,

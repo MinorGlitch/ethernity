@@ -12,6 +12,7 @@ from ..core.validation import require_bytes, require_length
 
 SHARD_VERSION = 3
 KEY_TYPE_PASSPHRASE = "passphrase"
+KEY_TYPE_SIGNING_SEED = "signing-seed"
 BLOCK_SIZE = 16
 
 
@@ -40,6 +41,109 @@ def split_passphrase(
     secret = passphrase.encode("utf-8")
     if not secret:
         raise ValueError("passphrase cannot be empty")
+    return _split_secret(
+        secret,
+        threshold=threshold,
+        shares=shares,
+        doc_hash=doc_hash,
+        sign_priv=sign_priv,
+        sign_pub=sign_pub,
+        key_type=KEY_TYPE_PASSPHRASE,
+    )
+
+
+def split_signing_seed(
+    seed: bytes,
+    *,
+    threshold: int,
+    shares: int,
+    doc_hash: bytes,
+    sign_priv: bytes,
+    sign_pub: bytes,
+) -> list[ShardPayload]:
+    if not seed:
+        raise ValueError("signing seed cannot be empty")
+    return _split_secret(
+        seed,
+        threshold=threshold,
+        shares=shares,
+        doc_hash=doc_hash,
+        sign_priv=sign_priv,
+        sign_pub=sign_pub,
+        key_type=KEY_TYPE_SIGNING_SEED,
+    )
+
+
+def recover_passphrase(shares: list[ShardPayload]) -> str:
+    secret = _recover_secret(shares, key_type=KEY_TYPE_PASSPHRASE)
+    return secret.decode("utf-8")
+
+
+def recover_signing_seed(shares: list[ShardPayload]) -> bytes:
+    return _recover_secret(shares, key_type=KEY_TYPE_SIGNING_SEED)
+
+
+def encode_shard_payload(payload: ShardPayload) -> bytes:
+    data = [
+        SHARD_VERSION,
+        payload.key_type,
+        payload.threshold,
+        payload.shares,
+        payload.index,
+        payload.secret_len,
+        payload.share,
+        payload.doc_hash,
+        payload.sign_pub,
+        payload.signature,
+    ]
+    return cbor2.dumps(data)
+
+
+def decode_shard_payload(data: bytes) -> ShardPayload:
+    decoded = cbor2.loads(data)
+    if not isinstance(decoded, (list, tuple)) or len(decoded) < 10:
+        raise ValueError("shard payload must be a list")
+    version, key_type, threshold, shares, index, secret_len, share, doc_hash, sign_pub, signature = decoded[:10]
+    if version != SHARD_VERSION:
+        raise ValueError(f"unsupported shard payload version: {version}")
+    if key_type not in (KEY_TYPE_PASSPHRASE, KEY_TYPE_SIGNING_SEED):
+        raise ValueError(f"unsupported shard key type: {key_type}")
+    if not isinstance(threshold, int) or threshold <= 0:
+        raise ValueError("shard threshold must be a positive int")
+    if not isinstance(shares, int) or shares <= 0:
+        raise ValueError("shard shares must be a positive int")
+    if not isinstance(index, int) or index <= 0:
+        raise ValueError("shard index must be a positive int")
+    if not isinstance(secret_len, int) or secret_len <= 0:
+        raise ValueError("shard secret length must be a positive int")
+    if not isinstance(share, (bytes, bytearray)) or not share:
+        raise ValueError("shard share must be bytes")
+    doc_hash = require_bytes(doc_hash, DOC_HASH_LEN, label="doc_hash", prefix="shard ")
+    sign_pub = require_bytes(sign_pub, ED25519_PUB_LEN, label="sign_pub", prefix="shard ")
+    signature = require_bytes(signature, ED25519_SIG_LEN, label="signature", prefix="shard ")
+    return ShardPayload(
+        index=index,
+        threshold=threshold,
+        shares=shares,
+        key_type=key_type,
+        share=bytes(share),
+        secret_len=secret_len,
+        doc_hash=doc_hash,
+        sign_pub=sign_pub,
+        signature=signature,
+    )
+
+
+def _split_secret(
+    secret: bytes,
+    *,
+    threshold: int,
+    shares: int,
+    doc_hash: bytes,
+    sign_priv: bytes,
+    sign_pub: bytes,
+    key_type: str,
+) -> list[ShardPayload]:
     if threshold <= 0 or shares <= 0:
         raise ValueError("threshold and shares must be positive")
     if threshold > shares:
@@ -78,7 +182,7 @@ def split_passphrase(
                 index=index,
                 threshold=threshold,
                 shares=shares,
-                key_type=KEY_TYPE_PASSPHRASE,
+                key_type=key_type,
                 share=share_bytes,
                 secret_len=len(secret),
                 doc_hash=doc_hash,
@@ -89,11 +193,10 @@ def split_passphrase(
     return payloads
 
 
-def recover_passphrase(shares: list[ShardPayload]) -> str:
+def _recover_secret(shares: list[ShardPayload], *, key_type: str) -> bytes:
     if not shares:
         raise ValueError("no shares provided")
     threshold = shares[0].threshold
-    key_type = shares[0].key_type
     secret_len = shares[0].secret_len
     share_total = shares[0].shares
     seen_indices: set[int] = set()
@@ -112,7 +215,7 @@ def recover_passphrase(shares: list[ShardPayload]) -> str:
         if len(share.share) % BLOCK_SIZE != 0:
             raise ValueError("shard share length must be a multiple of block size")
     if len(shares) < threshold:
-        raise ValueError(f"need at least {threshold} shard(s) to recover passphrase")
+        raise ValueError(f"need at least {threshold} shard(s) to recover secret")
 
     block_count = (secret_len + BLOCK_SIZE - 1) // BLOCK_SIZE
     expected_len = block_count * BLOCK_SIZE
@@ -128,56 +231,4 @@ def recover_passphrase(shares: list[ShardPayload]) -> str:
         pairs = [(share.index, share.share[start:end]) for share in shares]
         blocks.append(cast(bytes, shamir.combine(pairs)))
 
-    secret = b"".join(blocks)[:secret_len]
-    return secret.decode("utf-8")
-
-
-def encode_shard_payload(payload: ShardPayload) -> bytes:
-    data = [
-        SHARD_VERSION,
-        payload.key_type,
-        payload.threshold,
-        payload.shares,
-        payload.index,
-        payload.secret_len,
-        payload.share,
-        payload.doc_hash,
-        payload.sign_pub,
-        payload.signature,
-    ]
-    return cbor2.dumps(data)
-
-
-def decode_shard_payload(data: bytes) -> ShardPayload:
-    decoded = cbor2.loads(data)
-    if not isinstance(decoded, (list, tuple)) or len(decoded) < 10:
-        raise ValueError("shard payload must be a list")
-    version, key_type, threshold, shares, index, secret_len, share, doc_hash, sign_pub, signature = decoded[:10]
-    if version != SHARD_VERSION:
-        raise ValueError(f"unsupported shard payload version: {version}")
-    if key_type != KEY_TYPE_PASSPHRASE:
-        raise ValueError(f"unsupported shard key type: {key_type}")
-    if not isinstance(threshold, int) or threshold <= 0:
-        raise ValueError("shard threshold must be a positive int")
-    if not isinstance(shares, int) or shares <= 0:
-        raise ValueError("shard shares must be a positive int")
-    if not isinstance(index, int) or index <= 0:
-        raise ValueError("shard index must be a positive int")
-    if not isinstance(secret_len, int) or secret_len <= 0:
-        raise ValueError("shard secret length must be a positive int")
-    if not isinstance(share, (bytes, bytearray)) or not share:
-        raise ValueError("shard share must be bytes")
-    doc_hash = require_bytes(doc_hash, DOC_HASH_LEN, label="doc_hash", prefix="shard ")
-    sign_pub = require_bytes(sign_pub, ED25519_PUB_LEN, label="sign_pub", prefix="shard ")
-    signature = require_bytes(signature, ED25519_SIG_LEN, label="signature", prefix="shard ")
-    return ShardPayload(
-        index=index,
-        threshold=threshold,
-        shares=shares,
-        key_type=key_type,
-        share=bytes(share),
-        secret_len=secret_len,
-        doc_hash=doc_hash,
-        sign_pub=sign_pub,
-        signature=signature,
-    )
+    return b"".join(blocks)[:secret_len]

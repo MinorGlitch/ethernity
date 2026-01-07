@@ -15,7 +15,7 @@ from ..ui.debug import (
     _print_pre_encryption_debug,
 )
 from ...encoding.framing import Frame, FrameType, VERSION, encode_frame
-from ...core.models import DocumentMode, DocumentPlan, KeyMaterial
+from ...core.models import DocumentMode, DocumentPlan, SigningSeedMode
 from ...encoding.qr_payloads import encode_qr_payload, normalize_qr_payload_encoding
 
 
@@ -29,12 +29,9 @@ def run_backup(
     base_dir: Path | None,
     output_dir: str | None,
     plan: DocumentPlan,
-    recipients: list[str],
     passphrase: str | None,
     passphrase_words: int | None = None,
     config,
-    title_override: str | None,
-    subtitle_override: str | None,
     debug: bool = False,
     debug_max_bytes: int | None = None,
     quiet: bool = False,
@@ -48,88 +45,82 @@ def run_backup(
         from ...formats.envelope_codec import build_manifest_and_payload, encode_envelope
         from ...formats.envelope_types import PayloadPart
         from ...render import FallbackSection, RenderInputs, render_frames_to_pdf
-        from ...crypto.sharding import ShardPayload, encode_shard_payload, split_passphrase
+        from ...crypto.sharding import (
+            ShardPayload,
+            encode_shard_payload,
+            split_passphrase,
+            split_signing_seed,
+        )
         from ...crypto.signing import encode_auth_payload, generate_signing_keypair, sign_auth
 
+    sign_priv, sign_pub = generate_signing_keypair()
+    if plan.mode != DocumentMode.PASSPHRASE:
+        raise ValueError("only passphrase mode is supported")
+    store_signing_key = (
+        plan.mode == DocumentMode.PASSPHRASE
+        and plan.sharding is not None
+        and not plan.sealed
+        and plan.signing_seed_mode == SigningSeedMode.EMBEDDED
+    )
+    shard_signing_key = (
+        plan.mode == DocumentMode.PASSPHRASE
+        and plan.sharding is not None
+        and not plan.sealed
+        and plan.signing_seed_mode == SigningSeedMode.SHARDED
+    )
     with _status("Preparing payload...", quiet=status_quiet):
         parts = [
             PayloadPart(path=item.relative_path, data=item.data, mtime=item.mtime)
             for item in input_files
         ]
-        manifest, payload = build_manifest_and_payload(parts, sealed=plan.sealed)
+        manifest, payload = build_manifest_and_payload(
+            parts,
+            sealed=plan.sealed,
+            signing_seed=sign_priv if store_signing_key else None,
+        )
         envelope = encode_envelope(payload, manifest)
         wrapped_envelope = envelope
 
-    encrypt_recipients: list[str] = []
     key_lines: list[str] = []
-    identity = None
-    recipient_public = None
     passphrase_used: str | None = None
     passphrase_final: str | None = None
     shard_payloads: list[ShardPayload] = []
+    signing_key_shard_payloads: list[ShardPayload] = []
     normalized_debug_bytes = _normalize_debug_max_bytes(debug_max_bytes)
     cli = _cli_module()
 
-    if plan.mode == DocumentMode.PASSPHRASE:
-        if debug:
-            _print_pre_encryption_debug(
-                payload=payload,
-                input_files=input_files,
-                base_dir=base_dir,
-                manifest=manifest,
-                envelope=envelope,
-                plan=plan,
-                recipients=[],
-                passphrase=passphrase,
-                identity=None,
-                recipient_public=None,
-                debug_max_bytes=normalized_debug_bytes,
-            )
-        with _status("Encrypting payload...", quiet=status_quiet):
-            ciphertext, passphrase_used = cli.encrypt_bytes_with_passphrase(
-                wrapped_envelope, passphrase=passphrase, passphrase_words=passphrase_words
-            )
-        if passphrase_used is None:
-            raise ValueError("passphrase generation failed")
-        passphrase_final = passphrase if passphrase is not None else passphrase_used
-        plan_sharding = plan.sharding
-        if plan_sharding is not None:
-            key_lines = [
-                "Passphrase is sharded.",
-                f"Recover with {plan_sharding.threshold} of {plan_sharding.shares} shard documents.",
-            ]
-        else:
-            key_lines = ["Passphrase:", passphrase_final]
+    if debug:
+        _print_pre_encryption_debug(
+            payload=payload,
+            input_files=input_files,
+            base_dir=base_dir,
+            manifest=manifest,
+            envelope=envelope,
+            plan=plan,
+            passphrase=passphrase,
+            signing_seed=sign_priv,
+            signing_pub=sign_pub,
+            signing_seed_stored=store_signing_key,
+            debug_max_bytes=normalized_debug_bytes,
+        )
+    with _status("Encrypting payload...", quiet=status_quiet):
+        ciphertext, passphrase_used = cli.encrypt_bytes_with_passphrase(
+            wrapped_envelope, passphrase=passphrase, passphrase_words=passphrase_words
+        )
+    if passphrase_used is None:
+        raise ValueError("passphrase generation failed")
+    passphrase_final = passphrase if passphrase is not None else passphrase_used
+    plan_sharding = plan.sharding
+    if plan_sharding is not None:
+        key_lines = [
+            "Passphrase is sharded.",
+            f"Recover with {plan_sharding.threshold} of {plan_sharding.shares} shard documents.",
+        ]
     else:
-        if recipients:
-            encrypt_recipients = recipients
-            key_lines = ["Recipients:"] + recipients + ["Private key not included."]
-        elif plan.key_material == KeyMaterial.IDENTITY:
-            identity, recipient_public = cli.generate_identity()
-            encrypt_recipients = [recipient_public]
-            key_lines = ["Age Identity:", identity, "Recipient:", recipient_public]
-        else:
-            raise ValueError("no recipients provided for recipient mode")
-        if debug:
-            _print_pre_encryption_debug(
-                payload=payload,
-                input_files=input_files,
-                base_dir=base_dir,
-                manifest=manifest,
-                envelope=envelope,
-                plan=plan,
-                recipients=encrypt_recipients,
-                passphrase=passphrase,
-                identity=identity,
-                recipient_public=recipient_public,
-                debug_max_bytes=normalized_debug_bytes,
-            )
-        with _status("Encrypting payload...", quiet=status_quiet):
-            ciphertext = cli.encrypt_bytes(wrapped_envelope, recipients=encrypt_recipients)
+        key_lines = ["Passphrase:", passphrase_final]
 
     doc_id = _doc_id_from_ciphertext(ciphertext)
     doc_hash = _doc_hash_from_ciphertext(ciphertext)
-    sign_priv, sign_pub = generate_signing_keypair()
     auth_signature = sign_auth(doc_hash, sign_priv=sign_priv)
     auth_payload = encode_auth_payload(doc_hash, sign_pub=sign_pub, signature=auth_signature)
     auth_frame = Frame(
@@ -142,6 +133,7 @@ def run_backup(
     )
 
     plan_sharding = plan.sharding
+    signing_key_sharding = plan.signing_seed_sharding or plan.sharding
     if plan.mode == DocumentMode.PASSPHRASE and plan_sharding is not None:
         if passphrase_final is None:
             raise ValueError("passphrase is required for sharding")
@@ -154,8 +146,26 @@ def run_backup(
                 sign_priv=sign_priv,
                 sign_pub=sign_pub,
             )
+        if shard_signing_key:
+            if signing_key_sharding is None:
+                raise ValueError("signing key sharding requires a shard quorum")
+            with _status("Creating signing key shard payloads...", quiet=status_quiet):
+                signing_key_shard_payloads = split_signing_seed(
+                    sign_priv,
+                    threshold=signing_key_sharding.threshold,
+                    shares=signing_key_sharding.shares,
+                    doc_hash=doc_hash,
+                    sign_priv=sign_priv,
+                    sign_pub=sign_pub,
+                )
 
-    _append_signing_key_lines(key_lines, sign_pub=sign_pub, sign_priv=sign_priv, sealed=plan.sealed)
+    _append_signing_key_lines(
+        key_lines,
+        sign_pub=sign_pub,
+        sealed=plan.sealed,
+        stored_in_main=store_signing_key,
+        stored_as_shards=shard_signing_key,
+    )
 
     frames = chunk_payload(ciphertext, doc_id=doc_id, frame_type=FrameType.MAIN_DOCUMENT)
     qr_frames = [*frames, auth_frame]
@@ -164,11 +174,9 @@ def run_backup(
     qr_path = os.path.join(output_dir, "qr_document.pdf")
     recovery_path = os.path.join(output_dir, "recovery_document.pdf")
     shard_paths: list[str] = []
+    signing_key_shard_paths: list[str] = []
 
-    context = dict(config.context)
-    context["title"] = title_override or "Main Document"
-    context["subtitle"] = subtitle_override or f"Mode: {plan.mode.value}"
-    context["doc_id"] = doc_id.hex()
+    context: dict[str, object] = {}
 
     qr_payloads = _encode_qr_payloads(qr_frames, config.qr_payload_encoding)
     qr_inputs = RenderInputs(
@@ -181,19 +189,7 @@ def run_backup(
         render_fallback=False,
     )
 
-    recovery_context = dict(config.context)
-    recovery_context.setdefault("recovery_title", "Recovery Document")
-    recovery_context.setdefault("recovery_subtitle", "Keys + Text Fallback")
-    recovery_context.setdefault(
-        "recovery_instructions",
-        [
-            "This document contains recovery keys and full text fallback.",
-            "Keep it separate from the QR document.",
-            "Fallback includes AUTH + MAIN sections; keep the labels when transcribing.",
-        ],
-    )
-    recovery_context.setdefault("key_lines", key_lines)
-    recovery_context["doc_id"] = doc_id.hex()
+    recovery_context: dict[str, object] = {}
 
     main_fallback_frame = Frame(
         version=VERSION,
@@ -218,7 +214,11 @@ def run_backup(
         render_qr=False,
         key_lines=key_lines,
     )
-    render_total = 2 + (len(shard_payloads) if shard_payloads else 0)
+    render_total = (
+        2
+        + (len(shard_payloads) if shard_payloads else 0)
+        + (len(signing_key_shard_payloads) if signing_key_shard_payloads else 0)
+    )
     with _progress(quiet=status_quiet) as progress:
         if progress:
             task_id = progress.add_task("Rendering documents...", total=render_total)
@@ -250,12 +250,48 @@ def run_backup(
                         output_dir,
                         f"shard-{doc_id.hex()}-{shard.index}-of-{shard.shares}.pdf",
                     )
-                    shard_context = dict(config.context)
-                    shard_context.setdefault("shard_title", "Shard Document")
-                    shard_context["shard_subtitle"] = (
-                        f"Shard {shard.index} of {shard.shares} (Doc ID: {doc_id.hex()})"
+                    shard_context = {
+                        "shard_index": shard.index,
+                        "shard_total": shard.shares,
+                    }
+
+                    shard_inputs = RenderInputs(
+                        frames=[shard_frame],
+                        template_path=config.signing_key_shard_template_path,
+                        output_path=shard_path,
+                        context=shard_context,
+                        qr_config=config.qr_config,
+                        qr_payloads=_encode_qr_payloads(
+                            [shard_frame], config.qr_payload_encoding
+                        ),
                     )
-                    shard_context["doc_id"] = doc_id.hex()
+                    render_frames_to_pdf(shard_inputs)
+                    shard_paths.append(shard_path)
+                    progress.advance(task_id)
+            if signing_key_shard_payloads:
+                sorted_shards = sorted(signing_key_shard_payloads, key=lambda shard: shard.index)
+                total_shards = len(sorted_shards)
+                for idx, shard in enumerate(sorted_shards, start=1):
+                    progress.update(
+                        task_id,
+                        description=f"Rendering signing key shards... ({idx}/{total_shards})",
+                    )
+                    shard_frame = Frame(
+                        version=VERSION,
+                        frame_type=FrameType.KEY_DOCUMENT,
+                        doc_id=doc_id,
+                        index=0,
+                        total=1,
+                        data=encode_shard_payload(shard),
+                    )
+                    shard_path = os.path.join(
+                        output_dir,
+                        f"signing-key-shard-{doc_id.hex()}-{shard.index}-of-{shard.shares}.pdf",
+                    )
+                    shard_context = {
+                        "shard_index": shard.index,
+                        "shard_total": shard.shares,
+                    }
 
                     shard_inputs = RenderInputs(
                         frames=[shard_frame],
@@ -268,7 +304,7 @@ def run_backup(
                         ),
                     )
                     render_frames_to_pdf(shard_inputs)
-                    shard_paths.append(shard_path)
+                    signing_key_shard_paths.append(shard_path)
                     progress.advance(task_id)
         else:
             with _status("Rendering QR document...", quiet=status_quiet):
@@ -291,12 +327,43 @@ def run_backup(
                             output_dir,
                             f"shard-{doc_id.hex()}-{shard.index}-of-{shard.shares}.pdf",
                         )
-                        shard_context = dict(config.context)
-                        shard_context.setdefault("shard_title", "Shard Document")
-                        shard_context["shard_subtitle"] = (
-                            f"Shard {shard.index} of {shard.shares} (Doc ID: {doc_id.hex()})"
+                        shard_context = {
+                            "shard_index": shard.index,
+                            "shard_total": shard.shares,
+                        }
+
+                        shard_inputs = RenderInputs(
+                            frames=[shard_frame],
+                            template_path=config.signing_key_shard_template_path,
+                            output_path=shard_path,
+                            context=shard_context,
+                            qr_config=config.qr_config,
+                            qr_payloads=_encode_qr_payloads(
+                                [shard_frame], config.qr_payload_encoding
+                            ),
                         )
-                        shard_context["doc_id"] = doc_id.hex()
+                        render_frames_to_pdf(shard_inputs)
+                        shard_paths.append(shard_path)
+            if signing_key_shard_payloads:
+                with _status("Rendering signing key shards...", quiet=status_quiet):
+                    sorted_shards = sorted(signing_key_shard_payloads, key=lambda shard: shard.index)
+                    for shard in sorted_shards:
+                        shard_frame = Frame(
+                            version=VERSION,
+                            frame_type=FrameType.KEY_DOCUMENT,
+                            doc_id=doc_id,
+                            index=0,
+                            total=1,
+                            data=encode_shard_payload(shard),
+                        )
+                        shard_path = os.path.join(
+                            output_dir,
+                            f"signing-key-shard-{doc_id.hex()}-{shard.index}-of-{shard.shares}.pdf",
+                        )
+                        shard_context = {
+                            "shard_index": shard.index,
+                            "shard_total": shard.shares,
+                        }
 
                         shard_inputs = RenderInputs(
                             frames=[shard_frame],
@@ -309,15 +376,14 @@ def run_backup(
                             ),
                         )
                         render_frames_to_pdf(shard_inputs)
-                        shard_paths.append(shard_path)
+                        signing_key_shard_paths.append(shard_path)
     return BackupResult(
         doc_id=doc_id,
         qr_path=qr_path,
         recovery_path=recovery_path,
         shard_paths=tuple(shard_paths),
+        signing_key_shard_paths=tuple(signing_key_shard_paths),
         passphrase_used=passphrase_used,
-        generated_identity=identity,
-        generated_recipient=recipient_public,
     )
 
 

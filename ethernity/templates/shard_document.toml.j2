@@ -1,68 +1,67 @@
 [page]
-size = "{{ paper_size }}"
-margin_mm = {{ margin_mm }}
-header_height_mm = {{ header_height_mm }}
-instructions_gap_mm = {{ instructions_gap_mm }}
+size = "A4"
+margin_mm = 14
+header_height_mm = 16
+instructions_gap_mm = 4
 
 [header]
-font_family = "{{ header_font }}"
-title_size = {{ title_size }}
-subtitle_size = {{ subtitle_size }}
-meta_size = {{ meta_size }}
-layout = "{{ header_layout | default("split") }}"
-split_left_ratio = {{ header_split_left_ratio | default(0.64) }}
-title_style = "{{ title_style | default("") }}"
-subtitle_style = "{{ subtitle_style | default("") }}"
-meta_style = "{{ meta_style | default("") }}"
-title_color = {{ title_color | default([0, 0, 0]) }}
-subtitle_color = {{ subtitle_color | default([0, 0, 0]) }}
-meta_color = {{ meta_color | default([0, 0, 0]) }}
-divider_enabled = {{ "true" if (header_divider_enabled | default(false)) else "false" }}
-divider_gap_mm = {{ header_divider_gap_mm | default(1.5) }}
-divider_thickness_mm = {{ header_divider_thickness_mm | default(0.4) }}
-divider_color = {{ header_divider_color | default([120, 120, 120]) }}
-title = "{{ shard_title }}"
-subtitle = "{{ shard_subtitle }}"
+font_family = "Helvetica"
+title_size = 20
+subtitle_size = 10
+meta_size = 8
+layout = "split"
+split_left_ratio = 0.7
+title_style = "B"
+subtitle_style = "I"
+meta_style = "I"
+title_color = [15, 30, 45]
+subtitle_color = [70, 80, 90]
+meta_color = [120, 130, 140]
+divider_enabled = true
+divider_gap_mm = 2.5
+divider_thickness_mm = 0.5
+divider_color = [15, 30, 45]
+title = "Shard Document"
+subtitle = "Shard {{ shard_index }} of {{ shard_total }}"
 doc_id_label = "Document ID:"
 doc_id = "{{ doc_id }}"
 page_label = "Page {{ page_num }} / {{ page_total }}"
 
 [instructions]
-font_family = "{{ instructions_font }}"
-font_size = {{ instructions_size }}
-line_height_mm = {{ instructions_line_height_mm }}
-label = "{{ instructions_label | default("") }}"
-label_layout = "{{ instructions_label_layout | default("column") }}"
-label_font_family = "{{ instructions_label_font | default(instructions_font) }}"
-label_size = {{ instructions_label_size | default(7) }}
-label_style = "{{ instructions_label_style | default("B") }}"
-label_color = {{ instructions_label_color | default([110, 120, 130]) }}
-label_column_mm = {{ instructions_label_column_mm | default(24) }}
-label_gap_mm = {{ instructions_label_gap_mm | default(2) }}
-indent_mm = {{ instructions_indent_mm | default(0) }}
-text_color = {{ instructions_text_color | default([0, 0, 0]) }}
+font_family = "Helvetica"
+font_size = 9
+line_height_mm = 4.5
+label = "Instructions"
+label_layout = "column"
+label_font_family = "Helvetica"
+label_size = 7
+label_style = "B"
+label_color = [90, 100, 110]
+label_column_mm = 24
+label_gap_mm = 2
+indent_mm = 0
+text_color = [30, 40, 50]
 lines = [
-{% for line in shard_instructions %}
-  "{{ line }}"{% if not loop.last %},{% endif %}
-{% endfor %}
+  "This document is one shard of the passphrase.",
+  "Keep shards separate and secure.",
 ]
 
 [qr_grid]
-qr_size_mm = {{ qr_size_mm }}
-gap_mm = {{ gap_mm }}
-max_cols = {{ max_cols }}
-max_rows = {{ max_rows }}
-text_gap_mm = {{ text_gap_mm }}
+qr_size_mm = 58
+gap_mm = 3
+max_cols = 3
+max_rows = 4
+text_gap_mm = 2.5
 
 [fallback]
-font_family = "{{ fallback_font }}"
-font_size = {{ fallback_size }}
-line_height_mm = {{ fallback_line_height_mm }}
-label_font_family = "{{ fallback_label_font | default(header_font) }}"
-label_size = {{ fallback_label_size | default(fallback_size) }}
-label_style = "{{ fallback_label_style | default("B") }}"
-label_color = {{ fallback_label_color | default([90, 100, 110]) }}
-label_align = "{{ fallback_label_align | default("C") }}"
-group_size = {{ fallback_group_size }}
-line_length = {{ fallback_line_length }}
-line_count = {{ fallback_line_count }}
+font_family = "Courier"
+font_size = 7
+line_height_mm = 3.2
+label_font_family = "Helvetica"
+label_size = 10
+label_style = "B"
+label_color = [15, 30, 45]
+label_align = "C"
+group_size = 4
+line_length = 0
+line_count = 10

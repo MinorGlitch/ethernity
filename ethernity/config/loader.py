@@ -9,8 +9,10 @@ import tomllib
 from ..encoding.qr_payloads import normalize_qr_payload_encoding
 from ..qr.codec import QrConfig
 from .installer import (
+    DEFAULT_KIT_TEMPLATE_PATH,
     DEFAULT_RECOVERY_TEMPLATE_PATH,
     DEFAULT_SHARD_TEMPLATE_PATH,
+    DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
     DEFAULT_TEMPLATE_PATH,
     PACKAGE_ROOT,
     _resolve_config_path,
@@ -24,7 +26,8 @@ class AppConfig:
     template_path: Path
     recovery_template_path: Path
     shard_template_path: Path
-    context: dict[str, object]
+    signing_key_shard_template_path: Path
+    kit_template_path: Path
     qr_config: QrConfig
     qr_payload_encoding: str
 
@@ -55,7 +58,23 @@ def load_app_config(path: str | Path | None = None, *, paper_size: str | None = 
         _coerce_path_value(shard_path_value, DEFAULT_SHARD_TEMPLATE_PATH),
     )
 
-    context = _get_dict(data, "context")
+    signing_key_shard_cfg = _get_dict(data, "signing_key_shard_template")
+    signing_key_shard_path_value = signing_key_shard_cfg.get("path")
+    signing_key_shard_path = _resolve_path(
+        config_dir,
+        _coerce_path_value(
+            signing_key_shard_path_value,
+            DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
+        ),
+    )
+
+    kit_cfg = _get_dict(data, "kit_template")
+    kit_path_value = kit_cfg.get("path")
+    kit_path = _resolve_path(
+        config_dir,
+        _coerce_path_value(kit_path_value, DEFAULT_KIT_TEMPLATE_PATH),
+    )
+
     qr_section = _get_dict(data, "qr")
     qr_config = build_qr_config(qr_section)
     qr_payload_encoding = normalize_qr_payload_encoding(
@@ -65,7 +84,8 @@ def load_app_config(path: str | Path | None = None, *, paper_size: str | None = 
         template_path=template_path,
         recovery_template_path=recovery_path,
         shard_template_path=shard_path,
-        context=context,
+        signing_key_shard_template_path=signing_key_shard_path,
+        kit_template_path=kit_path,
         qr_config=qr_config,
         qr_payload_encoding=qr_payload_encoding,
     )

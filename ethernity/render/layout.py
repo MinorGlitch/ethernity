@@ -69,6 +69,8 @@ def _compute_layout(
     initial_cfg: dict,
     pdf: FPDF,
     key_lines: Sequence[str],
+    *,
+    include_keys: bool = True,
 ) -> tuple[Layout, list[str]]:
     page_cfg = initial_cfg.get("page", {})
     qr_cfg = initial_cfg.get("qr_grid", {})
@@ -104,13 +106,17 @@ def _compute_layout(
     instructions_height = _instructions_height(instructions_cfg)
 
     wrapped_key_lines = list(key_lines)
-    if key_lines:
+    if include_keys and key_lines:
         keys_font = keys_cfg.get("font_family", "Helvetica")
         keys_size = keys_cfg.get("font_size", 8)
         pdf.set_font(keys_font, size=keys_size)
         max_text_width = _text_block_width(keys_cfg, usable_w)
         wrapped_key_lines = _wrap_lines_to_width(pdf, key_lines, max_text_width)
-    keys_height = _lines_height(keys_cfg, wrapped_key_lines)
+    if include_keys:
+        keys_height = _lines_height(keys_cfg, wrapped_key_lines)
+    else:
+        wrapped_key_lines = []
+        keys_height = 0.0
 
     header_height = _header_height(header_cfg, header_min_height)
     content_start_y = margin + header_height
@@ -118,7 +124,7 @@ def _compute_layout(
     if instructions_height > 0:
         content_start_y += instructions_height + instructions_gap
     keys_y = content_start_y
-    if keys_height > 0:
+    if include_keys and keys_height > 0:
         content_start_y += keys_height + keys_gap
     usable_h = page_h - margin - content_start_y
 

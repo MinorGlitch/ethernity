@@ -1,0 +1,1 @@
+"""Bundled recovery kit assets."""

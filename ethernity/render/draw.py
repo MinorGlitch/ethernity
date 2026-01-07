@@ -200,3 +200,62 @@ def _apply_text_color(pdf: FPDF, color: tuple[int, int, int] | None) -> None:
         pdf.set_text_color(0, 0, 0)
         return
     pdf.set_text_color(*color)
+
+
+def _draw_qr_sequence(
+    pdf: FPDF,
+    cfg: dict,
+    slots: Sequence[tuple[int, float, float]],
+    qr_size: float,
+) -> None:
+    if not cfg or not cfg.get("enabled"):
+        return
+
+    line_color = _parse_color(cfg.get("line_color")) or (120, 130, 140)
+    text_color = _parse_color(cfg.get("text_color")) or (15, 30, 45)
+    line_thickness = _cfg_float(cfg, "line_thickness_mm", 0.35)
+    label_offset = _cfg_float(cfg, "label_offset_mm", 0.0)
+    font_family = cfg.get("font_family", "Helvetica")
+    font_size = _cfg_float(cfg, "font_size", 5.0)
+    font_style = cfg.get("font_style", "B")
+
+    pdf.set_draw_color(*line_color)
+    pdf.set_line_width(line_thickness)
+
+    labels: list[tuple[str, float, float]] = []
+    for idx, (frame_idx, x, y) in enumerate(slots):
+        number = str(frame_idx + 1)
+        center_x = x + qr_size / 2
+        center_y = y + qr_size / 2
+        if idx + 1 < len(slots):
+            _next_idx, next_x, next_y = slots[idx + 1]
+            if abs(next_y - y) < 0.01:
+                line_y = center_y
+                line_start = x + qr_size
+                line_end = next_x
+                pdf.line(line_start, line_y, line_end, line_y)
+                labels.append((number, (line_start + line_end) / 2, line_y - label_offset))
+            else:
+                start_y = y + qr_size
+                end_y = next_y
+                mid_y = start_y + (end_y - start_y) / 2
+                next_center_x = next_x + qr_size / 2
+                if abs(next_x - x) < 0.01:
+                    pdf.line(center_x, start_y, center_x, end_y)
+                    labels.append((number, center_x, mid_y - label_offset))
+                else:
+                    pdf.line(center_x, start_y, center_x, mid_y)
+                    pdf.line(center_x, mid_y, next_center_x, mid_y)
+                    pdf.line(next_center_x, mid_y, next_center_x, end_y)
+                    labels.append((number, (center_x + next_center_x) / 2, mid_y - label_offset))
+        else:
+            continue
+
+    pdf.set_font(font_family, style=font_style, size=font_size)
+    _apply_text_color(pdf, text_color)
+    for text, center_x, center_y in labels:
+        text_width = pdf.get_string_width(text)
+        text_height = pdf.font_size
+        pdf.set_xy(center_x - text_width / 2, center_y - text_height / 2)
+        pdf.cell(text_width, text_height, text, align="C")
+    _apply_text_color(pdf, (0, 0, 0))

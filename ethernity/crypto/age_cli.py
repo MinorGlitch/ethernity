@@ -10,7 +10,7 @@ import tempfile
 import time
 import termios
 from dataclasses import dataclass
-from typing import Callable, Iterable, Sequence
+from typing import Callable, Sequence
 
 from .passphrases import DEFAULT_PASSPHRASE_WORDS, generate_passphrase
 
@@ -23,48 +23,6 @@ class AgeCliError(RuntimeError):
     def __str__(self) -> str:
         detail = self.stderr.strip() or "unknown error"
         return f"age failed (exit {self.returncode}): {detail}"
-
-
-@dataclass
-class AgeKeygenError(RuntimeError):
-    cmd: Sequence[str]
-    returncode: int
-    stderr: str
-
-    def __str__(self) -> str:
-        detail = self.stderr.strip() or "unknown error"
-        return f"age-keygen failed (exit {self.returncode}): {detail}"
-
-
-def parse_recipients(text: str) -> list[str]:
-    return _parse_lines(text)
-
-
-def parse_identities(text: str) -> list[str]:
-    return _parse_lines(text)
-
-
-def encrypt_bytes(
-    data: bytes,
-    *,
-    recipients: Sequence[str] | None = None,
-    passphrase: str | None = None,
-    age_path: str = "age",
-) -> bytes:
-    if (recipients is None) == (passphrase is None):
-        raise ValueError("set exactly one of recipients or passphrase")
-
-    if passphrase is not None:
-        return _run_age_encrypt_passphrase(data, passphrase=passphrase, age_path=age_path)
-
-    recipients = list(recipients or [])
-    if not recipients:
-        raise ValueError("recipients cannot be empty")
-    cmd = [age_path]
-    for recipient in recipients:
-        cmd.extend(["-r", recipient])
-
-    return _run_age(cmd, data)
 
 
 def encrypt_bytes_with_passphrase(
@@ -87,70 +45,10 @@ def encrypt_bytes_with_passphrase(
 def decrypt_bytes(
     data: bytes,
     *,
-    identities: Sequence[str] | None = None,
-    passphrase: str | None = None,
+    passphrase: str,
     age_path: str = "age",
 ) -> bytes:
-    if (identities is None) == (passphrase is None):
-        raise ValueError("set exactly one of identities or passphrase")
-
-    if passphrase is not None:
-        return _run_age_decrypt_passphrase(data, passphrase=passphrase, age_path=age_path)
-
-    cmd = [age_path, "-d"]
-    temp_path = None
-
-    try:
-        identities = list(identities or [])
-        if not identities:
-            raise ValueError("identities cannot be empty")
-        temp_path = _write_temp_identities(identities)
-        cmd.extend(["-i", temp_path])
-
-        return _run_age(cmd, data)
-    finally:
-        if temp_path:
-            try:
-                os.remove(temp_path)
-            except OSError:
-                pass
-
-
-def generate_identity(age_keygen_path: str = "age-keygen") -> tuple[str, str]:
-    proc = subprocess.run(
-        [age_keygen_path],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    if proc.returncode != 0:
-        raise AgeKeygenError(
-            cmd=[age_keygen_path],
-            returncode=proc.returncode,
-            stderr=proc.stderr.decode("utf-8", errors="replace"),
-        )
-
-    output = "\n".join(
-        [
-            proc.stdout.decode("utf-8", errors="replace"),
-            proc.stderr.decode("utf-8", errors="replace"),
-        ]
-    )
-    identity = None
-    recipient = None
-    for line in output.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("AGE-SECRET-KEY-"):
-            identity = stripped
-        if "public key:" in stripped:
-            recipient = stripped.split("public key:", 1)[1].strip()
-        if "recipient:" in stripped:
-            recipient = stripped.split("recipient:", 1)[1].strip()
-
-    if not identity or not recipient:
-        raise ValueError("failed to parse age-keygen output")
-
-    return identity, recipient
+    return _run_age_decrypt_passphrase(data, passphrase=passphrase, age_path=age_path)
 
 
 def _run_age(cmd: Sequence[str], data: bytes) -> bytes:
@@ -347,18 +245,3 @@ def _safe_write(fd: int, data: bytes) -> None:
         pass
 
 
-def _parse_lines(text: str) -> list[str]:
-    values: list[str] = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        values.append(stripped)
-    return values
-
-
-def _write_temp_identities(identities: Iterable[str]) -> str:
-    with tempfile.NamedTemporaryFile("w", delete=False) as handle:
-        for identity in identities:
-            handle.write(identity.rstrip() + "\n")
-        return handle.name

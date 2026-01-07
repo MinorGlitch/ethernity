@@ -12,7 +12,7 @@ from .fallback import (
     encode_fallback_lines as _encode_fallback_lines,
 )
 from .framing import DOC_ID_LEN, Frame, VERSION, decode_frame, encode_frame
-DEFAULT_CHUNK_SIZE = 200
+DEFAULT_CHUNK_SIZE = 1024
 
 
 @dataclass(frozen=True)

@@ -19,7 +19,6 @@ def register(app: typer.Typer) -> None:
             "Examples:\n"
             "  ethernity backup -i secrets.txt\n"
             "  ethernity backup --input-dir docs --output-dir backups\n"
-            "  ethernity backup --mode recipient --recipient age1...\n"
         )
     )
     def backup(
@@ -50,12 +49,6 @@ def register(app: typer.Typer) -> None:
             help="Where to write PDFs (default: backup-<doc_id>).",
             rich_help_panel="Outputs",
         ),
-        mode: str | None = typer.Option(
-            None,
-            "--mode",
-            help="Encryption mode: passphrase or recipient.",
-            rich_help_panel="Encryption",
-        ),
         passphrase: str | None = typer.Option(
             None,
             "--passphrase",
@@ -73,24 +66,6 @@ def register(app: typer.Typer) -> None:
             None,
             "--passphrase-words",
             help="Mnemonic word count for generated passphrases (12/15/18/21/24).",
-            rich_help_panel="Encryption",
-        ),
-        recipient: list[str] = typer.Option(
-            None,
-            "--recipient",
-            help="Recipient public key (age1...).",
-            rich_help_panel="Encryption",
-        ),
-        recipients_file: list[str] = typer.Option(
-            None,
-            "--recipients-file",
-            help="File with recipient public keys.",
-            rich_help_panel="Encryption",
-        ),
-        generate_identity: bool = typer.Option(
-            False,
-            "--generate-identity",
-            help="Generate a new age identity.",
             rich_help_panel="Encryption",
         ),
         sealed: bool = typer.Option(
@@ -111,17 +86,26 @@ def register(app: typer.Typer) -> None:
             help="Shard count (k).",
             rich_help_panel="Sharding",
         ),
-        title: str | None = typer.Option(
+        signing_key_mode: str | None = typer.Option(
             None,
-            "--title",
-            help="Override main document title.",
-            rich_help_panel="Outputs",
+            "--signing-key-mode",
+            help=(
+                "Signing key handling for sharded passphrase backups: embedded (inside main doc) or "
+                "sharded (separate signing-key PDFs)."
+            ),
+            rich_help_panel="Sharding",
         ),
-        subtitle: str | None = typer.Option(
+        signing_key_shard_threshold: int | None = typer.Option(
             None,
-            "--subtitle",
-            help="Override main document subtitle.",
-            rich_help_panel="Outputs",
+            "--signing-key-shard-threshold",
+            help="Signing-key shard threshold (n). Requires --signing-key-mode sharded.",
+            rich_help_panel="Sharding",
+        ),
+        signing_key_shard_count: int | None = typer.Option(
+            None,
+            "--signing-key-shard-count",
+            help="Signing-key shard count (k). Requires --signing-key-mode sharded.",
+            rich_help_panel="Sharding",
         ),
         config: str | None = typer.Option(
             None,
@@ -169,18 +153,15 @@ def register(app: typer.Typer) -> None:
             input_dir=[str(path) for path in (input_dir or [])],
             base_dir=base_dir,
             output_dir=output_dir,
-            mode=mode,
             passphrase=passphrase,
             passphrase_generate=passphrase_generate,
             passphrase_words=passphrase_words,
-            recipient=list(recipient or []),
-            recipients_file=list(recipients_file or []),
-            generate_identity=generate_identity,
             sealed=sealed,
             shard_threshold=shard_threshold,
             shard_count=shard_count,
-            title=title,
-            subtitle=subtitle,
+            signing_key_mode=signing_key_mode,
+            signing_key_shard_threshold=signing_key_shard_threshold,
+            signing_key_shard_count=signing_key_shard_count,
             debug=debug_value,
             debug_max_bytes=debug_max_value,
             quiet=quiet_value,

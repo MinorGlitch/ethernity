@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ethernity Recovery Kit</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1426;
+      --panel: #111f36;
+      --ink: #f2f6ff;
+      --muted: #b8c7e2;
+      --accent: #3557b2;
+      --accent-2: #4f7cff;
+      --border: #2a3b5d;
+      --shadow: 0 18px 48px rgba(3, 6, 12, 0.6);
+      --radius: 14px;
+      --font-display: "Avenir Next", "Avenir", "Futura", "Trebuchet MS", sans-serif;
+      --font-body: "Iowan Old Style", "Palatino Linotype", "Palatino", "Georgia", serif;
+      --font-mono: "SFMono-Regular", "Menlo", "Consolas", "Liberation Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font-body);
+      color: var(--ink);
+      background: var(--bg);
+      min-height: 100vh;
+    }
+    .shell {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 20px 28px 40px;
+      display: grid;
+      gap: 16px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      box-shadow: var(--shadow);
+      display: grid;
+      gap: 14px;
+    }
+    .overline {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--accent-2);
+      font-weight: 600;
+      font-family: var(--font-display);
+    }
+    h1 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: clamp(24px, 3vw, 34px);
+      letter-spacing: 0.02em;
+    }
+    h2 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: 18px;
+    }
+    h3 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: 14px;
+      letter-spacing: 0.02em;
+    }
+    .grid {
+      display: grid;
+      gap: 14px;
+    }
+    .grid.two {
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+    .grid.wide {
+      grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    }
+    .card {
+      background: #0f1a30;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .label {
+      font-family: var(--font-display);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+    }
+    .sub {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 110px;
+      flex: 1;
+      resize: vertical;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      padding: 12px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      background: #0f1a30;
+      color: var(--ink);
+      transition: border 0.2s ease, box-shadow 0.2s ease;
+    }
+    input[type="text"],
+    input[type="number"],
+    input[type="password"],
+    select {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+      font-size: 12px;
+      background: #0f1a30;
+      color: var(--ink);
+      font-family: var(--font-display);
+      transition: border 0.2s ease, box-shadow 0.2s ease;
+    }
+    input.code,
+    textarea.code {
+      font-family: var(--font-mono);
+    }
+    textarea:focus,
+    input[type="text"]:focus,
+    input[type="number"]:focus,
+    input[type="password"]:focus,
+    select:focus {
+      outline: none;
+      border-color: rgba(79, 124, 255, 0.6);
+      box-shadow: 0 0 0 3px rgba(79, 124, 255, 0.2);
+    }
+    button {
+      border: none;
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+      font-family: var(--font-display);
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    button.secondary {
+      background: #1a2d4b;
+      border: 1px solid #2f446b;
+      color: var(--ink);
+    }
+    button.ghost {
+      background: transparent;
+      border: 1px solid #3a4f74;
+      color: var(--ink);
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: default;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .source-summary {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px dashed var(--border);
+      background: #0f1a30;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .source-label {
+      font-family: var(--font-display);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+    }
+    .source-detail {
+      font-family: var(--font-mono);
+      color: var(--ink);
+      text-align: right;
+    }
+
+    .status {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      white-space: pre-wrap;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+      min-height: 70px;
+      background: #0f1a30;
+      color: var(--ink);
+    }
+    .status.ok { border-color: rgba(79, 124, 255, 0.6); color: #c7d7ff; }
+    .status.warn { border-color: rgba(245, 158, 11, 0.5); color: #fde68a; }
+    .status.error { border-color: rgba(248, 113, 113, 0.6); color: #fecaca; }
+
+    .diag-list {
+      display: grid;
+      gap: 10px;
+    }
+    .diag-row {
+      display: grid;
+      grid-template-columns: minmax(120px, 170px) minmax(0, 1fr);
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #0f1a30;
+    }
+    .diag-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      font-family: var(--font-display);
+    }
+    .diag-value {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--ink);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      min-width: 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 8px 6px;
+      text-align: left;
+      color: var(--ink);
+    }
+    thead {
+      font-family: var(--font-display);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+    }
+    .empty-row td {
+      color: var(--muted);
+      font-style: italic;
+      padding: 14px 6px;
+    }
+
+    @media (max-width: 800px) {
+      .shell { padding: 18px 16px 34px; }
+    }
+    @media (max-width: 640px) {
+      .diag-row { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .panel {
+        transition: none;
+        animation: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="panel">
+      <div class="overline">Ethernity Recovery Kit</div>
+      <h1>Recovery Console</h1>
+      <p class="sub">Follow the steps below to recover your data.</p>
+    </header>
+
+    <section class="panel">
+      <h2>Step 1: Collect frames</h2>
+      <div class="grid wide">
+        <section class="card">
+          <h3>QR payloads or fallback</h3>
+          <label class="label" for="payload-text">Payload text</label>
+          <textarea id="payload-text" placeholder="Paste QR payloads or fallback text here..."></textarea>
+          <div class="row">
+            <button id="add-payloads">Add payloads</button>
+          </div>
+        </section>
+        <section class="card">
+          <h3>Status &amp; validation</h3>
+          <div class="row">
+            <button id="reset-button" class="ghost">Reset</button>
+            <button id="download-cipher">Download ciphertext.age</button>
+          </div>
+          <div id="frame-status" class="status"></div>
+          <div class="label">Validation</div>
+          <div id="frame-diagnostics"></div>
+        </section>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Step 2: Recover shards</h2>
+      <div class="grid wide">
+        <section class="card">
+          <h3>Shard payloads or fallback</h3>
+          <label class="label" for="shard-payload-text">Shard inputs</label>
+          <textarea id="shard-payload-text" placeholder="Paste shard payloads or fallback text here..."></textarea>
+          <div class="row">
+            <button id="add-shard-payloads">Add shard payloads</button>
+          </div>
+        </section>
+        <section class="card">
+          <h3>Recovered secret</h3>
+          <div class="row">
+            <button id="copy-result" class="secondary">Copy result</button>
+          </div>
+          <label id="recovered-label" class="label">Recovered secret</label>
+          <textarea id="recovered-secret" readonly placeholder="Recovered secret will appear here..."></textarea>
+          <div id="shard-status" class="status"></div>
+          <div class="label">Validation details</div>
+          <label class="label" for="shard-doc-hash">Doc hash (hex)</label>
+          <input id="shard-doc-hash" class="code" type="text" readonly placeholder="32-byte doc hash..." />
+          <label class="label" for="shard-doc-id">Doc ID (hex)</label>
+          <input id="shard-doc-id" class="code" type="text" readonly placeholder="16-byte doc id..." />
+          <label class="label" for="shard-sign-pub">Signing public key (hex)</label>
+          <input id="shard-sign-pub" class="code" type="text" readonly placeholder="32-byte signing public key..." />
+          <div class="label">Shard status</div>
+          <div id="shard-diagnostics"></div>
+        </section>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Step 3: Decrypt &amp; extract</h2>
+      <div class="grid two">
+        <section class="card">
+          <h3>Ciphertext</h3>
+          <div class="label">Ciphertext source</div>
+          <div class="source-summary">
+            <span id="ciphertext-source-label" class="source-label"></span>
+            <span id="ciphertext-source-detail" class="source-detail"></span>
+          </div>
+          <label class="label" for="passphrase-input">Passphrase</label>
+          <input id="passphrase-input" type="password" placeholder="Passphrase..." />
+          <div class="row">
+            <button id="decrypt-button">Decrypt &amp; extract</button>
+          </div>
+          <div id="decrypt-status" class="status"></div>
+        </section>
+        <section class="card">
+          <h3>Envelope</h3>
+          <div class="label">Envelope source</div>
+          <div class="source-summary">
+            <span id="envelope-source-label" class="source-label"></span>
+            <span id="envelope-source-detail" class="source-detail"></span>
+          </div>
+          <div class="row">
+            <button id="extract-button">Extract files</button>
+            <button id="download-envelope" class="secondary">Download envelope</button>
+          </div>
+        </section>
+      </div>
+      <section class="card">
+        <div class="row">
+          <h3>Recovered files</h3>
+          <div id="output-subtitle" class="sub"></div>
+        </div>
+        <div class="row">
+          <button id="clear-output" class="ghost">Clear output</button>
+          <button id="download-zip" class="secondary">Download ZIP</button>
+        </div>
+        <div id="extract-status" class="status"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>Path</th>
+              <th>Size</th>
+              <th>Download</th>
+            </tr>
+          </thead>
+          <tbody id="output-table-body">
+            <tr class="empty-row">
+              <td colspan="3">No files extracted yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </section>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

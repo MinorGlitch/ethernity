@@ -1,7 +1,6 @@
 import argparse
 import tempfile
 import unittest
-from unittest import mock
 from pathlib import Path
 
 from ethernity import cli
@@ -18,8 +17,6 @@ class TestCliRecoverValidation(unittest.TestCase):
             frames_encoding="auto",
             scan=[],
             passphrase="pass",
-            identity=[],
-            identities_file=[],
             shard_fallback_file=[],
             shard_frames_file=[],
             shard_frames_encoding="auto",
@@ -38,8 +35,6 @@ class TestCliRecoverValidation(unittest.TestCase):
             frames_encoding="auto",
             scan=["scan.png"],
             passphrase="pass",
-            identity=[],
-            identities_file=[],
             shard_fallback_file=[],
             shard_frames_file=[],
             shard_frames_encoding="auto",
@@ -50,35 +45,6 @@ class TestCliRecoverValidation(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             cli.run_recover_command(args)
-
-    def test_conflicting_passphrase_and_identity(self) -> None:
-        frame = Frame(
-            version=1,
-            frame_type=FrameType.MAIN_DOCUMENT,
-            doc_id=b"\x01" * DOC_ID_LEN,
-            index=0,
-            total=1,
-            data=b"ciphertext",
-        )
-        args = argparse.Namespace(
-            fallback_file="fallback.txt",
-            frames_file=None,
-            frames_encoding="auto",
-            scan=[],
-            passphrase="pass",
-            identity=["AGE-SECRET-KEY-TEST"],
-            identities_file=[],
-            shard_fallback_file=[],
-            shard_frames_file=[],
-            shard_frames_encoding="auto",
-            output=None,
-            allow_unsigned=False,
-            assume_yes=True,
-            quiet=True,
-        )
-        with mock.patch("ethernity.cli._frames_from_fallback", return_value=[frame]):
-            with self.assertRaises(ValueError):
-                cli.run_recover_command(args)
 
     def test_labeled_fallback_sections_parse(self) -> None:
         doc_id = b"\x10" * DOC_ID_LEN

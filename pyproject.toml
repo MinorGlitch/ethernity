@@ -32,4 +32,4 @@ where = ["."]
 include = ["ethernity", "ethernity.*"]
 
 [tool.setuptools.package-data]
-ethernity = ["templates/*.toml.j2", "config/*.toml"]
+ethernity = ["templates/*.toml.j2", "config/*.toml", "kit/*.html"]

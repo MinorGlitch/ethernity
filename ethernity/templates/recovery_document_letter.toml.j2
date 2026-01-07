@@ -1,0 +1,83 @@
+[page]
+size = "Letter"
+margin_mm = 14
+header_height_mm = 16
+instructions_gap_mm = 4
+keys_gap_mm = 3
+
+[header]
+font_family = "Helvetica"
+title_size = 20
+subtitle_size = 10
+meta_size = 8
+layout = "split"
+split_left_ratio = 0.7
+title_style = "B"
+subtitle_style = "I"
+meta_style = "I"
+title_color = [15, 30, 45]
+subtitle_color = [70, 80, 90]
+meta_color = [120, 130, 140]
+divider_enabled = true
+divider_gap_mm = 2.5
+divider_thickness_mm = 0.5
+divider_color = [15, 30, 45]
+title = "Recovery Document"
+subtitle = "Keys + Text Fallback"
+doc_id_label = "Document ID:"
+doc_id = "{{ doc_id }}"
+page_label = "Page {{ page_num }} / {{ page_total }}"
+
+[instructions]
+font_family = "Helvetica"
+font_size = 9
+line_height_mm = 4.5
+label = "Instructions"
+label_layout = "column"
+label_font_family = "Helvetica"
+label_size = 7
+label_style = "B"
+label_color = [90, 100, 110]
+label_column_mm = 24
+label_gap_mm = 2
+indent_mm = 0
+text_color = [30, 40, 50]
+lines = [
+  "This document contains recovery keys and full text fallback.",
+  "Keep it separate from the QR document.",
+  "Fallback includes AUTH + MAIN sections; keep the labels when transcribing.",
+]
+
+[keys]
+font_family = "Courier"
+font_size = 8
+line_height_mm = 4.0
+first_page_only = true
+label = "Keys"
+label_layout = "column"
+label_font_family = "Helvetica"
+label_size = 7
+label_style = "B"
+label_color = [90, 100, 110]
+label_column_mm = 24
+label_gap_mm = 2
+indent_mm = 0
+text_color = [30, 40, 50]
+lines = [
+{% for line in key_lines %}
+  "{{ line }}"{% if not loop.last %},{% endif %}
+{% endfor %}
+]
+
+[fallback]
+font_family = "Courier"
+font_size = 7
+line_height_mm = 3.2
+label_font_family = "Helvetica"
+label_size = 10
+label_style = "B"
+label_color = [15, 30, 45]
+label_align = "C"
+group_size = 4
+line_length = 0
+line_count = 10

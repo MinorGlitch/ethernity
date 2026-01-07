@@ -52,18 +52,6 @@ def register(app: typer.Typer) -> None:
             help="Passphrase to decrypt with.",
             rich_help_panel="Keys",
         ),
-        identity: list[str] = typer.Option(
-            None,
-            "--identity",
-            help="Age identity (AGE-SECRET-KEY...).",
-            rich_help_panel="Keys",
-        ),
-        identities_file: list[str] = typer.Option(
-            None,
-            "--identities-file",
-            help="File with age identities.",
-            rich_help_panel="Keys",
-        ),
         shard_fallback_file: list[str] = typer.Option(
             None,
             "--shard-fallback-file",
@@ -150,8 +138,6 @@ def register(app: typer.Typer) -> None:
             frames_encoding=frames_encoding,
             scan=list(scan or []),
             passphrase=passphrase,
-            identity=list(identity or []),
-            identities_file=list(identities_file or []),
             shard_fallback_file=list(shard_fallback_file or []),
             shard_frames_file=list(shard_frames_file or []),
             shard_frames_encoding=shard_frames_encoding,

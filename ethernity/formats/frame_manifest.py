@@ -22,7 +22,6 @@ class Manifest:
     key_material: str | None = None
     sealed: bool | None = None
     sharding: dict[str, int] | None = None
-    recipients: tuple[str, ...] = ()
 
     def doc_id_hex(self) -> str:
         return self.doc_id.hex()
@@ -81,7 +80,6 @@ def parse_manifest_frame(frame: Frame) -> Manifest:
         key_material=data.get("key_material"),
         sealed=data.get("sealed"),
         sharding=data.get("sharding"),
-        recipients=tuple(data.get("recipients", ())),
     )
 
 
@@ -113,8 +111,6 @@ def _manifest_dict(
                 "threshold": plan.sharding.threshold,
                 "shares": plan.sharding.shares,
             }
-        if plan.recipients:
-            data["recipients"] = list(plan.recipients)
     return data
 
 

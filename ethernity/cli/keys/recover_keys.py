@@ -2,20 +2,15 @@
 from __future__ import annotations
 
 import argparse
-
-from .keys import _load_identities
 from ..core.log import _warn
 from ...encoding.framing import Frame, FrameType
 
 
-def _resolve_recovery_keys(args: argparse.Namespace) -> tuple[str | None, list[str]]:
+def _resolve_recovery_keys(args: argparse.Namespace) -> str | None:
     passphrase = args.passphrase
-    identities = _load_identities(args.identity, args.identities_file)
-    if passphrase and identities:
-        raise ValueError("use either passphrase or identities, not both")
-    if passphrase or identities:
-        return passphrase, identities
-    raise ValueError("passphrase or identities are required for recovery")
+    if passphrase:
+        return passphrase
+    raise ValueError("passphrase is required for recovery")
 
 
 def _resolve_auth_payload(

@@ -120,6 +120,8 @@ def _wizard_stage(title: str, *, help_text: str | None = None):
     state = WIZARD_STATE
     previous_style = PROMPT_STYLE
     if state is not None and not state.quiet:
+        if state.step > 0 and console.is_terminal:
+            console.clear()
         state.step += 1
         step_label = f"Step {state.step}/{state.total_steps} - {title}"
         console.print(Rule(Text(step_label, style="title"), style="rule", align="left"))
@@ -251,6 +253,7 @@ def _build_outputs_tree(
     qr_path: str,
     recovery_path: str,
     shard_paths: Sequence[str],
+    signing_key_shard_paths: Sequence[str],
 ) -> Tree:
     tree = Tree("Documents", guide_style="muted")
     tree.add(f"[accent]QR document[/accent] {qr_path}")
@@ -258,6 +261,12 @@ def _build_outputs_tree(
     if shard_paths:
         shards = tree.add(f"[accent]Shard documents[/accent] ({len(shard_paths)})")
         for path in shard_paths:
+            shards.add(path)
+    if signing_key_shard_paths:
+        shards = tree.add(
+            f"[accent]Signing-key shard documents[/accent] ({len(signing_key_shard_paths)})"
+        )
+        for path in signing_key_shard_paths:
             shards.add(path)
     return tree
 
@@ -414,7 +423,7 @@ def _prompt_choice_list(
     with Live(
         render(),
         console=console,
-        transient=False,
+        transient=True,
         auto_refresh=False,
         screen=False,
     ) as live:
@@ -452,14 +461,7 @@ def _prompt_choice_list(
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
     if chosen_index is None:
         chosen_index = selected
-    choice_key, choice_label = items[chosen_index]
-    indent = 2 if PROMPT_STYLE == "compact" else 1
-    console.print(
-        Padding(
-            Text(f"Picked: {choice_label} [{choice_key}]", style="accent"),
-            (0, 0, 0, indent),
-        )
-    )
+    choice_key, _choice_label = items[chosen_index]
     return choice_key
 
 
@@ -509,8 +511,6 @@ def _empty_recover_args(
         frames_encoding="auto",
         scan=[],
         passphrase=None,
-        identity=[],
-        identities_file=[],
         shard_fallback_file=[],
         shard_frames_file=[],
         shard_frames_encoding="auto",
@@ -578,6 +578,8 @@ def _validate_path(value: str, *, kind: str) -> str | None:
         return f"path is not a file: {path}"
     if kind == "dir" and not path.is_dir():
         return f"path is not a directory: {path}"
+    if kind == "path" and not (path.is_file() or path.is_dir()):
+        return f"path is not a file or directory: {path}"
     return None
 
 
@@ -616,6 +618,40 @@ def _prompt_required_path(
         return value
 
 
+def _prompt_required_paths(
+    prompt: str,
+    *,
+    kind: str,
+    help_text: str | None = None,
+    allow_stdin: bool = False,
+    empty_message: str | None = None,
+    stdin_message: str | None = None,
+) -> list[str]:
+    if empty_message is None:
+        empty_message = "At least one path is required."
+    if stdin_message is None:
+        stdin_message = "Stdin input is not supported here."
+    while True:
+        values = _prompt_multiline(prompt, help_text=help_text)
+        if not values:
+            console_err.print(f"[error]{empty_message}[/error]")
+            continue
+        if not allow_stdin and "-" in values:
+            console_err.print(f"[error]{stdin_message}[/error]")
+            continue
+        invalid_paths: list[str] = []
+        for value in values:
+            if allow_stdin and value == "-":
+                continue
+            if error := _validate_path(value, kind=kind):
+                invalid_paths.append(error)
+        if invalid_paths:
+            for message in invalid_paths:
+                console_err.print(f"[error]{message}[/error]")
+            continue
+        return values
+
+
 __all__ = [
     "ANIMATIONS_ENABLED",
     "DEBUG_MAX_BYTES_DEFAULT",
@@ -648,6 +684,7 @@ __all__ = [
     "_prompt_optional_secret",
     "_prompt_required",
     "_prompt_required_path",
+    "_prompt_required_paths",
     "_prompt_required_secret",
     "_prompt_yes_no",
     "_progress",

@@ -4,13 +4,11 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
-import sys
 
 from .backup_flow import run_backup as _run_backup
-from ..core.plan import _infer_mode, _validate_backup_args, _validate_passphrase_words
+from ..core.plan import _validate_backup_args, _validate_passphrase_words
 from ..core.types import BackupResult, InputFile
 from ..io.inputs import _load_input_files
-from ..keys.keys import _load_recipients
 from ..ui import (
     DEBUG_MAX_BYTES_DEFAULT,
     console,
@@ -21,12 +19,11 @@ from ..ui import (
     _progress,
     _prompt_choice,
     _prompt_int,
-    _prompt_multiline,
     _prompt_optional,
     _prompt_optional_path,
     _prompt_optional_secret,
     _prompt_required_path,
-    _prompt_required_secret,
+    _prompt_required_paths,
     _prompt_yes_no,
     _warn,
     _wizard_flow,
@@ -35,7 +32,13 @@ from ..ui import (
 from ..ui.summary import _print_backup_summary
 from ...crypto import DEFAULT_PASSPHRASE_WORDS, MNEMONIC_WORD_COUNTS
 from ...config import DEFAULT_PAPER_SIZE, PAPER_CONFIGS, load_app_config
-from ...core.models import DocumentMode, DocumentPlan, KeyMaterial, ShardingConfig
+from ...core.models import (
+    DocumentMode,
+    DocumentPlan,
+    KeyMaterial,
+    ShardingConfig,
+    SigningSeedMode,
+)
 
 
 def _prompt_passphrase_words() -> int:
@@ -69,102 +72,43 @@ def run_wizard(
                 "unsealed so you can add shards later.[/subtitle]"
             )
 
-        recipients = _load_recipients(
-            list(getattr(args, "recipient", []) or []),
-            list(getattr(args, "recipients_file", []) or []),
-        )
         passphrase = getattr(args, "passphrase", None) if args is not None else None
         passphrase_generate = bool(getattr(args, "passphrase_generate", False))
         passphrase_words = getattr(args, "passphrase_words", None) if args is not None else None
-        generate_identity = bool(getattr(args, "generate_identity", False))
 
-        mode_arg = getattr(args, "mode", None) if args is not None else None
-        key_material = KeyMaterial.NONE
+        mode = DocumentMode.PASSPHRASE
+        key_material = KeyMaterial.PASSPHRASE
         with _wizard_stage(
             "Encryption",
             help_text="Choose how the backup is secured.",
         ):
-            if mode_arg:
-                mode = DocumentMode(mode_arg)
-            elif recipients or generate_identity:
-                mode = DocumentMode.RECIPIENT
-            elif passphrase or passphrase_generate:
-                mode = DocumentMode.PASSPHRASE
-            else:
-                mode_choice = _prompt_choice(
-                    "Encryption type",
-                    {
-                        "passphrase": "Passphrase (single secret)",
-                        "recipient": "Recipients (age public keys)",
-                    },
-                    default="passphrase",
-                    help_text=(
-                        "Passphrase is a single secret. Recipients are public keys for shared access."
-                    ),
+            if passphrase is not None:
+                entered = _prompt_optional_secret(
+                    "Enter passphrase",
+                    help_text="Leave blank to keep the passphrase provided via flags.",
                 )
-                mode = (
-                    DocumentMode.PASSPHRASE
-                    if mode_choice == "passphrase"
-                    else DocumentMode.RECIPIENT
-                )
-
-            if mode == DocumentMode.PASSPHRASE:
-                if passphrase is not None:
-                    entered = _prompt_optional_secret(
-                        "Enter passphrase",
-                        help_text="Leave blank to keep the passphrase provided via flags.",
-                    )
-                    if entered is not None:
-                        passphrase = entered
-                else:
-                    help_text = "Leave blank to auto-generate a strong passphrase."
-                    if passphrase_generate:
-                        help_text = (
-                            "Leave blank to auto-generate a strong passphrase (as requested)."
-                        )
-                    passphrase = _prompt_optional_secret("Enter passphrase", help_text=help_text)
-                    if passphrase is None:
-                        if passphrase_words is None:
-                            passphrase_words = _prompt_passphrase_words()
-                        else:
-                            _validate_passphrase_words(passphrase_words)
-                key_material = KeyMaterial.PASSPHRASE
+                if entered is not None:
+                    passphrase = entered
             else:
-                if recipients:
-                    key_material = KeyMaterial.NONE
-                elif generate_identity:
-                    key_material = KeyMaterial.IDENTITY
-                else:
-                    use_existing = _prompt_yes_no(
-                        "Provide recipient public keys",
-                        default=True,
-                        help_text="Recipients are age public keys used for shared access.",
+                help_text = "Leave blank to auto-generate a strong passphrase."
+                if passphrase_generate:
+                    help_text = (
+                        "Leave blank to auto-generate a strong passphrase (as requested)."
                     )
-                    if use_existing:
-                        while True:
-                            recipients = _prompt_multiline(
-                                "Enter recipients (one per line, blank to finish)",
-                                help_text="Each line should be an age public key like age1...",
-                            )
-                            if recipients:
-                                key_material = KeyMaterial.NONE
-                                break
-                            use_identity = _prompt_yes_no(
-                                "No recipients entered. Generate a new identity instead",
-                                default=True,
-                                help_text="Generates a new age identity and uses its public key.",
-                            )
-                            if use_identity:
-                                key_material = KeyMaterial.IDENTITY
-                                break
+                passphrase = _prompt_optional_secret("Enter passphrase", help_text=help_text)
+                if passphrase is None:
+                    if passphrase_words is None:
+                        passphrase_words = _prompt_passphrase_words()
                     else:
-                        key_material = KeyMaterial.IDENTITY
+                        _validate_passphrase_words(passphrase_words)
 
         with _wizard_stage(
             "Recovery options",
             help_text="Split passphrases into shards and decide whether to seal backups.",
         ):
             sharding = None
+            signing_seed_mode = SigningSeedMode.EMBEDDED
+            signing_seed_sharding = None
             if mode == DocumentMode.PASSPHRASE:
                 threshold = getattr(args, "shard_threshold", None) if args is not None else None
                 shares = getattr(args, "shard_count", None) if args is not None else None
@@ -252,6 +196,87 @@ def run_wizard(
             else:
                 debug = debug_override
 
+            if mode == DocumentMode.PASSPHRASE and sharding is not None:
+                mode_arg = getattr(args, "signing_key_mode", None) if args is not None else None
+                if mode_arg:
+                    signing_seed_mode = SigningSeedMode(mode_arg)
+                if sealed:
+                    if signing_seed_mode == SigningSeedMode.SHARDED:
+                        _warn(
+                            "Signing-key sharding is disabled for sealed backups.",
+                            quiet=quiet,
+                        )
+                        signing_seed_mode = SigningSeedMode.EMBEDDED
+                else:
+                    if mode_arg is None:
+                        signing_choice = _prompt_choice(
+                            "Signing key handling",
+                            {
+                                "embedded": "Embedded in main document (default, easiest to mint new shards)",
+                                "sharded": "Separate signing-key shards (requires quorum to mint new shards)",
+                            },
+                            default="embedded",
+                            help_text=(
+                                "Embedded stores the signing key inside the encrypted main document. "
+                                "Sharded keeps it only in separate signing-key shard PDFs."
+                            ),
+                        )
+                        signing_seed_mode = SigningSeedMode(signing_choice)
+                    if signing_seed_mode == SigningSeedMode.SHARDED:
+                        sk_threshold = getattr(args, "signing_key_shard_threshold", None) if args is not None else None
+                        sk_count = getattr(args, "signing_key_shard_count", None) if args is not None else None
+                        if sk_threshold is not None or sk_count is not None:
+                            if sk_threshold is None or sk_count is None:
+                                raise ValueError(
+                                    "both --signing-key-shard-threshold and --signing-key-shard-count are required"
+                                )
+                            use_existing = _prompt_yes_no(
+                                f"Use provided signing-key sharding ({sk_threshold} of {sk_count})",
+                                default=True,
+                                help_text="Choose no to configure a different quorum.",
+                            )
+                            if use_existing:
+                                signing_seed_sharding = ShardingConfig(
+                                    threshold=sk_threshold,
+                                    shares=sk_count,
+                                )
+                            else:
+                                sk_threshold = _prompt_int(
+                                    "Signing-key shard threshold (n)",
+                                    minimum=1,
+                                    help_text="Minimum signing-key shard documents needed to mint new shards.",
+                                )
+                                sk_count = _prompt_int(
+                                    "Signing-key shard count (k)",
+                                    minimum=sk_threshold,
+                                    help_text="Total signing-key shard documents to create.",
+                                )
+                                signing_seed_sharding = ShardingConfig(
+                                    threshold=sk_threshold,
+                                    shares=sk_count,
+                                )
+                        else:
+                            use_same = _prompt_yes_no(
+                                "Use same quorum for signing-key shards",
+                                default=True,
+                                help_text="Choose no to set a different quorum for signing-key shards.",
+                            )
+                            if not use_same:
+                                sk_threshold = _prompt_int(
+                                    "Signing-key shard threshold (n)",
+                                    minimum=1,
+                                    help_text="Minimum signing-key shard documents needed to mint new shards.",
+                                )
+                                sk_count = _prompt_int(
+                                    "Signing-key shard count (k)",
+                                    minimum=sk_threshold,
+                                    help_text="Total signing-key shard documents to create.",
+                                )
+                                signing_seed_sharding = ShardingConfig(
+                                    threshold=sk_threshold,
+                                    shares=sk_count,
+                                )
+
         with _wizard_stage(
             "Layout",
             help_text="Pick the layout preset or a custom config file.",
@@ -277,17 +302,14 @@ def run_wizard(
             elif paper:
                 paper = paper.upper()
 
-        if key_material == KeyMaterial.NONE and sharding is not None:
-            _warn("Sharding requires key material; disabling sharding.", quiet=quiet)
-            sharding = None
-
         plan = DocumentPlan(
             version=1,
             mode=mode,
             key_material=key_material,
             sealed=sealed,
+            signing_seed_mode=signing_seed_mode,
             sharding=sharding,
-            recipients=tuple(recipients),
+            signing_seed_sharding=signing_seed_sharding,
         )
 
         if config_path:
@@ -300,22 +322,13 @@ def run_wizard(
             help_text="Select files to include and where to write the PDFs.",
         ):
             while True:
-                input_values = _prompt_multiline(
+                input_values = _prompt_required_paths(
                     "Input paths (files or directories, blank to finish)",
                     help_text="Enter file or directory paths; blank line to finish.",
+                    kind="path",
+                    empty_message="At least one input path is required.",
+                    stdin_message="Stdin input is not supported in the wizard.",
                 )
-                if not input_values:
-                    console_err.print("[error]At least one input path is required.[/error]")
-                    if not wizard_mode:
-                        raise ValueError("at least one input path is required")
-                    continue
-                if "-" in input_values:
-                    console_err.print(
-                        "[error]Stdin input is not supported in the wizard.[/error]"
-                    )
-                    if not wizard_mode:
-                        raise ValueError("stdin input is not supported in the wizard")
-                    continue
                 base_dir = getattr(args, "base_dir", None) if args is not None else None
                 if base_dir is None:
                     if wizard_mode:
@@ -348,8 +361,6 @@ def run_wizard(
                         )
                 except ValueError as exc:
                     console_err.print(f"[error]{exc}[/error]")
-                    if not wizard_mode:
-                        raise
                     continue
                 break
 
@@ -359,18 +370,34 @@ def run_wizard(
                 review_rows.append(("Passphrase", "provided"))
             else:
                 review_rows.append(("Passphrase", "auto-generated"))
+                if passphrase_words:
+                    review_rows.append(("Passphrase length", f"{passphrase_words} words"))
             plan_sharding = plan.sharding
             if plan_sharding is not None:
                 review_rows.append(
                     ("Sharding", f"{plan_sharding.threshold} of {plan_sharding.shares}")
                 )
+                review_rows.append(("Shard documents", str(plan_sharding.shares)))
+                if plan.sealed:
+                    signing_label = "not stored (sealed backup)"
+                elif plan.signing_seed_mode == SigningSeedMode.EMBEDDED:
+                    signing_label = "embedded in main document"
+                else:
+                    signing_label = "separate signing-key shard documents"
+                review_rows.append(("Signing key handling", signing_label))
+                if plan.signing_seed_mode == SigningSeedMode.SHARDED:
+                    if plan.signing_seed_sharding:
+                        review_rows.append(
+                            (
+                                "Signing-key shards",
+                                f"{plan.signing_seed_sharding.threshold} of {plan.signing_seed_sharding.shares}",
+                            )
+                        )
+                    else:
+                        review_rows.append(("Signing-key shards", "same as passphrase"))
             else:
                 review_rows.append(("Sharding", "disabled"))
-        else:
-            if recipients:
-                review_rows.append(("Recipients", f"{len(recipients)} provided"))
-            elif plan.key_material == KeyMaterial.IDENTITY:
-                review_rows.append(("Recipients", "generated identity"))
+                review_rows.append(("Signing key handling", "not applicable"))
         review_rows.append(("Sealed", "yes" if plan.sealed else "no"))
         review_rows.append(("Debug output", "enabled" if debug else "disabled"))
         review_rows.append(("Inputs", f"{len(input_files)} file(s)"))
@@ -401,23 +428,20 @@ def run_wizard(
                 console.print("Backup cancelled.")
                 return 1
         if args is not None and "passphrase_generate" in vars(args):
-            _validate_backup_args(plan.mode, args, recipients)
+            _validate_backup_args(args)
         result = run_backup(
             input_files=input_files,
             base_dir=resolved_base,
             output_dir=output_dir,
             plan=plan,
-            recipients=recipients,
             passphrase=passphrase,
             passphrase_words=passphrase_words,
             config=config,
-            title_override=getattr(args, "title", None) if args is not None else None,
-            subtitle_override=getattr(args, "subtitle", None) if args is not None else None,
             debug=debug,
             debug_max_bytes=debug_max_bytes,
             quiet=quiet,
         )
-        _print_backup_summary(result, plan, recipients, passphrase, quiet=quiet)
+        _print_backup_summary(result, plan, passphrase, quiet=quiet)
         if not quiet:
             actions = [
                 f"Open QR document: {result.qr_path}",
@@ -426,6 +450,10 @@ def run_wizard(
             if result.shard_paths:
                 actions.append(
                     f"Store {len(result.shard_paths)} shard documents in different locations."
+                )
+            if result.signing_key_shard_paths:
+                actions.append(
+                    f"Store {len(result.signing_key_shard_paths)} signing-key shard documents separately."
                 )
             actions.append("Run `ethernity recover` to verify the backup.")
             _print_completion_panel("Backup complete", actions, quiet=quiet)
@@ -450,11 +478,8 @@ def run_backup_command(args: argparse.Namespace) -> int:
     if not inputs and not input_dirs and not os.isatty(0):
         inputs.append("-")
 
-    mode = DocumentMode(args.mode) if args.mode else _infer_mode(args)
-    recipients = _load_recipients(args.recipient, args.recipients_file)
-    _validate_backup_args(mode, args, recipients)
-    if mode == DocumentMode.RECIPIENT and not recipients and not args.generate_identity:
-        raise ValueError("recipient mode requires --recipient/--recipients-file or --generate-identity")
+    mode = DocumentMode.PASSPHRASE
+    _validate_backup_args(args)
 
     sharding = None
     if args.shard_threshold or args.shard_count:
@@ -462,22 +487,43 @@ def run_backup_command(args: argparse.Namespace) -> int:
             raise ValueError("both --shard-threshold and --shard-count are required")
         sharding = ShardingConfig(threshold=args.shard_threshold, shares=args.shard_count)
 
-    if mode == DocumentMode.PASSPHRASE:
-        key_material = KeyMaterial.PASSPHRASE
-    else:
-        key_material = KeyMaterial.IDENTITY if args.generate_identity else KeyMaterial.NONE
+    key_material = KeyMaterial.PASSPHRASE
 
-    if mode == DocumentMode.RECIPIENT and sharding is not None:
-        print("Sharding is only supported for passphrase mode; disabling sharding.", file=sys.stderr)
-        sharding = None
+    signing_key_mode = getattr(args, "signing_key_mode", None)
+    signing_seed_mode = (
+        SigningSeedMode(signing_key_mode)
+        if signing_key_mode
+        else SigningSeedMode.EMBEDDED
+    )
+    if signing_seed_mode == SigningSeedMode.SHARDED:
+        if sharding is None:
+            raise ValueError("signing key sharding requires passphrase sharding")
+        if args.sealed:
+            _warn(
+                "Signing-key sharding is disabled for sealed backups.",
+                quiet=bool(getattr(args, "quiet", False)),
+            )
+    signing_key_shard_threshold = getattr(args, "signing_key_shard_threshold", None)
+    signing_key_shard_count = getattr(args, "signing_key_shard_count", None)
+    signing_seed_sharding = None
+    if (
+        signing_seed_mode == SigningSeedMode.SHARDED
+        and signing_key_shard_threshold is not None
+        and signing_key_shard_count is not None
+    ):
+        signing_seed_sharding = ShardingConfig(
+            threshold=signing_key_shard_threshold,
+            shares=signing_key_shard_count,
+        )
 
     plan = DocumentPlan(
         version=1,
         mode=mode,
         key_material=key_material,
         sealed=bool(args.sealed),
+        signing_seed_mode=signing_seed_mode,
         sharding=sharding,
-        recipients=tuple(recipients),
+        signing_seed_sharding=signing_seed_sharding,
     )
 
     passphrase = args.passphrase
@@ -500,17 +546,14 @@ def run_backup_command(args: argparse.Namespace) -> int:
         base_dir=resolved_base,
         output_dir=output_dir,
         plan=plan,
-        recipients=recipients,
         passphrase=passphrase,
         passphrase_words=passphrase_words,
         config=config,
-        title_override=args.title,
-        subtitle_override=args.subtitle,
         debug=debug,
         debug_max_bytes=debug_max_bytes,
         quiet=quiet,
     )
-    _print_backup_summary(result, plan, recipients, passphrase, quiet=quiet)
+    _print_backup_summary(result, plan, passphrase, quiet=quiet)
     if not quiet:
         actions = [
             f"Open QR document: {result.qr_path}",
@@ -519,6 +562,10 @@ def run_backup_command(args: argparse.Namespace) -> int:
         if result.shard_paths:
             actions.append(
                 f"Store {len(result.shard_paths)} shard documents in different locations."
+            )
+        if result.signing_key_shard_paths:
+            actions.append(
+                f"Store {len(result.signing_key_shard_paths)} signing-key shard documents separately."
             )
         actions.append("Run `ethernity recover` to verify the backup.")
         _print_completion_panel("Backup complete", actions, quiet=quiet)
@@ -532,12 +579,9 @@ def run_backup(
     base_dir: Path | None,
     output_dir: str | None,
     plan: DocumentPlan,
-    recipients: list[str],
     passphrase: str | None,
     passphrase_words: int | None = None,
     config,
-    title_override: str | None,
-    subtitle_override: str | None,
     debug: bool = False,
     debug_max_bytes: int | None = None,
     quiet: bool = False,
@@ -547,12 +591,9 @@ def run_backup(
         base_dir=base_dir,
         output_dir=output_dir,
         plan=plan,
-        recipients=recipients,
         passphrase=passphrase,
         passphrase_words=passphrase_words,
         config=config,
-        title_override=title_override,
-        subtitle_override=subtitle_override,
         debug=debug,
         debug_max_bytes=debug_max_bytes,
         quiet=quiet,

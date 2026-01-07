@@ -5,20 +5,28 @@ import argparse
 from pathlib import Path
 
 from ...crypto import MNEMONIC_WORD_COUNTS
-from ...core.models import DocumentMode
 
 
-def _infer_mode(args: argparse.Namespace) -> DocumentMode:
-    if args.recipient or args.recipients_file or args.generate_identity:
-        return DocumentMode.RECIPIENT
-    if args.passphrase or args.passphrase_generate:
-        return DocumentMode.PASSPHRASE
-    return DocumentMode.PASSPHRASE
-
-
-def _validate_backup_args(mode: DocumentMode, args: argparse.Namespace, recipients: list[str]) -> None:
+def _validate_backup_args(args: argparse.Namespace) -> None:
     if args.passphrase and args.passphrase_generate:
         raise ValueError("use either --passphrase or --generate-passphrase, not both")
+    signing_key_mode = getattr(args, "signing_key_mode", None)
+    if signing_key_mode is not None and signing_key_mode not in ("embedded", "sharded"):
+        raise ValueError("signing key mode must be 'embedded' or 'sharded'")
+    signing_key_shard_threshold = getattr(args, "signing_key_shard_threshold", None)
+    signing_key_shard_count = getattr(args, "signing_key_shard_count", None)
+    if signing_key_shard_threshold is not None or signing_key_shard_count is not None:
+        if signing_key_shard_threshold is None or signing_key_shard_count is None:
+            raise ValueError("both --signing-key-shard-threshold and --signing-key-shard-count are required")
+        if signing_key_mode != "sharded":
+            raise ValueError("signing key shard quorum requires --signing-key-mode sharded")
+        if signing_key_shard_threshold < 1:
+            raise ValueError("signing key shard threshold must be >= 1")
+        if signing_key_shard_count < signing_key_shard_threshold:
+            raise ValueError("signing key shard count must be >= signing key shard threshold")
+    if signing_key_mode == "sharded":
+        if args.shard_threshold is None or args.shard_count is None:
+            raise ValueError("signing key sharding requires passphrase sharding")
     if args.shard_threshold or args.shard_count:
         if not args.shard_threshold or not args.shard_count:
             raise ValueError("both --shard-threshold and --shard-count are required")
@@ -33,17 +41,7 @@ def _validate_backup_args(mode: DocumentMode, args: argparse.Namespace, recipien
         raise ValueError("base dir is not a directory")
     passphrase_words = getattr(args, "passphrase_words", None)
     if passphrase_words is not None:
-        if mode == DocumentMode.RECIPIENT:
-            raise ValueError("passphrase word count is only valid in passphrase mode")
         _validate_passphrase_words(passphrase_words)
-    if mode == DocumentMode.RECIPIENT:
-        if args.passphrase or args.passphrase_generate:
-            raise ValueError("passphrase options are not valid in recipient mode")
-        if args.generate_identity and recipients:
-            raise ValueError("use either --generate-identity or --recipient/--recipients-file")
-    if mode == DocumentMode.PASSPHRASE:
-        if args.generate_identity or recipients:
-            raise ValueError("recipient options are not valid in passphrase mode")
 
 
 def _validate_passphrase_words(words: int) -> None:

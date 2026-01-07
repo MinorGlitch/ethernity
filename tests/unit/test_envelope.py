@@ -17,6 +17,7 @@ class TestEnvelope(unittest.TestCase):
             format_version=MANIFEST_VERSION,
             created_at=1234.0,
             sealed=False,
+            signing_seed=None,
             files=(
                 ManifestFile(
                     path="payload.bin",
@@ -40,6 +41,7 @@ class TestEnvelope(unittest.TestCase):
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=False,
+            signing_seed=None,
             files=(
                 ManifestFile(
                     path="payload.bin",
@@ -62,6 +64,7 @@ class TestEnvelope(unittest.TestCase):
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=False,
+            signing_seed=None,
             files=(
                 ManifestFile(
                     path="payload.bin",
@@ -83,6 +86,7 @@ class TestEnvelope(unittest.TestCase):
             format_version=MANIFEST_VERSION,
             created_at=0.0,
             sealed=False,
+            signing_seed=None,
             files=(
                 ManifestFile(
                     path="payload.bin",
@@ -119,6 +123,46 @@ class TestEnvelope(unittest.TestCase):
             [file.path for file in decoded_manifest.files],
             ["dir/alpha.txt", "dir/beta.txt"],
         )
+
+    def test_manifest_rejects_invalid_signing_seed(self) -> None:
+        data = [
+            MANIFEST_VERSION,
+            0.0,
+            False,
+            "not-bytes",
+            [""],
+            [[0, "payload.bin", 4, b"\x00" * 32, None]],
+        ]
+        with self.assertRaises(ValueError):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_rejects_unsupported_version(self) -> None:
+        data = [
+            4,
+            0.0,
+            False,
+            None,
+            [""],
+            [[0, "payload.bin", 4, b"\x00" * 32, None]],
+        ]
+        with self.assertRaises(ValueError):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_roundtrip_with_signing_seed(self) -> None:
+        payload = b"hello"
+        parts = [PayloadPart(path="payload.bin", data=payload, mtime=None)]
+        signing_seed = b"\x11" * 32
+        manifest, payload_out = build_manifest_and_payload(
+            parts,
+            sealed=False,
+            created_at=1.0,
+            signing_seed=signing_seed,
+        )
+        self.assertEqual(payload_out, payload)
+        encoded = encode_envelope(payload_out, manifest)
+        decoded_manifest, decoded_payload = decode_envelope(encoded)
+        self.assertEqual(decoded_payload, payload)
+        self.assertEqual(decoded_manifest.signing_seed, signing_seed)
 
 
 if __name__ == "__main__":

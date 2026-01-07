@@ -5,11 +5,14 @@ from ethernity import cli
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, VERSION
 from ethernity.crypto.sharding import (
     KEY_TYPE_PASSPHRASE,
+    KEY_TYPE_SIGNING_SEED,
     ShardPayload,
     decode_shard_payload,
     encode_shard_payload,
     recover_passphrase,
+    recover_signing_seed,
     split_passphrase,
+    split_signing_seed,
 )
 from ethernity.crypto.signing import generate_signing_keypair, sign_shard
 
@@ -83,6 +86,21 @@ class TestSharding(unittest.TestCase):
         with self.assertRaises(ValueError):
             recover_passphrase([shares[0], shares[0]])
 
+    def test_split_and_recover_signing_seed(self) -> None:
+        seed = b"\x5a" * 32
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        shares = split_signing_seed(
+            seed,
+            threshold=2,
+            shares=3,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        recovered = recover_signing_seed([shares[0], shares[2]])
+        self.assertEqual(recovered, seed)
+
     def test_recover_passphrase_rejects_share_count_mismatch(self) -> None:
         passphrase = "share-count-check"
         doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
@@ -119,6 +137,25 @@ class TestSharding(unittest.TestCase):
             shares=3,
             key_type=KEY_TYPE_PASSPHRASE,
             share=b"\x01" * 16,
+            secret_len=16,
+            doc_hash=doc_hash,
+            sign_pub=sign_pub,
+            signature=signature,
+        )
+        encoded = encode_shard_payload(payload)
+        decoded = decode_shard_payload(encoded)
+        self.assertEqual(decoded, payload)
+
+    def test_signing_seed_payload_roundtrip(self) -> None:
+        doc_hash = hashlib.blake2b(b"payload", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        signature = sign_shard(doc_hash, shard_index=1, share=b"\x02" * 16, sign_priv=sign_priv)
+        payload = ShardPayload(
+            index=1,
+            threshold=2,
+            shares=3,
+            key_type=KEY_TYPE_SIGNING_SEED,
+            share=b"\x02" * 16,
             secret_len=16,
             doc_hash=doc_hash,
             sign_pub=sign_pub,

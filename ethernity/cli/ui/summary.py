@@ -21,41 +21,22 @@ if TYPE_CHECKING:
 def _print_backup_summary(
     result: BackupResult,
     plan: DocumentPlan,
-    recipients: list[str],
     passphrase: str | None,
     *,
     quiet: bool,
 ) -> None:
     if quiet:
         return
-    rows: list[tuple[str, str]] = [("Mode", plan.mode.value)]
-    if plan.mode.value == "passphrase":
-        plan_sharding = plan.sharding
-        if plan_sharding is not None:
-            rows.append(("Sharding", f"{plan_sharding.threshold} of {plan_sharding.shares}"))
-            rows.append(("Passphrase", "stored in shard documents"))
-        else:
-            rows.append(("Sharding", "disabled"))
-            if passphrase is None and result.passphrase_used:
-                rows.append(("Passphrase (age-generated)", result.passphrase_used))
-            elif passphrase:
-                rows.append(("Passphrase", "provided by user"))
-            else:
-                rows.append(("Passphrase", "not provided"))
-    else:
-        if recipients:
-            rows.append(("Recipients", f"{len(recipients)} provided"))
-        if result.generated_identity:
-            rows.append(("Generated identity", result.generated_identity))
-        if result.generated_recipient:
-            rows.append(("Generated recipient", result.generated_recipient))
-
     console.print()
-    console.print(_panel("Backup summary", _build_kv_table(rows)))
     console.print(
         _panel(
             "Outputs",
-            _build_outputs_tree(result.qr_path, result.recovery_path, result.shard_paths),
+            _build_outputs_tree(
+                result.qr_path,
+                result.recovery_path,
+                result.shard_paths,
+                result.signing_key_shard_paths,
+            ),
         )
     )
 

@@ -8,7 +8,7 @@ key sharding.
 - Provide paper-friendly backups of age-encrypted data.
 - Support creator-absent recovery (e.g., wills).
 - Make sharding optional and configurable (default is no sharding).
-- Support both age passphrase mode and age recipient (X25519) mode.
+- Use age passphrase mode for encryption.
 - Keep QR density and error correction configurable.
 - Always include a human-readable fallback (z-base-32) in the recovery document.
 
@@ -41,14 +41,9 @@ key sharding.
    - User-supplied passphrase (no key doc needed).
    - Or generated passphrase (recovery doc by default; shards optional).
 
-2) Recipient/Identity Mode
-   - User-supplied recipients (public keys) with no key doc required.
-   - Or generated age identity (private key printed in recovery document).
-
 ### What Gets Sharded
 - Only key material is sharded, not the ciphertext.
 - Passphrase bytes (generated or user-supplied) -> Shamir shards.
-- Recipient/identity mode is not sharded.
 - No-sharding mode stores the passphrase in the recovery document (equivalent to k=1, n=1).
 
 ### Forgery Detection and Binding (Implemented)
@@ -135,7 +130,7 @@ One per shard:
 ### Recovery Document
 Contains:
 - Full z-base-32 fallback for the ciphertext (single stream, paginated).
-- Key material needed for recovery (passphrase, generated identity, or recipient list).
+- Key material needed for recovery (passphrase).
 - doc_id and recovery instructions.
 
 ## Layout and UX
@@ -185,7 +180,7 @@ Key sections to include:
 - `ethernity/cli/flows/`: backup/recover flows + prompt helpers.
 - `ethernity/cli/core/`: shared CLI helpers (types/plan/crypto/log).
 - `ethernity/cli/io/`: input/output helpers (frames/files).
-- `ethernity/cli/keys/`: key material + recovery key verification.
+- `ethernity/cli/keys/`: recovery key verification helpers.
 - `ethernity/cli/ui/`: Rich UI, prompts, summaries/debug.
 - `ethernity/crypto/age_cli.py`: age interface module (subprocess/pty).
 - `ethernity/crypto/passphrases.py`: mnemonic passphrase generation.
@@ -271,7 +266,7 @@ Key sections to include:
 
 ## Implementation Status (Current)
 - Implemented:
-  - age CLI wrapper (encrypt/decrypt, identity generation)
+- age CLI wrapper (passphrase encrypt/decrypt)
   - framing encode/decode + CRC
   - chunking + z-base-32 fallback encoding/decoding
   - envelope + manifest (CBOR arrays, prefix table, sha256 raw bytes, mtime int)
@@ -291,5 +286,4 @@ Key sections to include:
 - Not implemented:
   - base32-in-QR encoding mode
   - expand-shards/reprint commands (incl. sealed enforcement)
-  - recipient/identity sharding
   - prefix-table heuristic (include prefixes only if net savings > overhead)

@@ -26,7 +26,6 @@ from ..ui import (
     _panel,
     _print_completion_panel,
     _prompt_choice,
-    _prompt_multiline,
     _prompt_required_path,
     _prompt_required_secret,
     _prompt_yes_no,
@@ -207,7 +206,6 @@ def run_recover_command(args: argparse.Namespace) -> int:
         doc_hash = _doc_hash_from_ciphertext(ciphertext)
         prompted_for_keys = False
         passphrase: str | None = None
-        identities: list[str] = []
 
         with _wizard_stage(
             "Key material",
@@ -218,15 +216,12 @@ def run_recover_command(args: argparse.Namespace) -> int:
                 and not shard_fallback_files
                 and not shard_frame_files
                 and not args.passphrase
-                and not args.identity
-                and not args.identities_file
             ):
                 while True:
                     key_choice = _prompt_choice(
                         "Decryption method",
                         {
                             "passphrase": "Passphrase",
-                            "identity": "Age identity",
                             "shards": "Shard documents (passphrase shares)",
                         },
                         default="passphrase",
@@ -238,16 +233,6 @@ def run_recover_command(args: argparse.Namespace) -> int:
                             "Enter passphrase",
                             help_text="This is the passphrase used to encrypt the backup.",
                         )
-                        break
-                    if key_choice == "identity":
-                        while True:
-                            identities = _prompt_multiline(
-                                "Enter age identities (one per line, blank to finish)",
-                                help_text="Paste full identity blocks, one per line.",
-                            )
-                            if identities:
-                                break
-                            console_err.print("[error]At least one identity is required.[/error]")
                         break
                     shard_fallback_files, shard_frame_files, shard_frames_encoding = (
                         _prompt_shard_inputs()
@@ -264,8 +249,8 @@ def run_recover_command(args: argparse.Namespace) -> int:
             if not shard_frames:
                 raise ValueError("no shard frames found; check shard inputs and try again")
 
-        if shard_frames and (args.passphrase or args.identity or args.identities_file):
-            raise ValueError("use either shard inputs or passphrase/identities, not both")
+        if shard_frames and args.passphrase:
+            raise ValueError("use either shard inputs or passphrase, not both")
 
         with _status("Verifying auth payload...", quiet=quiet):
             auth_payload, auth_status = _resolve_auth_payload(
@@ -287,16 +272,15 @@ def run_recover_command(args: argparse.Namespace) -> int:
                     expected_sign_pub=sign_pub,
                     allow_unsigned=allow_unsigned,
                 )
-            identities = []
         elif not prompted_for_keys:
-            passphrase, identities = _resolve_recovery_keys(args)
+            passphrase = _resolve_recovery_keys(args)
 
         if interactive and not quiet:
             with _wizard_stage(
                 "Review & confirm",
                 help_text="Confirm the recovery plan before decrypting.",
             ):
-                key_method = "passphrase" if passphrase else "age identity"
+                key_method = "passphrase" if passphrase else "missing"
                 if shard_frames:
                     key_method = "shard documents"
                 auth_label = _format_auth_status(auth_status, allow_unsigned=allow_unsigned)
@@ -334,10 +318,9 @@ def run_recover_command(args: argparse.Namespace) -> int:
     from ...formats.envelope_codec import decode_envelope, extract_payloads
 
     with _status("Decrypting and unpacking payload...", quiet=quiet):
-        if passphrase:
-            plaintext = decrypt_bytes(ciphertext, passphrase=passphrase)
-        else:
-            plaintext = decrypt_bytes(ciphertext, identities=identities)
+        if not passphrase:
+            raise ValueError("passphrase is required for recovery")
+        plaintext = decrypt_bytes(ciphertext, passphrase=passphrase)
 
         manifest, payload = decode_envelope(plaintext)
         extracted = extract_payloads(manifest, payload)

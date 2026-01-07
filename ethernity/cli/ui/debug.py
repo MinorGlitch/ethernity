@@ -44,19 +44,48 @@ def _format_zbase32_lines(
     return lines
 
 
+def _format_hex_lines(
+    data: bytes,
+    *,
+    group_size: int = 4,
+    line_length: int = 80,
+) -> list[str]:
+    encoded = data.hex()
+    if not encoded:
+        return []
+    groups = [encoded[i : i + group_size] for i in range(0, len(encoded), group_size)]
+    lines: list[str] = []
+    current = ""
+    for group in groups:
+        candidate = group if not current else f"{current} {group}"
+        if len(candidate) > line_length:
+            lines.append(current)
+            current = group
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    return lines
+
+
 def _append_signing_key_lines(
     key_lines: list[str],
     *,
     sign_pub: bytes,
-    sign_priv: bytes,
     sealed: bool,
+    stored_in_main: bool,
+    stored_as_shards: bool = False,
 ) -> None:
-    key_lines.append("Signing public key (z-base-32):")
-    key_lines.extend(_format_zbase32_lines(sign_pub))
-    if sealed:
-        return
-    key_lines.append("Signing private key (seed, z-base-32):")
-    key_lines.extend(_format_zbase32_lines(sign_priv))
+    key_lines.append("Signing public key (hex):")
+    key_lines.extend(_format_hex_lines(sign_pub))
+    if stored_in_main:
+        key_lines.append("Signing private key stored in main document.")
+    elif stored_as_shards:
+        key_lines.append("Signing private key stored in separate shard documents.")
+    elif sealed:
+        key_lines.append("Signing private key not stored (sealed backup).")
+    else:
+        key_lines.append("Signing private key not stored.")
 
 
 def _hexdump(data: bytes, *, max_bytes: int | None) -> str:
@@ -90,10 +119,10 @@ def _print_pre_encryption_debug(
     manifest: bytes | EnvelopeManifest,
     envelope: bytes,
     plan: DocumentPlan,
-    recipients: list[str],
     passphrase: str | None,
-    identity: str | None,
-    recipient_public: str | None,
+    signing_seed: bytes | None = None,
+    signing_pub: bytes | None = None,
+    signing_seed_stored: bool | None = None,
     debug_max_bytes: int | None,
 ) -> None:
     if isinstance(manifest, EnvelopeManifest):
@@ -111,16 +140,29 @@ def _print_pre_encryption_debug(
     print(f"- envelope bytes: {len(envelope)}")
     print(f"- mode: {plan.mode.value}")
     print(f"- sealed: {plan.sealed}")
-    if recipients:
-        print(f"- recipients: {len(recipients)}")
     if passphrase:
         print(f"- passphrase: {passphrase}")
-    if identity:
-        print(f"- generated identity: {identity}")
-    if recipient_public:
-        print(f"- generated recipient: {recipient_public}")
     if plan.sharding:
         print(f"- sharding: {plan.sharding.threshold} of {plan.sharding.shares}")
+    if signing_seed is not None or signing_pub is not None:
+        print()
+        print("Signing keys:")
+        if signing_pub is not None:
+            print("Signing public key (hex):")
+            for line in _format_hex_lines(signing_pub, line_length=80):
+                print(line)
+        if signing_seed is not None:
+            if signing_seed_stored is True:
+                label = "Signing seed (stored in envelope)"
+            elif signing_seed_stored is False:
+                label = "Signing seed (not stored in envelope)"
+            else:
+                label = "Signing seed"
+            print(f"{label} (hex):")
+            for line in _format_hex_lines(signing_seed, line_length=80):
+                print(line)
+        elif signing_seed_stored is not None:
+            print(f"Signing seed stored in envelope: {'yes' if signing_seed_stored else 'no'}")
     print()
 
     print("Payload (hex):")

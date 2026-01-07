@@ -1,0 +1,64 @@
+[page]
+size = "Letter"
+margin_mm = 14
+header_height_mm = 16
+instructions_gap_mm = 4
+
+[header]
+font_family = "Helvetica"
+title_size = 20
+subtitle_size = 10
+meta_size = 8
+layout = "split"
+split_left_ratio = 0.7
+title_style = "B"
+subtitle_style = "I"
+meta_style = "I"
+title_color = [15, 30, 45]
+subtitle_color = [70, 80, 90]
+meta_color = [120, 130, 140]
+divider_enabled = true
+divider_gap_mm = 2.5
+divider_thickness_mm = 0.5
+divider_color = [15, 30, 45]
+title = "Recovery Kit"
+subtitle = "Offline HTML bundle"
+doc_id_label = "Document ID:"
+doc_id = "{{ doc_id }}"
+page_label = "Page {{ page_num }} / {{ page_total }}"
+
+[instructions]
+font_family = "Helvetica"
+font_size = 9
+line_height_mm = 4.5
+label = "Instructions"
+label_layout = "column"
+label_font_family = "Helvetica"
+label_size = 7
+label_style = "B"
+label_color = [90, 100, 110]
+label_column_mm = 24
+label_gap_mm = 2
+indent_mm = 0
+text_color = [30, 40, 50]
+lines = [
+  "Scan QR codes in order and concatenate the payloads.",
+  "Write the output to recovery_kit.bundle.html.",
+]
+
+[qr_grid]
+qr_size_mm = 52
+gap_mm = 2
+max_cols = 3
+max_rows = 4
+text_gap_mm = 3
+
+[qr_sequence]
+enabled = true
+font_family = "Helvetica"
+font_size = 12
+font_style = "B"
+text_color = [15, 30, 45]
+line_color = [110, 120, 130]
+line_thickness_mm = 0.7
+label_offset_mm = 2.0

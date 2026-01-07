@@ -9,6 +9,17 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TEMPLATE_PATH = PACKAGE_ROOT / "templates/main_document.toml.j2"
 DEFAULT_RECOVERY_TEMPLATE_PATH = PACKAGE_ROOT / "templates/recovery_document.toml.j2"
 DEFAULT_SHARD_TEMPLATE_PATH = PACKAGE_ROOT / "templates/shard_document.toml.j2"
+DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH = (
+    PACKAGE_ROOT / "templates/signing_key_shard_document.toml.j2"
+)
+DEFAULT_KIT_TEMPLATE_PATH = PACKAGE_ROOT / "templates/kit_document.toml.j2"
+LETTER_TEMPLATE_PATHS = {
+    "main": PACKAGE_ROOT / "templates/main_document_letter.toml.j2",
+    "recovery": PACKAGE_ROOT / "templates/recovery_document_letter.toml.j2",
+    "shard": PACKAGE_ROOT / "templates/shard_document_letter.toml.j2",
+    "signing_key_shard": PACKAGE_ROOT / "templates/signing_key_shard_document_letter.toml.j2",
+    "kit": PACKAGE_ROOT / "templates/kit_document_letter.toml.j2",
+}
 PAPER_CONFIGS = {
     "A4": PACKAGE_ROOT / "config/a4.toml",
     "LETTER": PACKAGE_ROOT / "config/letter.toml",
@@ -29,6 +40,13 @@ USER_TEMPLATE_PATHS = {
     "main": USER_TEMPLATES_DIR / DEFAULT_TEMPLATE_PATH.name,
     "recovery": USER_TEMPLATES_DIR / DEFAULT_RECOVERY_TEMPLATE_PATH.name,
     "shard": USER_TEMPLATES_DIR / DEFAULT_SHARD_TEMPLATE_PATH.name,
+    "signing_key_shard": USER_TEMPLATES_DIR / DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH.name,
+    "kit": USER_TEMPLATES_DIR / DEFAULT_KIT_TEMPLATE_PATH.name,
+    "main_letter": USER_TEMPLATES_DIR / LETTER_TEMPLATE_PATHS["main"].name,
+    "recovery_letter": USER_TEMPLATES_DIR / LETTER_TEMPLATE_PATHS["recovery"].name,
+    "shard_letter": USER_TEMPLATES_DIR / LETTER_TEMPLATE_PATHS["shard"].name,
+    "signing_key_shard_letter": USER_TEMPLATES_DIR / LETTER_TEMPLATE_PATHS["signing_key_shard"].name,
+    "kit_letter": USER_TEMPLATES_DIR / LETTER_TEMPLATE_PATHS["kit"].name,
 }
 USER_REQUIRED_FILES = [*USER_PAPER_CONFIGS.values(), *USER_TEMPLATE_PATHS.values()]
 
@@ -79,6 +97,13 @@ def _ensure_user_config() -> bool:
         _copy_if_missing(DEFAULT_TEMPLATE_PATH, USER_TEMPLATE_PATHS["main"])
         _copy_if_missing(DEFAULT_RECOVERY_TEMPLATE_PATH, USER_TEMPLATE_PATHS["recovery"])
         _copy_if_missing(DEFAULT_SHARD_TEMPLATE_PATH, USER_TEMPLATE_PATHS["shard"])
+        _copy_if_missing(
+            DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
+            USER_TEMPLATE_PATHS["signing_key_shard"],
+        )
+        _copy_if_missing(DEFAULT_KIT_TEMPLATE_PATH, USER_TEMPLATE_PATHS["kit"])
+        for key, src in LETTER_TEMPLATE_PATHS.items():
+            _copy_if_missing(src, USER_TEMPLATE_PATHS[f"{key}_letter"])
         for key, src in PAPER_CONFIGS.items():
             _copy_if_missing(src, USER_PAPER_CONFIGS[key])
     except OSError:

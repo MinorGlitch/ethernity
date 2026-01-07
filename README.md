@@ -36,3 +36,11 @@ from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.render import RenderInputs, render_frames_to_pdf
 from ethernity.formats import encode_envelope, EnvelopeManifest
 ```
+
+### Sharding signing key
+
+For unsealed passphrase backups with sharding enabled, Ethernity embeds the shard signing
+seed inside the encrypted envelope manifest by default. If you want stronger separation,
+use `--signing-key-mode sharded` to emit separate signing-key shard PDFs and keep the seed
+out of the main envelope. You can also set a different quorum for signing-key shards with
+`--signing-key-shard-threshold` and `--signing-key-shard-count` (defaults to the passphrase quorum).

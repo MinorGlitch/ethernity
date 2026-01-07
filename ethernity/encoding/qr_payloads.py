@@ -33,13 +33,18 @@ def decode_qr_payload(payload: bytes | str, encoding: str) -> bytes:
             return payload
         return payload.encode("utf-8")
     if isinstance(payload, bytes):
-        text = payload.decode("ascii")
+        try:
+            text = payload.decode("ascii")
+        except UnicodeDecodeError:
+            return payload
     else:
         text = payload
     cleaned = "".join(text.split())
     try:
         return base64.b64decode(_pad_base64(cleaned), validate=True)
     except (binascii.Error, ValueError) as exc:
+        if isinstance(payload, bytes):
+            return payload
         raise ValueError("invalid base64 QR payload") from exc
 
 
