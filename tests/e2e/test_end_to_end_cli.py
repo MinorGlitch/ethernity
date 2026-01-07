@@ -22,6 +22,7 @@ class TestEndToEndCli(unittest.TestCase):
             input_path.write_text("backup cli payload", encoding="utf-8")
             output_dir = tmp_path / "backup"
             repo_root = Path(__file__).resolve().parents[2]
+            config_path = repo_root / "ethernity" / "config" / "a4.toml"
 
             with prepend_path(tmp_path):
                 env = os.environ.copy()
@@ -31,8 +32,8 @@ class TestEndToEndCli(unittest.TestCase):
                         sys.executable,
                         "-m",
                         "ethernity.cli",
-                        "--paper",
-                        "A4",
+                        "--config",
+                        str(config_path),
                         "backup",
                         "--input",
                         str(input_path),
@@ -59,6 +60,7 @@ class TestEndToEndCli(unittest.TestCase):
             input_path.write_text("backup cli payload", encoding="utf-8")
             output_dir = tmp_path / "backup"
             repo_root = Path(__file__).resolve().parents[2]
+            config_path = repo_root / "ethernity" / "config" / "a4.toml"
 
             with prepend_path(tmp_path):
                 env = os.environ.copy()
@@ -68,8 +70,8 @@ class TestEndToEndCli(unittest.TestCase):
                         sys.executable,
                         "-m",
                         "ethernity.cli",
-                        "--paper",
-                        "A4",
+                        "--config",
+                        str(config_path),
                         "backup",
                         "--input",
                         str(input_path),

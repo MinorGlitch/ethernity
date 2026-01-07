@@ -5,6 +5,26 @@ from pathlib import Path
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
 from ethernity.render import RenderInputs, render_frames_to_pdf
 
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:  # pragma: no cover - optional dependency for tests
+    sync_playwright = None
+
+
+def _playwright_ready() -> bool:
+    if sync_playwright is None:
+        return False
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            browser.close()
+        return True
+    except Exception:
+        return False
+
+
+_PLAYWRIGHT_READY = _playwright_ready()
+
 
 class TestPdfRender(unittest.TestCase):
     def test_pdf_output(self) -> None:
@@ -19,37 +39,15 @@ class TestPdfRender(unittest.TestCase):
             )
         ]
 
+        if not _PLAYWRIGHT_READY:
+            self.skipTest("playwright not available")
+
         context = {
             "paper_size": "A4",
-            "margin_mm": 12,
-            "header_height_mm": 10,
-            "instructions_gap_mm": 2,
-            "header_font": "Helvetica",
-            "title_size": 14,
-            "subtitle_size": 10,
-            "meta_size": 8,
-            "title": "Main Document",
-            "subtitle": "Test Backup",
-            "doc_id": frames[0].doc_id.hex(),
-            "instructions_font": "Helvetica",
-            "instructions_size": 8,
-            "instructions_line_height_mm": 4,
-            "instructions": ["Scan all QR codes.", "Use text fallback if needed."],
-            "qr_size_mm": 35,
-            "gap_mm": 6,
-            "max_cols": 3,
-            "max_rows": 4,
-            "text_gap_mm": 2,
-            "fallback_font": "Courier",
-            "fallback_size": 8,
-            "fallback_line_height_mm": 3.5,
-            "fallback_group_size": 4,
-            "fallback_line_length": 80,
-            "fallback_line_count": 6,
         }
 
         template_path = (
-            Path(__file__).resolve().parents[2] / "ethernity" / "templates" / "main_document.toml.j2"
+            Path(__file__).resolve().parents[2] / "ethernity" / "templates" / "main_document.html.j2"
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "out.pdf"
@@ -58,7 +56,7 @@ class TestPdfRender(unittest.TestCase):
                 template_path=template_path,
                 output_path=output_path,
                 context=context,
-                fallback_payload=frames[0].data,
+                render_fallback=False,
             )
             render_frames_to_pdf(inputs)
 

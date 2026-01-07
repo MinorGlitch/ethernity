@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+    :root {
+      --ink: rgb(15, 30, 45);
+      --ink-muted: rgb(70, 80, 90);
+      --ink-soft: rgb(120, 130, 140);
+      --ink-label: rgb(90, 100, 110);
+      --ink-body: rgb(30, 40, 50);
+      --accent: rgb(15, 30, 45);
+      --panel: #eef3f9;
+      --panel-border: #cdd9e6;
+      --paper-top: #ffffff;
+      --paper-bottom: #f1f6fc;
+      --grid: rgba(15, 31, 46, 0.04);
+      --qr-border: #c6d2e0;
+      --shadow: rgba(15, 31, 46, 0.18);
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: "Trebuchet MS", "Gill Sans", Tahoma, sans-serif;
+      color: var(--ink);
+      background: #ffffff;
+    }
+    .page {
+      position: relative;
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      page-break-after: always;
+      background: #ffffff;
+      overflow: hidden;
+    }
+    .page:last-child {
+      page-break-after: auto;
+    }
+    .header {
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      top: {{ margin_mm }}mm;
+      width: {{ usable_width_mm }}mm;
+      display: flex;
+      justify-content: space-between;
+      gap: 8mm;
+    }
+    .header-left {
+      width: 70%;
+    }
+    .header-right {
+      width: 30%;
+      text-align: right;
+      font-size: 8pt;
+      font-style: italic;
+      color: var(--ink-soft);
+      line-height: 1.2;
+    }
+    .header-right div:first-child {
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-style: normal;
+      font-weight: 600;
+      color: var(--ink-muted);
+      font-size: 7pt;
+    }
+    .header-right div:last-child {
+      font-family: "Courier New", Courier, monospace;
+      font-style: normal;
+      color: var(--ink);
+    }
+    .title {
+      font-size: 20pt;
+      font-weight: bold;
+      font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+      color: var(--ink);
+      line-height: 1.2;
+      letter-spacing: 0.02em;
+    }
+    .subtitle {
+      font-size: 10pt;
+      font-style: italic;
+      color: var(--ink-muted);
+      line-height: 1.2;
+    }
+    .divider {
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      width: {{ usable_width_mm }}mm;
+      height: 0.5mm;
+      background: linear-gradient(90deg, var(--accent), rgba(15, 31, 46, 0));
+    }
+    .instructions {
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      width: {{ usable_width_mm }}mm;
+      display: grid;
+      grid-template-columns: 24mm auto;
+      column-gap: 2mm;
+      font-size: 9pt;
+      line-height: 4.5mm;
+      color: var(--ink-body);
+      background:
+        linear-gradient(
+          90deg,
+          var(--accent) 0,
+          var(--accent) 1.8mm,
+          transparent 1.8mm,
+          transparent 100%
+        ),
+        var(--panel);
+      box-shadow: 0 0 0 0.35mm var(--panel-border);
+      border-radius: 2mm;
+      padding: 0 2.5mm 0 3.2mm;
+    }
+    .instructions-label {
+      font-size: 7pt;
+      font-weight: bold;
+      color: var(--ink-label);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .qr-grid {
+      position: absolute;
+      border: 0.35mm solid var(--panel-border);
+      border-radius: 2mm;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .qr {
+      position: absolute;
+      image-rendering: pixelated;
+      z-index: 1;
+    }
+    .fallback {
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      width: {{ fallback.width_mm }}mm;
+      font-family: "Courier New", Courier, monospace;
+      font-size: 10pt;
+      line-height: 4.2mm;
+      color: var(--ink);
+      background: #ffffff;
+      padding: 0 2mm;
+      overflow: hidden;
+      box-shadow: 0 0 0 0.35mm var(--panel-border);
+      border-radius: 2mm;
+    }
+    .fallback-title {
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--ink-muted);
+    }
+    .fallback-line {
+      line-height: 4.2mm;
+      margin: 0;
+    }
+  </style>
+</head>
+<body>
+{% for page in pages %}
+  <section class="page">
+    <div class="header">
+      <div class="header-left">
+        <div class="title">Signing Key Shard</div>
+        <div class="subtitle">Signing key shard {{ shard_index }} of {{ shard_total }}</div>
+      </div>
+      <div class="header-right">
+        <div>{{ page.page_label }}</div>
+        <div>Document ID: {{ doc_id }}</div>
+      </div>
+    </div>
+    <div class="divider" style="top: {{ page.divider_y_mm }}mm;"></div>
+
+    {% if page.page_num == 1 %}
+    <div class="instructions" style="top: {{ page.instructions_y_mm }}mm;">
+      <div class="instructions-label">Instructions</div>
+      <div>
+        <div>This document is one shard of the signing key.</div>
+        <div>Keep signing-key shards separate and secure.</div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if page.qr_outline %}
+    <div
+      class="qr-grid"
+      style="left: {{ page.qr_outline.x_mm }}mm; top: {{ page.qr_outline.y_mm }}mm; width: {{ page.qr_outline.width_mm }}mm; height: {{ page.qr_outline.height_mm }}mm;"
+    ></div>
+    {% endif %}
+
+    {% for slot in page.qr_slots %}
+    <img
+      class="qr"
+      src="{{ slot.data_uri }}"
+      style="left: {{ slot.x_mm }}mm; top: {{ slot.y_mm }}mm; width: {{ slot.size_mm }}mm; height: {{ slot.size_mm }}mm;"
+      alt="QR code {{ slot.index }}"
+    >
+    {% endfor %}
+
+    {% if page.fallback_blocks %}
+      {%- for block in page.fallback_blocks %}
+      <div
+        class="fallback"
+        style="top: {{ block.y_mm }}mm; height: {{ block.height_mm }}mm;"
+      >
+        {%- if block.title %}
+        <div class="fallback-title">{{ block.title }}</div>
+        {%- endif %}
+        {%- for line in block.lines %}
+        <div class="fallback-line">{{ line }}</div>
+        {%- endfor %}
+      </div>
+      {%- endfor %}
+    {% endif %}
+  </section>
+{% endfor %}
+</body>
+</html>

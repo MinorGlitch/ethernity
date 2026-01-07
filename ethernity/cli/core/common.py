@@ -43,6 +43,15 @@ def _resolve_config_and_paper(
     return config_value, paper_value
 
 
+def _paper_callback(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().upper()
+    if normalized not in {"A4", "LETTER"}:
+        raise typer.BadParameter("paper must be A4 or LETTER")
+    return normalized
+
+
 def _get_version() -> str:
     try:
         return importlib.metadata.version("ethernity")

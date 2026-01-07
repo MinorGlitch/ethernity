@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-import tomllib
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
@@ -20,9 +19,8 @@ def _get_env(directory: Path) -> Environment:
     )
 
 
-def render_template(path: str | Path, context: dict[str, object]) -> dict:
+def render_template(path: str | Path, context: dict[str, object]) -> str:
     template_path = Path(path)
     env = _get_env(template_path.parent.resolve())
     template = env.get_template(template_path.name)
-    rendered = template.render(**context)
-    return tomllib.loads(rendered)
+    return template.render(**context)

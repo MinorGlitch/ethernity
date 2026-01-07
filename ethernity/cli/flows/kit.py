@@ -64,7 +64,7 @@ def render_kit_qr_document(
         for index in range(len(chunks))
     ]
 
-    context: dict[str, object] = {}
+    context: dict[str, object] = {"paper_size": config.paper_size}
 
     output = Path(output_path) if output_path else Path(DEFAULT_KIT_OUTPUT)
     inputs = RenderInputs(

@@ -21,7 +21,7 @@ class TestPdfLayout(unittest.TestCase):
             )
         ]
         template_path = (
-            Path(__file__).resolve().parents[2] / "ethernity" / "templates" / "main_document.toml.j2"
+            Path(__file__).resolve().parents[2] / "ethernity" / "templates" / "main_document.html.j2"
         )
         inputs = RenderInputs(
             frames=frames,
@@ -74,7 +74,7 @@ class TestPdfLayout(unittest.TestCase):
             )
         ]
         template_path = (
-            Path(__file__).resolve().parents[2] / "ethernity" / "templates" / "main_document.toml.j2"
+            Path(__file__).resolve().parents[2] / "ethernity" / "templates" / "main_document.html.j2"
         )
         inputs = RenderInputs(
             frames=frames,

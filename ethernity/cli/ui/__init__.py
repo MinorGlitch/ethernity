@@ -308,14 +308,14 @@ def _print_prompt_header(prompt: str, help_text: str | None) -> None:
 
 def _prompt_optional_secret(prompt: str, *, help_text: str | None = None) -> str | None:
     _print_prompt_header(prompt, help_text)
-    value = Prompt.ask("> ", password=True, default="", show_default=False)
+    value = Prompt.ask("> ", password=True, default="", show_default=False, console=console)
     return value or None
 
 
 def _prompt_required_secret(prompt: str, *, help_text: str | None = None) -> str:
     _print_prompt_header(prompt, help_text)
     while True:
-        value = Prompt.ask("> ", password=True, default="", show_default=False)
+        value = Prompt.ask("> ", password=True, default="", show_default=False, console=console)
         if value:
             return value
         console_err.print("[red]Passphrase cannot be empty.[/red]")
@@ -340,7 +340,12 @@ def _prompt_choice(
     for key, label in items:
         console.print(f"- [bold]{key}[/bold]: {label}")
     while True:
-        value = Prompt.ask("> ", default=default or "", show_default=bool(default)).strip().lower()
+        value = Prompt.ask(
+            "> ",
+            default=default or "",
+            show_default=bool(default),
+            console=console,
+        ).strip().lower()
         if not value and default:
             return default
         if value in choices:
@@ -358,7 +363,7 @@ def _prompt_yes_no(prompt: str, *, default: bool, help_text: str | None = None) 
         )
         return choice == "yes"
     _print_prompt_header(prompt, help_text)
-    return Confirm.ask("> ", default=default)
+    return Confirm.ask("> ", default=default, console=console)
 
 
 def _supports_live_prompts() -> bool:
@@ -474,7 +479,12 @@ def _prompt_choice_fallback(
     for key, label in items:
         console.print(f"- [bold]{key}[/bold]: {label}")
     while True:
-        value = Prompt.ask("> ", default=default or "", show_default=bool(default)).strip().lower()
+        value = Prompt.ask(
+            "> ",
+            default=default or "",
+            show_default=bool(default),
+            console=console,
+        ).strip().lower()
         if not value and default:
             return default
         if value in choices:
@@ -529,7 +539,7 @@ def _prompt_int(prompt: str, *, minimum: int = 1, help_text: str | None = None) 
         help_text = f"Enter a whole number >= {minimum}."
     _print_prompt_header(prompt, help_text)
     while True:
-        raw = Prompt.ask("> ", default="", show_default=False)
+        raw = Prompt.ask("> ", default="", show_default=False, console=console)
         if not raw.strip():
             console_err.print("[red]This value is required.[/red]")
             continue
@@ -546,14 +556,14 @@ def _prompt_int(prompt: str, *, minimum: int = 1, help_text: str | None = None) 
 
 def _prompt_optional(prompt: str, *, help_text: str | None = None) -> str | None:
     _print_prompt_header(prompt, help_text)
-    value = Prompt.ask("> ", default="", show_default=False)
+    value = Prompt.ask("> ", default="", show_default=False, console=console)
     return value.strip() or None
 
 
 def _prompt_required(prompt: str, *, help_text: str | None = None) -> str:
     _print_prompt_header(prompt, help_text)
     while True:
-        value = Prompt.ask("> ", default="", show_default=False)
+        value = Prompt.ask("> ", default="", show_default=False, console=console)
         if value.strip():
             return value.strip()
         console_err.print("[red]This value is required.[/red]")
@@ -563,7 +573,7 @@ def _prompt_multiline(prompt: str, *, help_text: str | None = None) -> list[str]
     _print_prompt_header(prompt, help_text)
     items: list[str] = []
     while True:
-        line = Prompt.ask("> ", default="", show_default=False)
+        line = Prompt.ask("> ", default="", show_default=False, console=console)
         if not line.strip():
             break
         items.append(line.strip())

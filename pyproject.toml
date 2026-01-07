@@ -18,6 +18,7 @@ dependencies = [
     "segno",
     "zxing-cpp",
     "coverage>=7.13.1",
+    "playwright>=1.57.0",
 ]
 
 [project.scripts]
@@ -32,4 +33,4 @@ where = ["."]
 include = ["ethernity", "ethernity.*"]
 
 [tool.setuptools.package-data]
-ethernity = ["templates/*.toml.j2", "config/*.toml", "kit/*.html"]
+ethernity = ["templates/*.html.j2", "config/*.toml", "kit/*.html"]

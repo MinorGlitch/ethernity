@@ -1,17 +1,20 @@
+[page]
+size = "A4"
+
 [template]
-path = "templates/main_document.toml.j2"
+path = "templates/main_document.html.j2"
 
 [recovery_template]
-path = "templates/recovery_document.toml.j2"
+path = "templates/recovery_document.html.j2"
 
 [shard_template]
-path = "templates/shard_document.toml.j2"
+path = "templates/shard_document.html.j2"
 
 [signing_key_shard_template]
-path = "templates/signing_key_shard_document.toml.j2"
+path = "templates/signing_key_shard_document.html.j2"
 
 [kit_template]
-path = "templates/kit_document.toml.j2"
+path = "templates/kit_document.html.j2"
 
 [qr]
 error = "L"

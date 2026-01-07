@@ -19,15 +19,6 @@ from ethernity.encoding.qr_payloads import decode_qr_payload, encode_qr_payload,
 from ethernity.qr.scan import QrScanError, scan_qr_payloads
 
 
-def _context_int(context: dict[str, object], key: str, default: int) -> int:
-    value = context.get(key)
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, (int, float, str)):
-        return int(value)
-    return default
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Scan demo: render QR PDF then recover it.")
     parser.add_argument("--config", help="Path to a TOML config file.")
@@ -37,9 +28,7 @@ def main() -> int:
 
     config = load_app_config(args.config, paper_size=args.paper or DEFAULT_PAPER_SIZE)
 
-    max_cols = _context_int(config.context, "max_cols", 3)
-    max_rows = _context_int(config.context, "max_rows", 3)
-    grid_total = max_cols * max_rows
+    grid_total = 12
     if grid_total <= 0:
         raise RuntimeError("invalid grid size")
 
@@ -53,10 +42,7 @@ def main() -> int:
     qr_path = output_dir / "qr_document.pdf"
     recovered_path = output_dir / "recovered_payload.bin"
 
-    context = dict(config.context)
-    context["title"] = "Scan Demo"
-    context["subtitle"] = "QR Document"
-    context["doc_id"] = doc_id.hex()
+    context = {"paper_size": config.paper_size}
     payload_encoding = normalize_qr_payload_encoding(config.qr_payload_encoding)
     qr_payloads = [encode_qr_payload(encode_frame(frame), payload_encoding) for frame in qr_frames]
     render_frames_to_pdf(

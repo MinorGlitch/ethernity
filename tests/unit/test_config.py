@@ -7,6 +7,7 @@ from ethernity.config import (
     DEFAULT_SHARD_TEMPLATE_PATH,
     DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
     DEFAULT_TEMPLATE_PATH,
+    DEFAULT_PAPER_SIZE,
     load_app_config,
 )
 
@@ -25,6 +26,9 @@ path = 789
 
 [signing_key_shard_template]
 path = 1011
+
+[page]
+size = "A4"
 
 [qr]
 scale = "6"
@@ -50,6 +54,7 @@ light = [4, 5, 6, 7]
             config.signing_key_shard_template_path,
             DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
         )
+        self.assertEqual(config.paper_size, DEFAULT_PAPER_SIZE)
         self.assertEqual(config.qr_payload_encoding, "binary")
         self.assertEqual(config.qr_config.scale, 6)
         self.assertEqual(config.qr_config.border, 2)

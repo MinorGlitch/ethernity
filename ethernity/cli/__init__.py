@@ -10,5 +10,5 @@ from .io.inputs import _load_input_files
 from .keys.recover_keys import _passphrase_from_shard_frames
 from ..crypto import decrypt_bytes, encrypt_bytes_with_passphrase
 
-AUTH_FALLBACK_LABEL = "=== AUTH FRAME (z-base-32) ==="
-MAIN_FALLBACK_LABEL = "=== MAIN FRAME (z-base-32) ==="
+AUTH_FALLBACK_LABEL = "Auth Frame (z-base-32)"
+MAIN_FALLBACK_LABEL = "Main Frame (z-base-32)"

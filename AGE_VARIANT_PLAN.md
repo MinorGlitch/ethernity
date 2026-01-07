@@ -188,16 +188,14 @@ Key sections to include:
 - `ethernity/encoding/chunking.py`: chunk sizing, z-base-32 fallback formatting.
 - `ethernity/qr/codec.py`: QR generation helpers (segno integration).
 - `ethernity/qr/scan.py`: QR scanning helpers (zxing-cpp + PIL).
-- `ethernity/render/pdf_render.py`: PDF rendering orchestrator (fpdf2).
-- `ethernity/render/layout.py`: PDF layout calculations + fallback line generation.
-- `ethernity/render/draw.py`: header/instructions/key drawing helpers.
-- `ethernity/render/fallback.py`: fallback text drawing helpers.
-- `ethernity/render/templating.py`: Jinja2 rendering for TOML templates.
+- `ethernity/render/pdf_render.py`: PDF rendering orchestrator (Playwright).
+- `ethernity/render/layout.py`: Layout calculations + fallback line generation.
+- `ethernity/render/templating.py`: Jinja2 rendering for HTML templates.
 - `ethernity/formats/envelope_types.py`: envelope manifest types + CBOR helpers.
 - `ethernity/formats/envelope_codec.py`: envelope encode/decode + payload builders.
 - `ethernity/config/loader.py`: TOML config loader + QR parsing.
 - `ethernity/config/installer.py`: default config/template installer.
-- `ethernity/templates/`: layout templates (`.toml.j2`) for main/recovery/shard docs.
+- `ethernity/templates/`: layout templates (`.html.j2`) for main/recovery/shard docs.
 - `ethernity/config/`: preset TOML configs (A4 default, Letter optional).
 - `demo/render_demo.py`: sample PDF demo.
 - `demo/scan_demo.py`: scan demo harness.
@@ -218,6 +216,7 @@ Key sections to include:
 - pypdf (tests/inspection)
 - zxing-cpp (optional QR scanning)
 - coverage (tests)
+- playwright (HTML -> PDF rendering)
 
 ## External Requirements
 - age CLI available on PATH (used via subprocess).

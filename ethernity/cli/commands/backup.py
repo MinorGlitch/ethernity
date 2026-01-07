@@ -4,10 +4,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
+from typing import Literal
 
 import typer
 
-from ..core.common import _ctx_value, _resolve_config_and_paper, _run_cli
+from ..core.common import _ctx_value, _paper_callback, _resolve_config_and_paper, _run_cli
 from ..flows.backup import _should_use_wizard_for_backup, run_backup_command, run_wizard
 from ..ui import DEBUG_MAX_BYTES_DEFAULT, console_err
 
@@ -23,14 +24,14 @@ def register(app: typer.Typer) -> None:
     )
     def backup(
         ctx: typer.Context,
-        input: list[Path] = typer.Option(
+        input: list[Path] | None = typer.Option(
             None,
             "--input",
             "-i",
             help="File to include (repeatable, use - for stdin).",
             rich_help_panel="Inputs",
         ),
-        input_dir: list[Path] = typer.Option(
+        input_dir: list[Path] | None = typer.Option(
             None,
             "--input-dir",
             help="Folder to include (recursive, repeatable).",
@@ -86,7 +87,7 @@ def register(app: typer.Typer) -> None:
             help="Shard count (k).",
             rich_help_panel="Sharding",
         ),
-        signing_key_mode: str | None = typer.Option(
+        signing_key_mode: Literal["embedded", "sharded"] | None = typer.Option(
             None,
             "--signing-key-mode",
             help=(
@@ -117,6 +118,7 @@ def register(app: typer.Typer) -> None:
             None,
             "--paper",
             help="Paper preset (A4/LETTER).",
+            callback=_paper_callback,
             rich_help_panel="Config",
         ),
         debug: bool = typer.Option(

@@ -18,8 +18,6 @@ class Manifest:
     data_frame_total: int
     payload_len: int
     chunk_size: int
-    mode: str | None = None
-    key_material: str | None = None
     sealed: bool | None = None
     sharding: dict[str, int] | None = None
 
@@ -76,8 +74,6 @@ def parse_manifest_frame(frame: Frame) -> Manifest:
         data_frame_total=data_frame_total,
         payload_len=payload_len,
         chunk_size=chunk_size,
-        mode=data.get("mode"),
-        key_material=data.get("key_material"),
         sealed=data.get("sealed"),
         sharding=data.get("sharding"),
     )
@@ -103,8 +99,6 @@ def _manifest_dict(
         "chunk_size": int(chunk_size),
     }
     if plan is not None:
-        data["mode"] = plan.mode.value
-        data["key_material"] = plan.key_material.value
         data["sealed"] = bool(plan.sealed)
         if plan.sharding:
             data["sharding"] = {

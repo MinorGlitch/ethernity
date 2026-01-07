@@ -6,7 +6,7 @@ import sys
 import typer
 from rich.traceback import install as install_rich_traceback
 
-from .core.common import _get_version, _resolve_config_and_paper, _run_cli
+from .core.common import _get_version, _paper_callback, _resolve_config_and_paper, _run_cli
 from .flows.backup import run_wizard
 from .flows.recover import run_recover_wizard
 from .ui import (
@@ -41,6 +41,7 @@ def cli(
         None,
         "--paper",
         help="Paper preset (A4/LETTER).",
+        callback=_paper_callback,
         rich_help_panel="Global",
     ),
     debug: bool = typer.Option(

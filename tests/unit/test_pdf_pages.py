@@ -5,6 +5,26 @@ from pathlib import Path
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
 from ethernity.render import RenderInputs, render_frames_to_pdf
 
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:  # pragma: no cover - optional dependency for tests
+    sync_playwright = None
+
+
+def _playwright_ready() -> bool:
+    if sync_playwright is None:
+        return False
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            browser.close()
+        return True
+    except Exception:
+        return False
+
+
+_PLAYWRIGHT_READY = _playwright_ready()
+
 
 class TestPdfPageCount(unittest.TestCase):
     def test_multi_page_output(self) -> None:
@@ -12,6 +32,8 @@ class TestPdfPageCount(unittest.TestCase):
             from pypdf import PdfReader
         except ImportError:
             self.skipTest("pypdf not installed")
+        if not _PLAYWRIGHT_READY:
+            self.skipTest("playwright not available")
 
         doc_id = b"\x77" * DOC_ID_LEN
         frames = [
@@ -27,29 +49,10 @@ class TestPdfPageCount(unittest.TestCase):
         ]
         context = {
             "paper_size": "A4",
-            "margin_mm": 12,
-            "header_height_mm": 10,
-            "instructions_gap_mm": 2,
-            "header_font": "Helvetica",
-            "title_size": 14,
-            "subtitle_size": 10,
-            "meta_size": 8,
-            "title": "Main Document",
-            "subtitle": "Test Backup",
-            "doc_id": doc_id.hex(),
-            "instructions_font": "Helvetica",
-            "instructions_size": 8,
-            "instructions_line_height_mm": 4,
-            "instructions": [],
-            "qr_size_mm": 60,
-            "gap_mm": 2,
-            "max_cols": 3,
-            "max_rows": 4,
-            "text_gap_mm": 2,
         }
 
         template_path = (
-            Path(__file__).resolve().parents[2] / "ethernity" / "templates" / "main_document.toml.j2"
+            Path(__file__).resolve().parents[2] / "ethernity" / "templates" / "main_document.html.j2"
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "out.pdf"

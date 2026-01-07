@@ -15,7 +15,7 @@ from ..ui.debug import (
     _print_pre_encryption_debug,
 )
 from ...encoding.framing import Frame, FrameType, VERSION, encode_frame
-from ...core.models import DocumentMode, DocumentPlan, SigningSeedMode
+from ...core.models import DocumentPlan, SigningSeedMode
 from ...encoding.qr_payloads import encode_qr_payload, normalize_qr_payload_encoding
 
 
@@ -54,17 +54,13 @@ def run_backup(
         from ...crypto.signing import encode_auth_payload, generate_signing_keypair, sign_auth
 
     sign_priv, sign_pub = generate_signing_keypair()
-    if plan.mode != DocumentMode.PASSPHRASE:
-        raise ValueError("only passphrase mode is supported")
     store_signing_key = (
-        plan.mode == DocumentMode.PASSPHRASE
-        and plan.sharding is not None
+        plan.sharding is not None
         and not plan.sealed
         and plan.signing_seed_mode == SigningSeedMode.EMBEDDED
     )
     shard_signing_key = (
-        plan.mode == DocumentMode.PASSPHRASE
-        and plan.sharding is not None
+        plan.sharding is not None
         and not plan.sealed
         and plan.signing_seed_mode == SigningSeedMode.SHARDED
     )
@@ -134,7 +130,7 @@ def run_backup(
 
     plan_sharding = plan.sharding
     signing_key_sharding = plan.signing_seed_sharding or plan.sharding
-    if plan.mode == DocumentMode.PASSPHRASE and plan_sharding is not None:
+    if plan_sharding is not None:
         if passphrase_final is None:
             raise ValueError("passphrase is required for sharding")
         with _status("Creating shard payloads...", quiet=status_quiet):
@@ -176,7 +172,7 @@ def run_backup(
     shard_paths: list[str] = []
     signing_key_shard_paths: list[str] = []
 
-    context: dict[str, object] = {}
+    context: dict[str, object] = {"paper_size": config.paper_size}
 
     qr_payloads = _encode_qr_payloads(qr_frames, config.qr_payload_encoding)
     qr_inputs = RenderInputs(
@@ -189,7 +185,7 @@ def run_backup(
         render_fallback=False,
     )
 
-    recovery_context: dict[str, object] = {}
+    recovery_context: dict[str, object] = {"paper_size": config.paper_size}
 
     main_fallback_frame = Frame(
         version=VERSION,
@@ -251,13 +247,14 @@ def run_backup(
                         f"shard-{doc_id.hex()}-{shard.index}-of-{shard.shares}.pdf",
                     )
                     shard_context = {
+                        "paper_size": config.paper_size,
                         "shard_index": shard.index,
                         "shard_total": shard.shares,
                     }
 
                     shard_inputs = RenderInputs(
                         frames=[shard_frame],
-                        template_path=config.signing_key_shard_template_path,
+                        template_path=config.shard_template_path,
                         output_path=shard_path,
                         context=shard_context,
                         qr_config=config.qr_config,
@@ -289,13 +286,14 @@ def run_backup(
                         f"signing-key-shard-{doc_id.hex()}-{shard.index}-of-{shard.shares}.pdf",
                     )
                     shard_context = {
+                        "paper_size": config.paper_size,
                         "shard_index": shard.index,
                         "shard_total": shard.shares,
                     }
 
                     shard_inputs = RenderInputs(
                         frames=[shard_frame],
-                        template_path=config.shard_template_path,
+                        template_path=config.signing_key_shard_template_path,
                         output_path=shard_path,
                         context=shard_context,
                         qr_config=config.qr_config,
@@ -328,13 +326,14 @@ def run_backup(
                             f"shard-{doc_id.hex()}-{shard.index}-of-{shard.shares}.pdf",
                         )
                         shard_context = {
+                            "paper_size": config.paper_size,
                             "shard_index": shard.index,
                             "shard_total": shard.shares,
                         }
 
                         shard_inputs = RenderInputs(
                             frames=[shard_frame],
-                            template_path=config.signing_key_shard_template_path,
+                            template_path=config.shard_template_path,
                             output_path=shard_path,
                             context=shard_context,
                             qr_config=config.qr_config,
@@ -361,13 +360,14 @@ def run_backup(
                             f"signing-key-shard-{doc_id.hex()}-{shard.index}-of-{shard.shares}.pdf",
                         )
                         shard_context = {
+                            "paper_size": config.paper_size,
                             "shard_index": shard.index,
                             "shard_total": shard.shares,
                         }
 
                         shard_inputs = RenderInputs(
                             frames=[shard_frame],
-                            template_path=config.shard_template_path,
+                            template_path=config.signing_key_shard_template_path,
                             output_path=shard_path,
                             context=shard_context,
                             qr_config=config.qr_config,

@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import argparse
+from typing import Literal
 
 import typer
 
-from ..core.common import _ctx_value, _resolve_config_and_paper, _run_cli
+from ..core.common import _ctx_value, _paper_callback, _resolve_config_and_paper, _run_cli
 from ..flows.recover import _should_use_wizard_for_recover, run_recover_command, run_recover_wizard
 
 
@@ -34,13 +35,13 @@ def register(app: typer.Typer) -> None:
             help="Main frame payloads (one per line).",
             rich_help_panel="Inputs",
         ),
-        frames_encoding: str = typer.Option(
+        frames_encoding: Literal["auto", "base64", "base64url", "hex"] = typer.Option(
             "auto",
             "--frames-encoding",
             help="Encoding for frame payloads (auto/base64/base64url/hex).",
             rich_help_panel="Inputs",
         ),
-        scan: list[str] = typer.Option(
+        scan: list[str] | None = typer.Option(
             None,
             "--scan",
             help="Scan path (image/PDF/dir, repeatable).",
@@ -52,19 +53,19 @@ def register(app: typer.Typer) -> None:
             help="Passphrase to decrypt with.",
             rich_help_panel="Keys",
         ),
-        shard_fallback_file: list[str] = typer.Option(
+        shard_fallback_file: list[str] | None = typer.Option(
             None,
             "--shard-fallback-file",
             help="Shard fallback text file (repeatable).",
             rich_help_panel="Inputs",
         ),
-        shard_frames_file: list[str] = typer.Option(
+        shard_frames_file: list[str] | None = typer.Option(
             None,
             "--shard-frames-file",
             help="Shard frame payload file (repeatable).",
             rich_help_panel="Inputs",
         ),
-        shard_frames_encoding: str = typer.Option(
+        shard_frames_encoding: Literal["auto", "base64", "base64url", "hex"] = typer.Option(
             "auto",
             "--shard-frames-encoding",
             help="Encoding for shard payloads (auto/base64/base64url/hex).",
@@ -82,7 +83,7 @@ def register(app: typer.Typer) -> None:
             help="Auth frame payloads (one per line).",
             rich_help_panel="Inputs",
         ),
-        auth_frames_encoding: str = typer.Option(
+        auth_frames_encoding: Literal["auto", "base64", "base64url", "hex"] = typer.Option(
             "auto",
             "--auth-frames-encoding",
             help="Encoding for auth payloads (auto/base64/base64url/hex).",
@@ -118,6 +119,7 @@ def register(app: typer.Typer) -> None:
             None,
             "--paper",
             help="Paper preset (A4/LETTER).",
+            callback=_paper_callback,
             rich_help_panel="Config",
         ),
         quiet: bool = typer.Option(

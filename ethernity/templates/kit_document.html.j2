@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+    :root {
+      --ink: rgb(15, 30, 45);
+      --ink-muted: rgb(70, 80, 90);
+      --ink-soft: rgb(120, 130, 140);
+      --ink-label: rgb(90, 100, 110);
+      --ink-body: rgb(30, 40, 50);
+      --accent: rgb(15, 30, 45);
+      --panel: #eef3f9;
+      --panel-border: #cdd9e6;
+      --paper-top: #ffffff;
+      --paper-bottom: #f1f6fc;
+      --grid: rgba(15, 31, 46, 0.04);
+      --qr-border: #c6d2e0;
+      --shadow: rgba(15, 31, 46, 0.18);
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: "Trebuchet MS", "Gill Sans", Tahoma, sans-serif;
+      color: var(--ink);
+      background: #ffffff;
+    }
+    .page {
+      position: relative;
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      page-break-after: always;
+      background: #ffffff;
+      overflow: hidden;
+    }
+    .page:last-child {
+      page-break-after: auto;
+    }
+    .header {
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      top: {{ margin_mm }}mm;
+      width: {{ usable_width_mm }}mm;
+      display: flex;
+      justify-content: space-between;
+      gap: 8mm;
+    }
+    .header-left {
+      width: 70%;
+    }
+    .header-right {
+      width: 30%;
+      text-align: right;
+      font-size: 8pt;
+      font-style: italic;
+      color: var(--ink-soft);
+      line-height: 1.2;
+    }
+    .header-right div:first-child {
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-style: normal;
+      font-weight: 600;
+      color: var(--ink-muted);
+      font-size: 7pt;
+    }
+    .header-right div:last-child {
+      font-family: "Courier New", Courier, monospace;
+      font-style: normal;
+      color: var(--ink);
+    }
+    .title {
+      font-size: 20pt;
+      font-weight: bold;
+      font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+      color: var(--ink);
+      line-height: 1.2;
+      letter-spacing: 0.02em;
+    }
+    .subtitle {
+      font-size: 10pt;
+      font-style: italic;
+      color: var(--ink-muted);
+      line-height: 1.2;
+    }
+    .divider {
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      width: {{ usable_width_mm }}mm;
+      height: 0.5mm;
+      background: linear-gradient(90deg, var(--accent), rgba(15, 31, 46, 0));
+    }
+    .instructions {
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      width: {{ usable_width_mm }}mm;
+      display: grid;
+      grid-template-columns: 24mm auto;
+      column-gap: 2mm;
+      font-size: 9pt;
+      line-height: 4.5mm;
+      color: var(--ink-body);
+      background:
+        linear-gradient(
+          90deg,
+          var(--accent) 0,
+          var(--accent) 1.8mm,
+          transparent 1.8mm,
+          transparent 100%
+        ),
+        var(--panel);
+      box-shadow: 0 0 0 0.35mm var(--panel-border);
+      border-radius: 2mm;
+      padding: 0 2.5mm 0 3.2mm;
+    }
+    .instructions-label {
+      font-size: 7pt;
+      font-weight: bold;
+      color: var(--ink-label);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .qr-grid {
+      position: absolute;
+      border: 0.35mm solid var(--panel-border);
+      border-radius: 2mm;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .qr {
+      position: absolute;
+      image-rendering: pixelated;
+      z-index: 1;
+    }
+    .sequence {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      pointer-events: none;
+    }
+    .sequence line {
+      stroke: var(--accent);
+      stroke-width: 0.7mm;
+      stroke-linecap: round;
+    }
+    .sequence text {
+      fill: var(--accent);
+      font-size: 12pt;
+      font-weight: bold;
+      paint-order: stroke;
+      stroke: #ffffff;
+      stroke-width: 0.6;
+    }
+  </style>
+</head>
+<body>
+{% for page in pages %}
+  <section class="page">
+    <div class="header">
+      <div class="header-left">
+        <div class="title">Recovery Kit</div>
+        <div class="subtitle">Offline HTML bundle</div>
+      </div>
+      <div class="header-right">
+        <div>{{ page.page_label }}</div>
+        <div>Document ID: {{ doc_id }}</div>
+      </div>
+    </div>
+    <div class="divider" style="top: {{ page.divider_y_mm }}mm;"></div>
+
+    {% if page.page_num == 1 %}
+    <div class="instructions" style="top: {{ page.instructions_y_mm }}mm;">
+      <div class="instructions-label">Instructions</div>
+      <div>
+        <div>Scan QR codes in order and concatenate the payloads.</div>
+        <div>Write the output to recovery_kit.bundle.html.</div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if page.qr_outline %}
+    <div
+      class="qr-grid"
+      style="left: {{ page.qr_outline.x_mm }}mm; top: {{ page.qr_outline.y_mm }}mm; width: {{ page.qr_outline.width_mm }}mm; height: {{ page.qr_outline.height_mm }}mm;"
+    ></div>
+    {% endif %}
+
+    {% for slot in page.qr_slots %}
+    <img
+      class="qr"
+      src="{{ slot.data_uri }}"
+      style="left: {{ slot.x_mm }}mm; top: {{ slot.y_mm }}mm; width: {{ slot.size_mm }}mm; height: {{ slot.size_mm }}mm;"
+      alt="QR code {{ slot.index }}"
+    >
+    {% endfor %}
+
+    {% if page.sequence %}
+    <svg class="sequence" viewBox="0 0 {{ page_width_mm }} {{ page_height_mm }}" xmlns="http://www.w3.org/2000/svg">
+      {% for line in page.sequence.lines %}
+      <line x1="{{ line.x1 }}" y1="{{ line.y1 }}" x2="{{ line.x2 }}" y2="{{ line.y2 }}" />
+      {% endfor %}
+      {% for label in page.sequence.labels %}
+      <text x="{{ label.x }}" y="{{ label.y }}" text-anchor="middle" dominant-baseline="middle">{{ label.text }}</text>
+      {% endfor %}
+    </svg>
+    {% endif %}
+  </section>
+{% endfor %}
+</body>
+</html>

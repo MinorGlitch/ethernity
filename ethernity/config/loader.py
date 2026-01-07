@@ -10,6 +10,7 @@ from ..encoding.qr_payloads import normalize_qr_payload_encoding
 from ..qr.codec import QrConfig
 from .installer import (
     DEFAULT_KIT_TEMPLATE_PATH,
+    DEFAULT_PAPER_SIZE,
     DEFAULT_RECOVERY_TEMPLATE_PATH,
     DEFAULT_SHARD_TEMPLATE_PATH,
     DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
@@ -28,6 +29,7 @@ class AppConfig:
     shard_template_path: Path
     signing_key_shard_template_path: Path
     kit_template_path: Path
+    paper_size: str
     qr_config: QrConfig
     qr_payload_encoding: str
 
@@ -75,6 +77,12 @@ def load_app_config(path: str | Path | None = None, *, paper_size: str | None = 
         _coerce_path_value(kit_path_value, DEFAULT_KIT_TEMPLATE_PATH),
     )
 
+    page_cfg = _get_dict(data, "page")
+    resolved_paper_size = (
+        paper_size
+        or _parse_optional_str(page_cfg.get("size"))
+        or DEFAULT_PAPER_SIZE
+    )
     qr_section = _get_dict(data, "qr")
     qr_config = build_qr_config(qr_section)
     qr_payload_encoding = normalize_qr_payload_encoding(
@@ -86,6 +94,7 @@ def load_app_config(path: str | Path | None = None, *, paper_size: str | None = 
         shard_template_path=shard_path,
         signing_key_shard_template_path=signing_key_shard_path,
         kit_template_path=kit_path,
+        paper_size=resolved_paper_size,
         qr_config=qr_config,
         qr_payload_encoding=qr_payload_encoding,
     )

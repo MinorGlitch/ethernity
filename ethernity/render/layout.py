@@ -64,6 +64,10 @@ class Layout:
     total_pages: int
 
 
+FALLBACK_VERTICAL_PADDING_MM = 0.0
+FALLBACK_HORIZONTAL_PADDING_MM = 2.0
+
+
 def _compute_layout(
     inputs: RenderInputs,
     initial_cfg: dict,
@@ -71,6 +75,7 @@ def _compute_layout(
     key_lines: Sequence[str],
     *,
     include_keys: bool = True,
+    include_instructions: bool = True,
 ) -> tuple[Layout, list[str]]:
     page_cfg = initial_cfg.get("page", {})
     qr_cfg = initial_cfg.get("qr_grid", {})
@@ -103,7 +108,7 @@ def _compute_layout(
     page_w, page_h = pdf.w, pdf.h
     usable_w = page_w - 2 * margin
     instructions = instructions_cfg.get("lines", [])
-    instructions_height = _instructions_height(instructions_cfg)
+    instructions_height = _instructions_height(instructions_cfg) if include_instructions else 0.0
 
     wrapped_key_lines = list(key_lines)
     if include_keys and key_lines:
@@ -132,7 +137,10 @@ def _compute_layout(
     original_cell_margin = pdf.c_margin
     pdf.c_margin = 0
     fallback_width = page_w - 2 * margin
-    fallback_width_safe = max(1.0, fallback_width - 1.0)
+    padding_mm = fallback_cfg.get("padding_mm", FALLBACK_HORIZONTAL_PADDING_MM)
+    fallback_width_safe = max(
+        1.0, fallback_width - (2 * float(padding_mm))
+    )
     max_groups = _max_groups_for_width(pdf, group_size, fallback_width_safe)
     if line_length_cfg > 0:
         max_groups = min(max_groups, _groups_from_line_length(line_length_cfg, group_size))
@@ -449,7 +457,8 @@ def _adjust_rows_for_fallback(
     while rows > 0:
         grid_height = rows * qr_size + (rows - 1) * gap
         leftover = page_h - margin - grid_start_y - grid_height - margin
-        lines = int(leftover // line_height)
+        safe_leftover = max(0.0, leftover - FALLBACK_VERTICAL_PADDING_MM)
+        lines = int(safe_leftover // line_height)
         if lines >= min_lines:
             return rows
         rows -= 1
@@ -467,7 +476,8 @@ def _fallback_lines_per_page(
 ) -> int:
     grid_height = rows * qr_size + (rows - 1) * gap
     leftover = page_h - margin - grid_start_y - grid_height - margin
-    return max(1, int(leftover // line_height))
+    safe_leftover = max(0.0, leftover - FALLBACK_VERTICAL_PADDING_MM)
+    return max(1, int(safe_leftover // line_height))
 
 
 def _fallback_lines_per_page_text_only(
@@ -477,7 +487,8 @@ def _fallback_lines_per_page_text_only(
     line_height: float,
 ) -> int:
     leftover = page_h - margin - content_start_y - margin
-    return max(1, int(leftover // line_height))
+    safe_leftover = max(0.0, leftover - FALLBACK_VERTICAL_PADDING_MM)
+    return max(1, int(safe_leftover // line_height))
 
 
 def _max_groups_for_width(pdf: FPDF, group_size: int, width_mm: float) -> int:

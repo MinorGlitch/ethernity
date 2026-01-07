@@ -5,7 +5,7 @@ from pathlib import Path
 
 import typer
 
-from ..core.common import _ctx_value, _resolve_config_and_paper, _run_cli
+from ..core.common import _ctx_value, _paper_callback, _resolve_config_and_paper, _run_cli
 from ..flows.kit import DEFAULT_KIT_CHUNK_SIZE, render_kit_qr_document
 from ..ui import console
 
@@ -48,6 +48,7 @@ def register(app: typer.Typer) -> None:
             None,
             "--paper",
             help="Paper preset (A4/LETTER).",
+            callback=_paper_callback,
             rich_help_panel="Config",
         ),
         quiet: bool = typer.Option(

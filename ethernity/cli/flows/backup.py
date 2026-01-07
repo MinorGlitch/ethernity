@@ -32,13 +32,7 @@ from ..ui import (
 from ..ui.summary import _print_backup_summary
 from ...crypto import DEFAULT_PASSPHRASE_WORDS, MNEMONIC_WORD_COUNTS
 from ...config import DEFAULT_PAPER_SIZE, PAPER_CONFIGS, load_app_config
-from ...core.models import (
-    DocumentMode,
-    DocumentPlan,
-    KeyMaterial,
-    ShardingConfig,
-    SigningSeedMode,
-)
+from ...core.models import DocumentPlan, ShardingConfig, SigningSeedMode
 
 
 def _prompt_passphrase_words() -> int:
@@ -76,8 +70,6 @@ def run_wizard(
         passphrase_generate = bool(getattr(args, "passphrase_generate", False))
         passphrase_words = getattr(args, "passphrase_words", None) if args is not None else None
 
-        mode = DocumentMode.PASSPHRASE
-        key_material = KeyMaterial.PASSPHRASE
         with _wizard_stage(
             "Encryption",
             help_text="Choose how the backup is secured.",
@@ -109,75 +101,74 @@ def run_wizard(
             sharding = None
             signing_seed_mode = SigningSeedMode.EMBEDDED
             signing_seed_sharding = None
-            if mode == DocumentMode.PASSPHRASE:
-                threshold = getattr(args, "shard_threshold", None) if args is not None else None
-                shares = getattr(args, "shard_count", None) if args is not None else None
-                if threshold is not None or shares is not None:
-                    if threshold is None or shares is None:
-                        raise ValueError("both --shard-threshold and --shard-count are required")
-                    use_existing = _prompt_yes_no(
-                        f"Use provided sharding ({threshold} of {shares})",
-                        default=True,
-                        help_text="Choose no to configure a different quorum.",
-                    )
-                    if use_existing:
-                        sharding = ShardingConfig(threshold=threshold, shares=shares)
-                    else:
-                        default_threshold = 2
-                        default_shares = 3
-                        use_default = _prompt_yes_no(
-                            f"Use the default quorum ({default_threshold} of {default_shares})",
-                            default=True,
-                            help_text="Pick a different split if you need more redundancy.",
-                        )
-                        if use_default:
-                            sharding = ShardingConfig(
-                                threshold=default_threshold,
-                                shares=default_shares,
-                            )
-                        else:
-                            threshold = _prompt_int(
-                                "Shard threshold (n)",
-                                minimum=1,
-                                help_text="Minimum number of shard documents required to recover.",
-                            )
-                            shares = _prompt_int(
-                                "Shard count (k)",
-                                minimum=threshold,
-                                help_text="Total number of shard documents to create.",
-                            )
-                            sharding = ShardingConfig(threshold=threshold, shares=shares)
+            threshold = getattr(args, "shard_threshold", None) if args is not None else None
+            shares = getattr(args, "shard_count", None) if args is not None else None
+            if threshold is not None or shares is not None:
+                if threshold is None or shares is None:
+                    raise ValueError("both --shard-threshold and --shard-count are required")
+                use_existing = _prompt_yes_no(
+                    f"Use provided sharding ({threshold} of {shares})",
+                    default=True,
+                    help_text="Choose no to configure a different quorum.",
+                )
+                if use_existing:
+                    sharding = ShardingConfig(threshold=threshold, shares=shares)
                 else:
-                    enable_sharding = _prompt_yes_no(
-                        "Split passphrase into shard documents",
+                    default_threshold = 2
+                    default_shares = 3
+                    use_default = _prompt_yes_no(
+                        f"Use the default quorum ({default_threshold} of {default_shares})",
                         default=True,
-                        help_text="Recommended. You'll need a quorum of shard documents to recover.",
+                        help_text="Pick a different split if you need more redundancy.",
                     )
-                    if enable_sharding:
-                        default_threshold = 2
-                        default_shares = 3
-                        use_default = _prompt_yes_no(
-                            f"Use the default quorum ({default_threshold} of {default_shares})",
-                            default=True,
-                            help_text="Pick a different split if you need more redundancy.",
+                    if use_default:
+                        sharding = ShardingConfig(
+                            threshold=default_threshold,
+                            shares=default_shares,
                         )
-                        if use_default:
-                            sharding = ShardingConfig(
-                                threshold=default_threshold,
-                                shares=default_shares,
-                            )
-                        else:
-                            threshold = _prompt_int(
-                                "Shard threshold (n)",
-                                minimum=1,
-                                help_text="Minimum number of shard documents required to recover.",
-                            )
-                            shares = _prompt_int(
-                                "Shard count (k)",
-                                minimum=threshold,
-                                help_text="Total number of shard documents to create.",
-                            )
-                            sharding = ShardingConfig(threshold=threshold, shares=shares)
+                    else:
+                        threshold = _prompt_int(
+                            "Shard threshold (n)",
+                            minimum=1,
+                            help_text="Minimum number of shard documents required to recover.",
+                        )
+                        shares = _prompt_int(
+                            "Shard count (k)",
+                            minimum=threshold,
+                            help_text="Total number of shard documents to create.",
+                        )
+                        sharding = ShardingConfig(threshold=threshold, shares=shares)
+            else:
+                enable_sharding = _prompt_yes_no(
+                    "Split passphrase into shard documents",
+                    default=True,
+                    help_text="Recommended. You'll need a quorum of shard documents to recover.",
+                )
+                if enable_sharding:
+                    default_threshold = 2
+                    default_shares = 3
+                    use_default = _prompt_yes_no(
+                        f"Use the default quorum ({default_threshold} of {default_shares})",
+                        default=True,
+                        help_text="Pick a different split if you need more redundancy.",
+                    )
+                    if use_default:
+                        sharding = ShardingConfig(
+                            threshold=default_threshold,
+                            shares=default_shares,
+                        )
+                    else:
+                        threshold = _prompt_int(
+                            "Shard threshold (n)",
+                            minimum=1,
+                            help_text="Minimum number of shard documents required to recover.",
+                        )
+                        shares = _prompt_int(
+                            "Shard count (k)",
+                            minimum=threshold,
+                            help_text="Total number of shard documents to create.",
+                        )
+                        sharding = ShardingConfig(threshold=threshold, shares=shares)
 
             if args is not None and getattr(args, "sealed", False):
                 sealed = True
@@ -196,7 +187,7 @@ def run_wizard(
             else:
                 debug = debug_override
 
-            if mode == DocumentMode.PASSPHRASE and sharding is not None:
+            if sharding is not None:
                 mode_arg = getattr(args, "signing_key_mode", None) if args is not None else None
                 if mode_arg:
                     signing_seed_mode = SigningSeedMode(mode_arg)
@@ -304,8 +295,6 @@ def run_wizard(
 
         plan = DocumentPlan(
             version=1,
-            mode=mode,
-            key_material=key_material,
             sealed=sealed,
             signing_seed_mode=signing_seed_mode,
             sharding=sharding,
@@ -364,40 +353,39 @@ def run_wizard(
                     continue
                 break
 
-        review_rows: list[tuple[str, str]] = [("Mode", plan.mode.value)]
-        if plan.mode == DocumentMode.PASSPHRASE:
-            if passphrase:
-                review_rows.append(("Passphrase", "provided"))
+        review_rows: list[tuple[str, str]] = []
+        if passphrase:
+            review_rows.append(("Passphrase", "provided"))
+        else:
+            review_rows.append(("Passphrase", "auto-generated"))
+            if passphrase_words:
+                review_rows.append(("Passphrase length", f"{passphrase_words} words"))
+        plan_sharding = plan.sharding
+        if plan_sharding is not None:
+            review_rows.append(
+                ("Sharding", f"{plan_sharding.threshold} of {plan_sharding.shares}")
+            )
+            review_rows.append(("Shard documents", str(plan_sharding.shares)))
+            if plan.sealed:
+                signing_label = "not stored (sealed backup)"
+            elif plan.signing_seed_mode == SigningSeedMode.EMBEDDED:
+                signing_label = "embedded in main document"
             else:
-                review_rows.append(("Passphrase", "auto-generated"))
-                if passphrase_words:
-                    review_rows.append(("Passphrase length", f"{passphrase_words} words"))
-            plan_sharding = plan.sharding
-            if plan_sharding is not None:
-                review_rows.append(
-                    ("Sharding", f"{plan_sharding.threshold} of {plan_sharding.shares}")
-                )
-                review_rows.append(("Shard documents", str(plan_sharding.shares)))
-                if plan.sealed:
-                    signing_label = "not stored (sealed backup)"
-                elif plan.signing_seed_mode == SigningSeedMode.EMBEDDED:
-                    signing_label = "embedded in main document"
-                else:
-                    signing_label = "separate signing-key shard documents"
-                review_rows.append(("Signing key handling", signing_label))
-                if plan.signing_seed_mode == SigningSeedMode.SHARDED:
-                    if plan.signing_seed_sharding:
-                        review_rows.append(
-                            (
-                                "Signing-key shards",
-                                f"{plan.signing_seed_sharding.threshold} of {plan.signing_seed_sharding.shares}",
-                            )
+                signing_label = "separate signing-key shard documents"
+            review_rows.append(("Signing key handling", signing_label))
+            if plan.signing_seed_mode == SigningSeedMode.SHARDED:
+                if plan.signing_seed_sharding:
+                    review_rows.append(
+                        (
+                            "Signing-key shards",
+                            f"{plan.signing_seed_sharding.threshold} of {plan.signing_seed_sharding.shares}",
                         )
-                    else:
-                        review_rows.append(("Signing-key shards", "same as passphrase"))
-            else:
-                review_rows.append(("Sharding", "disabled"))
-                review_rows.append(("Signing key handling", "not applicable"))
+                    )
+                else:
+                    review_rows.append(("Signing-key shards", "same as passphrase"))
+        else:
+            review_rows.append(("Sharding", "disabled"))
+            review_rows.append(("Signing key handling", "not applicable"))
         review_rows.append(("Sealed", "yes" if plan.sealed else "no"))
         review_rows.append(("Debug output", "enabled" if debug else "disabled"))
         review_rows.append(("Inputs", f"{len(input_files)} file(s)"))
@@ -412,8 +400,18 @@ def run_wizard(
         else:
             default_paper = DEFAULT_PAPER_SIZE
             review_rows.append(("Paper preset", paper.upper() if paper else default_paper))
-        review_rows.append(("Template", str(config.template_path)))
+        review_rows.append(("QR template", str(config.template_path)))
         review_rows.append(("Recovery template", str(config.recovery_template_path)))
+        if plan.sharding is not None:
+            review_rows.append(("Shard template", str(config.shard_template_path)))
+        if (
+            plan.sharding is not None
+            and not plan.sealed
+            and plan.signing_seed_mode == SigningSeedMode.SHARDED
+        ):
+            review_rows.append(
+                ("Signing-key shard template", str(config.signing_key_shard_template_path))
+            )
 
         with _wizard_stage(
             "Review & confirm",
@@ -478,7 +476,6 @@ def run_backup_command(args: argparse.Namespace) -> int:
     if not inputs and not input_dirs and not os.isatty(0):
         inputs.append("-")
 
-    mode = DocumentMode.PASSPHRASE
     _validate_backup_args(args)
 
     sharding = None
@@ -486,8 +483,6 @@ def run_backup_command(args: argparse.Namespace) -> int:
         if not args.shard_threshold or not args.shard_count:
             raise ValueError("both --shard-threshold and --shard-count are required")
         sharding = ShardingConfig(threshold=args.shard_threshold, shares=args.shard_count)
-
-    key_material = KeyMaterial.PASSPHRASE
 
     signing_key_mode = getattr(args, "signing_key_mode", None)
     signing_seed_mode = (
@@ -518,8 +513,6 @@ def run_backup_command(args: argparse.Namespace) -> int:
 
     plan = DocumentPlan(
         version=1,
-        mode=mode,
-        key_material=key_material,
         sealed=bool(args.sealed),
         signing_seed_mode=signing_seed_mode,
         sharding=sharding,

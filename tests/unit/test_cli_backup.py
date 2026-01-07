@@ -8,22 +8,17 @@ from unittest import mock
 from ethernity import cli
 from ethernity.config import load_app_config
 from ethernity.formats import envelope_codec as envelope_codec_module
-from ethernity.core.models import (
-    DocumentMode,
-    DocumentPlan,
-    KeyMaterial,
-    ShardingConfig,
-    SigningSeedMode,
-)
+from ethernity.core.models import DocumentPlan, ShardingConfig, SigningSeedMode
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+A4_CONFIG_PATH = REPO_ROOT / "ethernity" / "config" / "a4.toml"
 
 
 class TestCliBackup(unittest.TestCase):
     def test_run_backup_passphrase_autogen(self) -> None:
-        config = load_app_config(paper_size="A4")
+        config = load_app_config(path=A4_CONFIG_PATH)
         plan = DocumentPlan(
             version=1,
-            mode=DocumentMode.PASSPHRASE,
-            key_material=KeyMaterial.PASSPHRASE,
             sealed=False,
             sharding=None,
         )
@@ -63,11 +58,9 @@ class TestCliBackup(unittest.TestCase):
             self.assertFalse(calls[1].render_qr)
 
     def test_run_backup_sharding_passes_signing_keys(self) -> None:
-        config = load_app_config(paper_size="A4")
+        config = load_app_config(path=A4_CONFIG_PATH)
         plan = DocumentPlan(
             version=1,
-            mode=DocumentMode.PASSPHRASE,
-            key_material=KeyMaterial.PASSPHRASE,
             sealed=False,
             sharding=ShardingConfig(threshold=2, shares=3),
         )
@@ -123,11 +116,9 @@ class TestCliBackup(unittest.TestCase):
         self.assertTrue(result.shard_paths[0].endswith("-1-of-3.pdf"))
 
     def test_run_backup_stores_signing_seed_when_unsealed_sharded_passphrase(self) -> None:
-        config = load_app_config(paper_size="A4")
+        config = load_app_config(path=A4_CONFIG_PATH)
         plan = DocumentPlan(
             version=1,
-            mode=DocumentMode.PASSPHRASE,
-            key_material=KeyMaterial.PASSPHRASE,
             sealed=False,
             sharding=ShardingConfig(threshold=2, shares=3),
         )
@@ -177,7 +168,7 @@ class TestCliBackup(unittest.TestCase):
         self.assertEqual(captured.get("signing_seed"), sign_priv)
 
     def test_run_backup_omits_signing_seed_for_sealed(self) -> None:
-        config = load_app_config(paper_size="A4")
+        config = load_app_config(path=A4_CONFIG_PATH)
         input_file = cli.InputFile(
             source_path=Path("input.bin"),
             relative_path="input.bin",
@@ -227,19 +218,15 @@ class TestCliBackup(unittest.TestCase):
 
         sealed_plan = DocumentPlan(
             version=1,
-            mode=DocumentMode.PASSPHRASE,
-            key_material=KeyMaterial.PASSPHRASE,
             sealed=True,
             sharding=ShardingConfig(threshold=2, shares=3),
         )
         self.assertIsNone(run_with_plan(sealed_plan))
 
     def test_run_backup_shards_signing_seed_when_mode_sharded(self) -> None:
-        config = load_app_config(paper_size="A4")
+        config = load_app_config(path=A4_CONFIG_PATH)
         plan = DocumentPlan(
             version=1,
-            mode=DocumentMode.PASSPHRASE,
-            key_material=KeyMaterial.PASSPHRASE,
             sealed=False,
             signing_seed_mode=SigningSeedMode.SHARDED,
             sharding=ShardingConfig(threshold=2, shares=3),

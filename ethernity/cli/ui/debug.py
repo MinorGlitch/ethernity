@@ -138,7 +138,6 @@ def _print_pre_encryption_debug(
     if base_dir:
         print(f"- base dir: {base_dir}")
     print(f"- envelope bytes: {len(envelope)}")
-    print(f"- mode: {plan.mode.value}")
     print(f"- sealed: {plan.sealed}")
     if passphrase:
         print(f"- passphrase: {passphrase}")

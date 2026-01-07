@@ -4,13 +4,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-class DocumentMode(str, Enum):
-    PASSPHRASE = "passphrase"
-
-
-class KeyMaterial(str, Enum):
-    PASSPHRASE = "passphrase"
-
 
 class SigningSeedMode(str, Enum):
     EMBEDDED = "embedded"
@@ -26,8 +19,6 @@ class ShardingConfig:
 @dataclass(frozen=True)
 class DocumentPlan:
     version: int
-    mode: DocumentMode
-    key_material: KeyMaterial
     sealed: bool
     signing_seed_mode: SigningSeedMode = SigningSeedMode.EMBEDDED
     sharding: ShardingConfig | None = None
@@ -38,8 +29,6 @@ class DocumentPlan:
 class DocumentMeta:
     version: int
     doc_id: bytes
-    mode: DocumentMode
-    key_material: KeyMaterial
     sealed: bool = False
     signing_seed_mode: SigningSeedMode = SigningSeedMode.EMBEDDED
     sharding: ShardingConfig | None = None
@@ -52,8 +41,6 @@ class DocumentMeta:
         return {
             "version": self.version,
             "doc_id": self.doc_id_hex(),
-            "mode": self.mode.value,
-            "key_material": self.key_material.value,
             "sealed": self.sealed,
             "signing_seed_mode": self.signing_seed_mode.value,
             "sharding": (
@@ -79,7 +66,6 @@ class ShardMeta:
     index: int
     threshold: int
     shares: int
-    key_material: KeyMaterial
 
     def doc_id_hex(self) -> str:
         return self.doc_id.hex()
