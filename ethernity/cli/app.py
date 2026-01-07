@@ -44,6 +44,11 @@ def _ensure_playwright_browsers(*, quiet: bool) -> None:
     if _playwright_chromium_installed():
         return
 
+    try:
+        from playwright.__main__ import compute_driver_executable, get_driver_env
+    except Exception as exc:
+        raise RuntimeError("Playwright CLI is unavailable") from exc
+
     with _progress(quiet=quiet) as progress:
         task_id = None
         if progress is not None:
@@ -51,11 +56,13 @@ def _ensure_playwright_browsers(*, quiet: bool) -> None:
                 "Initializing Playwright (Chromium browser)...",
                 total=1,
             )
+        driver_executable, driver_cli = compute_driver_executable()
         result = subprocess.run(
-            [sys.executable, "-m", "playwright", "install", "chromium"],
+            [driver_executable, driver_cli, "install", "chromium"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env=get_driver_env(),
             check=False,
         )
         if result.returncode != 0:
