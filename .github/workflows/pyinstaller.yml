@@ -41,23 +41,7 @@ jobs:
       - name: Build
         run: pyinstaller --clean --noconfirm ethernity.spec
       - name: Package artifact
-        run: |
-          python - <<'PY'
-          import os
-          import zipfile
-          from pathlib import Path
-
-          dist = Path("dist")
-          output = Path(f"ethernity-{os.environ['RUNNER_OS']}.zip")
-          with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-              for path in dist.glob("ethernity*"):
-                  if path.is_dir():
-                      for file in path.rglob("*"):
-                          zf.write(file, file.relative_to(dist))
-                  else:
-                      zf.write(path, path.name)
-          print(f"Created {output}")
-          PY
+        run: python scripts/package_pyinstaller.py
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
