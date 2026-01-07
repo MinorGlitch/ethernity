@@ -12,11 +12,11 @@ from typing import Any
 
 from rich import box
 from rich.align import Align
-from rich.console import Console, Group
+from rich.console import Console
 from rich.live import Live
 from rich.padding import Padding
 from rich.panel import Panel
-from rich.prompt import Confirm, Prompt
+import questionary
 from rich.progress import (
     BarColumn,
     Progress,
@@ -33,6 +33,19 @@ from rich.spinner import Spinner
 from rich.tree import Tree
 
 from ..core.log import _warn
+
+QUESTIONARY_STYLE = questionary.Style(
+    [
+        ("question", "bold"),
+        ("answer", "bold"),
+        ("pointer", "bold"),
+        ("highlighted", "reverse"),
+        ("selected", "fg:ansibrightblack"),
+        ("text", "fg:default bg:default noreverse"),
+        ("instruction", "fg:ansibrightblack"),
+        ("separator", "fg:ansibrightblack"),
+    ]
+)
 
 
 def _stdout_isatty() -> bool:
@@ -96,6 +109,23 @@ class WizardState:
 WIZARD_STATE: WizardState | None = None
 
 
+def _clear_screen() -> None:
+    try:
+        console.clear()
+    except Exception:
+        pass
+    if os.name == "nt":
+        try:
+            os.system("cls")
+        except Exception:
+            pass
+    elif console.is_terminal is False:
+        try:
+            os.system("clear")
+        except Exception:
+            pass
+
+
 def _configure_ui(*, no_color: bool, no_animations: bool) -> None:
     global ANIMATIONS_ENABLED
     ANIMATIONS_ENABLED = not no_animations
@@ -120,8 +150,8 @@ def _wizard_stage(title: str, *, help_text: str | None = None):
     state = WIZARD_STATE
     previous_style = PROMPT_STYLE
     if state is not None and not state.quiet:
-        if state.step > 0 and console.is_terminal:
-            console.clear()
+        if state.step > 0:
+            _clear_screen()
         state.step += 1
         step_label = f"Step {state.step}/{state.total_steps} - {title}"
         console.print(Rule(Text(step_label, style="title"), style="rule", align="left"))
@@ -308,14 +338,18 @@ def _print_prompt_header(prompt: str, help_text: str | None) -> None:
 
 def _prompt_optional_secret(prompt: str, *, help_text: str | None = None) -> str | None:
     _print_prompt_header(prompt, help_text)
-    value = Prompt.ask("> ", password=True, default="", show_default=False, console=console)
+    value = questionary.password(prompt, qmark="", style=QUESTIONARY_STYLE).ask()
+    if value is None:
+        raise KeyboardInterrupt
     return value or None
 
 
 def _prompt_required_secret(prompt: str, *, help_text: str | None = None) -> str:
     _print_prompt_header(prompt, help_text)
     while True:
-        value = Prompt.ask("> ", password=True, default="", show_default=False, console=console)
+        value = questionary.password(prompt, qmark="", style=QUESTIONARY_STYLE).ask()
+        if value is None:
+            raise KeyboardInterrupt
         if value:
             return value
         console_err.print("[red]Passphrase cannot be empty.[/red]")
@@ -329,51 +363,25 @@ def _prompt_choice(
     help_text: str | None = None,
 ) -> str:
     items = list(choices.items())
-    if _supports_live_prompts() and items:
-        return _prompt_choice_list(
-            items,
-            default=default,
-            title=prompt,
-            help_text=help_text,
-        )
-    _print_prompt_header(prompt, help_text)
-    for key, label in items:
-        console.print(f"- [bold]{key}[/bold]: {label}")
-    while True:
-        value = Prompt.ask(
-            "> ",
-            default=default or "",
-            show_default=bool(default),
-            console=console,
-        ).strip().lower()
-        if not value and default:
-            return default
-        if value in choices:
-            return value
-        console_err.print("[error]Invalid choice.[/error]")
+    return _prompt_choice_list(
+        items,
+        default=default,
+        title=prompt,
+        help_text=help_text,
+    )
 
 
 def _prompt_yes_no(prompt: str, *, default: bool, help_text: str | None = None) -> bool:
-    if _supports_live_prompts():
-        choice = _prompt_choice_list(
-            [("yes", "Yes"), ("no", "No")],
-            default="yes" if default else "no",
-            title=prompt,
-            help_text=help_text,
-        )
-        return choice == "yes"
     _print_prompt_header(prompt, help_text)
-    return Confirm.ask("> ", default=default, console=console)
-
-
-def _supports_live_prompts() -> bool:
-    if not ANIMATIONS_ENABLED:
-        return False
-    if not sys.stdin.isatty() or not _stdout_isatty():
-        return False
-    if os.environ.get("TERM", "").lower() == "dumb":
-        return False
-    return bool(getattr(console, "is_terminal", False))
+    value = questionary.confirm(
+        prompt,
+        default=default,
+        qmark="",
+        style=QUESTIONARY_STYLE,
+    ).ask()
+    if value is None:
+        raise KeyboardInterrupt
+    return value
 
 
 def _prompt_choice_list(
@@ -383,113 +391,23 @@ def _prompt_choice_list(
     title: str | None = None,
     help_text: str | None = None,
 ) -> str:
-    try:
-        import termios
-        import tty
-    except ImportError:
-        return _prompt_choice_fallback(items, default=default)
-
-    keys = [key for key, _ in items]
-    if default in keys:
-        selected = keys.index(default)
-    else:
-        selected = 0
-
-    def render() -> Group:
-        table = Table.grid(padding=(0, 1))
-        table.add_column(no_wrap=True)
-        table.add_column("Choice")
-        for idx, (key, label) in enumerate(items):
-            marker = "❯" if idx == selected else " "
-            style = "accent" if idx == selected else ""
-            text = Text(label, style=style)
-            text.append(f" [{key}]", style="muted")
-            table.add_row(marker, text)
-        parts: list[Text | Padding | Rule] = []
-        panel_title = title or "Select an option"
-        if PROMPT_STYLE == "compact":
-            parts.append(Padding(Text(panel_title, style="accent"), (0, 0, 0, 1)))
-            if help_text:
-                parts.append(Padding(_format_hint(help_text), (0, 0, 0, 2)))
-            parts.append(Padding(table, (0, 0, 0, 2)))
-            parts.append(Padding(Text("Use ↑/↓ and Enter", style="muted"), (0, 0, 0, 2)))
-        else:
-            parts.append(Rule(style="rule"))
-            parts.append(Text(panel_title, style="title"))
-            if help_text:
-                parts.append(Padding(_format_hint(help_text), (0, 0, 0, 1)))
-            parts.append(Padding(table, (1, 0, 0, 1)))
-            parts.append(Padding(Text("Use ↑/↓ and Enter", style="muted"), (0, 0, 0, 1)))
-        return Group(*parts)
-
-    fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-    chosen_index: int | None = None
-    with Live(
-        render(),
-        console=console,
-        transient=True,
-        auto_refresh=False,
-        screen=False,
-    ) as live:
-        try:
-            # Cbreak keeps output processing enabled so Live can redraw cleanly.
-            tty.setcbreak(fd)
-            live.refresh()
-            while True:
-                ch = sys.stdin.read(1)
-                if ch in ("\n", "\r"):
-                    chosen_index = selected
-                    break
-                if ch == "\x03":
-                    raise KeyboardInterrupt
-                if ch == "\x1b":
-                    seq = sys.stdin.read(2)
-                    if seq == "[A":
-                        selected = (selected - 1) % len(items)
-                    elif seq == "[B":
-                        selected = (selected + 1) % len(items)
-                    live.update(render(), refresh=True)
-                    continue
-                if ch in ("j", "k"):
-                    selected = (
-                        (selected + 1) % len(items) if ch == "j" else (selected - 1) % len(items)
-                    )
-                    live.update(render(), refresh=True)
-                    continue
-                if ch.isdigit():
-                    idx = int(ch) - 1
-                    if 0 <= idx < len(items):
-                        selected = idx
-                        live.update(render(), refresh=True)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-    if chosen_index is None:
-        chosen_index = selected
-    choice_key, _choice_label = items[chosen_index]
-    return choice_key
-
-
-def _prompt_choice_fallback(
-    items: Sequence[tuple[str, str]],
-    *,
-    default: str | None,
-) -> str:
-    choices = dict(items)
-    for key, label in items:
-        console.print(f"- [bold]{key}[/bold]: {label}")
-    while True:
-        value = Prompt.ask(
-            "> ",
-            default=default or "",
-            show_default=bool(default),
-            console=console,
-        ).strip().lower()
-        if not value and default:
+    items = list(items)
+    choices = [questionary.Choice(title=label, value=key) for key, label in items]
+    if help_text:
+        console.print(Padding(_format_hint(help_text), (0, 0, 0, 1)))
+    value = questionary.select(
+        title or "Select an option",
+        choices=choices,
+        default=default,
+        qmark="",
+        pointer=">",
+        style=QUESTIONARY_STYLE,
+    ).ask()
+    if value is None:
+        if default is not None:
             return default
-        if value in choices:
-            return value
-        console_err.print("[error]Invalid choice.[/error]")
+        raise KeyboardInterrupt
+    return value
 
 
 def _prompt_home_action(*, quiet: bool) -> str:
@@ -539,7 +457,9 @@ def _prompt_int(prompt: str, *, minimum: int = 1, help_text: str | None = None) 
         help_text = f"Enter a whole number >= {minimum}."
     _print_prompt_header(prompt, help_text)
     while True:
-        raw = Prompt.ask("> ", default="", show_default=False, console=console)
+        raw = questionary.text(prompt, qmark="", style=QUESTIONARY_STYLE).ask()
+        if raw is None:
+            raise KeyboardInterrupt
         if not raw.strip():
             console_err.print("[red]This value is required.[/red]")
             continue
@@ -556,14 +476,18 @@ def _prompt_int(prompt: str, *, minimum: int = 1, help_text: str | None = None) 
 
 def _prompt_optional(prompt: str, *, help_text: str | None = None) -> str | None:
     _print_prompt_header(prompt, help_text)
-    value = Prompt.ask("> ", default="", show_default=False, console=console)
+    value = questionary.text(prompt, qmark="", style=QUESTIONARY_STYLE).ask()
+    if value is None:
+        raise KeyboardInterrupt
     return value.strip() or None
 
 
 def _prompt_required(prompt: str, *, help_text: str | None = None) -> str:
     _print_prompt_header(prompt, help_text)
     while True:
-        value = Prompt.ask("> ", default="", show_default=False, console=console)
+        value = questionary.text(prompt, qmark="", style=QUESTIONARY_STYLE).ask()
+        if value is None:
+            raise KeyboardInterrupt
         if value.strip():
             return value.strip()
         console_err.print("[red]This value is required.[/red]")
@@ -573,7 +497,9 @@ def _prompt_multiline(prompt: str, *, help_text: str | None = None) -> list[str]
     _print_prompt_header(prompt, help_text)
     items: list[str] = []
     while True:
-        line = Prompt.ask("> ", default="", show_default=False, console=console)
+        line = questionary.text(prompt, qmark="", style=QUESTIONARY_STYLE).ask()
+        if line is None:
+            raise KeyboardInterrupt
         if not line.strip():
             break
         items.append(line.strip())
@@ -684,7 +610,6 @@ __all__ = [
     "_print_completion_panel",
     "_print_prompt_header",
     "_prompt_choice",
-    "_prompt_choice_fallback",
     "_prompt_choice_list",
     "_prompt_home_action",
     "_prompt_int",
@@ -699,7 +624,6 @@ __all__ = [
     "_prompt_yes_no",
     "_progress",
     "_status",
-    "_supports_live_prompts",
     "_validate_path",
     "_warn",
     "_wizard_flow",

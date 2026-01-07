@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+import inspect
+import importlib.metadata
 import os
 import subprocess
 import sys
 
 import typer
+import playwright
 from playwright.sync_api import sync_playwright
 from platformdirs import user_cache_dir
 from rich.traceback import install as install_rich_traceback
@@ -47,17 +50,30 @@ def _playwright_chromium_installed() -> bool:
     return executable.exists()
 
 
+def _playwright_driver_command() -> tuple[str, str]:
+    driver_path = Path(inspect.getfile(playwright)).parent / "driver"
+    cli_path = str(driver_path / "package" / "cli.js")
+    if sys.platform == "win32":
+        node_path = os.getenv("PLAYWRIGHT_NODEJS_PATH", str(driver_path / "node.exe"))
+    else:
+        node_path = os.getenv("PLAYWRIGHT_NODEJS_PATH", str(driver_path / "node"))
+    return node_path, cli_path
+
+
+def _playwright_driver_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["PW_LANG_NAME"] = "python"
+    env["PW_LANG_NAME_VERSION"] = f"{sys.version_info.major}.{sys.version_info.minor}"
+    env["PW_CLI_DISPLAY_VERSION"] = importlib.metadata.version("playwright")
+    return env
+
+
 def _ensure_playwright_browsers(*, quiet: bool) -> None:
     if os.environ.get(_PLAYWRIGHT_SKIP_ENV):
         return
     _configure_playwright_env()
     if _playwright_chromium_installed():
         return
-
-    try:
-        from playwright.__main__ import compute_driver_executable, get_driver_env
-    except Exception as exc:
-        raise RuntimeError("Playwright CLI is unavailable") from exc
 
     with _progress(quiet=quiet) as progress:
         task_id = None
@@ -66,13 +82,13 @@ def _ensure_playwright_browsers(*, quiet: bool) -> None:
                 "Initializing Playwright (Chromium browser)...",
                 total=1,
             )
-        driver_executable, driver_cli = compute_driver_executable()
+        driver_executable, driver_cli = _playwright_driver_command()
         result = subprocess.run(
             [driver_executable, driver_cli, "install", "chromium"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            env=get_driver_env(),
+            env=_playwright_driver_env(),
             check=False,
         )
         if result.returncode != 0:

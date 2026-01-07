@@ -100,7 +100,7 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     fallback_sections_data: list[dict[str, object]] | None = None
     fallback_state: dict[str, int] | None = None
     if inputs.render_fallback and inputs.fallback_sections:
-        group_size = int(spec["fallback"].get("group_size", 4))
+        group_size = _int_value(spec["fallback"].get("group_size"), default=4)
         line_length = int(layout.line_length)
         fallback_sections_data = []
         for section in inputs.fallback_sections:
@@ -122,7 +122,7 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
         divider_y = (
             page_layout.margin
             + page_layout.header_height
-            - spec["header"]["divider_thickness_mm"]
+            - _float_value(spec["header"].get("divider_thickness_mm"), default=0.0)
         )
 
         qr_slots: list[dict[str, object]] = []
@@ -187,11 +187,12 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
                 qr_sequence = _sequence_geometry(
                     slots_raw,
                     page_layout.qr_size,
-                    float(spec["qr_sequence"]["label_offset_mm"]),
+                    _float_value(spec["qr_sequence"].get("label_offset_mm"), default=0.0),
                 )
             if slots_raw:
                 outline_padding = max(
-                    0.0, float(spec["qr_grid"].get("outline_padding_mm", 1.0))
+                    0.0,
+                    _float_value(spec["qr_grid"].get("outline_padding_mm"), default=1.0),
                 )
                 min_x = min(x for _idx, x, _y in slots_raw)
                 min_y = min(y for _idx, _x, y in slots_raw)
@@ -410,8 +411,8 @@ def _document_spec(
     qr_grid: dict[str, object] = {}
     qr_sequence: dict[str, object] = {"enabled": False}
 
-    shard_index = int(context.get("shard_index") or 1)
-    shard_total = int(context.get("shard_total") or 1)
+    shard_index = _int_value(context.get("shard_index"), default=1)
+    shard_total = _int_value(context.get("shard_total"), default=1)
 
     if doc_type == "main":
         header["title"] = "Main Document"
@@ -531,8 +532,9 @@ def _template_context(
     doc_id: str,
 ) -> dict[str, object]:
     keys = dict(spec["keys"])
+    raw_lines = keys.get("lines")
     keys_context = {
-        "lines": list(keys.get("lines", [])),
+        "lines": list(raw_lines) if isinstance(raw_lines, list) else [],
     }
 
     return {
@@ -553,7 +555,7 @@ def _sequence_geometry(
     qr_size: float,
     label_offset: float,
 ) -> dict[str, list[dict[str, float | str]]]:
-    lines: list[dict[str, float]] = []
+    lines: list[dict[str, float | str]] = []
     labels: list[dict[str, float | str]] = []
 
     for idx, (frame_idx, x, y) in enumerate(slots):
@@ -688,7 +690,7 @@ def _position_fallback_blocks(
     remaining = max(0.0, available_height)
 
     for block in blocks:
-        gap_lines = int(block.get("gap_lines") or 0)
+        gap_lines = _int_value(block.get("gap_lines"), default=0)
         if gap_lines > 0:
             gap_mm = gap_lines * line_height
             cursor_y += gap_mm
@@ -703,12 +705,28 @@ def _position_fallback_blocks(
         remaining -= block_height
 
     if blocks and remaining > 0:
-        blocks[-1]["height_mm"] = float(blocks[-1]["height_mm"]) + remaining
+        blocks[-1]["height_mm"] = (
+            _float_value(blocks[-1].get("height_mm"), default=0.0) + remaining
+        )
 
 
 def _data_uri(png_bytes: bytes) -> str:
     encoded = base64.b64encode(png_bytes).decode("ascii")
     return f"data:image/png;base64,{encoded}"
+
+
+def _int_value(value: object, *, default: int) -> int:
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
+def _float_value(value: object, *, default: float) -> float:
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
 
 
 def _css_color(value: object, *, default: str | None = None) -> str:

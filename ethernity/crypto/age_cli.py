@@ -14,13 +14,20 @@ from .passphrases import DEFAULT_PASSPHRASE_WORDS, generate_passphrase
 _USE_PTY = False
 if os.name != "nt":
     try:
-        import fcntl
-        import pty
-        import termios
+        import fcntl as _fcntl
+        import pty as _pty
+        import termios as _termios
     except ImportError:
         _USE_PTY = False
+        _fcntl = None
+        _pty = None
+        _termios = None
     else:
         _USE_PTY = True
+else:
+    _fcntl = None
+    _pty = None
+    _termios = None
 
 @dataclass
 class AgeCliError(RuntimeError):
@@ -84,6 +91,12 @@ def _run_age_with_pty(
 ) -> tuple[bytes, str]:
     if not _USE_PTY:
         raise RuntimeError("PTY-based age handling is not available on this platform")
+    pty = _pty
+    fcntl = _fcntl
+    termios = _termios
+    assert pty is not None
+    assert fcntl is not None
+    assert termios is not None
     input_path = None
     output_path = None
     master_fd = None
@@ -305,4 +318,3 @@ def _safe_write(fd: int, data: bytes) -> None:
         os.write(fd, data)
     except OSError:
         pass
-
