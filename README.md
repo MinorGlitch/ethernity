@@ -24,6 +24,22 @@ Run the test suite:
 uv run python -m unittest discover -s tests -p "test_*.py"
 ```
 
+## Packaging (PyInstaller)
+
+Build a standalone CLI for your OS (browsers are downloaded on first run):
+
+```bash
+./scripts/build_pyinstaller.sh
+```
+
+On Windows (PowerShell):
+
+```powershell
+.\scripts\build_pyinstaller.ps1
+```
+
+Artifacts land in `dist/ethernity` (or `dist/ethernity.exe` if you switch to one-file).
+
 ### Config location
 
 On first run, Ethernity copies its default configs/templates to:

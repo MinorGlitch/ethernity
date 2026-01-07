@@ -25,6 +25,9 @@ dependencies = [
 [project.scripts]
 ethernity = "ethernity.cli:main"
 
+[project.optional-dependencies]
+build = ["pyinstaller>=6.10.0"]
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
