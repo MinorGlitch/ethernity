@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "cbor2",
+    "certifi",
     "mnemonic",
     "typer>=0.12.3",
     "rich>=13.7.0",

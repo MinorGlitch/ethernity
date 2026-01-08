@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import platform
 import select
+import ssl
 import subprocess
 import tempfile
 import time
@@ -20,6 +21,7 @@ from typing import Callable, Sequence
 from ..config.installer import USER_CONFIG_DIR
 
 from .passphrases import DEFAULT_PASSPHRASE_WORDS, generate_passphrase
+import certifi
 
 _USE_PTY = False
 if os.name != "nt":
@@ -170,10 +172,11 @@ def _age_arch_name() -> str:
 
 def _download_file(url: str, dest: Path) -> None:
     request = urllib.request.Request(url, headers={"User-Agent": "ethernity"})
+    context = ssl.create_default_context(cafile=certifi.where())
     last_exc: Exception | None = None
     for attempt in range(1, 4):
         try:
-            with urllib.request.urlopen(request, timeout=60) as resp:
+            with urllib.request.urlopen(request, timeout=60, context=context) as resp:
                 with open(dest, "wb") as handle:
                     shutil.copyfileobj(resp, handle)
             return
