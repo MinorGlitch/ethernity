@@ -7,6 +7,7 @@ import select
 import subprocess
 import tempfile
 import time
+import urllib.error
 import urllib.request
 import zipfile
 import tarfile
@@ -166,12 +167,25 @@ def _age_arch_name() -> str:
 
 
 def _download_file(url: str, dest: Path) -> None:
-    try:
-        with urllib.request.urlopen(url, timeout=60) as resp:
-            with open(dest, "wb") as handle:
-                shutil.copyfileobj(resp, handle)
-    except Exception as exc:
-        raise RuntimeError(f"failed to download age from {url}") from exc
+    request = urllib.request.Request(url, headers={"User-Agent": "ethernity"})
+    last_exc: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            with urllib.request.urlopen(request, timeout=60) as resp:
+                with open(dest, "wb") as handle:
+                    shutil.copyfileobj(resp, handle)
+            return
+        except Exception as exc:
+            last_exc = exc
+            if attempt < 3:
+                time.sleep(1.5 * attempt)
+                continue
+            detail = str(exc)
+            if isinstance(exc, urllib.error.HTTPError):
+                detail = f"HTTP {exc.code} {exc.reason}"
+            elif isinstance(exc, urllib.error.URLError):
+                detail = str(exc.reason)
+            raise RuntimeError(f"failed to download age from {url}: {detail}") from exc
 
 
 def _extract_from_zip(archive_path: Path, dest: Path, binary_name: str) -> None:
