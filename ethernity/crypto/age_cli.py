@@ -43,6 +43,14 @@ _AGE_REPO = "FiloSottile/age"
 _AGE_PATH_ENV = "ETHERNITY_AGE_PATH"
 _AGE_BINARY_NAME = "age.exe" if os.name == "nt" else "age"
 _AGE_BINARY_PATH = USER_CONFIG_DIR / _AGE_BINARY_NAME
+_AGE_ARTIFACTS = {
+    ("darwin", "arm64"),
+    ("freebsd", "amd64"),
+    ("linux", "amd64"),
+    ("linux", "arm"),
+    ("linux", "arm64"),
+    ("windows", "amd64"),
+}
 
 @dataclass
 class AgeCliError(RuntimeError):
@@ -118,6 +126,12 @@ def ensure_age_binary() -> str:
 def _age_download_spec() -> tuple[str, str, str]:
     os_name = _age_platform_name()
     arch = _age_arch_name()
+    if (os_name, arch) not in _AGE_ARTIFACTS:
+        supported = ", ".join(sorted(f"{name}-{cpu}" for name, cpu in _AGE_ARTIFACTS))
+        raise RuntimeError(
+            f"age release does not include {os_name}-{arch}. Supported: {supported}. "
+            f"Set {_AGE_PATH_ENV} to a local age binary."
+        )
     if os_name == "windows":
         archive_kind = "zip"
         archive_name = f"age-v{_AGE_VERSION}-{os_name}-{arch}.zip"
@@ -135,6 +149,8 @@ def _age_platform_name() -> str:
         return "darwin"
     if sys.platform.startswith("linux"):
         return "linux"
+    if sys.platform.startswith("freebsd"):
+        return "freebsd"
     raise RuntimeError(f"unsupported platform for age download: {sys.platform}")
 
 
@@ -144,6 +160,8 @@ def _age_arch_name() -> str:
         return "amd64"
     if machine in ("arm64", "aarch64"):
         return "arm64"
+    if machine in ("arm", "armv6", "armv6l", "armv7", "armv7l", "armv8l", "armhf"):
+        return "arm"
     raise RuntimeError(f"unsupported architecture for age download: {machine}")
 
 
