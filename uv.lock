@@ -35,6 +35,15 @@ wheels = [
 ]
 
 [[package]]
+name = "certifi"
+version = "2026.1.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e0/2d/a891ca51311197f6ad14a7ef42e2399f36cf2f9bd44752b3dc4eab60fdc5/certifi-2026.1.4.tar.gz", hash = "sha256:ac726dd470482006e014ad384921ed6438c457018f4b3d204aea4281258b2120", size = 154268, upload-time = "2026-01-04T02:42:41.825Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e6/ad/3cc14f097111b4de0040c83a525973216457bbeeb63739ef1ed275c1c021/certifi-2026.1.4-py3-none-any.whl", hash = "sha256:9943707519e4add1115f44c2bc244f782c0249876bf51b6599fee1ffbedd685c", size = 152900, upload-time = "2026-01-04T02:42:40.15Z" },
+]
+
+[[package]]
 name = "click"
 version = "8.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -131,6 +140,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "cbor2" },
+    { name = "certifi" },
     { name = "coverage" },
     { name = "fpdf2" },
     { name = "jinja2" },
@@ -156,6 +166,7 @@ build = [
 [package.metadata]
 requires-dist = [
     { name = "cbor2" },
+    { name = "certifi" },
     { name = "coverage", specifier = ">=7.13.1" },
     { name = "fpdf2" },
     { name = "jinja2" },
