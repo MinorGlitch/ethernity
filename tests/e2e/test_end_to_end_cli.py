@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.encoding.chunking import chunk_payload
@@ -17,37 +18,40 @@ class TestEndToEndCli(unittest.TestCase):
     def test_backup_cli_creates_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            write_fake_age_script(tmp_path)
+            age_path = write_fake_age_script(tmp_path)
             input_path = tmp_path / "input.txt"
             input_path.write_text("backup cli payload", encoding="utf-8")
             output_dir = tmp_path / "backup"
             repo_root = Path(__file__).resolve().parents[2]
             config_path = repo_root / "ethernity" / "config" / "a4.toml"
 
-            with prepend_path(tmp_path):
-                env = os.environ.copy()
-                env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
-                env["ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"] = "1"
-                result = subprocess.run(
-                    [
-                        sys.executable,
-                        "-m",
-                        "ethernity.cli",
-                        "--config",
-                        str(config_path),
-                        "backup",
-                        "--input",
-                        str(input_path),
-                        "--output-dir",
-                        str(output_dir),
-                        "--passphrase-generate",
-                    ],
-                    cwd=repo_root,
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
+            with mock.patch.dict(
+                os.environ, {"ETHERNITY_AGE_PATH": str(age_path)}, clear=False
+            ):
+                with prepend_path(tmp_path):
+                    env = os.environ.copy()
+                    env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
+                    env["ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"] = "1"
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            "-m",
+                            "ethernity.cli",
+                            "--config",
+                            str(config_path),
+                            "backup",
+                            "--input",
+                            str(input_path),
+                            "--output-dir",
+                            str(output_dir),
+                            "--passphrase-generate",
+                        ],
+                        cwd=repo_root,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue((output_dir / "qr_document.pdf").exists())
@@ -56,47 +60,50 @@ class TestEndToEndCli(unittest.TestCase):
     def test_backup_cli_signing_key_shards(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            write_fake_age_script(tmp_path)
+            age_path = write_fake_age_script(tmp_path)
             input_path = tmp_path / "input.txt"
             input_path.write_text("backup cli payload", encoding="utf-8")
             output_dir = tmp_path / "backup"
             repo_root = Path(__file__).resolve().parents[2]
             config_path = repo_root / "ethernity" / "config" / "a4.toml"
 
-            with prepend_path(tmp_path):
-                env = os.environ.copy()
-                env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
-                env["ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"] = "1"
-                result = subprocess.run(
-                    [
-                        sys.executable,
-                        "-m",
-                        "ethernity.cli",
-                        "--config",
-                        str(config_path),
-                        "backup",
-                        "--input",
-                        str(input_path),
-                        "--output-dir",
-                        str(output_dir),
-                        "--passphrase-generate",
-                        "--shard-threshold",
-                        "2",
-                        "--shard-count",
-                        "3",
-                        "--signing-key-mode",
-                        "sharded",
-                        "--signing-key-shard-threshold",
-                        "1",
-                        "--signing-key-shard-count",
-                        "2",
-                    ],
-                    cwd=repo_root,
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
+            with mock.patch.dict(
+                os.environ, {"ETHERNITY_AGE_PATH": str(age_path)}, clear=False
+            ):
+                with prepend_path(tmp_path):
+                    env = os.environ.copy()
+                    env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
+                    env["ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"] = "1"
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            "-m",
+                            "ethernity.cli",
+                            "--config",
+                            str(config_path),
+                            "backup",
+                            "--input",
+                            str(input_path),
+                            "--output-dir",
+                            str(output_dir),
+                            "--passphrase-generate",
+                            "--shard-threshold",
+                            "2",
+                            "--shard-count",
+                            "3",
+                            "--signing-key-mode",
+                            "sharded",
+                            "--signing-key-shard-threshold",
+                            "1",
+                            "--signing-key-shard-count",
+                            "2",
+                        ],
+                        cwd=repo_root,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
 
             self.assertEqual(result.returncode, 0, result.stderr)
             signing_key_shards = list(output_dir.glob("signing-key-shard-*.pdf"))
@@ -106,51 +113,56 @@ class TestEndToEndCli(unittest.TestCase):
         payload = b"recover cli payload"
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            write_fake_age_script(tmp_path)
+            age_path = write_fake_age_script(tmp_path)
             repo_root = Path(__file__).resolve().parents[2]
 
-            with prepend_path(tmp_path):
-                manifest = build_single_file_manifest("payload.bin", payload)
-                envelope = encode_envelope(payload, manifest)
-                ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
-                self.assertIsNotNone(passphrase)
-                doc_id = hashlib.blake2b(ciphertext, digest_size=16).digest()
-                frames = chunk_payload(
-                    ciphertext,
-                    doc_id=doc_id,
-                    frame_type=FrameType.MAIN_DOCUMENT,
-                    chunk_size=10,
-                )
-                frames_path = tmp_path / "frames.txt"
-                frames_path.write_text(
-                    "\n".join(encode_frame(frame).hex() for frame in frames),
-                    encoding="utf-8",
-                )
-                output_path = tmp_path / "recovered.bin"
+            with mock.patch.dict(
+                os.environ, {"ETHERNITY_AGE_PATH": str(age_path)}, clear=False
+            ):
+                with prepend_path(tmp_path):
+                    manifest = build_single_file_manifest("payload.bin", payload)
+                    envelope = encode_envelope(payload, manifest)
+                    ciphertext, passphrase = encrypt_bytes_with_passphrase(
+                        envelope, passphrase=None
+                    )
+                    self.assertIsNotNone(passphrase)
+                    doc_id = hashlib.blake2b(ciphertext, digest_size=16).digest()
+                    frames = chunk_payload(
+                        ciphertext,
+                        doc_id=doc_id,
+                        frame_type=FrameType.MAIN_DOCUMENT,
+                        chunk_size=10,
+                    )
+                    frames_path = tmp_path / "frames.txt"
+                    frames_path.write_text(
+                        "\n".join(encode_frame(frame).hex() for frame in frames),
+                        encoding="utf-8",
+                    )
+                    output_path = tmp_path / "recovered.bin"
 
-                env = os.environ.copy()
-                env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
-                env["ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"] = "1"
-                result = subprocess.run(
-                    [
-                        sys.executable,
-                        "-m",
-                        "ethernity.cli",
-                        "recover",
-                        "--frames-file",
-                        str(frames_path),
-                        "--passphrase",
-                        passphrase,
-                        "--allow-unsigned",
-                        "--output",
-                        str(output_path),
-                    ],
-                    cwd=repo_root,
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
+                    env = os.environ.copy()
+                    env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
+                    env["ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"] = "1"
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            "-m",
+                            "ethernity.cli",
+                            "recover",
+                            "--frames-file",
+                            str(frames_path),
+                            "--passphrase",
+                            passphrase,
+                            "--allow-unsigned",
+                            "--output",
+                            str(output_path),
+                        ],
+                        cwd=repo_root,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(output_path.read_bytes(), payload)

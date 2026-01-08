@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 import inspect
 import importlib.metadata
@@ -26,10 +27,12 @@ from .ui import (
     _prompt_home_action,
     _progress,
 )
+from ..crypto.age_cli import ensure_age_binary
 from ..config import init_user_config, user_config_needs_init
 
 app = typer.Typer(add_completion=True, help="Ethernity CLI.")
 
+_AGE_SKIP_ENV = "ETHERNITY_SKIP_AGE_INSTALL"
 _PLAYWRIGHT_SKIP_ENV = "ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"
 _PLAYWRIGHT_BROWSERS_ENV = "PLAYWRIGHT_BROWSERS_PATH"
 
@@ -68,20 +71,33 @@ def _playwright_driver_env() -> dict[str, str]:
     return env
 
 
-def _ensure_playwright_browsers(*, quiet: bool) -> None:
-    if os.environ.get(_PLAYWRIGHT_SKIP_ENV):
+def _ensure_dependency(
+    *,
+    quiet: bool,
+    skip_env: str,
+    description: str,
+    ensure: Callable[[], None],
+    precheck: Callable[[], bool] | None = None,
+) -> None:
+    if os.environ.get(skip_env):
         return
-    _configure_playwright_env()
-    if _playwright_chromium_installed():
+    if precheck is not None and precheck():
         return
-
     with _progress(quiet=quiet) as progress:
         task_id = None
         if progress is not None:
-            task_id = progress.add_task(
-                "Initializing Playwright (Chromium browser)...",
-                total=1,
-            )
+            task_id = progress.add_task(description, total=1)
+        ensure()
+        if progress is not None and task_id is not None:
+            progress.update(task_id, completed=1)
+
+
+def _ensure_playwright_browsers(*, quiet: bool) -> None:
+    def _precheck() -> bool:
+        _configure_playwright_env()
+        return _playwright_chromium_installed()
+
+    def _install() -> None:
         driver_executable, driver_cli = _playwright_driver_command()
         result = subprocess.run(
             [driver_executable, driver_cli, "install", "chromium"],
@@ -94,8 +110,23 @@ def _ensure_playwright_browsers(*, quiet: bool) -> None:
         if result.returncode != 0:
             detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
             raise RuntimeError(f"Playwright install failed: {detail}")
-        if progress is not None and task_id is not None:
-            progress.update(task_id, completed=1)
+
+    _ensure_dependency(
+        quiet=quiet,
+        skip_env=_PLAYWRIGHT_SKIP_ENV,
+        description="Initializing Playwright (Chromium browser)...",
+        ensure=_install,
+        precheck=_precheck,
+    )
+
+
+def _ensure_age_binary(*, quiet: bool) -> None:
+    _ensure_dependency(
+        quiet=quiet,
+        skip_env=_AGE_SKIP_ENV,
+        description="Initializing age binary...",
+        ensure=ensure_age_binary,
+    )
 
 
 def _version_callback(value: bool) -> None:
@@ -171,6 +202,7 @@ def cli(
     if debug:
         install_rich_traceback(show_locals=True)
     try:
+        _ensure_age_binary(quiet=quiet)
         _ensure_playwright_browsers(quiet=quiet)
     except Exception as exc:
         console_err.print(f"[red]Error:[/red] {exc}")

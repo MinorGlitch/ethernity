@@ -2,12 +2,21 @@
 from __future__ import annotations
 
 import os
+import platform
 import select
 import subprocess
 import tempfile
 import time
+import urllib.request
+import zipfile
+import tarfile
+import shutil
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Sequence
+
+from ..config.installer import USER_CONFIG_DIR
 
 from .passphrases import DEFAULT_PASSPHRASE_WORDS, generate_passphrase
 
@@ -29,6 +38,12 @@ else:
     _pty = None
     _termios = None
 
+_AGE_VERSION = "1.3.1"
+_AGE_REPO = "FiloSottile/age"
+_AGE_PATH_ENV = "ETHERNITY_AGE_PATH"
+_AGE_BINARY_NAME = "age.exe" if os.name == "nt" else "age"
+_AGE_BINARY_PATH = USER_CONFIG_DIR / _AGE_BINARY_NAME
+
 @dataclass
 class AgeCliError(RuntimeError):
     cmd: Sequence[str]
@@ -45,8 +60,8 @@ def encrypt_bytes_with_passphrase(
     *,
     passphrase: str | None = None,
     passphrase_words: int | None = None,
-    age_path: str = "age",
 ) -> tuple[bytes, str | None]:
+    age_path = get_age_path()
     if passphrase:
         ciphertext = _run_age_encrypt_passphrase(data, passphrase=passphrase, age_path=age_path)
         return ciphertext, passphrase
@@ -61,9 +76,120 @@ def decrypt_bytes(
     data: bytes,
     *,
     passphrase: str,
-    age_path: str = "age",
 ) -> bytes:
+    age_path = get_age_path()
     return _run_age_decrypt_passphrase(data, passphrase=passphrase, age_path=age_path)
+
+
+def get_age_path() -> str:
+    env_path = os.environ.get(_AGE_PATH_ENV)
+    if env_path:
+        return env_path
+    if _AGE_BINARY_PATH.exists():
+        return str(_AGE_BINARY_PATH)
+    return "age"
+
+
+def ensure_age_binary() -> str:
+    env_path = os.environ.get(_AGE_PATH_ENV)
+    if env_path:
+        resolved = Path(env_path).expanduser()
+        if not resolved.exists():
+            raise RuntimeError(f"age binary not found at {resolved}")
+        return str(resolved)
+    if _AGE_BINARY_PATH.exists():
+        return str(_AGE_BINARY_PATH)
+    _AGE_BINARY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    archive_name, url, archive_kind = _age_download_spec()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        archive_path = Path(tmpdir) / archive_name
+        _download_file(url, archive_path)
+        tmp_binary = Path(tmpdir) / _AGE_BINARY_NAME
+        if archive_kind == "zip":
+            _extract_from_zip(archive_path, tmp_binary, _AGE_BINARY_NAME)
+        else:
+            _extract_from_tar(archive_path, tmp_binary, _AGE_BINARY_NAME)
+        tmp_binary.replace(_AGE_BINARY_PATH)
+    if os.name != "nt":
+        os.chmod(_AGE_BINARY_PATH, 0o755)
+    return str(_AGE_BINARY_PATH)
+
+
+def _age_download_spec() -> tuple[str, str, str]:
+    os_name = _age_platform_name()
+    arch = _age_arch_name()
+    if os_name == "windows":
+        archive_kind = "zip"
+        archive_name = f"age-v{_AGE_VERSION}-{os_name}-{arch}.zip"
+    else:
+        archive_kind = "tar.gz"
+        archive_name = f"age-v{_AGE_VERSION}-{os_name}-{arch}.tar.gz"
+    url = f"https://github.com/{_AGE_REPO}/releases/download/v{_AGE_VERSION}/{archive_name}"
+    return archive_name, url, archive_kind
+
+
+def _age_platform_name() -> str:
+    if sys.platform == "win32":
+        return "windows"
+    if sys.platform == "darwin":
+        return "darwin"
+    if sys.platform.startswith("linux"):
+        return "linux"
+    raise RuntimeError(f"unsupported platform for age download: {sys.platform}")
+
+
+def _age_arch_name() -> str:
+    machine = platform.machine().lower()
+    if machine in ("x86_64", "amd64"):
+        return "amd64"
+    if machine in ("arm64", "aarch64"):
+        return "arm64"
+    raise RuntimeError(f"unsupported architecture for age download: {machine}")
+
+
+def _download_file(url: str, dest: Path) -> None:
+    try:
+        with urllib.request.urlopen(url, timeout=60) as resp:
+            with open(dest, "wb") as handle:
+                shutil.copyfileobj(resp, handle)
+    except Exception as exc:
+        raise RuntimeError(f"failed to download age from {url}") from exc
+
+
+def _extract_from_zip(archive_path: Path, dest: Path, binary_name: str) -> None:
+    with zipfile.ZipFile(archive_path) as archive:
+        member = next(
+            (
+                name
+                for name in archive.namelist()
+                if name.endswith(f"/{binary_name}") or name == binary_name
+            ),
+            None,
+        )
+        if member is None:
+            raise RuntimeError("age binary not found in zip archive")
+        with archive.open(member) as src, open(dest, "wb") as handle:
+            shutil.copyfileobj(src, handle)
+
+
+def _extract_from_tar(archive_path: Path, dest: Path, binary_name: str) -> None:
+    with tarfile.open(archive_path, "r:gz") as archive:
+        member = next(
+            (
+                entry
+                for entry in archive.getmembers()
+                if entry.isfile()
+                and (entry.name.endswith(f"/{binary_name}") or entry.name == binary_name)
+            ),
+            None,
+        )
+        if member is None:
+            raise RuntimeError("age binary not found in tar archive")
+        extracted = archive.extractfile(member)
+        if extracted is None:
+            raise RuntimeError("failed to extract age binary from tar archive")
+        with extracted, open(dest, "wb") as handle:
+            shutil.copyfileobj(extracted, handle)
 
 
 def _run_age(cmd: Sequence[str], data: bytes) -> bytes:

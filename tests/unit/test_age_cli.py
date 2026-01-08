@@ -25,12 +25,15 @@ class TestAgeCli(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             age_path = write_fake_age_script(Path(tmpdir))
             data = b"payload"
-            with mock.patch(
-                "ethernity.crypto.age_cli.generate_passphrase", return_value="test-passphrase"
+            with mock.patch.dict(
+                os.environ, {age_cli._AGE_PATH_ENV: str(age_path)}, clear=False
             ):
-                ciphertext, passphrase = encrypt_bytes_with_passphrase(
-                    data, passphrase=None, age_path=str(age_path)
-                )
+                with mock.patch(
+                    "ethernity.crypto.age_cli.generate_passphrase", return_value="test-passphrase"
+                ):
+                    ciphertext, passphrase = encrypt_bytes_with_passphrase(
+                        data, passphrase=None
+                    )
             self.assertEqual(ciphertext, data)
             self.assertEqual(passphrase, "test-passphrase")
 
@@ -38,16 +41,22 @@ class TestAgeCli(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             age_path = write_fake_age_script(Path(tmpdir))
             data = b"ciphertext"
-            plaintext = decrypt_bytes(data, passphrase="secret", age_path=str(age_path))
+            with mock.patch.dict(
+                os.environ, {age_cli._AGE_PATH_ENV: str(age_path)}, clear=False
+            ):
+                plaintext = decrypt_bytes(data, passphrase="secret")
             self.assertEqual(plaintext, data)
 
     def test_encrypt_passphrase(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             age_path = write_fake_age_script(Path(tmpdir))
             data = b"payload"
-            ciphertext, passphrase = encrypt_bytes_with_passphrase(
-                data, passphrase="secret", age_path=str(age_path)
-            )
+            with mock.patch.dict(
+                os.environ, {age_cli._AGE_PATH_ENV: str(age_path)}, clear=False
+            ):
+                ciphertext, passphrase = encrypt_bytes_with_passphrase(
+                    data, passphrase="secret"
+                )
             self.assertEqual(ciphertext, data)
         self.assertEqual(passphrase, "secret")
 
@@ -60,8 +69,11 @@ sys.exit(2)
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             age_path = self._write_script(Path(tmpdir), "age", script)
-            with self.assertRaises(AgeCliError) as ctx:
-                encrypt_bytes_with_passphrase(b"payload", passphrase="secret", age_path=str(age_path))
+            with mock.patch.dict(
+                os.environ, {age_cli._AGE_PATH_ENV: str(age_path)}, clear=False
+            ):
+                with self.assertRaises(AgeCliError) as ctx:
+                    encrypt_bytes_with_passphrase(b"payload", passphrase="secret")
         self.assertIn("age failed", str(ctx.exception))
 
     def test_encrypt_passphrase_sets_env_without_pty(self) -> None:
@@ -86,9 +98,12 @@ sys.exit(2)
 
         with mock.patch("ethernity.crypto.age_cli._USE_PTY", False):
             with mock.patch("ethernity.crypto.age_cli.subprocess.run", side_effect=_run):
-                ciphertext, passphrase = encrypt_bytes_with_passphrase(
-                    data, passphrase="secret", age_path="age"
-                )
+                with mock.patch.dict(
+                    os.environ, {age_cli._AGE_PATH_ENV: "age"}, clear=False
+                ):
+                    ciphertext, passphrase = encrypt_bytes_with_passphrase(
+                        data, passphrase="secret"
+                    )
 
         self.assertEqual(ciphertext, data)
         self.assertEqual(passphrase, "secret")
@@ -160,11 +175,26 @@ sys.exit(2)
         def _drain(_fd, _proc):
             return ""
 
-        with mock.patch("ethernity.crypto.age_cli.pty.openpty", return_value=(123, 124)):
-            with mock.patch("ethernity.crypto.age_cli.subprocess.Popen", side_effect=OSError("boom")):
-                with mock.patch("ethernity.crypto.age_cli.os.close", side_effect=OSError):
-                    with self.assertRaises(OSError):
-                        age_cli._run_age_with_pty(cmd_builder=_builder, data=b"data", drain=_drain)
+        fake_pty = mock.Mock()
+        fake_pty.openpty.return_value = (123, 124)
+        fake_fcntl = mock.Mock()
+        fake_fcntl.ioctl.return_value = 0
+        fake_termios = mock.Mock(TIOCSCTTY=1)
+        with mock.patch("ethernity.crypto.age_cli._USE_PTY", True):
+            with mock.patch("ethernity.crypto.age_cli._pty", fake_pty):
+                with mock.patch("ethernity.crypto.age_cli._fcntl", fake_fcntl):
+                    with mock.patch("ethernity.crypto.age_cli._termios", fake_termios):
+                        with mock.patch(
+                            "ethernity.crypto.age_cli.subprocess.Popen",
+                            side_effect=OSError("boom"),
+                        ):
+                            with mock.patch("ethernity.crypto.age_cli.os.close", side_effect=OSError):
+                                with self.assertRaises(OSError):
+                                    age_cli._run_age_with_pty(
+                                        cmd_builder=_builder,
+                                        data=b"data",
+                                        drain=_drain,
+                                    )
 
 
 if __name__ == "__main__":

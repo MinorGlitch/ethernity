@@ -14,10 +14,13 @@ class TestIntegrationBackup(unittest.TestCase):
         payload = b"backup integration payload"
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            write_fake_age_script(tmp_path)
+            age_path = write_fake_age_script(tmp_path)
             repo_root = Path(__file__).resolve().parents[2]
             config_path = repo_root / "ethernity" / "config" / "a4.toml"
-            env_overrides = {"XDG_CONFIG_HOME": str(tmp_path / "xdg")}
+            env_overrides = {
+                "XDG_CONFIG_HOME": str(tmp_path / "xdg"),
+                "ETHERNITY_AGE_PATH": str(age_path),
+            }
             with mock.patch.dict(os.environ, env_overrides, clear=False):
                 with prepend_path(tmp_path):
                     input_path = tmp_path / "input.bin"

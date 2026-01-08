@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 import os
 import shutil
+import sys
 
 from platformdirs import user_config_dir
 
@@ -24,11 +25,12 @@ DEFAULT_CONFIG_PATH = PAPER_CONFIGS[DEFAULT_PAPER_SIZE]
 PAPER_SIZE_ENV = "ETHERNITY_PAPER_SIZE"
 XDG_CONFIG_ENV = "XDG_CONFIG_HOME"
 _xdg_override = os.environ.get(XDG_CONFIG_ENV)
-USER_CONFIG_DIR = (
-    Path(_xdg_override) / "ethernity"
-    if _xdg_override
-    else Path(user_config_dir("ethernity", appauthor=False))
-)
+if _xdg_override:
+    USER_CONFIG_DIR = Path(_xdg_override) / "ethernity"
+elif sys.platform == "darwin":
+    USER_CONFIG_DIR = Path.home() / ".config" / "ethernity"
+else:
+    USER_CONFIG_DIR = Path(user_config_dir("ethernity", appauthor=False))
 USER_TEMPLATES_DIR = USER_CONFIG_DIR / "templates"
 USER_PAPER_CONFIGS = {key: USER_CONFIG_DIR / path.name for key, path in PAPER_CONFIGS.items()}
 USER_TEMPLATE_PATHS = {
