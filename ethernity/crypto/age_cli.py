@@ -156,6 +156,8 @@ def _age_platform_name() -> str:
 
 
 def _age_arch_name() -> str:
+    if sys.platform == "win32":
+        return "amd64"
     machine = platform.machine().lower()
     if machine in ("x86_64", "amd64"):
         return "amd64"
