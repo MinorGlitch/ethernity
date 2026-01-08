@@ -1,10 +1,12 @@
 import argparse
 import hashlib
-import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
+
+import segno
+import zxingcpp  # noqa: F401
+from PIL import Image  # noqa: F401
 
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.encoding.chunking import chunk_payload, payload_to_fallback_lines
@@ -16,7 +18,12 @@ from ethernity.formats.envelope_codec import (
 from ethernity.formats.envelope_types import PayloadPart
 from ethernity.encoding.framing import FrameType, encode_frame
 from ethernity.cli import run_recover_command
-from tests.test_support import prepend_path, suppress_output, write_fake_age_script
+from tests.test_support import (
+    prepend_path,
+    suppress_output,
+    with_age_path,
+    write_fake_age_script,
+)
 
 
 class TestIntegrationRecover(unittest.TestCase):
@@ -25,9 +32,7 @@ class TestIntegrationRecover(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             age_path = write_fake_age_script(tmp_path)
-            with mock.patch.dict(
-                os.environ, {"ETHERNITY_AGE_PATH": str(age_path)}, clear=False
-            ):
+            with with_age_path(age_path):
                 with prepend_path(tmp_path):
                     manifest = build_single_file_manifest("payload.bin", payload)
                     envelope = encode_envelope(payload, manifest)
@@ -71,9 +76,7 @@ class TestIntegrationRecover(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             age_path = write_fake_age_script(tmp_path)
-            with mock.patch.dict(
-                os.environ, {"ETHERNITY_AGE_PATH": str(age_path)}, clear=False
-            ):
+            with with_age_path(age_path):
                 with prepend_path(tmp_path):
                     manifest = build_single_file_manifest("payload.bin", payload)
                     envelope = encode_envelope(payload, manifest)
@@ -110,24 +113,11 @@ class TestIntegrationRecover(unittest.TestCase):
                     self.assertEqual(output_path.read_bytes(), payload)
 
     def test_recover_from_scan_image(self) -> None:
-        try:
-            import zxingcpp  # noqa: F401
-            from PIL import Image  # noqa: F401
-        except ImportError:
-            self.skipTest("optional QR scan dependencies not installed")
-
-        try:
-            import segno
-        except ImportError:
-            self.skipTest("segno not installed")
-
         payload = b"scan integration"
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             age_path = write_fake_age_script(tmp_path)
-            with mock.patch.dict(
-                os.environ, {"ETHERNITY_AGE_PATH": str(age_path)}, clear=False
-            ):
+            with with_age_path(age_path):
                 with prepend_path(tmp_path):
                     manifest = build_single_file_manifest("payload.bin", payload)
                     envelope = encode_envelope(payload, manifest)
@@ -174,9 +164,7 @@ class TestIntegrationRecover(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             age_path = write_fake_age_script(tmp_path)
-            with mock.patch.dict(
-                os.environ, {"ETHERNITY_AGE_PATH": str(age_path)}, clear=False
-            ):
+            with with_age_path(age_path):
                 with prepend_path(tmp_path):
                     envelope = encode_envelope(payload, manifest)
                     ciphertext, passphrase = encrypt_bytes_with_passphrase(

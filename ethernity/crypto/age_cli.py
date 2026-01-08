@@ -1,59 +1,47 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import functools
 import os
-import platform
 import select
-import ssl
 import subprocess
 import tempfile
 import time
-import urllib.error
-import urllib.request
-import zipfile
-import tarfile
-import shutil
-import sys
 from dataclasses import dataclass
+import importlib
 from pathlib import Path
 from typing import Callable, Sequence
 
+if os.name == "nt":
+    from pyrage import passphrase as pyrage_passphrase
+else:
+    pyrage_passphrase = None
+
 from ..config.installer import USER_CONFIG_DIR
 
+from .age_fetch import download_age_binary
 from .passphrases import DEFAULT_PASSPHRASE_WORDS, generate_passphrase
-import certifi
 
+_fcntl = None
+_pty = None
+_termios = None
 _USE_PTY = False
 if os.name != "nt":
     try:
-        import fcntl as _fcntl
-        import pty as _pty
-        import termios as _termios
-    except ImportError:
+        _fcntl = importlib.import_module("fcntl")
+        _pty = importlib.import_module("pty")
+        _termios = importlib.import_module("termios")
+    except Exception:
         _USE_PTY = False
         _fcntl = None
         _pty = None
         _termios = None
     else:
         _USE_PTY = True
-else:
-    _fcntl = None
-    _pty = None
-    _termios = None
 
-_AGE_VERSION = "1.3.1"
-_AGE_REPO = "FiloSottile/age"
 _AGE_PATH_ENV = "ETHERNITY_AGE_PATH"
 _AGE_BINARY_NAME = "age.exe" if os.name == "nt" else "age"
 _AGE_BINARY_PATH = USER_CONFIG_DIR / _AGE_BINARY_NAME
-_AGE_ARTIFACTS = {
-    ("darwin", "arm64"),
-    ("freebsd", "amd64"),
-    ("linux", "amd64"),
-    ("linux", "arm"),
-    ("linux", "arm64"),
-    ("windows", "amd64"),
-}
 
 @dataclass
 class AgeCliError(RuntimeError):
@@ -66,19 +54,115 @@ class AgeCliError(RuntimeError):
         return f"age failed (exit {self.returncode}): {detail}"
 
 
+_PROMPT_TOKEN = b"passphrase"
+_PROMPT_WINDOW = 2048
+_PROMPT_TIMEOUT_SEC = 2.0
+
+
+@dataclass
+class _PassphraseDrainState:
+    payload: bytes
+    max_prompts: int
+    sent: int
+    deadline: float
+    window: bytes
+
+
+def _use_pyrage_passphrase() -> bool:
+    return os.name == "nt" and pyrage_passphrase is not None
+
+
+def _encrypt_with_pyrage(data: bytes, passphrase: str) -> bytes:
+    if pyrage_passphrase is None:
+        raise RuntimeError("pyrage passphrase support is unavailable")
+    return pyrage_passphrase.encrypt(data, passphrase)
+
+
+def _decrypt_with_pyrage(data: bytes, passphrase: str) -> bytes:
+    if pyrage_passphrase is None:
+        raise RuntimeError("pyrage passphrase support is unavailable")
+    return pyrage_passphrase.decrypt(data, passphrase)
+
+
+def _age_preexec(
+    slave_fd_int: int,
+    fcntl_module,
+    termios_module,
+) -> None:
+    os.setsid()
+    fcntl_module.ioctl(slave_fd_int, termios_module.TIOCSCTTY, 0)
+
+
+def _age_cmd_builder(
+    output_path: str,
+    input_path: str,
+    *,
+    age_path: str,
+    decrypt: bool,
+) -> Sequence[str]:
+    if decrypt:
+        return [age_path, "-d", "-o", output_path, input_path]
+    return [age_path, "-p", "-o", output_path, input_path]
+
+
+def _age_drain_with_passphrase(
+    fd: int,
+    proc: subprocess.Popen[bytes],
+    *,
+    passphrase: str,
+    decrypt: bool,
+) -> str:
+    max_prompts = 1 if decrypt else 2
+    return _drain_pty_with_passphrase(fd, proc, passphrase, max_prompts=max_prompts)
+
+
+def _init_passphrase_state(passphrase: str, max_prompts: int) -> _PassphraseDrainState:
+    payload = (passphrase + "\n").encode("utf-8")
+    return _PassphraseDrainState(
+        payload=payload,
+        max_prompts=max_prompts,
+        sent=0,
+        deadline=time.monotonic() + _PROMPT_TIMEOUT_SEC,
+        window=b"",
+    )
+
+
+def _passphrase_on_data(state: _PassphraseDrainState, fd: int, data: bytes) -> None:
+    state.window = (state.window + data)[-_PROMPT_WINDOW:]
+    if state.sent < state.max_prompts and _PROMPT_TOKEN in state.window.lower():
+        _safe_write(fd, state.payload)
+        state.sent += 1
+        state.window = b""
+        state.deadline = time.monotonic() + _PROMPT_TIMEOUT_SEC
+
+
+def _passphrase_on_tick(state: _PassphraseDrainState, fd: int) -> None:
+    if state.sent == 0 and time.monotonic() >= state.deadline:
+        _safe_write(fd, state.payload)
+        state.sent = 1
+        state.deadline = time.monotonic() + _PROMPT_TIMEOUT_SEC
+
+
 def encrypt_bytes_with_passphrase(
     data: bytes,
     *,
     passphrase: str | None = None,
     passphrase_words: int | None = None,
 ) -> tuple[bytes, str | None]:
-    age_path = get_age_path()
     if passphrase:
+        if _use_pyrage_passphrase():
+            ciphertext = _encrypt_with_pyrage(data, passphrase)
+            return ciphertext, passphrase
+        age_path = get_age_path()
         ciphertext = _run_age_encrypt_passphrase(data, passphrase=passphrase, age_path=age_path)
         return ciphertext, passphrase
 
     words = DEFAULT_PASSPHRASE_WORDS if passphrase_words is None else passphrase_words
     generated = generate_passphrase(words=words)
+    if _use_pyrage_passphrase():
+        ciphertext = _encrypt_with_pyrage(data, generated)
+        return ciphertext, generated
+    age_path = get_age_path()
     ciphertext = _run_age_encrypt_passphrase(data, passphrase=generated, age_path=age_path)
     return ciphertext, generated
 
@@ -88,6 +172,8 @@ def decrypt_bytes(
     *,
     passphrase: str,
 ) -> bytes:
+    if _use_pyrage_passphrase():
+        return _decrypt_with_pyrage(data, passphrase)
     age_path = get_age_path()
     return _run_age_decrypt_passphrase(data, passphrase=passphrase, age_path=age_path)
 
@@ -111,122 +197,12 @@ def ensure_age_binary() -> str:
     if _AGE_BINARY_PATH.exists():
         return str(_AGE_BINARY_PATH)
     _AGE_BINARY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    archive_name, url, archive_kind = _age_download_spec()
-    with tempfile.TemporaryDirectory() as tmpdir:
-        archive_path = Path(tmpdir) / archive_name
-        _download_file(url, archive_path)
-        tmp_binary = Path(tmpdir) / _AGE_BINARY_NAME
-        if archive_kind == "zip":
-            _extract_from_zip(archive_path, tmp_binary, _AGE_BINARY_NAME)
-        else:
-            _extract_from_tar(archive_path, tmp_binary, _AGE_BINARY_NAME)
-        tmp_binary.replace(_AGE_BINARY_PATH)
-    if os.name != "nt":
-        os.chmod(_AGE_BINARY_PATH, 0o755)
+    download_age_binary(
+        dest_path=_AGE_BINARY_PATH,
+        binary_name=_AGE_BINARY_NAME,
+        path_env=_AGE_PATH_ENV,
+    )
     return str(_AGE_BINARY_PATH)
-
-
-def _age_download_spec() -> tuple[str, str, str]:
-    os_name = _age_platform_name()
-    arch = _age_arch_name()
-    if (os_name, arch) not in _AGE_ARTIFACTS:
-        supported = ", ".join(sorted(f"{name}-{cpu}" for name, cpu in _AGE_ARTIFACTS))
-        raise RuntimeError(
-            f"age release does not include {os_name}-{arch}. Supported: {supported}. "
-            f"Set {_AGE_PATH_ENV} to a local age binary."
-        )
-    if os_name == "windows":
-        archive_kind = "zip"
-        archive_name = f"age-v{_AGE_VERSION}-{os_name}-{arch}.zip"
-    else:
-        archive_kind = "tar.gz"
-        archive_name = f"age-v{_AGE_VERSION}-{os_name}-{arch}.tar.gz"
-    url = f"https://github.com/{_AGE_REPO}/releases/download/v{_AGE_VERSION}/{archive_name}"
-    return archive_name, url, archive_kind
-
-
-def _age_platform_name() -> str:
-    if sys.platform == "win32":
-        return "windows"
-    if sys.platform == "darwin":
-        return "darwin"
-    if sys.platform.startswith("linux"):
-        return "linux"
-    if sys.platform.startswith("freebsd"):
-        return "freebsd"
-    raise RuntimeError(f"unsupported platform for age download: {sys.platform}")
-
-
-def _age_arch_name() -> str:
-    if sys.platform == "win32":
-        return "amd64"
-    machine = platform.machine().lower()
-    if machine in ("x86_64", "amd64"):
-        return "amd64"
-    if machine in ("arm64", "aarch64"):
-        return "arm64"
-    if machine in ("arm", "armv6", "armv6l", "armv7", "armv7l", "armv8l", "armhf"):
-        return "arm"
-    raise RuntimeError(f"unsupported architecture for age download: {machine}")
-
-
-def _download_file(url: str, dest: Path) -> None:
-    request = urllib.request.Request(url, headers={"User-Agent": "ethernity"})
-    context = ssl.create_default_context(cafile=certifi.where())
-    last_exc: Exception | None = None
-    for attempt in range(1, 4):
-        try:
-            with urllib.request.urlopen(request, timeout=60, context=context) as resp:
-                with open(dest, "wb") as handle:
-                    shutil.copyfileobj(resp, handle)
-            return
-        except Exception as exc:
-            last_exc = exc
-            if attempt < 3:
-                time.sleep(1.5 * attempt)
-                continue
-            detail = str(exc)
-            if isinstance(exc, urllib.error.HTTPError):
-                detail = f"HTTP {exc.code} {exc.reason}"
-            elif isinstance(exc, urllib.error.URLError):
-                detail = str(exc.reason)
-            raise RuntimeError(f"failed to download age from {url}: {detail}") from exc
-
-
-def _extract_from_zip(archive_path: Path, dest: Path, binary_name: str) -> None:
-    with zipfile.ZipFile(archive_path) as archive:
-        member = next(
-            (
-                name
-                for name in archive.namelist()
-                if name.endswith(f"/{binary_name}") or name == binary_name
-            ),
-            None,
-        )
-        if member is None:
-            raise RuntimeError("age binary not found in zip archive")
-        with archive.open(member) as src, open(dest, "wb") as handle:
-            shutil.copyfileobj(src, handle)
-
-
-def _extract_from_tar(archive_path: Path, dest: Path, binary_name: str) -> None:
-    with tarfile.open(archive_path, "r:gz") as archive:
-        member = next(
-            (
-                entry
-                for entry in archive.getmembers()
-                if entry.isfile()
-                and (entry.name.endswith(f"/{binary_name}") or entry.name == binary_name)
-            ),
-            None,
-        )
-        if member is None:
-            raise RuntimeError("age binary not found in tar archive")
-        extracted = archive.extractfile(member)
-        if extracted is None:
-            raise RuntimeError("failed to extract age binary from tar archive")
-        with extracted, open(dest, "wb") as handle:
-            shutil.copyfileobj(extracted, handle)
 
 
 def _run_age(cmd: Sequence[str], data: bytes) -> bytes:
@@ -274,17 +250,14 @@ def _run_age_with_pty(
         master_fd, slave_fd = pty.openpty()
         slave_fd_int: int = slave_fd
 
-        def _preexec() -> None:
-            os.setsid()
-            fcntl.ioctl(slave_fd_int, termios.TIOCSCTTY, 0)
-
         cmd = list(cmd_builder(output_path, input_path))
+        preexec_fn = functools.partial(_age_preexec, slave_fd_int, fcntl, termios)
         proc = subprocess.Popen(
             cmd,
             stdin=slave_fd,
             stdout=subprocess.DEVNULL,
             stderr=slave_fd,
-            preexec_fn=_preexec,
+            preexec_fn=preexec_fn,
             close_fds=True,
         )
         os.close(slave_fd)
@@ -374,25 +347,19 @@ def _run_age_passphrase(
     age_path: str,
     decrypt: bool,
 ) -> bytes:
-    def _builder(output_path: str, input_path: str) -> Sequence[str]:
-        if decrypt:
-            return [age_path, "-d", "-o", output_path, input_path]
-        return [age_path, "-p", "-o", output_path, input_path]
-
-    def _drain(fd: int, proc: subprocess.Popen[bytes]) -> str:
-        max_prompts = 1 if decrypt else 2
-        return _drain_pty_with_passphrase(fd, proc, passphrase, max_prompts=max_prompts)
+    cmd_builder = functools.partial(_age_cmd_builder, age_path=age_path, decrypt=decrypt)
+    drain = functools.partial(_age_drain_with_passphrase, passphrase=passphrase, decrypt=decrypt)
 
     if _USE_PTY:
         output, _tty_output = _run_age_with_pty(
-            cmd_builder=_builder,
+            cmd_builder=cmd_builder,
             data=data,
-            drain=_drain,
+            drain=drain,
         )
     else:
         prompt_count = 1 if decrypt else 2
         output, _tty_output = _run_age_with_subprocess(
-            cmd_builder=_builder,
+            cmd_builder=cmd_builder,
             data=data,
             passphrase=passphrase,
             prompt_count=prompt_count,
@@ -444,29 +411,10 @@ def _drain_pty_loop(
 def _drain_pty_with_passphrase(
     fd: int, proc: subprocess.Popen[bytes], passphrase: str, *, max_prompts: int = 1
 ) -> str:
-    sent = 0
-    deadline = time.monotonic() + 2.0
-    window = b""
-    prompt_token = b"passphrase"
-    payload = (passphrase + "\n").encode("utf-8")
-
-    def _on_data(data: bytes) -> None:
-        nonlocal sent, window, deadline
-        window = (window + data)[-2048:]
-        if sent < max_prompts and prompt_token in window.lower():
-            _safe_write(fd, payload)
-            sent += 1
-            window = b""
-            deadline = time.monotonic() + 2.0
-
-    def _on_tick() -> None:
-        nonlocal sent, deadline
-        if sent == 0 and time.monotonic() >= deadline:
-            _safe_write(fd, payload)
-            sent = 1
-            deadline = time.monotonic() + 2.0
-
-    return _drain_pty_loop(fd, proc, on_data=_on_data, on_tick=_on_tick)
+    state = _init_passphrase_state(passphrase, max_prompts)
+    on_data = functools.partial(_passphrase_on_data, state, fd)
+    on_tick = functools.partial(_passphrase_on_tick, state, fd)
+    return _drain_pty_loop(fd, proc, on_data=on_data, on_tick=on_tick)
 
 
 def _safe_unlink(path: str) -> None:

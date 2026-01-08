@@ -1,12 +1,10 @@
 import argparse
-import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 from ethernity.cli import run_backup_command
-from test_support import prepend_path, suppress_output, write_fake_age_script
+from test_support import prepend_path, suppress_output, temp_env, write_fake_age_script
 
 
 class TestIntegrationBackup(unittest.TestCase):
@@ -21,7 +19,7 @@ class TestIntegrationBackup(unittest.TestCase):
                 "XDG_CONFIG_HOME": str(tmp_path / "xdg"),
                 "ETHERNITY_AGE_PATH": str(age_path),
             }
-            with mock.patch.dict(os.environ, env_overrides, clear=False):
+            with temp_env(env_overrides):
                 with prepend_path(tmp_path):
                     input_path = tmp_path / "input.bin"
                     input_path.write_bytes(payload)

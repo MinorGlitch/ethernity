@@ -1,17 +1,15 @@
 import hashlib
-import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.encoding.chunking import chunk_payload
 from ethernity.formats.envelope_codec import build_single_file_manifest, encode_envelope
 from ethernity.encoding.framing import FrameType, encode_frame
-from test_support import prepend_path, write_fake_age_script
+from test_support import build_cli_env, prepend_path, with_age_path, write_fake_age_script
 
 
 class TestEndToEndCli(unittest.TestCase):
@@ -25,13 +23,11 @@ class TestEndToEndCli(unittest.TestCase):
             repo_root = Path(__file__).resolve().parents[2]
             config_path = repo_root / "ethernity" / "config" / "a4.toml"
 
-            with mock.patch.dict(
-                os.environ, {"ETHERNITY_AGE_PATH": str(age_path)}, clear=False
-            ):
+            with with_age_path(age_path):
                 with prepend_path(tmp_path):
-                    env = os.environ.copy()
-                    env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
-                    env["ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"] = "1"
+                    env = build_cli_env(
+                        overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")}
+                    )
                     result = subprocess.run(
                         [
                             sys.executable,
@@ -67,13 +63,11 @@ class TestEndToEndCli(unittest.TestCase):
             repo_root = Path(__file__).resolve().parents[2]
             config_path = repo_root / "ethernity" / "config" / "a4.toml"
 
-            with mock.patch.dict(
-                os.environ, {"ETHERNITY_AGE_PATH": str(age_path)}, clear=False
-            ):
+            with with_age_path(age_path):
                 with prepend_path(tmp_path):
-                    env = os.environ.copy()
-                    env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
-                    env["ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"] = "1"
+                    env = build_cli_env(
+                        overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")}
+                    )
                     result = subprocess.run(
                         [
                             sys.executable,
@@ -116,9 +110,7 @@ class TestEndToEndCli(unittest.TestCase):
             age_path = write_fake_age_script(tmp_path)
             repo_root = Path(__file__).resolve().parents[2]
 
-            with mock.patch.dict(
-                os.environ, {"ETHERNITY_AGE_PATH": str(age_path)}, clear=False
-            ):
+            with with_age_path(age_path):
                 with prepend_path(tmp_path):
                     manifest = build_single_file_manifest("payload.bin", payload)
                     envelope = encode_envelope(payload, manifest)
@@ -140,9 +132,9 @@ class TestEndToEndCli(unittest.TestCase):
                     )
                     output_path = tmp_path / "recovered.bin"
 
-                    env = os.environ.copy()
-                    env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
-                    env["ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"] = "1"
+                    env = build_cli_env(
+                        overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")}
+                    )
                     result = subprocess.run(
                         [
                             sys.executable,

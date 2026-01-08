@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import segno
+from PIL import Image, ImageColor, ImageDraw
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,52 @@ class QrConfig:
 
 
 _ROUNDED_RATIO = 0.2
+
+
+def _color_to_rgba(
+    value: object,
+    fallback: tuple[int, int, int, int],
+) -> tuple[int, int, int, int]:
+    normalized = _normalize_color_value(value)
+    if normalized is None:
+        return fallback
+    if isinstance(normalized, str):
+        if normalized.lower() in ("none", "transparent"):
+            return fallback
+        rgb = ImageColor.getcolor(normalized, "RGBA")
+        if isinstance(rgb, int):
+            return (rgb, rgb, rgb, 255)
+        return (int(rgb[0]), int(rgb[1]), int(rgb[2]), int(rgb[3]))
+    if isinstance(normalized, (tuple, list)):
+        if len(normalized) == 3:
+            return (int(normalized[0]), int(normalized[1]), int(normalized[2]), 255)
+        if len(normalized) == 4:
+            return (
+                int(normalized[0]),
+                int(normalized[1]),
+                int(normalized[2]),
+                int(normalized[3]),
+            )
+    return fallback
+
+
+def _draw_module(
+    draw: ImageDraw.ImageDraw,
+    x: int,
+    y: int,
+    *,
+    scale: int,
+    radius: float,
+    color: tuple[int, int, int, int],
+) -> None:
+    if radius > 0:
+        draw.rounded_rectangle(
+            (x, y, x + scale, y + scale),
+            radius=radius,
+            fill=color,
+        )
+        return
+    draw.rectangle((x, y, x + scale, y + scale), fill=color)
 
 
 def make_qr(
@@ -160,36 +207,8 @@ def _render_custom_qr(
     light: object,
     roundness: float,
 ) -> bytes:
-    try:
-        from PIL import Image, ImageColor, ImageDraw
-    except ImportError as exc:
-        raise ImportError("custom QR shapes require pillow") from exc
-
-    def _to_rgba(value: object, fallback: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
-        normalized = _normalize_color_value(value)
-        if normalized is None:
-            return fallback
-        if isinstance(normalized, str):
-            if normalized.lower() in ("none", "transparent"):
-                return fallback
-            rgb = ImageColor.getcolor(normalized, "RGBA")
-            if isinstance(rgb, int):
-                return (rgb, rgb, rgb, 255)
-            return (int(rgb[0]), int(rgb[1]), int(rgb[2]), int(rgb[3]))
-        if isinstance(normalized, (tuple, list)):
-            if len(normalized) == 3:
-                return (int(normalized[0]), int(normalized[1]), int(normalized[2]), 255)
-            if len(normalized) == 4:
-                return (
-                    int(normalized[0]),
-                    int(normalized[1]),
-                    int(normalized[2]),
-                    int(normalized[3]),
-                )
-        return fallback
-
-    light_rgba = _to_rgba(light, (255, 255, 255, 255))
-    dark_rgba = _to_rgba(dark, (0, 0, 0, 255))
+    light_rgba = _color_to_rgba(light, (255, 255, 255, 255))
+    dark_rgba = _color_to_rgba(dark, (0, 0, 0, 255))
 
     width, height = qr.symbol_size(scale=scale, border=border)
     image = Image.new("RGBA", (width, height), light_rgba)
@@ -197,23 +216,13 @@ def _render_custom_qr(
 
     radius = max(0.0, min(roundness, 0.5)) * scale
 
-    def _draw_module(x: int, y: int, color: tuple[int, int, int, int]) -> None:
-        if radius > 0:
-            draw.rounded_rectangle(
-                (x, y, x + scale, y + scale),
-                radius=radius,
-                fill=color,
-            )
-            return
-        draw.rectangle((x, y, x + scale, y + scale), fill=color)
-
     for row_idx, row in enumerate(qr.matrix_iter(scale=1, border=border)):
         for col_idx, is_dark in enumerate(row):
             x = col_idx * scale
             y = row_idx * scale
             if not is_dark:
                 continue
-            _draw_module(x, y, dark_rgba)
+            _draw_module(draw, x, y, scale=scale, radius=radius, color=dark_rgba)
 
     buf = io.BytesIO()
     image.save(buf, format="PNG")

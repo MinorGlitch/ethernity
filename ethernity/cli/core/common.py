@@ -8,7 +8,7 @@ from typing import Any
 import typer
 from rich.traceback import install as install_rich_traceback
 
-from ..ui import console_err
+from ..api import console_err
 
 
 def _run_cli(func: Callable[[], Any], *, debug: bool) -> None:

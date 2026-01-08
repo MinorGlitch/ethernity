@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 import os
 from pathlib import Path
 import sys
@@ -9,6 +10,25 @@ import sys
 from rich.progress import Progress
 
 from ..core.types import InputFile
+
+
+@dataclass
+class _ScanTracker:
+    progress: Progress | None
+    task_id: int | None
+    update_interval: int
+    scanned: int = 0
+
+    def tick(self) -> None:
+        self.scanned += 1
+        if self.progress is None or self.task_id is None:
+            return
+        if self.scanned == 1 or self.scanned % self.update_interval == 0:
+            self.progress.update(
+                self.task_id,
+                description=f"Scanning input files... ({self.scanned} found)",
+            )
+            self.progress.refresh()
 
 def _load_input_files(
     input_paths: list[str],
@@ -20,7 +40,6 @@ def _load_input_files(
 ) -> tuple[list[InputFile], Path | None]:
     paths: list[Path] = []
     stdin_requested = False
-    scanned = 0
     has_scan_inputs = any(raw != "-" for raw in input_paths) or bool(input_dirs)
     scan_task_id = (
         progress.add_task("Scanning input files...", total=None)
@@ -30,18 +49,7 @@ def _load_input_files(
     if progress is not None and scan_task_id is not None:
         progress.refresh()
     scan_update_interval = 1
-
-    def _scan_tick() -> None:
-        nonlocal scanned
-        scanned += 1
-        if progress is None or scan_task_id is None:
-            return
-        if scanned == 1 or scanned % scan_update_interval == 0:
-            progress.update(
-                scan_task_id,
-                description=f"Scanning input files... ({scanned} found)",
-            )
-            progress.refresh()
+    tracker = _ScanTracker(progress, scan_task_id, scan_update_interval)
 
     for raw in input_paths:
         if raw == "-":
@@ -49,10 +57,10 @@ def _load_input_files(
             continue
         path = Path(raw).expanduser()
         if path.is_dir():
-            paths.extend(_walk_directory(path, on_file=_scan_tick))
+            paths.extend(_walk_directory(path, on_file=tracker.tick))
         else:
             paths.append(path)
-            _scan_tick()
+            tracker.tick()
 
     for raw in input_dirs:
         path = Path(raw).expanduser()
@@ -60,7 +68,7 @@ def _load_input_files(
             raise ValueError(f"input dir not found: {path}")
         if not path.is_dir():
             raise ValueError(f"input dir is not a directory: {path}")
-        paths.extend(_walk_directory(path, on_file=_scan_tick))
+        paths.extend(_walk_directory(path, on_file=tracker.tick))
 
     if stdin_requested and not allow_stdin:
         raise ValueError("stdin input is not supported here")
@@ -68,6 +76,7 @@ def _load_input_files(
     if not paths and not stdin_requested:
         raise ValueError("no input files found")
 
+    scanned = tracker.scanned
     if progress is not None and scan_task_id is not None:
         progress.update(
             scan_task_id,

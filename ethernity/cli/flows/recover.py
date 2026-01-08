@@ -7,7 +7,7 @@ import sys
 from .recover_flow import run_recover_command
 from ..io.frames import _frames_from_fallback
 from ..keys.recover_keys import _passphrase_from_shard_frames
-from ..ui import console
+from ..api import console
 
 
 def run_recover_wizard(args: argparse.Namespace) -> int:

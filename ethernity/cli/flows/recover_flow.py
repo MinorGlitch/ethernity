@@ -19,7 +19,7 @@ from ..io.frames import (
 from ..io.outputs import _write_recovered_outputs
 from ..keys.recover_keys import _resolve_auth_payload, _resolve_recovery_keys
 from .prompts import _prompt_shard_inputs, _resolve_recover_output
-from ..ui import (
+from ..api import (
     console,
     console_err,
     _build_review_table,
@@ -36,6 +36,7 @@ from ..ui import (
 )
 from ..ui.summary import _format_auth_status, _print_recover_summary
 from ...crypto import decrypt_bytes
+from ...formats.envelope_codec import decode_envelope, extract_payloads
 from ...encoding.chunking import reassemble_payload
 from ...config import load_app_config
 from ...encoding.framing import Frame, FrameType
@@ -314,8 +315,6 @@ def run_recover_command(args: argparse.Namespace) -> int:
                     ):
                         console.print("Recovery cancelled.")
                         return 1
-
-    from ...formats.envelope_codec import decode_envelope, extract_payloads
 
     with _status("Decrypting and unpacking payload...", quiet=quiet):
         if not passphrase:

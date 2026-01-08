@@ -14,6 +14,59 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 A4_CONFIG_PATH = REPO_ROOT / "ethernity" / "config" / "a4.toml"
 
 
+class _CaptureBuild:
+    def __init__(self, captured: dict[str, object], real_build):
+        self._captured = captured
+        self._real_build = real_build
+
+    def __call__(self, *args, **kwargs):
+        self._captured["signing_seed"] = kwargs.get("signing_seed")
+        return self._real_build(*args, **kwargs)
+
+
+def _run_backup_with_plan(
+    *,
+    plan: DocumentPlan,
+    input_file: cli.InputFile,
+    config,
+    sign_priv: bytes,
+    sign_pub: bytes,
+    real_build,
+) -> bytes | None:
+    captured: dict[str, object] = {}
+    capture_build = _CaptureBuild(captured, real_build)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_dir = Path(tmpdir) / "out"
+        with mock.patch(
+            "ethernity.crypto.signing.generate_signing_keypair",
+            return_value=(sign_priv, sign_pub),
+        ):
+            with mock.patch(
+                "ethernity.formats.envelope_codec.build_manifest_and_payload",
+                side_effect=capture_build,
+            ):
+                with mock.patch("ethernity.render.render_frames_to_pdf"):
+                    with mock.patch(
+                        "ethernity.cli.encrypt_bytes_with_passphrase",
+                        return_value=(b"ciphertext", "auto-pass"),
+                    ):
+                        with mock.patch(
+                            "ethernity.crypto.sharding.split_passphrase",
+                            return_value=[],
+                        ):
+                            cli.run_backup(
+                                input_files=[input_file],
+                                base_dir=None,
+                                output_dir=str(output_dir),
+                                plan=plan,
+                                passphrase=None,
+                                config=config,
+                            )
+
+    return captured.get("signing_seed")
+
+
 class TestCliBackup(unittest.TestCase):
     def test_run_backup_passphrase_autogen(self) -> None:
         config = load_app_config(path=A4_CONFIG_PATH)
@@ -132,10 +185,7 @@ class TestCliBackup(unittest.TestCase):
         sign_pub = b"\x22" * 32
         captured: dict[str, object] = {}
         real_build = envelope_codec_module.build_manifest_and_payload
-
-        def capture_build(*args, **kwargs):
-            captured["signing_seed"] = kwargs.get("signing_seed")
-            return real_build(*args, **kwargs)
+        capture_build = _CaptureBuild(captured, real_build)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "out"
@@ -179,49 +229,20 @@ class TestCliBackup(unittest.TestCase):
         sign_pub = b"\x22" * 32
         real_build = envelope_codec_module.build_manifest_and_payload
 
-        def run_with_plan(plan) -> bytes | None:
-            captured: dict[str, object] = {}
-
-            def capture_build(*args, **kwargs):
-                captured["signing_seed"] = kwargs.get("signing_seed")
-                return real_build(*args, **kwargs)
-
-            with tempfile.TemporaryDirectory() as tmpdir:
-                output_dir = Path(tmpdir) / "out"
-                with mock.patch(
-                    "ethernity.crypto.signing.generate_signing_keypair",
-                    return_value=(sign_priv, sign_pub),
-                ):
-                    with mock.patch(
-                        "ethernity.formats.envelope_codec.build_manifest_and_payload",
-                        side_effect=capture_build,
-                    ):
-                        with mock.patch("ethernity.render.render_frames_to_pdf"):
-                            with mock.patch(
-                                "ethernity.cli.encrypt_bytes_with_passphrase",
-                                return_value=(b"ciphertext", "auto-pass"),
-                            ):
-                                with mock.patch(
-                                    "ethernity.crypto.sharding.split_passphrase",
-                                    return_value=[],
-                                ):
-                                    cli.run_backup(
-                                        input_files=[input_file],
-                                        base_dir=None,
-                                        output_dir=str(output_dir),
-                                        plan=plan,
-                                        passphrase=None,
-                                        config=config,
-                                    )
-
-            return captured.get("signing_seed")
-
         sealed_plan = DocumentPlan(
             version=1,
             sealed=True,
             sharding=ShardingConfig(threshold=2, shares=3),
         )
-        self.assertIsNone(run_with_plan(sealed_plan))
+        signing_seed = _run_backup_with_plan(
+            plan=sealed_plan,
+            input_file=input_file,
+            config=config,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+            real_build=real_build,
+        )
+        self.assertIsNone(signing_seed)
 
     def test_run_backup_shards_signing_seed_when_mode_sharded(self) -> None:
         config = load_app_config(path=A4_CONFIG_PATH)
@@ -244,10 +265,7 @@ class TestCliBackup(unittest.TestCase):
         signing_shard = SimpleNamespace(index=2, shares=2)
         captured: dict[str, object] = {}
         real_build = envelope_codec_module.build_manifest_and_payload
-
-        def capture_build(*args, **kwargs):
-            captured["signing_seed"] = kwargs.get("signing_seed")
-            return real_build(*args, **kwargs)
+        capture_build = _CaptureBuild(captured, real_build)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "out"
@@ -277,12 +295,12 @@ class TestCliBackup(unittest.TestCase):
                                 ):
                                     with mock.patch("ethernity.render.render_frames_to_pdf"):
                                         result = cli.run_backup(
-                                        input_files=[input_file],
-                                        base_dir=None,
-                                        output_dir=str(output_dir),
-                                        plan=plan,
-                                        passphrase=None,
-                                        config=config,
+                                            input_files=[input_file],
+                                            base_dir=None,
+                                            output_dir=str(output_dir),
+                                            plan=plan,
+                                            passphrase=None,
+                                            config=config,
                                         )
 
         self.assertIsNone(captured.get("signing_seed"))

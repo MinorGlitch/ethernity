@@ -2,10 +2,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import functools
 import io
+import sys
 from pathlib import Path
 from typing import Callable, Iterable, Sequence
 
+import pypdf
+import PIL.Image as pil_image
+import zxingcpp
 
 class QrScanError(RuntimeError):
     pass
@@ -19,6 +24,32 @@ class QrDecoder:
 
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff", ".webp"}
+
+
+def _module(name: str, default: object) -> object:
+    return sys.modules.get(name, default)
+
+
+def _decode_image(image, *, zxing_module) -> list[bytes]:
+    results = zxing_module.read_barcodes(image)
+    payloads: list[bytes] = []
+    for result in results:
+        data = getattr(result, "bytes", None) or getattr(result, "raw_bytes", None)
+        if data:
+            payloads.append(bytes(data))
+        elif getattr(result, "text", None):
+            payloads.append(result.text.encode("utf-8"))
+    return payloads
+
+
+def _decode_image_path(path: Path, *, zxing_module, image_module) -> list[bytes]:
+    with image_module.open(path) as image:
+        return _decode_image(image, zxing_module=zxing_module)
+
+
+def _decode_image_bytes(data: bytes, *, zxing_module, image_module) -> list[bytes]:
+    with image_module.open(io.BytesIO(data)) as image:
+        return _decode_image(image, zxing_module=zxing_module)
 
 
 def scan_qr_payloads(paths: Sequence[str | Path]) -> list[bytes]:
@@ -39,41 +70,21 @@ def scan_qr_payloads(paths: Sequence[str | Path]) -> list[bytes]:
 
 
 def _load_decoder() -> QrDecoder:
-    try:
-        import zxingcpp
-    except ImportError as exc:  # pragma: no cover - depends on optional deps
-        raise QrScanError(
-            "QR decoding requires the optional dependencies: zxing-cpp and pillow"
-        ) from exc
-
-    try:
-        from PIL import Image
-    except ImportError as exc:  # pragma: no cover - depends on optional deps
-        raise QrScanError("QR decoding requires the optional dependency: pillow") from exc
-
-    def decode_image(image) -> list[bytes]:
-        results = zxingcpp.read_barcodes(image)
-        payloads: list[bytes] = []
-        for result in results:
-            data = getattr(result, "bytes", None) or getattr(result, "raw_bytes", None)
-            if data:
-                payloads.append(bytes(data))
-            elif getattr(result, "text", None):
-                payloads.append(result.text.encode("utf-8"))
-        return payloads
-
-    def decode_image_path(path: Path) -> list[bytes]:
-        with Image.open(path) as image:
-            return decode_image(image)
-
-    def decode_image_bytes(data: bytes) -> list[bytes]:
-        with Image.open(io.BytesIO(data)) as image:
-            return decode_image(image)
+    zxing_module = _module("zxingcpp", zxingcpp)
+    image_module = _module("PIL.Image", pil_image)
 
     return QrDecoder(
         name="zxingcpp",
-        decode_image_path=decode_image_path,
-        decode_image_bytes=decode_image_bytes,
+        decode_image_path=functools.partial(
+            _decode_image_path,
+            zxing_module=zxing_module,
+            image_module=image_module,
+        ),
+        decode_image_bytes=functools.partial(
+            _decode_image_bytes,
+            zxing_module=zxing_module,
+            image_module=image_module,
+        ),
     )
 
 
@@ -85,13 +96,9 @@ def _scan_image(path: Path, decoder: QrDecoder) -> list[bytes]:
 
 
 def _scan_pdf(path: Path, decoder: QrDecoder) -> list[bytes]:
+    pypdf_module = _module("pypdf", pypdf)
     try:
-        from pypdf import PdfReader
-    except ImportError as exc:  # pragma: no cover - depends on optional deps
-        raise QrScanError("PDF scanning requires the optional dependency: pypdf") from exc
-
-    try:
-        reader = PdfReader(str(path))
+        reader = pypdf_module.PdfReader(str(path))
     except Exception as exc:  # pragma: no cover - depends on external PDFs
         raise QrScanError(f"failed to read PDF: {path}") from exc
     payloads: list[bytes] = []

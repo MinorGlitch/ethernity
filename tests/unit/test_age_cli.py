@@ -11,7 +11,60 @@ from ethernity.crypto import (
     encrypt_bytes_with_passphrase,
 )
 from ethernity.crypto import age_cli
-from test_support import write_fake_age_script
+from test_support import with_age_path, write_fake_age_script
+
+
+class _FakeProc:
+    def __init__(self, poll_value: int | None) -> None:
+        self._poll_value = poll_value
+
+    def poll(self):
+        return self._poll_value
+
+
+class _RunCapture:
+    def __init__(self, captured: dict[str, object]) -> None:
+        self._captured = captured
+
+    def __call__(self, cmd, input=None, stdout=None, stderr=None, env=None, check=None):
+        self._captured["env"] = env
+        self._captured["input"] = input
+        output_path = None
+        input_path = None
+        if "-o" in cmd:
+            idx = cmd.index("-o")
+            if idx + 1 < len(cmd):
+                output_path = cmd[idx + 1]
+        if cmd:
+            input_path = cmd[-1]
+        if output_path and input_path:
+            with open(input_path, "rb") as src, open(output_path, "wb") as dst:
+                dst.write(src.read())
+        return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
+
+class _ReadSequence:
+    def __init__(self, reads: list[bytes]) -> None:
+        self._reads = reads
+
+    def __call__(self, _fd, _size):
+        return self._reads.pop(0)
+
+
+class _MonotonicSequence:
+    def __init__(self, times: list[float]) -> None:
+        self._times = times
+
+    def __call__(self):
+        return self._times.pop(0) if self._times else 3.0
+
+
+def _age_builder(_output_path: str, _input_path: str):
+    return ["age"]
+
+
+def _age_drain(_fd, _proc):
+    return ""
 
 
 class TestAgeCli(unittest.TestCase):
@@ -25,9 +78,7 @@ class TestAgeCli(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             age_path = write_fake_age_script(Path(tmpdir))
             data = b"payload"
-            with mock.patch.dict(
-                os.environ, {age_cli._AGE_PATH_ENV: str(age_path)}, clear=False
-            ):
+            with with_age_path(age_path):
                 with mock.patch(
                     "ethernity.crypto.age_cli.generate_passphrase", return_value="test-passphrase"
                 ):
@@ -41,9 +92,7 @@ class TestAgeCli(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             age_path = write_fake_age_script(Path(tmpdir))
             data = b"ciphertext"
-            with mock.patch.dict(
-                os.environ, {age_cli._AGE_PATH_ENV: str(age_path)}, clear=False
-            ):
+            with with_age_path(age_path):
                 plaintext = decrypt_bytes(data, passphrase="secret")
             self.assertEqual(plaintext, data)
 
@@ -51,9 +100,7 @@ class TestAgeCli(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             age_path = write_fake_age_script(Path(tmpdir))
             data = b"payload"
-            with mock.patch.dict(
-                os.environ, {age_cli._AGE_PATH_ENV: str(age_path)}, clear=False
-            ):
+            with with_age_path(age_path):
                 ciphertext, passphrase = encrypt_bytes_with_passphrase(
                     data, passphrase="secret"
                 )
@@ -69,9 +116,7 @@ sys.exit(2)
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             age_path = self._write_script(Path(tmpdir), "age", script)
-            with mock.patch.dict(
-                os.environ, {age_cli._AGE_PATH_ENV: str(age_path)}, clear=False
-            ):
+            with with_age_path(age_path):
                 with self.assertRaises(AgeCliError) as ctx:
                     encrypt_bytes_with_passphrase(b"payload", passphrase="secret")
         self.assertIn("age failed", str(ctx.exception))
@@ -79,28 +124,11 @@ sys.exit(2)
     def test_encrypt_passphrase_sets_env_without_pty(self) -> None:
         data = b"payload"
         captured: dict[str, object] = {}
-
-        def _run(cmd, input=None, stdout=None, stderr=None, env=None, check=None):
-            captured["env"] = env
-            captured["input"] = input
-            output_path = None
-            input_path = None
-            if "-o" in cmd:
-                idx = cmd.index("-o")
-                if idx + 1 < len(cmd):
-                    output_path = cmd[idx + 1]
-            if cmd:
-                input_path = cmd[-1]
-            if output_path and input_path:
-                with open(input_path, "rb") as src, open(output_path, "wb") as dst:
-                    dst.write(src.read())
-            return subprocess.CompletedProcess(cmd, 0, b"", b"")
+        runner = _RunCapture(captured)
 
         with mock.patch("ethernity.crypto.age_cli._USE_PTY", False):
-            with mock.patch("ethernity.crypto.age_cli.subprocess.run", side_effect=_run):
-                with mock.patch.dict(
-                    os.environ, {age_cli._AGE_PATH_ENV: "age"}, clear=False
-                ):
+            with mock.patch("ethernity.crypto.age_cli.subprocess.run", side_effect=runner):
+                with with_age_path(Path("age")):
                     ciphertext, passphrase = encrypt_bytes_with_passphrase(
                         data, passphrase="secret"
                     )
@@ -121,60 +149,38 @@ sys.exit(2)
             age_cli._safe_write(1, b"data")
 
     def test_drain_pty_loop_handles_read_error(self) -> None:
-        class FakeProc:
-            def poll(self):
-                return None
-
         with mock.patch("ethernity.crypto.age_cli.select.select", return_value=([1], [], [])):
             with mock.patch("ethernity.crypto.age_cli.os.read", side_effect=OSError):
-                output = age_cli._drain_pty_loop(1, FakeProc())
+                output = age_cli._drain_pty_loop(1, _FakeProc(None))
         self.assertEqual(output, "")
 
     def test_drain_pty_loop_drains_after_exit(self) -> None:
-        class FakeProc:
-            def poll(self):
-                return 0
-
         reads = [b"tail", b""]
         on_data_calls: list[bytes] = []
-
-        def _read(_fd, _size):
-            return reads.pop(0)
+        reader = _ReadSequence(reads)
 
         with mock.patch("ethernity.crypto.age_cli.select.select", return_value=([], [], [])):
-            with mock.patch("ethernity.crypto.age_cli.os.read", side_effect=_read):
+            with mock.patch("ethernity.crypto.age_cli.os.read", side_effect=reader):
                 output = age_cli._drain_pty_loop(
                     1,
-                    FakeProc(),
+                    _FakeProc(0),
                     on_data=on_data_calls.append,
                 )
         self.assertEqual(output, "tail")
         self.assertEqual(on_data_calls, [b"tail"])
 
     def test_drain_pty_with_passphrase_timeout(self) -> None:
-        class FakeProc:
-            def poll(self):
-                return 0
-
         times = [0.0, 3.0, 3.0]
-
-        def _monotonic():
-            return times.pop(0) if times else 3.0
+        monotonic = _MonotonicSequence(times)
 
         with mock.patch("ethernity.crypto.age_cli.select.select", return_value=([], [], [])):
             with mock.patch("ethernity.crypto.age_cli.os.read", return_value=b""):
-                with mock.patch("ethernity.crypto.age_cli.time.monotonic", side_effect=_monotonic):
+                with mock.patch("ethernity.crypto.age_cli.time.monotonic", side_effect=monotonic):
                     with mock.patch("ethernity.crypto.age_cli.os.write") as write_mock:
-                        age_cli._drain_pty_with_passphrase(1, FakeProc(), "secret")
+                        age_cli._drain_pty_with_passphrase(1, _FakeProc(0), "secret")
         self.assertTrue(write_mock.called)
 
     def test_run_age_with_pty_closes_on_error(self) -> None:
-        def _builder(_output_path: str, _input_path: str):
-            return ["age"]
-
-        def _drain(_fd, _proc):
-            return ""
-
         fake_pty = mock.Mock()
         fake_pty.openpty.return_value = (123, 124)
         fake_fcntl = mock.Mock()
@@ -191,9 +197,9 @@ sys.exit(2)
                             with mock.patch("ethernity.crypto.age_cli.os.close", side_effect=OSError):
                                 with self.assertRaises(OSError):
                                     age_cli._run_age_with_pty(
-                                        cmd_builder=_builder,
+                                        cmd_builder=_age_builder,
                                         data=b"data",
-                                        drain=_drain,
+                                        drain=_age_drain,
                                     )
 
 

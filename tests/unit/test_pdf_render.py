@@ -2,13 +2,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from playwright.sync_api import sync_playwright
+
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
 from ethernity.render import RenderInputs, render_frames_to_pdf
-
-try:
-    from playwright.sync_api import sync_playwright
-except ImportError:  # pragma: no cover - optional dependency for tests
-    sync_playwright = None
 
 
 def _playwright_ready() -> bool:

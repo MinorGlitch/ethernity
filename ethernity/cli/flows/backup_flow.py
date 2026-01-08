@@ -8,7 +8,7 @@ from pathlib import Path
 from ..core.crypto import _doc_hash_from_ciphertext, _doc_id_from_ciphertext
 from ..core.types import BackupResult, InputFile
 from ..io.outputs import _ensure_output_dir
-from ..ui import _progress, _status
+from ..api import _progress, _status
 from ..ui.debug import (
     _append_signing_key_lines,
     _normalize_debug_max_bytes,
@@ -16,6 +16,13 @@ from ..ui.debug import (
 )
 from ...encoding.framing import Frame, FrameType, VERSION, encode_frame
 from ...core.models import DocumentPlan, SigningSeedMode
+from ...encoding.chunking import chunk_payload
+from ...formats import envelope_codec as envelope_codec_module
+from ...formats.envelope_types import PayloadPart
+from ... import render as render_module
+from ...crypto import sharding as sharding_module
+from ...crypto.sharding import ShardPayload
+from ...crypto import signing as signing_module
 from ...encoding.qr_payloads import encode_qr_payload, normalize_qr_payload_encoding
 
 
@@ -41,19 +48,9 @@ def run_backup(
         raise ValueError("at least one input file is required")
 
     with _status("Starting backup...", quiet=status_quiet):
-        from ...encoding.chunking import chunk_payload
-        from ...formats.envelope_codec import build_manifest_and_payload, encode_envelope
-        from ...formats.envelope_types import PayloadPart
-        from ...render import FallbackSection, RenderInputs, render_frames_to_pdf
-        from ...crypto.sharding import (
-            ShardPayload,
-            encode_shard_payload,
-            split_passphrase,
-            split_signing_seed,
-        )
-        from ...crypto.signing import encode_auth_payload, generate_signing_keypair, sign_auth
+        pass
 
-    sign_priv, sign_pub = generate_signing_keypair()
+    sign_priv, sign_pub = signing_module.generate_signing_keypair()
     store_signing_key = (
         plan.sharding is not None
         and not plan.sealed
@@ -69,12 +66,12 @@ def run_backup(
             PayloadPart(path=item.relative_path, data=item.data, mtime=item.mtime)
             for item in input_files
         ]
-        manifest, payload = build_manifest_and_payload(
+        manifest, payload = envelope_codec_module.build_manifest_and_payload(
             parts,
             sealed=plan.sealed,
             signing_seed=sign_priv if store_signing_key else None,
         )
-        envelope = encode_envelope(payload, manifest)
+        envelope = envelope_codec_module.encode_envelope(payload, manifest)
         wrapped_envelope = envelope
 
     key_lines: list[str] = []
@@ -117,8 +114,12 @@ def run_backup(
 
     doc_id = _doc_id_from_ciphertext(ciphertext)
     doc_hash = _doc_hash_from_ciphertext(ciphertext)
-    auth_signature = sign_auth(doc_hash, sign_priv=sign_priv)
-    auth_payload = encode_auth_payload(doc_hash, sign_pub=sign_pub, signature=auth_signature)
+    auth_signature = signing_module.sign_auth(doc_hash, sign_priv=sign_priv)
+    auth_payload = signing_module.encode_auth_payload(
+        doc_hash,
+        sign_pub=sign_pub,
+        signature=auth_signature,
+    )
     auth_frame = Frame(
         version=VERSION,
         frame_type=FrameType.AUTH,
@@ -134,7 +135,7 @@ def run_backup(
         if passphrase_final is None:
             raise ValueError("passphrase is required for sharding")
         with _status("Creating shard payloads...", quiet=status_quiet):
-            shard_payloads = split_passphrase(
+            shard_payloads = sharding_module.split_passphrase(
                 passphrase_final,
                 threshold=plan_sharding.threshold,
                 shares=plan_sharding.shares,
@@ -146,7 +147,7 @@ def run_backup(
             if signing_key_sharding is None:
                 raise ValueError("signing key sharding requires a shard quorum")
             with _status("Creating signing key shard payloads...", quiet=status_quiet):
-                signing_key_shard_payloads = split_signing_seed(
+                signing_key_shard_payloads = sharding_module.split_signing_seed(
                     sign_priv,
                     threshold=signing_key_sharding.threshold,
                     shares=signing_key_sharding.shares,
@@ -175,7 +176,7 @@ def run_backup(
     context: dict[str, object] = {"paper_size": config.paper_size}
 
     qr_payloads = _encode_qr_payloads(qr_frames, config.qr_payload_encoding)
-    qr_inputs = RenderInputs(
+    qr_inputs = render_module.RenderInputs(
         frames=qr_frames,
         template_path=config.template_path,
         output_path=qr_path,
@@ -196,11 +197,11 @@ def run_backup(
         data=ciphertext,
     )
     fallback_sections = [
-        FallbackSection(label=cli.AUTH_FALLBACK_LABEL, frame=auth_frame),
-        FallbackSection(label=cli.MAIN_FALLBACK_LABEL, frame=main_fallback_frame),
+        render_module.FallbackSection(label=cli.AUTH_FALLBACK_LABEL, frame=auth_frame),
+        render_module.FallbackSection(label=cli.MAIN_FALLBACK_LABEL, frame=main_fallback_frame),
     ]
 
-    recovery_inputs = RenderInputs(
+    recovery_inputs = render_module.RenderInputs(
         frames=frames,
         template_path=config.recovery_template_path,
         output_path=recovery_path,
@@ -219,11 +220,11 @@ def run_backup(
         if progress:
             task_id = progress.add_task("Rendering documents...", total=render_total)
             progress.update(task_id, description="Rendering QR document...")
-            render_frames_to_pdf(qr_inputs)
+            render_module.render_frames_to_pdf(qr_inputs)
             progress.advance(task_id)
 
             progress.update(task_id, description="Rendering recovery document...")
-            render_frames_to_pdf(recovery_inputs)
+            render_module.render_frames_to_pdf(recovery_inputs)
             progress.advance(task_id)
 
             if shard_payloads:
@@ -240,7 +241,7 @@ def run_backup(
                         doc_id=doc_id,
                         index=0,
                         total=1,
-                        data=encode_shard_payload(shard),
+                        data=sharding_module.encode_shard_payload(shard),
                     )
                     shard_path = os.path.join(
                         output_dir,
@@ -252,7 +253,7 @@ def run_backup(
                         "shard_total": shard.shares,
                     }
 
-                    shard_inputs = RenderInputs(
+                    shard_inputs = render_module.RenderInputs(
                         frames=[shard_frame],
                         template_path=config.shard_template_path,
                         output_path=shard_path,
@@ -262,7 +263,7 @@ def run_backup(
                             [shard_frame], config.qr_payload_encoding
                         ),
                     )
-                    render_frames_to_pdf(shard_inputs)
+                    render_module.render_frames_to_pdf(shard_inputs)
                     shard_paths.append(shard_path)
                     progress.advance(task_id)
             if signing_key_shard_payloads:
@@ -279,7 +280,7 @@ def run_backup(
                         doc_id=doc_id,
                         index=0,
                         total=1,
-                        data=encode_shard_payload(shard),
+                        data=sharding_module.encode_shard_payload(shard),
                     )
                     shard_path = os.path.join(
                         output_dir,
@@ -291,7 +292,7 @@ def run_backup(
                         "shard_total": shard.shares,
                     }
 
-                    shard_inputs = RenderInputs(
+                    shard_inputs = render_module.RenderInputs(
                         frames=[shard_frame],
                         template_path=config.signing_key_shard_template_path,
                         output_path=shard_path,
@@ -301,14 +302,14 @@ def run_backup(
                             [shard_frame], config.qr_payload_encoding
                         ),
                     )
-                    render_frames_to_pdf(shard_inputs)
+                    render_module.render_frames_to_pdf(shard_inputs)
                     signing_key_shard_paths.append(shard_path)
                     progress.advance(task_id)
         else:
             with _status("Rendering QR document...", quiet=status_quiet):
-                render_frames_to_pdf(qr_inputs)
+                render_module.render_frames_to_pdf(qr_inputs)
             with _status("Rendering recovery document...", quiet=status_quiet):
-                render_frames_to_pdf(recovery_inputs)
+                render_module.render_frames_to_pdf(recovery_inputs)
             if shard_payloads:
                 with _status("Rendering shard documents...", quiet=status_quiet):
                     sorted_shards = sorted(shard_payloads, key=lambda shard: shard.index)
@@ -319,7 +320,7 @@ def run_backup(
                             doc_id=doc_id,
                             index=0,
                             total=1,
-                            data=encode_shard_payload(shard),
+                            data=sharding_module.encode_shard_payload(shard),
                         )
                         shard_path = os.path.join(
                             output_dir,
@@ -331,7 +332,7 @@ def run_backup(
                             "shard_total": shard.shares,
                         }
 
-                        shard_inputs = RenderInputs(
+                        shard_inputs = render_module.RenderInputs(
                             frames=[shard_frame],
                             template_path=config.shard_template_path,
                             output_path=shard_path,
@@ -341,7 +342,7 @@ def run_backup(
                                 [shard_frame], config.qr_payload_encoding
                             ),
                         )
-                        render_frames_to_pdf(shard_inputs)
+                        render_module.render_frames_to_pdf(shard_inputs)
                         shard_paths.append(shard_path)
             if signing_key_shard_payloads:
                 with _status("Rendering signing key shards...", quiet=status_quiet):
@@ -353,7 +354,7 @@ def run_backup(
                             doc_id=doc_id,
                             index=0,
                             total=1,
-                            data=encode_shard_payload(shard),
+                            data=sharding_module.encode_shard_payload(shard),
                         )
                         shard_path = os.path.join(
                             output_dir,
@@ -365,7 +366,7 @@ def run_backup(
                             "shard_total": shard.shares,
                         }
 
-                        shard_inputs = RenderInputs(
+                        shard_inputs = render_module.RenderInputs(
                             frames=[shard_frame],
                             template_path=config.signing_key_shard_template_path,
                             output_path=shard_path,
@@ -375,7 +376,7 @@ def run_backup(
                                 [shard_frame], config.qr_payload_encoding
                             ),
                         )
-                        render_frames_to_pdf(shard_inputs)
+                        render_module.render_frames_to_pdf(shard_inputs)
                         signing_key_shard_paths.append(shard_path)
     return BackupResult(
         doc_id=doc_id,

@@ -22,6 +22,7 @@ dependencies = [
     "zxing-cpp",
     "coverage>=7.13.1",
     "playwright>=1.57.0",
+    "pyrage; sys_platform == \"win32\"",
 ]
 
 [project.scripts]

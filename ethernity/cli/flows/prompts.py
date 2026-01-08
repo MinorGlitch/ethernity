@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
-from ..ui import _prompt_choice, _prompt_optional, _prompt_required_paths
+from ..api import _prompt_choice, _prompt_optional, _prompt_required_paths
 
 
 def _resolve_recover_output(

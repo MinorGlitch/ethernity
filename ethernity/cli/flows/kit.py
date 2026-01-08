@@ -9,7 +9,7 @@ from pathlib import Path
 from ...config import load_app_config
 from ...config.installer import PACKAGE_ROOT
 from ...render import RenderInputs, render_frames_to_pdf
-from ..ui import _status
+from ..api import _status
 from ...encoding.framing import Frame, FrameType, VERSION
 from ...qr.codec import QrConfig, make_qr
 

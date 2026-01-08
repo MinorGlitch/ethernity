@@ -9,7 +9,7 @@ from .backup_flow import run_backup as _run_backup
 from ..core.plan import _validate_backup_args, _validate_passphrase_words
 from ..core.types import BackupResult, InputFile
 from ..io.inputs import _load_input_files
-from ..ui import (
+from ..api import (
     DEBUG_MAX_BYTES_DEFAULT,
     console,
     console_err,

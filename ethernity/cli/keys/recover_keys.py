@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 from ..core.log import _warn
 from ...encoding.framing import Frame, FrameType
+from ...crypto.sharding import ShardPayload, decode_shard_payload, recover_passphrase
+from ...crypto.signing import decode_auth_payload, verify_auth, verify_shard
 
 
 def _resolve_recovery_keys(args: argparse.Namespace) -> str | None:
@@ -22,8 +24,6 @@ def _resolve_auth_payload(
     require_auth: bool,
     quiet: bool,
 ):
-    from ...crypto.signing import decode_auth_payload, verify_auth
-
     if not auth_frames:
         if require_auth:
             raise ValueError("missing auth frame; use --allow-unsigned to skip verification")
@@ -63,9 +63,6 @@ def _passphrase_from_shard_frames(
     expected_sign_pub: bytes | None,
     allow_unsigned: bool,
 ) -> str:
-    from ...crypto.sharding import ShardPayload, decode_shard_payload, recover_passphrase
-    from ...crypto.signing import verify_shard
-
     shares: dict[int, ShardPayload] = {}
     doc_hash: bytes | None = expected_doc_hash
     sign_pub: bytes | None = expected_sign_pub

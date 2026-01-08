@@ -273,16 +273,7 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
             }
         )
 
-    def _page_has_content(page: dict[str, object]) -> bool:
-        if page.get("qr_slots"):
-            return True
-        if page.get("fallback_blocks"):
-            return True
-        if page.get("show_keys") and key_lines:
-            return True
-        return False
-
-    while pages and not _page_has_content(pages[-1]):
+    while pages and not _page_has_content(pages[-1], key_lines):
         pages.pop()
 
     if pages:
@@ -296,6 +287,16 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     context["shard_total"] = base_context.get("shard_total", 1)
     html = render_template(inputs.template_path, context)
     _render_html_to_pdf(html, inputs.output_path)
+
+
+def _page_has_content(page: dict[str, object], key_lines: list[str]) -> bool:
+    if page.get("qr_slots"):
+        return True
+    if page.get("fallback_blocks"):
+        return True
+    if page.get("show_keys") and key_lines:
+        return True
+    return False
 
 
 def _render_html_to_pdf(html: str, output_path: str | Path) -> None:

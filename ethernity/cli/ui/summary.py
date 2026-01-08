@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
 
 from . import (
     console,
@@ -12,10 +11,8 @@ from . import (
     _build_recovered_tree,
     _panel,
 )
-
-if TYPE_CHECKING:
-    from ..core.types import BackupResult
-    from ...core.models import DocumentPlan
+from ..core.types import BackupResult
+from ...core.models import DocumentPlan
 
 
 def _print_backup_summary(

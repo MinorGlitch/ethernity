@@ -1,5 +1,7 @@
 import unittest
 
+from PIL import Image  # noqa: F401
+
 from ethernity.qr.codec import qr_bytes
 
 
@@ -23,10 +25,6 @@ class TestQrCodec(unittest.TestCase):
             qr_bytes(b"data", kind="svg", module_shape="rounded")
 
     def test_custom_shape_png(self) -> None:
-        try:
-            from PIL import Image  # noqa: F401
-        except ImportError:
-            self.skipTest("pillow not installed")
         png = qr_bytes("custom-shape", kind="png", module_shape="rounded")
         self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
 

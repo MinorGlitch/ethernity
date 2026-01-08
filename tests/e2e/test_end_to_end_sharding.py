@@ -1,10 +1,8 @@
 import argparse
 import hashlib
-import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.encoding.chunking import chunk_payload, frame_to_fallback_lines
@@ -13,7 +11,7 @@ from ethernity.encoding.framing import Frame, FrameType, encode_frame
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
 from ethernity.crypto.signing import generate_signing_keypair
 from ethernity.cli import run_recover_command
-from test_support import prepend_path, suppress_output, write_fake_age_script
+from test_support import prepend_path, suppress_output, with_age_path, write_fake_age_script
 
 
 class TestEndToEndSharding(unittest.TestCase):
@@ -22,9 +20,7 @@ class TestEndToEndSharding(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             age_path = write_fake_age_script(tmp_path)
-            with mock.patch.dict(
-                os.environ, {"ETHERNITY_AGE_PATH": str(age_path)}, clear=False
-            ):
+            with with_age_path(age_path):
                 with prepend_path(tmp_path):
                     manifest = build_single_file_manifest("payload.bin", payload)
                     envelope = encode_envelope(payload, manifest)
@@ -96,9 +92,7 @@ class TestEndToEndSharding(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             age_path = write_fake_age_script(tmp_path)
-            with mock.patch.dict(
-                os.environ, {"ETHERNITY_AGE_PATH": str(age_path)}, clear=False
-            ):
+            with with_age_path(age_path):
                 with prepend_path(tmp_path):
                     manifest = build_single_file_manifest("payload.bin", payload)
                     envelope = encode_envelope(payload, manifest)

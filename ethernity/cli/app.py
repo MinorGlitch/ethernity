@@ -1,132 +1,24 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-from collections.abc import Callable
-from pathlib import Path
-import inspect
-import importlib.metadata
-import os
-import subprocess
 import sys
 
 import typer
-import playwright
-from playwright.sync_api import sync_playwright
-from platformdirs import user_cache_dir
-from rich.traceback import install as install_rich_traceback
 
 from .core.common import _get_version, _paper_callback, _resolve_config_and_paper, _run_cli
 from .flows.backup import run_wizard
 from .flows.recover import run_recover_wizard
-from .ui import (
+from . import command_registry
+from .startup import run_startup
+from .api import (
     DEBUG_MAX_BYTES_DEFAULT,
     console,
     console_err,
-    _configure_ui,
     _empty_recover_args,
     _prompt_home_action,
-    _progress,
 )
-from ..crypto.age_cli import ensure_age_binary
-from ..config import init_user_config, user_config_needs_init
 
 app = typer.Typer(add_completion=True, help="Ethernity CLI.")
-
-_AGE_SKIP_ENV = "ETHERNITY_SKIP_AGE_INSTALL"
-_PLAYWRIGHT_SKIP_ENV = "ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"
-_PLAYWRIGHT_BROWSERS_ENV = "PLAYWRIGHT_BROWSERS_PATH"
-
-
-def _configure_playwright_env() -> None:
-    if os.environ.get(_PLAYWRIGHT_BROWSERS_ENV):
-        return
-    cache_dir = user_cache_dir("ms-playwright", appauthor=False)
-    os.environ[_PLAYWRIGHT_BROWSERS_ENV] = cache_dir
-
-
-def _playwright_chromium_installed() -> bool:
-    try:
-        with sync_playwright() as playwright:
-            executable = Path(playwright.chromium.executable_path)
-    except Exception:
-        return False
-    return executable.exists()
-
-
-def _playwright_driver_command() -> tuple[str, str]:
-    driver_path = Path(inspect.getfile(playwright)).parent / "driver"
-    cli_path = str(driver_path / "package" / "cli.js")
-    if sys.platform == "win32":
-        node_path = os.getenv("PLAYWRIGHT_NODEJS_PATH", str(driver_path / "node.exe"))
-    else:
-        node_path = os.getenv("PLAYWRIGHT_NODEJS_PATH", str(driver_path / "node"))
-    return node_path, cli_path
-
-
-def _playwright_driver_env() -> dict[str, str]:
-    env = os.environ.copy()
-    env["PW_LANG_NAME"] = "python"
-    env["PW_LANG_NAME_VERSION"] = f"{sys.version_info.major}.{sys.version_info.minor}"
-    env["PW_CLI_DISPLAY_VERSION"] = importlib.metadata.version("playwright")
-    return env
-
-
-def _ensure_dependency(
-    *,
-    quiet: bool,
-    skip_env: str,
-    description: str,
-    ensure: Callable[[], None],
-    precheck: Callable[[], bool] | None = None,
-) -> None:
-    if os.environ.get(skip_env):
-        return
-    if precheck is not None and precheck():
-        return
-    with _progress(quiet=quiet) as progress:
-        task_id = None
-        if progress is not None:
-            task_id = progress.add_task(description, total=1)
-        ensure()
-        if progress is not None and task_id is not None:
-            progress.update(task_id, completed=1)
-
-
-def _ensure_playwright_browsers(*, quiet: bool) -> None:
-    def _precheck() -> bool:
-        _configure_playwright_env()
-        return _playwright_chromium_installed()
-
-    def _install() -> None:
-        driver_executable, driver_cli = _playwright_driver_command()
-        result = subprocess.run(
-            [driver_executable, driver_cli, "install", "chromium"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=_playwright_driver_env(),
-            check=False,
-        )
-        if result.returncode != 0:
-            detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
-            raise RuntimeError(f"Playwright install failed: {detail}")
-
-    _ensure_dependency(
-        quiet=quiet,
-        skip_env=_PLAYWRIGHT_SKIP_ENV,
-        description="Initializing Playwright (Chromium browser)...",
-        ensure=_install,
-        precheck=_precheck,
-    )
-
-
-def _ensure_age_binary(*, quiet: bool) -> None:
-    _ensure_dependency(
-        quiet=quiet,
-        skip_env=_AGE_SKIP_ENV,
-        description="Initializing age binary...",
-        ensure=ensure_age_binary,
-    )
 
 
 def _version_callback(value: bool) -> None:
@@ -198,31 +90,19 @@ def cli(
     ),
 ) -> None:
     _ = version
-    _configure_ui(no_color=no_color, no_animations=no_animations)
-    if debug:
-        install_rich_traceback(show_locals=True)
     try:
-        _ensure_age_binary(quiet=quiet)
-        _ensure_playwright_browsers(quiet=quiet)
+        should_exit = run_startup(
+            quiet=quiet,
+            no_color=no_color,
+            no_animations=no_animations,
+            debug=debug,
+            init_config=init_config,
+        )
     except Exception as exc:
         console_err.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(code=2)
-    if init_config:
-        try:
-            config_dir = init_user_config()
-        except Exception as exc:
-            console_err.print(f"[red]Error:[/red] {exc}")
-            raise typer.Exit(code=2)
-        console.print(f"User config ready at {config_dir}")
+    if should_exit:
         raise typer.Exit()
-    if user_config_needs_init():
-        try:
-            config_dir = init_user_config()
-        except Exception as exc:
-            console_err.print(f"[red]Error:[/red] {exc}")
-            raise typer.Exit(code=2)
-        if not quiet:
-            console.print(f"[dim]Initialized user config at {config_dir}[/dim]")
     ctx.ensure_object(dict)
     ctx.obj.update(
         {
@@ -261,15 +141,7 @@ def cli(
             )
 
 
-from .commands import backup as backup_command
-from .commands import kit as kit_command
-from .commands import manpage as manpage_command
-from .commands import recover as recover_command
-
-backup_command.register(app)
-kit_command.register(app)
-recover_command.register(app)
-manpage_command.register(app)
+command_registry.register(app)
 
 
 def main() -> None:

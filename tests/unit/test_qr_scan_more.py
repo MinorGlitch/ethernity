@@ -10,6 +10,55 @@ from ethernity.qr import scan as qr_scan
 from ethernity.qr.scan import QrDecoder, QrScanError, _iter_scan_files, _scan_pdf
 
 
+class _FakeImage:
+    def __init__(self, data: bytes) -> None:
+        self.data = data
+
+
+class _FakePage:
+    def __init__(self, images: list[_FakeImage]) -> None:
+        self.images = images
+
+
+class _FakeReader:
+    def __init__(self, _path: str) -> None:
+        self.pages = [
+            _FakePage([_FakeImage(b"a"), _FakeImage(b"b")]),
+            _FakePage([_FakeImage(b"c")]),
+        ]
+
+
+class _FakeReaderMissingImages:
+    def __init__(self, _path: str) -> None:
+        self.pages = [object()]
+
+
+def _decode_image_bytes_skip_b(data: bytes) -> list[bytes]:
+    if data == b"b":
+        raise OSError("bad")
+    return [data + b"-ok"]
+
+
+def _read_barcodes(_image):
+    return [
+        SimpleNamespace(bytes=b"\x01"),
+        SimpleNamespace(raw_bytes=b"\x02"),
+        SimpleNamespace(text="hello"),
+    ]
+
+
+class _DummyImage:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _exc_type, _exc, _tb):
+        return False
+
+
+def _open_dummy_image(_fp):
+    return _DummyImage()
+
+
 @contextmanager
 def _patched_modules(replacements: dict[str, object]):
     original: dict[str, object | None] = {}
@@ -52,72 +101,31 @@ class TestQrScanMore(unittest.TestCase):
                 qr_scan._load_decoder = original_loader
 
     def test_scan_pdf_decodes_images_and_skips_errors(self) -> None:
-        class FakeImage:
-            def __init__(self, data: bytes) -> None:
-                self.data = data
-
-        class FakePage:
-            def __init__(self, images: list[FakeImage]) -> None:
-                self.images = images
-
-        class FakeReader:
-            def __init__(self, _path: str) -> None:
-                self.pages = [
-                    FakePage([FakeImage(b"a"), FakeImage(b"b")]),
-                    FakePage([FakeImage(b"c")]),
-                ]
-
-        def decode_image_bytes(data: bytes) -> list[bytes]:
-            if data == b"b":
-                raise OSError("bad")
-            return [data + b"-ok"]
-
         decoder = QrDecoder(
             name="dummy",
             decode_image_path=lambda _: [],
-            decode_image_bytes=decode_image_bytes,
+            decode_image_bytes=_decode_image_bytes_skip_b,
         )
         pypdf = types.ModuleType("pypdf")
-        pypdf.PdfReader = FakeReader
+        pypdf.PdfReader = _FakeReader
         with _patched_modules({"pypdf": pypdf}):
             payloads = _scan_pdf(Path("dummy.pdf"), decoder)
         self.assertEqual(payloads, [b"a-ok", b"c-ok"])
 
     def test_scan_pdf_missing_images_attr(self) -> None:
-        class FakeReader:
-            def __init__(self, _path: str) -> None:
-                self.pages = [object()]
-
         decoder = QrDecoder(name="dummy", decode_image_path=lambda _: [], decode_image_bytes=lambda _: [])
         pypdf = types.ModuleType("pypdf")
-        pypdf.PdfReader = FakeReader
+        pypdf.PdfReader = _FakeReaderMissingImages
         with _patched_modules({"pypdf": pypdf}):
             with self.assertRaises(QrScanError):
                 _scan_pdf(Path("dummy.pdf"), decoder)
 
     def test_load_decoder_uses_bytes_and_text(self) -> None:
-        def read_barcodes(_image):
-            return [
-                SimpleNamespace(bytes=b"\x01"),
-                SimpleNamespace(raw_bytes=b"\x02"),
-                SimpleNamespace(text="hello"),
-            ]
-
         zxingcpp = types.ModuleType("zxingcpp")
-        zxingcpp.read_barcodes = read_barcodes
-
-        class DummyImage:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, _exc_type, _exc, _tb):
-                return False
-
-        def open_fn(_fp):
-            return DummyImage()
+        zxingcpp.read_barcodes = _read_barcodes
 
         image_mod = types.ModuleType("PIL.Image")
-        image_mod.open = open_fn
+        image_mod.open = _open_dummy_image
         pil_mod = types.ModuleType("PIL")
         pil_mod.Image = image_mod
 
