@@ -147,24 +147,19 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
                     )
 
             slots_raw: list[tuple[int, float, float]] = []
+            gap_x_full = _expand_gap_to_fill(
+                page_layout.usable_w,
+                page_layout.qr_size,
+                page_layout.gap,
+                page_layout.cols,
+            )
             for row in range(page_layout.rows):
                 remaining = frames_in_page - row * page_layout.cols
                 if remaining <= 0:
                     break
                 cols_in_row = min(page_layout.cols, remaining)
-                if cols_in_row == 1:
-                    gap_x = page_layout.gap
-                    x_start = page_layout.margin + (
-                        page_layout.usable_w - page_layout.qr_size
-                    ) / 2
-                else:
-                    gap_x = _expand_gap_to_fill(
-                        page_layout.usable_w,
-                        page_layout.qr_size,
-                        page_layout.gap,
-                        cols_in_row,
-                    )
-                    x_start = page_layout.margin
+                gap_x = gap_x_full
+                x_start = page_layout.margin
 
                 for col in range(cols_in_row):
                     frame_idx = page_start + row * page_layout.cols + col

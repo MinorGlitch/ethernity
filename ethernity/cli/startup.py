@@ -184,13 +184,12 @@ def _playwright_install(progress_cb: ProgressCallback | None) -> None:
         output_lines.append(line)
         if len(output_lines) > 200:
             output_lines.pop(0)
-        percent, description = _parse_playwright_progress(line)
+        percent = _parse_playwright_progress(line)
         if percent is not None:
             current = max(current, percent)
-        if description:
-            progress_cb(current if current else None, 100, description)
-        elif percent is not None:
-            progress_cb(current, 100, None)
+        else:
+            current = min(99, current + 1)
+        progress_cb(current, 100, None)
     returncode = process.wait()
     if returncode != 0:
         detail = "".join(output_lines).strip() or "unknown error"
@@ -206,7 +205,7 @@ def _ensure_age_binary(*, quiet: bool) -> None:
     )
 
 
-def _parse_playwright_progress(line: str) -> tuple[int | None, str | None]:
+def _parse_playwright_progress(line: str) -> int | None:
     stripped = line.strip()
     percent = None
     match = _PLAYWRIGHT_PERCENT_RE.search(stripped)
@@ -215,7 +214,4 @@ def _parse_playwright_progress(line: str) -> tuple[int | None, str | None]:
             percent = int(match.group(1))
         except ValueError:
             percent = None
-    description = None
-    if stripped.startswith(("Downloading", "Installing", "Extracting")):
-        description = stripped
-    return percent, description
+    return percent
