@@ -10,7 +10,13 @@ class _FakeDownload:
     def __init__(self, payload: bytes) -> None:
         self._payload = payload
 
-    def __call__(self, _url: str, dest: Path) -> None:
+    def __call__(
+        self,
+        _url: str,
+        dest: Path,
+        *,
+        progress_cb=None,
+    ) -> None:
         dest.write_bytes(self._payload)
 
 

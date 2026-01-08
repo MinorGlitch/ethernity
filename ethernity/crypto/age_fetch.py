@@ -13,6 +13,7 @@ import urllib.request
 import zipfile
 import shutil
 from pathlib import Path
+from typing import Callable
 
 import certifi
 
@@ -28,11 +29,17 @@ _AGE_ARTIFACTS = {
 }
 
 
-def download_age_binary(*, dest_path: Path, binary_name: str, path_env: str) -> None:
+def download_age_binary(
+    *,
+    dest_path: Path,
+    binary_name: str,
+    path_env: str,
+    progress_cb: Callable[[int | None, int | None, str | None], None] | None = None,
+) -> None:
     archive_name, url, archive_kind = _age_download_spec(path_env=path_env)
     with tempfile.TemporaryDirectory() as tmpdir:
         archive_path = Path(tmpdir) / archive_name
-        _download_file(url, archive_path)
+        _download_file(url, archive_path, progress_cb=progress_cb)
         tmp_binary = Path(tmpdir) / binary_name
         if archive_kind == "zip":
             _extract_from_zip(archive_path, tmp_binary, binary_name)
@@ -93,14 +100,43 @@ def _age_arch_name() -> str:
     raise RuntimeError(f"unsupported architecture for age download: {machine}")
 
 
-def _download_file(url: str, dest: Path) -> None:
+def _download_total_bytes(response) -> int | None:
+    length = getattr(response, "length", None)
+    if length:
+        return int(length)
+    header = response.headers.get("Content-Length")
+    if header:
+        try:
+            return int(header)
+        except ValueError:
+            return None
+    return None
+
+
+def _download_file(
+    url: str,
+    dest: Path,
+    *,
+    progress_cb: Callable[[int | None, int | None, str | None], None] | None = None,
+) -> None:
     request = urllib.request.Request(url, headers={"User-Agent": "ethernity"})
     context = ssl.create_default_context(cafile=certifi.where())
     for attempt in range(1, 4):
         try:
             with urllib.request.urlopen(request, timeout=60, context=context) as resp:
+                total = _download_total_bytes(resp)
+                downloaded = 0
+                if progress_cb:
+                    progress_cb(downloaded, total, None)
                 with open(dest, "wb") as handle:
-                    shutil.copyfileobj(resp, handle)
+                    while True:
+                        chunk = resp.read(128 * 1024)
+                        if not chunk:
+                            break
+                        handle.write(chunk)
+                        downloaded += len(chunk)
+                        if progress_cb:
+                            progress_cb(downloaded, total, None)
             return
         except Exception as exc:
             if attempt < 3:

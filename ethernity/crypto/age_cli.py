@@ -187,7 +187,9 @@ def get_age_path() -> str:
     return "age"
 
 
-def ensure_age_binary() -> str:
+def ensure_age_binary(
+    progress_cb: Callable[[int | None, int | None, str | None], None] | None = None,
+) -> str:
     env_path = os.environ.get(_AGE_PATH_ENV)
     if env_path:
         resolved = Path(env_path).expanduser()
@@ -201,6 +203,7 @@ def ensure_age_binary() -> str:
         dest_path=_AGE_BINARY_PATH,
         binary_name=_AGE_BINARY_NAME,
         path_env=_AGE_PATH_ENV,
+        progress_cb=progress_cb,
     )
     return str(_AGE_BINARY_PATH)
 
