@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from ethernity.cli import run_backup_command
-from test_support import prepend_path, suppress_output, temp_env, write_fake_age_script
+from test_support import suppress_output, temp_env
 
 
 class TestIntegrationBackup(unittest.TestCase):
@@ -12,39 +12,36 @@ class TestIntegrationBackup(unittest.TestCase):
         payload = b"backup integration payload"
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            age_path = write_fake_age_script(tmp_path)
             repo_root = Path(__file__).resolve().parents[2]
             config_path = repo_root / "ethernity" / "config" / "a4.toml"
             env_overrides = {
                 "XDG_CONFIG_HOME": str(tmp_path / "xdg"),
-                "ETHERNITY_AGE_PATH": str(age_path),
             }
             with temp_env(env_overrides):
-                with prepend_path(tmp_path):
-                    input_path = tmp_path / "input.bin"
-                    input_path.write_bytes(payload)
-                    output_dir = tmp_path / "backup"
+                input_path = tmp_path / "input.bin"
+                input_path.write_bytes(payload)
+                output_dir = tmp_path / "backup"
 
-                    args = argparse.Namespace(
-                        config=str(config_path),
-                        paper=None,
-                        input=[str(input_path)],
-                        input_dir=[],
-                        base_dir=None,
-                        output_dir=str(output_dir),
-                        passphrase=None,
-                        passphrase_generate=True,
-                        sealed=False,
-                        shard_threshold=None,
-                        shard_count=None,
-                        signing_key_mode=None,
-                        signing_key_shard_threshold=None,
-                        signing_key_shard_count=None,
-                        debug=False,
-                        debug_max_bytes=0,
-                    )
-                    with suppress_output():
-                        run_backup_command(args)
+                args = argparse.Namespace(
+                    config=str(config_path),
+                    paper=None,
+                    input=[str(input_path)],
+                    input_dir=[],
+                    base_dir=None,
+                    output_dir=str(output_dir),
+                    passphrase=None,
+                    passphrase_generate=True,
+                    sealed=False,
+                    shard_threshold=None,
+                    shard_count=None,
+                    signing_key_mode=None,
+                    signing_key_shard_threshold=None,
+                    signing_key_shard_count=None,
+                    debug=False,
+                    debug_max_bytes=0,
+                )
+                with suppress_output():
+                    run_backup_command(args)
 
                 qr_path = output_dir / "qr_document.pdf"
                 recovery_path = output_dir / "recovery_document.pdf"

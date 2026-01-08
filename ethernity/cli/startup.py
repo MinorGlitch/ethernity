@@ -18,9 +18,6 @@ from rich.traceback import install as install_rich_traceback
 
 from .api import console, _configure_ui, _progress
 from ..config import init_user_config, user_config_needs_init
-from ..crypto.age_cli import ensure_age_binary
-
-_AGE_SKIP_ENV = "ETHERNITY_SKIP_AGE_INSTALL"
 _PLAYWRIGHT_SKIP_ENV = "ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"
 _PLAYWRIGHT_BROWSERS_ENV = "PLAYWRIGHT_BROWSERS_PATH"
 _PLAYWRIGHT_PERCENT_RE = re.compile(r"(\\d{1,3})%")
@@ -39,7 +36,6 @@ def run_startup(
     _configure_ui(no_color=no_color, no_animations=no_animations)
     if debug:
         install_rich_traceback(show_locals=True)
-    _ensure_age_binary(quiet=quiet)
     _ensure_playwright_browsers(quiet=quiet)
     if init_config:
         config_dir = init_user_config()
@@ -194,15 +190,6 @@ def _playwright_install(progress_cb: ProgressCallback | None) -> None:
     if returncode != 0:
         detail = "".join(output_lines).strip() or "unknown error"
         raise RuntimeError(f"Playwright install failed: {detail}")
-
-
-def _ensure_age_binary(*, quiet: bool) -> None:
-    _ensure_dependency(
-        quiet=quiet,
-        skip_env=_AGE_SKIP_ENV,
-        description="Initializing age binary...",
-        ensure=ensure_age_binary,
-    )
 
 
 def _parse_playwright_progress(line: str) -> int | None:

@@ -8,7 +8,8 @@ from pathlib import Path
 
 from ...config import load_app_config
 from ...config.installer import PACKAGE_ROOT
-from ...render import RenderInputs, render_frames_to_pdf
+from ...render import render_frames_to_pdf
+from ...render.service import RenderService
 from ..api import _status
 from ...encoding.framing import Frame, FrameType, VERSION
 from ...qr.codec import QrConfig, make_qr
@@ -64,17 +65,13 @@ def render_kit_qr_document(
         for index in range(len(chunks))
     ]
 
-    context: dict[str, object] = {"paper_size": config.paper_size}
-
     output = Path(output_path) if output_path else Path(DEFAULT_KIT_OUTPUT)
-    inputs = RenderInputs(
-        frames=frames,
-        template_path=config.kit_template_path,
-        output_path=output,
-        context=context,
-        qr_config=qr_config,
+    render_service = RenderService(config)
+    inputs = render_service.kit_inputs(
+        frames,
+        output,
         qr_payloads=chunks,
-        render_fallback=False,
+        context=render_service.base_context(),
     )
 
     with _status("Rendering recovery kit QR document...", quiet=quiet):

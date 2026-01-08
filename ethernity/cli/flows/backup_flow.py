@@ -14,16 +14,16 @@ from ..ui.debug import (
     _normalize_debug_max_bytes,
     _print_pre_encryption_debug,
 )
-from ...encoding.framing import Frame, FrameType, VERSION, encode_frame
+from ...encoding.framing import Frame, FrameType, VERSION
 from ...core.models import DocumentPlan, SigningSeedMode
 from ...encoding.chunking import chunk_payload
 from ...formats import envelope_codec as envelope_codec_module
 from ...formats.envelope_types import PayloadPart
 from ... import render as render_module
+from ...render.service import RenderService
 from ...crypto import sharding as sharding_module
 from ...crypto.sharding import ShardPayload
 from ...crypto import signing as signing_module
-from ...encoding.qr_payloads import encode_qr_payload, normalize_qr_payload_encoding
 
 
 def _cli_module():
@@ -173,20 +173,14 @@ def run_backup(
     shard_paths: list[str] = []
     signing_key_shard_paths: list[str] = []
 
-    context: dict[str, object] = {"paper_size": config.paper_size}
+    render_service = RenderService(config)
 
-    qr_payloads = _encode_qr_payloads(qr_frames, config.qr_payload_encoding)
-    qr_inputs = render_module.RenderInputs(
-        frames=qr_frames,
-        template_path=config.template_path,
-        output_path=qr_path,
-        context=context,
-        qr_config=config.qr_config,
+    qr_payloads = render_service.build_qr_payloads(qr_frames)
+    qr_inputs = render_service.qr_inputs(
+        qr_frames,
+        qr_path,
         qr_payloads=qr_payloads,
-        render_fallback=False,
     )
-
-    recovery_context: dict[str, object] = {"paper_size": config.paper_size}
 
     main_fallback_frame = Frame(
         version=VERSION,
@@ -201,15 +195,11 @@ def run_backup(
         render_module.FallbackSection(label=cli.MAIN_FALLBACK_LABEL, frame=main_fallback_frame),
     ]
 
-    recovery_inputs = render_module.RenderInputs(
-        frames=frames,
-        template_path=config.recovery_template_path,
-        output_path=recovery_path,
-        context=recovery_context,
-        qr_config=config.qr_config,
-        fallback_sections=fallback_sections,
-        render_qr=False,
+    recovery_inputs = render_service.recovery_inputs(
+        frames,
+        recovery_path,
         key_lines=key_lines,
+        fallback_sections=fallback_sections,
     )
     render_total = (
         2
@@ -247,21 +237,13 @@ def run_backup(
                         output_dir,
                         f"shard-{doc_id.hex()}-{shard.index}-of-{shard.shares}.pdf",
                     )
-                    shard_context = {
-                        "paper_size": config.paper_size,
-                        "shard_index": shard.index,
-                        "shard_total": shard.shares,
-                    }
-
-                    shard_inputs = render_module.RenderInputs(
-                        frames=[shard_frame],
+                    shard_inputs = render_service.shard_inputs(
+                        shard_frame,
+                        shard_path,
+                        shard_index=shard.index,
+                        shard_total=shard.shares,
+                        qr_payloads=render_service.build_qr_payloads([shard_frame]),
                         template_path=config.shard_template_path,
-                        output_path=shard_path,
-                        context=shard_context,
-                        qr_config=config.qr_config,
-                        qr_payloads=_encode_qr_payloads(
-                            [shard_frame], config.qr_payload_encoding
-                        ),
                     )
                     render_module.render_frames_to_pdf(shard_inputs)
                     shard_paths.append(shard_path)
@@ -286,21 +268,13 @@ def run_backup(
                         output_dir,
                         f"signing-key-shard-{doc_id.hex()}-{shard.index}-of-{shard.shares}.pdf",
                     )
-                    shard_context = {
-                        "paper_size": config.paper_size,
-                        "shard_index": shard.index,
-                        "shard_total": shard.shares,
-                    }
-
-                    shard_inputs = render_module.RenderInputs(
-                        frames=[shard_frame],
+                    shard_inputs = render_service.shard_inputs(
+                        shard_frame,
+                        shard_path,
+                        shard_index=shard.index,
+                        shard_total=shard.shares,
+                        qr_payloads=render_service.build_qr_payloads([shard_frame]),
                         template_path=config.signing_key_shard_template_path,
-                        output_path=shard_path,
-                        context=shard_context,
-                        qr_config=config.qr_config,
-                        qr_payloads=_encode_qr_payloads(
-                            [shard_frame], config.qr_payload_encoding
-                        ),
                     )
                     render_module.render_frames_to_pdf(shard_inputs)
                     signing_key_shard_paths.append(shard_path)
@@ -326,21 +300,13 @@ def run_backup(
                             output_dir,
                             f"shard-{doc_id.hex()}-{shard.index}-of-{shard.shares}.pdf",
                         )
-                        shard_context = {
-                            "paper_size": config.paper_size,
-                            "shard_index": shard.index,
-                            "shard_total": shard.shares,
-                        }
-
-                        shard_inputs = render_module.RenderInputs(
-                            frames=[shard_frame],
+                        shard_inputs = render_service.shard_inputs(
+                            shard_frame,
+                            shard_path,
+                            shard_index=shard.index,
+                            shard_total=shard.shares,
+                            qr_payloads=render_service.build_qr_payloads([shard_frame]),
                             template_path=config.shard_template_path,
-                            output_path=shard_path,
-                            context=shard_context,
-                            qr_config=config.qr_config,
-                            qr_payloads=_encode_qr_payloads(
-                                [shard_frame], config.qr_payload_encoding
-                            ),
                         )
                         render_module.render_frames_to_pdf(shard_inputs)
                         shard_paths.append(shard_path)
@@ -360,21 +326,13 @@ def run_backup(
                             output_dir,
                             f"signing-key-shard-{doc_id.hex()}-{shard.index}-of-{shard.shares}.pdf",
                         )
-                        shard_context = {
-                            "paper_size": config.paper_size,
-                            "shard_index": shard.index,
-                            "shard_total": shard.shares,
-                        }
-
-                        shard_inputs = render_module.RenderInputs(
-                            frames=[shard_frame],
+                        shard_inputs = render_service.shard_inputs(
+                            shard_frame,
+                            shard_path,
+                            shard_index=shard.index,
+                            shard_total=shard.shares,
+                            qr_payloads=render_service.build_qr_payloads([shard_frame]),
                             template_path=config.signing_key_shard_template_path,
-                            output_path=shard_path,
-                            context=shard_context,
-                            qr_config=config.qr_config,
-                            qr_payloads=_encode_qr_payloads(
-                                [shard_frame], config.qr_payload_encoding
-                            ),
                         )
                         render_module.render_frames_to_pdf(shard_inputs)
                         signing_key_shard_paths.append(shard_path)
@@ -386,8 +344,3 @@ def run_backup(
         signing_key_shard_paths=tuple(signing_key_shard_paths),
         passphrase_used=passphrase_used,
     )
-
-
-def _encode_qr_payloads(frames: list[Frame], encoding: str) -> list[bytes | str]:
-    normalized = normalize_qr_payload_encoding(encoding)
-    return [encode_qr_payload(encode_frame(frame), encoding=normalized) for frame in frames]

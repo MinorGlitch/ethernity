@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 from fpdf import FPDF
 
@@ -509,3 +509,412 @@ def _groups_from_line_length(line_length: int, group_size: int) -> int:
 
 def _line_length_from_groups(groups: int, group_size: int) -> int:
     return max(group_size, groups * (group_size + 1) - 1)
+
+
+def build_fallback_sections_data(
+    inputs: RenderInputs,
+    spec: dict[str, dict[str, object]],
+    layout: Layout,
+) -> tuple[list[dict[str, object]] | None, dict[str, int] | None]:
+    if not (inputs.render_fallback and inputs.fallback_sections):
+        return None, None
+    group_size = _int_value(spec["fallback"].get("group_size"), default=4)
+    line_length = int(layout.line_length)
+    fallback_sections_data: list[dict[str, object]] = []
+    for section in inputs.fallback_sections:
+        title = _fallback_section_title(section.label)
+        lines = frame_to_fallback_lines(
+            section.frame,
+            group_size=group_size,
+            line_length=line_length,
+            line_count=None,
+        )
+        fallback_sections_data.append({"title": title, "lines": lines})
+    fallback_state = {"section_idx": 0, "line_idx": 0}
+    return fallback_sections_data, fallback_state
+
+
+def build_pages(
+    *,
+    inputs: RenderInputs,
+    spec: dict[str, dict[str, object]],
+    layout: Layout,
+    layout_rest: Layout | None,
+    fallback_lines: list[str],
+    qr_payloads: Sequence[bytes | str],
+    qr_image_builder: Callable[[bytes | str], str],
+    fallback_sections_data: list[dict[str, object]] | None,
+    fallback_state: dict[str, int] | None,
+    key_lines: Sequence[str],
+    keys_first_page_only: bool,
+) -> list[dict[str, object]]:
+    fallback_first = layout.fallback_lines_per_page
+    fallback_rest = layout_rest.fallback_lines_per_page if layout_rest else fallback_first
+
+    frames_pages = 0
+    if inputs.render_qr:
+        frames_first = layout.per_page
+        frames_rest = layout_rest.per_page if layout_rest else frames_first
+        if len(inputs.frames) <= frames_first:
+            frames_pages = 1
+        else:
+            remaining = len(inputs.frames) - frames_first
+            frames_pages = 1 + math.ceil(remaining / frames_rest) if frames_rest > 0 else 1
+
+    fallback_pages = 0
+    if inputs.render_fallback and fallback_lines:
+        if len(fallback_lines) <= fallback_first:
+            fallback_pages = 1
+        else:
+            remaining = len(fallback_lines) - fallback_first
+            fallback_pages = 1 + math.ceil(remaining / fallback_rest) if fallback_rest > 0 else 1
+
+    total_pages = max(1, frames_pages, fallback_pages)
+
+    pages: list[dict[str, object]] = []
+    for page_idx in range(total_pages):
+        page_num = page_idx + 1
+        page_label = f"Page {page_num} / {total_pages}"
+        page_layout = layout_rest if layout_rest and page_idx > 0 else layout
+        divider_y = (
+            page_layout.margin
+            + page_layout.header_height
+            - _float_value(spec["header"].get("divider_thickness_mm"), default=0.0)
+        )
+
+        qr_slots: list[dict[str, object]] = []
+        qr_sequence = None
+        qr_outline = None
+        if inputs.render_qr:
+            page_start = page_idx * page_layout.per_page
+            frames_in_page = min(page_layout.per_page, len(inputs.frames) - page_start)
+            rows_for_page = page_layout.rows
+            if frames_in_page > 0:
+                rows_for_page = math.ceil(frames_in_page / page_layout.cols)
+            gap_y = page_layout.gap
+            if not inputs.render_fallback:
+                if page_layout.gap_y_override is not None and rows_for_page == page_layout.rows:
+                    gap_y = page_layout.gap_y_override
+                else:
+                    gap_y = _expand_gap_to_fill(
+                        page_layout.usable_h_grid,
+                        page_layout.qr_size,
+                        page_layout.gap,
+                        rows_for_page,
+                    )
+
+            slots_raw: list[tuple[int, float, float]] = []
+            gap_x_full = _expand_gap_to_fill(
+                page_layout.usable_w,
+                page_layout.qr_size,
+                page_layout.gap,
+                page_layout.cols,
+            )
+            for row in range(page_layout.rows):
+                remaining = frames_in_page - row * page_layout.cols
+                if remaining <= 0:
+                    break
+                cols_in_row = min(page_layout.cols, remaining)
+                gap_x = gap_x_full
+                x_start = page_layout.margin
+
+                for col in range(cols_in_row):
+                    frame_idx = page_start + row * page_layout.cols + col
+                    x = x_start + col * (page_layout.qr_size + gap_x)
+                    y = page_layout.content_start_y + row * (page_layout.qr_size + gap_y)
+
+                    qr_slots.append(
+                        {
+                            "index": frame_idx + 1,
+                            "x_mm": x,
+                            "y_mm": y,
+                            "size_mm": page_layout.qr_size,
+                            "data_uri": qr_image_builder(qr_payloads[frame_idx]),
+                        }
+                    )
+                    slots_raw.append((frame_idx, x, y))
+
+            if spec["qr_sequence"].get("enabled"):
+                qr_sequence = _sequence_geometry(
+                    slots_raw,
+                    page_layout.qr_size,
+                    _float_value(spec["qr_sequence"].get("label_offset_mm"), default=0.0),
+                )
+            if slots_raw:
+                outline_padding = max(
+                    0.0,
+                    _float_value(spec["qr_grid"].get("outline_padding_mm"), default=1.0),
+                )
+                min_x = min(x for _idx, x, _y in slots_raw)
+                min_y = min(y for _idx, _x, y in slots_raw)
+                max_x = max(x for _idx, x, _y in slots_raw) + page_layout.qr_size
+                max_y = max(y for _idx, _x, y in slots_raw) + page_layout.qr_size
+                qr_outline = {
+                    "x_mm": min_x - outline_padding,
+                    "y_mm": min_y - outline_padding,
+                    "width_mm": (max_x - min_x) + 2 * outline_padding,
+                    "height_mm": (max_y - min_y) + 2 * outline_padding,
+                }
+
+        page_fallback_blocks: list[dict[str, object]] = []
+        if inputs.render_fallback:
+            has_fallback = bool(fallback_lines)
+            if fallback_sections_data and fallback_state:
+                has_fallback = _fallback_sections_remaining(
+                    fallback_sections_data, fallback_state
+                )
+            if has_fallback:
+                if inputs.render_qr:
+                    grid_height = (
+                        page_layout.rows * page_layout.qr_size
+                        + (page_layout.rows - 1) * page_layout.gap
+                    )
+                    fallback_y = page_layout.content_start_y + grid_height + page_layout.text_gap
+                else:
+                    fallback_y = page_layout.content_start_y
+
+                available_height = page_layout.page_h - page_layout.margin - fallback_y
+                line_height = page_layout.line_height
+                lines_capacity = max(0, int(available_height // line_height))
+
+                if fallback_sections_data and fallback_state:
+                    page_fallback_blocks = _consume_fallback_blocks(
+                        fallback_sections_data,
+                        fallback_state,
+                        lines_capacity,
+                    )
+                else:
+                    if layout_rest and page_idx > 0 and not inputs.render_qr:
+                        start = fallback_first + (page_idx - 1) * fallback_rest
+                        end = start + fallback_rest
+                    else:
+                        start = page_idx * layout.fallback_lines_per_page
+                        end = start + layout.fallback_lines_per_page
+                    page_fallback_lines = fallback_lines[start:end]
+                    if page_fallback_lines:
+                        page_fallback_blocks = [
+                            {
+                                "title": None,
+                                "lines": page_fallback_lines,
+                                "gap_lines": 0,
+                            }
+                        ]
+                if page_fallback_blocks:
+                    _position_fallback_blocks(
+                        page_fallback_blocks,
+                        fallback_y,
+                        available_height,
+                        line_height,
+                    )
+
+        pages.append(
+            {
+                "page_num": page_num,
+                "page_label": page_label,
+                "divider_y_mm": divider_y,
+                "instructions_y_mm": page_layout.instructions_y,
+                "keys_y_mm": page_layout.keys_y,
+                "show_keys": not (keys_first_page_only and page_idx > 0),
+                "qr_slots": qr_slots,
+                "qr_outline": qr_outline,
+                "sequence": qr_sequence,
+                "fallback_blocks": page_fallback_blocks,
+            }
+        )
+
+    while pages and not _page_has_content(pages[-1], key_lines):
+        pages.pop()
+
+    if pages:
+        final_total = len(pages)
+        for idx, page in enumerate(pages):
+            page["page_num"] = idx + 1
+            page["page_label"] = f"Page {idx + 1} / {final_total}"
+
+    return pages
+
+
+def _page_has_content(page: dict[str, object], key_lines: Sequence[str]) -> bool:
+    if page.get("qr_slots"):
+        return True
+    if page.get("fallback_blocks"):
+        return True
+    if page.get("show_keys") and key_lines:
+        return True
+    return False
+
+
+def _sequence_geometry(
+    slots: list[tuple[int, float, float]],
+    qr_size: float,
+    label_offset: float,
+) -> dict[str, list[dict[str, float | str]]]:
+    lines: list[dict[str, float | str]] = []
+    labels: list[dict[str, float | str]] = []
+
+    for idx, (frame_idx, x, y) in enumerate(slots):
+        number = str(frame_idx + 1)
+        center_x = x + qr_size / 2
+        center_y = y + qr_size / 2
+        if idx + 1 < len(slots):
+            _next_idx, next_x, next_y = slots[idx + 1]
+            if abs(next_y - y) < 0.01:
+                line_y = center_y
+                line_start = x + qr_size
+                line_end = next_x
+                lines.append({"x1": line_start, "y1": line_y, "x2": line_end, "y2": line_y})
+                labels.append(
+                    {"text": number, "x": (line_start + line_end) / 2, "y": line_y - label_offset}
+                )
+            else:
+                start_y = y + qr_size
+                end_y = next_y
+                mid_y = start_y + (end_y - start_y) / 2
+                next_center_x = next_x + qr_size / 2
+                if abs(next_x - x) < 0.01:
+                    lines.append({"x1": center_x, "y1": start_y, "x2": center_x, "y2": end_y})
+                    labels.append({"text": number, "x": center_x, "y": mid_y - label_offset})
+                else:
+                    lines.append({"x1": center_x, "y1": start_y, "x2": center_x, "y2": mid_y})
+                    lines.append({"x1": center_x, "y1": mid_y, "x2": next_center_x, "y2": mid_y})
+                    lines.append({"x1": next_center_x, "y1": mid_y, "x2": next_center_x, "y2": end_y})
+                    labels.append(
+                        {"text": number, "x": (center_x + next_center_x) / 2, "y": mid_y - label_offset}
+                    )
+
+    return {"lines": lines, "labels": labels}
+
+
+def _fallback_section_title(label: str | None) -> str:
+    if isinstance(label, str) and label.strip():
+        return label.strip()
+    return "Fallback Frame"
+
+
+def _fallback_sections_remaining(
+    sections: list[dict[str, object]],
+    state: dict[str, int],
+) -> bool:
+    idx = state.get("section_idx", 0)
+    line_idx = state.get("line_idx", 0)
+    if idx >= len(sections):
+        return False
+    current_lines = sections[idx].get("lines", [])
+    if isinstance(current_lines, list) and line_idx < len(current_lines):
+        return True
+    for section in sections[idx + 1 :]:
+        lines = section.get("lines", [])
+        if isinstance(lines, list) and lines:
+            return True
+    return False
+
+
+def _consume_fallback_blocks(
+    sections: list[dict[str, object]],
+    state: dict[str, int],
+    lines_capacity: int,
+) -> list[dict[str, object]]:
+    blocks: list[dict[str, object]] = []
+    lines_left = lines_capacity
+    first_block = True
+
+    while lines_left > 0 and state["section_idx"] < len(sections):
+        if not first_block:
+            if lines_left <= 1:
+                break
+            lines_left -= 1
+            gap_lines = 1
+        else:
+            gap_lines = 0
+
+        section = sections[state["section_idx"]]
+        lines = section.get("lines", [])
+        if not isinstance(lines, list) or not lines:
+            state["section_idx"] += 1
+            state["line_idx"] = 0
+            first_block = False
+            continue
+
+        remaining = len(lines) - state["line_idx"]
+        if remaining <= 0:
+            state["section_idx"] += 1
+            state["line_idx"] = 0
+            first_block = False
+            continue
+
+        show_title = state["line_idx"] == 0
+        title_lines = 1 if show_title else 0
+        if lines_left <= title_lines:
+            break
+        if title_lines:
+            lines_left -= title_lines
+        chunk_size = min(lines_left, remaining)
+        if chunk_size <= 0:
+            lines_left += title_lines + gap_lines
+            break
+
+        start = state["line_idx"]
+        end = start + chunk_size
+        chunk = lines[start:end]
+        state["line_idx"] = end
+
+        blocks.append(
+            {
+                "title": section.get("title") if show_title else None,
+                "lines": chunk,
+                "gap_lines": gap_lines,
+            }
+        )
+
+        lines_left -= chunk_size
+        first_block = False
+
+        if state["line_idx"] >= len(lines):
+            state["section_idx"] += 1
+            state["line_idx"] = 0
+
+    return blocks
+
+
+def _position_fallback_blocks(
+    blocks: list[dict[str, object]],
+    start_y: float,
+    available_height: float,
+    line_height: float,
+) -> None:
+    cursor_y = start_y
+    remaining = max(0.0, available_height)
+
+    for block in blocks:
+        gap_lines = _int_value(block.get("gap_lines"), default=0)
+        if gap_lines > 0:
+            gap_mm = gap_lines * line_height
+            cursor_y += gap_mm
+            remaining -= gap_mm
+
+        lines = block.get("lines", [])
+        line_count = len(lines) if isinstance(lines, list) else 0
+        block_height = (1 + line_count) * line_height
+        block["y_mm"] = cursor_y
+        block["height_mm"] = block_height
+        cursor_y += block_height
+        remaining -= block_height
+
+    if blocks and remaining > 0:
+        blocks[-1]["height_mm"] = (
+            _float_value(blocks[-1].get("height_mm"), default=0.0) + remaining
+        )
+
+
+def _int_value(value: object, *, default: int) -> int:
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
+def _float_value(value: object, *, default: float) -> float:
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
