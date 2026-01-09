@@ -45,13 +45,11 @@ export const STEPS = [
     title: "Decrypt & extract",
     render: (ctx) => (
       <DecryptSection
-        ciphertextSource={ctx.ciphertextSource}
         passphrase={ctx.state.agePassphrase}
         decryptStatus={ctx.state.decryptStatus}
         onPassphraseChange={ctx.onPassphraseChange}
         onDecrypt={ctx.onDecrypt}
         canDecrypt={ctx.actionState.canDecryptCiphertext}
-        envelopeSource={ctx.envelopeSource}
         onExtract={ctx.onExtract}
         onDownloadEnvelope={ctx.onDownloadEnvelope}
         canExtract={ctx.actionState.canExtractEnvelope}

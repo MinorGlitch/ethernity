@@ -321,19 +321,32 @@ export function parsePayloadLines(state, text) {
   return parsePayloadLinesWith(state, text, addFrame, "errors");
 }
 
-function isFallbackText(text) {
+function getZBase32Lines(text) {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (!lines.length) return null;
+  const filtered = filterZBase32Lines(text);
+  if (filtered.length !== lines.length) return null;
+  return filtered;
+}
+
+function looksLikeFallback(text, markers) {
   const lower = text.toLowerCase();
-  if (lower.includes("main frame") || lower.includes("auth frame")) {
+  if (markers.some((marker) => lower.includes(marker))) {
     return true;
   }
-  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-  if (!lines.length) return false;
-  const filtered = filterZBase32Lines(text);
-  return filtered.length > 0 && filtered.length === lines.length;
+  const filtered = getZBase32Lines(text);
+  if (!filtered) return false;
+  try {
+    const bytes = decodeZBase32(filtered.join(""));
+    decodeFrame(bytes);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function parseAutoPayload(state, text) {
-  if (isFallbackText(text)) {
+  if (looksLikeFallback(text, ["main frame", "auth frame"])) {
     return parseFallbackText(state, text);
   }
   return parsePayloadLines(state, text);
@@ -403,7 +416,7 @@ export function parseShardPayloadLines(state, text) {
 }
 
 export function parseAutoShard(state, text) {
-  if (isFallbackText(text)) {
+  if (looksLikeFallback(text, ["shard frame", "shard payload"])) {
     return parseShardFallbackText(state, text);
   }
   return parseShardPayloadLines(state, text);

@@ -122,8 +122,6 @@ class RenderService:
         doc_type: str | None = None,
     ) -> RenderInputs:
         resolved_context = self.base_context(context)
-        if doc_type:
-            resolved_context["doc_type"] = doc_type
         return RenderInputs(
             frames=frames,
             template_path=template_path,

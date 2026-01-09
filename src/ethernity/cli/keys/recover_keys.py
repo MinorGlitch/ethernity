@@ -9,7 +9,7 @@ from ...encoding.framing import Frame, FrameType
 from ..core.log import _warn
 
 
-def _resolve_recovery_keys(args: argparse.Namespace) -> str | None:
+def _resolve_recovery_keys(args: argparse.Namespace) -> str:
     passphrase = args.passphrase
     if passphrase:
         return passphrase

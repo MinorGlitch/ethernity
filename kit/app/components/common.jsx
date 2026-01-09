@@ -60,29 +60,27 @@ export function Field({
 }
 
 export function StatusBlock({ status }) {
-  const lines = status?.lines?.length ? status.lines.join("\n") : "";
+  if (!status?.lines?.length) return null;
   const className = status?.type ? `status ${status.type}` : "status";
-  return <div class={className}>{lines}</div>;
+  return <div class={className}>{status.lines.join("\n")}</div>;
 }
 
 export function DiagnosticsList({ items }) {
   return (
     <div class="diag-list">
-      {items.map((item) => (
-        <div class="diag-row">
-          <div class="diag-label">{item.label}</div>
-          <div class="diag-value">{item.value ?? "-"}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-export function SourceSummary({ label, detail }) {
-  return (
-    <div class="source-summary">
-      <span class="source-label">{label}</span>
-      <span class="source-detail">{detail}</span>
+      {items.map((item, index) => {
+        const rowClass = item.tone ? `diag-row ${item.tone}` : "diag-row";
+        const valueClass = item.code ? "diag-value code" : "diag-value";
+        return (
+          <div key={`${item.label}-${index}`} class={rowClass}>
+            <div class="diag-label">{item.label}</div>
+            <div class={valueClass}>
+              <div class="diag-main">{item.value ?? "-"}</div>
+              {item.detail ? <div class="diag-detail">{item.detail}</div> : null}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

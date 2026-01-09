@@ -4,16 +4,22 @@ from __future__ import annotations
 import argparse
 import sys
 
-from ..api import console
-from .recover_flow import run_recover_command
+from .recover_flow import run_recover_plan
+from .recover_plan import plan_from_args
+from .recover_wizard import run_recover_wizard as _run_recover_wizard
+
+
+def run_recover_command(args: argparse.Namespace) -> int:
+    interactive = sys.stdin.isatty() and sys.stdout.isatty()
+    if interactive:
+        return _run_recover_wizard(args, show_header=False)
+    plan = plan_from_args(args)
+    quiet = bool(getattr(args, "quiet", False))
+    return run_recover_plan(plan, quiet=quiet)
 
 
 def run_recover_wizard(args: argparse.Namespace) -> int:
-    quiet = bool(getattr(args, "quiet", False))
-    if not quiet:
-        console.print("[title]Ethernity recovery wizard[/title]")
-        console.print("[subtitle]Interactive recovery of backup documents.[/subtitle]")
-    return run_recover_command(args)
+    return _run_recover_wizard(args)
 
 
 def _should_use_wizard_for_recover(args: argparse.Namespace) -> bool:

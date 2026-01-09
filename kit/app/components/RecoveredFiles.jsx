@@ -15,11 +15,13 @@ export function RecoveredFiles({
   ];
   return (
     <Card>
-      <div class="row">
-        <h3>Recovered files</h3>
-        <div class="sub">{outputSubtitle}</div>
+      <div class="row row-between">
+        <div>
+          <h3>Recovered files</h3>
+          <div class="sub">{outputSubtitle}</div>
+        </div>
+        <ActionsRow actions={actions} />
       </div>
-      <ActionsRow actions={actions} />
       <StatusBlock status={extractStatus} />
       <table>
         <thead>

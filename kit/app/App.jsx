@@ -14,20 +14,18 @@ import {
   resetAll,
   updateField,
 } from "./actions.js";
-import { Header } from "./components/Header.jsx";
 import { StatusStrip } from "./components/StatusStrip.jsx";
 import { StepNav } from "./components/StepNav.jsx";
 import { StepShell } from "./components/StepShell.jsx";
 import { reducer, initialState } from "./state/reducer.js";
 import {
   selectActionState,
-  selectCiphertextSource,
-  selectEnvelopeSource,
   selectFrameDiagnostics,
   selectOutputSummary,
   selectRecoveredLabel,
   selectShardDiagnostics,
   selectShardInputs,
+  selectStatusItemsForStep,
 } from "./state/selectors.js";
 import { STEPS } from "./steps.jsx";
 
@@ -45,61 +43,9 @@ export function App() {
   const frameDiagnostics = selectFrameDiagnostics(state);
   const shardDiagnostics = selectShardDiagnostics(state);
   const shardInputs = selectShardInputs(state);
-  const ciphertextSource = selectCiphertextSource(state);
-  const envelopeSource = selectEnvelopeSource(state);
   const outputSummary = selectOutputSummary(state);
   const actionState = selectActionState(state);
   const recoveredLabel = selectRecoveredLabel(state);
-
-  const frameTotal = state.total ?? "?";
-  const frameMissing = state.total ? Math.max(0, state.total - state.mainFrames.size) : null;
-  const shardTotal = state.shardThreshold ?? "?";
-  const shardMissing = state.shardThreshold
-    ? Math.max(0, state.shardThreshold - state.shardFrames.size)
-    : null;
-
-  const statusItems = [
-    {
-      label: "Frames",
-      value: `${state.mainFrames.size}/${frameTotal}`,
-      subLabel: frameMissing === null ? "Waiting for metadata" : `${frameMissing} missing`,
-      tone: state.total && state.mainFrames.size === state.total
-        ? "ok"
-        : state.mainFrames.size
-          ? "progress"
-          : "idle",
-    },
-    {
-      label: "Shards",
-      value: `${state.shardFrames.size}/${shardTotal}`,
-      subLabel: shardMissing === null ? "Waiting for metadata" : `${shardMissing} needed`,
-      tone: state.recoveredShardSecret
-        ? "ok"
-        : state.shardFrames.size
-          ? "progress"
-          : "idle",
-    },
-    {
-      label: "Ciphertext",
-      value: ciphertextSource.available ? "Ready" : "Waiting",
-      subLabel: ciphertextSource.detail,
-      tone: ciphertextSource.available ? "ok" : "idle",
-    },
-    {
-      label: "Envelope",
-      value: state.extractedFiles.length
-        ? "Extracted"
-        : state.decryptedEnvelope
-          ? "Decrypted"
-          : "Locked",
-      subLabel: state.extractedFiles.length ? outputSummary.subtitle : envelopeSource.detail,
-      tone: state.extractedFiles.length
-        ? "ok"
-        : state.decryptedEnvelope
-          ? "progress"
-          : "idle",
-    },
-  ];
 
   const frameStep = state.total && state.mainFrames.size === state.total
     ? { label: "Ready", tone: "ok" }
@@ -154,8 +100,6 @@ export function App() {
     frameDiagnostics,
     shardDiagnostics,
     shardInputs,
-    ciphertextSource,
-    envelopeSource,
     outputSummary,
     actionState,
     recoveredLabel,
@@ -175,10 +119,10 @@ export function App() {
     onDownloadFile: handleDownloadFile,
   };
   const currentStep = STEPS[stepIndex] ?? STEPS[0];
+  const statusItems = selectStatusItemsForStep(state, currentStep.id);
 
   return (
     <main class="shell">
-      <Header />
       <div class="app-layout">
         <aside class="panel rail">
           <StepNav

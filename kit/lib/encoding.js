@@ -1,7 +1,4 @@
 const ZBASE32_ALPHABET = "ybndrfg8ejkmcpqxot1uwisza345h769";
-export function isHex(text) {
-  return /^[0-9a-fA-F]+$/.test(text) && text.length % 2 === 0;
-}
 
 export function isBase64(text) {
   return /^[A-Za-z0-9+/=_-]+$/.test(text);
@@ -10,13 +7,6 @@ export function isBase64(text) {
 export function decodePayloadString(text) {
   const cleaned = text.trim();
   if (!cleaned) return null;
-  if (isHex(cleaned)) {
-    const bytes = new Uint8Array(cleaned.length / 2);
-    for (let i = 0; i < cleaned.length; i += 2) {
-      bytes[i / 2] = Number.parseInt(cleaned.slice(i, i + 2), 16);
-    }
-    return bytes;
-  }
   if (isBase64(cleaned)) {
     try {
       const normalized = cleaned.replaceAll("-", "+").replaceAll("_", "/");

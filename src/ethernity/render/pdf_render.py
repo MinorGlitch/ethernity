@@ -35,10 +35,6 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     paper_size = str(base_context.get("paper_size") or "A4")
     doc_type = inputs.doc_type
     if not doc_type:
-        override = base_context.get("doc_type")
-        if isinstance(override, str) and override.strip():
-            doc_type = override
-    if not doc_type:
         raise ValueError("doc_type is required for rendering")
     spec = document_spec(doc_type, paper_size, base_context)
 

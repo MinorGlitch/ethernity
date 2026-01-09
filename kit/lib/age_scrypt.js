@@ -3,9 +3,28 @@ import { hkdf } from "@noble/hashes/hkdf.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { scrypt } from "@noble/hashes/scrypt.js";
 import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
-import { base64nopad } from "@scure/base";
 
 const textEncoder = new TextEncoder();
+
+function decodeBase64NoPad(text) {
+  const cleaned = text.trim();
+  const pad = cleaned.length % 4;
+  if (pad === 1) {
+    throw new Error("invalid base64");
+  }
+  const padded = pad ? `${cleaned}${"=".repeat(4 - pad)}` : cleaned;
+  let binary;
+  try {
+    binary = atob(padded);
+  } catch {
+    throw new Error("invalid base64");
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
 
 class LineReader {
   constructor(stream) {
@@ -110,26 +129,19 @@ async function readAll(streamValue) {
   return new Uint8Array(await new Response(streamValue).arrayBuffer());
 }
 
-class Stanza {
-  constructor(args, body) {
-    this.args = args;
-    this.body = body;
+async function parseHeaderScrypt(headerStream) {
+  const hdr = new LineReader(headerStream);
+  const versionLine = await hdr.readLine();
+  if (versionLine !== "age-encryption.org/v1") {
+    throw new Error(`invalid version ${versionLine ?? "line"}`);
   }
-}
-
-async function parseNextStanza(hdr) {
   const argsLine = await hdr.readLine();
   if (argsLine === null) {
     throw new Error("invalid stanza");
   }
   const args = argsLine.split(" ");
-  if (args.length < 2 || args.shift() !== "->") {
-    return { next: argsLine };
-  }
-  for (const arg of args) {
-    if (arg.length === 0) {
-      throw new Error("invalid stanza");
-    }
+  if (args.length !== 4 || args[0] !== "->" || args[1] !== "scrypt") {
+    throw new Error("unsupported recipient");
   }
   const bodyLines = [];
   for (;;) {
@@ -137,7 +149,7 @@ async function parseNextStanza(hdr) {
     if (nextLine === null) {
       throw new Error("invalid stanza");
     }
-    const line = base64nopad.decode(nextLine);
+    const line = decodeBase64NoPad(nextLine);
     if (line.length > 48) {
       throw new Error("invalid stanza");
     }
@@ -147,36 +159,21 @@ async function parseNextStanza(hdr) {
     }
   }
   const body = flatten(bodyLines);
-  return { stanza: new Stanza(args, body) };
-}
-
-async function parseHeader(headerStream) {
-  const hdr = new LineReader(headerStream);
-  const versionLine = await hdr.readLine();
-  if (versionLine !== "age-encryption.org/v1") {
-    throw new Error(`invalid version ${versionLine ?? "line"}`);
+  const next = await hdr.readLine();
+  if (!next || !next.startsWith("--- ")) {
+    throw new Error("invalid header");
   }
-  const stanzas = [];
-  for (;;) {
-    const { stanza, next } = await parseNextStanza(hdr);
-    if (stanza !== undefined) {
-      stanzas.push(stanza);
-      continue;
-    }
-    if (!next.startsWith("--- ")) {
-      throw new Error("invalid header");
-    }
-    const mac = base64nopad.decode(next.slice(4));
-    const { rest, transcript } = hdr.close();
-    const headerNoMac = transcript.slice(0, transcript.length - 1 - next.length + 3);
-    return {
-      stanzas,
-      headerNoMac,
-      mac,
-      headerSize: transcript.length,
-      rest: prepend(headerStream, rest),
-    };
-  }
+  const mac = decodeBase64NoPad(next.slice(4));
+  const { rest, transcript } = hdr.close();
+  const headerNoMac = transcript.slice(0, transcript.length - 1 - next.length + 3);
+  return {
+    saltText: args[2],
+    logNText: args[3],
+    body,
+    headerNoMac,
+    mac,
+    rest: prepend(headerStream, rest),
+  };
 }
 
 function decryptFileKey(body, key) {
@@ -191,39 +188,24 @@ function decryptFileKey(body, key) {
   }
 }
 
-function unwrapScrypt(passphrase, stanzas) {
-  for (const stanza of stanzas) {
-    if (stanza.args.length < 1 || stanza.args[0] !== "scrypt") {
-      continue;
-    }
-    if (stanzas.length !== 1) {
-      throw new Error("scrypt recipient is not the only one in the header");
-    }
-    if (stanza.args.length !== 3) {
-      throw new Error("invalid scrypt stanza");
-    }
-    if (!/^[1-9][0-9]*$/.test(stanza.args[2])) {
-      throw new Error("invalid scrypt stanza");
-    }
-    const salt = base64nopad.decode(stanza.args[1]);
-    if (salt.length !== 16) {
-      throw new Error("invalid scrypt stanza");
-    }
-    const logN = Number(stanza.args[2]);
-    if (logN > 20) {
-      throw new Error("scrypt work factor is too high");
-    }
-    const label = "age-encryption.org/v1/scrypt";
-    const labelAndSalt = new Uint8Array(label.length + 16);
-    labelAndSalt.set(textEncoder.encode(label));
-    labelAndSalt.set(salt, label.length);
-    const key = scrypt(passphrase, labelAndSalt, { N: 2 ** logN, r: 8, p: 1, dkLen: 32 });
-    const fileKey = decryptFileKey(stanza.body, key);
-    if (fileKey !== null) {
-      return fileKey;
-    }
+function unwrapScrypt(passphrase, saltText, logNText, body) {
+  if (!/^[1-9][0-9]*$/.test(logNText)) {
+    throw new Error("invalid scrypt stanza");
   }
-  return null;
+  const salt = decodeBase64NoPad(saltText);
+  if (salt.length !== 16) {
+    throw new Error("invalid scrypt stanza");
+  }
+  const logN = Number(logNText);
+  if (logN > 20) {
+    throw new Error("scrypt work factor is too high");
+  }
+  const label = "age-encryption.org/v1/scrypt";
+  const labelAndSalt = new Uint8Array(label.length + 16);
+  labelAndSalt.set(textEncoder.encode(label));
+  labelAndSalt.set(salt, label.length);
+  const key = scrypt(passphrase, labelAndSalt, { N: 2 ** logN, r: 8, p: 1, dkLen: 32 });
+  return decryptFileKey(body, key);
 }
 
 function compareBytes(a, b) {
@@ -281,10 +263,10 @@ function decryptSTREAM(key) {
 
 export async function decryptAgePassphrase(fileBytes, passphrase) {
   const fileStream = fileBytes instanceof ReadableStream ? fileBytes : stream(fileBytes);
-  const header = await parseHeader(fileStream);
-  const fileKey = unwrapScrypt(passphrase, header.stanzas);
+  const header = await parseHeaderScrypt(fileStream);
+  const fileKey = unwrapScrypt(passphrase, header.saltText, header.logNText, header.body);
   if (fileKey === null) {
-    throw new Error("no identity matched any of the file's recipients");
+    throw new Error("invalid passphrase");
   }
   const labelHeader = textEncoder.encode("header");
   const hmacKey = hkdf(sha256, fileKey, undefined, labelHeader, 32);

@@ -8,7 +8,6 @@ export function StepNav({ steps, stepIndex, stepStates, onPrev, onNext, onJump }
     <nav class="step-nav" aria-label="Recovery steps">
       <div class="step-nav-header">
         <div class="label">Recovery steps</div>
-        <div class="step-progress">Step {stepIndex + 1} of {total}</div>
       </div>
       <div class="step-list">
         {steps.map((step, index) => {

@@ -8,7 +8,6 @@ from .doc_types import (
     DOC_TYPE_KIT,
     DOC_TYPE_MAIN,
     DOC_TYPE_RECOVERY,
-    DOC_TYPE_SHARD,
     DOC_TYPE_SIGNING_KEY_SHARD,
     DOC_TYPES,
 )
@@ -106,26 +105,6 @@ class DocumentSpec:
 
     def with_key_lines(self, lines: Sequence[str]) -> "DocumentSpec":
         return replace(self, keys=replace(self.keys, lines=tuple(lines)))
-
-
-def resolve_doc_type(template_path: str | None, context: dict[str, object]) -> str:
-    override = context.get("doc_type")
-    if isinstance(override, str):
-        normalized = override.strip().lower()
-        if normalized:
-            return normalized
-    if not template_path:
-        return DOC_TYPE_MAIN
-    name = str(template_path).lower()
-    if "signing_key_shard" in name:
-        return DOC_TYPE_SIGNING_KEY_SHARD
-    if "recovery" in name:
-        return DOC_TYPE_RECOVERY
-    if "kit" in name:
-        return DOC_TYPE_KIT
-    if "shard" in name:
-        return DOC_TYPE_SHARD
-    return DOC_TYPE_MAIN
 
 
 def document_spec(

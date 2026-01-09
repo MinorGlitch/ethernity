@@ -54,7 +54,23 @@ export function resetAll(dispatch) {
 
 export async function addPayloads(dispatch, getState) {
   const base = cloneState(getState());
+  const before = {
+    errors: base.errors,
+    conflicts: base.conflicts,
+    ignored: base.ignored,
+    authErrors: base.authErrors,
+    authConflicts: base.authConflicts,
+  };
   const added = parseTextWithErrors(base, base.payloadText, parseAutoPayload, "errors");
+  const fullyAccepted = added > 0
+    && base.errors === before.errors
+    && base.conflicts === before.conflicts
+    && base.ignored === before.ignored
+    && base.authErrors === before.authErrors
+    && base.authConflicts === before.authConflicts;
+  if (fullyAccepted) {
+    base.payloadText = "";
+  }
   setStatus(base, "frameStatus", [
     `Added ${added} input(s).`,
     base.total
@@ -72,7 +88,17 @@ export async function addPayloads(dispatch, getState) {
 export function addShardPayloads(dispatch, getState) {
   let added = 0;
   const next = cloneState(getState());
+  const before = {
+    shardErrors: next.shardErrors,
+    shardConflicts: next.shardConflicts,
+  };
   added = parseTextWithErrors(next, next.shardPayloadText, parseAutoShard, "shardErrors");
+  const fullyAccepted = added > 0
+    && next.shardErrors === before.shardErrors
+    && next.shardConflicts === before.shardConflicts;
+  if (fullyAccepted) {
+    next.shardPayloadText = "";
+  }
   const statusLines = [
     `Added ${added} shard input(s).`,
     next.shardThreshold
@@ -154,6 +180,7 @@ export async function decryptCiphertext(dispatch, getState) {
       `Decrypted ${formatBytes(plaintext.length)} envelope.`,
       `Extracted ${result.files.length} file(s).`,
     ], "ok");
+    next.agePassphrase = "";
   } catch (err) {
     setStatus(next, "decryptStatus", [String(err)], "error");
   }

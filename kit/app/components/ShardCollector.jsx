@@ -1,4 +1,5 @@
-import { ActionsRow, Card, DiagnosticsList, Field, StatusBlock } from "./common.jsx";
+import { DiagnosticsList, Field, StatusBlock } from "./common.jsx";
+import { CollectorStep } from "./CollectorStep.jsx";
 
 export function ShardCollector({
   shardPayloadText,
@@ -14,29 +15,26 @@ export function ShardCollector({
   onCopyResult,
   canCopyResult,
 }) {
-  const actions = [
-    { label: "Add shard payloads", onClick: onAddShardPayloads },
-    { label: "Copy result", className: "secondary", onClick: onCopyResult, disabled: !canCopyResult },
-  ];
-  return (
-    <div class="step-layout">
-      <Card title="Shard payloads" className="step-input">
-        <Field
-          id="shard-payload-text"
-          label="Shard inputs"
-          value={shardPayloadText}
-          placeholder="Paste shard payloads or fallback text here..."
-          onInput={onShardPayloadChange}
-          as="textarea"
-        />
-      </Card>
-      <div class="action-bar step-actions">
-        <div class="label">Actions</div>
-        <ActionsRow actions={actions} />
-      </div>
-      <Card title="Status &amp; validation" className="step-status">
+  const input = {
+    title: "Shard payloads",
+    body: (
+      <Field
+        id="shard-payload-text"
+        label="Shard inputs"
+        value={shardPayloadText}
+        placeholder="Paste shard payloads or fallback text here..."
+        onInput={onShardPayloadChange}
+        as="textarea"
+      />
+    ),
+    actions: [{ label: "Add shard payloads", onClick: onAddShardPayloads }],
+  };
+  const status = {
+    title: "Status &amp; validation",
+    body: (
+      <>
         <StatusBlock status={shardStatus} />
-        <div class="label">Validation details</div>
+        <div class="label">Validation</div>
         <Field
           id="shard-doc-hash"
           label="Doc hash (hex)"
@@ -61,19 +59,27 @@ export function ShardCollector({
           readOnly
           className="code"
         />
-        <div class="label">Shard status</div>
         <DiagnosticsList items={shardDiagnostics} />
-      </Card>
-      <Card title="Recovered secret" className="step-output">
-        <Field
-          id="recovered-secret"
-          label={recoveredLabel}
-          value={recoveredSecret}
-          placeholder="Recovered secret will appear here..."
-          readOnly
-          as="textarea"
-        />
-      </Card>
-    </div>
+      </>
+    ),
+  };
+  const output = {
+    title: "Recovered secret",
+    body: (
+      <Field
+        id="recovered-secret"
+        label={recoveredLabel}
+        value={recoveredSecret}
+        placeholder="Recovered secret will appear here..."
+        readOnly
+        as="textarea"
+      />
+    ),
+    actions: [
+      { label: "Copy result", className: "secondary", onClick: onCopyResult, disabled: !canCopyResult },
+    ],
+  };
+  return (
+    <CollectorStep className="step-layout--status-right" input={input} status={status} output={output} />
   );
 }
