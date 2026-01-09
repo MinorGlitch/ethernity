@@ -1,11 +1,11 @@
 import unittest
 
 from ethernity.encoding.chunking import (
+    chunk_payload,
     fallback_lines_to_frame,
     frame_to_fallback_lines,
     payload_to_fallback_lines,
     reassemble_payload,
-    chunk_payload,
 )
 from ethernity.encoding.fallback import (
     decode_fallback_lines,
@@ -69,21 +69,27 @@ class TestChunking(unittest.TestCase):
     def test_chunk_reassemble_roundtrip(self) -> None:
         payload = b"0123456789" * 50
         doc_id = b"\x22" * DOC_ID_LEN
-        frames = chunk_payload(payload, doc_id=doc_id, frame_type=FrameType.KEY_DOCUMENT, chunk_size=64)
+        frames = chunk_payload(
+            payload, doc_id=doc_id, frame_type=FrameType.KEY_DOCUMENT, chunk_size=64
+        )
         rebuilt = reassemble_payload(frames)
         self.assertEqual(rebuilt, payload)
 
     def test_chunk_reassemble_missing(self) -> None:
         payload = b"0123456789" * 20
         doc_id = b"\x33" * DOC_ID_LEN
-        frames = chunk_payload(payload, doc_id=doc_id, frame_type=FrameType.MAIN_DOCUMENT, chunk_size=32)
+        frames = chunk_payload(
+            payload, doc_id=doc_id, frame_type=FrameType.MAIN_DOCUMENT, chunk_size=32
+        )
         with self.assertRaises(ValueError):
             reassemble_payload(frames[:-1])
 
     def test_chunk_payload_balanced(self) -> None:
         payload = b"A" * 10
         doc_id = b"\x55" * DOC_ID_LEN
-        frames = chunk_payload(payload, doc_id=doc_id, frame_type=FrameType.MAIN_DOCUMENT, chunk_size=6)
+        frames = chunk_payload(
+            payload, doc_id=doc_id, frame_type=FrameType.MAIN_DOCUMENT, chunk_size=6
+        )
         sizes = [len(frame.data) for frame in frames]
         self.assertEqual(sum(sizes), len(payload))
         self.assertLessEqual(max(sizes) - min(sizes), 1)
@@ -92,7 +98,9 @@ class TestChunking(unittest.TestCase):
     def test_chunk_reassemble_mismatch(self) -> None:
         payload = b"0123456789" * 20
         doc_id = b"\x44" * DOC_ID_LEN
-        frames = chunk_payload(payload, doc_id=doc_id, frame_type=FrameType.MAIN_DOCUMENT, chunk_size=32)
+        frames = chunk_payload(
+            payload, doc_id=doc_id, frame_type=FrameType.MAIN_DOCUMENT, chunk_size=32
+        )
         frames[0] = Frame(
             version=frames[0].version,
             frame_type=frames[0].frame_type,

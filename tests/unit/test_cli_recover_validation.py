@@ -3,10 +3,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from test_support import suppress_output
+
 from ethernity import cli
+from ethernity.cli.io.frames import _frames_from_fallback
 from ethernity.encoding.chunking import frame_to_fallback_lines
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
-from test_support import suppress_output
 
 
 class TestCliRecoverValidation(unittest.TestCase):
@@ -76,7 +78,7 @@ class TestCliRecoverValidation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "fallback.txt"
             path.write_text("\n".join(lines), encoding="utf-8")
-            frames = cli._frames_from_fallback(
+            frames = _frames_from_fallback(
                 str(path),
                 allow_invalid_auth=False,
                 quiet=True,
@@ -102,7 +104,7 @@ class TestCliRecoverValidation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "fallback.txt"
             path.write_text("\n".join(lines), encoding="utf-8")
-            frames = cli._frames_from_fallback(
+            frames = _frames_from_fallback(
                 str(path),
                 allow_invalid_auth=False,
                 quiet=True,
@@ -134,7 +136,7 @@ class TestCliRecoverValidation(unittest.TestCase):
             path.write_text("\n".join(lines), encoding="utf-8")
             with suppress_output():
                 with self.assertRaises(ValueError):
-                    cli._frames_from_fallback(
+                    _frames_from_fallback(
                         str(path),
                         allow_invalid_auth=False,
                         quiet=True,
@@ -162,7 +164,7 @@ class TestCliRecoverValidation(unittest.TestCase):
             path = Path(tmpdir) / "fallback.txt"
             path.write_text("\n".join(lines), encoding="utf-8")
             with suppress_output():
-                frames = cli._frames_from_fallback(
+                frames = _frames_from_fallback(
                     str(path),
                     allow_invalid_auth=True,
                     quiet=True,

@@ -3,8 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ethernity.cli import run_backup_command
 from test_support import suppress_output, temp_env
+
+from ethernity.cli import run_backup_command
 
 
 class TestIntegrationBackup(unittest.TestCase):
@@ -13,7 +14,7 @@ class TestIntegrationBackup(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             repo_root = Path(__file__).resolve().parents[2]
-            config_path = repo_root / "ethernity" / "config" / "a4.toml"
+            config_path = repo_root / "src" / "ethernity" / "config" / "a4.toml"
             env_overrides = {
                 "XDG_CONFIG_HOME": str(tmp_path / "xdg"),
             }

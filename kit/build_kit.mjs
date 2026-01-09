@@ -19,13 +19,15 @@ const scriptTagRe = /<script\b[^>]*>[\s\S]*?<\/script>/g;
 
 const tmpBase = resolve(tmpdir(), `ethernity-kit-${Date.now()}`);
 const tmpOut = `${tmpBase}.min.js`;
-const entryPoint = resolve(kitDir, "app.js");
+const entryPoint = resolve(kitDir, "app", "index.jsx");
 
 const esbuildArgs = [
   entryPoint,
   "--bundle",
   "--format=iife",
   "--platform=browser",
+  "--jsx=automatic",
+  "--jsx-import-source=preact",
   "--target=es2020",
   "--minify",
   "--tree-shaking=true",

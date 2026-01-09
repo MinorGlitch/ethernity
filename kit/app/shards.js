@@ -1,7 +1,7 @@
 import { bytesToHex } from "../lib/encoding.js";
 import { recoverSecretFromShards } from "../lib/shamir.js";
 import { SHARD_KEY_PASSPHRASE, SHARD_KEY_SIGNING_SEED, textDecoder } from "./constants.js";
-import { setStatus } from "./state.js";
+import { setStatus } from "./state/initial.js";
 
 export function autoRecoverShardSecret(state, statusPrefix = []) {
   if (!state.shardThreshold || state.shardFrames.size < state.shardThreshold) {

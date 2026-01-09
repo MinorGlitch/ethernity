@@ -173,33 +173,33 @@ Key sections to include:
 - Passphrase generation: python-mnemonic (BIP39 wordlists).
 
 ## Project Layout (Current)
-- `ethernity/`: Python package root.
-- `ethernity/cli/`: CLI package root.
-- `ethernity/cli/app.py`: Typer app entrypoint.
-- `ethernity/cli/commands/`: Typer subcommands (backup/recover/demo/manpage).
-- `ethernity/cli/flows/`: backup/recover flows + prompt helpers.
-- `ethernity/cli/core/`: shared CLI helpers (types/plan/crypto/log).
-- `ethernity/cli/io/`: input/output helpers (frames/files).
-- `ethernity/cli/keys/`: recovery key verification helpers.
-- `ethernity/cli/ui/`: Rich UI, prompts, summaries/debug.
-- `ethernity/crypto/age_cli.py`: age interface module (subprocess/pty).
-- `ethernity/crypto/passphrases.py`: mnemonic passphrase generation.
-- `ethernity/encoding/framing.py`: QR frame encode/decode (magic/version/type/doc_id/idx/total/len/CRC).
-- `ethernity/encoding/chunking.py`: chunk sizing, z-base-32 fallback formatting.
-- `ethernity/qr/codec.py`: QR generation helpers (segno integration).
-- `ethernity/qr/scan.py`: QR scanning helpers (zxing-cpp + PIL).
-- `ethernity/render/pdf_render.py`: PDF rendering orchestrator (Playwright).
-- `ethernity/render/layout.py`: Layout calculations + fallback line generation.
-- `ethernity/render/templating.py`: Jinja2 rendering for HTML templates.
-- `ethernity/formats/envelope_types.py`: envelope manifest types + CBOR helpers.
-- `ethernity/formats/envelope_codec.py`: envelope encode/decode + payload builders.
-- `ethernity/config/loader.py`: TOML config loader + QR parsing.
-- `ethernity/config/installer.py`: default config/template installer.
-- `ethernity/templates/`: layout templates (`.html.j2`) for main/recovery/shard docs.
-- `ethernity/config/`: preset TOML configs (A4 default, Letter optional).
+- `src/ethernity/`: Python package root.
+- `src/ethernity/cli/`: CLI package root.
+- `src/ethernity/cli/app.py`: Typer app entrypoint.
+- `src/ethernity/cli/commands/`: Typer subcommands (backup/recover/demo/manpage).
+- `src/ethernity/cli/flows/`: backup/recover flows + prompt helpers.
+- `src/ethernity/cli/core/`: shared CLI helpers (types/plan/crypto/log).
+- `src/ethernity/cli/io/`: input/output helpers (frames/files).
+- `src/ethernity/cli/keys/`: recovery key verification helpers.
+- `src/ethernity/cli/ui/`: Rich UI, prompts, summaries/debug.
+- `src/ethernity/crypto/age_cli.py`: age interface module (subprocess/pty).
+- `src/ethernity/crypto/passphrases.py`: mnemonic passphrase generation.
+- `src/ethernity/encoding/framing.py`: QR frame encode/decode (magic/version/type/doc_id/idx/total/len/CRC).
+- `src/ethernity/encoding/chunking.py`: chunk sizing, z-base-32 fallback formatting.
+- `src/ethernity/qr/codec.py`: QR generation helpers (segno integration).
+- `src/ethernity/qr/scan.py`: QR scanning helpers (zxing-cpp + PIL).
+- `src/ethernity/render/pdf_render.py`: PDF rendering orchestrator (Playwright).
+- `src/ethernity/render/layout.py`: Layout calculations + fallback line generation.
+- `src/ethernity/render/templating.py`: Jinja2 rendering for HTML templates.
+- `src/ethernity/formats/envelope_types.py`: envelope manifest types + CBOR helpers.
+- `src/ethernity/formats/envelope_codec.py`: envelope encode/decode + payload builders.
+- `src/ethernity/config/loader.py`: TOML config loader + QR parsing.
+- `src/ethernity/config/installer.py`: default config/template installer.
+- `src/ethernity/templates/`: layout templates (`.html.j2`) for main/recovery/shard docs.
+- `src/ethernity/config/`: preset TOML configs (A4 default, Letter optional).
 - `demo/render_demo.py`: sample PDF demo.
 - `demo/scan_demo.py`: scan demo harness.
-- `ethernity/sharding.py`: Shamir split/join for passphrase shards.
+- `src/ethernity/sharding.py`: Shamir split/join for passphrase shards.
 - `tests/`: unit/integration/end-to-end tests.
 
 ## Dependencies (uv)

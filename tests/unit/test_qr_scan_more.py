@@ -88,7 +88,9 @@ class TestQrScanMore(unittest.TestCase):
         self.assertEqual([path.name for path in files], ["a.png", "c.PDF"])
 
     def test_scan_qr_payloads_rejects_unsupported_type(self) -> None:
-        decoder = QrDecoder(name="dummy", decode_image_path=lambda _: [], decode_image_bytes=lambda _: [])
+        decoder = QrDecoder(
+            name="dummy", decode_image_path=lambda _: [], decode_image_bytes=lambda _: []
+        )
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "note.txt"
             path.write_text("x", encoding="utf-8")
@@ -113,7 +115,9 @@ class TestQrScanMore(unittest.TestCase):
         self.assertEqual(payloads, [b"a-ok", b"c-ok"])
 
     def test_scan_pdf_missing_images_attr(self) -> None:
-        decoder = QrDecoder(name="dummy", decode_image_path=lambda _: [], decode_image_bytes=lambda _: [])
+        decoder = QrDecoder(
+            name="dummy", decode_image_path=lambda _: [], decode_image_bytes=lambda _: []
+        )
         pypdf = types.ModuleType("pypdf")
         pypdf.PdfReader = _FakeReaderMissingImages
         with _patched_modules({"pypdf": pypdf}):

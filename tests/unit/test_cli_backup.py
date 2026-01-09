@@ -7,11 +7,11 @@ from unittest import mock
 
 from ethernity import cli
 from ethernity.config import load_app_config
-from ethernity.formats import envelope_codec as envelope_codec_module
 from ethernity.core.models import DocumentPlan, ShardingConfig, SigningSeedMode
+from ethernity.formats import envelope_codec as envelope_codec_module
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-A4_CONFIG_PATH = REPO_ROOT / "ethernity" / "config" / "a4.toml"
+A4_CONFIG_PATH = REPO_ROOT / "src" / "ethernity" / "config" / "a4.toml"
 
 
 class _CaptureBuild:
@@ -48,7 +48,7 @@ def _run_backup_with_plan(
             ):
                 with mock.patch("ethernity.render.render_frames_to_pdf"):
                     with mock.patch(
-                        "ethernity.cli.encrypt_bytes_with_passphrase",
+                        "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
                         return_value=(b"ciphertext", "auto-pass"),
                     ):
                         with mock.patch(
@@ -87,7 +87,7 @@ class TestCliBackup(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "out"
             with mock.patch(
-                "ethernity.cli.encrypt_bytes_with_passphrase",
+                "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
                 return_value=(b"ciphertext", "auto-pass"),
             ) as encrypt_mock:
                 with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
@@ -131,7 +131,7 @@ class TestCliBackup(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "out"
             with mock.patch(
-                "ethernity.cli.encrypt_bytes_with_passphrase",
+                "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
                 return_value=(ciphertext, "auto-pass"),
             ):
                 with mock.patch(
@@ -198,7 +198,7 @@ class TestCliBackup(unittest.TestCase):
                     side_effect=capture_build,
                 ):
                     with mock.patch(
-                        "ethernity.cli.encrypt_bytes_with_passphrase",
+                        "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
                         return_value=(b"ciphertext", "auto-pass"),
                     ):
                         with mock.patch(
@@ -278,7 +278,7 @@ class TestCliBackup(unittest.TestCase):
                     side_effect=capture_build,
                 ):
                     with mock.patch(
-                        "ethernity.cli.encrypt_bytes_with_passphrase",
+                        "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
                         return_value=(b"ciphertext", "auto-pass"),
                     ):
                         with mock.patch(

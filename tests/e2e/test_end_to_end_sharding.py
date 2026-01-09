@@ -4,14 +4,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from test_support import suppress_output
+
+from ethernity.cli import run_recover_command
 from ethernity.crypto import encrypt_bytes_with_passphrase
-from ethernity.encoding.chunking import chunk_payload, frame_to_fallback_lines
-from ethernity.formats.envelope_codec import build_single_file_manifest, encode_envelope
-from ethernity.encoding.framing import Frame, FrameType, encode_frame
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
 from ethernity.crypto.signing import generate_signing_keypair
-from ethernity.cli import run_recover_command
-from test_support import suppress_output
+from ethernity.encoding.chunking import chunk_payload, frame_to_fallback_lines
+from ethernity.encoding.framing import Frame, FrameType, encode_frame
+from ethernity.formats.envelope_codec import build_single_file_manifest, encode_envelope
 
 
 class TestEndToEndSharding(unittest.TestCase):
@@ -123,9 +124,7 @@ class TestEndToEndSharding(unittest.TestCase):
                     total=1,
                     data=encode_shard_payload(share),
                 )
-                shard_lines = frame_to_fallback_lines(
-                    shard_frame, line_length=80, line_count=None
-                )
+                shard_lines = frame_to_fallback_lines(shard_frame, line_length=80, line_count=None)
                 shard_path = tmp_path / f"shard_{idx}.txt"
                 shard_path.write_text("\n".join(shard_lines), encoding="utf-8")
                 shard_paths.append(str(shard_path))

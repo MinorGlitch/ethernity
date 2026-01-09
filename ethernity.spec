@@ -10,8 +10,8 @@ datas = collect_data_files("ethernity") + collect_data_files("playwright")
 
 
 a = Analysis(
-    ["ethernity/__main__.py"],
-    pathex=["."],
+    ["src/ethernity/__main__.py"],
+    pathex=["src"],
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,

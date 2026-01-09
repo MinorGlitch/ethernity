@@ -44,7 +44,11 @@ class TestPdfRender(unittest.TestCase):
         }
 
         template_path = (
-            Path(__file__).resolve().parents[2] / "ethernity" / "templates" / "main_document.html.j2"
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "main_document.html.j2"
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "out.pdf"
@@ -53,6 +57,7 @@ class TestPdfRender(unittest.TestCase):
                 template_path=template_path,
                 output_path=output_path,
                 context=context,
+                doc_type="main",
                 render_fallback=False,
             )
             render_frames_to_pdf(inputs)

@@ -11,3 +11,6 @@ wheels/
 
 # Node tooling
 node_modules/
+
+# macOS
+.DS_Store

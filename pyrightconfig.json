@@ -1,5 +1,5 @@
 {
-  "include": ["ethernity"],
+  "include": ["src/ethernity"],
   "exclude": [
     "build",
     "backup-*",

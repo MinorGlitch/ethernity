@@ -27,10 +27,14 @@ class TestSigning(unittest.TestCase):
         share = b"share-bytes"
         signature = sign_shard(doc_hash, shard_index=1, share=share, sign_priv=sign_priv)
         self.assertTrue(
-            verify_shard(doc_hash, shard_index=1, share=share, sign_pub=sign_pub, signature=signature)
+            verify_shard(
+                doc_hash, shard_index=1, share=share, sign_pub=sign_pub, signature=signature
+            )
         )
         self.assertFalse(
-            verify_shard(doc_hash, shard_index=2, share=share, sign_pub=sign_pub, signature=signature)
+            verify_shard(
+                doc_hash, shard_index=2, share=share, sign_pub=sign_pub, signature=signature
+            )
         )
 
     def test_auth_payload_roundtrip(self) -> None:

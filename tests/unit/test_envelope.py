@@ -7,7 +7,12 @@ from ethernity.formats.envelope_codec import (
     encode_envelope,
     extract_payloads,
 )
-from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile, MANIFEST_VERSION, PayloadPart
+from ethernity.formats.envelope_types import (
+    MANIFEST_VERSION,
+    EnvelopeManifest,
+    ManifestFile,
+    PayloadPart,
+)
 
 
 class TestEnvelope(unittest.TestCase):

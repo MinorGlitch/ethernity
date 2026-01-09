@@ -20,7 +20,6 @@ dependencies = [
     "pypdf",
     "segno",
     "zxing-cpp",
-    "coverage>=7.13.1",
     "playwright>=1.57.0",
     "pyrage",
 ]
@@ -30,14 +29,40 @@ ethernity = "ethernity.cli:main"
 
 [project.optional-dependencies]
 build = ["pyinstaller>=6.10.0"]
+dev = [
+    "coverage>=7.13.1",
+    "mypy>=1.11.0",
+    "ruff>=0.6.0",
+]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+package-dir = { "" = "src" }
+
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["ethernity", "ethernity.*"]
 
 [tool.setuptools.package-data]
-ethernity = ["templates/*.html.j2", "config/*.toml", "kit/*.html"]
+ethernity = ["templates/*.html.j2", "config/*.toml", "kit/*.html", "py.typed"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
+[tool.mypy]
+python_version = "3.13"
+mypy_path = "src"
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = true

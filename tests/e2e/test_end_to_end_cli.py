@@ -5,11 +5,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from test_support import build_cli_env
+
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.encoding.chunking import chunk_payload
-from ethernity.formats.envelope_codec import build_single_file_manifest, encode_envelope
 from ethernity.encoding.framing import FrameType, encode_frame
-from test_support import build_cli_env
+from ethernity.formats.envelope_codec import build_single_file_manifest, encode_envelope
 
 
 class TestEndToEndCli(unittest.TestCase):
@@ -20,7 +21,7 @@ class TestEndToEndCli(unittest.TestCase):
             input_path.write_text("backup cli payload", encoding="utf-8")
             output_dir = tmp_path / "backup"
             repo_root = Path(__file__).resolve().parents[2]
-            config_path = repo_root / "ethernity" / "config" / "a4.toml"
+            config_path = repo_root / "src" / "ethernity" / "config" / "a4.toml"
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
             result = subprocess.run(
@@ -55,7 +56,7 @@ class TestEndToEndCli(unittest.TestCase):
             input_path.write_text("backup cli payload", encoding="utf-8")
             output_dir = tmp_path / "backup"
             repo_root = Path(__file__).resolve().parents[2]
-            config_path = repo_root / "ethernity" / "config" / "a4.toml"
+            config_path = repo_root / "src" / "ethernity" / "config" / "a4.toml"
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
             result = subprocess.run(

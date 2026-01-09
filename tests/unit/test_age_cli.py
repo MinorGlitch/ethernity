@@ -1,8 +1,7 @@
 import unittest
 from unittest import mock
 
-from ethernity.crypto import AgeCliError, decrypt_bytes, encrypt_bytes_with_passphrase
-from ethernity.crypto import age_runtime
+from ethernity.crypto import AgeCliError, age_runtime, decrypt_bytes, encrypt_bytes_with_passphrase
 
 
 class TestAgeCli(unittest.TestCase):

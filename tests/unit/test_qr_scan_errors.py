@@ -1,6 +1,5 @@
-import unittest
-
 import tempfile
+import unittest
 from pathlib import Path
 
 from ethernity.qr import scan as qr_scan

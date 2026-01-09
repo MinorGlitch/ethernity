@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ethernity.cli import _load_input_files
+from ethernity.cli.io.inputs import _load_input_files
 
 
 class TestInputFiles(unittest.TestCase):

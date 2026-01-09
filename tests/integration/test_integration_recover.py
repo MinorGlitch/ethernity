@@ -7,18 +7,18 @@ from pathlib import Path
 import segno
 import zxingcpp  # noqa: F401
 from PIL import Image  # noqa: F401
+from tests.test_support import suppress_output
 
+from ethernity.cli import run_recover_command
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.encoding.chunking import chunk_payload, payload_to_fallback_lines
+from ethernity.encoding.framing import FrameType, encode_frame
 from ethernity.formats.envelope_codec import (
     build_manifest_and_payload,
     build_single_file_manifest,
     encode_envelope,
 )
 from ethernity.formats.envelope_types import PayloadPart
-from ethernity.encoding.framing import FrameType, encode_frame
-from ethernity.cli import run_recover_command
-from tests.test_support import suppress_output
 
 
 class TestIntegrationRecover(unittest.TestCase):

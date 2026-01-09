@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+      - name: Install dependencies
+        run: uv sync --extra dev --frozen
+      - name: Ruff lint
+        run: uv run ruff check src tests
+
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+      - name: Install dependencies
+        run: uv sync --extra dev --frozen
+      - name: Ruff format
+        run: uv run ruff format --check src tests
+
+  mypy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+      - name: Install dependencies
+        run: uv sync --extra dev --frozen
+      - name: Mypy
+        run: uv run mypy src

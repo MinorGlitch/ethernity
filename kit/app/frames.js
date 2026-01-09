@@ -19,7 +19,7 @@ import {
   SHARD_KEY_PASSPHRASE,
   SHARD_KEY_SIGNING_SEED,
 } from "./constants.js";
-import { bumpError } from "./state.js";
+import { bumpError } from "./state/initial.js";
 
 export function listMissing(total, framesMap) {
   const missing = [];

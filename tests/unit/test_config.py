@@ -3,11 +3,11 @@ import unittest
 from pathlib import Path
 
 from ethernity.config import (
+    DEFAULT_PAPER_SIZE,
     DEFAULT_RECOVERY_TEMPLATE_PATH,
     DEFAULT_SHARD_TEMPLATE_PATH,
     DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
     DEFAULT_TEMPLATE_PATH,
-    DEFAULT_PAPER_SIZE,
     load_app_config,
 )
 
