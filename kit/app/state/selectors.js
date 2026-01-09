@@ -51,7 +51,7 @@ function describeValidationSummary(state) {
   if (hasErrors) {
     return {
       value: "Issues detected",
-      detail: "Resolve conflicts or errors before decrypting.",
+      detail: "Resolve conflicts or errors to continue.",
       tone: "error",
     };
   }
@@ -65,13 +65,15 @@ function describeValidationSummary(state) {
   if (hasFrames) {
     return {
       value: "Collecting frames",
-      detail: missingCount === null ? "Waiting for frame count." : `${missingCount} missing.`,
+      detail: missingCount === null
+        ? "Waiting for total frame count."
+        : `Add ${missingCount} more frame(s).`,
       tone: "progress",
     };
   }
   return {
     value: "Waiting for frames",
-    detail: "Paste main frame payloads to begin.",
+    detail: "Paste main frames to begin.",
     tone: "idle",
   };
 }
@@ -118,9 +120,29 @@ function sumFrameBytes(frames) {
   return total;
 }
 
+function describeShardReadiness(state) {
+  const hasSecret = Boolean(state.recoveredShardSecret);
+  if (hasSecret) {
+    return { value: "Recovered", detail: "Secret recovered.", tone: "ok" };
+  }
+  const thresholdKnown = Boolean(state.shardThreshold);
+  const collected = state.shardFrames.size;
+  if (thresholdKnown && collected >= state.shardThreshold) {
+    return { value: "Ready to recover", detail: "Recover the secret.", tone: "progress" };
+  }
+  if (collected) {
+    const remaining = thresholdKnown ? Math.max(0, state.shardThreshold - collected) : null;
+    return {
+      value: "Collecting shards",
+      detail: remaining === null ? "Waiting for shard metadata." : `Add ${remaining} more shard frame(s).`,
+      tone: "progress",
+    };
+  }
+  return { value: "Waiting for shards", detail: "Paste shard frames to begin.", tone: "idle" };
+}
+
 function selectFrameStatusItems(state) {
   const validationSummary = describeValidationSummary(state);
-  const missingInfo = describeMissingFrames(state);
   const authInfo = describeAuthStatus(state);
   const framesTone = state.total && state.mainFrames.size === state.total
     ? "ok"
@@ -146,10 +168,14 @@ function selectFrameStatusItems(state) {
       subLabel: authInfo.detail,
       tone: authInfo.tone,
     };
-  const framesDetail = state.total ? `${state.total} total frames` : "Total unknown";
+  const framesDetail = state.total
+    ? missingCount === 0
+      ? `${state.total} total frames`
+      : `${missingCount} missing`
+    : "Total unknown";
   return [
     {
-      label: "Validation",
+      label: "Readiness",
       value: validationSummary.value,
       subLabel: validationSummary.detail,
       tone: validationSummary.tone,
@@ -160,18 +186,14 @@ function selectFrameStatusItems(state) {
       subLabel: framesDetail,
       tone: framesTone,
     },
-    {
-      label: "Missing",
-      value: missingInfo.value,
-      subLabel: missingInfo.detail,
-      tone: missingInfo.tone,
-    },
     authItem,
   ];
 }
 
 export function selectFrameDiagnostics(state) {
+  const missingInfo = describeMissingFrames(state);
   return [
+    { label: "Missing", value: missingInfo.value, detail: missingInfo.detail, tone: missingInfo.tone },
     { label: "Conflicts", value: `${state.conflicts}`, tone: state.conflicts > 0 ? "error" : "ok" },
     { label: "Errors", value: `${state.errors}`, tone: state.errors > 0 ? "error" : "ok" },
     { label: "Duplicates", value: `${state.duplicates}`, tone: state.duplicates > 0 ? "warn" : "ok" },
@@ -212,19 +234,9 @@ export function selectShardInputs(state) {
 }
 
 function selectShardStatusItems(state) {
-  const shardKeyLabel = selectShardKeyLabel(state);
+  const readiness = describeShardReadiness(state);
   const shardMatch = selectShardMatch(state);
-  const collectedTone = state.shardThreshold
-    ? state.shardFrames.size >= state.shardThreshold
-      ? "ok"
-      : state.shardFrames.size
-        ? "progress"
-        : "idle"
-    : state.shardFrames.size
-      ? "progress"
-      : "idle";
   const matchTone = shardMatch === "yes" ? "ok" : shardMatch === "no" ? "error" : "idle";
-  const keyValue = shardKeyLabel === "-" ? "Unknown" : shardKeyLabel;
   const quorumValue = state.shardThreshold
     ? `${state.shardThreshold} of ${state.shardShares ?? "?"}`
     : "Unknown";
@@ -233,25 +245,19 @@ function selectShardStatusItems(state) {
     : `${state.shardFrames.size}`;
   return [
     {
-      label: "Key type",
-      value: keyValue,
-      subLabel: shardKeyLabel === "-" ? "Waiting for shard metadata." : undefined,
-      tone: shardKeyLabel === "-" ? "idle" : "ok",
+      label: "Readiness",
+      value: readiness.value,
+      subLabel: readiness.detail,
+      tone: readiness.tone,
     },
     {
       label: "Quorum",
       value: quorumValue,
-      subLabel: state.shardShares ? `${state.shardShares} total shares` : undefined,
+      subLabel: state.shardThreshold ? `Collected ${collectedValue}` : "Waiting for shard metadata.",
       tone: state.shardThreshold ? "ok" : "idle",
     },
     {
-      label: "Collected",
-      value: collectedValue,
-      subLabel: state.shardFrames.size ? "Shard inputs collected." : "No shard inputs yet.",
-      tone: collectedTone,
-    },
-    {
-      label: "Main doc match",
+      label: "Doc match",
       value: shardMatch,
       subLabel: shardMatch === "-" ? "Waiting for doc IDs." : undefined,
       tone: matchTone,
@@ -260,7 +266,13 @@ function selectShardStatusItems(state) {
 }
 
 export function selectShardDiagnostics(state) {
+  const shardKeyLabel = selectShardKeyLabel(state);
   return [
+    {
+      label: "Key type",
+      value: shardKeyLabel === "-" ? "Unknown" : shardKeyLabel,
+      tone: shardKeyLabel === "-" ? "idle" : "ok",
+    },
     { label: "Conflicts", value: `${state.shardConflicts}`, tone: state.shardConflicts > 0 ? "error" : "ok" },
     { label: "Errors", value: `${state.shardErrors}`, tone: state.shardErrors > 0 ? "error" : "ok" },
     { label: "Duplicates", value: `${state.shardDuplicates}`, tone: state.shardDuplicates > 0 ? "warn" : "ok" },
@@ -312,13 +324,21 @@ function selectDecryptStatusItems(state) {
   const envelopeSource = selectEnvelopeSource(state);
   const outputSummary = selectOutputSummary(state);
   const actionState = selectActionState(state);
-  const ciphertextTone = ciphertextSource.available
-    ? "ok"
-    : state.mainFrames.size
-      ? "progress"
-      : "idle";
   const passphraseProvided = state.agePassphrase.trim().length > 0;
-  const passphraseTone = passphraseProvided ? "ok" : "warn";
+  const ready = ciphertextSource.available && passphraseProvided;
+  const readinessTone = ready
+    ? "ok"
+    : ciphertextSource.available || passphraseProvided
+      ? "warn"
+      : "idle";
+  let readinessDetail = "Collect ciphertext and enter the passphrase.";
+  if (ciphertextSource.available && !passphraseProvided) {
+    readinessDetail = "Enter the passphrase to decrypt.";
+  } else if (!ciphertextSource.available && passphraseProvided) {
+    readinessDetail = "Collect ciphertext to decrypt.";
+  } else if (ready) {
+    readinessDetail = "Ready to decrypt.";
+  }
   const envelopeTone = state.decryptedEnvelope
     ? "ok"
     : actionState.canDecryptCiphertext
@@ -334,16 +354,10 @@ function selectDecryptStatusItems(state) {
     : "Decrypt and extract to recover files.";
   return [
     {
-      label: "Ciphertext",
-      value: ciphertextSource.available ? "Ready" : "Waiting",
-      subLabel: ciphertextSource.detail,
-      tone: ciphertextTone,
-    },
-    {
-      label: "Passphrase",
-      value: passphraseProvided ? "Provided" : "Missing",
-      subLabel: passphraseProvided ? "Ready to decrypt." : "Required to decrypt.",
-      tone: passphraseTone,
+      label: "Readiness",
+      value: ready ? "Ready" : "Needs input",
+      subLabel: readinessDetail,
+      tone: readinessTone,
     },
     {
       label: "Envelope",

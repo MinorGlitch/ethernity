@@ -29,8 +29,8 @@ def _validate_backup_args(args: argparse.Namespace) -> None:
     if signing_key_mode == "sharded":
         if args.shard_threshold is None or args.shard_count is None:
             raise ValueError("signing key sharding requires passphrase sharding")
-    if args.shard_threshold or args.shard_count:
-        if not args.shard_threshold or not args.shard_count:
+    if args.shard_threshold is not None or args.shard_count is not None:
+        if args.shard_threshold is None or args.shard_count is None:
             raise ValueError("both --shard-threshold and --shard-count are required")
     if args.shard_threshold is not None and args.shard_count is not None:
         if args.shard_threshold < 1:

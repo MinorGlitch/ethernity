@@ -10,9 +10,6 @@ from .recover_wizard import run_recover_wizard as _run_recover_wizard
 
 
 def run_recover_command(args: argparse.Namespace) -> int:
-    interactive = sys.stdin.isatty() and sys.stdout.isatty()
-    if interactive:
-        return _run_recover_wizard(args, show_header=False)
     plan = plan_from_args(args)
     quiet = bool(getattr(args, "quiet", False))
     return run_recover_plan(plan, quiet=quiet)

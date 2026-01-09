@@ -123,6 +123,14 @@ export function App() {
 
   return (
     <main class="shell">
+      <header class="app-header">
+        <div class="app-title-block">
+          <div class="app-kicker">Ethernity</div>
+          <h1 class="app-title">Recovery Kit</h1>
+          <p class="app-subtitle">Offline emergency recovery console for decryption and extraction.</p>
+        </div>
+        <div class="app-badge">Offline</div>
+      </header>
       <div class="app-layout">
         <aside class="panel rail">
           <StepNav

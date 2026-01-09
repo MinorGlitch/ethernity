@@ -10,14 +10,16 @@ export function Card({ title, children, className }) {
   );
 }
 
-export function ActionsRow({ actions }) {
+export function ActionsRow({ actions, className }) {
   if (!actions || !actions.length) return null;
+  const classes = className ? `row ${className}` : "row";
   return (
-    <div class="row">
+    <div class={classes}>
       {actions.map((action) => (
         <button
           class={action.className}
           disabled={action.disabled}
+          title={action.disabled ? action.disabledReason : undefined}
           onClick={action.onClick}
           type="button"
         >
@@ -34,6 +36,7 @@ export function Field({
   value,
   placeholder,
   onInput,
+  onPaste,
   readOnly,
   type = "text",
   as = "input",
@@ -46,6 +49,7 @@ export function Field({
     placeholder,
     readOnly,
     onInput,
+    onPaste,
     class: className,
   };
   if (Tag === "input") {

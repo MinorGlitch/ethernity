@@ -4,6 +4,278 @@ import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
+const BASE91_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~\"";
+const STYLE_TAG_RE = /<style\b[^>]*>([\s\S]*?)<\/style>/i;
+const CSS_CLASS_RE = /\.([A-Za-z0-9_-]+)/g;
+const CLASS_TOKEN_RE = /[a-z0-9_-]+/g;
+const CLASS_VALUE_RE = /^[a-z0-9 _-]+$/;
+const PRESERVE_CLASS_TOKENS = new Set(["ok", "warn", "error", "progress", "idle"]);
+const CLASS_TOKEN_FIRST = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const CLASS_TOKEN_NEXT = `${CLASS_TOKEN_FIRST}0123456789`;
+
+function base91Encode(bytes) {
+  let buffer = 0;
+  let bits = 0;
+  let out = "";
+  for (const byte of bytes) {
+    buffer |= byte << bits;
+    bits += 8;
+    if (bits > 13) {
+      let value = buffer & 8191;
+      if (value > 88) {
+        buffer >>= 13;
+        bits -= 13;
+      } else {
+        value = buffer & 16383;
+        buffer >>= 14;
+        bits -= 14;
+      }
+      out += BASE91_ALPHABET[value % 91] + BASE91_ALPHABET[Math.floor(value / 91)];
+    }
+  }
+  if (bits) {
+    out += BASE91_ALPHABET[buffer % 91];
+    if (bits > 7 || buffer > 90) {
+      out += BASE91_ALPHABET[Math.floor(buffer / 91)];
+    }
+  }
+  return out;
+}
+
+function* classTokenGenerator() {
+  for (const ch of CLASS_TOKEN_FIRST) {
+    if (!PRESERVE_CLASS_TOKENS.has(ch)) {
+      yield ch;
+    }
+  }
+  for (const first of CLASS_TOKEN_FIRST) {
+    for (const second of CLASS_TOKEN_NEXT) {
+      const token = `${first}${second}`;
+      if (!PRESERVE_CLASS_TOKENS.has(token)) {
+        yield token;
+      }
+    }
+  }
+  for (const first of CLASS_TOKEN_FIRST) {
+    for (const second of CLASS_TOKEN_NEXT) {
+      for (const third of CLASS_TOKEN_NEXT) {
+        const token = `${first}${second}${third}`;
+        if (!PRESERVE_CLASS_TOKENS.has(token)) {
+          yield token;
+        }
+      }
+    }
+  }
+}
+
+function buildClassMap(css) {
+  const names = new Set();
+  CSS_CLASS_RE.lastIndex = 0;
+  let match = null;
+  while ((match = CSS_CLASS_RE.exec(css))) {
+    const name = match[1];
+    if (!PRESERVE_CLASS_TOKENS.has(name)) {
+      names.add(name);
+    }
+  }
+  const sorted = Array.from(names).sort();
+  const map = {};
+  const tokens = classTokenGenerator();
+  for (const name of sorted) {
+    const next = tokens.next();
+    if (next.done) {
+      throw new Error("ran out of class name tokens");
+    }
+    map[name] = next.value;
+  }
+  return map;
+}
+
+function replaceCssClasses(css, map) {
+  CSS_CLASS_RE.lastIndex = 0;
+  return css.replace(CSS_CLASS_RE, (full, name) => {
+    const mapped = map[name];
+    return mapped ? `.${mapped}` : full;
+  });
+}
+
+function replaceClassTokens(value, map, classTokens) {
+  if (!value || !CLASS_VALUE_RE.test(value)) return value;
+  CLASS_TOKEN_RE.lastIndex = 0;
+  let hasKnown = false;
+  let hasToken = false;
+  value.replace(CLASS_TOKEN_RE, (token) => {
+    hasToken = true;
+    if (classTokens.has(token)) {
+      hasKnown = true;
+    }
+    return token;
+  });
+  if (!hasToken || !hasKnown) return value;
+  CLASS_TOKEN_RE.lastIndex = 0;
+  return value.replace(CLASS_TOKEN_RE, (token) => map[token] ?? token);
+}
+
+function readStringLiteral(source, start, map, classTokens) {
+  const quote = source[start];
+  let i = start + 1;
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === "\\") {
+      i += 2;
+      continue;
+    }
+    if (ch === quote) break;
+    i += 1;
+  }
+  const raw = source.slice(start + 1, i);
+  const replaced = map ? replaceClassTokens(raw, map, classTokens) : raw;
+  return { text: `${quote}${replaced}${quote}`, end: i + 1 };
+}
+
+function readTemplateExpression(source, start) {
+  let i = start;
+  let depth = 1;
+  let out = "";
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === "'" || ch === "\"") {
+      const parsed = readStringLiteral(source, i);
+      out += parsed.text;
+      i = parsed.end;
+      continue;
+    }
+    if (ch === "`") {
+      const parsed = readTemplateLiteral(source, i);
+      out += parsed.text;
+      i = parsed.end;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "/") {
+      const end = source.indexOf("\n", i + 2);
+      if (end === -1) {
+        out += source.slice(i);
+        return { text: out, end: source.length };
+      }
+      out += source.slice(i, end);
+      i = end;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "*") {
+      const end = source.indexOf("*/", i + 2);
+      if (end === -1) {
+        out += source.slice(i);
+        return { text: out, end: source.length };
+      }
+      out += source.slice(i, end + 2);
+      i = end + 2;
+      continue;
+    }
+    if (ch === "{") depth += 1;
+    if (ch === "}") {
+      depth -= 1;
+      out += ch;
+      i += 1;
+      if (depth === 0) {
+        return { text: out, end: i };
+      }
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return { text: out, end: i };
+}
+
+function readTemplateLiteral(source, start, map, classTokens) {
+  let i = start + 1;
+  let out = "`";
+  let chunkStart = i;
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === "\\") {
+      i += 2;
+      continue;
+    }
+    if (ch === "`") {
+      const chunk = source.slice(chunkStart, i);
+      out += map ? replaceClassTokens(chunk, map, classTokens) : chunk;
+      out += "`";
+      return { text: out, end: i + 1 };
+    }
+    if (ch === "$" && source[i + 1] === "{") {
+      const chunk = source.slice(chunkStart, i);
+      out += map ? replaceClassTokens(chunk, map, classTokens) : chunk;
+      out += "${";
+      i += 2;
+      const expr = readTemplateExpression(source, i);
+      out += expr.text;
+      i = expr.end;
+      chunkStart = i;
+      continue;
+    }
+    i += 1;
+  }
+  return { text: out, end: i };
+}
+
+function replaceClassNamesInJs(source, map, classTokens) {
+  if (!map || !Object.keys(map).length) return source;
+  let out = "";
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === "'" || ch === "\"") {
+      const parsed = readStringLiteral(source, i, map, classTokens);
+      out += parsed.text;
+      i = parsed.end;
+      continue;
+    }
+    if (ch === "`") {
+      const parsed = readTemplateLiteral(source, i, map, classTokens);
+      out += parsed.text;
+      i = parsed.end;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "/") {
+      const end = source.indexOf("\n", i + 2);
+      if (end === -1) {
+        out += source.slice(i);
+        break;
+      }
+      out += source.slice(i, end);
+      i = end;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "*") {
+      const end = source.indexOf("*/", i + 2);
+      if (end === -1) {
+        out += source.slice(i);
+        break;
+      }
+      out += source.slice(i, end + 2);
+      i = end + 2;
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
+function minifyClassNames(html, js) {
+  const match = html.match(STYLE_TAG_RE);
+  if (!match) {
+    return { html, js };
+  }
+  const css = match[1];
+  const map = buildClassMap(css);
+  const classTokens = new Set([...Object.keys(map), ...PRESERVE_CLASS_TOKENS]);
+  const replacedCss = replaceCssClasses(css, map);
+  const updatedHtml = html.replace(STYLE_TAG_RE, (full) => full.replace(css, replacedCss));
+  const updatedJs = replaceClassNamesInJs(js, map, classTokens);
+  return { html: updatedHtml, js: updatedJs };
+}
 
 const kitDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const inputPath = resolve(kitDir, process.argv[2] ?? "recovery_kit.html");
@@ -43,9 +315,10 @@ if (result.status !== 0) {
 }
 
 const minified = await readFile(tmpOut, "utf8");
-const inlined = html
+const minifiedClasses = minifyClassNames(html, minified);
+const inlined = minifiedClasses.html
   .replace(scriptTagRe, "")
-  .replace("</body>", () => `<script>${minified}</script>\n</body>`);
+  .replace("</body>", () => `<script>${minifiedClasses.js}</script>\n</body>`);
 
 const tmpHtml = `${tmpBase}.html`;
 await writeFile(tmpHtml, inlined, "utf8");
@@ -72,8 +345,9 @@ if (htmlResult.status !== 0) {
 
 const rawBundle = await readFile(rawOutputPath, "utf8");
 const gzPayload = gzipSync(Buffer.from(rawBundle, "utf8"), { level: 9 });
-const gzBase64 = gzPayload.toString("base64");
-const loaderHtml = `<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Ethernity Recovery Kit</title><style>body{margin:0;background:#0b1426;color:#f2f6ff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,sans-serif;display:grid;place-items:center;min-height:100vh}main{max-width:720px;padding:24px;text-align:center}h1{margin:0 0 12px;font-size:20px}p{margin:0 0 12px;color:#b8c7e2}code{background:#111f36;border:1px solid #2a3b5d;border-radius:8px;padding:2px 6px}</style><main><h1>Loading recovery kit...</h1><p id=\"status\">Decompressing bundle with <code>DecompressionStream</code>.</p></main><script>(async()=>{const p=\"${gzBase64}\";if(!(\"DecompressionStream\"in window)){document.getElementById(\"status\").textContent=\"This kit requires DecompressionStream (gzip). Use a newer browser or a JS fallback.\";return}const b=Uint8Array.from(atob(p),c=>c.charCodeAt(0));const ds=new DecompressionStream(\"gzip\");const s=new Blob([b]).stream().pipeThrough(ds);const t=await new Response(s).text();document.open();document.write(t);document.close();})().catch(e=>{const el=document.getElementById(\"status\");if(el)el.textContent=\"Failed to load bundle: \"+e;});</script>`;
+const gzBase91 = base91Encode(gzPayload);
+const gzBase91Safe = gzBase91.replaceAll("</", "<\\/");
+const loaderHtml = `<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Ethernity Recovery Kit</title><script>(async()=>{const p=${JSON.stringify(gzBase91Safe)};if(!(\"DecompressionStream\"in window))return;const a=${JSON.stringify(BASE91_ALPHABET)};const d=t=>{let b=0,n=0,v=-1,o=[];for(let i=0;i<t.length;i++){const c=a.indexOf(t[i]);if(c===-1)continue;if(v<0){v=c;continue}v+=c*91;b|=v<<n;n+=(v&8191)>88?13:14;while(n>7){o.push(b&255);b>>=8;n-=8}v=-1}if(v>=0)o.push((b|v<<n)&255);return new Uint8Array(o)};const b=d(p);const ds=new DecompressionStream(\"gzip\");const s=new Blob([b]).stream().pipeThrough(ds);const t=await new Response(s).text();document.open();document.write(t);document.close();})();</script>`;
 
 const tmpLoader = `${tmpBase}.loader.html`;
 await writeFile(tmpLoader, loaderHtml, "utf8");

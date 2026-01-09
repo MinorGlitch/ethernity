@@ -22,7 +22,7 @@ from .api import configure_ui, console, progress
 
 _PLAYWRIGHT_SKIP_ENV = "ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"
 _PLAYWRIGHT_BROWSERS_ENV = "PLAYWRIGHT_BROWSERS_PATH"
-_PLAYWRIGHT_PERCENT_RE = re.compile(r"(\\d{1,3})%")
+_PLAYWRIGHT_PERCENT_RE = re.compile(r"(\d{1,3})%")
 
 ProgressCallback = Callable[[int | None, int | None, str | None], None]
 

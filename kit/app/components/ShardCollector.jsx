@@ -1,3 +1,5 @@
+import { useState } from "preact/hooks";
+
 import { DiagnosticsList, Field, StatusBlock } from "./common.jsx";
 import { CollectorStep } from "./CollectorStep.jsx";
 
@@ -14,52 +16,77 @@ export function ShardCollector({
   onAddShardPayloads,
   onCopyResult,
   canCopyResult,
+  isComplete,
 }) {
+  const showDetails = shardDiagnostics.some((item) => item.tone === "error");
+  const [pasteHint, setPasteHint] = useState("");
+  const handlePaste = (event) => {
+    const text = event.clipboardData?.getData("text/plain") ?? "";
+    const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    if (lines.length) {
+      setPasteHint(`Pasted ${lines.length} line(s). Click Add shard frames.`);
+    }
+  };
+  const handleShardChange = (event) => {
+    setPasteHint("");
+    onShardPayloadChange(event);
+  };
+  const handleAddShards = () => {
+    setPasteHint("");
+    onAddShardPayloads();
+  };
   const input = {
-    title: "Shard payloads",
+    title: "Shard frames",
     body: (
-      <Field
-        id="shard-payload-text"
-        label="Shard inputs"
-        value={shardPayloadText}
-        placeholder="Paste shard payloads or fallback text here..."
-        onInput={onShardPayloadChange}
-        as="textarea"
-      />
+      <>
+        <Field
+          id="shard-payload-text"
+          label="Shard frames"
+          value={shardPayloadText}
+          placeholder="Paste shard frames or fallback text here..."
+          onInput={handleShardChange}
+          onPaste={handlePaste}
+          as="textarea"
+        />
+        {pasteHint ? <div class="hint">{pasteHint}</div> : null}
+      </>
     ),
-    actions: [{ label: "Add shard payloads", onClick: onAddShardPayloads }],
+    actions: [{ label: "Add shard frames", onClick: handleAddShards }],
+    className: isComplete && !shardPayloadText.trim() ? "input-collapsed" : "",
   };
   const status = {
-    title: "Status &amp; validation",
+    title: "Status",
     body: (
       <>
         <StatusBlock status={shardStatus} />
-        <div class="label">Validation</div>
-        <Field
-          id="shard-doc-hash"
-          label="Doc hash (hex)"
-          value={shardDocHash}
-          placeholder="32-byte doc hash..."
-          readOnly
-          className="code"
-        />
-        <Field
-          id="shard-doc-id"
-          label="Doc ID (hex)"
-          value={shardDocId}
-          placeholder="16-byte doc id..."
-          readOnly
-          className="code"
-        />
-        <Field
-          id="shard-sign-pub"
-          label="Signing public key (hex)"
-          value={shardSignPub}
-          placeholder="32-byte signing public key..."
-          readOnly
-          className="code"
-        />
-        <DiagnosticsList items={shardDiagnostics} />
+        <details class="details" open={showDetails}>
+          <summary>Validation details</summary>
+          <Field
+            id="shard-doc-hash"
+            label="Doc hash (hex)"
+            value={shardDocHash}
+            placeholder="32-byte doc hash..."
+            readOnly
+            className="code"
+          />
+          <Field
+            id="shard-doc-id"
+            label="Doc ID (hex)"
+            value={shardDocId}
+            placeholder="16-byte doc id..."
+            readOnly
+            className="code"
+          />
+          <Field
+            id="shard-sign-pub"
+            label="Signing public key (hex)"
+            value={shardSignPub}
+            placeholder="32-byte signing public key..."
+            readOnly
+            className="code"
+          />
+          <DiagnosticsList items={shardDiagnostics} />
+        </details>
       </>
     ),
   };
@@ -76,7 +103,13 @@ export function ShardCollector({
       />
     ),
     actions: [
-      { label: "Copy result", className: "secondary", onClick: onCopyResult, disabled: !canCopyResult },
+      {
+        label: "Copy result",
+        className: "secondary",
+        onClick: onCopyResult,
+        disabled: !canCopyResult,
+        disabledReason: "Recover the secret first.",
+      },
     ],
   };
   return (

@@ -7,6 +7,7 @@ export const STEPS = [
   {
     id: "frames",
     title: "Collect frames",
+    summary: "Paste main frames to reconstruct the ciphertext. Add the auth frame if you want signature verification.",
     render: (ctx) => (
       <FrameCollector
         payloadText={ctx.state.payloadText}
@@ -14,6 +15,7 @@ export const STEPS = [
         frameDiagnostics={ctx.frameDiagnostics}
         onPayloadChange={ctx.onPayloadChange}
         onAddPayloads={ctx.onAddPayloads}
+        isComplete={Boolean(ctx.state.total && ctx.state.mainFrames.size === ctx.state.total)}
         onReset={ctx.onReset}
         onDownloadCipher={ctx.onDownloadCipher}
         canDownloadCipher={ctx.actionState.canDownloadCipher}
@@ -23,6 +25,7 @@ export const STEPS = [
   {
     id: "shards",
     title: "Recover shards",
+    summary: "Add shard frames to recover the secret needed for decryption.",
     render: (ctx) => (
       <ShardCollector
         shardPayloadText={ctx.state.shardPayloadText}
@@ -35,6 +38,7 @@ export const STEPS = [
         shardSignPub={ctx.shardInputs.signPubHex}
         onShardPayloadChange={ctx.onShardPayloadChange}
         onAddShardPayloads={ctx.onAddShardPayloads}
+        isComplete={Boolean(ctx.state.recoveredShardSecret)}
         onCopyResult={ctx.onCopyResult}
         canCopyResult={ctx.actionState.canCopyResult}
       />
@@ -43,6 +47,7 @@ export const STEPS = [
   {
     id: "decrypt",
     title: "Decrypt & extract",
+    summary: "Provide the passphrase to unlock and extract the recovered files.",
     render: (ctx) => (
       <DecryptSection
         passphrase={ctx.state.agePassphrase}
@@ -50,6 +55,7 @@ export const STEPS = [
         onPassphraseChange={ctx.onPassphraseChange}
         onDecrypt={ctx.onDecrypt}
         canDecrypt={ctx.actionState.canDecryptCiphertext}
+        isComplete={ctx.actionState.hasOutput || Boolean(ctx.state.decryptedEnvelope)}
         onExtract={ctx.onExtract}
         onDownloadEnvelope={ctx.onDownloadEnvelope}
         canExtract={ctx.actionState.canExtractEnvelope}

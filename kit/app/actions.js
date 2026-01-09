@@ -72,7 +72,7 @@ export async function addPayloads(dispatch, getState) {
     base.payloadText = "";
   }
   setStatus(base, "frameStatus", [
-    `Added ${added} input(s).`,
+    `Added ${added} frame(s).`,
     base.total
       ? "Ready to download when all frames are collected."
       : "Waiting for more frames.",
@@ -100,7 +100,7 @@ export function addShardPayloads(dispatch, getState) {
     next.shardPayloadText = "";
   }
   const statusLines = [
-    `Added ${added} shard input(s).`,
+    `Added ${added} shard frame(s).`,
     next.shardThreshold
       ? "Ready to recover when enough shards are collected."
       : "Waiting for shard metadata.",

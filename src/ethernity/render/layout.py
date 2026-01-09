@@ -452,7 +452,7 @@ def _adjust_rows_for_fallback(
 ) -> int:
     while rows > 0:
         grid_height = rows * qr_size + (rows - 1) * gap
-        leftover = page_h - margin - grid_start_y - grid_height - margin
+        leftover = page_h - grid_start_y - grid_height - margin
         safe_leftover = max(0.0, leftover - FALLBACK_VERTICAL_PADDING_MM)
         lines = int(safe_leftover // line_height)
         if lines >= min_lines:
@@ -471,7 +471,7 @@ def _fallback_lines_per_page(
     line_height: float,
 ) -> int:
     grid_height = rows * qr_size + (rows - 1) * gap
-    leftover = page_h - margin - grid_start_y - grid_height - margin
+    leftover = page_h - grid_start_y - grid_height - margin
     safe_leftover = max(0.0, leftover - FALLBACK_VERTICAL_PADDING_MM)
     return max(1, int(safe_leftover // line_height))
 
@@ -482,7 +482,7 @@ def _fallback_lines_per_page_text_only(
     margin: float,
     line_height: float,
 ) -> int:
-    leftover = page_h - margin - content_start_y - margin
+    leftover = page_h - content_start_y - margin
     safe_leftover = max(0.0, leftover - FALLBACK_VERTICAL_PADDING_MM)
     return max(1, int(safe_leftover // line_height))
 

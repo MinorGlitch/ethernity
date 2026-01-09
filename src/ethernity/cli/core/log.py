@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-from rich.console import Console
-
-_console_err = Console(stderr=True)
+from ..ui import console_err
 
 
 def _warn(message: str, *, quiet: bool) -> None:
     if quiet:
         return
-    _console_err.print(f"[yellow]Warning:[/yellow] {message}")
+    console_err.print(f"[yellow]Warning:[/yellow] {message}")
