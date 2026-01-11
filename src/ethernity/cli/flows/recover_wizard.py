@@ -196,9 +196,7 @@ def _build_recovery_review_rows(
     review_rows: list[tuple[str, str]] = []
     if plan.input_label:
         detail = (
-            f"{plan.input_label}: {plan.input_detail}"
-            if plan.input_detail
-            else plan.input_label
+            f"{plan.input_label}: {plan.input_detail}" if plan.input_detail else plan.input_label
         )
         review_rows.append(("Input", detail))
     review_rows.append(("Main frames", str(len(plan.main_frames))))

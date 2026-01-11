@@ -100,13 +100,15 @@ def _build_qr_slots(
             x = x_start + col * (page_layout.qr_size + gap_x_full)
             y = page_layout.content_start_y + row * (page_layout.qr_size + gap_y)
 
-            qr_slots.append({
-                "index": frame_idx + 1,
-                "x_mm": x,
-                "y_mm": y,
-                "size_mm": page_layout.qr_size,
-                "data_uri": qr_image_builder(qr_payloads[frame_idx]),
-            })
+            qr_slots.append(
+                {
+                    "index": frame_idx + 1,
+                    "x_mm": x,
+                    "y_mm": y,
+                    "size_mm": page_layout.qr_size,
+                    "data_uri": qr_image_builder(qr_payloads[frame_idx]),
+                }
+            )
             slots_raw.append((frame_idx, x, y))
 
     return qr_slots, slots_raw
@@ -160,8 +162,7 @@ def _build_fallback_blocks(
 
     if inputs.render_qr:
         grid_height = (
-            page_layout.rows * page_layout.qr_size
-            + (page_layout.rows - 1) * page_layout.gap
+            page_layout.rows * page_layout.qr_size + (page_layout.rows - 1) * page_layout.gap
         )
         fallback_y = page_layout.content_start_y + grid_height + page_layout.text_gap
     else:
@@ -240,23 +241,32 @@ def build_pages(
             )
 
         page_fallback_blocks = _build_fallback_blocks(
-            inputs, page_layout, layout, layout_rest, page_idx,
-            fallback_lines, fallback_sections_data, fallback_state,
-            fallback_first, fallback_rest,
+            inputs,
+            page_layout,
+            layout,
+            layout_rest,
+            page_idx,
+            fallback_lines,
+            fallback_sections_data,
+            fallback_state,
+            fallback_first,
+            fallback_rest,
         )
 
-        pages.append({
-            "page_num": page_num,
-            "page_label": page_label,
-            "divider_y_mm": divider_y,
-            "instructions_y_mm": page_layout.instructions_y,
-            "keys_y_mm": page_layout.keys_y,
-            "show_keys": not (keys_first_page_only and page_idx > 0),
-            "qr_slots": qr_slots,
-            "qr_outline": qr_outline,
-            "sequence": qr_sequence,
-            "fallback_blocks": page_fallback_blocks,
-        })
+        pages.append(
+            {
+                "page_num": page_num,
+                "page_label": page_label,
+                "divider_y_mm": divider_y,
+                "instructions_y_mm": page_layout.instructions_y,
+                "keys_y_mm": page_layout.keys_y,
+                "show_keys": not (keys_first_page_only and page_idx > 0),
+                "qr_slots": qr_slots,
+                "qr_outline": qr_outline,
+                "sequence": qr_sequence,
+                "fallback_blocks": page_fallback_blocks,
+            }
+        )
 
     # Remove empty trailing pages
     while pages and not _page_has_content(pages[-1], key_lines):

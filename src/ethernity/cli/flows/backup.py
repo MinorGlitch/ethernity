@@ -287,14 +287,10 @@ def _print_completion_actions(result: BackupResult, quiet: bool) -> None:
         f"Store recovery document separately: {result.recovery_path}",
     ]
     if result.shard_paths:
-        actions.append(
-            f"Store {len(result.shard_paths)} shard documents in different locations."
-        )
+        actions.append(f"Store {len(result.shard_paths)} shard documents in different locations.")
     if result.signing_key_shard_paths:
         actions.append(
-            "Store "
-            f"{len(result.signing_key_shard_paths)} signing-key shard documents "
-            "separately."
+            f"Store {len(result.signing_key_shard_paths)} signing-key shard documents separately."
         )
     actions.append("Run `ethernity recover` to verify the backup.")
     print_completion_panel("Backup complete", actions, quiet=quiet)
@@ -349,8 +345,16 @@ def run_wizard(
             input_files, resolved_base, output_dir = _prompt_inputs(args, wizard_mode, quiet, debug)
 
         review_rows = _build_review_rows(
-            passphrase, passphrase_words, plan, input_files,
-            resolved_base, output_dir, config_path, paper, config, debug,
+            passphrase,
+            passphrase_words,
+            plan,
+            input_files,
+            resolved_base,
+            output_dir,
+            config_path,
+            paper,
+            config,
+            debug,
         )
 
         with wizard_stage("Review & confirm", help_text="Confirm settings before writing files."):

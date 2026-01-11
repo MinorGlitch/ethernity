@@ -223,5 +223,3 @@ def document_spec(
         qr_sequence=qr_sequence,
         fallback=fallback,
     )
-
-
