@@ -61,7 +61,7 @@ def _playwright_chromium_installed() -> bool:
     try:
         with sync_playwright() as playwright_instance:
             executable = Path(playwright_instance.chromium.executable_path)
-    except Exception:
+    except (OSError, RuntimeError, playwright.sync_api.Error):
         return False
     return executable.exists()
 
@@ -179,7 +179,8 @@ def _playwright_install(progress_cb: ProgressCallback | None) -> None:
         env=env,
         bufsize=1,
     )
-    assert process.stdout is not None
+    if process.stdout is None:
+        raise RuntimeError("Playwright install failed: unable to capture output")
     for line in process.stdout:
         output_lines.append(line)
         if len(output_lines) > 200:

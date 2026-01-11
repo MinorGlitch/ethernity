@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import sys
 from collections.abc import Sequence
 from pathlib import Path
+
+from ..api import console_err
 
 
 def _ensure_directory(path: str | Path, *, exist_ok: bool) -> Path:
@@ -14,7 +15,13 @@ def _ensure_directory(path: str | Path, *, exist_ok: bool) -> Path:
 
 def _ensure_output_dir(output_dir: str | None, doc_id_hex: str) -> str:
     directory = output_dir or f"backup-{doc_id_hex}"
-    _ensure_directory(directory, exist_ok=False)
+    try:
+        _ensure_directory(directory, exist_ok=False)
+    except FileExistsError as exc:
+        raise ValueError(
+            f"output directory already exists: {directory}; "
+            "use a different --output path or remove the existing directory"
+        ) from exc
     return directory
 
 
@@ -28,11 +35,13 @@ def _safe_join(base: Path, relative: str) -> Path:
 
 
 def _write_output(path: str | None, data: bytes, *, quiet: bool) -> None:
+    import sys
+
     if path:
         with open(path, "wb") as handle:
             handle.write(data)
         if not quiet:
-            print(f"- wrote {path}", file=sys.stderr)
+            console_err.print(f"[dim]- wrote {path}[/dim]")
     else:
         sys.stdout.buffer.write(data)
 

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
-
 from ...core.models import DocumentPlan, ShardingConfig, SigningSeedMode
+from ..core.types import BackupArgs
 
 
 def build_document_plan(
@@ -22,7 +21,7 @@ def build_document_plan(
     )
 
 
-def plan_from_args(args: argparse.Namespace) -> DocumentPlan:
+def plan_from_args(args: BackupArgs) -> DocumentPlan:
     sharding = _sharding_from_args(args)
     signing_seed_mode = _signing_seed_mode_from_args(args)
     signing_seed_sharding = _signing_seed_sharding_from_args(
@@ -31,14 +30,14 @@ def plan_from_args(args: argparse.Namespace) -> DocumentPlan:
         sharding=sharding,
     )
     return build_document_plan(
-        sealed=bool(args.sealed),
+        sealed=args.sealed,
         sharding=sharding,
         signing_seed_mode=signing_seed_mode,
         signing_seed_sharding=signing_seed_sharding,
     )
 
 
-def _sharding_from_args(args: argparse.Namespace) -> ShardingConfig | None:
+def _sharding_from_args(args: BackupArgs) -> ShardingConfig | None:
     if args.shard_threshold or args.shard_count:
         if not args.shard_threshold or not args.shard_count:
             raise ValueError("both --shard-threshold and --shard-count are required")
@@ -46,13 +45,14 @@ def _sharding_from_args(args: argparse.Namespace) -> ShardingConfig | None:
     return None
 
 
-def _signing_seed_mode_from_args(args: argparse.Namespace) -> SigningSeedMode:
-    signing_key_mode = getattr(args, "signing_key_mode", None)
-    return SigningSeedMode(signing_key_mode) if signing_key_mode else SigningSeedMode.EMBEDDED
+def _signing_seed_mode_from_args(args: BackupArgs) -> SigningSeedMode:
+    if args.signing_key_mode:
+        return SigningSeedMode(args.signing_key_mode)
+    return SigningSeedMode.EMBEDDED
 
 
 def _signing_seed_sharding_from_args(
-    args: argparse.Namespace,
+    args: BackupArgs,
     *,
     signing_seed_mode: SigningSeedMode,
     sharding: ShardingConfig | None,
@@ -61,11 +61,9 @@ def _signing_seed_sharding_from_args(
         return None
     if sharding is None:
         raise ValueError("signing key sharding requires passphrase sharding")
-    signing_key_shard_threshold = getattr(args, "signing_key_shard_threshold", None)
-    signing_key_shard_count = getattr(args, "signing_key_shard_count", None)
-    if signing_key_shard_threshold is None or signing_key_shard_count is None:
+    if args.signing_key_shard_threshold is None or args.signing_key_shard_count is None:
         return None
     return ShardingConfig(
-        threshold=signing_key_shard_threshold,
-        shares=signing_key_shard_count,
+        threshold=args.signing_key_shard_threshold,
+        shares=args.signing_key_shard_count,
     )

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..core.validation import require_list
+
 MANIFEST_VERSION = 5
 
 
@@ -60,14 +62,13 @@ class EnvelopeManifest:
 
     @classmethod
     def from_cbor(cls, data: object) -> "EnvelopeManifest":
-        if not isinstance(data, (list, tuple)) or len(data) < 6:
-            raise ValueError("manifest must be a list")
-        format_version = data[0]
-        created_at = data[1]
-        sealed = data[2]
-        signing_seed = data[3]
-        prefixes = data[4]
-        files_raw = data[5]
+        validated = require_list(data, 6, label="manifest")
+        format_version = validated[0]
+        created_at = validated[1]
+        sealed = validated[2]
+        signing_seed = validated[3]
+        prefixes = validated[4]
+        files_raw = validated[5]
         if not isinstance(format_version, int):
             raise ValueError("manifest format_version must be an int")
         if format_version != MANIFEST_VERSION:
@@ -89,9 +90,8 @@ class EnvelopeManifest:
             raise ValueError("manifest files are required")
         files: list[ManifestFile] = []
         for entry in files_raw:
-            if not isinstance(entry, (list, tuple)) or len(entry) < 5:
-                raise ValueError("manifest file entry must be a list")
-            prefix_idx, suffix, size, sha256, mtime = entry[:5]
+            validated_entry = require_list(entry, 5, label="manifest file entry")
+            prefix_idx, suffix, size, sha256, mtime = validated_entry[:5]
             if not isinstance(prefix_idx, int):
                 raise ValueError("manifest file prefix index must be an int")
             if prefix_idx < 0 or prefix_idx >= len(prefixes):

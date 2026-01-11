@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
-
 from ...core.models import ShardingConfig, SigningSeedMode
 from ...crypto import DEFAULT_PASSPHRASE_WORDS, MNEMONIC_WORD_COUNTS
 from ..api import prompt_choice, prompt_int, prompt_yes_no
 from ..core.log import _warn
+from ..core.types import BackupArgs
+
+# Common quorum presets with descriptions
+QUORUM_PRESETS = {
+    "2of3": ("2 of 3 (Recommended)", 2, 3, "Lose any 1 document and still recover"),
+    "3of5": ("3 of 5 (Higher redundancy)", 3, 5, "Lose any 2 documents and still recover"),
+    "2of5": ("2 of 5 (Maximum redundancy)", 2, 5, "Lose any 3 documents and still recover"),
+    "custom": ("Custom", 0, 0, "Specify your own threshold and count"),
+}
 
 
 def prompt_passphrase_words() -> int:
@@ -21,6 +28,33 @@ def prompt_passphrase_words() -> int:
     return int(value)
 
 
+def _prompt_quorum_choice() -> ShardingConfig:
+    """Single-choice quorum selection with presets."""
+    choices = {key: desc for key, (desc, _, _, _) in QUORUM_PRESETS.items()}
+    choice = prompt_choice(
+        "Shard quorum",
+        choices,
+        default="2of3",
+        help_text="How many shard documents are needed to recover the passphrase.",
+    )
+
+    if choice == "custom":
+        threshold = prompt_int(
+            "Required shards to recover",
+            minimum=1,
+            help_text="Minimum documents needed to reconstruct the passphrase.",
+        )
+        shares = prompt_int(
+            "Total shard documents to create",
+            minimum=threshold,
+            help_text="Total documents created (must be >= required).",
+        )
+        return ShardingConfig(threshold=threshold, shares=shares)
+
+    _, threshold, shares, _ = QUORUM_PRESETS[choice]
+    return ShardingConfig(threshold=threshold, shares=shares)
+
+
 def _prompt_quorum(
     *,
     label: str,
@@ -30,20 +64,24 @@ def _prompt_quorum(
     threshold_help_text: str,
     shares_help_text: str,
 ) -> ShardingConfig:
-    use_default = prompt_yes_no(
-        f"Use the default quorum ({default_threshold} of {default_shares})",
-        default=True,
+    choice = prompt_choice(
+        f"{label} quorum",
+        {
+            "default": f"{default_threshold} of {default_shares} (Recommended)",
+            "custom": "Custom",
+        },
+        default="default",
         help_text=default_help_text,
     )
-    if use_default:
+    if choice == "default":
         return ShardingConfig(threshold=default_threshold, shares=default_shares)
     threshold = prompt_int(
-        f"{label} threshold (n)",
+        f"{label} threshold",
         minimum=1,
         help_text=threshold_help_text,
     )
     shares = prompt_int(
-        f"{label} count (k)",
+        f"{label} share count",
         minimum=threshold,
         help_text=shares_help_text,
     )
@@ -81,51 +119,47 @@ def _confirm_or_prompt_quorum(
 
 def resolve_passphrase_sharding(
     *,
-    args: argparse.Namespace | None,
+    args: BackupArgs | None,
 ) -> ShardingConfig | None:
-    threshold = getattr(args, "shard_threshold", None) if args is not None else None
-    shares = getattr(args, "shard_count", None) if args is not None else None
-    default_threshold = 2
-    default_shares = 3
+    threshold = args.shard_threshold if args is not None else None
+    shares = args.shard_count if args is not None else None
+
+    # If values provided via CLI, validate and optionally confirm
     if threshold is not None or shares is not None:
         if threshold is None or shares is None:
             raise ValueError("both --shard-threshold and --shard-count are required")
-        return _confirm_or_prompt_quorum(
-            label="Shard",
-            threshold=threshold,
-            shares=shares,
-            default_threshold=default_threshold,
-            default_shares=default_shares,
-            default_help_text="Pick a different split if you need more redundancy.",
-            threshold_help_text="Minimum number of shard documents required to recover.",
-            shares_help_text="Total number of shard documents to create.",
-            existing_help_text="Choose no to configure a different quorum.",
+        use_existing = prompt_yes_no(
+            f"Use provided quorum ({threshold} of {shares})",
+            default=True,
+            help_text="Choose no to select a different quorum.",
         )
+        if use_existing:
+            return ShardingConfig(threshold=threshold, shares=shares)
+        return _prompt_quorum_choice()
 
-    enable_sharding = prompt_yes_no(
-        "Split passphrase into shard documents",
-        default=True,
-        help_text="Recommended. You'll need a quorum of shard documents to recover.",
+    # Interactive: single question about sharding
+    sharding_choice = prompt_choice(
+        "Passphrase sharding",
+        {
+            "shard": "Split into shard documents (Recommended)",
+            "none": "No sharding (single passphrase)",
+        },
+        default="shard",
+        help_text="Sharding distributes the passphrase across multiple documents for safety.",
     )
-    if not enable_sharding:
+    if sharding_choice == "none":
         return None
-    return _prompt_quorum(
-        label="Shard",
-        default_threshold=default_threshold,
-        default_shares=default_shares,
-        default_help_text="Pick a different split if you need more redundancy.",
-        threshold_help_text="Minimum number of shard documents required to recover.",
-        shares_help_text="Total number of shard documents to create.",
-    )
+
+    return _prompt_quorum_choice()
 
 
 def resolve_signing_seed_mode(
     *,
-    args: argparse.Namespace | None,
+    args: BackupArgs | None,
     sealed: bool,
     quiet: bool,
 ) -> SigningSeedMode:
-    mode_arg = getattr(args, "signing_key_mode", None) if args is not None else None
+    mode_arg = args.signing_key_mode if args is not None else None
     signing_seed_mode = SigningSeedMode(mode_arg) if mode_arg else SigningSeedMode.EMBEDDED
     if sealed:
         if signing_seed_mode == SigningSeedMode.SHARDED:
@@ -137,17 +171,13 @@ def resolve_signing_seed_mode(
         return signing_seed_mode
     if mode_arg is None:
         signing_choice = prompt_choice(
-            "Signing key handling",
+            "Signing key storage",
             {
-                "embedded": ("Embedded in main document (default, easiest to mint new shards)"),
-                "sharded": ("Separate signing-key shards (requires quorum to mint new shards)"),
+                "embedded": "In main document (Recommended - simpler recovery)",
+                "sharded": "Separate shard documents (more secure)",
             },
             default="embedded",
-            help_text=(
-                "Embedded stores the signing key inside the encrypted "
-                "main document. Sharded keeps it only in separate "
-                "signing-key shard PDFs."
-            ),
+            help_text="The signing key lets you create new shard documents later.",
         )
         signing_seed_mode = SigningSeedMode(signing_choice)
     return signing_seed_mode
@@ -155,44 +185,38 @@ def resolve_signing_seed_mode(
 
 def resolve_signing_seed_sharding(
     *,
-    args: argparse.Namespace | None,
+    args: BackupArgs | None,
     signing_seed_mode: SigningSeedMode,
     passphrase_sharding: ShardingConfig,
 ) -> ShardingConfig | None:
     if signing_seed_mode != SigningSeedMode.SHARDED:
         return None
-    sk_threshold = getattr(args, "signing_key_shard_threshold", None) if args is not None else None
-    sk_count = getattr(args, "signing_key_shard_count", None) if args is not None else None
-    default_threshold = passphrase_sharding.threshold
-    default_shares = passphrase_sharding.shares
+
+    sk_threshold = args.signing_key_shard_threshold if args is not None else None
+    sk_count = args.signing_key_shard_count if args is not None else None
+
+    # If values provided via CLI, validate and optionally confirm
     if sk_threshold is not None or sk_count is not None:
         if sk_threshold is None or sk_count is None:
             raise ValueError(
                 "both --signing-key-shard-threshold and --signing-key-shard-count are required"
             )
-        return _confirm_or_prompt_quorum(
-            label="Signing-key shard",
-            threshold=sk_threshold,
-            shares=sk_count,
-            default_threshold=default_threshold,
-            default_shares=default_shares,
-            default_help_text="Pick a different split if you need more redundancy.",
-            threshold_help_text=("Minimum signing-key shard documents needed to mint new shards."),
-            shares_help_text="Total signing-key shard documents to create.",
-            existing_help_text="Choose no to configure a different quorum.",
+        use_existing = prompt_yes_no(
+            f"Use provided signing-key quorum ({sk_threshold} of {sk_count})",
+            default=True,
+            help_text="Choose no to select a different quorum.",
         )
+        if use_existing:
+            return ShardingConfig(threshold=sk_threshold, shares=sk_count)
+
+    # Interactive: simple yes/no for using same quorum
+    same_quorum = f"{passphrase_sharding.threshold} of {passphrase_sharding.shares}"
     use_same = prompt_yes_no(
-        "Use same quorum for signing-key shards",
+        f"Use same quorum for signing-key shards ({same_quorum})",
         default=True,
-        help_text="Choose no to set a different quorum for signing-key shards.",
+        help_text="Choose no if you want different redundancy for signing keys.",
     )
     if use_same:
         return None
-    return _prompt_quorum(
-        label="Signing-key shard",
-        default_threshold=default_threshold,
-        default_shares=default_shares,
-        default_help_text="Pick a different split if you need more redundancy.",
-        threshold_help_text=("Minimum signing-key shard documents needed to mint new shards."),
-        shares_help_text="Total signing-key shard documents to create.",
-    )
+
+    return _prompt_quorum_choice()

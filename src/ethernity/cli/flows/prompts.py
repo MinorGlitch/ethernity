@@ -44,33 +44,38 @@ def _resolve_recover_output(
 
 def _prompt_shard_inputs() -> tuple[list[str], list[str], str]:
     choice = prompt_choice(
-        "Shard input",
+        "Shard input format",
         {
-            "fallback": "Shard fallback text files (z-base-32)",
-            "frames": "Shard frame payload files",
+            "fallback": "Text files (human-readable from shard PDFs)",
+            "frames": "Binary payload files (from QR scanning)",
         },
         default="fallback",
-        help_text="Choose the format you have for the shard documents.",
+        help_text="Text files are easier to copy; binary is from QR extraction.",
     )
     if choice == "fallback":
         paths = prompt_required_paths(
-            "Shard fallback text file paths (one per line, blank to finish)",
-            help_text="Point at the shard fallback text files saved from the backup.",
+            "Shard text file paths (one per line, blank when done)",
+            help_text="Enter paths to text files copied from shard documents.",
             kind="file",
-            empty_message="At least one shard fallback file is required.",
+            empty_message="At least one shard file is required.",
         )
         return paths, [], "auto"
 
     paths = prompt_required_paths(
-        "Shard frame payload file paths (one per line, blank to finish)",
-        help_text="Provide files that contain the shard QR payloads.",
+        "Shard payload file paths (one per line, blank when done)",
+        help_text="Enter paths to files with extracted QR payloads.",
         kind="file",
-        empty_message="At least one shard frame file is required.",
+        empty_message="At least one shard file is required.",
     )
     encoding = prompt_choice(
-        "Shard frames encoding",
-        {"auto": "Auto", "base64": "Base64", "base64url": "Base64 URL-safe", "hex": "Hex"},
+        "Payload encoding",
+        {
+            "auto": "Auto-detect (Recommended)",
+            "base64": "Base64",
+            "base64url": "Base64 URL-safe",
+            "hex": "Hex",
+        },
         default="auto",
-        help_text="How the shard payloads are encoded in the file.",
+        help_text="Usually auto-detect works. Only change if you know the encoding.",
     )
     return [], paths, encoding

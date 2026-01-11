@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -21,3 +22,51 @@ class BackupResult:
     shard_paths: tuple[str, ...]
     signing_key_shard_paths: tuple[str, ...]
     passphrase_used: str | None
+
+
+@dataclass
+class BackupArgs:
+    """Typed container for backup command arguments."""
+
+    config: str | None = None
+    paper: str | None = None
+    input: list[str] | None = None
+    input_dir: list[str] | None = None
+    base_dir: str | None = None
+    output_dir: str | None = None
+    passphrase: str | None = None
+    passphrase_generate: bool = False
+    passphrase_words: int | None = None
+    sealed: bool = False
+    shard_threshold: int | None = None
+    shard_count: int | None = None
+    signing_key_mode: Literal["embedded", "sharded"] | None = None
+    signing_key_shard_threshold: int | None = None
+    signing_key_shard_count: int | None = None
+    debug: bool = False
+    debug_max_bytes: int = 0
+    quiet: bool = False
+
+
+@dataclass
+class RecoverArgs:
+    """Typed container for recover command arguments."""
+
+    config: str | None = None
+    paper: str | None = None
+    fallback_file: str | None = None
+    frames_file: str | None = None
+    frames_encoding: Literal["auto", "base64", "base64url", "hex"] = "auto"
+    scan: list[str] | None = None
+    passphrase: str | None = None
+    shard_fallback_file: list[str] | None = None
+    shard_dir: str | None = None
+    shard_frames_file: list[str] | None = None
+    shard_frames_encoding: Literal["auto", "base64", "base64url", "hex"] = "auto"
+    auth_fallback_file: str | None = None
+    auth_frames_file: str | None = None
+    auth_frames_encoding: Literal["auto", "base64", "base64url", "hex"] = "auto"
+    output: str | None = None
+    allow_unsigned: bool = False
+    assume_yes: bool = False
+    quiet: bool = False

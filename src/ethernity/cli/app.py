@@ -98,7 +98,7 @@ def cli(
             debug=debug,
             init_config=init_config,
         )
-    except Exception as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         console_err.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(code=2)
     if should_exit:

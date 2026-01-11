@@ -7,7 +7,7 @@ from typing import Any, cast
 import cbor2
 from Crypto.Protocol.SecretSharing import Shamir
 
-from ..core.validation import require_bytes, require_length
+from ..core.validation import require_bytes, require_length, require_list
 from .signing import DOC_HASH_LEN, ED25519_PUB_LEN, ED25519_SEED_LEN, ED25519_SIG_LEN, sign_shard
 
 SHARD_VERSION = 3
@@ -100,9 +100,7 @@ def encode_shard_payload(payload: ShardPayload) -> bytes:
 
 
 def decode_shard_payload(data: bytes) -> ShardPayload:
-    decoded = cbor2.loads(data)
-    if not isinstance(decoded, (list, tuple)) or len(decoded) < 10:
-        raise ValueError("shard payload must be a list")
+    decoded = require_list(cbor2.loads(data), 10, label="shard payload")
     (
         version,
         key_type,

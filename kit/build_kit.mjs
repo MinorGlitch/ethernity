@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 const BASE91_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~\"";
 const STYLE_TAG_RE = /<style\b[^>]*>([\s\S]*?)<\/style>/i;
-const CSS_CLASS_RE = /\.([A-Za-z0-9_-]+)/g;
+const CSS_CLASS_RE = /\.([A-Za-z_-][A-Za-z0-9_-]*)/g;
 const CLASS_TOKEN_RE = /[a-z0-9_-]+/g;
 const CLASS_VALUE_RE = /^[a-z0-9 _-]+$/;
 const PRESERVE_CLASS_TOKENS = new Set(["ok", "warn", "error", "progress", "idle"]);

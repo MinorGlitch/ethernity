@@ -10,6 +10,7 @@ from ...core.models import DocumentPlan
 from ...encoding.fallback import encode_zbase32
 from ...formats.envelope_codec import encode_manifest
 from ...formats.envelope_types import EnvelopeManifest
+from ..api import console
 from ..core.types import InputFile
 
 
@@ -131,24 +132,24 @@ def _print_pre_encryption_debug(
         manifest_bytes = manifest
         manifest_display = None
 
-    print("Payload summary:")
-    print(f"- input file count: {len(input_files)}")
-    print(f"- payload bytes: {len(payload)}")
+    console.print("[bold]Payload summary:[/bold]")
+    console.print(f"- input file count: {len(input_files)}")
+    console.print(f"- payload bytes: {len(payload)}")
     if base_dir:
-        print(f"- base dir: {base_dir}")
-    print(f"- envelope bytes: {len(envelope)}")
-    print(f"- sealed: {plan.sealed}")
+        console.print(f"- base dir: {base_dir}")
+    console.print(f"- envelope bytes: {len(envelope)}")
+    console.print(f"- sealed: {plan.sealed}")
     if passphrase:
-        print(f"- passphrase: {passphrase}")
+        console.print(f"- passphrase: {passphrase}")
     if plan.sharding:
-        print(f"- sharding: {plan.sharding.threshold} of {plan.sharding.shares}")
+        console.print(f"- sharding: {plan.sharding.threshold} of {plan.sharding.shares}")
     if signing_seed is not None or signing_pub is not None:
-        print()
-        print("Signing keys:")
+        console.print()
+        console.print("[bold]Signing keys:[/bold]")
         if signing_pub is not None:
-            print("Signing public key (hex):")
+            console.print("Signing public key (hex):")
             for line in _format_hex_lines(signing_pub, line_length=80):
-                print(line)
+                console.print(line)
         if signing_seed is not None:
             if signing_seed_stored is True:
                 label = "Signing seed (stored in envelope)"
@@ -156,41 +157,42 @@ def _print_pre_encryption_debug(
                 label = "Signing seed (not stored in envelope)"
             else:
                 label = "Signing seed"
-            print(f"{label} (hex):")
+            console.print(f"{label} (hex):")
             for line in _format_hex_lines(signing_seed, line_length=80):
-                print(line)
+                console.print(line)
         elif signing_seed_stored is not None:
-            print(f"Signing seed stored in envelope: {'yes' if signing_seed_stored else 'no'}")
-    print()
+            stored_label = "yes" if signing_seed_stored else "no"
+            console.print(f"Signing seed stored in envelope: {stored_label}")
+    console.print()
 
-    print("Payload (hex):")
-    print(_hexdump(payload, max_bytes=debug_max_bytes))
-    print()
+    console.print("[bold]Payload (hex):[/bold]")
+    console.print(_hexdump(payload, max_bytes=debug_max_bytes))
+    console.print()
 
-    print("Manifest JSON:")
+    console.print("[bold]Manifest JSON:[/bold]")
     manifest_raw = _decode_manifest_raw(manifest_bytes)
     if manifest_display is None:
         manifest_display = manifest_raw
     if manifest_display is None:
-        print("(unable to decode manifest JSON)")
+        console.print("(unable to decode manifest JSON)")
     else:
-        print(json.dumps(manifest_display, indent=2, sort_keys=True))
-    print()
+        console.print(json.dumps(manifest_display, indent=2, sort_keys=True))
+    console.print()
 
     prefix_stats = _manifest_prefix_stats(manifest_raw)
     if prefix_stats:
-        print("Manifest prefix summary:")
-        print(json.dumps(prefix_stats, indent=2, sort_keys=True))
-        print()
+        console.print("[bold]Manifest prefix summary:[/bold]")
+        console.print(json.dumps(prefix_stats, indent=2, sort_keys=True))
+        console.print()
 
-    print("Envelope (hex):")
-    print(_hexdump(envelope, max_bytes=debug_max_bytes))
-    print()
+    console.print("[bold]Envelope (hex):[/bold]")
+    console.print(_hexdump(envelope, max_bytes=debug_max_bytes))
+    console.print()
 
-    print("Payload z-base-32:")
+    console.print("[bold]Payload z-base-32:[/bold]")
     for line in _format_zbase32_lines(payload, line_length=80):
-        print(line)
-    print()
+        console.print(line)
+    console.print()
 
 
 def _json_safe(value: object) -> object:

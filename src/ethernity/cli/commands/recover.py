@@ -1,14 +1,30 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
 import functools
+from pathlib import Path
 from typing import Literal
 
 import typer
 
 from ..core.common import _ctx_value, _paper_callback, _resolve_config_and_paper, _run_cli
+from ..core.types import RecoverArgs
 from ..flows.recover import _should_use_wizard_for_recover, run_recover_command, run_recover_wizard
+
+
+def _expand_shard_dir(shard_dir: str | None) -> list[str]:
+    """Expand shard directory to list of .txt files."""
+    if not shard_dir:
+        return []
+    path = Path(shard_dir).expanduser()
+    if not path.exists():
+        raise typer.BadParameter(f"shard directory not found: {shard_dir}")
+    if not path.is_dir():
+        raise typer.BadParameter(f"shard-dir must be a directory: {shard_dir}")
+    files = sorted(path.glob("*.txt"))
+    if not files:
+        raise typer.BadParameter(f"no .txt files found in shard directory: {shard_dir}")
+    return [str(f) for f in files]
 
 
 def register(app: typer.Typer) -> None:
@@ -59,13 +75,20 @@ def recover(
     shard_fallback_file: list[str] | None = typer.Option(
         None,
         "--shard-fallback-file",
-        help="Shard fallback text file (repeatable).",
+        "--shard-file",  # Shorter alias
+        help="Shard text file (repeatable).",
+        rich_help_panel="Inputs",
+    ),
+    shard_dir: str | None = typer.Option(
+        None,
+        "--shard-dir",
+        help="Directory containing shard text files (auto-discovers *.txt files).",
         rich_help_panel="Inputs",
     ),
     shard_frames_file: list[str] | None = typer.Option(
         None,
         "--shard-frames-file",
-        help="Shard frame payload file (repeatable).",
+        help="Shard payload file (repeatable).",
         rich_help_panel="Inputs",
     ),
     shard_frames_encoding: Literal["auto", "base64", "base64url", "hex"] = typer.Option(
@@ -101,8 +124,9 @@ def recover(
     ),
     allow_unsigned: bool = typer.Option(
         False,
-        "--allow-unsigned",
-        help="Allow recovery without a valid auth frame.",
+        "--skip-auth-check",
+        "--allow-unsigned",  # Keep old name for backward compatibility
+        help="Skip authentication verification (use only if you trust the source).",
         rich_help_panel="Verification",
     ),
     assume_yes: bool = typer.Option(
@@ -135,7 +159,12 @@ def recover(
     config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
     quiet_value = quiet or bool(_ctx_value(ctx, "quiet"))
     debug_value = bool(_ctx_value(ctx, "debug"))
-    args = argparse.Namespace(
+
+    # Expand shard_dir to individual files and combine with explicit files
+    shard_files = list(shard_fallback_file or [])
+    shard_files.extend(_expand_shard_dir(shard_dir))
+
+    args = RecoverArgs(
         config=config_value,
         paper=paper_value,
         fallback_file=fallback_file,
@@ -143,7 +172,8 @@ def recover(
         frames_encoding=frames_encoding,
         scan=list(scan or []),
         passphrase=passphrase,
-        shard_fallback_file=list(shard_fallback_file or []),
+        shard_fallback_file=shard_files,
+        shard_dir=shard_dir,
         shard_frames_file=list(shard_frames_file or []),
         shard_frames_encoding=shard_frames_encoding,
         auth_fallback_file=auth_fallback_file,

@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
 import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 
 from rich import box
@@ -26,6 +25,7 @@ from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
+from ..core.types import RecoverArgs
 from .prompts import (
     print_prompt_header,
     prompt_choice,
@@ -70,17 +70,17 @@ def clear_screen(*, context: UIContext | None = None) -> None:
     context = _resolve_context(context)
     try:
         context.console.clear()
-    except Exception:
+    except (OSError, ValueError):
         pass
     if os.name == "nt":
         try:
             os.system("cls")
-        except Exception:
+        except OSError:
             pass
     elif context.console.is_terminal is False:
         try:
             os.system("clear")
-        except Exception:
+        except OSError:
             pass
 
 
@@ -97,7 +97,9 @@ def configure_ui(
 
 
 @contextmanager
-def wizard_flow(*, name: str, total_steps: int, quiet: bool, context: UIContext | None = None):
+def wizard_flow(
+    *, name: str, total_steps: int, quiet: bool, context: UIContext | None = None
+) -> Generator[WizardState, None, None]:
     context = _resolve_context(context)
     previous = context.wizard_state
     context.wizard_state = WizardState(name=name, total_steps=total_steps, quiet=quiet)
@@ -108,7 +110,9 @@ def wizard_flow(*, name: str, total_steps: int, quiet: bool, context: UIContext 
 
 
 @contextmanager
-def wizard_stage(title: str, *, help_text: str | None = None, context: UIContext | None = None):
+def wizard_stage(
+    title: str, *, help_text: str | None = None, context: UIContext | None = None
+) -> Generator[None, None, None]:
     context = _resolve_context(context)
     state = context.wizard_state
     previous_style = context.prompt_style
@@ -128,7 +132,9 @@ def wizard_stage(title: str, *, help_text: str | None = None, context: UIContext
 
 
 @contextmanager
-def progress(*, quiet: bool, context: UIContext | None = None):
+def progress(
+    *, quiet: bool, context: UIContext | None = None
+) -> Generator[Progress | None, None, None]:
     context = _resolve_context(context)
     if quiet:
         yield None
@@ -158,7 +164,9 @@ def progress(*, quiet: bool, context: UIContext | None = None):
 
 
 @contextmanager
-def status(message: str, *, quiet: bool, context: UIContext | None = None):
+def status(
+    message: str, *, quiet: bool, context: UIContext | None = None
+) -> Generator[Live | None, None, None]:
     context = _resolve_context(context)
     if quiet:
         yield None
@@ -177,7 +185,7 @@ def status(message: str, *, quiet: bool, context: UIContext | None = None):
         live.refresh()
         try:
             context.console.file.flush()
-        except Exception:
+        except (OSError, ValueError):
             pass
         try:
             yield live
@@ -301,24 +309,10 @@ def prompt_home_action(*, quiet: bool) -> str:
     )
 
 
-def empty_recover_args(*, config: str | None, paper: str | None, quiet: bool) -> argparse.Namespace:
-    return argparse.Namespace(
+def empty_recover_args(*, config: str | None, paper: str | None, quiet: bool) -> RecoverArgs:
+    return RecoverArgs(
         config=config,
         paper=paper,
-        fallback_file=None,
-        frames_file=None,
-        frames_encoding="auto",
-        scan=[],
-        passphrase=None,
-        shard_fallback_file=[],
-        shard_frames_file=[],
-        shard_frames_encoding="auto",
-        auth_fallback_file=None,
-        auth_frames_file=None,
-        auth_frames_encoding="auto",
-        output=None,
-        allow_unsigned=False,
-        assume_yes=False,
         quiet=quiet,
     )
 

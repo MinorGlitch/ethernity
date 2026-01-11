@@ -11,6 +11,10 @@ from rich.progress import Progress, TaskID
 
 from ..core.types import InputFile
 
+# Progress reporting intervals
+SCAN_UPDATE_INTERVAL = 1
+READ_PROGRESS_UPDATE_INTERVAL = 10  # Update more frequently for better UX
+
 
 @dataclass
 class _ScanTracker:
@@ -49,8 +53,7 @@ def _load_input_files(
     )
     if progress is not None and scan_task_id is not None:
         progress.refresh()
-    scan_update_interval = 1
-    tracker = _ScanTracker(progress, scan_task_id, scan_update_interval)
+    tracker = _ScanTracker(progress, scan_task_id, SCAN_UPDATE_INTERVAL)
 
     for raw in input_paths:
         if raw == "-":
@@ -118,7 +121,7 @@ def _load_input_files(
         read += 1
         if progress is not None and read_task_id is not None:
             progress.advance(read_task_id)
-            if read == 1 or read % 50 == 0 or read == total:
+            if read == 1 or read % READ_PROGRESS_UPDATE_INTERVAL == 0 or read == total:
                 progress.update(
                     read_task_id,
                     description=f"Reading input files... ({read}/{total})",

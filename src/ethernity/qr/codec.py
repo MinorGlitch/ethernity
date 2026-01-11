@@ -9,6 +9,13 @@ from typing import Any
 import segno
 from PIL import Image, ImageColor, ImageDraw
 
+# QR code color constants (RGBA format)
+COLOR_BLACK_RGBA = (0, 0, 0, 255)
+COLOR_WHITE_RGBA = (255, 255, 255, 255)
+
+# Module shape constants
+_ROUNDED_RATIO = 0.2
+
 
 @dataclass(frozen=True)
 class QrConfig:
@@ -23,9 +30,6 @@ class QrConfig:
     mask: int | None = None
     micro: bool | None = None
     boost_error: bool = True
-
-
-_ROUNDED_RATIO = 0.2
 
 
 def _color_to_rgba(
@@ -207,8 +211,8 @@ def _render_custom_qr(
     light: object,
     roundness: float,
 ) -> bytes:
-    light_rgba = _color_to_rgba(light, (255, 255, 255, 255))
-    dark_rgba = _color_to_rgba(dark, (0, 0, 0, 255))
+    light_rgba = _color_to_rgba(light, COLOR_WHITE_RGBA)
+    dark_rgba = _color_to_rgba(dark, COLOR_BLACK_RGBA)
 
     width, height = qr.symbol_size(scale=scale, border=border)
     image = Image.new("RGBA", (width, height), light_rgba)

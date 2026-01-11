@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
 import functools
 import sys
 from pathlib import Path
@@ -11,6 +10,7 @@ import typer
 
 from ..api import DEBUG_MAX_BYTES_DEFAULT, console_err
 from ..core.common import _ctx_value, _paper_callback, _resolve_config_and_paper, _run_cli
+from ..core.types import BackupArgs
 from ..flows.backup import _should_use_wizard_for_backup, run_backup_command, run_wizard
 
 _BACKUP_HELP = (
@@ -149,7 +149,7 @@ def backup(
         int(_ctx_value(ctx, "debug_max_bytes") or 0) if debug_max_bytes is None else debug_max_bytes
     )
     quiet_value = quiet or bool(_ctx_value(ctx, "quiet"))
-    args = argparse.Namespace(
+    args = BackupArgs(
         config=config_value,
         paper=paper_value,
         input=[str(path) for path in (input or [])],

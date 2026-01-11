@@ -153,6 +153,18 @@ export function App() {
           </StepShell>
         </section>
       </div>
+      <footer class="app-footer">
+        <div class="footer-col">
+          <span class="footer-label">Recovery Kit</span>
+          <span class="footer-sep">•</span>
+          <span>Age passphrase only</span>
+        </div>
+        <div class="footer-col">
+          <span>Runs locally</span>
+          <span class="footer-sep">•</span>
+          <span>No network calls</span>
+        </div>
+      </footer>
     </main>
   );
 }

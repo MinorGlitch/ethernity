@@ -140,6 +140,6 @@ def _fits_qr_payload(payload: bytes, config: QrConfig) -> bool:
             micro=config.micro,
             boost_error=config.boost_error,
         )
-    except Exception:
+    except (ValueError, TypeError):
         return False
     return True

@@ -70,10 +70,10 @@
       position: fixed;
       inset: 0;
       background-image:
-        linear-gradient(0deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-      background-size: 72px 72px;
-      opacity: 0.2;
+        linear-gradient(0deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.014) 1px, transparent 1px);
+      background-size: 96px 96px;
+      opacity: 0.12;
       z-index: -1;
       pointer-events: none;
     }
@@ -142,6 +142,39 @@
       grid-template-columns: minmax(200px, 240px) minmax(0, 1fr);
       gap: var(--space-3);
       align-items: start;
+    }
+
+    .app-footer {
+      margin-top: 4px;
+      padding: 10px 6px 0;
+      border-top: 1px solid rgba(36, 51, 79, 0.6);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-2);
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+
+    .footer-col {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .footer-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-weight: 600;
+      color: #dbe8ff;
+    }
+
+    .footer-sep {
+      color: rgba(178, 194, 222, 0.45);
     }
 
     .workspace {
@@ -250,11 +283,24 @@
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
       padding: var(--space-2);
+      padding-left: calc(var(--space-2) + 8px);
       background: rgba(12, 22, 40, 0.9);
       display: grid;
       gap: 4px;
       min-width: 0;
       height: 100%;
+      position: relative;
+    }
+
+    .status-item::before {
+      content: "";
+      position: absolute;
+      left: 8px;
+      top: 10px;
+      bottom: 10px;
+      width: 2px;
+      border-radius: 999px;
+      background: rgba(178, 194, 222, 0.35);
     }
 
     .status-item.ok {
@@ -262,9 +308,19 @@
       background: rgba(10, 34, 33, 0.55);
     }
 
+    .status-item.ok::before {
+      background: rgba(51, 215, 197, 0.85);
+      box-shadow: 0 0 8px rgba(51, 215, 197, 0.4);
+    }
+
     .status-item.progress {
       border-color: rgba(78, 161, 255, 0.5);
       background: rgba(11, 24, 46, 0.6);
+    }
+
+    .status-item.progress::before {
+      background: rgba(78, 161, 255, 0.85);
+      box-shadow: 0 0 8px rgba(78, 161, 255, 0.35);
     }
 
     .status-item.warn {
@@ -272,16 +328,26 @@
       background: rgba(45, 27, 9, 0.45);
     }
 
+    .status-item.warn::before {
+      background: rgba(240, 182, 109, 0.9);
+      box-shadow: 0 0 8px rgba(240, 182, 109, 0.35);
+    }
+
     .status-item.error {
       border-color: rgba(248, 113, 113, 0.55);
       background: rgba(44, 12, 12, 0.45);
+    }
+
+    .status-item.error::before {
+      background: rgba(248, 113, 113, 0.9);
+      box-shadow: 0 0 8px rgba(248, 113, 113, 0.35);
     }
 
     .status-label {
       font-family: var(--font-ui);
       font-size: 9px;
       text-transform: uppercase;
-      letter-spacing: 0.18em;
+      letter-spacing: 0.14em;
       color: var(--muted);
       display: inline-flex;
       align-items: center;
@@ -361,6 +427,20 @@
       font-weight: 600;
       box-shadow: none;
       transition: border-color 0.2s ease, background 0.2s ease;
+      position: relative;
+    }
+
+    button.step-item::before {
+      content: "";
+      position: absolute;
+      left: 6px;
+      top: 8px;
+      bottom: 8px;
+      width: 3px;
+      border-radius: 999px;
+      background: transparent;
+      opacity: 0;
+      transition: opacity 0.2s ease;
     }
 
     button.step-item:hover {
@@ -376,6 +456,12 @@
     button.step-item.active {
       border-color: rgba(78, 161, 255, 0.65);
       background: linear-gradient(160deg, rgba(19, 35, 64, 0.95), rgba(13, 24, 44, 0.95));
+    }
+
+    button.step-item.active::before {
+      opacity: 1;
+      background: linear-gradient(180deg, rgba(78, 161, 255, 0.9), rgba(51, 215, 197, 0.75));
+      box-shadow: 0 0 10px rgba(78, 161, 255, 0.35);
     }
 
     .step-index {
@@ -408,10 +494,14 @@
       font-weight: 600;
     }
 
+    .step-item.active .step-name {
+      color: #f3f7ff;
+    }
+
     .step-state {
       font-size: 10px;
       text-transform: uppercase;
-      letter-spacing: 0.18em;
+      letter-spacing: 0.14em;
       padding: 2px 6px;
       border-radius: 999px;
       border: 1px solid var(--border);
@@ -473,7 +563,8 @@
       font-family: var(--font-title);
       font-size: clamp(18px, 1.6vw, 22px);
       letter-spacing: 0.01em;
-      font-weight: 600;
+      font-weight: 700;
+      color: #f3f7ff;
     }
 
     .step-summary {
@@ -528,7 +619,7 @@
       font-family: var(--font-ui);
       font-size: 10px;
       text-transform: uppercase;
-      letter-spacing: 0.18em;
+      letter-spacing: 0.14em;
       color: var(--muted);
       font-weight: 600;
     }
@@ -598,9 +689,10 @@
 
     input[readonly],
     textarea[readonly] {
-      background: linear-gradient(180deg, rgba(14, 28, 52, 0.92), rgba(10, 20, 38, 0.98));
-      border-color: rgba(78, 161, 255, 0.35);
-      color: #d9e6ff;
+      background: linear-gradient(180deg, rgba(18, 34, 60, 0.94), rgba(12, 22, 40, 0.98));
+      border-color: rgba(78, 161, 255, 0.45);
+      box-shadow: inset 0 0 0 1px rgba(78, 161, 255, 0.12);
+      color: #e1ecff;
     }
 
     input[readonly]:focus,
@@ -701,7 +793,7 @@
       list-style: none;
       font-size: 11px;
       text-transform: uppercase;
-      letter-spacing: 0.14em;
+      letter-spacing: 0.12em;
       color: var(--muted);
       font-family: var(--font-ui);
     }
@@ -754,7 +846,7 @@
     .diag-label {
       font-size: 11px;
       text-transform: uppercase;
-      letter-spacing: 0.12em;
+      letter-spacing: 0.1em;
       color: var(--muted);
       font-family: var(--font-ui);
     }
@@ -808,7 +900,7 @@
       font-family: var(--font-ui);
       font-size: 11px;
       text-transform: uppercase;
-      letter-spacing: 0.16em;
+      letter-spacing: 0.12em;
       color: var(--muted);
     }
 
@@ -877,6 +969,11 @@
 
       .step-nav-actions {
         justify-content: flex-start;
+      }
+
+      .app-footer {
+        flex-direction: column;
+        align-items: flex-start;
       }
     }
 

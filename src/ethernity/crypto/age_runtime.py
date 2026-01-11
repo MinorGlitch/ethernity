@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
+import pyrage
 from pyrage import passphrase as pyrage_passphrase
 
 from .passphrases import DEFAULT_PASSPHRASE_WORDS, generate_passphrase
@@ -28,14 +29,16 @@ def _wrap_pyrage_error(exc: Exception) -> AgeCliError:
 def _encrypt_with_pyrage(data: bytes, passphrase: str) -> bytes:
     try:
         return pyrage_passphrase.encrypt(data, passphrase)
-    except Exception as exc:
+    except (ValueError, TypeError, RuntimeError, OSError) as exc:
+        # pyrage can raise various exceptions for invalid input/state
         raise _wrap_pyrage_error(exc) from exc
 
 
 def _decrypt_with_pyrage(data: bytes, passphrase: str) -> bytes:
     try:
         return pyrage_passphrase.decrypt(data, passphrase)
-    except Exception as exc:
+    except (ValueError, TypeError, RuntimeError, OSError, pyrage.DecryptError) as exc:
+        # pyrage raises DecryptError for wrong passphrase, other exceptions for corrupted data
         raise _wrap_pyrage_error(exc) from exc
 
 

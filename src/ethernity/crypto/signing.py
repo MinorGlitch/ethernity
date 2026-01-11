@@ -8,7 +8,7 @@ import cbor2
 from Crypto.PublicKey import ECC
 from Crypto.Signature import eddsa
 
-from ..core.validation import require_bytes, require_length
+from ..core.validation import require_bytes, require_length, require_list
 from ..encoding.varint import encode_uvarint as _encode_uvarint
 
 AUTH_VERSION = 1
@@ -40,20 +40,12 @@ def generate_signing_keypair() -> tuple[bytes, bytes]:
 
 def sign_auth(doc_hash: bytes, *, sign_priv: bytes) -> bytes:
     require_length(doc_hash, DOC_HASH_LEN, label="doc_hash")
-    key = _key_from_seed(sign_priv)
-    signer = eddsa.new(key, mode="rfc8032")
-    return signer.sign(AUTH_DOMAIN + doc_hash)
+    return _sign_message(AUTH_DOMAIN + doc_hash, sign_priv=sign_priv)
 
 
 def verify_auth(doc_hash: bytes, *, sign_pub: bytes, signature: bytes) -> bool:
     require_length(doc_hash, DOC_HASH_LEN, label="doc_hash")
-    try:
-        key = _key_from_public_bytes(sign_pub)
-        verifier = eddsa.new(key, mode="rfc8032")
-        verifier.verify(AUTH_DOMAIN + doc_hash, signature)
-    except (ValueError, TypeError):
-        return False
-    return True
+    return _verify_message(AUTH_DOMAIN + doc_hash, sign_pub=sign_pub, signature=signature)
 
 
 def sign_shard(
@@ -68,10 +60,8 @@ def sign_shard(
         raise ValueError("shard_index must be positive")
     if not share:
         raise ValueError("share cannot be empty")
-    key = _key_from_seed(sign_priv)
-    signer = eddsa.new(key, mode="rfc8032")
     message = SHARD_DOMAIN + doc_hash + _encode_uvarint(shard_index) + share
-    return signer.sign(message)
+    return _sign_message(message, sign_priv=sign_priv)
 
 
 def verify_shard(
@@ -87,14 +77,8 @@ def verify_shard(
         return False
     if not share:
         return False
-    try:
-        key = _key_from_public_bytes(sign_pub)
-        verifier = eddsa.new(key, mode="rfc8032")
-        message = SHARD_DOMAIN + doc_hash + _encode_uvarint(shard_index) + share
-        verifier.verify(message, signature)
-    except (ValueError, TypeError):
-        return False
-    return True
+    message = SHARD_DOMAIN + doc_hash + _encode_uvarint(shard_index) + share
+    return _verify_message(message, sign_pub=sign_pub, signature=signature)
 
 
 def encode_auth_payload(doc_hash: bytes, *, sign_pub: bytes, signature: bytes) -> bytes:
@@ -106,9 +90,7 @@ def encode_auth_payload(doc_hash: bytes, *, sign_pub: bytes, signature: bytes) -
 
 
 def decode_auth_payload(data: bytes) -> AuthPayload:
-    decoded = cbor2.loads(data)
-    if not isinstance(decoded, (list, tuple)) or len(decoded) < 4:
-        raise ValueError("auth payload must be a list")
+    decoded = require_list(cbor2.loads(data), 4, label="auth payload")
     version, doc_hash, sign_pub, signature = decoded[:4]
     if version != AUTH_VERSION:
         raise ValueError(f"unsupported auth version: {version}")
@@ -131,3 +113,21 @@ def _key_from_seed(seed: bytes) -> ECC.EccKey:
 def _key_from_public_bytes(sign_pub: bytes) -> ECC.EccKey:
     require_length(sign_pub, ED25519_PUB_LEN, label="sign_pub")
     return ECC.import_key(ED25519_PUB_DER_PREFIX + sign_pub)
+
+
+def _sign_message(message: bytes, *, sign_priv: bytes) -> bytes:
+    """Sign a message with Ed25519 private key."""
+    key = _key_from_seed(sign_priv)
+    signer = eddsa.new(key, mode="rfc8032")
+    return signer.sign(message)
+
+
+def _verify_message(message: bytes, *, sign_pub: bytes, signature: bytes) -> bool:
+    """Verify an Ed25519 signature. Returns False on any error."""
+    try:
+        key = _key_from_public_bytes(sign_pub)
+        verifier = eddsa.new(key, mode="rfc8032")
+        verifier.verify(message, signature)
+    except (ValueError, TypeError):
+        return False
+    return True

@@ -100,7 +100,7 @@ def _scan_pdf(path: Path, decoder: QrDecoder) -> list[bytes]:
     pypdf_module = _module("pypdf", pypdf)
     try:
         reader = pypdf_module.PdfReader(str(path))
-    except Exception as exc:  # pragma: no cover - depends on external PDFs
+    except (OSError, pypdf.errors.PdfReadError, ValueError) as exc:
         raise QrScanError(f"failed to read PDF: {path}") from exc
     payloads: list[bytes] = []
     for page in reader.pages:

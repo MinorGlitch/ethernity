@@ -1,6 +1,6 @@
 import unittest
 
-from ethernity.render.layout import _position_fallback_blocks
+from ethernity.render.fallback import position_fallback_blocks
 
 
 class TestFallbackBlocks(unittest.TestCase):
@@ -8,7 +8,7 @@ class TestFallbackBlocks(unittest.TestCase):
         line_height = 4.0
         blocks = [{"title": None, "lines": ["a", "b"], "gap_lines": 0}]
         available = line_height * 2
-        _position_fallback_blocks(
+        position_fallback_blocks(
             blocks,
             start_y=0.0,
             available_height=available,
@@ -20,7 +20,7 @@ class TestFallbackBlocks(unittest.TestCase):
         line_height = 4.0
         blocks = [{"title": "Main", "lines": ["a", "b"], "gap_lines": 0}]
         available = line_height * 3
-        _position_fallback_blocks(
+        position_fallback_blocks(
             blocks,
             start_y=0.0,
             available_height=available,

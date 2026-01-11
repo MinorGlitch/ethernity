@@ -34,17 +34,43 @@ def _frame_from_fallback(path: str) -> Frame:
     return _frame_from_fallback_lines(lines, label="fallback")
 
 
+def _parse_fallback_section(
+    lines: list[str],
+    section_key: str,
+    *,
+    allow_invalid: bool,
+    quiet: bool,
+    missing_error: str,
+) -> Frame | None:
+    """Parse a specific section from fallback lines, returning None if invalid and allowed."""
+    if not _contains_fallback_markers(lines):
+        return _frame_from_fallback_lines(lines, label=section_key)
+
+    sections = _split_fallback_sections(lines)
+    section_lines = sections.get(section_key)
+
+    if not section_lines:
+        raise ValueError(missing_error)
+
+    try:
+        return _frame_from_fallback_lines(section_lines, label=section_key)
+    except ValueError as exc:
+        if allow_invalid:
+            _warn(f"invalid {section_key} fallback ignored: {exc}", quiet=quiet)
+            return None
+        raise
+
+
 def _frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bool) -> list[Frame]:
     lines = _read_text_lines(path)
     if not _contains_fallback_markers(lines):
         return [_frame_from_fallback_lines(lines, label="fallback")]
-    sections = _split_fallback_sections(lines)
 
+    sections = _split_fallback_sections(lines)
     if not sections["main"]:
         raise ValueError("missing MAIN fallback section; include the MAIN section from recovery")
 
-    frames: list[Frame] = []
-    frames.append(_frame_from_fallback_lines(sections["main"], label="main"))
+    frames: list[Frame] = [_frame_from_fallback_lines(sections["main"], label="main")]
     if sections["auth"]:
         try:
             frames.append(_frame_from_fallback_lines(sections["auth"], label="auth"))
@@ -58,26 +84,20 @@ def _frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bool) -
 
 def _auth_frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bool) -> list[Frame]:
     lines = _read_text_lines(path)
-    if not _contains_fallback_markers(lines):
-        return [_frame_from_fallback_lines(lines, label="auth")]
-    sections = _split_fallback_sections(lines)
-
-    if not sections["auth"]:
-        raise ValueError("missing AUTH fallback section; include AUTH or use --allow-unsigned")
-
-    try:
-        return [_frame_from_fallback_lines(sections["auth"], label="auth")]
-    except ValueError as exc:
-        if allow_invalid_auth:
-            _warn(f"invalid auth fallback ignored: {exc}", quiet=quiet)
-            return []
-        raise
+    frame = _parse_fallback_section(
+        lines,
+        "auth",
+        allow_invalid=allow_invalid_auth,
+        quiet=quiet,
+        missing_error="missing AUTH fallback section; include AUTH or use --allow-unsigned",
+    )
+    return [frame] if frame else []
 
 
 def _frame_from_fallback_lines(lines: list[str], *, label: str) -> Frame:
     frame, skipped = _parse_fallback_frame(lines, label=label)
     if skipped:
-        print(f"warning: skipped {skipped} non-fallback lines ({label})", file=sys.stderr)
+        _warn(f"skipped {skipped} non-fallback lines ({label})", quiet=False)
     return frame
 
 

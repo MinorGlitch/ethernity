@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
 from dataclasses import dataclass
 
 from ...config import load_app_config
@@ -10,6 +9,7 @@ from ...encoding.chunking import reassemble_payload
 from ...encoding.framing import Frame, FrameType
 from ..core.crypto import _doc_hash_from_ciphertext, _doc_id_from_ciphertext
 from ..core.log import _warn
+from ..core.types import RecoverArgs
 from ..io.frames import (
     _auth_frames_from_fallback,
     _auth_frames_from_payloads,
@@ -47,31 +47,27 @@ class RecoveryPlan:
     shard_frame_files: tuple[str, ...]
 
 
-def resolve_recover_config(args: argparse.Namespace) -> tuple[object, str]:
-    config_path = getattr(args, "config", None)
-    paper = getattr(args, "paper", None)
-    if config_path and paper:
+def resolve_recover_config(args: RecoverArgs) -> tuple[object, str]:
+    if args.config and args.paper:
         raise ValueError("use either --config or --paper, not both")
-    config = load_app_config(config_path, paper_size=paper)
+    config = load_app_config(args.config, paper_size=args.paper)
     return config, config.qr_payload_encoding
 
 
-def validate_recover_args(args: argparse.Namespace) -> None:
-    if getattr(args, "fallback_file", None) and getattr(args, "frames_file", None):
+def validate_recover_args(args: RecoverArgs) -> None:
+    if args.fallback_file and args.frames_file:
         raise ValueError("use either --fallback-file or --frames-file, not both")
-    if getattr(args, "scan", None) and (
-        getattr(args, "fallback_file", None) or getattr(args, "frames_file", None)
-    ):
+    if args.scan and (args.fallback_file or args.frames_file):
         raise ValueError("use either --scan or --fallback-file/--frames-file, not both")
-    if getattr(args, "auth_fallback_file", None) and getattr(args, "auth_frames_file", None):
+    if args.auth_fallback_file and args.auth_frames_file:
         raise ValueError("use either --auth-fallback-file or --auth-frames-file, not both")
 
 
-def plan_from_args(args: argparse.Namespace) -> RecoveryPlan:
+def plan_from_args(args: RecoverArgs) -> RecoveryPlan:
     validate_recover_args(args)
     _, qr_payload_encoding = resolve_recover_config(args)
-    allow_unsigned = bool(getattr(args, "allow_unsigned", False))
-    quiet = bool(getattr(args, "quiet", False))
+    allow_unsigned = args.allow_unsigned
+    quiet = args.quiet
     if allow_unsigned:
         _warn("allow-unsigned disables auth verification", quiet=quiet)
 
@@ -94,13 +90,13 @@ def plan_from_args(args: argparse.Namespace) -> RecoveryPlan:
         frames=frames,
         extra_auth_frames=extra_auth_frames,
         shard_frames=shard_frames,
-        passphrase=getattr(args, "passphrase", None),
+        passphrase=args.passphrase,
         allow_unsigned=allow_unsigned,
         input_label=input_label,
         input_detail=input_detail,
         shard_fallback_files=shard_fallback_files,
         shard_frame_files=shard_frame_files,
-        output_path=getattr(args, "output", None),
+        output_path=args.output,
         args=args,
         quiet=quiet,
     )
@@ -118,7 +114,7 @@ def build_recovery_plan(
     shard_fallback_files: list[str],
     shard_frame_files: list[str],
     output_path: str | None,
-    args: argparse.Namespace | None,
+    args: RecoverArgs | None,
     quiet: bool,
 ) -> RecoveryPlan:
     if not frames:
@@ -182,7 +178,7 @@ def _resolve_passphrase(
     doc_hash: bytes,
     sign_pub: bytes | None,
     allow_unsigned: bool,
-    args: argparse.Namespace | None,
+    args: RecoverArgs | None,
 ) -> str:
     if shard_frames and passphrase:
         raise ValueError("use either shard inputs or passphrase, not both")
@@ -202,16 +198,16 @@ def _resolve_passphrase(
 
 
 def _frames_from_args(
-    args: argparse.Namespace,
+    args: RecoverArgs,
     *,
     qr_payload_encoding: str,
     allow_unsigned: bool,
     quiet: bool,
 ) -> tuple[list[Frame], str | None, str | None]:
-    fallback_file = getattr(args, "fallback_file", None)
-    frames_file = getattr(args, "frames_file", None)
-    frames_encoding = getattr(args, "frames_encoding", "auto")
-    scan = list(getattr(args, "scan", []) or [])
+    fallback_file = args.fallback_file
+    frames_file = args.frames_file
+    frames_encoding = args.frames_encoding
+    scan = list(args.scan or [])
 
     if fallback_file:
         input_label = "Fallback text"
@@ -239,14 +235,14 @@ def _frames_from_args(
 
 
 def _extra_auth_frames_from_args(
-    args: argparse.Namespace,
+    args: RecoverArgs,
     *,
     allow_unsigned: bool,
     quiet: bool,
 ) -> list[Frame]:
-    auth_fallback_file = getattr(args, "auth_fallback_file", None)
-    auth_frames_file = getattr(args, "auth_frames_file", None)
-    auth_frames_encoding = getattr(args, "auth_frames_encoding", "auto")
+    auth_fallback_file = args.auth_fallback_file
+    auth_frames_file = args.auth_frames_file
+    auth_frames_encoding = args.auth_frames_encoding
     if auth_fallback_file and auth_frames_file:
         raise ValueError("use either --auth-fallback-file or --auth-frames-file, not both")
     extra_auth_frames: list[Frame] = []
@@ -264,13 +260,13 @@ def _extra_auth_frames_from_args(
 
 
 def _shard_frames_from_args(
-    args: argparse.Namespace,
+    args: RecoverArgs,
     *,
     quiet: bool,
 ) -> tuple[list[Frame], list[str], list[str]]:
-    shard_fallback_files = list(getattr(args, "shard_fallback_file", []) or [])
-    shard_frame_files = list(getattr(args, "shard_frames_file", []) or [])
-    shard_frames_encoding = getattr(args, "shard_frames_encoding", "auto")
+    shard_fallback_files = list(args.shard_fallback_file or [])
+    shard_frame_files = list(args.shard_frames_file or [])
+    shard_frames_encoding = args.shard_frames_encoding
     shard_frames: list[Frame] = []
     if shard_fallback_files or shard_frame_files:
         shard_frames = _frames_from_shard_inputs(

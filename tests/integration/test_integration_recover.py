@@ -1,4 +1,3 @@
-import argparse
 import hashlib
 import tempfile
 import unittest
@@ -10,6 +9,7 @@ from PIL import Image  # noqa: F401
 from tests.test_support import suppress_output
 
 from ethernity.cli import run_recover_command
+from ethernity.cli.core.types import RecoverArgs
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.encoding.chunking import chunk_payload, payload_to_fallback_lines
 from ethernity.encoding.framing import FrameType, encode_frame
@@ -43,7 +43,7 @@ class TestIntegrationRecover(unittest.TestCase):
             )
             output_path = tmp_path / "out.bin"
 
-            args = argparse.Namespace(
+            args = RecoverArgs(
                 fallback_file=None,
                 frames_file=str(frames_path),
                 frames_encoding="auto",
@@ -79,7 +79,7 @@ class TestIntegrationRecover(unittest.TestCase):
             fallback_path.write_text("\n".join(lines), encoding="utf-8")
             output_path = tmp_path / "out.bin"
 
-            args = argparse.Namespace(
+            args = RecoverArgs(
                 fallback_file=str(fallback_path),
                 frames_file=None,
                 frames_encoding="auto",
@@ -117,7 +117,7 @@ class TestIntegrationRecover(unittest.TestCase):
             qr.save(qr_path, kind="png", scale=4, border=2)
             output_path = tmp_path / "out.bin"
 
-            args = argparse.Namespace(
+            args = RecoverArgs(
                 fallback_file=None,
                 frames_file=None,
                 frames_encoding="auto",
@@ -156,7 +156,7 @@ class TestIntegrationRecover(unittest.TestCase):
             fallback_path.write_text("\n".join(lines), encoding="utf-8")
             output_dir = tmp_path / "out"
 
-            args = argparse.Namespace(
+            args = RecoverArgs(
                 fallback_file=str(fallback_path),
                 frames_file=None,
                 frames_encoding="auto",

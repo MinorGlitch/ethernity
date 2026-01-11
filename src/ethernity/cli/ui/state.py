@@ -13,7 +13,7 @@ def isatty(stream, fallback) -> bool:
     if stream is not None:
         try:
             return bool(stream.isatty())
-        except Exception:
+        except (OSError, ValueError, AttributeError):
             return False
     return bool(getattr(fallback, "isatty", lambda: False)())
 

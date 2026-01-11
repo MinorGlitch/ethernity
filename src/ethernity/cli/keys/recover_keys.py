@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
-
 from ...crypto.sharding import ShardPayload, decode_shard_payload, recover_passphrase
 from ...crypto.signing import decode_auth_payload, verify_auth, verify_shard
 from ...encoding.framing import Frame, FrameType
 from ..core.log import _warn
+from ..core.types import RecoverArgs
 
 
-def _resolve_recovery_keys(args: argparse.Namespace) -> str:
-    passphrase = args.passphrase
-    if passphrase:
-        return passphrase
+def _resolve_recovery_keys(args: RecoverArgs) -> str:
+    if args.passphrase:
+        return args.passphrase
     raise ValueError("passphrase is required for recovery")
 
 

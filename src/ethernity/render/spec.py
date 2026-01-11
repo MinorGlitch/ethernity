@@ -11,6 +11,7 @@ from .doc_types import (
     DOC_TYPE_SIGNING_KEY_SHARD,
     DOC_TYPES,
 )
+from .utils import int_value as _int_value
 
 Color = str | tuple[int, int, int] | tuple[int, int, int, int]
 
@@ -224,16 +225,3 @@ def document_spec(
     )
 
 
-def _int_value(value: object, *, default: int) -> int:
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if isinstance(value, str):
-        try:
-            return int(value)
-        except ValueError:
-            return default
-    return default

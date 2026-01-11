@@ -1,4 +1,3 @@
-import argparse
 import hashlib
 import tempfile
 import unittest
@@ -7,6 +6,7 @@ from pathlib import Path
 from test_support import suppress_output
 
 from ethernity.cli import run_recover_command
+from ethernity.cli.core.types import RecoverArgs
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
 from ethernity.crypto.signing import generate_signing_keypair
@@ -65,7 +65,7 @@ class TestEndToEndSharding(unittest.TestCase):
             )
 
             output_path = tmp_path / "recovered.bin"
-            args = argparse.Namespace(
+            args = RecoverArgs(
                 fallback_file=None,
                 frames_file=str(frames_path),
                 frames_encoding="auto",
@@ -130,7 +130,7 @@ class TestEndToEndSharding(unittest.TestCase):
                 shard_paths.append(str(shard_path))
 
             output_path = tmp_path / "recovered.bin"
-            args = argparse.Namespace(
+            args = RecoverArgs(
                 fallback_file=None,
                 frames_file=str(frames_path),
                 frames_encoding="auto",

@@ -16,7 +16,7 @@ def _run_cli(func: Callable[[], Any], *, debug: bool) -> None:
         install_rich_traceback(show_locals=True)
     try:
         result = func()
-    except Exception as exc:
+    except (OSError, RuntimeError, ValueError, TypeError, LookupError) as exc:
         if debug:
             raise
         console_err.print(f"[red]Error:[/red] {exc}")

@@ -1,4 +1,3 @@
-import argparse
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,6 +5,7 @@ from pathlib import Path
 from test_support import suppress_output, temp_env
 
 from ethernity.cli import run_backup_command
+from ethernity.cli.core.types import BackupArgs
 
 
 class TestIntegrationBackup(unittest.TestCase):
@@ -23,7 +23,7 @@ class TestIntegrationBackup(unittest.TestCase):
                 input_path.write_bytes(payload)
                 output_dir = tmp_path / "backup"
 
-                args = argparse.Namespace(
+                args = BackupArgs(
                     config=str(config_path),
                     paper=None,
                     input=[str(input_path)],
@@ -40,6 +40,7 @@ class TestIntegrationBackup(unittest.TestCase):
                     signing_key_shard_count=None,
                     debug=False,
                     debug_max_bytes=0,
+                    quiet=True,
                 )
                 with suppress_output():
                     run_backup_command(args)
