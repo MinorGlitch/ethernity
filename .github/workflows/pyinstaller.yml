@@ -33,10 +33,10 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: "pip"
@@ -53,7 +53,7 @@ jobs:
         run: python scripts/package_pyinstaller.py
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ethernity-${{ matrix.os }}
           path: ethernity-${{ runner.os }}.zip
@@ -73,7 +73,7 @@ jobs:
           fi
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: dist-artifacts
           pattern: ethernity-*
