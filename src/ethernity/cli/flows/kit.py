@@ -87,17 +87,22 @@ def render_kit_qr_document(
 
 
 def _load_kit_bundle(bundle_path: str | Path | None) -> bytes:
+    """Load the recovery kit bundle from the specified path or default locations."""
     if bundle_path:
         return Path(bundle_path).read_bytes()
+    # Primary: load from installed package (src/ethernity/kit/)
     try:
         return files("ethernity.kit").joinpath(DEFAULT_KIT_BUNDLE_NAME).read_bytes()
     except (FileNotFoundError, ModuleNotFoundError):
-        candidate = PACKAGE_ROOT.parents[2] / "kit" / "dist" / DEFAULT_KIT_BUNDLE_NAME
-        if candidate.exists():
-            return candidate.read_bytes()
-        raise FileNotFoundError(
-            f"{DEFAULT_KIT_BUNDLE_NAME} not found; build the kit or pass --bundle."
-        )
+        pass
+    # Fallback: development build output (kit/dist/)
+    candidate = PACKAGE_ROOT.parents[2] / "kit" / "dist" / DEFAULT_KIT_BUNDLE_NAME
+    if candidate.exists():
+        return candidate.read_bytes()
+    raise FileNotFoundError(
+        f"Recovery kit bundle not found. Run 'npm run build' in the kit/ directory, "
+        f"or specify a bundle path with --bundle."
+    )
 
 
 def _split_bytes(data: bytes, chunk_size: int) -> list[bytes]:

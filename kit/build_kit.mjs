@@ -281,10 +281,16 @@ const kitDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const inputPath = resolve(kitDir, process.argv[2] ?? "recovery_kit.html");
 const bundleName = process.argv[3] ?? "recovery_kit.bundle.html";
 const rawBundleName = bundleName.replace(/\.html$/, ".raw.html");
-const rawOutputPath = resolve(kitDir, "dist", rawBundleName);
-const outputPath = resolve(kitDir, "dist", bundleName);
-const packagePath = resolve(kitDir, "..", "ethernity", "kit", bundleName);
-await mkdir(dirname(outputPath), { recursive: true });
+
+// Build outputs go to kit/dist/
+const distDir = resolve(kitDir, "dist");
+const rawOutputPath = resolve(distDir, rawBundleName);
+const outputPath = resolve(distDir, bundleName);
+
+// Canonical location for Python package (src/ethernity/kit/)
+const packagePath = resolve(kitDir, "..", "src", "ethernity", "kit", bundleName);
+
+await mkdir(distDir, { recursive: true });
 
 const html = await readFile(inputPath, "utf8");
 const scriptTagRe = /<script\b[^>]*>[\s\S]*?<\/script>/g;

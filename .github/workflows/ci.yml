@@ -10,14 +10,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v3
-      - name: Install dependencies
-        run: uv sync --extra dev --frozen
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
       - name: Ruff lint
         run: uv run ruff check src tests
 
@@ -26,14 +20,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v3
-      - name: Install dependencies
-        run: uv sync --extra dev --frozen
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
       - name: Ruff format
         run: uv run ruff format --check src tests
 
@@ -42,13 +30,49 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v3
-      - name: Install dependencies
-        run: uv sync --extra dev --frozen
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
       - name: Mypy
         run: uv run mypy src
+
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run unit tests
+        run: uv run python -m pytest tests/unit -v
+      - name: Run integration tests
+        run: uv run python -m pytest tests/integration -v
+
+  kit-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: kit/package-lock.json
+      - name: Install kit dependencies
+        working-directory: kit
+        run: npm ci
+      - name: Build recovery kit
+        working-directory: kit
+        run: node build_kit.mjs
+      - name: Verify bundle exists
+        run: |
+          test -f kit/dist/recovery_kit.bundle.html || exit 1
+          test -f src/ethernity/kit/recovery_kit.bundle.html || exit 1
+          echo "Kit bundle built successfully"

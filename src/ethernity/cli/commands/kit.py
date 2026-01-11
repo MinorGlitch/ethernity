@@ -11,8 +11,13 @@ from ..core.common import _ctx_value, _paper_callback, _resolve_config_and_paper
 from ..flows.kit import DEFAULT_KIT_CHUNK_SIZE, render_kit_qr_document
 
 _KIT_HELP = (
-    "Render the recovery kit as a QR document.\n\n"
-    "The QR payloads contain the raw bundled HTML (no encryption or framing)."
+    "Generate a printable QR document for the recovery kit.\n\n"
+    "The recovery kit is a self-contained HTML file that can decrypt and recover\n"
+    "your backups offline. Scan the QR codes with any device to reconstruct it.\n\n"
+    "Examples:\n"
+    "  ethernity kit                    # Generate QR document with defaults\n"
+    "  ethernity kit -o my_kit.pdf      # Custom output filename\n"
+    "  ethernity kit --paper LETTER     # Use US Letter paper size"
 )
 
 
@@ -38,10 +43,13 @@ def _run_kit_render(
         quiet=quiet_value,
     )
     if not quiet_value:
-        console.print(f"[accent]Kit QR document:[/accent] {result.output_path}")
+        console.print(f"[accent]Recovery kit saved:[/accent] {result.output_path}")
         console.print(
-            f"[muted]Chunks:[/muted] {result.chunk_count} "
-            f"([muted]{result.chunk_size} bytes each[/muted])"
+            f"[muted]QR codes:[/muted] {result.chunk_count} "
+            f"({result.chunk_size} bytes each)"
+        )
+        console.print(
+            f"[muted]Print this document and store it securely with your recovery materials.[/muted]"
         )
 
 
@@ -51,38 +59,42 @@ def kit(
         None,
         "--output",
         "-o",
-        help="Write the QR document to this path.",
+        help="Output PDF path (default: recovery_kit_qr.pdf).",
     ),
     bundle: Path | None = typer.Option(
         None,
         "--bundle",
-        help="Path to the bundled recovery kit HTML.",
+        "-b",
+        help="Custom recovery kit HTML bundle to use instead of the built-in one.",
     ),
     chunk_size: int | None = typer.Option(
         None,
         "--chunk-size",
         help=(
-            "Bytes per QR payload (default: %s or the QR max, whichever is lower)."
-            % DEFAULT_KIT_CHUNK_SIZE
+            "Data per QR code in bytes. Lower values create more codes but are easier "
+            "to scan (default: %s)." % DEFAULT_KIT_CHUNK_SIZE
         ),
     ),
     config: str | None = typer.Option(
         None,
         "--config",
-        help="Use this TOML config.",
+        "-c",
+        help="Use a custom TOML configuration file.",
         rich_help_panel="Config",
     ),
     paper: str | None = typer.Option(
         None,
         "--paper",
-        help="Paper preset (A4/LETTER).",
+        "-p",
+        help="Paper size preset: A4 (default) or LETTER.",
         callback=_paper_callback,
         rich_help_panel="Config",
     ),
     quiet: bool = typer.Option(
         False,
         "--quiet",
-        help="Hide non-error output.",
+        "-q",
+        help="Suppress progress output.",
         rich_help_panel="Behavior",
     ),
 ) -> None:

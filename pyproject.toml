@@ -1,7 +1,7 @@
 [project]
 name = "ethernity"
 version = "0.1.0"
-description = "Add your description here"
+description = "Secure, offline-recoverable backup system with QR-based recovery documents"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -32,6 +32,7 @@ build = ["pyinstaller>=6.10.0"]
 dev = [
     "coverage>=7.13.1",
     "mypy>=1.11.0",
+    "pytest>=8.0.0",
     "ruff>=0.6.0",
 ]
 
