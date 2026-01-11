@@ -50,6 +50,10 @@ def run_startup(
     return False
 
 
+def ensure_playwright_browsers(*, quiet: bool = True) -> None:
+    _ensure_playwright_browsers(quiet=quiet)
+
+
 def _configure_playwright_env() -> None:
     if os.environ.get(_PLAYWRIGHT_BROWSERS_ENV):
         return

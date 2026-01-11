@@ -4,10 +4,14 @@ from pathlib import Path
 
 from ethernity.cli import run_backup_command
 from ethernity.cli.core.types import BackupArgs
-from tests.test_support import suppress_output, temp_env
+from tests.test_support import ensure_playwright_browsers, suppress_output, temp_env
 
 
 class TestIntegrationBackup(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        ensure_playwright_browsers()
+
     def test_backup_command_passphrase(self) -> None:
         payload = b"backup integration payload"
         with tempfile.TemporaryDirectory() as tmpdir:

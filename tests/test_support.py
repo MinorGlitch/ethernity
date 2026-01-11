@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Generator
 from unittest import mock
 
+from ethernity.cli.startup import ensure_playwright_browsers as _ensure_playwright_browsers
 from ethernity.crypto.sharding import (
     KEY_TYPE_PASSPHRASE,
     ShardPayload,
@@ -66,6 +67,11 @@ def build_cli_env(
     if overrides:
         env.update(overrides)
     return env
+
+
+def ensure_playwright_browsers() -> None:
+    os.environ.pop("ETHERNITY_SKIP_PLAYWRIGHT_INSTALL", None)
+    _ensure_playwright_browsers(quiet=True)
 
 
 @contextmanager

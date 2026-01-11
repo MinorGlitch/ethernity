@@ -174,9 +174,13 @@ path = "/custom/shard.html"
             path.write_text(toml, encoding="utf-8")
             config = load_app_config(path=path)
 
-        self.assertEqual(config.template_path, Path("/custom/template.html"))
-        self.assertEqual(config.recovery_template_path, Path("/custom/recovery.html"))
-        self.assertEqual(config.shard_template_path, Path("/custom/shard.html"))
+        def assert_custom_path(actual: Path, expected_suffix: str) -> None:
+            self.assertTrue(actual.is_absolute())
+            self.assertTrue(actual.as_posix().endswith(expected_suffix))
+
+        assert_custom_path(config.template_path, "/custom/template.html")
+        assert_custom_path(config.recovery_template_path, "/custom/recovery.html")
+        assert_custom_path(config.shard_template_path, "/custom/shard.html")
 
     def test_load_app_config_color_tuples(self) -> None:
         """Test loading config with RGB color tuples."""

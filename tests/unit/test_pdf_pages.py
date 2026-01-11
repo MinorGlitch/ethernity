@@ -7,6 +7,7 @@ from pypdf import PdfReader
 
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
 from ethernity.render import RenderInputs, render_frames_to_pdf
+from tests.test_support import ensure_playwright_browsers
 
 
 def _playwright_ready() -> bool:
@@ -21,12 +22,13 @@ def _playwright_ready() -> bool:
         return False
 
 
-_PLAYWRIGHT_READY = _playwright_ready()
-
-
 class TestPdfPageCount(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        ensure_playwright_browsers()
+
     def test_multi_page_output(self) -> None:
-        if not _PLAYWRIGHT_READY:
+        if not _playwright_ready():
             self.skipTest("playwright not available")
 
         doc_id = b"\x77" * DOC_ID_LEN

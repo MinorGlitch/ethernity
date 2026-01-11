@@ -9,10 +9,14 @@ from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.encoding.chunking import chunk_payload
 from ethernity.encoding.framing import FrameType, encode_frame
 from ethernity.formats.envelope_codec import build_single_file_manifest, encode_envelope
-from tests.test_support import build_cli_env
+from tests.test_support import build_cli_env, ensure_playwright_browsers
 
 
 class TestEndToEndCli(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        ensure_playwright_browsers()
+
     def test_backup_cli_creates_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
