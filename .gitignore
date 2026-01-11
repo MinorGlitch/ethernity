@@ -1,16 +1,42 @@
 # Python-generated files
 __pycache__/
-*.py[oc]
+*.py[cod]
+*$py.class
 build/
 dist/
 wheels/
-*.egg-info
+*.egg-info/
+*.egg
+.eggs/
 
 # Virtual environments
-.venv
+.venv/
+venv/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Type checking
+.mypy_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
 
 # Node tooling
 node_modules/
 
+# Kit build outputs (dev only, canonical bundle is in src/ethernity/kit/)
+kit/dist/
+
 # macOS
 .DS_Store
+
+# Local config overrides
+*.local.toml

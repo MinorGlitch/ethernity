@@ -3,7 +3,21 @@ name = "ethernity"
 version = "0.1.0"
 description = "Secure, offline-recoverable backup system with QR-based recovery documents"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.13"
+keywords = ["backup", "recovery", "qr-code", "encryption", "offline", "paper-backup"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security :: Cryptography",
+    "Topic :: System :: Archiving :: Backup",
+    "Typing :: Typed",
+]
 dependencies = [
     "cbor2",
     "certifi",
@@ -32,7 +46,9 @@ build = ["pyinstaller>=6.10.0"]
 dev = [
     "coverage>=7.13.1",
     "mypy>=1.11.0",
+    "pre-commit>=3.7.0",
     "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
     "ruff>=0.6.0",
 ]
 
@@ -67,3 +83,19 @@ mypy_path = "src"
 ignore_missing_imports = true
 warn_redundant_casts = true
 warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
+
+[tool.coverage.run]
+source = ["src/ethernity"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+show_missing = true

@@ -1,12 +1,16 @@
 # Ethernity
 
-Create paper backups that you can recover offline.
+Secure, offline-recoverable backup system with QR-based recovery documents.
+
+Create paper backups that you can recover offline using only a web browser.
 
 ## Installation
 
 Install from a local checkout:
 
 ```bash
+pip install /path/to/ethernity
+# or with pipx
 pipx install /path/to/ethernity
 ```
 
@@ -16,43 +20,105 @@ Then run it:
 ethernity --help
 ```
 
-## Tests
+## Quick Start
+
+Create a backup:
+
+```bash
+ethernity backup my_files/ -o backup.pdf
+```
+
+Generate a recovery kit (offline recovery tool as QR codes):
+
+```bash
+ethernity kit -o recovery_kit.pdf
+```
+
+Recover from a backup:
+
+```bash
+ethernity recover backup.pdf -o recovered_files/
+```
+
+## Development
+
+### Setup
+
+```bash
+# Clone and install with dev dependencies
+git clone https://github.com/your-org/ethernity.git
+cd ethernity
+uv sync --extra dev
+
+# Install pre-commit hooks
+uv run pre-commit install
+```
+
+### Tests
 
 Run the test suite:
 
 ```bash
-uv run python -m unittest discover -s tests -p "test_*.py"
+# All tests
+uv run pytest
+
+# With coverage
+uv run pytest --cov=ethernity --cov-report=html
+
+# Specific test categories
+uv run pytest tests/unit
+uv run pytest tests/integration
+```
+
+### Linting and Formatting
+
+```bash
+# Check
+uv run ruff check src tests
+uv run ruff format --check src tests
+
+# Fix
+uv run ruff check --fix src tests
+uv run ruff format src tests
+
+# Type checking
+uv run mypy src
+```
+
+### Building the Recovery Kit
+
+The recovery kit is a self-contained HTML file bundled with the package. To rebuild after changes:
+
+```bash
+cd kit
+npm install
+node build_kit.mjs
+# Bundle is output to src/ethernity/kit/recovery_kit.bundle.html
 ```
 
 ## Packaging (PyInstaller)
 
-Build a standalone CLI for your OS (browsers are downloaded on first run):
+Build a standalone CLI for your OS:
 
 ```bash
-./scripts/build_pyinstaller.sh
+pip install ".[build]"
+pyinstaller --clean --noconfirm ethernity.spec
 ```
 
-On Windows (PowerShell):
+Artifacts land in `dist/ethernity/`.
 
-```powershell
-.\scripts\build_pyinstaller.ps1
-```
-
-Artifacts land in `dist/ethernity` (or `dist/ethernity.exe` if you switch to one-file).
-
-### Config location
+## Configuration
 
 On first run, Ethernity copies its default configs/templates to:
 
 ```
-~/.config/ethernity/
+~/.config/ethernity/   # Linux/macOS
+%APPDATA%\ethernity\   # Windows
 ```
 
 You can edit those files to customize the output.
 
-### Python imports
-
-Prefer the package-level exports when importing from Python:
+## Python API
 
 ```python
 from ethernity.config import load_app_config
@@ -61,10 +127,6 @@ from ethernity.render import RenderInputs, render_frames_to_pdf
 from ethernity.formats import encode_envelope, EnvelopeManifest
 ```
 
-### Sharding signing key
+## License
 
-For unsealed passphrase backups with sharding enabled, Ethernity embeds the shard signing
-seed inside the encrypted envelope manifest by default. If you want stronger separation,
-use `--signing-key-mode sharded` to emit separate signing-key shard PDFs and keep the seed
-out of the main envelope. You can also set a different quorum for signing-key shards with
-`--signing-key-shard-threshold` and `--signing-key-shard-count` (defaults to the passphrase quorum).
+MIT License - see [LICENSE](LICENSE) for details.
