@@ -3,12 +3,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.test_support import suppress_output
-
 from ethernity import cli
 from ethernity.cli.io.frames import _frames_from_fallback
 from ethernity.encoding.chunking import frame_to_fallback_lines
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
+from tests.test_support import suppress_output
 
 
 class TestCliRecoverValidation(unittest.TestCase):

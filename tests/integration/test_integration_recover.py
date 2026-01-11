@@ -6,7 +6,6 @@ from pathlib import Path
 import segno
 import zxingcpp  # noqa: F401
 from PIL import Image  # noqa: F401
-from tests.test_support import suppress_output
 
 from ethernity.cli import run_recover_command
 from ethernity.cli.core.types import RecoverArgs
@@ -19,6 +18,7 @@ from ethernity.formats.envelope_codec import (
     encode_envelope,
 )
 from ethernity.formats.envelope_types import PayloadPart
+from tests.test_support import suppress_output
 
 
 class TestIntegrationRecover(unittest.TestCase):

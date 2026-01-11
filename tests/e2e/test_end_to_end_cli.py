@@ -5,12 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.test_support import build_cli_env
-
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.encoding.chunking import chunk_payload
 from ethernity.encoding.framing import FrameType, encode_frame
 from ethernity.formats.envelope_codec import build_single_file_manifest, encode_envelope
+from tests.test_support import build_cli_env
 
 
 class TestEndToEndCli(unittest.TestCase):

@@ -3,8 +3,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.test_support import suppress_output
-
 from ethernity.cli import run_recover_command
 from ethernity.cli.core.types import RecoverArgs
 from ethernity.crypto import encrypt_bytes_with_passphrase
@@ -13,6 +11,7 @@ from ethernity.crypto.signing import generate_signing_keypair
 from ethernity.encoding.chunking import chunk_payload, frame_to_fallback_lines
 from ethernity.encoding.framing import Frame, FrameType, encode_frame
 from ethernity.formats.envelope_codec import build_single_file_manifest, encode_envelope
+from tests.test_support import suppress_output
 
 
 class TestEndToEndSharding(unittest.TestCase):
