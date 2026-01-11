@@ -174,9 +174,9 @@ path = "/custom/shard.html"
             path.write_text(toml, encoding="utf-8")
             config = load_app_config(path=path)
 
-        self.assertEqual(str(config.template_path), "/custom/template.html")
-        self.assertEqual(str(config.recovery_template_path), "/custom/recovery.html")
-        self.assertEqual(str(config.shard_template_path), "/custom/shard.html")
+        self.assertEqual(config.template_path, Path("/custom/template.html"))
+        self.assertEqual(config.recovery_template_path, Path("/custom/recovery.html"))
+        self.assertEqual(config.shard_template_path, Path("/custom/shard.html"))
 
     def test_load_app_config_color_tuples(self) -> None:
         """Test loading config with RGB color tuples."""
