@@ -100,8 +100,8 @@ def _load_kit_bundle(bundle_path: str | Path | None) -> bytes:
     if candidate.exists():
         return candidate.read_bytes()
     raise FileNotFoundError(
-        f"Recovery kit bundle not found. Run 'npm run build' in the kit/ directory, "
-        f"or specify a bundle path with --bundle."
+        "Recovery kit bundle not found. Reinstall the package or specify "
+        "a custom bundle with --bundle."
     )
 
 

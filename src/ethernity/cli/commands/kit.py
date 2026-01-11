@@ -45,11 +45,10 @@ def _run_kit_render(
     if not quiet_value:
         console.print(f"[accent]Recovery kit saved:[/accent] {result.output_path}")
         console.print(
-            f"[muted]QR codes:[/muted] {result.chunk_count} "
-            f"({result.chunk_size} bytes each)"
+            f"[muted]QR codes:[/muted] {result.chunk_count} ({result.chunk_size} bytes each)"
         )
         console.print(
-            f"[muted]Print this document and store it securely with your recovery materials.[/muted]"
+            "[muted]Print this document and store it securely with your recovery materials.[/muted]"
         )
 
 

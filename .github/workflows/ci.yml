@@ -54,25 +54,59 @@ jobs:
       - name: Run integration tests
         run: uv run python -m pytest tests/integration -v
 
-  kit-build:
+  kit-verify:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
           cache-dependency-path: kit/package-lock.json
+
       - name: Install kit dependencies
         working-directory: kit
         run: npm ci
-      - name: Build recovery kit
+
+      - name: Save committed bundle hash
+        run: |
+          if [ -f src/ethernity/kit/recovery_kit.bundle.html ]; then
+            sha256sum src/ethernity/kit/recovery_kit.bundle.html > /tmp/committed_hash.txt
+            echo "Committed bundle hash:"
+            cat /tmp/committed_hash.txt
+          else
+            echo "ERROR: No committed bundle found at src/ethernity/kit/recovery_kit.bundle.html"
+            echo "Run 'node kit/build_kit.mjs' and commit the bundle."
+            exit 1
+          fi
+
+      - name: Build fresh bundle
         working-directory: kit
         run: node build_kit.mjs
-      - name: Verify bundle exists
+
+      - name: Verify bundle matches
         run: |
-          test -f kit/dist/recovery_kit.bundle.html || exit 1
-          test -f src/ethernity/kit/recovery_kit.bundle.html || exit 1
-          echo "Kit bundle built successfully"
+          sha256sum src/ethernity/kit/recovery_kit.bundle.html > /tmp/fresh_hash.txt
+          echo "Fresh build hash:"
+          cat /tmp/fresh_hash.txt
+
+          COMMITTED=$(cut -d' ' -f1 /tmp/committed_hash.txt)
+          FRESH=$(cut -d' ' -f1 /tmp/fresh_hash.txt)
+
+          if [ "$COMMITTED" != "$FRESH" ]; then
+            echo ""
+            echo "ERROR: Committed bundle is out of date!"
+            echo "  Committed: $COMMITTED"
+            echo "  Fresh:     $FRESH"
+            echo ""
+            echo "Please rebuild and commit the bundle:"
+            echo "  cd kit && node build_kit.mjs"
+            echo "  git add src/ethernity/kit/recovery_kit.bundle.html"
+            echo "  git commit -m 'Rebuild kit bundle'"
+            exit 1
+          fi
+
+          echo "Bundle is up to date."
