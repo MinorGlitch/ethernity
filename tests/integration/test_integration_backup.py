@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_support import suppress_output, temp_env
+from tests.test_support import suppress_output, temp_env
 
 from ethernity.cli import run_backup_command
 from ethernity.cli.core.types import BackupArgs

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_support import build_cli_env
+from tests.test_support import build_cli_env
 
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.encoding.chunking import chunk_payload

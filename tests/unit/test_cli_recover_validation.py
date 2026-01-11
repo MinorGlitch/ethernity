@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_support import suppress_output
+from tests.test_support import suppress_output
 
 from ethernity import cli
 from ethernity.cli.io.frames import _frames_from_fallback

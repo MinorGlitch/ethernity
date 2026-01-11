@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_support import suppress_output
+from tests.test_support import suppress_output
 
 from ethernity.cli import run_recover_command
 from ethernity.cli.core.types import RecoverArgs
