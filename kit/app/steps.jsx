@@ -6,8 +6,8 @@ import { ShardCollector } from "./components/ShardCollector.jsx";
 export const STEPS = [
   {
     id: "frames",
-    title: "Collect frames",
-    summary: "Paste main frames to reconstruct the ciphertext. Add the auth frame if you want signature verification.",
+    title: "Enter backup data",
+    summary: "Paste the text from your recovery document or scanned QR codes. Include the verification code if available.",
     render: (ctx) => (
       <FrameCollector
         payloadText={ctx.state.payloadText}
@@ -24,8 +24,8 @@ export const STEPS = [
   },
   {
     id: "shards",
-    title: "Recover shards",
-    summary: "Add shard frames to recover the secret needed for decryption.",
+    title: "Combine recovery shares",
+    summary: "If your passphrase was split into shares, enter them here to reconstruct it. Skip this step if you have the full passphrase.",
     render: (ctx) => (
       <ShardCollector
         shardPayloadText={ctx.state.shardPayloadText}
@@ -46,8 +46,8 @@ export const STEPS = [
   },
   {
     id: "decrypt",
-    title: "Decrypt & extract",
-    summary: "Provide the passphrase to unlock and extract the recovered files.",
+    title: "Unlock & download",
+    summary: "Enter your passphrase to decrypt and download your recovered files.",
     render: (ctx) => (
       <DecryptSection
         passphrase={ctx.state.agePassphrase}
@@ -56,6 +56,7 @@ export const STEPS = [
         onDecrypt={ctx.onDecrypt}
         canDecrypt={ctx.actionState.canDecryptCiphertext}
         isComplete={ctx.actionState.hasOutput || Boolean(ctx.state.decryptedEnvelope)}
+        isDecrypting={ctx.state.isDecrypting}
         onExtract={ctx.onExtract}
         onDownloadEnvelope={ctx.onDownloadEnvelope}
         canExtract={ctx.actionState.canExtractEnvelope}
@@ -69,6 +70,7 @@ export const STEPS = [
           onDownloadZip={ctx.onDownloadZip}
           onDownloadFile={ctx.onDownloadFile}
           hasOutput={ctx.actionState.hasOutput}
+          recoveryComplete={ctx.state.recoveryComplete}
         />
       </DecryptSection>
     ),

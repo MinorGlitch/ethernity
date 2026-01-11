@@ -137,6 +137,56 @@
       font-family: var(--font-ui);
     }
 
+    .welcome-banner {
+      background: linear-gradient(135deg, rgba(19, 35, 64, 0.9), rgba(13, 24, 44, 0.95));
+      border: 1px solid rgba(78, 161, 255, 0.35);
+      border-radius: var(--radius-md);
+      padding: var(--space-3);
+      animation: lift-in 0.5s ease both;
+    }
+
+    .welcome-content {
+      display: grid;
+      gap: var(--space-2);
+      font-size: 13px;
+      color: var(--ink);
+    }
+
+    .welcome-content strong {
+      color: #d6e8ff;
+      font-size: 14px;
+    }
+
+    .welcome-steps {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 8px;
+    }
+
+    .welcome-steps li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .welcome-num {
+      flex-shrink: 0;
+      width: 20px;
+      height: 20px;
+      border-radius: 999px;
+      background: rgba(78, 161, 255, 0.25);
+      border: 1px solid rgba(78, 161, 255, 0.4);
+      color: #cfe4ff;
+      font-size: 11px;
+      font-weight: 600;
+      display: grid;
+      place-items: center;
+    }
+
     .app-layout {
       display: grid;
       grid-template-columns: minmax(200px, 240px) minmax(0, 1fr);
@@ -744,6 +794,51 @@
       cursor: default;
       transform: none;
       box-shadow: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    button.loading {
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    .success-banner {
+      background: linear-gradient(135deg, rgba(10, 45, 42, 0.95), rgba(8, 38, 35, 0.98));
+      border: 1px solid rgba(51, 215, 197, 0.5);
+      border-radius: var(--radius-md);
+      padding: var(--space-3);
+      display: grid;
+      gap: var(--space-2);
+      animation: lift-in 0.5s ease both;
+    }
+
+    .success-banner h3 {
+      color: #b7f7f0;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .success-banner p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .success-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      background: rgba(51, 215, 197, 0.25);
+      border: 1px solid rgba(51, 215, 197, 0.5);
+      display: grid;
+      place-items: center;
+      color: #b7f7f0;
+      font-size: 14px;
     }
 
     .status {

@@ -36,22 +36,23 @@ export function ShardCollector({
     onAddShardPayloads();
   };
   const input = {
-    title: "Shard frames",
+    title: "Recovery shares",
     body: (
       <>
         <Field
           id="shard-payload-text"
-          label="Shard frames"
+          label="Share text"
           value={shardPayloadText}
-          placeholder="Paste shard frames or fallback text here..."
+          placeholder="Paste the text from your shard documents here..."
           onInput={handleShardChange}
           onPaste={handlePaste}
           as="textarea"
         />
         {pasteHint ? <div class="hint">{pasteHint}</div> : null}
+        <div class="hint">Skip this step if you have the full passphrase written down.</div>
       </>
     ),
-    actions: [{ label: "Add shard frames", onClick: handleAddShards }],
+    actions: [{ label: "Add shares", onClick: handleAddShards }],
     className: isComplete && !shardPayloadText.trim() ? "input-collapsed" : "",
   };
   const status = {
@@ -91,24 +92,24 @@ export function ShardCollector({
     ),
   };
   const output = {
-    title: "Recovered secret",
+    title: "Recovered passphrase",
     body: (
       <Field
         id="recovered-secret"
         label={recoveredLabel}
         value={recoveredSecret}
-        placeholder="Recovered secret will appear here..."
+        placeholder="Your passphrase will appear here once shares are combined..."
         readOnly
         as="textarea"
       />
     ),
     actions: [
       {
-        label: "Copy result",
+        label: "Copy passphrase",
         className: "secondary",
         onClick: onCopyResult,
         disabled: !canCopyResult,
-        disabledReason: "Recover the secret first.",
+        disabledReason: "Combine enough shares first.",
       },
     ],
   };

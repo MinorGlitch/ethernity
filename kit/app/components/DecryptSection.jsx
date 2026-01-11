@@ -7,6 +7,7 @@ export function DecryptSection({
   onDecrypt,
   canDecrypt,
   isComplete,
+  isDecrypting,
   onExtract,
   onDownloadEnvelope,
   canExtract,
@@ -15,10 +16,10 @@ export function DecryptSection({
 }) {
   const decryptActions = [
     {
-      label: "Decrypt & extract",
+      label: isDecrypting ? "Unlocking..." : "Unlock & extract",
       onClick: onDecrypt,
-      disabled: !canDecrypt,
-      disabledReason: passphrase.trim() ? "Collect ciphertext to decrypt." : "Enter the passphrase to decrypt.",
+      disabled: !canDecrypt || isDecrypting,
+      disabledReason: passphrase.trim() ? "Add backup data first (Step 1)." : "Enter your passphrase to unlock.",
     },
   ];
   const envelopeActions = [
@@ -26,33 +27,33 @@ export function DecryptSection({
       label: "Extract files",
       onClick: onExtract,
       disabled: !canExtract,
-      disabledReason: "Decrypt the ciphertext first.",
+      disabledReason: "Unlock the backup first.",
     },
     {
-      label: "Download envelope",
+      label: "Download raw data",
       className: "secondary",
       onClick: onDownloadEnvelope,
       disabled: !canDownloadEnvelope,
-      disabledReason: "Decrypt the ciphertext first.",
+      disabledReason: "Unlock the backup first.",
     },
   ];
   return (
     <div class="step-layout">
       <Card
-        title="Unlock ciphertext"
+        title="Enter passphrase"
         className={isComplete && !passphrase.trim() ? "step-input input-collapsed" : "step-input"}
       >
         <Field
           id="passphrase-input"
           label="Passphrase"
           value={passphrase}
-          placeholder="Passphrase..."
+          placeholder="Enter your passphrase here..."
           onInput={onPassphraseChange}
           type="password"
         />
         <ActionsRow actions={decryptActions} />
       </Card>
-      <Card title="Envelope status" className="step-status">
+      <Card title="Decryption status" className="step-status">
         <ActionsRow actions={envelopeActions} className="actions-secondary" />
         <StatusBlock status={decryptStatus} />
       </Card>

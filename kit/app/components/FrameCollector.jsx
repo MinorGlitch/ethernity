@@ -32,14 +32,14 @@ export function FrameCollector({
     onAddPayloads();
   };
   const input = {
-    title: "Frame inputs",
+    title: "Backup data",
     body: (
       <>
         <Field
           id="payload-text"
-          label="Frame text"
+          label="Recovery text"
           value={payloadText}
-          placeholder="Paste main frames and optional auth frame text here..."
+          placeholder="Paste the text from your recovery document here (including the AUTH section if available)..."
           onInput={handlePayloadChange}
           onPaste={handlePaste}
           as="textarea"
@@ -47,16 +47,16 @@ export function FrameCollector({
         {pasteHint ? <div class="hint">{pasteHint}</div> : null}
       </>
     ),
-    actions: [{ label: "Add frames", onClick: handleAddFrames }],
+    actions: [{ label: "Add data", onClick: handleAddFrames }],
     secondaryActions: [
       {
-        label: "Download ciphertext.age",
+        label: "Download encrypted file",
         className: "secondary",
         onClick: onDownloadCipher,
         disabled: !canDownloadCipher,
-        disabledReason: "Collect all frames to download.",
+        disabledReason: "Add all backup data first.",
       },
-      { label: "Reset", className: "ghost", onClick: onReset },
+      { label: "Start over", className: "ghost", onClick: onReset },
     ],
     className: isComplete && !payloadText.trim() ? "input-collapsed" : "",
   };

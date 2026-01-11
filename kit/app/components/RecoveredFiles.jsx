@@ -1,5 +1,20 @@
 import { ActionsRow, Card, OutputTable, StatusBlock } from "./common.jsx";
 
+function SuccessBanner({ fileCount }) {
+  return (
+    <div class="success-banner">
+      <h3>
+        <span class="success-icon">✓</span>
+        Recovery Complete
+      </h3>
+      <p>
+        Successfully recovered {fileCount} file{fileCount !== 1 ? "s" : ""}.
+        Download individual files below or get everything as a ZIP.
+      </p>
+    </div>
+  );
+}
+
 export function RecoveredFiles({
   extractStatus,
   outputSubtitle,
@@ -8,13 +23,15 @@ export function RecoveredFiles({
   onDownloadZip,
   onDownloadFile,
   hasOutput,
+  recoveryComplete,
 }) {
   const actions = [
     { label: "Clear output", className: "ghost", onClick: onClearOutput, disabled: !hasOutput },
-    { label: "Download ZIP", className: "secondary", onClick: onDownloadZip, disabled: !hasOutput },
+    { label: "Download all as ZIP", className: "secondary", onClick: onDownloadZip, disabled: !hasOutput },
   ];
   return (
     <Card>
+      {recoveryComplete && hasOutput && <SuccessBanner fileCount={files.length} />}
       <div class="row row-between">
         <div>
           <h3>Recovered files</h3>

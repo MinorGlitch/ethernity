@@ -39,7 +39,7 @@ function clearDecryptedEnvelope(state) {
 
 function applyExtractResult(state, result) {
   state.extractedFiles = result.files;
-  setStatus(state, "extractStatus", [`Extracted ${result.files.length} file(s).`], "ok");
+  setStatus(state, "extractStatus", [`${result.files.length} file(s) ready to download.`], "ok");
 }
 
 export function updateField(dispatch, getState, key, value) {
@@ -159,7 +159,8 @@ export async function decryptCiphertext(dispatch, getState) {
   }
   clearRecoveredOutput(base);
   clearDecryptedEnvelope(base);
-  setStatus(base, "decryptStatus", ["Decrypting ciphertext..."]);
+  base.isDecrypting = true;
+  setStatus(base, "decryptStatus", ["Unlocking your backup... This may take a moment."]);
   dispatchState(dispatch, base);
 
   const next = cloneState(base);
@@ -176,13 +177,22 @@ export async function decryptCiphertext(dispatch, getState) {
     next.decryptedEnvelopeSource = "Collected ciphertext";
     const result = extractFiles(plaintext);
     applyExtractResult(next, result);
+    next.isDecrypting = false;
+    next.recoveryComplete = true;
     setStatus(next, "decryptStatus", [
-      `Decrypted ${formatBytes(plaintext.length)} envelope.`,
-      `Extracted ${result.files.length} file(s).`,
+      `Recovery successful!`,
+      `${result.files.length} file(s) recovered (${formatBytes(plaintext.length)}).`,
     ], "ok");
     next.agePassphrase = "";
   } catch (err) {
-    setStatus(next, "decryptStatus", [String(err)], "error");
+    next.isDecrypting = false;
+    const errorMsg = String(err);
+    const friendlyError = errorMsg.includes("password")
+      ? "Incorrect passphrase. Please check and try again."
+      : errorMsg.includes("decrypt")
+        ? "Could not unlock the backup. Check your passphrase."
+        : errorMsg;
+    setStatus(next, "decryptStatus", [friendlyError], "error");
   }
   dispatchState(dispatch, next);
 }

@@ -131,6 +131,16 @@ export function App() {
         </div>
         <div class="app-badge">Offline</div>
       </header>
+      <section class="welcome-banner">
+        <div class="welcome-content">
+          <strong>How to recover your files:</strong>
+          <ol class="welcome-steps">
+            <li><span class="welcome-num">1</span> Paste backup data from your recovery document or scanned QR codes</li>
+            <li><span class="welcome-num">2</span> If needed, combine your recovery shares to reconstruct the passphrase</li>
+            <li><span class="welcome-num">3</span> Enter your passphrase to unlock and download your files</li>
+          </ol>
+        </div>
+      </section>
       <div class="app-layout">
         <aside class="panel rail">
           <StepNav

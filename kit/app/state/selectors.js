@@ -17,16 +17,16 @@ export function formatBytes(value) {
 function describeMissingFrames(state) {
   if (!state.total) {
     return {
-      value: "Waiting for frame count",
-      detail: "Add at least one main frame to detect total.",
+      value: "Waiting for data",
+      detail: "Paste backup data to begin.",
       tone: "idle",
     };
   }
   const missingCount = Math.max(0, state.total - state.mainFrames.size);
   if (missingCount === 0) {
     return {
-      value: "0 (complete)",
-      detail: "All main frames collected.",
+      value: "Complete",
+      detail: "All backup data collected.",
       tone: "ok",
     };
   }
@@ -34,10 +34,10 @@ function describeMissingFrames(state) {
   const preview = missingList.slice(0, 8);
   const extra = missingList.length - preview.length;
   const detail = preview.length
-    ? `Missing indices: ${preview.join(", ")}${extra > 0 ? ` +${extra} more` : ""}`
+    ? `Missing sections: ${preview.join(", ")}${extra > 0 ? ` +${extra} more` : ""}`
     : "";
   return {
-    value: `${missingCount} remaining`,
+    value: `${missingCount} more needed`,
     detail,
     tone: "warn",
   };
@@ -50,30 +50,30 @@ function describeValidationSummary(state) {
   const missingCount = totalKnown ? Math.max(0, state.total - state.mainFrames.size) : null;
   if (hasErrors) {
     return {
-      value: "Issues detected",
-      detail: "Resolve conflicts or errors to continue.",
+      value: "Problem detected",
+      detail: "Check the data you pasted - there may be conflicts or formatting issues.",
       tone: "error",
     };
   }
   if (totalKnown && missingCount === 0) {
     return {
-      value: "Ready to decrypt",
-      detail: "All main frames collected.",
+      value: "Ready to unlock",
+      detail: "All backup data collected. Proceed to Step 3.",
       tone: "ok",
     };
   }
   if (hasFrames) {
     return {
-      value: "Collecting frames",
+      value: "Collecting data",
       detail: missingCount === null
-        ? "Waiting for total frame count."
-        : `Add ${missingCount} more frame(s).`,
+        ? "Processing your input..."
+        : `Add ${missingCount} more section(s) from your recovery document.`,
       tone: "progress",
     };
   }
   return {
-    value: "Waiting for frames",
-    detail: "Paste main frames to begin.",
+    value: "Waiting for data",
+    detail: "Paste the text from your recovery document.",
     tone: "idle",
   };
 }
@@ -81,33 +81,33 @@ function describeValidationSummary(state) {
 function describeAuthStatus(state) {
   const status = state.authStatus || "missing";
   if (status === "verified") {
-    return { value: "Verified", tone: "ok" };
+    return { value: "Verified", detail: "Data integrity confirmed.", tone: "ok" };
   }
   if (status === "missing") {
     return {
-      value: "Missing (optional)",
-      detail: "Add auth frame to verify signature.",
+      value: "Not included",
+      detail: "Include the AUTH section from your document to verify integrity.",
       tone: "idle",
     };
   }
   if (status === "pending") {
-    return { value: "Pending verification", tone: "progress" };
+    return { value: "Checking...", tone: "progress" };
   }
   if (status === "waiting for main frames") {
-    return { value: "Waiting for main frames", tone: "progress" };
+    return { value: "Waiting for backup data", tone: "progress" };
   }
   if (status === "doc_hash matches; signature not verified") {
     return {
-      value: "Doc hash matches; signature not verified",
-      detail: "Browser cannot verify signature.",
+      value: "Data matches",
+      detail: "Integrity check passed. Full signature verification unavailable in browser.",
       tone: "warn",
     };
   }
   if (status === "invalid signature" || status.includes("mismatch") || status.includes("conflict")) {
-    return { value: status, tone: "error" };
+    return { value: "Verification failed", detail: "The data may have been altered or corrupted.", tone: "error" };
   }
   if (status === "invalid payload") {
-    return { value: "Invalid auth payload", tone: "error" };
+    return { value: "Invalid verification data", detail: "The AUTH section appears to be malformed.", tone: "error" };
   }
   return { value: status, tone: "idle" };
 }
@@ -123,22 +123,22 @@ function sumFrameBytes(frames) {
 function describeShardReadiness(state) {
   const hasSecret = Boolean(state.recoveredShardSecret);
   if (hasSecret) {
-    return { value: "Recovered", detail: "Secret recovered.", tone: "ok" };
+    return { value: "Passphrase recovered", detail: "You can now proceed to Step 3.", tone: "ok" };
   }
   const thresholdKnown = Boolean(state.shardThreshold);
   const collected = state.shardFrames.size;
   if (thresholdKnown && collected >= state.shardThreshold) {
-    return { value: "Ready to recover", detail: "Recover the secret.", tone: "progress" };
+    return { value: "Ready to combine", detail: "Click 'Add shares' to recover your passphrase.", tone: "progress" };
   }
   if (collected) {
     const remaining = thresholdKnown ? Math.max(0, state.shardThreshold - collected) : null;
     return {
-      value: "Collecting shards",
-      detail: remaining === null ? "Waiting for shard metadata." : `Add ${remaining} more shard frame(s).`,
+      value: "Collecting shares",
+      detail: remaining === null ? "Processing shares..." : `Add ${remaining} more share(s) from your shard documents.`,
       tone: "progress",
     };
   }
-  return { value: "Waiting for shards", detail: "Paste shard frames to begin.", tone: "idle" };
+  return { value: "No shares yet", detail: "Skip this step if you have the full passphrase.", tone: "idle" };
 }
 
 function selectFrameStatusItems(state) {
@@ -154,34 +154,34 @@ function selectFrameStatusItems(state) {
     && missingCount === 0
     && state.errors === 0
     && state.conflicts === 0;
-  const authMissing = authInfo.value?.toLowerCase?.().startsWith("missing");
+  const authMissing = authInfo.value?.toLowerCase?.().includes("not included");
   const authItem = readyToDecrypt && authMissing
     ? {
-      label: "Auth frame",
-      value: "Missing (optional)",
-      subLabel: "Ready to decrypt; signature not verified.",
+      label: "Verification",
+      value: "Skipped",
+      subLabel: "Ready to unlock. Include AUTH section for integrity check.",
       tone: "warn",
     }
     : {
-      label: "Auth frame",
+      label: "Verification",
       value: authInfo.value,
       subLabel: authInfo.detail,
       tone: authInfo.tone,
     };
   const framesDetail = state.total
     ? missingCount === 0
-      ? `${state.total} total frames`
-      : `${missingCount} missing`
-    : "Total unknown";
+      ? `${state.total} sections collected`
+      : `${missingCount} more needed`
+    : "Waiting for data";
   return [
     {
-      label: "Readiness",
+      label: "Status",
       value: validationSummary.value,
       subLabel: validationSummary.detail,
       tone: validationSummary.tone,
     },
     {
-      label: "Frames",
+      label: "Progress",
       value: `${state.mainFrames.size}/${state.total ?? "?"}`,
       subLabel: framesDetail,
       tone: framesTone,
@@ -331,13 +331,13 @@ function selectDecryptStatusItems(state) {
     : ciphertextSource.available || passphraseProvided
       ? "warn"
       : "idle";
-  let readinessDetail = "Collect ciphertext and enter the passphrase.";
+  let readinessDetail = "Complete Step 1 and enter your passphrase.";
   if (ciphertextSource.available && !passphraseProvided) {
-    readinessDetail = "Enter the passphrase to decrypt.";
+    readinessDetail = "Enter your passphrase to unlock.";
   } else if (!ciphertextSource.available && passphraseProvided) {
-    readinessDetail = "Collect ciphertext to decrypt.";
+    readinessDetail = "Go back to Step 1 to add backup data.";
   } else if (ready) {
-    readinessDetail = "Ready to decrypt.";
+    readinessDetail = "Click 'Unlock & extract' to recover your files.";
   }
   const envelopeTone = state.decryptedEnvelope
     ? "ok"
@@ -351,23 +351,23 @@ function selectDecryptStatusItems(state) {
       : "idle";
   const outputDetail = outputSummary.count
     ? formatBytes(outputSummary.totalBytes)
-    : "Decrypt and extract to recover files.";
+    : "Your files will appear here after unlocking.";
   return [
     {
-      label: "Readiness",
-      value: ready ? "Ready" : "Needs input",
+      label: "Status",
+      value: ready ? "Ready to unlock" : "Waiting",
       subLabel: readinessDetail,
       tone: readinessTone,
     },
     {
-      label: "Envelope",
-      value: state.decryptedEnvelope ? "Decrypted" : "Locked",
+      label: "Backup",
+      value: state.decryptedEnvelope ? "Unlocked" : "Locked",
       subLabel: envelopeSource.detail,
       tone: envelopeTone,
     },
     {
-      label: "Output",
-      value: outputSummary.count ? `${outputSummary.count} file(s)` : "No files",
+      label: "Files",
+      value: outputSummary.count ? `${outputSummary.count} recovered` : "None yet",
       subLabel: outputDetail,
       tone: outputTone,
     },

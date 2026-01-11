@@ -40,6 +40,8 @@ export function createBaseState() {
     shardPayloadText: "",
     agePassphrase: "",
     decryptStatus: { lines: [], type: "" },
+    isDecrypting: false,
+    recoveryComplete: false,
   };
 }
 
