@@ -25,7 +25,7 @@ def _resolve_auth_payload(
 ):
     if not auth_frames:
         if require_auth:
-            raise ValueError("missing auth frame; use --allow-unsigned to skip verification")
+            raise ValueError("missing auth frame; use --skip-auth-check to skip verification")
         return None, "missing"
     if len(auth_frames) > 1:
         raise ValueError("multiple auth frames provided")

@@ -89,7 +89,7 @@ def _auth_frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bo
         "auth",
         allow_invalid=allow_invalid_auth,
         quiet=quiet,
-        missing_error="missing AUTH fallback section; include AUTH or use --allow-unsigned",
+        missing_error="missing AUTH fallback section; include AUTH or use --skip-auth-check",
     )
     return [frame] if frame else []
 

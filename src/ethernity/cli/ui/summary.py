@@ -66,7 +66,7 @@ def format_auth_status(status: str, *, allow_unsigned: bool) -> str:
     if status == "verified":
         return "verified"
     if status == "missing":
-        return "missing (allowed)" if allow_unsigned else "missing"
+        return "skipped (--skip-auth-check)" if allow_unsigned else "missing"
     if status == "ignored":
-        return "invalid (ignored)"
+        return "failed (check skipped)"
     return status

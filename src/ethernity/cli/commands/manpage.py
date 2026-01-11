@@ -26,7 +26,7 @@ def manpage(
     root_ctx = ctx.find_root()
     command = root_ctx.command
     help_text = command.get_help(click.Context(command))
-    date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+    date = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d")
     man = "\n".join(
         [
             f'.TH ETHERNITY 1 "{date}" "ethernity" "User Commands"',

@@ -69,7 +69,7 @@ def plan_from_args(args: RecoverArgs) -> RecoveryPlan:
     allow_unsigned = args.allow_unsigned
     quiet = args.quiet
     if allow_unsigned:
-        _warn("allow-unsigned disables auth verification", quiet=quiet)
+        _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
 
     frames, input_label, input_detail = _frames_from_args(
         args,

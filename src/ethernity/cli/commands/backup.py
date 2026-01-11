@@ -81,13 +81,13 @@ def backup(
     shard_threshold: int | None = typer.Option(
         None,
         "--shard-threshold",
-        help="Shard threshold (n).",
+        help="Minimum shards needed to recover (e.g., 2 for '2 of 3').",
         rich_help_panel="Sharding",
     ),
     shard_count: int | None = typer.Option(
         None,
         "--shard-count",
-        help="Shard count (k).",
+        help="Total shard documents to create (e.g., 3 for '2 of 3').",
         rich_help_panel="Sharding",
     ),
     signing_key_mode: Literal["embedded", "sharded"] | None = typer.Option(
