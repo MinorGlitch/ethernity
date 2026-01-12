@@ -9,6 +9,7 @@ from fpdf import FPDF
 
 from ..encoding.framing import encode_frame
 from ..qr.codec import QrConfig, qr_bytes
+from .doc_types import DOC_TYPE_KIT
 from .html_to_pdf import render_html_to_pdf
 from .layout import (
     FallbackSection,
@@ -45,7 +46,14 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     pdf = FPDF(unit="mm", format=cast(Any, paper_format))
     pdf.set_auto_page_break(False)
 
-    layout, fallback_lines = _compute_layout(inputs, layout_spec, pdf, key_lines)
+    include_instructions = inputs.doc_type != DOC_TYPE_KIT
+    layout, fallback_lines = _compute_layout(
+        inputs,
+        layout_spec,
+        pdf,
+        key_lines,
+        include_instructions=include_instructions,
+    )
     key_lines = list(layout.key_lines)
     spec = spec.with_key_lines(key_lines)
     layout_spec = _layout_spec(spec, doc_id=str(doc_id), page_label="Page 1 / 1")
@@ -60,7 +68,7 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
             pdf,
             key_lines,
             include_keys=not keys_first_page_only,
-            include_instructions=not instructions_first_page_only,
+            include_instructions=include_instructions and not instructions_first_page_only,
         )
 
     qr_config = inputs.qr_config or QrConfig()

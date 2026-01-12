@@ -25,15 +25,15 @@ def _resolve_auth_payload(
 ):
     if not auth_frames:
         if require_auth:
-            raise ValueError("missing auth frame; use --skip-auth-check to skip verification")
+            raise ValueError("missing auth payload; use --skip-auth-check to skip verification")
         return None, "missing"
     if len(auth_frames) > 1:
-        raise ValueError("multiple auth frames provided")
+        raise ValueError("multiple auth payloads provided")
     frame = auth_frames[0]
     if frame.doc_id != doc_id:
-        raise ValueError("auth frame doc_id does not match ciphertext")
+        raise ValueError("auth payload doc_id does not match ciphertext")
     if frame.total != 1 or frame.index != 0:
-        raise ValueError("auth frame must be a single-frame payload")
+        raise ValueError("auth payload must be a single-frame payload")
     try:
         payload = decode_auth_payload(frame.data)
     except ValueError as exc:
@@ -67,11 +67,11 @@ def _passphrase_from_shard_frames(
     sign_pub: bytes | None = expected_sign_pub
     for frame in frames:
         if frame.frame_type != FrameType.KEY_DOCUMENT:
-            raise ValueError("shard frames must be KEY_DOCUMENT type")
+            raise ValueError("shard payloads must be KEY_DOCUMENT type")
         if expected_doc_id is not None and frame.doc_id != expected_doc_id:
-            raise ValueError("shard frame doc_id does not match ciphertext")
+            raise ValueError("shard payload doc_id does not match ciphertext")
         if frame.total != 1 or frame.index != 0:
-            raise ValueError("shard frames must be single-frame payloads")
+            raise ValueError("shard payloads must be single-frame payloads")
         payload = decode_shard_payload(frame.data)
         if doc_hash is None:
             doc_hash = payload.doc_hash

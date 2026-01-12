@@ -95,10 +95,9 @@ class TestWizardState(unittest.TestCase):
 class TestUIContext(unittest.TestCase):
     """Tests for UIContext dataclass."""
 
-    def test_default_prompt_style(self) -> None:
-        """Test default prompt style."""
+    def test_default_context_state(self) -> None:
+        """Test default context state."""
         context = create_default_context()
-        self.assertEqual(context.prompt_style, "full")
         self.assertTrue(context.animations_enabled)
         self.assertIsNone(context.wizard_state)
 

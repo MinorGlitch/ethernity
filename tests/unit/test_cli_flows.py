@@ -182,7 +182,7 @@ class TestRecoverFlow(unittest.TestCase):
             auth_frames=(),
             shard_frames=(),
             shard_fallback_files=(),
-            shard_frame_files=(),
+            shard_payloads_file=(),
         )
 
         # Decrypt and extract

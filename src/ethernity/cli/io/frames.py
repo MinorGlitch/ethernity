@@ -61,8 +61,12 @@ def _parse_fallback_section(
         raise
 
 
-def _frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bool) -> list[Frame]:
-    lines = _read_text_lines(path)
+def _frames_from_fallback_lines(
+    lines: list[str],
+    *,
+    allow_invalid_auth: bool,
+    quiet: bool,
+) -> list[Frame]:
     if not _contains_fallback_markers(lines):
         return [_frame_from_fallback_lines(lines, label="fallback")]
 
@@ -82,8 +86,17 @@ def _frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bool) -
     return frames
 
 
-def _auth_frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bool) -> list[Frame]:
+def _frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bool) -> list[Frame]:
     lines = _read_text_lines(path)
+    return _frames_from_fallback_lines(lines, allow_invalid_auth=allow_invalid_auth, quiet=quiet)
+
+
+def _auth_frames_from_fallback_lines(
+    lines: list[str],
+    *,
+    allow_invalid_auth: bool,
+    quiet: bool,
+) -> list[Frame]:
     frame = _parse_fallback_section(
         lines,
         "auth",
@@ -94,6 +107,15 @@ def _auth_frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bo
     return [frame] if frame else []
 
 
+def _auth_frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bool) -> list[Frame]:
+    lines = _read_text_lines(path)
+    return _auth_frames_from_fallback_lines(
+        lines,
+        allow_invalid_auth=allow_invalid_auth,
+        quiet=quiet,
+    )
+
+
 def _frame_from_fallback_lines(lines: list[str], *, label: str) -> Frame:
     frame, skipped = _parse_fallback_frame(lines, label=label)
     if skipped:
@@ -101,28 +123,37 @@ def _frame_from_fallback_lines(lines: list[str], *, label: str) -> Frame:
     return frame
 
 
-def _frames_from_payloads(path: str, encoding: str, *, label: str = "frame") -> list[Frame]:
-    lines = _read_text_lines(path)
+def _frames_from_payload_lines(
+    lines: list[str],
+    encoding: str,
+    *,
+    label: str = "QR payloads",
+    source: str = "input",
+) -> list[Frame]:
     frames: list[Frame] = []
     for idx, line in enumerate(lines, start=1):
         payload_text = line.strip()
         if not payload_text:
             continue
         try:
-            payload = _decode_payload(payload_text, encoding)
-            frames.append(decode_frame(payload))
+            frames.append(_frame_from_payload_text(payload_text, encoding))
         except ValueError as exc:
-            raise ValueError(f"invalid frame payload on line {idx}: {exc}") from exc
+            raise ValueError(f"invalid QR payload on line {idx}: {exc}") from exc
     if not frames:
-        raise ValueError(f"no {label} payloads found in {path}; check the file and encoding")
+        raise ValueError(f"no {label} found in {source}; check the payload data")
     return frames
 
 
+def _frames_from_payloads(path: str, encoding: str, *, label: str = "QR payloads") -> list[Frame]:
+    lines = _read_text_lines(path)
+    return _frames_from_payload_lines(lines, encoding, label=label, source=path)
+
+
 def _auth_frames_from_payloads(path: str, encoding: str) -> list[Frame]:
-    frames = _frames_from_payloads(path, encoding, label="auth frame")
+    frames = _frames_from_payloads(path, encoding, label="auth QR payloads")
     for frame in frames:
         if frame.frame_type != FrameType.AUTH:
-            raise ValueError("auth frames file must contain AUTH frames only")
+            raise ValueError("auth QR payloads file must contain AUTH payloads only")
     return frames
 
 
@@ -135,7 +166,7 @@ def _frames_from_shard_inputs(
     for path in fallback_files:
         frames.append(_frame_from_fallback(path))
     for path in frame_files:
-        frames.extend(_frames_from_payloads(path, encoding, label="shard frame"))
+        frames.extend(_frames_from_payloads(path, encoding, label="shard QR payloads"))
     return frames
 
 
@@ -185,7 +216,7 @@ def _dedupe_auth_frames(frames: list[Frame]) -> list[Frame]:
     deduped = _dedupe_frames(frames)
     for frame in deduped:
         if frame.frame_type != FrameType.AUTH:
-            raise ValueError("auth frames must be AUTH type")
+            raise ValueError("auth payloads must be AUTH type")
     return deduped
 
 
@@ -198,9 +229,11 @@ def _split_main_and_auth_frames(frames: list[Frame]) -> tuple[list[Frame], list[
         elif frame.frame_type == FrameType.AUTH:
             auth_frames.append(frame)
         else:
-            raise ValueError("unexpected frame type in main document payloads")
+            raise ValueError("unexpected frame type in main document QR payloads")
     if not main_frames:
-        raise ValueError("no main document frames provided; check the MAIN frames/fallback")
+        raise ValueError(
+            "no main document payloads provided; check the MAIN QR payloads or recovery text"
+        )
     return main_frames, auth_frames
 
 
@@ -236,3 +269,8 @@ def _looks_like_hex(text: str) -> bool:
 def _pad_base64(text: str) -> str:
     padding = (-len(text)) % 4
     return text + ("=" * padding)
+
+
+def _frame_from_payload_text(payload_text: str, encoding: str) -> Frame:
+    payload = _decode_payload(payload_text, encoding)
+    return decode_frame(payload)

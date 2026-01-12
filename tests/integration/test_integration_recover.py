@@ -12,6 +12,7 @@ from ethernity.cli.core.types import RecoverArgs
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.encoding.chunking import chunk_payload, payload_to_fallback_lines
 from ethernity.encoding.framing import FrameType, encode_frame
+from ethernity.encoding.qr_payloads import encode_qr_payload
 from ethernity.formats.envelope_codec import (
     build_manifest_and_payload,
     build_single_file_manifest,
@@ -45,13 +46,11 @@ class TestIntegrationRecover(unittest.TestCase):
 
             args = RecoverArgs(
                 fallback_file=None,
-                frames_file=str(frames_path),
-                frames_encoding="auto",
+                payloads_file=str(frames_path),
                 scan=[],
                 passphrase=passphrase,
                 shard_fallback_file=[],
-                shard_frames_file=[],
-                shard_frames_encoding="auto",
+                shard_payloads_file=[],
                 output=str(output_path),
                 allow_unsigned=True,
                 assume_yes=True,
@@ -81,13 +80,11 @@ class TestIntegrationRecover(unittest.TestCase):
 
             args = RecoverArgs(
                 fallback_file=str(fallback_path),
-                frames_file=None,
-                frames_encoding="auto",
+                payloads_file=None,
                 scan=[],
                 passphrase=passphrase,
                 shard_fallback_file=[],
-                shard_frames_file=[],
-                shard_frames_encoding="auto",
+                shard_payloads_file=[],
                 output=str(output_path),
                 allow_unsigned=True,
                 assume_yes=True,
@@ -111,7 +108,7 @@ class TestIntegrationRecover(unittest.TestCase):
                 frame_type=FrameType.MAIN_DOCUMENT,
                 chunk_size=len(ciphertext),
             )
-            frame_payloads = [encode_frame(frame) for frame in frames]
+            frame_payloads = [encode_qr_payload(encode_frame(frame), "base64") for frame in frames]
             qr_path = tmp_path / "qr.png"
             qr = segno.make(frame_payloads[0], error="Q")
             qr.save(qr_path, kind="png", scale=4, border=2)
@@ -119,13 +116,11 @@ class TestIntegrationRecover(unittest.TestCase):
 
             args = RecoverArgs(
                 fallback_file=None,
-                frames_file=None,
-                frames_encoding="auto",
+                payloads_file=None,
                 scan=[str(qr_path)],
                 passphrase=passphrase,
                 shard_fallback_file=[],
-                shard_frames_file=[],
-                shard_frames_encoding="auto",
+                shard_payloads_file=[],
                 output=str(output_path),
                 allow_unsigned=True,
                 assume_yes=True,
@@ -158,13 +153,11 @@ class TestIntegrationRecover(unittest.TestCase):
 
             args = RecoverArgs(
                 fallback_file=str(fallback_path),
-                frames_file=None,
-                frames_encoding="auto",
+                payloads_file=None,
                 scan=[],
                 passphrase=passphrase,
                 shard_fallback_file=[],
-                shard_frames_file=[],
-                shard_frames_encoding="auto",
+                shard_payloads_file=[],
                 output=str(output_dir),
                 allow_unsigned=True,
                 assume_yes=True,

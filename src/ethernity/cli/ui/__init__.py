@@ -59,10 +59,10 @@ def _resolve_context(context: UIContext | None) -> UIContext:
 HOME_BANNER = r"""
  _____ _____ _     _____ ____  _      _ _____ ___  _
 /  __//__ __Y \ /|/  __//  __\/ \  /|/ Y__ __\\  \//
-|  \    / \ | |_|||  \  |  \/|| |\ ||| | / \   \  / 
-|  /_   | | | | |||  /_ |    /| | \||| | | |   / /  
-\____\  \_/ \_/ \|\____\\_/\_\\_/  \|\_/ \_/  /_/   
-                                                    
+|  \    / \ | |_|||  \  |  \/|| |\ ||| | / \   \  /
+|  /_   | | | | |||  /_ |    /| | \||| | | |   / /
+\____\  \_/ \_/ \|\____\\_/\_\\_/  \|\_/ \_/  /_/
+
 """
 
 
@@ -115,7 +115,6 @@ def wizard_stage(
 ) -> Generator[None, None, None]:
     context = _resolve_context(context)
     state = context.wizard_state
-    previous_style = context.prompt_style
     if state is not None and not state.quiet:
         if state.step > 0:
             clear_screen(context=context)
@@ -124,11 +123,7 @@ def wizard_stage(
         context.console.print(Rule(Text(step_label, style="title"), style="rule", align="left"))
         if help_text:
             context.console.print(Padding(format_hint(help_text), (0, 0, 0, 1)))
-        context.prompt_style = "compact"
-    try:
-        yield
-    finally:
-        context.prompt_style = previous_style
+    yield
 
 
 @contextmanager

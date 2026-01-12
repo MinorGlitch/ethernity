@@ -55,7 +55,7 @@ light = [4, 5, 6, 7]
             DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
         )
         self.assertEqual(config.paper_size, DEFAULT_PAPER_SIZE)
-        self.assertEqual(config.qr_payload_encoding, "binary")
+        self.assertEqual(config.qr_payload_encoding, "base64")
         self.assertEqual(config.qr_config.scale, 6)
         self.assertEqual(config.qr_config.border, 2)
         self.assertEqual(config.qr_config.module_shape, "square")
@@ -79,7 +79,7 @@ size = "A4"
 
         self.assertEqual(config.paper_size, "A4")
         self.assertEqual(config.template_path, DEFAULT_TEMPLATE_PATH)
-        self.assertEqual(config.qr_payload_encoding, "binary")
+        self.assertEqual(config.qr_payload_encoding, "base64")
 
     def test_load_app_config_empty_file(self) -> None:
         """Test loading empty config file uses all defaults."""

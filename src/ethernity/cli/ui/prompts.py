@@ -7,7 +7,6 @@ from pathlib import Path
 import questionary
 from rich.padding import Padding
 from rich.rule import Rule
-from rich.text import Text
 
 from .state import UIContext, format_hint, get_context
 
@@ -41,13 +40,7 @@ def print_prompt_header(
 ) -> None:
     context = _resolve_context(context)
     output = context.console
-    if context.prompt_style == "compact":
-        output.print(Padding(Text(prompt, style="accent"), (0, 0, 0, 1)))
-        if help_text:
-            output.print(Padding(format_hint(help_text), (0, 0, 0, 2)))
-        return
     output.print(Rule(style="rule"))
-    output.print(Text(prompt, style="title"))
     if help_text:
         output.print(Padding(format_hint(help_text), (0, 0, 0, 1)))
 
@@ -210,6 +203,7 @@ def prompt_multiline(
     prompt: str,
     *,
     help_text: str | None = None,
+    stop_on_dash: bool = False,
     context: UIContext | None = None,
 ) -> list[str]:
     print_prompt_header(prompt, help_text, context=context)
@@ -218,9 +212,17 @@ def prompt_multiline(
         line = questionary.text(prompt, qmark="", style=QUESTIONARY_STYLE).ask()
         if line is None:
             raise KeyboardInterrupt
-        if not line.strip():
+        if not line:
             break
-        items.append(line.strip())
+        parts = line.splitlines() if ("\n" in line or "\r" in line) else [line]
+        for part in parts:
+            stripped = part.strip()
+            if not stripped:
+                return items
+            if stop_on_dash and stripped == "-":
+                items.append("-")
+                return items
+            items.append(stripped)
     return items
 
 
@@ -292,11 +294,23 @@ def prompt_required_paths(
     if stdin_message is None:
         stdin_message = "Stdin input is not supported here."
     while True:
-        values = prompt_multiline(prompt, help_text=help_text, context=context)
+        values = prompt_multiline(
+            prompt,
+            help_text=help_text,
+            stop_on_dash=allow_stdin,
+            context=context,
+        )
         if not values:
             context.console_err.print(f"[error]{empty_message}[/error]")
             continue
-        if not allow_stdin and "-" in values:
+        if "-" in values:
+            if allow_stdin:
+                if len(values) > 1:
+                    context.console_err.print(
+                        "[error]Use '-' on its own line to switch to paste mode.[/error]"
+                    )
+                    continue
+                return values
             context.console_err.print(f"[error]{stdin_message}[/error]")
             continue
         invalid_paths: list[str] = []

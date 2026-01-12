@@ -46,7 +46,6 @@ class UIContext:
     theme: Theme
     console: Console
     console_err: Console
-    prompt_style: str = "full"
     animations_enabled: bool = True
     wizard_state: WizardState | None = None
 

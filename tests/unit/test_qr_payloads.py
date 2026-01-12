@@ -17,17 +17,12 @@ class TestQrPayloads(unittest.TestCase):
         decoded_bytes = decode_qr_payload(encoded.encode("ascii"), "base64")
         self.assertEqual(decoded_bytes, data)
 
-    def test_binary_roundtrip(self) -> None:
-        data = b"payload"
-        encoded = encode_qr_payload(data, "binary")
-        self.assertEqual(encoded, data)
-        decoded = decode_qr_payload(encoded, "binary")
-        self.assertEqual(decoded, data)
-
     def test_normalize(self) -> None:
         self.assertEqual(normalize_qr_payload_encoding("b64"), "base64")
         with self.assertRaises(ValueError):
             normalize_qr_payload_encoding("base45")
+        with self.assertRaises(ValueError):
+            normalize_qr_payload_encoding("binary")
 
 
 if __name__ == "__main__":

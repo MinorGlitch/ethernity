@@ -126,38 +126,182 @@
       text-transform: uppercase;
       letter-spacing: 0.08em;
     }
+    .instructions-page {
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      top: {{ margin_mm }}mm;
+      width: {{ usable_width_mm }}mm;
+      height: calc({{ page_height_mm }}mm - {{ margin_mm * 2 }}mm);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 4mm;
+      padding: 6mm;
+      border-radius: 3mm;
+      background:
+        linear-gradient(180deg, var(--paper-top) 0%, var(--paper-bottom) 100%),
+        linear-gradient(90deg, var(--accent) 0, var(--accent) 1.6mm, transparent 1.6mm);
+      box-shadow: 0 0 0 0.5mm var(--panel-border);
+    }
+    .instructions-hero {
+      display: grid;
+      gap: 1mm;
+    }
+    .instructions-hero h2 {
+      margin: 0;
+      font-size: 20pt;
+      font-family: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+      letter-spacing: 0.02em;
+    }
+    .instructions-hero p {
+      margin: 0;
+      font-size: 10pt;
+      color: var(--ink-muted);
+    }
+    .instructions-columns {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+      gap: 6mm;
+      align-items: start;
+      height: 100%;
+    }
+    .instructions-section {
+      display: grid;
+      gap: 2.5mm;
+    }
+    .instructions-section h3 {
+      margin: 0;
+      font-size: 9pt;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--ink-label);
+    }
+    .instructions-list {
+      margin: 0;
+      padding-left: 3.5mm;
+      display: grid;
+      gap: 1.5mm;
+      font-size: 9pt;
+      color: var(--ink-body);
+      line-height: 1.5;
+    }
+    .instructions-steps {
+      display: grid;
+      gap: 2mm;
+    }
+    .step-row {
+      display: grid;
+      grid-template-columns: 5mm 1fr;
+      gap: 2mm;
+      align-items: start;
+      font-size: 9pt;
+      color: var(--ink-body);
+      line-height: 1.5;
+    }
+    .step-icon {
+      width: 4mm;
+      height: 4mm;
+      border-radius: 1mm;
+      border: 0.35mm solid var(--panel-border);
+      background: linear-gradient(180deg, #ffffff 0%, #f1f6fc 100%);
+      box-shadow: inset 0 0.3mm 0 rgba(255, 255, 255, 0.8);
+    }
+    .instructions-callout {
+      border: 0.35mm solid var(--panel-border);
+      border-radius: 2mm;
+      padding: 3mm;
+      font-size: 9pt;
+      color: var(--ink-body);
+      background: #ffffff;
+      display: grid;
+      gap: 1.5mm;
+    }
+    .instructions-callout strong {
+      font-size: 8pt;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-label);
+    }
+    .instructions-checklist {
+      display: grid;
+      gap: 1.6mm;
+      border: 0.35mm solid var(--panel-border);
+      border-radius: 2mm;
+      padding: 3mm;
+      background: #ffffff;
+    }
+    .check-item {
+      display: grid;
+      grid-template-columns: 4mm 1fr;
+      gap: 2mm;
+      align-items: start;
+      font-size: 9pt;
+      color: var(--ink-body);
+    }
+    .check-box {
+      width: 3.4mm;
+      height: 3.4mm;
+      border: 0.35mm solid var(--panel-border);
+      border-radius: 0.6mm;
+      background: #ffffff;
+    }
+    .instructions-footnote {
+      font-size: 8pt;
+      color: var(--ink-muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 4mm;
+      border-top: 0.35mm solid var(--panel-border);
+      padding-top: 2mm;
+    }
+    .scan-hint {
+      margin-top: 1mm;
+      display: inline-flex;
+      align-items: center;
+      gap: 1.2mm;
+      font-size: 7pt;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-muted);
+      background: rgba(255, 255, 255, 0.6);
+      border: 0.35mm solid var(--panel-border);
+      border-radius: 999px;
+      padding: 0.4mm 2mm 0.4mm 0.6mm;
+    }
+    .scan-hint::before {
+      content: "Start";
+      font-weight: 600;
+      font-size: 6pt;
+      color: var(--ink);
+      background: #ffffff;
+      border: 0.35mm solid var(--panel-border);
+      border-radius: 999px;
+      padding: 0.2mm 1.6mm;
+      letter-spacing: 0.06em;
+    }
     .qr-grid {
       position: absolute;
       border: 0.35mm solid var(--panel-border);
       border-radius: 2mm;
+      overflow: hidden;
       pointer-events: none;
       z-index: 0;
+    }
+    .qr-grid::after {
+      content: "";
+      position: absolute;
+      inset: 1.4mm;
+      border-radius: 1.4mm;
+      background: linear-gradient(
+        135deg,
+        rgba(15, 31, 46, 0.12),
+        rgba(15, 31, 46, 0.0) 55%
+      );
+      pointer-events: none;
     }
     .qr {
       position: absolute;
       image-rendering: pixelated;
       z-index: 1;
-    }
-    .sequence {
-      position: absolute;
-      left: 0;
-      top: 0;
-      width: {{ page_width_mm }}mm;
-      height: {{ page_height_mm }}mm;
-      pointer-events: none;
-    }
-    .sequence line {
-      stroke: var(--accent);
-      stroke-width: 0.7mm;
-      stroke-linecap: round;
-    }
-    .sequence text {
-      fill: var(--accent);
-      font-size: 12pt;
-      font-weight: bold;
-      paint-order: stroke;
-      stroke: #ffffff;
-      stroke-width: 0.6;
     }
   </style>
 </head>
@@ -176,12 +320,105 @@
     </div>
     <div class="divider" style="top: {{ page.divider_y_mm }}mm;"></div>
 
-    {% if page.page_num == 1 %}
+    {% if page.instructions_full_page %}
+    <div class="instructions-page">
+      <div class="instructions-hero">
+        <h2>How to Rebuild the Recovery Kit</h2>
+        <p>Use this page after scanning the QR pages. Keep everything offline.</p>
+      </div>
+      <div class="instructions-columns">
+        <div class="instructions-section">
+          <h3>Scan + Assemble</h3>
+          <div class="instructions-steps">
+            <div class="step-row">
+              <div class="step-icon"></div>
+              <div>Scan every QR code left to right, top to bottom.</div>
+            </div>
+            <div class="step-row">
+              <div class="step-icon"></div>
+              <div>Save each decoded chunk in order. Do not insert spaces or blank lines.</div>
+            </div>
+            <div class="step-row">
+              <div class="step-icon"></div>
+              <div>Concatenate the chunks into one continuous file.</div>
+            </div>
+            <div class="step-row">
+              <div class="step-icon"></div>
+              <div>Name the file exactly: recovery_kit.bundle.html</div>
+            </div>
+          </div>
+          <h3>Open the Kit</h3>
+          <div class="instructions-steps">
+            <div class="step-row">
+              <div class="step-icon"></div>
+              <div>Open recovery_kit.bundle.html in a browser while offline.</div>
+            </div>
+            <div class="step-row">
+              <div class="step-icon"></div>
+              <div>If the file is large, wait for it to finish loading.</div>
+            </div>
+            <div class="step-row">
+              <div class="step-icon"></div>
+              <div>Follow the on-screen prompts to recover your payload.</div>
+            </div>
+          </div>
+          <h3>Troubleshooting</h3>
+          <ul class="instructions-list">
+            <li>If the kit does not load, re-check chunk order and re-save the file.</li>
+            <li>Try another browser if rendering stalls.</li>
+            <li>Confirm the file size matches the sum of all QR chunks.</li>
+          </ul>
+        </div>
+        <div class="instructions-section">
+          <div class="instructions-callout">
+            <strong>Verify</strong>
+            <div>Confirm the kit loads and shows the Recovery Kit home screen.</div>
+            <div>If it fails to open, re-check the order and re-save the file.</div>
+          </div>
+          <div class="instructions-callout">
+            <strong>Storage</strong>
+            <div>Keep the QR pages and the bundle file in separate locations.</div>
+            <div>Store the bundle on a write-protected drive if possible.</div>
+          </div>
+          <div class="instructions-callout">
+            <strong>Security</strong>
+            <div>Work offline and on a trusted machine.</div>
+            <div>Delete temporary files after successful recovery.</div>
+          </div>
+          <div class="instructions-checklist">
+            <div class="check-item">
+              <span class="check-box"></span>
+              <div>All QR pages scanned in order.</div>
+            </div>
+            <div class="check-item">
+              <span class="check-box"></span>
+              <div>Bundle file saved with the correct name.</div>
+            </div>
+            <div class="check-item">
+              <span class="check-box"></span>
+              <div>Kit opens offline without errors.</div>
+            </div>
+            <div class="check-item">
+              <span class="check-box"></span>
+              <div>Recovery completed and data verified.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="instructions-footnote">
+        <div>Recovery Kit: offline HTML bundle</div>
+        <div>Document ID: {{ doc_id }}</div>
+      </div>
+    </div>
+    {% elif page.show_instructions %}
     <div class="instructions" style="top: {{ page.instructions_y_mm }}mm;">
       <div class="instructions-label">Instructions</div>
       <div>
-        <div>Scan QR codes in order and concatenate the payloads.</div>
-        <div>Write the output to recovery_kit.bundle.html.</div>
+        <div>Scan every QR code left to right, top to bottom.</div>
+        <div>Paste the decoded chunks together in order (no separators).</div>
+        <div>Save the result as recovery_kit.bundle.html.</div>
+        <div>Open that file in a browser (offline) to run the kit.</div>
+        <div class="scan-hint">Start at the top-left and follow each row.</div>
       </div>
     </div>
     {% endif %}
@@ -202,16 +439,6 @@
     >
     {% endfor %}
 
-    {% if page.sequence %}
-    <svg class="sequence" viewBox="0 0 {{ page_width_mm }} {{ page_height_mm }}" xmlns="http://www.w3.org/2000/svg">
-      {% for line in page.sequence.lines %}
-      <line x1="{{ line.x1 }}" y1="{{ line.y1 }}" x2="{{ line.x2 }}" y2="{{ line.y2 }}" />
-      {% endfor %}
-      {% for label in page.sequence.labels %}
-      <text x="{{ label.x }}" y="{{ label.y }}" text-anchor="middle" dominant-baseline="middle">{{ label.text }}</text>
-      {% endfor %}
-    </svg>
-    {% endif %}
   </section>
 {% endfor %}
 </body>

@@ -177,16 +177,11 @@ def document_spec(
             ),
         )
         if paper_size.strip().lower() == "letter":
-            qr_grid = replace(qr_grid, qr_size_mm=52.0, max_rows=4)
+            qr_grid = replace(qr_grid, qr_size_mm=52.0, max_cols=3, max_rows=4)
         else:
-            qr_grid = replace(qr_grid, qr_size_mm=59.0, max_rows=3)
+            qr_grid = replace(qr_grid, qr_size_mm=58.0, max_cols=3, max_rows=4)
         qr_grid = replace(qr_grid, gap_mm=2.0, text_gap_mm=3.0)
-        qr_sequence = QrSequenceSpec(
-            enabled=True,
-            font_size=12.0,
-            line_thickness_mm=0.7,
-            label_offset_mm=2.0,
-        )
+        qr_sequence = QrSequenceSpec(enabled=False)
     elif normalized == DOC_TYPE_SIGNING_KEY_SHARD:
         header = replace(
             header,

@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import functools
+import sys
 from pathlib import Path
-from typing import Literal
 
 import typer
 
@@ -30,11 +30,11 @@ def _expand_shard_dir(shard_dir: str | None) -> list[str]:
 def register(app: typer.Typer) -> None:
     app.command(
         help=(
-            "Recover data from QR frames or fallback text.\n\n"
+            "Recover data from QR payloads or recovery text (fallback).\n\n"
             "Examples:\n"
             "  ethernity recover --scan ./scans\n"
-            "  ethernity recover --fallback-file fallback.txt --output recovered.bin\n"
-            "  ethernity recover --frames-file frames.txt --frames-encoding base64\n"
+            "  ethernity recover --fallback-file recovery.txt --output recovered.bin\n"
+            "  ethernity recover --payloads-file qr_payloads.txt\n"
         )
     )(recover)
 
@@ -45,19 +45,13 @@ def recover(
         None,
         "--fallback-file",
         "-f",
-        help="Main fallback text (z-base-32, use - for stdin).",
+        help="Main recovery text (fallback, z-base-32, use - for stdin).",
         rich_help_panel="Inputs",
     ),
-    frames_file: str | None = typer.Option(
+    payloads_file: str | None = typer.Option(
         None,
-        "--frames-file",
-        help="Main frame payloads (one per line).",
-        rich_help_panel="Inputs",
-    ),
-    frames_encoding: Literal["auto", "base64", "base64url", "hex"] = typer.Option(
-        "auto",
-        "--frames-encoding",
-        help="Encoding for frame payloads (auto/base64/base64url/hex).",
+        "--payloads-file",
+        help="Main QR payloads (one per line).",
         rich_help_panel="Inputs",
     ),
     scan: list[str] | None = typer.Option(
@@ -75,8 +69,7 @@ def recover(
     shard_fallback_file: list[str] | None = typer.Option(
         None,
         "--shard-fallback-file",
-        "--shard-file",  # Shorter alias
-        help="Shard text file (repeatable).",
+        help="Shard recovery text file (repeatable).",
         rich_help_panel="Inputs",
     ),
     shard_dir: str | None = typer.Option(
@@ -85,34 +78,22 @@ def recover(
         help="Directory containing shard text files (auto-discovers *.txt files).",
         rich_help_panel="Inputs",
     ),
-    shard_frames_file: list[str] | None = typer.Option(
+    shard_payloads_file: list[str] | None = typer.Option(
         None,
-        "--shard-frames-file",
-        help="Shard payload file (repeatable).",
-        rich_help_panel="Inputs",
-    ),
-    shard_frames_encoding: Literal["auto", "base64", "base64url", "hex"] = typer.Option(
-        "auto",
-        "--shard-frames-encoding",
-        help="Encoding for shard payloads (auto/base64/base64url/hex).",
+        "--shard-payloads-file",
+        help="Shard QR payload file (repeatable).",
         rich_help_panel="Inputs",
     ),
     auth_fallback_file: str | None = typer.Option(
         None,
         "--auth-fallback-file",
-        help="Auth fallback text (z-base-32, use - for stdin).",
+        help="Auth recovery text (fallback, z-base-32, use - for stdin).",
         rich_help_panel="Inputs",
     ),
-    auth_frames_file: str | None = typer.Option(
+    auth_payloads_file: str | None = typer.Option(
         None,
-        "--auth-frames-file",
-        help="Auth frame payloads (one per line).",
-        rich_help_panel="Inputs",
-    ),
-    auth_frames_encoding: Literal["auto", "base64", "base64url", "hex"] = typer.Option(
-        "auto",
-        "--auth-frames-encoding",
-        help="Encoding for auth payloads (auto/base64/base64url/hex).",
+        "--auth-payloads-file",
+        help="Auth QR payloads (one per line).",
         rich_help_panel="Inputs",
     ),
     output: str | None = typer.Option(
@@ -125,7 +106,6 @@ def recover(
     allow_unsigned: bool = typer.Option(
         False,
         "--skip-auth-check",
-        "--allow-unsigned",  # Keep old name for backward compatibility
         help="Skip authentication verification (use only if you trust the source).",
         rich_help_panel="Verification",
     ),
@@ -160,6 +140,9 @@ def recover(
     quiet_value = quiet or bool(_ctx_value(ctx, "quiet"))
     debug_value = bool(_ctx_value(ctx, "debug"))
 
+    if not fallback_file and not payloads_file and not (scan or []) and not sys.stdin.isatty():
+        fallback_file = "-"
+
     # Expand shard_dir to individual files and combine with explicit files
     shard_files = list(shard_fallback_file or [])
     shard_files.extend(_expand_shard_dir(shard_dir))
@@ -168,17 +151,14 @@ def recover(
         config=config_value,
         paper=paper_value,
         fallback_file=fallback_file,
-        frames_file=frames_file,
-        frames_encoding=frames_encoding,
+        payloads_file=payloads_file,
         scan=list(scan or []),
         passphrase=passphrase,
         shard_fallback_file=shard_files,
         shard_dir=shard_dir,
-        shard_frames_file=list(shard_frames_file or []),
-        shard_frames_encoding=shard_frames_encoding,
+        shard_payloads_file=list(shard_payloads_file or []),
         auth_fallback_file=auth_fallback_file,
-        auth_frames_file=auth_frames_file,
-        auth_frames_encoding=auth_frames_encoding,
+        auth_payloads_file=auth_payloads_file,
         output=output,
         allow_unsigned=allow_unsigned,
         assume_yes=assume_yes,

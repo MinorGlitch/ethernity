@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 from typing import Callable, Sequence
 
+from .doc_types import DOC_TYPE_KIT
 from .fallback import (
     consume_fallback_blocks,
     fallback_sections_remaining,
@@ -215,6 +216,7 @@ def build_pages(
         inputs, layout, layout_rest, fallback_lines
     )
 
+    kit_instructions_page = inputs.doc_type == DOC_TYPE_KIT
     pages: list[dict[str, object]] = []
     for page_idx in range(total_pages):
         page_num = page_idx + 1
@@ -260,11 +262,40 @@ def build_pages(
                 "divider_y_mm": divider_y,
                 "instructions_y_mm": page_layout.instructions_y,
                 "keys_y_mm": page_layout.keys_y,
+                "show_instructions": (
+                    not kit_instructions_page
+                    and (not spec.instructions.first_page_only or page_idx == 0)
+                ),
+                "instructions_full_page": False,
                 "show_keys": not (keys_first_page_only and page_idx > 0),
                 "qr_slots": qr_slots,
                 "qr_outline": qr_outline,
                 "sequence": qr_sequence,
                 "fallback_blocks": page_fallback_blocks,
+            }
+        )
+
+    if kit_instructions_page:
+        instruction_layout = layout_rest or layout
+        divider_y = (
+            instruction_layout.margin
+            + instruction_layout.header_height
+            - float(spec.header.divider_thickness_mm)
+        )
+        pages.append(
+            {
+                "page_num": len(pages) + 1,
+                "page_label": "",
+                "divider_y_mm": divider_y,
+                "instructions_y_mm": instruction_layout.instructions_y,
+                "keys_y_mm": instruction_layout.keys_y,
+                "show_instructions": True,
+                "instructions_full_page": True,
+                "show_keys": False,
+                "qr_slots": [],
+                "qr_outline": None,
+                "sequence": None,
+                "fallback_blocks": [],
             }
         )
 
@@ -286,6 +317,8 @@ def _page_has_content(page: dict[str, object], key_lines: Sequence[str]) -> bool
     if page.get("qr_slots"):
         return True
     if page.get("fallback_blocks"):
+        return True
+    if page.get("show_instructions"):
         return True
     if page.get("show_keys") and key_lines:
         return True

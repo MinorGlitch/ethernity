@@ -24,21 +24,6 @@ class PayloadEncoder(ABC):
         ...
 
 
-class BinaryEncoder(PayloadEncoder):
-    """Pass-through encoder for binary payloads."""
-
-    name = "binary"
-    aliases = ("raw",)
-
-    def encode(self, data: bytes) -> bytes:
-        return data
-
-    def decode(self, payload: bytes | str) -> bytes:
-        if isinstance(payload, bytes):
-            return payload
-        return payload.encode("utf-8")
-
-
 class Base64Encoder(PayloadEncoder):
     """Base64 encoder with padding removal."""
 
@@ -53,16 +38,14 @@ class Base64Encoder(PayloadEncoder):
         if isinstance(payload, bytes):
             try:
                 text = payload.decode("ascii")
-            except UnicodeDecodeError:
-                return payload
+            except UnicodeDecodeError as exc:
+                raise ValueError("invalid base64 QR payload") from exc
         else:
             text = payload
         cleaned = "".join(text.split())
         try:
             return base64.b64decode(_pad_base64(cleaned), validate=True)
         except (binascii.Error, ValueError) as exc:
-            if isinstance(payload, bytes):
-                return payload
             raise ValueError("invalid base64 QR payload") from exc
 
 
@@ -77,7 +60,6 @@ def _register_encoder(encoder: PayloadEncoder) -> None:
 
 
 # Register built-in encoders
-_register_encoder(BinaryEncoder())
 _register_encoder(Base64Encoder())
 
 
@@ -91,9 +73,9 @@ SUPPORTED_QR_PAYLOAD_ENCODINGS = get_supported_encodings()
 
 
 def get_encoder(encoding: str | None) -> PayloadEncoder:
-    """Get encoder by name, defaulting to binary."""
+    """Get encoder by name, defaulting to base64."""
     if encoding is None:
-        return _ENCODERS["binary"]
+        return _ENCODERS["base64"]
     normalized = encoding.strip().lower()
     encoder = _ENCODERS.get(normalized)
     if encoder is None:

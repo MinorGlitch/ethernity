@@ -19,9 +19,9 @@ def run_recover_wizard(args: RecoverArgs) -> int:
 
 
 def _should_use_wizard_for_recover(args: RecoverArgs) -> bool:
-    if args.fallback_file or args.frames_file or args.scan:
+    if args.fallback_file or args.payloads_file or args.scan:
         return False
-    if args.shard_fallback_file or args.shard_frames_file:
+    if args.shard_fallback_file or args.shard_payloads_file:
         return False
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         return False
