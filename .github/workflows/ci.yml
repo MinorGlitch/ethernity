@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+      - name: Ruff lint
+        run: uv run ruff check src tests
+
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+      - name: Ruff format
+        run: uv run ruff format --check src tests
+
+  mypy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+      - name: Mypy
+        run: uv run mypy src
+
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run unit tests
+        run: uv run pytest tests/unit -v
+      - name: Run integration tests
+        run: uv run pytest tests/integration -v
+
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+      - name: Run tests with coverage
+        run: uv run pytest tests/unit tests/integration --cov=ethernity --cov-report=term-missing
+
+  kit-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: kit/package-lock.json
+
+      - name: Verify committed bundle exists
+        run: |
+          if [ ! -f src/ethernity/kit/recovery_kit.bundle.html ]; then
+            echo "ERROR: No committed bundle found at src/ethernity/kit/recovery_kit.bundle.html"
+            echo "Run 'cd kit && node build_kit.mjs' and commit the bundle."
+            exit 1
+          fi
+          SIZE=$(stat -c%s src/ethernity/kit/recovery_kit.bundle.html 2>/dev/null || stat -f%z src/ethernity/kit/recovery_kit.bundle.html)
+          echo "Committed bundle size: $SIZE bytes"
+          if [ "$SIZE" -lt 1000 ]; then
+            echo "ERROR: Bundle seems too small, may be corrupted"
+            exit 1
+          fi
+
+      - name: Install kit dependencies
+        working-directory: kit
+        run: npm ci
+
+      - name: Verify kit builds successfully
+        working-directory: kit
+        run: node build_kit.mjs
+
+      - name: Verify build output
+        run: |
+          echo "Build completed successfully"
+          ls -la src/ethernity/kit/recovery_kit.bundle.html
+          ls -la kit/dist/

@@ -1,0 +1,197 @@
+/*
+ * Copyright (C) 2026 Alex Stoyanov
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with this program.
+ * If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import { useEffect, useReducer, useRef, useState } from "preact/hooks";
+
+import {
+  addPayloads,
+  addShardPayloads,
+  clearOutput,
+  copyRecoveredSecret,
+  decryptCiphertext,
+  downloadCipher,
+  downloadEnvelope,
+  downloadExtract,
+  downloadZip,
+  extractEnvelope,
+  resetAll,
+  updateField,
+} from "./actions.js";
+import { StatusStrip } from "./components/StatusStrip.jsx";
+import { StepNav } from "./components/StepNav.jsx";
+import { StepShell } from "./components/StepShell.jsx";
+import { reducer, initialState } from "./state/reducer.js";
+import {
+  selectActionState,
+  selectFrameDiagnostics,
+  selectOutputSummary,
+  selectRecoveredLabel,
+  selectShardDiagnostics,
+  selectShardInputs,
+  selectStatusItemsForStep,
+} from "./state/selectors.js";
+import { STEPS } from "./steps.jsx";
+
+export function App() {
+  const [state, dispatch] = useReducer(reducer, undefined, initialState);
+  const [stepIndex, setStepIndex] = useState(0);
+  const stateRef = useRef(state);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  const getState = () => stateRef.current;
+
+  const frameDiagnostics = selectFrameDiagnostics(state);
+  const shardDiagnostics = selectShardDiagnostics(state);
+  const shardInputs = selectShardInputs(state);
+  const outputSummary = selectOutputSummary(state);
+  const actionState = selectActionState(state);
+  const recoveredLabel = selectRecoveredLabel(state);
+
+  const frameStep = state.total && state.mainFrames.size === state.total
+    ? { label: "Ready", tone: "ok" }
+    : state.mainFrames.size
+      ? { label: "Collecting", tone: "progress" }
+      : { label: "Needs input", tone: "idle" };
+  const shardStep = state.recoveredShardSecret
+    ? { label: "Complete", tone: "ok" }
+    : state.shardThreshold && state.shardFrames.size >= state.shardThreshold
+      ? { label: "Ready", tone: "progress" }
+      : state.shardFrames.size
+        ? { label: "Collecting", tone: "progress" }
+        : { label: "Needs input", tone: "idle" };
+  const decryptStep = state.extractedFiles.length
+    ? { label: "Complete", tone: "ok" }
+    : state.decryptedEnvelope
+      ? { label: "Decrypted", tone: "progress" }
+      : actionState.canDecryptCiphertext
+        ? { label: "Ready", tone: "progress" }
+        : { label: "Needs input", tone: "idle" };
+  const stepStates = STEPS.map((step) => {
+    if (step.id === "frames") return frameStep;
+    if (step.id === "shards") return shardStep;
+    if (step.id === "decrypt") return decryptStep;
+    return { label: "Pending", tone: "idle" };
+  });
+
+  const handlePayloadChange = (event) =>
+    updateField(dispatch, getState, "payloadText", event.currentTarget.value);
+  const handleShardPayloadChange = (event) =>
+    updateField(dispatch, getState, "shardPayloadText", event.currentTarget.value);
+  const handlePassphraseChange = (event) =>
+    updateField(dispatch, getState, "agePassphrase", event.currentTarget.value);
+
+  const handleAddPayloads = () => addPayloads(dispatch, getState);
+  const handleAddShardPayloads = () => addShardPayloads(dispatch, getState);
+  const handleReset = () => resetAll(dispatch);
+  const handleDownloadCipher = () => downloadCipher(dispatch, getState);
+  const handleCopyResult = () => copyRecoveredSecret(dispatch, getState);
+  const handleDecrypt = () => decryptCiphertext(dispatch, getState);
+  const handleExtract = () => extractEnvelope(dispatch, getState);
+  const handleDownloadEnvelope = () => downloadEnvelope(dispatch, getState);
+  const handleClearOutput = () => clearOutput(dispatch, getState);
+  const handleDownloadZip = () => downloadZip(dispatch, getState);
+  const handleDownloadFile = (index) => downloadExtract(dispatch, getState, index);
+  const handlePrev = () => setStepIndex((current) => Math.max(0, current - 1));
+  const handleNext = () => setStepIndex((current) => Math.min(STEPS.length - 1, current + 1));
+  const handleJump = (value) => setStepIndex(() => Math.min(STEPS.length - 1, Math.max(0, value)));
+
+  const stepContext = {
+    state,
+    frameDiagnostics,
+    shardDiagnostics,
+    shardInputs,
+    outputSummary,
+    actionState,
+    recoveredLabel,
+    onPayloadChange: handlePayloadChange,
+    onShardPayloadChange: handleShardPayloadChange,
+    onPassphraseChange: handlePassphraseChange,
+    onAddPayloads: handleAddPayloads,
+    onAddShardPayloads: handleAddShardPayloads,
+    onReset: handleReset,
+    onDownloadCipher: handleDownloadCipher,
+    onCopyResult: handleCopyResult,
+    onDecrypt: handleDecrypt,
+    onExtract: handleExtract,
+    onDownloadEnvelope: handleDownloadEnvelope,
+    onClearOutput: handleClearOutput,
+    onDownloadZip: handleDownloadZip,
+    onDownloadFile: handleDownloadFile,
+  };
+  const currentStep = STEPS[stepIndex] ?? STEPS[0];
+  const statusItems = selectStatusItemsForStep(state, currentStep.id);
+
+  return (
+    <main class="shell">
+      <header class="app-header">
+        <div class="app-title-block">
+          <div class="app-kicker">Ethernity</div>
+          <h1 class="app-title">Recovery Kit</h1>
+          <p class="app-subtitle">Offline emergency recovery console for decryption and extraction.</p>
+        </div>
+        <div class="app-badge">Offline</div>
+      </header>
+      <section class="welcome-banner">
+        <div class="welcome-content">
+          <strong>How to recover your files:</strong>
+          <ol class="welcome-steps">
+            <li><span class="welcome-num">1</span> Paste backup data from your recovery document or scanned QR codes</li>
+            <li><span class="welcome-num">2</span> If needed, combine your recovery shares to reconstruct the passphrase</li>
+            <li><span class="welcome-num">3</span> Enter your passphrase to unlock and download your files</li>
+          </ol>
+        </div>
+      </section>
+      <div class="app-layout">
+        <aside class="panel rail">
+          <StepNav
+            steps={STEPS}
+            stepIndex={stepIndex}
+            stepStates={stepStates}
+            onPrev={handlePrev}
+            onNext={handleNext}
+            onJump={handleJump}
+          />
+        </aside>
+        <section class="workspace">
+          <StatusStrip items={statusItems} />
+          <StepShell
+            step={currentStep}
+            stepIndex={stepIndex}
+            total={STEPS.length}
+          >
+            {currentStep.render(stepContext)}
+          </StepShell>
+        </section>
+      </div>
+      <footer class="app-footer">
+        <div class="footer-col">
+          <span class="footer-label">Recovery Kit</span>
+          <span class="footer-sep">•</span>
+          <span>Age passphrase only</span>
+        </div>
+        <div class="footer-col">
+          <span>Runs locally</span>
+          <span class="footer-sep">•</span>
+          <span>No network calls</span>
+        </div>
+      </footer>
+    </main>
+  );
+}

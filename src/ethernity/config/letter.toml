@@ -1,0 +1,26 @@
+[page]
+size = "Letter"
+
+[template]
+path = "templates/ledger/main_document.html.j2"
+
+[recovery_template]
+path = "templates/ledger/recovery_document.html.j2"
+
+[shard_template]
+path = "templates/ledger/shard_document.html.j2"
+
+[signing_key_shard_template]
+path = "templates/ledger/signing_key_shard_document.html.j2"
+
+[kit_template]
+path = "templates/ledger/kit_document.html.j2"
+
+[qr]
+error = "Q"
+scale = 4
+border = 4
+kind = "png"
+dark = "#0f1f2e"
+light = "#ffffff"
+payload_encoding = "base64"
