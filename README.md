@@ -174,17 +174,26 @@ The wizard walks you through selecting files, configuring options, and generatin
 ethernity backup
 
 # Backup specific files
-ethernity backup secret.txt credentials.json
+ethernity backup --input secret.txt --input credentials.json
 
 # Generate 3 shard documents requiring 2 to recover
-ethernity backup vault.kdbx --shards 3 --threshold 2
+ethernity backup --input vault.kdbx --shard-count 3 --shard-threshold 2
 
 # Use a specific template design
-ethernity backup --design midnight_archive important.tar.gz
+ethernity backup --design midnight_archive --input important.tar.gz
 
 # Specify paper size
-ethernity backup --paper LETTER documents.zip
+ethernity backup --paper Letter --input documents.zip
 ```
+
+### Configuration
+
+Ethernity uses a single TOML config file. Use `ethernity config` to open it, or `ethernity config --print-path`
+to see where it lives.
+
+Common settings:
+- `[page].size`: `A4` or `Letter`
+- `[qr].chunk_size`: preferred bytes per QR code (lower => more codes, easier scanning)
 
 ### Recover Files
 
@@ -192,8 +201,8 @@ ethernity backup --paper LETTER documents.zip
 # Interactive recovery wizard
 ethernity recover
 
-# Recover with shard documents present
-ethernity recover --shards 2
+# Recover by scanning a folder of images/PDFs
+ethernity recover --scan ./scans --output recovered.bin
 ```
 
 The recovery wizard accepts:
@@ -219,12 +228,13 @@ Store a copy of the recovery kit alongside your backup documents.
 ```sh
 ethernity --help              # Show all commands and global options
 ethernity backup --help       # Backup command options
+ethernity config --help       # Config command options
 ethernity recover --help      # Recovery command options
 ethernity kit --help          # Recovery kit options
 
 # Global options
 ethernity --version           # Show version
-ethernity --paper A4          # Set paper size (A4 or LETTER)
+ethernity --paper A4          # Paper size override (A4 or Letter)
 ethernity --design ledger     # Set template design
 ethernity --config myconf.toml # Use custom config file
 ```
