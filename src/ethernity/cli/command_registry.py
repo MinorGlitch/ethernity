@@ -20,6 +20,7 @@ import typer
 
 from .commands import (
     backup as backup_command,
+    config as config_command,
     kit as kit_command,
     recover as recover_command,
 )
@@ -27,5 +28,6 @@ from .commands import (
 
 def register(app: typer.Typer) -> None:
     backup_command.register(app)
+    config_command.register(app)
     kit_command.register(app)
     recover_command.register(app)

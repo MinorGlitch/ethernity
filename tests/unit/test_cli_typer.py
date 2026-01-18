@@ -28,6 +28,7 @@ class TestCliTyper(unittest.TestCase):
         result = self.runner.invoke(app, ["--help"])
         self.assertEqual(result.exit_code, 0)
         self.assertIn("backup", result.output)
+        self.assertIn("config", result.output)
         self.assertIn("recover", result.output)
 
     def test_version_flag(self) -> None:
