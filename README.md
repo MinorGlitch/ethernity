@@ -23,6 +23,12 @@
   </p>
 </div>
 
+## Status (Experimental)
+
+Ethernity is still experimental and under active development. The document format and CLI may
+change without notice, and backward compatibility is not guaranteed yet. Do not treat this as a
+stable backup system—always test recovery and keep independent backups.
+
 ## About The Project
 
 Ethernity is a Python CLI that turns important files into printable recovery documents. It
