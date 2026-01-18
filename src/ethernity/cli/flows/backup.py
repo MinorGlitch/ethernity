@@ -22,7 +22,6 @@ from pathlib import Path
 from ...config import (
     DEFAULT_PAPER_SIZE,
     DEFAULT_TEMPLATE_STYLE,
-    PAPER_CONFIGS,
     AppConfig,
     apply_template_design,
     list_template_designs,
@@ -164,16 +163,19 @@ def _prompt_layout(
     config_path: str | None,
     paper_size: str | None,
 ) -> tuple[str | None, str | None]:
-    """Prompt for layout settings. Returns (config_path, paper)."""
+    """Prompt for layout settings. Returns (config_path, paper_size override)."""
     paper = paper_size
     if config_path is None and not paper:
-        layout_choices = {key.lower(): key for key in PAPER_CONFIGS.keys()}
-        layout_choices["custom"] = "Custom config file (TOML)"
+        layout_choices = {
+            "a4": "A4",
+            "letter": "Letter",
+            "custom": "Custom config file (TOML)",
+        }
         layout_choice = prompt_choice(
-            "Layout preset",
+            "Paper size",
             layout_choices,
             default=DEFAULT_PAPER_SIZE.lower(),
-            help_text="Choose a paper preset or select a custom TOML config.",
+            help_text="Choose a paper size or select a custom TOML config.",
         )
         if layout_choice == "custom":
             config_path = prompt_path_with_picker(
@@ -323,8 +325,8 @@ def _build_review_rows(
     if config_path:
         review_rows.append(("Config", config_path))
     else:
-        default_paper = DEFAULT_PAPER_SIZE
-        review_rows.append(("Paper preset", paper.upper() if paper else default_paper))
+        review_rows.append(("Config", "default"))
+    review_rows.append(("Paper size", str(config.paper_size)))
     if design:
         review_rows.append(("Template design", design))
     review_rows.append(("Output", None))
@@ -402,7 +404,7 @@ def run_wizard(
             signing_seed_sharding=signing_seed_sharding,
         )
 
-        config = load_app_config(config_path) if config_path else load_app_config(paper_size=paper)
+        config = load_app_config(config_path, paper_size=paper)
         config = apply_template_design(config, design)
 
         with wizard_stage("Inputs"):
@@ -461,9 +463,6 @@ def _should_use_wizard_for_backup(args: BackupArgs) -> bool:
 
 
 def run_backup_command(args: BackupArgs) -> int:
-    if args.config and args.paper:
-        raise ValueError("use either --config or --paper, not both")
-
     config = load_app_config(args.config, paper_size=args.paper)
     config = apply_template_design(config, args.design)
     inputs = list(args.input or [])

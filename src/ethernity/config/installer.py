@@ -40,13 +40,8 @@ TEMPLATE_FILENAMES = (
     DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH.name,
     DEFAULT_KIT_TEMPLATE_PATH.name,
 )
-PAPER_CONFIGS = {
-    "A4": PACKAGE_ROOT / "config/a4.toml",
-    "LETTER": PACKAGE_ROOT / "config/letter.toml",
-}
 DEFAULT_PAPER_SIZE = "A4"
-DEFAULT_CONFIG_PATH = PAPER_CONFIGS[DEFAULT_PAPER_SIZE]
-PAPER_SIZE_ENV = "ETHERNITY_PAPER_SIZE"
+DEFAULT_CONFIG_PATH = PACKAGE_ROOT / "config/config.toml"
 XDG_CONFIG_ENV = "XDG_CONFIG_HOME"
 
 
@@ -55,7 +50,7 @@ class ConfigPaths:
     user_config_dir: Path
     user_templates_root: Path
     user_templates_dir: Path
-    user_paper_configs: dict[str, Path]
+    user_config_path: Path
     user_template_paths: dict[str, Path]
     user_required_files: tuple[Path, ...]
 
@@ -73,7 +68,7 @@ def _build_paths() -> ConfigPaths:
     user_config_dir = _user_config_dir()
     user_templates_root = user_config_dir / "templates"
     user_templates_dir = user_templates_root / DEFAULT_TEMPLATE_STYLE
-    user_paper_configs = {key: user_config_dir / path.name for key, path in PAPER_CONFIGS.items()}
+    user_config_path = user_config_dir / DEFAULT_CONFIG_PATH.name
     user_template_paths = {
         "main": user_templates_dir / DEFAULT_TEMPLATE_PATH.name,
         "recovery": user_templates_dir / DEFAULT_RECOVERY_TEMPLATE_PATH.name,
@@ -81,12 +76,12 @@ def _build_paths() -> ConfigPaths:
         "signing_key_shard": user_templates_dir / DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH.name,
         "kit": user_templates_dir / DEFAULT_KIT_TEMPLATE_PATH.name,
     }
-    user_required_files = tuple([*user_paper_configs.values(), *user_template_paths.values()])
+    user_required_files = tuple([user_config_path, *user_template_paths.values()])
     return ConfigPaths(
         user_config_dir=user_config_dir,
         user_templates_root=user_templates_root,
         user_templates_dir=user_templates_dir,
-        user_paper_configs=user_paper_configs,
+        user_config_path=user_config_path,
         user_template_paths=user_template_paths,
         user_required_files=user_required_files,
     )
@@ -144,33 +139,14 @@ def user_config_needs_init() -> bool:
     return any(not path.exists() for path in paths.user_required_files)
 
 
-def _resolve_config_path(path: str | Path | None, *, paper_size: str | None) -> Path:
+def resolve_config_path(path: str | Path | None = None) -> Path:
+    """Resolve the TOML config path used by the application."""
     if path:
         return Path(path)
 
     paths = _build_paths()
-    use_user_config = _ensure_user_config(paths)
-    user_configs = paths.user_paper_configs if use_user_config else {}
-
-    if paper_size:
-        key = paper_size.strip().upper()
-        config_path = user_configs.get(key) or PAPER_CONFIGS.get(key)
-        if not config_path:
-            raise ValueError(f"unknown paper size: {paper_size}")
-        return config_path
-
-    env_paper = os.environ.get(PAPER_SIZE_ENV)
-    if env_paper:
-        key = env_paper.strip().upper()
-        config_path = user_configs.get(key) or PAPER_CONFIGS.get(key)
-        if not config_path:
-            raise ValueError(f"unknown paper size: {env_paper}")
-        return config_path
-
-    default_user_config = user_configs.get(DEFAULT_PAPER_SIZE)
-    if default_user_config and default_user_config.exists():
-        return default_user_config
-
+    if _ensure_user_config(paths) and paths.user_config_path.exists():
+        return paths.user_config_path
     return DEFAULT_CONFIG_PATH
 
 
@@ -180,6 +156,7 @@ def _ensure_user_config(paths: ConfigPaths) -> bool:
         paths.user_templates_root.mkdir(parents=True, exist_ok=True)
         paths.user_templates_dir.mkdir(parents=True, exist_ok=True)
         _copy_template_designs(paths.user_templates_root)
+        _copy_if_missing(DEFAULT_CONFIG_PATH, paths.user_config_path)
         _copy_if_missing(DEFAULT_TEMPLATE_PATH, paths.user_template_paths["main"])
         _copy_if_missing(DEFAULT_RECOVERY_TEMPLATE_PATH, paths.user_template_paths["recovery"])
         _copy_if_missing(DEFAULT_SHARD_TEMPLATE_PATH, paths.user_template_paths["shard"])
@@ -188,8 +165,6 @@ def _ensure_user_config(paths: ConfigPaths) -> bool:
             paths.user_template_paths["signing_key_shard"],
         )
         _copy_if_missing(DEFAULT_KIT_TEMPLATE_PATH, paths.user_template_paths["kit"])
-        for key, src in PAPER_CONFIGS.items():
-            _copy_if_missing(src, paths.user_paper_configs[key])
     except OSError:
         return False
     return True

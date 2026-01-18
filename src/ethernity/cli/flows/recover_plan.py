@@ -66,8 +66,6 @@ class RecoveryPlan:
 
 
 def resolve_recover_config(args: RecoverArgs) -> tuple[object, str]:
-    if args.config and args.paper:
-        raise ValueError("use either --config or --paper, not both")
     config = load_app_config(args.config, paper_size=args.paper)
     return config, config.qr_payload_encoding
 

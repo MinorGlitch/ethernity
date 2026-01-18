@@ -49,13 +49,13 @@ def cli(
     config: str | None = typer.Option(
         None,
         "--config",
-        help="Use this TOML config (overrides paper preset).",
+        help="Use this TOML config file.",
         rich_help_panel="Global",
     ),
     paper: str | None = typer.Option(
         None,
         "--paper",
-        help="Paper preset (A4/LETTER).",
+        help="Paper size override (A4/Letter).",
         callback=_paper_callback,
         rich_help_panel="Global",
     ),

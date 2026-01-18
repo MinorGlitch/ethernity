@@ -135,7 +135,7 @@ def backup(
     paper: str | None = typer.Option(
         None,
         "--paper",
-        help="Paper preset (A4/LETTER).",
+        help="Paper size override (A4/Letter).",
         callback=_paper_callback,
         rich_help_panel="Config",
     ),

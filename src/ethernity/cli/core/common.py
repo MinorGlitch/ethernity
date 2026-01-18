@@ -53,8 +53,6 @@ def _resolve_config_and_paper(
 ) -> tuple[str | None, str | None]:
     config_value = config or _ctx_value(ctx, "config")
     paper_value = paper or _ctx_value(ctx, "paper")
-    if config_value and paper_value:
-        raise typer.BadParameter("use either --config or --paper, not both")
     return config_value, paper_value
 
 

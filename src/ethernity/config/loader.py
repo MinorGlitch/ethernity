@@ -32,7 +32,7 @@ from .installer import (
     DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
     DEFAULT_TEMPLATE_PATH,
     PACKAGE_ROOT,
-    _resolve_config_path,
+    resolve_config_path,
     resolve_template_design_path,
 )
 
@@ -52,7 +52,7 @@ class AppConfig:
 
 
 def load_app_config(path: str | Path | None = None, *, paper_size: str | None = None) -> AppConfig:
-    config_path = _resolve_config_path(path, paper_size=paper_size)
+    config_path = resolve_config_path(path)
     data = _load_toml(config_path)
     config_dir = config_path.parent
 

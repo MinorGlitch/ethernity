@@ -101,7 +101,7 @@ def kit(
         None,
         "--paper",
         "-p",
-        help="Paper size preset: A4 (default) or LETTER.",
+        help="Paper size override: A4 (default) or Letter.",
         callback=_paper_callback,
         rich_help_panel="Config",
     ),

@@ -26,7 +26,7 @@ from ethernity.core.models import DocumentPlan, ShardingConfig, SigningSeedMode
 from ethernity.formats import envelope_codec as envelope_codec_module
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-A4_CONFIG_PATH = REPO_ROOT / "src" / "ethernity" / "config" / "a4.toml"
+DEFAULT_CONFIG_PATH = REPO_ROOT / "src" / "ethernity" / "config" / "config.toml"
 
 
 class _CaptureBuild:
@@ -84,7 +84,7 @@ def _run_backup_with_plan(
 
 class TestCliBackup(unittest.TestCase):
     def test_run_backup_passphrase_autogen(self) -> None:
-        config = load_app_config(path=A4_CONFIG_PATH)
+        config = load_app_config(path=DEFAULT_CONFIG_PATH)
         plan = DocumentPlan(
             version=1,
             sealed=False,
@@ -126,7 +126,7 @@ class TestCliBackup(unittest.TestCase):
             self.assertFalse(calls[1].render_qr)
 
     def test_run_backup_sharding_passes_signing_keys(self) -> None:
-        config = load_app_config(path=A4_CONFIG_PATH)
+        config = load_app_config(path=DEFAULT_CONFIG_PATH)
         plan = DocumentPlan(
             version=1,
             sealed=False,
@@ -184,7 +184,7 @@ class TestCliBackup(unittest.TestCase):
         self.assertTrue(result.shard_paths[0].endswith("-1-of-3.pdf"))
 
     def test_run_backup_stores_signing_seed_when_unsealed_sharded_passphrase(self) -> None:
-        config = load_app_config(path=A4_CONFIG_PATH)
+        config = load_app_config(path=DEFAULT_CONFIG_PATH)
         plan = DocumentPlan(
             version=1,
             sealed=False,
@@ -233,7 +233,7 @@ class TestCliBackup(unittest.TestCase):
         self.assertEqual(captured.get("signing_seed"), sign_priv)
 
     def test_run_backup_omits_signing_seed_for_sealed(self) -> None:
-        config = load_app_config(path=A4_CONFIG_PATH)
+        config = load_app_config(path=DEFAULT_CONFIG_PATH)
         input_file = cli.InputFile(
             source_path=Path("input.bin"),
             relative_path="input.bin",
@@ -260,7 +260,7 @@ class TestCliBackup(unittest.TestCase):
         self.assertIsNone(signing_seed)
 
     def test_run_backup_shards_signing_seed_when_mode_sharded(self) -> None:
-        config = load_app_config(path=A4_CONFIG_PATH)
+        config = load_app_config(path=DEFAULT_CONFIG_PATH)
         plan = DocumentPlan(
             version=1,
             sealed=False,

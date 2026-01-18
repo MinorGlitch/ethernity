@@ -32,7 +32,7 @@ class TestIntegrationBackup(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             repo_root = Path(__file__).resolve().parents[2]
-            config_path = repo_root / "src" / "ethernity" / "config" / "a4.toml"
+            config_path = repo_root / "src" / "ethernity" / "config" / "config.toml"
             env_overrides = {
                 "XDG_CONFIG_HOME": str(tmp_path / "xdg"),
             }
