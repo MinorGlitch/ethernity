@@ -25,6 +25,7 @@ from ethernity.config import (
     DEFAULT_TEMPLATE_PATH,
     load_app_config,
 )
+from ethernity.encoding.chunking import DEFAULT_CHUNK_SIZE
 
 
 class TestConfig(unittest.TestCase):
@@ -78,6 +79,7 @@ light = [4, 5, 6, 7]
         self.assertEqual(config.qr_config.dark, (1, 2, 3))
         self.assertEqual(config.qr_config.light, (4, 5, 6, 7))
         self.assertFalse(config.qr_config.boost_error)
+        self.assertEqual(config.qr_chunk_size, DEFAULT_CHUNK_SIZE)
 
     def test_load_app_config_with_defaults(self) -> None:
         """Test loading config with minimal content uses defaults."""
@@ -93,6 +95,7 @@ size = "A4"
         self.assertEqual(config.paper_size, "A4")
         self.assertEqual(config.template_path, DEFAULT_TEMPLATE_PATH)
         self.assertEqual(config.qr_payload_encoding, "base64")
+        self.assertEqual(config.qr_chunk_size, DEFAULT_CHUNK_SIZE)
 
     def test_load_app_config_empty_file(self) -> None:
         """Test loading empty config file uses all defaults."""
@@ -103,6 +106,7 @@ size = "A4"
 
         self.assertEqual(config.paper_size, DEFAULT_PAPER_SIZE)
         self.assertEqual(config.template_path, DEFAULT_TEMPLATE_PATH)
+        self.assertEqual(config.qr_chunk_size, DEFAULT_CHUNK_SIZE)
 
     def test_load_app_config_missing_sections(self) -> None:
         """Test loading config with missing optional sections."""
@@ -140,6 +144,7 @@ scale = 1
 border = 0
 version = 1
 mask = 0
+chunk_size = 512
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
@@ -150,6 +155,18 @@ mask = 0
         self.assertEqual(config.qr_config.border, 0)
         self.assertEqual(config.qr_config.version, 1)
         self.assertEqual(config.qr_config.mask, 0)
+        self.assertEqual(config.qr_chunk_size, 512)
+
+    def test_load_app_config_rejects_non_positive_chunk_size(self) -> None:
+        toml = """
+[qr]
+chunk_size = 0
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_app_config(path=path)
 
     def test_load_app_config_qr_large_values(self) -> None:
         """Test QR config with larger valid values."""

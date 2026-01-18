@@ -30,7 +30,7 @@ from ...crypto import (
     signing as signing_module,
 )
 from ...crypto.sharding import ShardPayload
-from ...encoding.chunking import DEFAULT_CHUNK_SIZE, chunk_payload
+from ...encoding.chunking import chunk_payload
 from ...encoding.framing import VERSION, Frame, FrameType
 from ...formats import envelope_codec as envelope_codec_module
 from ...formats.envelope_types import PayloadPart
@@ -436,7 +436,7 @@ def run_backup(
     # Prepare render inputs
     main_chunk_size = choose_frame_chunk_size(
         len(ciphertext),
-        preferred_chunk_size=DEFAULT_CHUNK_SIZE,
+        preferred_chunk_size=config.qr_chunk_size,
         doc_id=doc_id,
         frame_type=FrameType.MAIN_DOCUMENT,
         qr_config=config.qr_config,

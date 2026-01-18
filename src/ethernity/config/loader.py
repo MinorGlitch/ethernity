@@ -22,6 +22,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, TypeVar
 
+from ..encoding.chunking import DEFAULT_CHUNK_SIZE
 from ..encoding.qr_payloads import normalize_qr_payload_encoding
 from ..qr.codec import QrConfig
 from .installer import (
@@ -49,6 +50,7 @@ class AppConfig:
     paper_size: str
     qr_config: QrConfig
     qr_payload_encoding: str
+    qr_chunk_size: int
 
 
 def load_app_config(path: str | Path | None = None, *, paper_size: str | None = None) -> AppConfig:
@@ -103,6 +105,10 @@ def load_app_config(path: str | Path | None = None, *, paper_size: str | None = 
     qr_payload_encoding = normalize_qr_payload_encoding(
         _parse_optional_str(qr_section.get("payload_encoding"))
     )
+    qr_chunk_size_value = _parse_optional_int(qr_section.get("chunk_size"))
+    qr_chunk_size = DEFAULT_CHUNK_SIZE if qr_chunk_size_value is None else qr_chunk_size_value
+    if qr_chunk_size <= 0:
+        raise ValueError("qr.chunk_size must be a positive integer")
     return AppConfig(
         template_path=template_path,
         recovery_template_path=recovery_path,
@@ -112,6 +118,7 @@ def load_app_config(path: str | Path | None = None, *, paper_size: str | None = 
         paper_size=resolved_paper_size,
         qr_config=qr_config,
         qr_payload_encoding=qr_payload_encoding,
+        qr_chunk_size=qr_chunk_size,
     )
 
 
