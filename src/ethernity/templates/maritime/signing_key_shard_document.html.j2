@@ -25,63 +25,64 @@
       margin: 0;
     }
     :root {
-      --ink: #1a202b;
-      --ink-muted: #4a5562;
-      --ink-soft: #6d7684;
-      --ink-label: #394351;
-      --accent: #2b343e;
-      --rail: #2b343e;
-      --paper-top: #f6f6f1;
-      --paper-bottom: #e7e8e0;
-      --plate: #fcfcf6;
-      --plate-border: #c4c7bb;
-      --rule: #c3c8bf;
-      --rule-strong: #8f979a;
-      --note: #f0f1ea;
-      --tab: #d8dbd1;
-      --pin: #525a66;
-      --stamp: #8a2f36;
-      --font-title: "Garamond", "Baskerville", "Palatino Linotype", "Palatino", serif;
-      --font-body: "Franklin Gothic Book", "Franklin Gothic Medium", "Gill Sans", "Trebuchet MS", sans-serif;
+      --ink: #0c2230;
+      --ink-muted: #31495a;
+      --ink-soft: #5a7384;
+      --ink-label: #223643;
+      --accent: #0c2b3c;
+      --rail: #0c2b3c;
+      --paper-top: #f2f6f7;
+      --paper-bottom: #dfe7ea;
+      --plate: #f7fbfc;
+      --plate-border: #b7c4c9;
+      --rule: #c1ced2;
+      --rule-strong: #869aa3;
+      --note: #e9f0f2;
+      --tab: #c7dde0;
+      --pin: #465c68;
+      --stamp: #1f5e73;
+      --font-title: "Baskerville", "Goudy Old Style", "Palatino Linotype", "Palatino", serif;
+      --font-body: "Gill Sans", "Trebuchet MS", "Verdana", sans-serif;
       --font-mono: "SFMono-Regular", "Menlo", "Consolas", "Courier New", monospace;
       --divider-y-offset: 7mm;
       --instructions-y-offset: 7mm;
       --keys-y-offset: 7mm;
       --fallback-y-offset: 7mm;
       --qr-y-offset: 7mm;
-      --header-pad: 2.5mm 2mm;
+      --header-pad: 2mm 3mm;
       --instructions-pad: 0 3mm;
-      --qr-card-pad: 0.6mm;
-      --fallback-pad: 0 4mm 0 calc(var(--strip-width) + var(--line-num-offset) + 1mm);
-      --line-num-offset: 5.2mm;
-      --line-num-width: 4.8mm;
+      --qr-card-pad: 0.8mm;
+      --fallback-pad: 0 4mm 0 calc(var(--line-num-offset) + var(--line-num-width) + 2.6mm);
+      --line-num-offset: 5.6mm;
+      --line-num-width: 4.5mm;
       --space-1: 1mm;
       --space-2: 1.2mm;
-      --space-3: 1.4mm;
-      --space-4: 1.5mm;
-      --space-5: 1.6mm;
-      --space-6: 2mm;
-      --space-7: 3mm;
-      --space-8: 4mm;
+      --space-3: 1.5mm;
+      --space-4: 1.6mm;
+      --space-5: 2mm;
+      --space-6: 3mm;
+      --space-7: 4mm;
+      --space-8: 4.5mm;
       --space-9: 6mm;
       --border-hairline: 0.2mm;
       --border-fine: 0.25mm;
       --border-thin: 0.3mm;
       --border-base: 0.35mm;
-      --border-strong: 0.45mm;
-      --border-heavy: 0.6mm;
-      --border-thick: 0.8mm;
-      --border-rail: 1.6mm;
+      --border-strong: 0.4mm;
+      --border-heavy: 0.45mm;
+      --border-rail: 0.8mm;
       --radius-none: 0;
-      --title-size: 16pt;
-      --subtitle-size: 8.5pt;
-      --meta-size: 7.5pt;
-      --meta-label-size: 6.5pt;
-      --meta-value-size: 7.5pt;
+      --radius-sm: 0.8mm;
+      --radius-md: 1mm;
+      --title-size: 15.5pt;
+      --subtitle-size: 8pt;
+      --meta-size: 7.2pt;
+      --meta-label-size: 6pt;
+      --meta-value-size: 7.2pt;
       --fallback-font-size: 9.0pt;
       --fallback-line: 4.2mm;
-      --line-num-size: 6pt;
-      --line-num-letter-spacing: 0.08em;
+      --line-num-size: 5.8pt;
+      --line-num-letter-spacing: 0.1em;
     }
     * {
       box-sizing: border-box;
@@ -111,21 +112,21 @@
       top: {{ margin_mm }}mm;
       width: {{ usable_width_mm }}mm;
       display: grid;
-      grid-template-columns: 1fr 45mm;
-      gap: var(--space-9);
+      grid-template-columns: 1fr 48mm;
+      gap: var(--space-8);
       align-items: start;
     }
     .header-left {
       display: grid;
-      gap: var(--space-6);
+      gap: var(--space-4);
     }
     .title {
       font-size: var(--title-size);
-      font-weight: 700;
+      font-weight: 600;
       font-family: var(--font-title);
       color: var(--ink);
       line-height: 1.1;
-      letter-spacing: 0.18em;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
     }
     .subtitle {
@@ -133,13 +134,13 @@
       font-style: normal;
       color: var(--ink-muted);
       line-height: 1.2;
-      letter-spacing: 0.14em;
+      letter-spacing: 0.18em;
       text-transform: uppercase;
     }
     .meta-grid {
       display: grid;
-      grid-template-columns: 24mm auto;
-      gap: var(--space-3) var(--space-7);
+      grid-template-columns: 22mm auto;
+      gap: var(--space-2) var(--space-6);
       font-size: var(--meta-size);
       line-height: 1.2;
       align-items: baseline;
@@ -147,7 +148,7 @@
     .meta-label {
       font-size: var(--meta-label-size);
       text-transform: uppercase;
-      letter-spacing: 0.18em;
+      letter-spacing: 0.2em;
       color: var(--ink-soft);
       font-family: var(--font-title);
     }
@@ -160,13 +161,13 @@
     .header-right {
       justify-self: end;
       align-self: start;
-      border: var(--border-heavy) solid var(--stamp);
-      border-radius: var(--radius-none);
+      border: var(--border-heavy) solid var(--rule-strong);
+      border-radius: var(--radius-md);
       padding: var(--header-pad);
-      text-align: center;
+      text-align: left;
       text-transform: uppercase;
-      letter-spacing: 0.2em;
-      background: rgba(122, 44, 47, 0.08);
+      letter-spacing: 0.16em;
+      background: linear-gradient(180deg, rgba(248, 251, 250, 0.95) 0%, var(--plate) 100%);
     }
     .stamp-title {
       font-size: 7pt;
@@ -185,13 +186,13 @@
       position: absolute;
       left: {{ margin_mm }}mm;
       width: {{ usable_width_mm }}mm;
-      height: 0.6mm;
+      height: 0.4mm;
       background: repeating-linear-gradient(
         90deg,
         var(--rule-strong) 0,
-        var(--rule-strong) 8mm,
-        transparent 8mm,
-        transparent 12mm
+        var(--rule-strong) 14mm,
+        transparent 14mm,
+        transparent 18mm
       );
       opacity: 0.7;
     }
@@ -201,41 +202,37 @@
       width: {{ usable_width_mm }}mm;
       display: grid;
       grid-template-columns: minmax(26mm, max-content) 1fr;
-      column-gap: var(--space-6);
+      column-gap: var(--space-5);
       font-size: 9pt;
       line-height: 4.5mm;
       color: var(--ink);
-      background: var(--note);
+      background: linear-gradient(
+        90deg,
+        rgba(15, 43, 60, 0.06) 0,
+        rgba(255, 255, 255, 0) 70%
+      );
       border: none;
-      border-radius: var(--radius-none);
+      border-radius: var(--radius-md);
       padding: 0 3mm;
       box-shadow: none;
-      outline: var(--border-base) solid var(--rule);
+      outline: var(--border-strong) solid var(--rule-strong);
       z-index: 2;
     }
-    .instructions::before {
-      content: "";
-      position: absolute;
-      top: -2mm;
-      right: 10mm;
-      width: 4mm;
-      height: 4mm;
-      border-radius: 50%;
-      background: var(--pin);
-      box-shadow: none;
-    }
+
+.instructions::before {
+  content: none;
+}
     .instructions-label {
-      font-size: 7pt;
+      font-size: 6.5pt;
       font-weight: 700;
       color: var(--stamp);
       text-transform: uppercase;
-      letter-spacing: 0.18em;
+      letter-spacing: 0.2em;
       font-family: var(--font-title);
-      border: var(--border-base) solid var(--stamp);
-      padding: 0.3mm 1.1mm;
+      background: rgba(42, 95, 110, 0.12);
+      padding: 0 1.2mm;
       justify-self: start;
       align-self: start;
-      background: rgba(122, 44, 47, 0.08);
       grid-column: 1;
       grid-row: 1;
     }
@@ -245,18 +242,19 @@
     }
     .qr-grid {
       position: absolute;
-      border: var(--border-heavy) double var(--rule-strong);
-      border-radius: var(--radius-none);
+      border: none;
+      border-radius: var(--radius-md);
       overflow: hidden;
       pointer-events: none;
       z-index: 0;
       background: var(--plate);
       box-shadow: none;
+      outline: var(--border-heavy) solid var(--rule-strong);
     }
     .qr-grid::before {
       content: "";
       position: absolute;
-      inset: 1.8mm;
+      inset: 2mm;
       pointer-events: none;
     }
     .qr-grid::after {
@@ -267,19 +265,34 @@
         repeating-linear-gradient(
           90deg,
           transparent 0,
-          transparent 24mm,
-          rgba(26, 31, 38, 0.05) 24mm,
-          rgba(26, 31, 38, 0.05) 24.3mm
+          transparent 22mm,
+          rgba(16, 37, 51, 0.04) 22mm,
+          rgba(16, 37, 51, 0.04) 22.2mm
         ),
         repeating-linear-gradient(
           0deg,
           transparent 0,
-          transparent 24mm,
-          rgba(26, 31, 38, 0.05) 24mm,
-          rgba(26, 31, 38, 0.05) 24.3mm
+          transparent 22mm,
+          rgba(16, 37, 51, 0.04) 22mm,
+          rgba(16, 37, 51, 0.04) 22.2mm
         );
       opacity: 0.25;
       pointer-events: none;
+    }
+    .qr-grid-items {
+      position: absolute;
+      display: grid;
+      grid-template-columns: repeat(var(--qr-cols), var(--qr-size));
+      grid-auto-rows: var(--qr-size);
+      column-gap: var(--qr-gap-x);
+      row-gap: var(--qr-gap-y);
+      z-index: 1;
+    }
+    .qr-cell {
+      width: var(--qr-size);
+      height: var(--qr-size);
+      padding: var(--qr-card-pad);
+      box-sizing: border-box;
     }
     .qr-sequence {
       position: absolute;
@@ -291,19 +304,21 @@
       z-index: 0;
     }
     .qr-sequence line {
-      stroke: var(--stamp);
-      stroke-width: 0.3mm;
-      stroke-dasharray: 1.2mm 1.2mm;
-      opacity: 0.6;
+      stroke: var(--rail);
+      stroke-width: 0.25mm;
+      stroke-dasharray: 1.6mm 1.2mm;
+      opacity: 0.5;
     }
     .qr-sequence text {
-      fill: var(--stamp);
-      font-size: 7pt;
+      fill: var(--rail);
+      font-size: 6.5pt;
       font-family: var(--font-mono);
-      letter-spacing: 0.08em;
+      letter-spacing: 0.1em;
     }
     .qr-card {
-      position: absolute;
+      position: relative;
+      width: 100%;
+      height: 100%;
       box-sizing: border-box;
       z-index: 1;
     }
@@ -316,9 +331,10 @@
       font-family: var(--font-mono);
       letter-spacing: 0.08em;
       color: var(--ink);
-      background: var(--plate);
-      border: var(--border-fine) solid var(--rule);
+      background: var(--note);
+      border: var(--border-fine) solid var(--rule-strong);
       padding: 0.2mm 0.8mm;
+      border-radius: var(--radius-sm);
     }
     .qr {
       width: 100%;
@@ -330,7 +346,6 @@
       background: #ffffff;
     }
     .fallback {
-      --strip-width: 8mm;
       position: absolute;
       left: {{ margin_mm }}mm;
       width: {{ fallback.width_mm }}mm;
@@ -343,45 +358,30 @@
       font-feature-settings: "liga" 0, "calt" 0;
       color: var(--ink);
       background: var(--plate);
-      padding: 0 4mm 0 calc(var(--strip-width) + var(--line-num-offset) + 1mm);
+      padding: 0 4mm 0 calc(var(--line-num-offset) + var(--line-num-width) + 2.6mm);
       overflow: hidden;
       border: none;
       box-shadow: none;
-      border-radius: var(--radius-none);
+      border-radius: var(--radius-md);
       font-variant-numeric: tabular-nums;
       outline: var(--border-base) solid var(--rule);
       z-index: 2;
     }
     .fallback::before {
-      content: "";
-      position: absolute;
-      left: 0;
-      top: 0;
-      width: var(--strip-width);
-      height: 100%;
-      background: linear-gradient(
-        90deg,
-        var(--rail) 0,
-        var(--rail) 1.2mm,
-        var(--tab) 1.2mm,
-        var(--tab) 100%
-      );
-      border-right: var(--border-base) solid var(--rule);
+      content: none;
     }
     .fallback-title {
-      position: absolute;
-      left: 1.4mm;
-      top: 1.5mm;
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.18em;
+      letter-spacing: 0.2em;
       color: var(--stamp);
       font-family: var(--font-title);
-      font-size: 7pt;
-      writing-mode: vertical-rl;
+      font-size: 6.5pt;
       line-height: var(--fallback-line);
       margin: 0;
-      padding: 0;
+      padding: 0 1.2mm;
+      background: rgba(42, 95, 110, 0.12);
+      display: inline-block;
     }
     .fallback-lines {
       position: relative;
@@ -460,15 +460,21 @@
     </svg>
     {% endif %}
 
-    {% for slot in page.qr_slots %}
+    {% if page.qr_items and page.qr_grid %}
     <div
-      class="qr-card"
-      style="left: {{ slot.x_mm + 0.8 }}mm; top: calc({{ slot.y_mm + 0.8 }}mm + var(--qr-y-offset)); width: {{ slot.size_mm - 1.6 }}mm; height: {{ slot.size_mm - 1.6 }}mm;"
+      class="qr-grid-items"
+      style="left: {{ page.qr_grid.x_mm }}mm; top: calc({{ page.qr_grid.y_mm }}mm + var(--qr-y-offset)); --qr-size: {{ page.qr_grid.size_mm }}mm; --qr-gap-x: {{ page.qr_grid.gap_x_mm }}mm; --qr-gap-y: {{ page.qr_grid.gap_y_mm }}mm; --qr-cols: {{ page.qr_grid.cols }};"
     >
-      <div class="qr-index">{{ "%02d"|format(slot.index) }}</div>
-      <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
+      {% for slot in page.qr_items %}
+      <div class="qr-cell">
+        <div class="qr-card">
+          <div class="qr-index">{{ "%02d"|format(slot.index) }}</div>
+          <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
+        </div>
+      </div>
+      {% endfor %}
     </div>
-    {% endfor %}
+    {% endif %}
 
     {% if page.fallback_blocks %}
       {%- for block in page.fallback_blocks %}

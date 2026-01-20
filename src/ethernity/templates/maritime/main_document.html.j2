@@ -41,17 +41,17 @@
       --tab: #c7dde0;
       --pin: #465c68;
       --stamp: #1f5e73;
-      --instructions-gap: 4mm;
-      --content-gap: 20mm;
-      --first-page-offset: 20mm;
       --font-title: "Baskerville", "Goudy Old Style", "Palatino Linotype", "Palatino", serif;
       --font-body: "Gill Sans", "Trebuchet MS", "Verdana", sans-serif;
       --font-mono: "SFMono-Regular", "Menlo", "Consolas", "Courier New", monospace;
+      --divider-y-offset: 7mm;
+      --instructions-y-offset: 7mm;
+      --keys-y-offset: 7mm;
+      --fallback-y-offset: 7mm;
+      --qr-y-offset: 7mm;
       --header-pad: 2mm 3mm;
       --instructions-pad: 0 3mm;
-      --fallback-pad: 0 4mm 0 calc(var(--line-num-offset) + var(--line-num-width) + 2.6mm);
-      --line-num-offset: 5.6mm;
-      --line-num-width: 4.5mm;
+      --qr-card-pad: 0.8mm;
       --space-1: 1mm;
       --space-2: 1.2mm;
       --space-3: 1.5mm;
@@ -76,10 +76,6 @@
       --meta-size: 7.2pt;
       --meta-label-size: 6pt;
       --meta-value-size: 7.2pt;
-      --fallback-font-size: 9.0pt;
-      --fallback-line: 4.2mm;
-      --line-num-size: 5.8pt;
-      --line-num-letter-spacing: 0.1em;
     }
     * {
       box-sizing: border-box;
@@ -180,7 +176,9 @@
       letter-spacing: 0.12em;
     }
     .divider {
-      width: 100%;
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      width: {{ usable_width_mm }}mm;
       height: 0.4mm;
       background: repeating-linear-gradient(
         90deg,
@@ -191,37 +189,10 @@
       );
       opacity: 0.7;
     }
-    .content {
+    .instructions {
       position: absolute;
       left: {{ margin_mm }}mm;
       width: {{ usable_width_mm }}mm;
-      bottom: {{ margin_mm }}mm;
-      display: flex;
-      flex-direction: column;
-    }
-    .content.first-page {
-      padding-top: var(--first-page-offset);
-    }
-    .fallback-stack {
-      display: flex;
-      flex-direction: column;
-      flex: 1;
-      min-height: 0;
-      margin-top: var(--content-gap);
-    }
-    .fallback-stack.has-instructions {
-      margin-top: var(--instructions-gap);
-    }
-    .fallback.main-fallback {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-    }
-    .fallback.main-fallback .fallback-lines {
-      flex: 1;
-      min-height: 0;
-    }
-    .instructions {
       display: grid;
       grid-template-columns: minmax(26mm, max-content) 1fr;
       column-gap: var(--space-5);
@@ -235,7 +206,7 @@
       );
       border: none;
       border-radius: var(--radius-md);
-      padding: var(--instructions-pad);
+      padding: 0 3mm;
       box-shadow: none;
       outline: var(--border-strong) solid var(--rule-strong);
       z-index: 2;
@@ -262,112 +233,122 @@
       grid-column: 2;
       grid-row: 1;
     }
-    .fallback {
+    .qr-grid {
+      position: absolute;
+      border: none;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 0;
+      background: var(--plate);
+      box-shadow: none;
+      outline: var(--border-heavy) solid var(--rule-strong);
+    }
+    .qr-grid::before {
+      content: "";
+      position: absolute;
+      inset: 2mm;
+      pointer-events: none;
+    }
+    .qr-grid::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        repeating-linear-gradient(
+          90deg,
+          transparent 0,
+          transparent 22mm,
+          rgba(16, 37, 51, 0.04) 22mm,
+          rgba(16, 37, 51, 0.04) 22.2mm
+        ),
+        repeating-linear-gradient(
+          0deg,
+          transparent 0,
+          transparent 22mm,
+          rgba(16, 37, 51, 0.04) 22mm,
+          rgba(16, 37, 51, 0.04) 22.2mm
+        );
+      opacity: 0.25;
+      pointer-events: none;
+    }
+    .qr-grid-items {
+      position: absolute;
+      display: grid;
+      grid-template-columns: repeat(var(--qr-cols), var(--qr-size));
+      grid-auto-rows: var(--qr-size);
+      column-gap: var(--qr-gap-x);
+      row-gap: var(--qr-gap-y);
+      z-index: 1;
+    }
+    .qr-cell {
+      width: var(--qr-size);
+      height: var(--qr-size);
+      padding: var(--qr-card-pad);
+      box-sizing: border-box;
+    }
+    .qr-sequence {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .qr-sequence line {
+      stroke: var(--rail);
+      stroke-width: 0.25mm;
+      stroke-dasharray: 1.6mm 1.2mm;
+      opacity: 0.5;
+    }
+    .qr-sequence text {
+      fill: var(--rail);
+      font-size: 6.5pt;
+      font-family: var(--font-mono);
+      letter-spacing: 0.1em;
+    }
+    .qr-card {
       position: relative;
       width: 100%;
-      font-family: "Courier", "Courier New", monospace;
-      font-size: var(--fallback-font-size);
-      line-height: var(--fallback-line);
-      letter-spacing: 0;
-      font-kerning: none;
-      font-variant-ligatures: none;
-      font-feature-settings: "liga" 0, "calt" 0;
-      color: var(--ink);
-      background: var(--plate);
-      padding: var(--fallback-pad);
-      overflow: hidden;
-      border: none;
-      box-shadow: none;
-      border-radius: var(--radius-md);
-      font-variant-numeric: tabular-nums;
-      outline: var(--border-base) solid var(--rule);
-      z-index: 2;
+      height: 100%;
+      box-sizing: border-box;
+      z-index: 1;
     }
-    .fallback::before {
-      content: none;
-    }
-    .fallback-title {
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.2em;
-      color: var(--stamp);
-      font-family: var(--font-title);
-      font-size: 6.5pt;
-      line-height: var(--fallback-line);
-      margin: 0;
-      padding: 0 1.2mm;
-      background: rgba(42, 95, 110, 0.12);
-      display: inline-block;
-    }
-    .fallback-lines {
-      position: relative;
-      counter-reset: line;
-      padding-left: 0;
-      padding-top: 0;
-      background: none;
-    }
-    .fallback-line {
-      position: relative;
-      line-height: var(--fallback-line);
-      margin: 0;
-      white-space: pre;
-    }
-    .fallback-line::before {
-      counter-increment: line;
-      content: counter(line, decimal-leading-zero);
+    .qr-index {
       position: absolute;
-      left: calc(-1 * var(--line-num-offset));
-      width: var(--line-num-width);
-      text-align: right;
-      font-size: var(--line-num-size);
-      letter-spacing: var(--line-num-letter-spacing);
-      color: var(--ink-soft);
+      top: var(--qr-card-pad);
+      left: var(--qr-card-pad);
+      transform: translate(-3mm, -5mm);
+      font-size: 6pt;
+      font-family: var(--font-mono);
+      letter-spacing: 0.08em;
+      color: var(--ink);
+      background: var(--note);
+      border: var(--border-fine) solid var(--rule-strong);
+      padding: 0.2mm 0.8mm;
+      border-radius: var(--radius-sm);
+    }
+    .qr {
+      width: 100%;
+      height: 100%;
+      display: block;
+      image-rendering: pixelated;
+      box-sizing: border-box;
+      padding: 0.4mm;
+      background: #ffffff;
     }
   </style>
 </head>
 <body>
-{% set fallback_line_height_mm = 4.2 %}
-{% set auth_fallback_title = "Auth Frame" %}
-{% set auth_fallback_offset_mm = -2.0 %}
-{% set main_fallback_title = "Main Frame" %}
-{% set signing_pub_label = "Signing public key (hex):" %}
-{% set quorum_prefix = "Recover with " %}
-{% set quorum_suffix = " shard documents." %}
-{% set key_extract = namespace(pub_lines=[], collecting_pub=false, quorum_line="") %}
-{% for line in keys.lines %}
-  {% if line == signing_pub_label %}
-    {% set key_extract.collecting_pub = true %}
-  {% elif key_extract.collecting_pub and line.startswith("Signing private key") %}
-    {% set key_extract.collecting_pub = false %}
-  {% elif line.startswith(quorum_prefix) and line.endswith(quorum_suffix) %}
-    {% set key_extract.quorum_line = line %}
-  {% elif key_extract.collecting_pub %}
-    {% set key_extract.pub_lines = key_extract.pub_lines + [line] %}
-  {% endif %}
-{% endfor %}
-{% set quorum_value = key_extract.quorum_line.replace(quorum_prefix, "").replace(quorum_suffix, "") if key_extract.quorum_line else "" %}
 {% for page in pages %}
-{% set divider_y_mm = page.divider_y_mm %}
   <section class="page">
     <div class="header">
       <div class="header-left">
-        <div class="title">Recovery Document</div>
-        <div class="subtitle">Keys + Text Fallback</div>
+        <div class="title">Main Document</div>
         <div class="meta-grid">
           <div class="meta-label">Document ID</div>
           <div class="meta-value">{{ doc_id }}</div>
-          {% if key_extract.quorum_line %}
-          <div class="meta-label">Shard Quorum</div>
-          <div class="meta-value">{{ quorum_value }}</div>
-          {% endif %}
-          {% if key_extract.pub_lines %}
-          <div class="meta-label">Signing Pub Key</div>
-          <div class="meta-value">
-            {%- for line in key_extract.pub_lines -%}
-            {{ line }}{% if not loop.last %}<br>{% endif %}
-            {%- endfor -%}
-          </div>
-          {% endif %}
           <div class="meta-label">Page</div>
           <div class="meta-value">{{ page.page_label }}</div>
         </div>
@@ -377,43 +358,53 @@
         <div class="stamp-value">{{ created_timestamp_utc }}</div>
       </div>
     </div>
-    <div class="content{% if page.page_num == 1 %} first-page{% endif %}" style="top: {{ divider_y_mm }}mm;">
-      <div class="divider"></div>
+    <div class="divider" style="top: calc({{ page.divider_y_mm }}mm + var(--divider-y-offset));"></div>
 
-      {% if page.page_num == 1 %}
-      <div class="instructions">
-        <div class="instructions-label">Instructions</div>
-        <div>
-          <div>This document contains recovery keys and full text fallback.</div>
-          <div>Keep it separate from the QR document.</div>
-          <div>Fallback includes AUTH + MAIN sections; keep the labels when transcribing.</div>
-        </div>
+    {% if page.page_num == 1 %}
+    <div class="instructions" style="top: calc({{ page.instructions_y_mm }}mm + var(--instructions-y-offset));">
+      <div class="instructions-label">Instructions</div>
+      <div>
+        <div>Scan all QR codes in any order.</div>
+        <div>Use the Recovery Document for text fallback if needed.</div>
       </div>
-      {% endif %}
-
-      {% if page.fallback_blocks %}
-      <div class="fallback-stack{% if page.page_num == 1 %} has-instructions{% endif %}">
-        {%- for block in page.fallback_blocks %}
-        {% set gap_mm = (block.gap_lines | default(0)) * fallback_line_height_mm %}
-        {% set block_offset_mm = gap_mm + (auth_fallback_offset_mm if block.title == auth_fallback_title else 0.0) %}
-        {% set is_main_block = block.section_title == main_fallback_title %}
-        <div
-          class="fallback{% if is_main_block %} main-fallback{% endif %}"
-          style="margin-top: {{ block_offset_mm }}mm;"
-        >
-          {%- if block.title %}
-          <div class="fallback-title">{{ block.title }}</div>
-          {%- endif %}
-          <div class="fallback-lines" style="counter-reset: line {{ block.line_offset | default(0) }};">
-            {%- for line in block.lines %}
-            <div class="fallback-line">{{ line }}</div>
-            {%- endfor %}
-          </div>
-        </div>
-        {%- endfor %}
-      </div>
-      {% endif %}
     </div>
+    {% endif %}
+
+    {% if page.qr_outline %}
+    <div
+      class="qr-grid"
+      style="left: {{ page.qr_outline.x_mm }}mm; top: calc({{ page.qr_outline.y_mm }}mm + var(--qr-y-offset)); width: {{ page.qr_outline.width_mm }}mm; height: {{ page.qr_outline.height_mm }}mm;"
+    ></div>
+    {% endif %}
+
+    {% if page.sequence %}
+    <svg style="transform: translateY(var(--qr-y-offset));" class="qr-sequence" viewBox="0 0 {{ page_width_mm }} {{ page_height_mm }}">
+      {% for line in page.sequence.lines %}
+      <line x1="{{ line.x1 }}" y1="{{ line.y1 }}" x2="{{ line.x2 }}" y2="{{ line.y2 }}"></line>
+      {% endfor %}
+      {% for label in page.sequence.labels %}
+      <text x="{{ label.x }}" y="{{ label.y }}" text-anchor="middle" dominant-baseline="central">
+        {{ label.text }}
+      </text>
+      {% endfor %}
+    </svg>
+    {% endif %}
+
+    {% if page.qr_items and page.qr_grid %}
+    <div
+      class="qr-grid-items"
+      style="left: {{ page.qr_grid.x_mm }}mm; top: calc({{ page.qr_grid.y_mm }}mm + var(--qr-y-offset)); --qr-size: {{ page.qr_grid.size_mm }}mm; --qr-gap-x: {{ page.qr_grid.gap_x_mm }}mm; --qr-gap-y: {{ page.qr_grid.gap_y_mm }}mm; --qr-cols: {{ page.qr_grid.cols }};"
+    >
+      {% for slot in page.qr_items %}
+      <div class="qr-cell">
+        <div class="qr-card">
+          <div class="qr-index">{{ "%02d"|format(slot.index) }}</div>
+          <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
   </section>
 {% endfor %}
 </body>

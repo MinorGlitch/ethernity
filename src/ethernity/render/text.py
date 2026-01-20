@@ -107,6 +107,8 @@ def header_height(cfg: HeaderSpec, minimum: float) -> float:
     page_label = cfg.page_label or ""
     divider_enabled = bool(cfg.divider_enabled)
     layout = str(cfg.layout).lower()
+    meta_row_gap_mm = float(getattr(cfg, "meta_row_gap_mm", 0.0) or 0.0)
+    stack_gap_mm = float(getattr(cfg, "stack_gap_mm", 0.0) or 0.0)
 
     title_height = font_line_height(cfg.title_size) if title else 0.0
     subtitle_height = font_line_height(cfg.subtitle_size) if subtitle else 0.0
@@ -117,11 +119,18 @@ def header_height(cfg: HeaderSpec, minimum: float) -> float:
         meta_lines += 1
     meta_lines += int(getattr(cfg, "meta_lines_extra", 0))
     meta_height = meta_lines * font_line_height(cfg.meta_size)
+    meta_gaps = max(0, meta_lines - 1) * meta_row_gap_mm
+    meta_total_height = meta_height + meta_gaps
 
     if layout == "split":
-        height += max(title_height + subtitle_height, meta_height)
+        left_sections = int(title_height > 0) + int(subtitle_height > 0)
+        left_gaps = max(0, left_sections - 1) * stack_gap_mm
+        left_height = title_height + subtitle_height + left_gaps
+        height += max(left_height, meta_total_height)
     else:
-        height += title_height + subtitle_height + meta_height
+        sections = int(title_height > 0) + int(subtitle_height > 0) + int(meta_lines > 0)
+        stack_gaps = max(0, sections - 1) * stack_gap_mm
+        height += title_height + subtitle_height + meta_total_height + stack_gaps
 
     if divider_enabled:
         height += float(cfg.divider_gap_mm)

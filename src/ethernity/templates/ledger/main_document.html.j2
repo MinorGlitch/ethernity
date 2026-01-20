@@ -213,15 +213,29 @@
       background: #ffffff;
       box-shadow: none;
     }
-    .qr-card {
+    .qr-grid-items {
       position: absolute;
+      display: grid;
+      grid-template-columns: repeat(var(--qr-cols), var(--qr-size));
+      grid-auto-rows: var(--qr-size);
+      column-gap: var(--qr-gap-x);
+      row-gap: var(--qr-gap-y);
+      z-index: 1;
+    }
+    .qr-cell {
+      width: var(--qr-size);
+      height: var(--qr-size);
+    }
+    .qr-card {
+      position: relative;
+      width: 100%;
+      height: 100%;
       border: var(--border-thin) solid var(--qr-border);
       border-radius: var(--radius-none);
       background: #ffffff;
       box-shadow: none;
       padding: var(--qr-card-pad);
       box-sizing: border-box;
-      z-index: 1;
     }
     .qr {
       width: 100%;
@@ -264,14 +278,20 @@
     ></div>
     {% endif %}
 
-    {% for slot in page.qr_slots %}
+    {% if page.qr_items and page.qr_grid %}
     <div
-      class="qr-card"
-      style="left: {{ slot.x_mm }}mm; top: calc({{ slot.y_mm }}mm + var(--qr-y-offset)); width: {{ slot.size_mm }}mm; height: {{ slot.size_mm }}mm;"
+      class="qr-grid-items"
+      style="left: {{ page.qr_grid.x_mm }}mm; top: calc({{ page.qr_grid.y_mm }}mm + var(--qr-y-offset)); --qr-size: {{ page.qr_grid.size_mm }}mm; --qr-gap-x: {{ page.qr_grid.gap_x_mm }}mm; --qr-gap-y: {{ page.qr_grid.gap_y_mm }}mm; --qr-cols: {{ page.qr_grid.cols }};"
     >
-      <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
+      {% for slot in page.qr_items %}
+      <div class="qr-cell">
+        <div class="qr-card">
+          <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
+        </div>
+      </div>
+      {% endfor %}
     </div>
-    {% endfor %}
+    {% endif %}
   </section>
 {% endfor %}
 </body>

@@ -222,7 +222,7 @@ def _prompt_design(args: BackupArgs | None) -> str | None:
         "Template design",
         choices,
         default=default,
-        help_text="Design folders are discovered under templates/ (package and user config).",
+        help_text="Design folders are discovered from packaged templates (copied to user config).",
     )
 
 

@@ -16,15 +16,19 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import functools
+import os
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
-from typing import Any, cast
+from pathlib import Path
+from typing import Any, Callable, cast
 
 from fpdf import FPDF
 
 from ..encoding.framing import encode_frame
 from ..qr.codec import QrConfig, qr_bytes
-from .doc_types import DOC_TYPE_KIT
+from .doc_types import DOC_TYPE_KIT, DOC_TYPE_RECOVERY
 from .fallback import build_fallback_sections_data
 from .html_to_pdf import render_html_to_pdf
 from .layout import compute_layout
@@ -35,6 +39,76 @@ from .text import page_format
 from .types import FallbackSection, RenderInputs
 
 _QR_URL_PREFIX = "https://ethernity.local/qr/"
+_RENDER_JOBS_ENV = "ETHERNITY_RENDER_JOBS"
+_DEFAULT_QR_WORKERS_CAP = 8
+_MIN_QR_TASKS_PER_WORKER = 4
+_STACKED_META_TEMPLATE_STYLES = frozenset({"dossier", "maritime", "midnight"})
+_DEFAULT_TEMPLATE_STYLE = "ledger"
+
+
+@dataclass(frozen=True)
+class RecoveryMeta:
+    passphrase: str | None = None
+    passphrase_lines: tuple[str, ...] = ()
+    quorum_value: str | None = None
+    signing_pub_lines: tuple[str, ...] = ()
+
+
+def _template_style_name(template_path: str | Path) -> str:
+    path = Path(template_path)
+    candidate = path.parent.name.strip().lower()
+    if candidate in _STACKED_META_TEMPLATE_STYLES or candidate == _DEFAULT_TEMPLATE_STYLE:
+        return candidate
+    return _DEFAULT_TEMPLATE_STYLE
+
+
+def _wrap_passphrase(passphrase: str, *, words_per_line: int = 6) -> tuple[str, ...]:
+    words = passphrase.split()
+    if not words:
+        return ()
+    return tuple(
+        " ".join(words[idx : idx + words_per_line]) for idx in range(0, len(words), words_per_line)
+    )
+
+
+def _parse_recovery_key_lines(key_lines: list[str]) -> RecoveryMeta:
+    passphrase_label = "Passphrase:"
+    quorum_prefix = "Recover with "
+    quorum_suffix = " shard documents."
+    signing_pub_label = "Signing public key (hex):"
+    passphrase: str | None = None
+    quorum_value: str | None = None
+    pub_lines: list[str] = []
+    collecting_pub = False
+    expecting_passphrase = False
+
+    for line in key_lines:
+        if expecting_passphrase:
+            passphrase = line.strip() or None
+            expecting_passphrase = False
+            continue
+
+        if line == passphrase_label:
+            expecting_passphrase = True
+            continue
+        if line == signing_pub_label:
+            collecting_pub = True
+            continue
+        if collecting_pub and line.startswith("Signing private key"):
+            collecting_pub = False
+            continue
+        if line.startswith(quorum_prefix) and line.endswith(quorum_suffix):
+            quorum_value = line.removeprefix(quorum_prefix).removesuffix(quorum_suffix).strip()
+            continue
+        if collecting_pub:
+            pub_lines.append(line)
+
+    return RecoveryMeta(
+        passphrase=passphrase,
+        passphrase_lines=_wrap_passphrase(passphrase) if passphrase else (),
+        quorum_value=quorum_value,
+        signing_pub_lines=tuple(pub_lines),
+    )
 
 
 def render_frames_to_pdf(inputs: RenderInputs) -> None:
@@ -78,9 +152,70 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     doc_type = inputs.doc_type
     if not doc_type:
         raise ValueError("doc_type is required for rendering")
+    normalized_doc_type = doc_type.strip().lower()
+    key_lines = list(inputs.key_lines) if inputs.key_lines is not None else []
     spec = document_spec(doc_type, paper_size, base_context)
 
-    key_lines = list(inputs.key_lines) if inputs.key_lines is not None else []
+    template_style = _template_style_name(inputs.template_path)
+    if template_style == "ledger":
+        spec = replace(
+            spec,
+            header=replace(
+                spec.header,
+                meta_row_gap_mm=1.2,
+                divider_thickness_mm=0.6,
+            ),
+        )
+    elif template_style == "maritime":
+        spec = replace(
+            spec,
+            header=replace(
+                spec.header,
+                meta_row_gap_mm=1.2,
+                stack_gap_mm=1.6,
+                divider_thickness_mm=0.4,
+            ),
+        )
+    elif template_style == "dossier":
+        spec = replace(
+            spec,
+            header=replace(
+                spec.header,
+                meta_row_gap_mm=1.4,
+                stack_gap_mm=2.0,
+                divider_thickness_mm=0.6,
+            ),
+        )
+    elif template_style == "midnight":
+        spec = replace(
+            spec,
+            header=replace(
+                spec.header,
+                meta_row_gap_mm=1.0,
+                stack_gap_mm=1.6,
+                divider_thickness_mm=0.45,
+            ),
+        )
+    recovery_meta = None
+    if normalized_doc_type == DOC_TYPE_RECOVERY:
+        recovery_meta = _parse_recovery_key_lines(key_lines)
+        header_layout = spec.header.layout
+        if template_style in _STACKED_META_TEMPLATE_STYLES:
+            header_layout = "stacked"
+        meta_lines_extra = (
+            int(recovery_meta.quorum_value is not None)
+            + len(recovery_meta.signing_pub_lines)
+            + len(recovery_meta.passphrase_lines)
+        )
+        spec = replace(
+            spec,
+            header=replace(
+                spec.header,
+                layout=header_layout,
+                meta_lines_extra=meta_lines_extra,
+            ),
+        )
+
     layout_spec = _layout_spec(spec, doc_id=str(doc_id), page_label="Page 1 / 1")
     paper_format = page_format(layout_spec.page)
 
@@ -88,14 +223,18 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     pdf.set_auto_page_break(False)
 
     include_instructions = inputs.doc_type != DOC_TYPE_KIT
+    include_keys = inputs.doc_type != DOC_TYPE_RECOVERY
     layout, fallback_lines = compute_layout(
         inputs,
         layout_spec,
         pdf,
         key_lines,
+        include_keys=include_keys,
         include_instructions=include_instructions,
     )
     key_lines = list(layout.key_lines)
+    if normalized_doc_type == DOC_TYPE_RECOVERY:
+        recovery_meta = _parse_recovery_key_lines(key_lines)
     spec = spec.with_key_lines(key_lines)
     layout_spec = _layout_spec(spec, doc_id=str(doc_id), page_label="Page 1 / 1")
 
@@ -126,12 +265,11 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
         spec,
         layout,
     )
+    qr_kind = _qr_kind(qr_config)
     qr_resources: dict[str, tuple[str, bytes]] = {}
-    qr_image_builder = functools.partial(
-        _qr_payload_to_url,
-        config=qr_config,
-        resources=qr_resources,
-    )
+    if inputs.render_qr:
+        qr_resources = _build_qr_resources(qr_payloads, config=qr_config, kind=qr_kind)
+    qr_image_builder = functools.partial(_qr_url_for_index, kind=qr_kind)
 
     pages = build_pages(
         inputs=inputs,
@@ -153,6 +291,13 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     context["created_timestamp_utc"] = created_timestamp_utc
     if created_dt is not None:
         context["created_date"] = created_dt.date().isoformat()
+    if normalized_doc_type == DOC_TYPE_RECOVERY and recovery_meta is not None:
+        context["recovery"] = {
+            "passphrase": recovery_meta.passphrase,
+            "passphrase_lines": list(recovery_meta.passphrase_lines),
+            "quorum_value": recovery_meta.quorum_value,
+            "signing_pub_lines": list(recovery_meta.signing_pub_lines),
+        }
     html = render_template(inputs.template_path, context)
     render_html_to_pdf(html, inputs.output_path, resources=qr_resources)
 
@@ -181,17 +326,69 @@ def _template_context(
     }
 
 
-def _qr_payload_to_url(
-    payload: bytes | str,
+def _qr_kind(config: QrConfig) -> str:
+    return str(config.kind or "png").strip().lower()
+
+
+def _qr_url_for_index(index: int, *, kind: str) -> str:
+    return f"{_QR_URL_PREFIX}{index + 1}.{kind}"
+
+
+def _build_qr_resources(
+    qr_payloads: list[bytes | str],
     *,
     config: QrConfig,
-    resources: dict[str, tuple[str, bytes]],
-) -> str:
-    kind = str(config.kind or "png").strip().lower()
-    qr_image = qr_bytes(payload, **_qr_kwargs(config))
-    url = f"{_QR_URL_PREFIX}{len(resources) + 1}.{kind}"
-    resources[url] = (_qr_content_type(kind), qr_image)
-    return url
+    kind: str,
+) -> dict[str, tuple[str, bytes]]:
+    content_type = _qr_content_type(kind)
+    qr_kwargs = dict(_qr_kwargs(config))
+    qr_kwargs["kind"] = kind
+    qr_worker = functools.partial(qr_bytes, **qr_kwargs)
+
+    images = _render_qr_images(qr_payloads, qr_worker)
+    return {
+        _qr_url_for_index(index, kind=kind): (content_type, image)
+        for index, image in enumerate(images)
+    }
+
+
+def _render_qr_images(
+    qr_payloads: list[bytes | str],
+    qr_worker: Callable[[bytes | str], bytes],
+) -> list[bytes]:
+    if not qr_payloads:
+        return []
+
+    workers = _resolve_qr_workers(len(qr_payloads))
+    if workers <= 1:
+        return [qr_worker(payload) for payload in qr_payloads]
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(executor.map(qr_worker, qr_payloads))
+
+
+def _resolve_qr_workers(task_count: int) -> int:
+    raw = os.environ.get(_RENDER_JOBS_ENV, "").strip().lower()
+    explicit = False
+    requested: int | None = None
+    if raw and raw != "auto":
+        try:
+            parsed = int(raw)
+        except ValueError:
+            raise ValueError(f"{_RENDER_JOBS_ENV} must be a positive integer or 'auto'") from None
+        if parsed > 0:
+            requested = parsed
+            explicit = True
+
+    cpu = os.process_cpu_count() or 1
+    if requested is None:
+        requested = min(cpu, _DEFAULT_QR_WORKERS_CAP)
+
+    workers = max(1, min(requested, cpu, task_count))
+    if not explicit:
+        workers = min(workers, max(1, task_count // _MIN_QR_TASKS_PER_WORKER))
+
+    return max(1, workers)
 
 
 def _qr_content_type(kind: str) -> str:

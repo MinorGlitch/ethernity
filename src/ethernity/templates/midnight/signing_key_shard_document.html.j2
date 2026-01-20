@@ -25,33 +25,36 @@
       margin: 0;
     }
     :root {
-      --ink: #0c2230;
-      --ink-muted: #31495a;
-      --ink-soft: #5a7384;
-      --ink-label: #223643;
-      --accent: #0c2b3c;
-      --rail: #0c2b3c;
-      --paper-top: #f2f6f7;
-      --paper-bottom: #dfe7ea;
-      --plate: #f7fbfc;
-      --plate-border: #b7c4c9;
-      --rule: #c1ced2;
-      --rule-strong: #869aa3;
-      --note: #e9f0f2;
-      --tab: #c7dde0;
-      --pin: #465c68;
-      --stamp: #1f5e73;
-      --font-title: "Baskerville", "Goudy Old Style", "Palatino Linotype", "Palatino", serif;
-      --font-body: "Gill Sans", "Trebuchet MS", "Verdana", sans-serif;
+      --ink: #0d1a2a;
+      --ink-muted: #3b4f66;
+      --ink-soft: #60758b;
+      --ink-label: #2f4258;
+      --accent: #152a45;
+      --rail: #0f1f34;
+      --paper-top: #eef2f8;
+      --paper-bottom: #e0e7f1;
+      --plate: #f6f8fb;
+      --plate-border: #b7c3d4;
+      --rule: #c7d2df;
+      --rule-strong: #7e94af;
+      --note: #e8edf4;
+      --tab: #cbd7e5;
+      --pin: #4c6179;
+      --stamp: #2d4a6b;
+      --font-title: "Cambria", "Didot", "Baskerville", "Georgia", serif;
+      --font-body: "Segoe UI", "Calibri", "Trebuchet MS", sans-serif;
       --font-mono: "SFMono-Regular", "Menlo", "Consolas", "Courier New", monospace;
       --divider-y-offset: 7mm;
       --instructions-y-offset: 7mm;
       --keys-y-offset: 7mm;
       --fallback-y-offset: 7mm;
       --qr-y-offset: 7mm;
-      --header-pad: 2mm 3mm;
+      --header-pad: 2mm 2.6mm 2.4mm;
       --instructions-pad: 0 3mm;
       --qr-card-pad: 0.8mm;
+      --fallback-pad: 0 4mm 0 calc(var(--line-num-offset) + var(--line-num-width) + 2.4mm);
+      --line-num-offset: 5.4mm;
+      --line-num-width: 4.4mm;
       --space-1: 1mm;
       --space-2: 1.2mm;
       --space-3: 1.5mm;
@@ -59,23 +62,28 @@
       --space-5: 2mm;
       --space-6: 3mm;
       --space-7: 4mm;
-      --space-8: 4.5mm;
+      --space-8: 5mm;
       --space-9: 6mm;
       --border-hairline: 0.2mm;
-      --border-fine: 0.25mm;
       --border-thin: 0.3mm;
       --border-base: 0.35mm;
       --border-strong: 0.4mm;
       --border-heavy: 0.45mm;
       --border-rail: 0.8mm;
       --radius-none: 0;
+      --radius-xs: 0.6mm;
       --radius-sm: 0.8mm;
-      --radius-md: 1mm;
+      --radius-md: 1.2mm;
+      --radius-lg: 1.4mm;
       --title-size: 15.5pt;
       --subtitle-size: 8pt;
-      --meta-size: 7.2pt;
+      --meta-size: 7.1pt;
       --meta-label-size: 6pt;
-      --meta-value-size: 7.2pt;
+      --meta-value-size: 7.1pt;
+      --fallback-font-size: 9.0pt;
+      --fallback-line: 4.2mm;
+      --line-num-size: 5.8pt;
+      --line-num-letter-spacing: 0.1em;
     }
     * {
       box-sizing: border-box;
@@ -105,13 +113,15 @@
       top: {{ margin_mm }}mm;
       width: {{ usable_width_mm }}mm;
       display: grid;
-      grid-template-columns: 1fr 48mm;
+      grid-template-columns: 1fr 46mm;
       gap: var(--space-8);
       align-items: start;
     }
     .header-left {
       display: grid;
       gap: var(--space-4);
+      padding-bottom: 1.2mm;
+      border-bottom: var(--border-base) solid var(--rule);
     }
     .title {
       font-size: var(--title-size);
@@ -119,7 +129,7 @@
       font-family: var(--font-title);
       color: var(--ink);
       line-height: 1.1;
-      letter-spacing: 0.14em;
+      letter-spacing: 0.18em;
       text-transform: uppercase;
     }
     .subtitle {
@@ -127,13 +137,13 @@
       font-style: normal;
       color: var(--ink-muted);
       line-height: 1.2;
-      letter-spacing: 0.18em;
+      letter-spacing: 0.16em;
       text-transform: uppercase;
     }
     .meta-grid {
       display: grid;
-      grid-template-columns: 22mm auto;
-      gap: var(--space-2) var(--space-6);
+      grid-template-columns: 26mm auto;
+      gap: var(--space-1) var(--space-6);
       font-size: var(--meta-size);
       line-height: 1.2;
       align-items: baseline;
@@ -143,7 +153,8 @@
       text-transform: uppercase;
       letter-spacing: 0.2em;
       color: var(--ink-soft);
-      font-family: var(--font-title);
+      font-family: var(--font-body);
+      font-weight: 600;
     }
     .meta-value {
       font-size: var(--meta-value-size);
@@ -155,12 +166,19 @@
       justify-self: end;
       align-self: start;
       border: var(--border-heavy) solid var(--rule-strong);
-      border-radius: var(--radius-md);
+      border-radius: var(--radius-lg);
       padding: var(--header-pad);
-      text-align: left;
+      text-align: center;
       text-transform: uppercase;
-      letter-spacing: 0.16em;
-      background: linear-gradient(180deg, rgba(248, 251, 250, 0.95) 0%, var(--plate) 100%);
+      letter-spacing: 0.18em;
+      background: linear-gradient(
+        180deg,
+        rgba(26, 38, 54, 0.14) 0,
+        rgba(26, 38, 54, 0.14) 3mm,
+        var(--plate) 3mm,
+        var(--plate) 100%
+      );
+      box-shadow: none;
     }
     .stamp-title {
       font-size: 7pt;
@@ -179,15 +197,15 @@
       position: absolute;
       left: {{ margin_mm }}mm;
       width: {{ usable_width_mm }}mm;
-      height: 0.4mm;
+      height: 0.45mm;
       background: repeating-linear-gradient(
         90deg,
         var(--rule-strong) 0,
-        var(--rule-strong) 14mm,
-        transparent 14mm,
-        transparent 18mm
+        var(--rule-strong) 10mm,
+        transparent 10mm,
+        transparent 14mm
       );
-      opacity: 0.7;
+      opacity: 0.75;
     }
     .instructions {
       position: absolute;
@@ -200,9 +218,11 @@
       line-height: 4.5mm;
       color: var(--ink);
       background: linear-gradient(
-        90deg,
-        rgba(15, 43, 60, 0.06) 0,
-        rgba(255, 255, 255, 0) 70%
+        180deg,
+        rgba(26, 38, 54, 0.14) 0,
+        rgba(26, 38, 54, 0.14) 3mm,
+        var(--plate) 3mm,
+        var(--plate) 100%
       );
       border: none;
       border-radius: var(--radius-md);
@@ -216,14 +236,15 @@
   content: none;
 }
     .instructions-label {
-      font-size: 6.5pt;
+      font-size: 6.2pt;
       font-weight: 700;
-      color: var(--stamp);
+      color: #f1f2f4;
       text-transform: uppercase;
-      letter-spacing: 0.2em;
+      letter-spacing: 0.22em;
       font-family: var(--font-title);
-      background: rgba(42, 95, 110, 0.12);
+      background: var(--rail);
       padding: 0 1.2mm;
+      border-radius: var(--radius-sm);
       justify-self: start;
       align-self: start;
       grid-column: 1;
@@ -242,12 +263,13 @@
       z-index: 0;
       background: var(--plate);
       box-shadow: none;
-      outline: var(--border-heavy) solid var(--rule-strong);
+      outline: var(--border-strong) solid var(--rule-strong);
     }
     .qr-grid::before {
       content: "";
       position: absolute;
       inset: 2mm;
+      border-radius: var(--radius-xs);
       pointer-events: none;
     }
     .qr-grid::after {
@@ -258,19 +280,34 @@
         repeating-linear-gradient(
           90deg,
           transparent 0,
-          transparent 22mm,
-          rgba(16, 37, 51, 0.04) 22mm,
-          rgba(16, 37, 51, 0.04) 22.2mm
+          transparent 20mm,
+          rgba(17, 27, 42, 0.04) 20mm,
+          rgba(17, 27, 42, 0.04) 20.2mm
         ),
         repeating-linear-gradient(
           0deg,
           transparent 0,
-          transparent 22mm,
-          rgba(16, 37, 51, 0.04) 22mm,
-          rgba(16, 37, 51, 0.04) 22.2mm
+          transparent 20mm,
+          rgba(17, 27, 42, 0.04) 20mm,
+          rgba(17, 27, 42, 0.04) 20.2mm
         );
-      opacity: 0.25;
+      opacity: 0.22;
       pointer-events: none;
+    }
+    .qr-grid-items {
+      position: absolute;
+      display: grid;
+      grid-template-columns: repeat(var(--qr-cols), var(--qr-size));
+      grid-auto-rows: var(--qr-size);
+      column-gap: var(--qr-gap-x);
+      row-gap: var(--qr-gap-y);
+      z-index: 1;
+    }
+    .qr-cell {
+      width: var(--qr-size);
+      height: var(--qr-size);
+      padding: var(--qr-card-pad);
+      box-sizing: border-box;
     }
     .qr-sequence {
       position: absolute;
@@ -282,19 +319,21 @@
       z-index: 0;
     }
     .qr-sequence line {
-      stroke: var(--rail);
+      stroke: var(--ink-soft);
       stroke-width: 0.25mm;
       stroke-dasharray: 1.6mm 1.2mm;
       opacity: 0.5;
     }
     .qr-sequence text {
-      fill: var(--rail);
+      fill: var(--ink-soft);
       font-size: 6.5pt;
       font-family: var(--font-mono);
       letter-spacing: 0.1em;
     }
     .qr-card {
-      position: absolute;
+      position: relative;
+      width: 100%;
+      height: 100%;
       box-sizing: border-box;
       z-index: 1;
     }
@@ -306,9 +345,9 @@
       font-size: 6pt;
       font-family: var(--font-mono);
       letter-spacing: 0.08em;
-      color: var(--ink);
-      background: var(--note);
-      border: var(--border-fine) solid var(--rule-strong);
+      color: #f1f2f4;
+      background: var(--rail);
+      border: 0;
       padding: 0.2mm 0.8mm;
       border-radius: var(--radius-sm);
     }
@@ -321,6 +360,69 @@
       padding: 0.4mm;
       background: #ffffff;
     }
+    .fallback {
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      width: {{ fallback.width_mm }}mm;
+      font-family: "Courier", "Courier New", monospace;
+      font-size: 9.0pt;
+      line-height: var(--fallback-line);
+      letter-spacing: 0;
+      font-kerning: none;
+      font-variant-ligatures: none;
+      font-feature-settings: "liga" 0, "calt" 0;
+      color: var(--ink);
+      background: var(--plate);
+      padding: 0 4mm 0 calc(var(--line-num-offset) + var(--line-num-width) + 2.4mm);
+      overflow: hidden;
+      border: none;
+      box-shadow: none;
+      border-radius: var(--radius-md);
+      font-variant-numeric: tabular-nums;
+      outline: var(--border-strong) solid var(--rule-strong);
+      z-index: 2;
+    }
+    .fallback::before {
+      content: none;
+    }
+    .fallback-title {
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.22em;
+      color: #f1f2f4;
+      font-family: var(--font-title);
+      font-size: 6.2pt;
+      line-height: var(--fallback-line);
+      margin: 0;
+      padding: 0 1.2mm;
+      background: var(--rail);
+      border-radius: var(--radius-sm);
+      display: inline-block;
+    }
+    .fallback-lines {
+      position: relative;
+      counter-reset: line;
+      padding-left: 0;
+      padding-top: 0;
+      background: none;
+    }
+    .fallback-line {
+      position: relative;
+      line-height: var(--fallback-line);
+      margin: 0;
+      white-space: pre;
+    }
+    .fallback-line::before {
+      counter-increment: line;
+      content: counter(line, decimal-leading-zero);
+      position: absolute;
+      left: calc(-1 * var(--line-num-offset));
+      width: var(--line-num-width);
+      text-align: right;
+      font-size: var(--line-num-size);
+      letter-spacing: var(--line-num-letter-spacing);
+      color: var(--ink-soft);
+    }
   </style>
 </head>
 <body>
@@ -328,7 +430,8 @@
   <section class="page">
     <div class="header">
       <div class="header-left">
-        <div class="title">Main Document</div>
+        <div class="title">Signing Key Shard</div>
+        <div class="subtitle">Signing key shard {{ shard_index }} of {{ shard_total }}</div>
         <div class="meta-grid">
           <div class="meta-label">Document ID</div>
           <div class="meta-value">{{ doc_id }}</div>
@@ -347,8 +450,8 @@
     <div class="instructions" style="top: calc({{ page.instructions_y_mm }}mm + var(--instructions-y-offset));">
       <div class="instructions-label">Instructions</div>
       <div>
-        <div>Scan all QR codes in any order.</div>
-        <div>Use the Recovery Document for text fallback if needed.</div>
+        <div>This document is one shard of the signing key.</div>
+        <div>Keep signing-key shards separate and secure.</div>
       </div>
     </div>
     {% endif %}
@@ -373,15 +476,39 @@
     </svg>
     {% endif %}
 
-    {% for slot in page.qr_slots %}
+    {% if page.qr_items and page.qr_grid %}
     <div
-      class="qr-card"
-      style="left: {{ slot.x_mm + 0.8 }}mm; top: calc({{ slot.y_mm + 0.8 }}mm + var(--qr-y-offset)); width: {{ slot.size_mm - 1.6 }}mm; height: {{ slot.size_mm - 1.6 }}mm;"
+      class="qr-grid-items"
+      style="left: {{ page.qr_grid.x_mm }}mm; top: calc({{ page.qr_grid.y_mm }}mm + var(--qr-y-offset)); --qr-size: {{ page.qr_grid.size_mm }}mm; --qr-gap-x: {{ page.qr_grid.gap_x_mm }}mm; --qr-gap-y: {{ page.qr_grid.gap_y_mm }}mm; --qr-cols: {{ page.qr_grid.cols }};"
     >
-      <div class="qr-index">{{ "%02d"|format(slot.index) }}</div>
-      <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
+      {% for slot in page.qr_items %}
+      <div class="qr-cell">
+        <div class="qr-card">
+          <div class="qr-index">{{ "%02d"|format(slot.index) }}</div>
+          <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
+        </div>
+      </div>
+      {% endfor %}
     </div>
-    {% endfor %}
+    {% endif %}
+
+    {% if page.fallback_blocks %}
+      {%- for block in page.fallback_blocks %}
+      <div
+        class="fallback"
+        style="top: calc({{ block.y_mm }}mm + var(--fallback-y-offset));"
+      >
+        {%- if block.title %}
+        <div class="fallback-title">{{ block.title }}</div>
+        {%- endif %}
+        <div class="fallback-lines" style="counter-reset: line {{ block.line_offset | default(0) }};">
+          {%- for line in block.lines %}
+          <div class="fallback-line">{{ line }}</div>
+          {%- endfor %}
+        </div>
+      </div>
+      {%- endfor %}
+    {% endif %}
   </section>
 {% endfor %}
 </body>

@@ -44,14 +44,11 @@
       --font-title: "Cambria", "Didot", "Baskerville", "Georgia", serif;
       --font-body: "Segoe UI", "Calibri", "Trebuchet MS", sans-serif;
       --font-mono: "SFMono-Regular", "Menlo", "Consolas", "Courier New", monospace;
-      --divider-y-offset: 7mm;
-      --instructions-y-offset: 7mm;
-      --keys-y-offset: 7mm;
-      --fallback-y-offset: 7mm;
-      --qr-y-offset: 7mm;
       --header-pad: 2mm 2.6mm 2.4mm;
       --instructions-pad: 0 3mm;
-      --qr-card-pad: 0.8mm;
+      --fallback-pad: 0 4mm 0 calc(var(--line-num-offset) + var(--line-num-width) + 2.4mm);
+      --line-num-offset: 5.4mm;
+      --line-num-width: 4.4mm;
       --space-1: 1mm;
       --space-2: 1.2mm;
       --space-3: 1.5mm;
@@ -77,6 +74,13 @@
       --meta-size: 7.1pt;
       --meta-label-size: 6pt;
       --meta-value-size: 7.1pt;
+      --fallback-font-size: 9.0pt;
+      --fallback-line: 4.2mm;
+      --line-num-size: 5.8pt;
+      --line-num-letter-spacing: 0.1em;
+      --divider-y-offset: 0mm;
+      --instructions-y-offset: 0mm;
+      --fallback-y-offset: 0mm;
     }
     * {
       box-sizing: border-box;
@@ -171,7 +175,6 @@
         var(--plate) 3mm,
         var(--plate) 100%
       );
-      box-shadow: none;
     }
     .stamp-title {
       font-size: 7pt;
@@ -219,15 +222,9 @@
       );
       border: none;
       border-radius: var(--radius-md);
-      padding: 0 3mm;
-      box-shadow: none;
+      padding: var(--instructions-pad);
       outline: var(--border-strong) solid var(--rule-strong);
-      z-index: 2;
     }
-
-.instructions::before {
-  content: none;
-}
     .instructions-label {
       font-size: 6.2pt;
       font-weight: 700;
@@ -247,106 +244,100 @@
       grid-column: 2;
       grid-row: 1;
     }
-    .qr-grid {
+    .fallback {
       position: absolute;
+      left: {{ margin_mm }}mm;
+      width: {{ fallback.width_mm }}mm;
+      font-family: "Courier", "Courier New", monospace;
+      font-size: var(--fallback-font-size);
+      line-height: var(--fallback-line);
+      letter-spacing: 0;
+      font-kerning: none;
+      font-variant-ligatures: none;
+      font-feature-settings: "liga" 0, "calt" 0;
+      color: var(--ink);
+      background: var(--plate);
+      padding: var(--fallback-pad);
+      overflow: hidden;
       border: none;
       border-radius: var(--radius-md);
-      overflow: hidden;
-      pointer-events: none;
-      z-index: 0;
-      background: var(--plate);
-      box-shadow: none;
+      font-variant-numeric: tabular-nums;
       outline: var(--border-strong) solid var(--rule-strong);
     }
-    .qr-grid::before {
-      content: "";
-      position: absolute;
-      inset: 2mm;
-      border-radius: var(--radius-xs);
-      pointer-events: none;
-    }
-    .qr-grid::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background:
-        repeating-linear-gradient(
-          90deg,
-          transparent 0,
-          transparent 20mm,
-          rgba(17, 27, 42, 0.04) 20mm,
-          rgba(17, 27, 42, 0.04) 20.2mm
-        ),
-        repeating-linear-gradient(
-          0deg,
-          transparent 0,
-          transparent 20mm,
-          rgba(17, 27, 42, 0.04) 20mm,
-          rgba(17, 27, 42, 0.04) 20.2mm
-        );
-      opacity: 0.22;
-      pointer-events: none;
-    }
-    .qr-sequence {
-      position: absolute;
-      left: 0;
-      top: 0;
-      width: {{ page_width_mm }}mm;
-      height: {{ page_height_mm }}mm;
-      pointer-events: none;
-      z-index: 0;
-    }
-    .qr-sequence line {
-      stroke: var(--ink-soft);
-      stroke-width: 0.25mm;
-      stroke-dasharray: 1.6mm 1.2mm;
-      opacity: 0.5;
-    }
-    .qr-sequence text {
-      fill: var(--ink-soft);
-      font-size: 6.5pt;
-      font-family: var(--font-mono);
-      letter-spacing: 0.1em;
-    }
-    .qr-card {
-      position: absolute;
-      box-sizing: border-box;
-      z-index: 1;
-    }
-    .qr-index {
-      position: absolute;
-      top: var(--qr-card-pad);
-      left: var(--qr-card-pad);
-      transform: translate(-3mm, -5mm);
-      font-size: 6pt;
-      font-family: var(--font-mono);
-      letter-spacing: 0.08em;
+    .fallback-title {
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.22em;
       color: #f1f2f4;
+      font-family: var(--font-title);
+      font-size: 6.2pt;
+      line-height: var(--fallback-line);
+      margin: 0;
+      padding: 0 1.2mm;
       background: var(--rail);
-      border: 0;
-      padding: 0.2mm 0.8mm;
       border-radius: var(--radius-sm);
+      display: inline-block;
     }
-    .qr {
-      width: 100%;
-      height: 100%;
-      display: block;
-      image-rendering: pixelated;
-      box-sizing: border-box;
-      padding: 0.4mm;
-      background: #ffffff;
+    .fallback-lines {
+      position: relative;
+      counter-reset: line;
+      padding-left: 0;
+      padding-top: 0;
+      background: none;
+    }
+    .fallback-line {
+      position: relative;
+      line-height: var(--fallback-line);
+      margin: 0;
+      white-space: pre;
+    }
+    .fallback-line::before {
+      counter-increment: line;
+      content: counter(line, decimal-leading-zero);
+      position: absolute;
+      left: calc(-1 * var(--line-num-offset));
+      width: var(--line-num-width);
+      text-align: right;
+      font-size: var(--line-num-size);
+      letter-spacing: var(--line-num-letter-spacing);
+      color: var(--ink-soft);
     }
   </style>
 </head>
 <body>
 {% for page in pages %}
   <section class="page">
-    <div class="header">
+    <header class="header">
       <div class="header-left">
-        <div class="title">Main Document</div>
+        <div class="title">Recovery Document</div>
+        <div class="subtitle">Keys + Text Fallback</div>
         <div class="meta-grid">
           <div class="meta-label">Document ID</div>
           <div class="meta-value">{{ doc_id }}</div>
+          {% if recovery.quorum_value %}
+          <div class="meta-label">Shard Quorum</div>
+          <div class="meta-value">{{ recovery.quorum_value }}</div>
+          {% endif %}
+          {% if recovery.signing_pub_lines %}
+          <div class="meta-label">Signing Pub Key</div>
+          <div class="meta-value">
+            {%- for line in recovery.signing_pub_lines -%}
+            {{ line }}{% if not loop.last %}<br>{% endif %}
+            {%- endfor -%}
+          </div>
+          {% endif %}
+          {% if recovery.passphrase %}
+          <div class="meta-label">Passphrase</div>
+          <div class="meta-value">
+            {%- if recovery.passphrase_lines -%}
+              {%- for line in recovery.passphrase_lines -%}
+              {{ line }}{% if not loop.last %}<br>{% endif %}
+              {%- endfor -%}
+            {%- else -%}
+              {{ recovery.passphrase }}
+            {%- endif -%}
+          </div>
+          {% endif %}
           <div class="meta-label">Page</div>
           <div class="meta-value">{{ page.page_label }}</div>
         </div>
@@ -355,48 +346,35 @@
         <div class="stamp-title">Created (UTC)</div>
         <div class="stamp-value">{{ created_timestamp_utc }}</div>
       </div>
-    </div>
+    </header>
+
     <div class="divider" style="top: calc({{ page.divider_y_mm }}mm + var(--divider-y-offset));"></div>
 
-    {% if page.page_num == 1 %}
-    <div class="instructions" style="top: calc({{ page.instructions_y_mm }}mm + var(--instructions-y-offset));">
+    {% if page.show_instructions %}
+    <aside class="instructions" style="top: calc({{ page.instructions_y_mm }}mm + var(--instructions-y-offset));">
       <div class="instructions-label">Instructions</div>
       <div>
-        <div>Scan all QR codes in any order.</div>
-        <div>Use the Recovery Document for text fallback if needed.</div>
+        <div>This document contains recovery keys and full text fallback.</div>
+        <div>Keep it separate from the QR document.</div>
+        <div>Fallback includes AUTH + MAIN sections; keep the labels when transcribing.</div>
+      </div>
+    </aside>
+    {% endif %}
+
+    {% if page.fallback_blocks %}
+    {%- for block in page.fallback_blocks %}
+    <div class="fallback" style="top: calc({{ block.y_mm }}mm + var(--fallback-y-offset)); height: {{ block.height_mm }}mm;">
+      {%- if block.title %}
+      <div class="fallback-title">{{ block.title }}</div>
+      {%- endif %}
+      <div class="fallback-lines" style="counter-reset: line {{ block.line_offset | default(0) }};">
+        {%- for line in block.lines %}
+        <div class="fallback-line">{{ line }}</div>
+        {%- endfor %}
       </div>
     </div>
+    {%- endfor %}
     {% endif %}
-
-    {% if page.qr_outline %}
-    <div
-      class="qr-grid"
-      style="left: {{ page.qr_outline.x_mm }}mm; top: calc({{ page.qr_outline.y_mm }}mm + var(--qr-y-offset)); width: {{ page.qr_outline.width_mm }}mm; height: {{ page.qr_outline.height_mm }}mm;"
-    ></div>
-    {% endif %}
-
-    {% if page.sequence %}
-    <svg style="transform: translateY(var(--qr-y-offset));" class="qr-sequence" viewBox="0 0 {{ page_width_mm }} {{ page_height_mm }}">
-      {% for line in page.sequence.lines %}
-      <line x1="{{ line.x1 }}" y1="{{ line.y1 }}" x2="{{ line.x2 }}" y2="{{ line.y2 }}"></line>
-      {% endfor %}
-      {% for label in page.sequence.labels %}
-      <text x="{{ label.x }}" y="{{ label.y }}" text-anchor="middle" dominant-baseline="central">
-        {{ label.text }}
-      </text>
-      {% endfor %}
-    </svg>
-    {% endif %}
-
-    {% for slot in page.qr_slots %}
-    <div
-      class="qr-card"
-      style="left: {{ slot.x_mm + 0.8 }}mm; top: calc({{ slot.y_mm + 0.8 }}mm + var(--qr-y-offset)); width: {{ slot.size_mm - 1.6 }}mm; height: {{ slot.size_mm - 1.6 }}mm;"
-    >
-      <div class="qr-index">{{ "%02d"|format(slot.index) }}</div>
-      <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
-    </div>
-    {% endfor %}
   </section>
 {% endfor %}
 </body>

@@ -89,7 +89,7 @@ def _calculate_content_positions(
     if include_keys:
         keys_height = lines_height(keys_cfg, wrapped_key_lines)
     else:
-        wrapped_key_lines = []
+        wrapped_key_lines = list(key_lines)
         keys_height = 0.0
 
     header_h = header_height(header_cfg, header_min_height)

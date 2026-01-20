@@ -96,6 +96,7 @@ class TestPdfLayout(unittest.TestCase):
             / "src"
             / "ethernity"
             / "templates"
+            / "ledger"
             / "main_document.html.j2"
         )
         inputs = RenderInputs(
@@ -129,6 +130,7 @@ class TestPdfLayout(unittest.TestCase):
             / "src"
             / "ethernity"
             / "templates"
+            / "ledger"
             / "main_document.html.j2"
         )
         inputs = RenderInputs(

@@ -67,6 +67,7 @@ class TestPdfPageCount(unittest.TestCase):
             / "src"
             / "ethernity"
             / "templates"
+            / "ledger"
             / "main_document.html.j2"
         )
         with tempfile.TemporaryDirectory() as tmpdir:

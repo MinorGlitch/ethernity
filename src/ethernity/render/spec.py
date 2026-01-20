@@ -53,8 +53,10 @@ class HeaderSpec:
     subtitle_size: float = 10.0
     meta_size: float = 8.0
     meta_lines_extra: int = 0
+    meta_row_gap_mm: float = 0.0
     layout: str = "split"
     split_left_ratio: float = 0.7
+    stack_gap_mm: float = 0.0
     divider_enabled: bool = True
     divider_gap_mm: float = 2.5
     divider_thickness_mm: float = 0.5

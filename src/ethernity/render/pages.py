@@ -25,7 +25,7 @@ from .fallback import (
     fallback_sections_remaining,
     position_fallback_blocks,
 )
-from .geometry import COORDINATE_EPSILON, expand_gap_to_fill
+from .geometry import COORDINATE_EPSILON
 from .spec import DocumentSpec
 from .types import Layout, RenderInputs
 
@@ -70,13 +70,16 @@ def _build_qr_slots(
     page_layout: Layout,
     page_idx: int,
     qr_payloads: Sequence[bytes | str],
-    qr_image_builder: Callable[[bytes | str], str],
-) -> tuple[list[dict[str, object]], list[tuple[int, float, float]]]:
-    """Build QR slot positions for a page.
+    qr_image_builder: Callable[[int], str],
+) -> tuple[list[dict[str, object]], list[tuple[int, float, float]], dict[str, object] | None]:
+    """Build QR grid items and geometry for a page.
 
-    Returns: (qr_slots, slots_raw)
+    Returns: (qr_items, slots_raw, qr_grid)
     """
-    qr_slots: list[dict[str, object]] = []
+    if not inputs.render_qr:
+        return [], [], None
+
+    qr_items: list[dict[str, object]] = []
     slots_raw: list[tuple[int, float, float]] = []
 
     page_start = page_idx * page_layout.per_page
@@ -85,24 +88,12 @@ def _build_qr_slots(
     if frames_in_page > 0:
         rows_for_page = math.ceil(frames_in_page / page_layout.cols)
 
-    gap_y = page_layout.gap
-    if not inputs.render_fallback:
-        if page_layout.gap_y_override is not None and rows_for_page == page_layout.rows:
-            gap_y = page_layout.gap_y_override
-        else:
-            gap_y = expand_gap_to_fill(
-                page_layout.usable_h_grid,
-                page_layout.qr_size,
-                page_layout.gap,
-                rows_for_page,
-            )
-
-    gap_x_full = expand_gap_to_fill(
-        page_layout.usable_w,
-        page_layout.qr_size,
-        page_layout.gap,
-        page_layout.cols,
+    gap_y = (
+        page_layout.gap_y_override
+        if page_layout.gap_y_override is not None and not inputs.render_fallback
+        else page_layout.gap
     )
+    gap_x_full = page_layout.gap
 
     for row in range(page_layout.rows):
         remaining = frames_in_page - row * page_layout.cols
@@ -116,18 +107,20 @@ def _build_qr_slots(
             x = x_start + col * (page_layout.qr_size + gap_x_full)
             y = page_layout.content_start_y + row * (page_layout.qr_size + gap_y)
 
-            qr_slots.append(
-                {
-                    "index": frame_idx + 1,
-                    "x_mm": x,
-                    "y_mm": y,
-                    "size_mm": page_layout.qr_size,
-                    "data_uri": qr_image_builder(qr_payloads[frame_idx]),
-                }
-            )
+            qr_items.append({"index": frame_idx + 1, "data_uri": qr_image_builder(frame_idx)})
             slots_raw.append((frame_idx, x, y))
 
-    return qr_slots, slots_raw
+    qr_grid: dict[str, object] = {
+        "x_mm": page_layout.margin,
+        "y_mm": page_layout.content_start_y,
+        "size_mm": page_layout.qr_size,
+        "gap_x_mm": gap_x_full,
+        "gap_y_mm": gap_y,
+        "cols": page_layout.cols,
+        "rows": rows_for_page,
+        "count": frames_in_page,
+    }
+    return qr_items, slots_raw, qr_grid
 
 
 def _build_qr_outline(
@@ -227,7 +220,7 @@ def build_pages(
     layout_rest: Layout | None,
     fallback_lines: list[str],
     qr_payloads: Sequence[bytes | str],
-    qr_image_builder: Callable[[bytes | str], str],
+    qr_image_builder: Callable[[int], str],
     fallback_sections_data: list[dict[str, object]] | None,
     fallback_state: dict[str, int] | None,
     key_lines: Sequence[str],
@@ -248,12 +241,13 @@ def build_pages(
             page_layout.margin + page_layout.header_height - float(spec.header.divider_thickness_mm)
         )
 
-        qr_slots: list[dict[str, object]] = []
+        qr_items: list[dict[str, object]] = []
         qr_sequence = None
         qr_outline = None
+        qr_grid = None
 
         if inputs.render_qr:
-            qr_slots, slots_raw = _build_qr_slots(
+            qr_items, slots_raw, qr_grid = _build_qr_slots(
                 inputs, page_layout, page_idx, qr_payloads, qr_image_builder
             )
             if spec.qr_sequence.enabled:
@@ -288,7 +282,8 @@ def build_pages(
                     and (not spec.instructions.first_page_only or page_idx == 0)
                 ),
                 "instructions_full_page": False,
-                "qr_slots": qr_slots,
+                "qr_items": qr_items,
+                "qr_grid": qr_grid,
                 "qr_outline": qr_outline,
                 "sequence": qr_sequence,
                 "fallback_blocks": page_fallback_blocks,
@@ -310,7 +305,8 @@ def build_pages(
                 "instructions_y_mm": instruction_layout.instructions_y,
                 "show_instructions": True,
                 "instructions_full_page": True,
-                "qr_slots": [],
+                "qr_items": [],
+                "qr_grid": None,
                 "qr_outline": None,
                 "sequence": None,
                 "fallback_blocks": [],
@@ -332,7 +328,7 @@ def build_pages(
 
 
 def _page_has_content(page: dict[str, object], key_lines: Sequence[str]) -> bool:
-    if page.get("qr_slots"):
+    if page.get("qr_items"):
         return True
     if page.get("fallback_blocks"):
         return True
