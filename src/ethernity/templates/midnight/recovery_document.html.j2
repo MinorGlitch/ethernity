@@ -16,6 +16,7 @@
 #}
 {% from 'css_base.j2' import reset_styles, page_styles, qr_grid_items_styles, qr_image_styles %}
 {% from 'css_variables.j2' import common_variables %}
+{% from 'html_components.j2' import divider, fallback_blocks %}
 
 <!doctype html>
 <html lang="en">
@@ -331,7 +332,7 @@
       </div>
     </header>
 
-    <div class="divider" style="top: calc({{ page.divider_y_mm }}mm + var(--divider-y-offset));"></div>
+    {{ divider(page) }}
 
     {% if page.show_instructions %}
     <aside class="instructions" style="top: calc({{ page.instructions_y_mm }}mm + var(--instructions-y-offset));">
@@ -344,20 +345,7 @@
     </aside>
     {% endif %}
 
-    {% if page.fallback_blocks %}
-    {%- for block in page.fallback_blocks %}
-    <div class="fallback" style="top: calc({{ block.y_mm }}mm + var(--fallback-y-offset)); height: {{ block.height_mm }}mm;">
-      {%- if block.title %}
-      <div class="fallback-title">{{ block.title }}</div>
-      {%- endif %}
-      <div class="fallback-lines" style="counter-reset: line {{ block.line_offset | default(0) }};">
-        {%- for line in block.lines %}
-        <div class="fallback-line">{{ line }}</div>
-        {%- endfor %}
-      </div>
-    </div>
-    {%- endfor %}
-    {% endif %}
+    {{ fallback_blocks(page) }}
   </section>
 {% endfor %}
 </body>

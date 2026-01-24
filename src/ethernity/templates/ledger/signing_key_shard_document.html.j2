@@ -16,6 +16,7 @@
 #}
 {% from 'css_base.j2' import reset_styles, page_styles, qr_grid_items_styles, qr_image_styles %}
 {% from 'css_variables.j2' import common_variables %}
+{% from 'html_components.j2' import divider, qr_grid, qr_grid_items, fallback_blocks %}
 
 <!doctype html>
 <html lang="en">
@@ -280,7 +281,7 @@
         <div class="meta-tertiary">Created (UTC): {{ created_timestamp_utc }}</div>
       </div>
     </div>
-    <div class="divider" style="top: calc({{ page.divider_y_mm }}mm + var(--divider-y-offset));"></div>
+    {{ divider(page) }}
 
     {% if page.page_num == 1 %}
     <div class="instructions" style="top: calc({{ page.instructions_y_mm }}mm + var(--instructions-y-offset));">
@@ -292,45 +293,10 @@
     </div>
     {% endif %}
 
-    {% if page.qr_outline %}
-    <div
-      class="qr-grid"
-      style="left: {{ page.qr_outline.x_mm }}mm; top: calc({{ page.qr_outline.y_mm }}mm + var(--qr-y-offset)); width: {{ page.qr_outline.width_mm }}mm; height: {{ page.qr_outline.height_mm }}mm;"
-    ></div>
-    {% endif %}
+    {{ qr_grid(page) }}
+    {{ qr_grid_items(page) }}
 
-    {% if page.qr_items and page.qr_grid %}
-    <div
-      class="qr-grid-items"
-      style="left: {{ page.qr_grid.x_mm }}mm; top: calc({{ page.qr_grid.y_mm }}mm + var(--qr-y-offset)); --qr-size: {{ page.qr_grid.size_mm }}mm; --qr-gap-x: {{ page.qr_grid.gap_x_mm }}mm; --qr-gap-y: {{ page.qr_grid.gap_y_mm }}mm; --qr-cols: {{ page.qr_grid.cols }};"
-    >
-      {% for slot in page.qr_items %}
-      <div class="qr-cell">
-        <div class="qr-card">
-          <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-    {% endif %}
-
-    {% if page.fallback_blocks %}
-      {%- for block in page.fallback_blocks %}
-      <div
-        class="fallback"
-        style="top: calc({{ block.y_mm }}mm + var(--fallback-y-offset)); height: {{ block.height_mm }}mm;"
-      >
-        {%- if block.title %}
-        <div class="fallback-title">{{ block.title }}</div>
-        {%- endif %}
-        <div class="fallback-lines" style="counter-reset: line {{ block.line_offset | default(0) }};">
-          {%- for line in block.lines %}
-          <div class="fallback-line">{{ line }}</div>
-          {%- endfor %}
-        </div>
-      </div>
-      {%- endfor %}
-    {% endif %}
+    {{ fallback_blocks(page) }}
   </section>
 {% endfor %}
 </body>

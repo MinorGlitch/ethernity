@@ -1,0 +1,79 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+
+{% macro divider(page) %}
+    <div class="divider" style="top: calc({{ page.divider_y_mm }}mm + var(--divider-y-offset));"></div>
+{% endmacro %}
+
+{% macro qr_grid(page) %}
+{% if page.qr_outline %}
+    <div
+      class="qr-grid"
+      style="left: {{ page.qr_outline.x_mm }}mm; top: calc({{ page.qr_outline.y_mm }}mm + var(--qr-y-offset)); width: {{ page.qr_outline.width_mm }}mm; height: {{ page.qr_outline.height_mm }}mm;"
+    ></div>
+{% endif %}
+{% endmacro %}
+
+{% macro qr_grid_items(page, show_index=false) %}
+{% if page.qr_items and page.qr_grid %}
+    <div
+      class="qr-grid-items"
+      style="left: {{ page.qr_grid.x_mm }}mm; top: calc({{ page.qr_grid.y_mm }}mm + var(--qr-y-offset)); --qr-size: {{ page.qr_grid.size_mm }}mm; --qr-gap-x: {{ page.qr_grid.gap_x_mm }}mm; --qr-gap-y: {{ page.qr_grid.gap_y_mm }}mm; --qr-cols: {{ page.qr_grid.cols }};"
+    >
+      {% for slot in page.qr_items %}
+      <div class="qr-cell">
+        <div class="qr-card">
+          {% if show_index %}<div class="qr-index">{{ "%02d"|format(slot.index) }}</div>{% endif %}
+          <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+{% endif %}
+{% endmacro %}
+
+{% macro qr_sequence(page, page_width_mm, page_height_mm) %}
+{% if page.sequence %}
+    <svg style="transform: translateY(var(--qr-y-offset));" class="qr-sequence" viewBox="0 0 {{ page_width_mm }} {{ page_height_mm }}">
+      {% for line in page.sequence.lines %}
+      <line x1="{{ line.x1 }}" y1="{{ line.y1 }}" x2="{{ line.x2 }}" y2="{{ line.y2 }}"></line>
+      {% endfor %}
+      {% for label in page.sequence.labels %}
+      <text x="{{ label.x }}" y="{{ label.y }}" text-anchor="middle" dominant-baseline="central">
+        {{ label.text }}
+      </text>
+      {% endfor %}
+    </svg>
+{% endif %}
+{% endmacro %}
+
+{% macro fallback_blocks(page) %}
+{% if page.fallback_blocks %}
+    {%- for block in page.fallback_blocks %}
+    <div class="fallback" style="top: calc({{ block.y_mm }}mm + var(--fallback-y-offset)); height: {{ block.height_mm }}mm;">
+      {%- if block.title %}
+      <div class="fallback-title">{{ block.title }}</div>
+      {%- endif %}
+      <div class="fallback-lines" style="counter-reset: line {{ block.line_offset | default(0) }};">
+        {%- for line in block.lines %}
+        <div class="fallback-line">{{ line }}</div>
+        {%- endfor %}
+      </div>
+    </div>
+    {%- endfor %}
+{% endif %}
+{% endmacro %}
