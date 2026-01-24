@@ -21,11 +21,18 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
+_TEMPLATES_ROOT = Path(__file__).parent.parent / "templates"
+_SHARED_DIR = _TEMPLATES_ROOT / "_shared"
+
 
 @lru_cache(maxsize=8)
 def _get_env(directory: Path) -> Environment:
+    search_paths = [str(directory)]
+    if _SHARED_DIR.exists() and _SHARED_DIR.resolve() != directory.resolve():
+        search_paths.append(str(_SHARED_DIR))
+
     return Environment(
-        loader=FileSystemLoader(str(directory)),
+        loader=FileSystemLoader(search_paths),
         autoescape=False,
         trim_blocks=True,
         lstrip_blocks=True,

@@ -35,6 +35,7 @@ dependencies = [
     "zxing-cpp",
     "playwright>=1.57.0",
     "pyrage",
+    "python-docx>=1.2.0",
 ]
 
 [project.scripts]
@@ -63,7 +64,17 @@ where = ["src"]
 include = ["ethernity", "ethernity.*"]
 
 [tool.setuptools.package-data]
-ethernity = ["templates/*/*.html.j2", "config/*.toml", "kit/*.html", "py.typed"]
+ethernity = [
+    "templates/*/*.html.j2",
+    "templates/_shared/*.html.j2",
+    "templates/_shared/*.j2",
+    "templates/*/style.json",
+    "storage/*.html.j2",
+    "storage/*.png",
+    "config/*.toml",
+    "kit/*.html",
+    "py.typed",
+]
 
 [tool.ruff]
 target-version = "py313"

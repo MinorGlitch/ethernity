@@ -21,6 +21,9 @@ from typing import Callable, Sequence
 
 from .doc_types import DOC_TYPE_KIT
 from .fallback import (
+    FallbackBlock,
+    FallbackConsumerState,
+    FallbackSectionData,
     consume_fallback_blocks,
     fallback_sections_remaining,
     position_fallback_blocks,
@@ -153,11 +156,11 @@ def _build_fallback_blocks(
     layout_rest: Layout | None,
     page_idx: int,
     fallback_lines: list[str],
-    fallback_sections_data: list[dict[str, object]] | None,
-    fallback_state: dict[str, int] | None,
+    fallback_sections_data: list[FallbackSectionData] | None,
+    fallback_state: FallbackConsumerState | None,
     fallback_first: int,
     fallback_rest: int,
-) -> list[dict[str, object]]:
+) -> list[FallbackBlock]:
     """Build fallback blocks for a page."""
     if not inputs.render_fallback:
         return []
@@ -181,7 +184,7 @@ def _build_fallback_blocks(
     line_height = page_layout.line_height
     lines_capacity = max(0, int(available_height // line_height))
 
-    page_fallback_blocks: list[dict[str, object]] = []
+    page_fallback_blocks: list[FallbackBlock] = []
     if fallback_sections_data and fallback_state:
         page_fallback_blocks = consume_fallback_blocks(
             fallback_sections_data,
@@ -198,12 +201,13 @@ def _build_fallback_blocks(
         page_fallback_lines = fallback_lines[start:end]
         if page_fallback_lines:
             page_fallback_blocks = [
-                {
-                    "title": None,
-                    "lines": page_fallback_lines,
-                    "gap_lines": 0,
-                    "line_offset": start,
-                }
+                FallbackBlock(
+                    title=None,
+                    section_title="",
+                    lines=list(page_fallback_lines),
+                    gap_lines=0,
+                    line_offset=start,
+                )
             ]
 
     if page_fallback_blocks:
@@ -221,8 +225,8 @@ def build_pages(
     fallback_lines: list[str],
     qr_payloads: Sequence[bytes | str],
     qr_image_builder: Callable[[int], str],
-    fallback_sections_data: list[dict[str, object]] | None,
-    fallback_state: dict[str, int] | None,
+    fallback_sections_data: list[FallbackSectionData] | None,
+    fallback_state: FallbackConsumerState | None,
     key_lines: Sequence[str],
     keys_first_page_only: bool,
 ) -> list[dict[str, object]]:

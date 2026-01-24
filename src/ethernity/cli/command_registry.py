@@ -23,6 +23,7 @@ from .commands import (
     config as config_command,
     kit as kit_command,
     recover as recover_command,
+    render as render_command,
 )
 
 
@@ -30,4 +31,5 @@ def register(app: typer.Typer) -> None:
     backup_command.register(app)
     config_command.register(app)
     kit_command.register(app)
+    render_command.register(app)
     recover_command.register(app)

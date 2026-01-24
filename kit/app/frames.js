@@ -49,7 +49,7 @@ export function listMissing(total, framesMap) {
   return missing.slice(0, 30);
 }
 
-export function decodeFrame(payload) {
+function decodeFrame(payload) {
   if (payload.length < FRAME_MAGIC.length + 4) {
     throw new Error("frame too short");
   }
@@ -222,7 +222,7 @@ function decodeAuthPayload(bytes) {
   return { version, docHash, signPub, signature };
 }
 
-export function addFrame(state, frame) {
+function addFrame(state, frame) {
   if (frame.frameType === FRAME_TYPE_AUTH) {
     addAuthFrame(state, frame);
     return;
@@ -301,7 +301,7 @@ function addAuthFrame(state, frame) {
   state.authStatus = "pending";
 }
 
-export function addShardFrame(state, frame) {
+function addShardFrame(state, frame) {
   if (frame.frameType !== FRAME_TYPE_KEY) {
     state.shardErrors += 1;
     return;
@@ -388,7 +388,7 @@ function parsePayloadLinesWith(state, text, addFrameFn, errorKey) {
   return added;
 }
 
-export function parsePayloadLines(state, text) {
+function parsePayloadLines(state, text) {
   return parsePayloadLinesWith(state, text, addFrame, "errors");
 }
 
@@ -423,7 +423,7 @@ export function parseAutoPayload(state, text) {
   return parsePayloadLines(state, text);
 }
 
-export function parseFallbackText(state, text) {
+function parseFallbackText(state, text) {
   const lines = text.split(/\r?\n/);
   const sections = { main: [], auth: [], any: [] };
   let current = null;
@@ -471,7 +471,7 @@ export function parseFallbackText(state, text) {
   return added;
 }
 
-export function parseShardFallbackText(state, text) {
+function parseShardFallbackText(state, text) {
   const filtered = filterZBase32Lines(text);
   if (!filtered.length) {
     throw new Error("no shard fallback lines found");
@@ -482,7 +482,7 @@ export function parseShardFallbackText(state, text) {
   return 1;
 }
 
-export function parseShardPayloadLines(state, text) {
+function parseShardPayloadLines(state, text) {
   return parsePayloadLinesWith(state, text, addShardFrame, "shardErrors");
 }
 

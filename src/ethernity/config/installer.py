@@ -164,15 +164,30 @@ def _copy_template_designs(paths: ConfigPaths) -> None:
     if not package_root.exists():
         return
 
+    shared_dir = package_root / "_shared"
+    if shared_dir.is_dir():
+        dest_shared = paths.user_templates_root / "_shared"
+        dest_shared.mkdir(parents=True, exist_ok=True)
+        for shared_path in sorted(shared_dir.rglob("*"), key=lambda item: str(item).lower()):
+            if shared_path.name.startswith(".") or not shared_path.is_file():
+                continue
+            relative = shared_path.relative_to(shared_dir)
+            destination = dest_shared / relative
+            _copy_if_missing(shared_path, destination)
+
     for entry in sorted(package_root.iterdir(), key=lambda item: item.name.lower()):
         if entry.name.startswith(".") or not entry.is_dir():
+            continue
+        if entry.name == "_shared":
             continue
         if not _is_template_design_dir(entry):
             continue
         dest_dir = paths.user_templates_root / entry.name
         dest_dir.mkdir(parents=True, exist_ok=True)
-        for filename in TEMPLATE_FILENAMES:
-            _copy_if_missing(entry / filename, dest_dir / filename)
+        for template_path in sorted(entry.iterdir(), key=lambda item: item.name.lower()):
+            if template_path.name.startswith(".") or not template_path.is_file():
+                continue
+            _copy_if_missing(template_path, dest_dir / template_path.name)
 
 
 def _copy_if_missing(source: Path, dest: Path) -> None:

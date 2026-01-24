@@ -14,6 +14,8 @@
  You should have received a copy of the GNU General Public License along with this program.
  If not, see <https://www.gnu.org/licenses/>.
 #}
+{% from 'css_base.j2' import reset_styles, page_styles, qr_grid_items_styles, qr_image_styles %}
+{% from 'css_variables.j2' import common_variables %}
 
 <!doctype html>
 <html lang="en">
@@ -33,8 +35,8 @@
       --rail: #2b343e;
       --paper-top: #f6f6f1;
       --paper-bottom: #e7e8e0;
-      --plate: #fcfcf6;
-      --plate-border: #c4c7bb;
+      --surface: #fcfcf6;
+      --surface-border: #c4c7bb;
       --rule: #c3c8bf;
       --rule-strong: #8f979a;
       --note: #f0f1ea;
@@ -79,29 +81,10 @@
       --divider-y-offset: 0mm;
       --instructions-y-offset: 0mm;
       --fallback-y-offset: 0mm;
+      {{ common_variables() }}
     }
-    * {
-      box-sizing: border-box;
-    }
-    body {
-      margin: 0;
-      font-family: var(--font-body);
-      color: var(--ink);
-      background: var(--paper-top);
-      print-color-adjust: exact;
-      -webkit-print-color-adjust: exact;
-    }
-    .page {
-      position: relative;
-      width: {{ page_width_mm }}mm;
-      height: {{ page_height_mm }}mm;
-      page-break-after: always;
-      overflow: hidden;
-      background: var(--paper-top);
-    }
-    .page:last-child {
-      page-break-after: auto;
-    }
+    {{ reset_styles() }}
+    {{ page_styles(page_width_mm, page_height_mm) }}
     .header {
       position: absolute;
       left: {{ margin_mm }}mm;
@@ -252,7 +235,7 @@
       font-variant-ligatures: none;
       font-feature-settings: "liga" 0, "calt" 0;
       color: var(--ink);
-      background: var(--plate);
+      background: var(--surface);
       padding: var(--fallback-pad);
       overflow: hidden;
       border: none;

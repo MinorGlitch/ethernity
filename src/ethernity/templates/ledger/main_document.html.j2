@@ -14,6 +14,8 @@
  You should have received a copy of the GNU General Public License along with this program.
  If not, see <https://www.gnu.org/licenses/>.
 #}
+{% from 'css_base.j2' import reset_styles, page_styles, qr_grid_items_styles, qr_image_styles %}
+{% from 'css_variables.j2' import common_variables %}
 
 <!doctype html>
 <html lang="en">
@@ -25,6 +27,7 @@
       margin: 0;
     }
     :root {
+      /* Theme-specific colors */
       --ink: #0b1a26;
       --ink-muted: #2f4352;
       --ink-soft: #516272;
@@ -32,68 +35,40 @@
       --ink-body: #1a2733;
       --accent: #2b3f46;
       --rail: #2b3f46;
-      --panel: #f2eee6;
-      --panel-strong: #e2dbce;
-      --panel-border: #bbae9c;
+      --surface: #f2eee6;
+      --surface-strong: #e2dbce;
+      --surface-border: #bbae9c;
       --paper-top: #fbf6ef;
       --paper-bottom: #ece2d5;
       --grid: rgba(11, 26, 38, 0.06);
       --qr-border: #b1a494;
       --shadow: rgba(11, 26, 38, 0.16);
+
+      /* Theme-specific fonts */
       --font-title: "Copperplate Gothic Bold", "Copperplate Gothic Light", "Copperplate", "Palatino Linotype", "Palatino", serif;
       --font-body: "Lucida Sans", "Lucida Grande", "Trebuchet MS", sans-serif;
       --font-mono: "SFMono-Regular", "Menlo", "Consolas", "Courier New", monospace;
-      --divider-y-offset: 0mm;
-      --instructions-y-offset: 0mm;
-      --keys-y-offset: 0mm;
-      --fallback-y-offset: 0mm;
-      --qr-y-offset: 0mm;
+
+      /* Theme-specific sizes */
       --header-pad: 0.6mm 2mm;
       --instructions-pad: 1.6mm 2.5mm 1.6mm 3mm;
       --qr-card-pad: 0.6mm;
-      --space-1: 1mm;
-      --space-2: 1.2mm;
-      --space-3: 1.5mm;
-      --space-4: 1.6mm;
-      --space-5: 2mm;
-      --space-6: 3mm;
-      --space-7: 4mm;
-      --space-8: 6mm;
-      --border-thin: 0.35mm;
-      --border-strong: 0.4mm;
-      --border-heavy: 0.45mm;
-      --border-rail-thin: 1.2mm;
-      --border-rail: 1.6mm;
-      --border-accent: 2mm;
-      --radius-none: 0;
       --title-size: 18pt;
       --subtitle-size: 9pt;
       --meta-size: 7pt;
       --meta-secondary-size: 8pt;
       --meta-tertiary-size: 7.5pt;
+
+      /* Ledger overrides */
+      --space-8: 6mm;
+      --border-thin: 0.35mm;
+      --border-rail-thin: 1.2mm;
+      --border-accent: 2mm;
+
+{{ common_variables() }}
     }
-    * {
-      box-sizing: border-box;
-    }
-    body {
-      margin: 0;
-      font-family: var(--font-body);
-      color: var(--ink);
-      background: var(--paper-top);
-      print-color-adjust: exact;
-      -webkit-print-color-adjust: exact;
-    }
-    .page {
-      position: relative;
-      width: {{ page_width_mm }}mm;
-      height: {{ page_height_mm }}mm;
-      page-break-after: always;
-      overflow: hidden;
-      background: var(--paper-top);
-    }
-    .page:last-child {
-      page-break-after: auto;
-    }
+{{ reset_styles() }}
+{{ page_styles(page_width_mm, page_height_mm) }}
     .header {
       position: absolute;
       left: {{ margin_mm }}mm;
@@ -122,8 +97,8 @@
     .header-right div {
       padding: var(--header-pad);
       border-radius: var(--radius-none);
-      border: var(--border-thin) solid var(--panel-border);
-      background: #ffffff;
+      border: var(--border-thin) solid var(--surface-border);
+      background: var(--white, #ffffff);
     }
     .header-right .meta-primary {
       font-weight: 700;
@@ -190,8 +165,8 @@
         rgba(255, 255, 255, 0) 70%
       );
       border-left: var(--border-rail) solid var(--accent);
-      border-top: var(--border-thin) solid var(--panel-border);
-      border-bottom: var(--border-thin) solid var(--panel-border);
+      border-top: var(--border-thin) solid var(--surface-border);
+      border-bottom: var(--border-thin) solid var(--surface-border);
       border-radius: var(--radius-none);
       padding: 1.6mm 2.5mm 1.6mm 3mm;
       box-shadow: none;
@@ -210,39 +185,22 @@
       border-radius: var(--radius-none);
       pointer-events: none;
       z-index: 0;
-      background: #ffffff;
+      background: var(--white, #ffffff);
       box-shadow: none;
     }
-    .qr-grid-items {
-      position: absolute;
-      display: grid;
-      grid-template-columns: repeat(var(--qr-cols), var(--qr-size));
-      grid-auto-rows: var(--qr-size);
-      column-gap: var(--qr-gap-x);
-      row-gap: var(--qr-gap-y);
-      z-index: 1;
-    }
-    .qr-cell {
-      width: var(--qr-size);
-      height: var(--qr-size);
-    }
+{{ qr_grid_items_styles() }}
     .qr-card {
       position: relative;
       width: 100%;
       height: 100%;
       border: var(--border-thin) solid var(--qr-border);
       border-radius: var(--radius-none);
-      background: #ffffff;
+      background: var(--white, #ffffff);
       box-shadow: none;
       padding: var(--qr-card-pad);
       box-sizing: border-box;
     }
-    .qr {
-      width: 100%;
-      height: 100%;
-      display: block;
-      image-rendering: pixelated;
-    }
+{{ qr_image_styles() }}
   </style>
 </head>
 <body>

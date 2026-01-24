@@ -14,6 +14,8 @@
  You should have received a copy of the GNU General Public License along with this program.
  If not, see <https://www.gnu.org/licenses/>.
 #}
+{% from 'css_base.j2' import reset_styles, page_styles, qr_grid_items_styles, qr_image_styles %}
+{% from 'css_variables.j2' import common_variables %}
 
 <!doctype html>
 <html lang="en">
@@ -33,8 +35,8 @@
       --rail: #0f1f34;
       --paper-top: #eef2f8;
       --paper-bottom: #e0e7f1;
-      --plate: #f6f8fb;
-      --plate-border: #b7c3d4;
+      --surface: #f6f8fb;
+      --surface-border: #b7c3d4;
       --rule: #c7d2df;
       --rule-strong: #7e94af;
       --note: #e8edf4;
@@ -81,29 +83,10 @@
       --divider-y-offset: 0mm;
       --instructions-y-offset: 0mm;
       --fallback-y-offset: 0mm;
+      {{ common_variables() }}
     }
-    * {
-      box-sizing: border-box;
-    }
-    body {
-      margin: 0;
-      font-family: var(--font-body);
-      color: var(--ink);
-      background: var(--paper-top);
-      print-color-adjust: exact;
-      -webkit-print-color-adjust: exact;
-    }
-    .page {
-      position: relative;
-      width: {{ page_width_mm }}mm;
-      height: {{ page_height_mm }}mm;
-      page-break-after: always;
-      overflow: hidden;
-      background: var(--paper-top);
-    }
-    .page:last-child {
-      page-break-after: auto;
-    }
+    {{ reset_styles() }}
+    {{ page_styles(page_width_mm, page_height_mm) }}
     .header {
       position: absolute;
       left: {{ margin_mm }}mm;
@@ -172,8 +155,8 @@
         180deg,
         rgba(26, 38, 54, 0.14) 0,
         rgba(26, 38, 54, 0.14) 3mm,
-        var(--plate) 3mm,
-        var(--plate) 100%
+        var(--surface) 3mm,
+        var(--surface) 100%
       );
     }
     .stamp-title {
@@ -217,8 +200,8 @@
         180deg,
         rgba(26, 38, 54, 0.14) 0,
         rgba(26, 38, 54, 0.14) 3mm,
-        var(--plate) 3mm,
-        var(--plate) 100%
+        var(--surface) 3mm,
+        var(--surface) 100%
       );
       border: none;
       border-radius: var(--radius-md);
@@ -256,7 +239,7 @@
       font-variant-ligatures: none;
       font-feature-settings: "liga" 0, "calt" 0;
       color: var(--ink);
-      background: var(--plate);
+      background: var(--surface);
       padding: var(--fallback-pad);
       overflow: hidden;
       border: none;

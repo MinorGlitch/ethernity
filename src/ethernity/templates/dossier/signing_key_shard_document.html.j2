@@ -14,6 +14,8 @@
  You should have received a copy of the GNU General Public License along with this program.
  If not, see <https://www.gnu.org/licenses/>.
 #}
+{% from 'css_base.j2' import reset_styles, page_styles, qr_grid_items_styles, qr_image_styles %}
+{% from 'css_variables.j2' import common_variables %}
 
 <!doctype html>
 <html lang="en">
@@ -33,8 +35,8 @@
       --rail: #2b343e;
       --paper-top: #f6f6f1;
       --paper-bottom: #e7e8e0;
-      --plate: #fcfcf6;
-      --plate-border: #c4c7bb;
+      --surface: #fcfcf6;
+      --surface-border: #c4c7bb;
       --rule: #c3c8bf;
       --rule-strong: #8f979a;
       --note: #f0f1ea;
@@ -82,29 +84,10 @@
       --fallback-line: 4.2mm;
       --line-num-size: 6pt;
       --line-num-letter-spacing: 0.08em;
+      {{ common_variables() }}
     }
-    * {
-      box-sizing: border-box;
-    }
-    body {
-      margin: 0;
-      font-family: var(--font-body);
-      color: var(--ink);
-      background: var(--paper-top);
-      print-color-adjust: exact;
-      -webkit-print-color-adjust: exact;
-    }
-    .page {
-      position: relative;
-      width: {{ page_width_mm }}mm;
-      height: {{ page_height_mm }}mm;
-      page-break-after: always;
-      overflow: hidden;
-      background: var(--paper-top);
-    }
-    .page:last-child {
-      page-break-after: auto;
-    }
+    {{ reset_styles() }}
+    {{ page_styles(page_width_mm, page_height_mm) }}
     .header {
       position: absolute;
       left: {{ margin_mm }}mm;
@@ -250,7 +233,7 @@
       overflow: hidden;
       pointer-events: none;
       z-index: 0;
-      background: var(--plate);
+      background: var(--surface);
       box-shadow: none;
     }
     .qr-grid::before {
@@ -281,21 +264,7 @@
       opacity: 0.25;
       pointer-events: none;
     }
-    .qr-grid-items {
-      position: absolute;
-      display: grid;
-      grid-template-columns: repeat(var(--qr-cols), var(--qr-size));
-      grid-auto-rows: var(--qr-size);
-      column-gap: var(--qr-gap-x);
-      row-gap: var(--qr-gap-y);
-      z-index: 1;
-    }
-    .qr-cell {
-      width: var(--qr-size);
-      height: var(--qr-size);
-      padding: var(--qr-card-pad);
-      box-sizing: border-box;
-    }
+    {{ qr_grid_items_styles() }}
     .qr-sequence {
       position: absolute;
       left: 0;
@@ -333,19 +302,11 @@
       font-family: var(--font-mono);
       letter-spacing: 0.08em;
       color: var(--ink);
-      background: var(--plate);
+      background: var(--surface);
       border: var(--border-fine) solid var(--rule);
       padding: 0.2mm 0.8mm;
     }
-    .qr {
-      width: 100%;
-      height: 100%;
-      display: block;
-      image-rendering: pixelated;
-      box-sizing: border-box;
-      padding: 0.4mm;
-      background: #ffffff;
-    }
+    {{ qr_image_styles() }}
     .fallback {
       --strip-width: 8mm;
       position: absolute;
@@ -359,7 +320,7 @@
       font-variant-ligatures: none;
       font-feature-settings: "liga" 0, "calt" 0;
       color: var(--ink);
-      background: var(--plate);
+      background: var(--surface);
       padding: 0 4mm 0 calc(var(--strip-width) + var(--line-num-offset) + 1mm);
       overflow: hidden;
       border: none;

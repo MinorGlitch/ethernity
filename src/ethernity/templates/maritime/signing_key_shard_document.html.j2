@@ -14,6 +14,8 @@
  You should have received a copy of the GNU General Public License along with this program.
  If not, see <https://www.gnu.org/licenses/>.
 #}
+{% from 'css_base.j2' import reset_styles, page_styles, qr_grid_items_styles, qr_image_styles %}
+{% from 'css_variables.j2' import common_variables %}
 
 <!doctype html>
 <html lang="en">
@@ -33,8 +35,8 @@
       --rail: #0c2b3c;
       --paper-top: #f2f6f7;
       --paper-bottom: #dfe7ea;
-      --plate: #f7fbfc;
-      --plate-border: #b7c4c9;
+      --surface: #f7fbfc;
+      --surface-border: #b7c4c9;
       --rule: #c1ced2;
       --rule-strong: #869aa3;
       --note: #e9f0f2;
@@ -44,36 +46,13 @@
       --font-title: "Baskerville", "Goudy Old Style", "Palatino Linotype", "Palatino", serif;
       --font-body: "Gill Sans", "Trebuchet MS", "Verdana", sans-serif;
       --font-mono: "SFMono-Regular", "Menlo", "Consolas", "Courier New", monospace;
-      --divider-y-offset: 7mm;
-      --instructions-y-offset: 7mm;
-      --keys-y-offset: 7mm;
-      --fallback-y-offset: 7mm;
-      --qr-y-offset: 7mm;
       --header-pad: 2mm 3mm;
       --instructions-pad: 0 3mm;
       --qr-card-pad: 0.8mm;
       --fallback-pad: 0 4mm 0 calc(var(--line-num-offset) + var(--line-num-width) + 2.6mm);
       --line-num-offset: 5.6mm;
       --line-num-width: 4.5mm;
-      --space-1: 1mm;
-      --space-2: 1.2mm;
-      --space-3: 1.5mm;
-      --space-4: 1.6mm;
-      --space-5: 2mm;
-      --space-6: 3mm;
-      --space-7: 4mm;
-      --space-8: 4.5mm;
-      --space-9: 6mm;
-      --border-hairline: 0.2mm;
       --border-fine: 0.25mm;
-      --border-thin: 0.3mm;
-      --border-base: 0.35mm;
-      --border-strong: 0.4mm;
-      --border-heavy: 0.45mm;
-      --border-rail: 0.8mm;
-      --radius-none: 0;
-      --radius-sm: 0.8mm;
-      --radius-md: 1mm;
       --title-size: 15.5pt;
       --subtitle-size: 8pt;
       --meta-size: 7.2pt;
@@ -83,29 +62,10 @@
       --fallback-line: 4.2mm;
       --line-num-size: 5.8pt;
       --line-num-letter-spacing: 0.1em;
+      {{ common_variables() }}
     }
-    * {
-      box-sizing: border-box;
-    }
-    body {
-      margin: 0;
-      font-family: var(--font-body);
-      color: var(--ink);
-      background: var(--paper-top);
-      print-color-adjust: exact;
-      -webkit-print-color-adjust: exact;
-    }
-    .page {
-      position: relative;
-      width: {{ page_width_mm }}mm;
-      height: {{ page_height_mm }}mm;
-      page-break-after: always;
-      overflow: hidden;
-      background: var(--paper-top);
-    }
-    .page:last-child {
-      page-break-after: auto;
-    }
+{{ reset_styles() }}
+{{ page_styles(page_width_mm, page_height_mm) }}
     .header {
       position: absolute;
       left: {{ margin_mm }}mm;
@@ -167,7 +127,7 @@
       text-align: left;
       text-transform: uppercase;
       letter-spacing: 0.16em;
-      background: linear-gradient(180deg, rgba(248, 251, 250, 0.95) 0%, var(--plate) 100%);
+      background: linear-gradient(180deg, rgba(248, 251, 250, 0.95) 0%, var(--surface) 100%);
     }
     .stamp-title {
       font-size: 7pt;
@@ -247,7 +207,7 @@
       overflow: hidden;
       pointer-events: none;
       z-index: 0;
-      background: var(--plate);
+      background: var(--surface);
       box-shadow: none;
       outline: var(--border-heavy) solid var(--rule-strong);
     }
@@ -279,21 +239,7 @@
       opacity: 0.25;
       pointer-events: none;
     }
-    .qr-grid-items {
-      position: absolute;
-      display: grid;
-      grid-template-columns: repeat(var(--qr-cols), var(--qr-size));
-      grid-auto-rows: var(--qr-size);
-      column-gap: var(--qr-gap-x);
-      row-gap: var(--qr-gap-y);
-      z-index: 1;
-    }
-    .qr-cell {
-      width: var(--qr-size);
-      height: var(--qr-size);
-      padding: var(--qr-card-pad);
-      box-sizing: border-box;
-    }
+{{ qr_grid_items_styles() }}
     .qr-sequence {
       position: absolute;
       left: 0;
@@ -336,15 +282,7 @@
       padding: 0.2mm 0.8mm;
       border-radius: var(--radius-sm);
     }
-    .qr {
-      width: 100%;
-      height: 100%;
-      display: block;
-      image-rendering: pixelated;
-      box-sizing: border-box;
-      padding: 0.4mm;
-      background: #ffffff;
-    }
+{{ qr_image_styles() }}
     .fallback {
       position: absolute;
       left: {{ margin_mm }}mm;
@@ -357,7 +295,7 @@
       font-variant-ligatures: none;
       font-feature-settings: "liga" 0, "calt" 0;
       color: var(--ink);
-      background: var(--plate);
+      background: var(--surface);
       padding: 0 4mm 0 calc(var(--line-num-offset) + var(--line-num-width) + 2.6mm);
       overflow: hidden;
       border: none;

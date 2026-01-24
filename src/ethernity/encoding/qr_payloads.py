@@ -105,11 +105,6 @@ _register_encoder(Base64Encoder())
 _register_encoder(Base64UrlEncoder())
 
 
-def get_supported_encodings() -> set[str]:
-    """Get set of canonical encoding names (excludes aliases)."""
-    return {encoder.name for encoder in _ENCODERS.values()}
-
-
 def get_encoder(encoding: str | None) -> PayloadEncoder:
     """Get encoder by name, defaulting to base64."""
     if encoding is None:

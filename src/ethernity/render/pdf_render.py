@@ -29,7 +29,11 @@ from fpdf import FPDF
 from ..encoding.framing import encode_frame
 from ..qr.codec import QrConfig, qr_bytes
 from .doc_types import DOC_TYPE_KIT, DOC_TYPE_RECOVERY
-from .fallback import build_fallback_sections_data
+from .fallback import (
+    FallbackConsumerState,
+    FallbackSectionData,
+    build_fallback_sections_data,
+)
 from .html_to_pdf import render_html_to_pdf
 from .layout import compute_layout
 from .pages import build_pages
@@ -260,11 +264,11 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     if len(qr_payloads) != len(inputs.frames):
         raise ValueError("qr_payloads length must match frames")
 
-    fallback_sections_data, fallback_state = build_fallback_sections_data(
-        inputs,
-        spec,
-        layout,
-    )
+    fallback_result = build_fallback_sections_data(inputs, spec, layout)
+    fallback_sections_data: list[FallbackSectionData] | None = None
+    fallback_state: FallbackConsumerState | None = None
+    if fallback_result is not None:
+        fallback_sections_data, fallback_state = fallback_result
     qr_kind = _qr_kind(qr_config)
     qr_resources: dict[str, tuple[str, bytes]] = {}
     if inputs.render_qr:
