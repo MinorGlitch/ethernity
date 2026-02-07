@@ -392,35 +392,72 @@ function parsePayloadLines(state, text) {
   return parsePayloadLinesWith(state, text, addFrame, "errors");
 }
 
-function getZBase32Lines(text) {
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  if (!lines.length) return null;
-  const filtered = filterZBase32Lines(text);
-  if (filtered.length !== lines.length) return null;
-  return filtered;
+function nonEmptyLines(text) {
+  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
-function looksLikeFallback(text, markers) {
-  const lower = text.toLowerCase();
-  if (markers.some((marker) => lower.includes(marker))) {
-    return true;
+function hasMarker(lines, markers) {
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+    if (markers.some((marker) => lower.includes(marker))) {
+      return true;
+    }
   }
-  const filtered = getZBase32Lines(text);
-  if (!filtered) return false;
-  try {
-    const bytes = decodeZBase32(filtered.join(""));
-    decodeFrame(bytes);
-    return true;
-  } catch {
-    return false;
+  return false;
+}
+
+function allLinesDecodeFrames(lines) {
+  if (!lines.length) return false;
+  for (const line of lines) {
+    const bytes = decodePayloadString(line);
+    if (!bytes) return false;
+    try {
+      decodeFrame(bytes);
+    } catch {
+      return false;
+    }
   }
+  return true;
+}
+
+function allLinesDecodeShardFrames(lines) {
+  if (!lines.length) return false;
+  for (const line of lines) {
+    const bytes = decodePayloadString(line);
+    if (!bytes) return false;
+    try {
+      const frame = decodeFrame(bytes);
+      if (frame.frameType !== FRAME_TYPE_KEY) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+function allLinesLookLikeFallback(lines) {
+  if (!lines.length) return false;
+  const filtered = filterZBase32Lines(lines.join("\n"));
+  return filtered.length === lines.length;
 }
 
 export function parseAutoPayload(state, text) {
-  if (looksLikeFallback(text, ["main frame", "auth frame"])) {
+  const lines = nonEmptyLines(text);
+  if (!lines.length) {
+    throw new Error("no input lines found");
+  }
+  if (hasMarker(lines, ["main frame", "auth frame"])) {
     return parseFallbackText(state, text);
   }
-  return parsePayloadLines(state, text);
+  if (allLinesDecodeFrames(lines)) {
+    return parsePayloadLines(state, text);
+  }
+  if (allLinesLookLikeFallback(lines)) {
+    return parseFallbackText(state, text);
+  }
+  throw new Error("input is neither valid QR payloads nor valid fallback text");
 }
 
 function parseFallbackText(state, text) {
@@ -487,10 +524,20 @@ function parseShardPayloadLines(state, text) {
 }
 
 export function parseAutoShard(state, text) {
-  if (looksLikeFallback(text, ["shard frame", "shard payload"])) {
+  const lines = nonEmptyLines(text);
+  if (!lines.length) {
+    throw new Error("no input lines found");
+  }
+  if (hasMarker(lines, ["shard frame", "shard payload"])) {
     return parseShardFallbackText(state, text);
   }
-  return parseShardPayloadLines(state, text);
+  if (allLinesDecodeShardFrames(lines)) {
+    return parseShardPayloadLines(state, text);
+  }
+  if (allLinesLookLikeFallback(lines)) {
+    return parseShardFallbackText(state, text);
+  }
+  throw new Error("input is neither valid shard payloads nor valid fallback text");
 }
 
 export function reassembleCiphertext(state) {
