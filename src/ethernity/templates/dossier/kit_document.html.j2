@@ -16,7 +16,7 @@
 #}
 {% from 'css_base.j2' import reset_styles, page_styles, qr_grid_items_styles, qr_image_styles %}
 {% from 'css_variables.j2' import common_variables %}
-{% from 'html_components.j2' import divider, qr_grid, qr_grid_items, qr_sequence %}
+{% from 'html_components.j2' import divider, qr_grid, qr_grid_items, qr_sequence, instructions_lines %}
 
 <!doctype html>
 <html lang="en">
@@ -28,6 +28,8 @@
       margin: 0;
     }
     :root {
+      {{ common_variables() }}
+
       --ink: #1a202b;
       --ink-muted: #4a5562;
       --ink-soft: #6d7684;
@@ -47,11 +49,6 @@
       --font-title: "Garamond", "Baskerville", "Palatino Linotype", "Palatino", serif;
       --font-body: "Franklin Gothic Book", "Franklin Gothic Medium", "Gill Sans", "Trebuchet MS", sans-serif;
       --font-mono: "SFMono-Regular", "Menlo", "Consolas", "Courier New", monospace;
-      --divider-y-offset: 7mm;
-      --instructions-y-offset: 7mm;
-      --keys-y-offset: 7mm;
-      --fallback-y-offset: 7mm;
-      --qr-y-offset: 7mm;
       --header-pad: 2.5mm 2mm;
       --instructions-pad: 0 3mm;
       --instructions-page-pad: 6mm 5mm 5mm 8mm;
@@ -82,7 +79,6 @@
       --meta-size: 7.5pt;
       --meta-label-size: 6.5pt;
       --meta-value-size: 7.5pt;
-      {{ common_variables() }}
     }
     {{ reset_styles() }}
     {{ page_styles(page_width_mm, page_height_mm) }}
@@ -505,8 +501,8 @@
   <section class="page">
     <div class="header">
       <div class="header-left">
-        <div class="title">Recovery Kit</div>
-        <div class="subtitle">Offline HTML bundle</div>
+        <div class="title">{{ doc.title }}</div>
+        <div class="subtitle">{{ doc.subtitle }}</div>
         <div class="meta-grid">
           <div class="meta-label">Document ID</div>
           <div class="meta-value">{{ doc_id }}</div>
@@ -612,14 +608,10 @@
       </div>
     </div>
     {% elif page.show_instructions %}
-    <div class="instructions" style="top: calc({{ page.instructions_y_mm }}mm + var(--instructions-y-offset));">
-      <div class="instructions-label">Instructions</div>
+    <div class="instructions" style="top: {{ page.instructions_y_mm }}mm;">
+      <div class="instructions-label">{{ instructions.label }}</div>
       <div>
-        <div>Scan every QR code left to right, top to bottom.</div>
-        <div>Paste the decoded chunks together in order (no separators).</div>
-        <div>Save the result as recovery_kit.bundle.html.</div>
-        <div>Open that file in a browser (offline) to run the kit.</div>
-        <div class="scan-hint">Start at the top-left and follow each row.</div>
+        {{ instructions_lines(instructions.lines, scan_hint_text=instructions.scan_hint) }}
       </div>
     </div>
     {% endif %}

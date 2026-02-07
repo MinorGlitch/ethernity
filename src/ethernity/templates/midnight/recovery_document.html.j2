@@ -16,7 +16,7 @@
 #}
 {% from 'css_base.j2' import reset_styles, page_styles, qr_grid_items_styles, qr_image_styles %}
 {% from 'css_variables.j2' import common_variables %}
-{% from 'html_components.j2' import divider, fallback_blocks %}
+{% from 'html_components.j2' import divider, fallback_blocks, instructions_lines %}
 
 <!doctype html>
 <html lang="en">
@@ -28,6 +28,8 @@
       margin: 0;
     }
     :root {
+      {{ common_variables() }}
+
       --ink: #0d1a2a;
       --ink-muted: #3b4f66;
       --ink-soft: #60758b;
@@ -81,10 +83,6 @@
       --fallback-line: 4.2mm;
       --line-num-size: 5.8pt;
       --line-num-letter-spacing: 0.1em;
-      --divider-y-offset: 0mm;
-      --instructions-y-offset: 0mm;
-      --fallback-y-offset: 0mm;
-      {{ common_variables() }}
     }
     {{ reset_styles() }}
     {{ page_styles(page_width_mm, page_height_mm) }}
@@ -293,8 +291,8 @@
   <section class="page">
     <header class="header">
       <div class="header-left">
-        <div class="title">Recovery Document</div>
-        <div class="subtitle">Keys + Text Fallback</div>
+        <div class="title">{{ doc.title }}</div>
+        <div class="subtitle">{{ doc.subtitle }}</div>
         <div class="meta-grid">
           <div class="meta-label">Document ID</div>
           <div class="meta-value">{{ doc_id }}</div>
@@ -335,12 +333,10 @@
     {{ divider(page) }}
 
     {% if page.show_instructions %}
-    <aside class="instructions" style="top: calc({{ page.instructions_y_mm }}mm + var(--instructions-y-offset));">
-      <div class="instructions-label">Instructions</div>
+    <aside class="instructions" style="top: {{ page.instructions_y_mm }}mm;">
+      <div class="instructions-label">{{ instructions.label }}</div>
       <div>
-        <div>This document contains recovery keys and full text fallback.</div>
-        <div>Keep it separate from the QR document.</div>
-        <div>Fallback includes AUTH + MAIN sections; keep the labels when transcribing.</div>
+        {{ instructions_lines(instructions.lines) }}
       </div>
     </aside>
     {% endif %}

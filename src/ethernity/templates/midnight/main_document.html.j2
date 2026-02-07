@@ -16,7 +16,7 @@
 #}
 {% from 'css_base.j2' import reset_styles, page_styles, qr_grid_items_styles, qr_image_styles %}
 {% from 'css_variables.j2' import common_variables %}
-{% from 'html_components.j2' import divider, qr_grid, qr_grid_items, qr_sequence %}
+{% from 'html_components.j2' import divider, qr_grid, qr_grid_items, qr_sequence, instructions_lines %}
 
 <!doctype html>
 <html lang="en">
@@ -28,6 +28,8 @@
       margin: 0;
     }
     :root {
+      {{ common_variables() }}
+
       --ink: #0d1a2a;
       --ink-muted: #3b4f66;
       --ink-soft: #60758b;
@@ -47,11 +49,6 @@
       --font-title: "Cambria", "Didot", "Baskerville", "Georgia", serif;
       --font-body: "Segoe UI", "Calibri", "Trebuchet MS", sans-serif;
       --font-mono: "SFMono-Regular", "Menlo", "Consolas", "Courier New", monospace;
-      --divider-y-offset: 7mm;
-      --instructions-y-offset: 7mm;
-      --keys-y-offset: 7mm;
-      --fallback-y-offset: 7mm;
-      --qr-y-offset: 7mm;
       --header-pad: 2mm 2.6mm 2.4mm;
       --instructions-pad: 0 3mm;
       --qr-card-pad: 0.8mm;
@@ -80,7 +77,6 @@
       --meta-size: 7.1pt;
       --meta-label-size: 6pt;
       --meta-value-size: 7.1pt;
-      {{ common_variables() }}
     }
     {{ reset_styles() }}
     {{ page_styles(page_width_mm, page_height_mm) }}
@@ -322,7 +318,7 @@
   <section class="page">
     <div class="header">
       <div class="header-left">
-        <div class="title">Main Document</div>
+        <div class="title">{{ doc.title }}</div>
         <div class="meta-grid">
           <div class="meta-label">Document ID</div>
           <div class="meta-value">{{ doc_id }}</div>
@@ -338,11 +334,10 @@
     {{ divider(page) }}
 
     {% if page.page_num == 1 %}
-    <div class="instructions" style="top: calc({{ page.instructions_y_mm }}mm + var(--instructions-y-offset));">
-      <div class="instructions-label">Instructions</div>
+    <div class="instructions" style="top: {{ page.instructions_y_mm }}mm;">
+      <div class="instructions-label">{{ instructions.label }}</div>
       <div>
-        <div>Scan all QR codes in any order.</div>
-        <div>Use the Recovery Document for text fallback if needed.</div>
+        {{ instructions_lines(instructions.lines) }}
       </div>
     </div>
     {% endif %}

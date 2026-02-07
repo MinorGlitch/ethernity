@@ -16,7 +16,7 @@
 #}
 {% from 'css_base.j2' import reset_styles, page_styles, qr_grid_items_styles, qr_image_styles %}
 {% from 'css_variables.j2' import common_variables %}
-{% from 'html_components.j2' import divider, qr_grid, qr_grid_items, qr_sequence, fallback_blocks %}
+{% from 'html_components.j2' import divider, qr_grid, qr_grid_items, qr_sequence, fallback_blocks, instructions_lines %}
 
 <!doctype html>
 <html lang="en">
@@ -28,6 +28,8 @@
       margin: 0;
     }
     :root {
+      {{ common_variables() }}
+
       --ink: #1a202b;
       --ink-muted: #4a5562;
       --ink-soft: #6d7684;
@@ -47,11 +49,6 @@
       --font-title: "Garamond", "Baskerville", "Palatino Linotype", "Palatino", serif;
       --font-body: "Franklin Gothic Book", "Franklin Gothic Medium", "Gill Sans", "Trebuchet MS", sans-serif;
       --font-mono: "SFMono-Regular", "Menlo", "Consolas", "Courier New", monospace;
-      --divider-y-offset: 7mm;
-      --instructions-y-offset: 7mm;
-      --keys-y-offset: 7mm;
-      --fallback-y-offset: 7mm;
-      --qr-y-offset: 7mm;
       --header-pad: 2.5mm 2mm;
       --instructions-pad: 0 3mm;
       --qr-card-pad: 0.6mm;
@@ -85,7 +82,6 @@
       --fallback-line: 4.2mm;
       --line-num-size: 6pt;
       --line-num-letter-spacing: 0.08em;
-      {{ common_variables() }}
     }
     {{ reset_styles() }}
     {{ page_styles(page_width_mm, page_height_mm) }}
@@ -393,8 +389,8 @@
   <section class="page">
     <div class="header">
       <div class="header-left">
-        <div class="title">Signing Key Shard</div>
-        <div class="subtitle">Signing key shard {{ shard_index }} of {{ shard_total }}</div>
+        <div class="title">{{ doc.title }}</div>
+        <div class="subtitle">{{ doc.subtitle }}</div>
         <div class="meta-grid">
           <div class="meta-label">Document ID</div>
           <div class="meta-value">{{ doc_id }}</div>
@@ -410,11 +406,10 @@
     {{ divider(page) }}
 
     {% if page.page_num == 1 %}
-    <div class="instructions" style="top: calc({{ page.instructions_y_mm }}mm + var(--instructions-y-offset));">
-      <div class="instructions-label">Instructions</div>
+    <div class="instructions" style="top: {{ page.instructions_y_mm }}mm;">
+      <div class="instructions-label">{{ instructions.label }}</div>
       <div>
-        <div>This document is one shard of the signing key.</div>
-        <div>Keep signing-key shards separate and secure.</div>
+        {{ instructions_lines(instructions.lines) }}
       </div>
     </div>
     {% endif %}

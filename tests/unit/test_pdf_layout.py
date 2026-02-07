@@ -14,6 +14,7 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from fpdf import FPDF
@@ -29,7 +30,9 @@ from ethernity.render.spec import (
     QrGridSpec,
     QrSequenceSpec,
     TextBlockSpec,
+    document_spec,
 )
+from ethernity.render.template_style import load_template_style
 
 
 def _build_spec(*, line_count: int, line_height: float) -> DocumentSpec:
@@ -80,6 +83,156 @@ def _build_spec(*, line_count: int, line_height: float) -> DocumentSpec:
 
 
 class TestPdfLayout(unittest.TestCase):
+    def test_main_first_page_capacity_remains_3x4_across_styles(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\x11" * DOC_ID_LEN,
+                index=i,
+                total=24,
+                data=f"payload-{i}".encode("utf-8"),
+            )
+            for i in range(24)
+        ]
+        context = {
+            "doc_id": frames[0].doc_id.hex(),
+            "paper_size": "A4",
+            "created_timestamp_utc": "2026-01-01 00:00 UTC",
+        }
+        pdf = FPDF(unit="mm", format="A4")
+
+        for design in ("ledger", "dossier", "maritime", "midnight"):
+            with self.subTest(design=design):
+                template_path = (
+                    Path(__file__).resolve().parents[2]
+                    / "src"
+                    / "ethernity"
+                    / "templates"
+                    / design
+                    / "main_document.html.j2"
+                )
+                inputs = RenderInputs(
+                    frames=frames,
+                    template_path=template_path,
+                    output_path="out.pdf",
+                    context=context,
+                    doc_type="main",
+                    render_fallback=False,
+                )
+                spec = document_spec("main", "A4", context)
+                style = load_template_style(template_path)
+                spec = replace(
+                    spec,
+                    header=replace(
+                        spec.header,
+                        meta_row_gap_mm=float(style.header.meta_row_gap_mm),
+                        stack_gap_mm=float(style.header.stack_gap_mm),
+                        divider_thickness_mm=float(style.header.divider_thickness_mm),
+                    ),
+                )
+                divider_gap_extra_mm = float(style.content_offset.divider_gap_extra_mm)
+                if divider_gap_extra_mm and "main" in style.content_offset.doc_types:
+                    spec = replace(
+                        spec,
+                        header=replace(
+                            spec.header,
+                            divider_gap_mm=float(spec.header.divider_gap_mm) + divider_gap_extra_mm,
+                        ),
+                    )
+
+                layout, _ = compute_layout(
+                    inputs,
+                    spec,
+                    pdf,
+                    key_lines=[],
+                    include_keys=True,
+                    include_instructions=True,
+                )
+                self.assertEqual(layout.cols, 3)
+                self.assertEqual(layout.rows, 4)
+                self.assertEqual(layout.per_page, 12)
+
+    def test_recovery_text_layout_smoke_across_styles(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x66" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        context = {
+            "doc_id": frame.doc_id.hex(),
+            "paper_size": "A4",
+            "created_timestamp_utc": "2026-01-01 00:00 UTC",
+        }
+        key_lines = [
+            "Passphrase:",
+            "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu",
+            "Recover with 3 of 5 shard documents.",
+            "Signing public key (hex):",
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        ]
+        pdf = FPDF(unit="mm", format="A4")
+
+        for design in ("ledger", "dossier", "maritime", "midnight"):
+            with self.subTest(design=design):
+                template_path = (
+                    Path(__file__).resolve().parents[2]
+                    / "src"
+                    / "ethernity"
+                    / "templates"
+                    / design
+                    / "recovery_document.html.j2"
+                )
+                inputs = RenderInputs(
+                    frames=[frame],
+                    template_path=template_path,
+                    output_path="out.pdf",
+                    context=context,
+                    doc_type="recovery",
+                    render_qr=False,
+                    render_fallback=True,
+                    key_lines=key_lines,
+                    fallback_payload=b"recovery payload",
+                )
+                spec = document_spec("recovery", "A4", context)
+                style = load_template_style(template_path)
+                spec = replace(
+                    spec,
+                    header=replace(
+                        spec.header,
+                        meta_row_gap_mm=float(style.header.meta_row_gap_mm),
+                        stack_gap_mm=float(style.header.stack_gap_mm),
+                        divider_thickness_mm=float(style.header.divider_thickness_mm),
+                    ),
+                )
+                divider_gap_extra_mm = float(style.content_offset.divider_gap_extra_mm)
+                if divider_gap_extra_mm and "recovery" in style.content_offset.doc_types:
+                    spec = replace(
+                        spec,
+                        header=replace(
+                            spec.header,
+                            divider_gap_mm=float(spec.header.divider_gap_mm) + divider_gap_extra_mm,
+                        ),
+                    )
+
+                layout, fallback_lines = compute_layout(
+                    inputs,
+                    spec,
+                    pdf,
+                    key_lines=key_lines,
+                    include_keys=False,
+                    include_instructions=True,
+                )
+                self.assertEqual(layout.cols, 0)
+                self.assertEqual(layout.rows, 0)
+                self.assertEqual(layout.per_page, 0)
+                self.assertGreater(layout.fallback_lines_per_page, 0)
+                self.assertGreaterEqual(layout.total_pages, 1)
+                self.assertGreater(len(fallback_lines), 0)
+
     def test_gap_override_when_max_rows_exceeds_fit(self) -> None:
         frames = [
             Frame(

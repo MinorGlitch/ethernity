@@ -16,7 +16,7 @@
 #}
 {% from 'css_base.j2' import reset_styles, page_styles, qr_grid_items_styles, qr_image_styles %}
 {% from 'css_variables.j2' import common_variables %}
-{% from 'html_components.j2' import divider, qr_grid, qr_grid_items, qr_sequence, fallback_blocks %}
+{% from 'html_components.j2' import divider, qr_grid, qr_grid_items, qr_sequence, fallback_blocks, instructions_lines %}
 
 <!doctype html>
 <html lang="en">
@@ -28,6 +28,8 @@
       margin: 0;
     }
     :root {
+      {{ common_variables() }}
+
       --ink: #0c2230;
       --ink-muted: #31495a;
       --ink-soft: #5a7384;
@@ -63,7 +65,6 @@
       --fallback-line: 4.2mm;
       --line-num-size: 5.8pt;
       --line-num-letter-spacing: 0.1em;
-      {{ common_variables() }}
     }
 {{ reset_styles() }}
 {{ page_styles(page_width_mm, page_height_mm) }}
@@ -353,8 +354,8 @@
   <section class="page">
     <div class="header">
       <div class="header-left">
-        <div class="title">Signing Key Shard</div>
-        <div class="subtitle">Signing key shard {{ shard_index }} of {{ shard_total }}</div>
+        <div class="title">{{ doc.title }}</div>
+        <div class="subtitle">{{ doc.subtitle }}</div>
         <div class="meta-grid">
           <div class="meta-label">Document ID</div>
           <div class="meta-value">{{ doc_id }}</div>
@@ -370,11 +371,10 @@
     {{ divider(page) }}
 
     {% if page.page_num == 1 %}
-    <div class="instructions" style="top: calc({{ page.instructions_y_mm }}mm + var(--instructions-y-offset));">
-      <div class="instructions-label">Instructions</div>
+    <div class="instructions" style="top: {{ page.instructions_y_mm }}mm;">
+      <div class="instructions-label">{{ instructions.label }}</div>
       <div>
-        <div>This document is one shard of the signing key.</div>
-        <div>Keep signing-key shards separate and secure.</div>
+        {{ instructions_lines(instructions.lines) }}
       </div>
     </div>
     {% endif %}

@@ -1,0 +1,12 @@
+{
+  "name": "midnight",
+  "header": {
+    "meta_row_gap_mm": 1.0,
+    "stack_gap_mm": 1.6,
+    "divider_thickness_mm": 0.45
+  },
+  "content_offset": {
+    "divider_gap_extra_mm": 7.0,
+    "doc_types": ["kit", "shard", "signing_key_shard"]
+  }
+}

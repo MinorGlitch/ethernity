@@ -21,7 +21,6 @@ import functools
 import os
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
-from pathlib import Path
 from typing import Any, Callable, cast
 
 from fpdf import FPDF
@@ -29,25 +28,21 @@ from fpdf import FPDF
 from ..encoding.framing import encode_frame
 from ..qr.codec import QrConfig, qr_bytes
 from .doc_types import DOC_TYPE_KIT, DOC_TYPE_RECOVERY
-from .fallback import (
-    FallbackConsumerState,
-    FallbackSectionData,
-    build_fallback_sections_data,
-)
+from .fallback import FallbackConsumerState, FallbackSectionData, build_fallback_sections_data
 from .html_to_pdf import render_html_to_pdf
 from .layout import compute_layout
 from .pages import build_pages
 from .spec import DocumentSpec, document_spec
+from .template_model import DocModel, InstructionsModel, RecoveryModel, TemplateContext
+from .template_style import load_template_style
 from .templating import render_template
 from .text import page_format
-from .types import FallbackSection, RenderInputs
+from .types import RenderInputs
 
 _QR_URL_PREFIX = "https://ethernity.local/qr/"
 _RENDER_JOBS_ENV = "ETHERNITY_RENDER_JOBS"
 _DEFAULT_QR_WORKERS_CAP = 8
 _MIN_QR_TASKS_PER_WORKER = 4
-_STACKED_META_TEMPLATE_STYLES = frozenset({"dossier", "maritime", "midnight"})
-_DEFAULT_TEMPLATE_STYLE = "ledger"
 
 
 @dataclass(frozen=True)
@@ -56,14 +51,6 @@ class RecoveryMeta:
     passphrase_lines: tuple[str, ...] = ()
     quorum_value: str | None = None
     signing_pub_lines: tuple[str, ...] = ()
-
-
-def _template_style_name(template_path: str | Path) -> str:
-    path = Path(template_path)
-    candidate = path.parent.name.strip().lower()
-    if candidate in _STACKED_META_TEMPLATE_STYLES or candidate == _DEFAULT_TEMPLATE_STYLE:
-        return candidate
-    return _DEFAULT_TEMPLATE_STYLE
 
 
 def _wrap_passphrase(passphrase: str, *, words_per_line: int = 6) -> tuple[str, ...]:
@@ -115,11 +102,7 @@ def _parse_recovery_key_lines(key_lines: list[str]) -> RecoveryMeta:
     )
 
 
-def render_frames_to_pdf(inputs: RenderInputs) -> None:
-    if not inputs.frames:
-        raise ValueError("frames cannot be empty")
-
-    base_context = dict(inputs.context)
+def _resolve_created_timestamp(base_context: dict[str, object]) -> tuple[str, datetime | None]:
     created_value = base_context.get("created_timestamp_utc")
     if created_value is None:
         created_value = base_context.get("created_date")
@@ -147,76 +130,68 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     base_context["created_timestamp_utc"] = created_timestamp_utc
     if created_dt is not None:
         base_context["created_date"] = created_dt.date().isoformat()
+    return created_timestamp_utc, created_dt
+
+
+def _layout_spec(spec: DocumentSpec, doc_id: str, page_label: str) -> DocumentSpec:
+    return spec.with_header(doc_id=doc_id, page_label=page_label)
+
+
+def _page_size_css(spec: DocumentSpec) -> str:
+    if spec.page.width_mm and spec.page.height_mm:
+        return f"{float(spec.page.width_mm)}mm {float(spec.page.height_mm)}mm"
+    return str(spec.page.size)
+
+
+def render_frames_to_pdf(inputs: RenderInputs) -> None:
+    if not inputs.frames:
+        raise ValueError("frames cannot be empty")
+
+    base_context = dict(inputs.context)
+    created_timestamp_utc, created_dt = _resolve_created_timestamp(base_context)
+
     doc_id = base_context.get("doc_id")
     if not isinstance(doc_id, str):
         doc_id = inputs.frames[0].doc_id.hex()
         base_context["doc_id"] = doc_id
 
     paper_size = str(base_context.get("paper_size") or "A4")
-    doc_type = inputs.doc_type
-    if not doc_type:
-        raise ValueError("doc_type is required for rendering")
-    normalized_doc_type = doc_type.strip().lower()
+    normalized_doc_type = inputs.doc_type.strip().lower()
     key_lines = list(inputs.key_lines) if inputs.key_lines is not None else []
-    spec = document_spec(doc_type, paper_size, base_context)
+    spec = document_spec(inputs.doc_type, paper_size, base_context)
 
-    template_style = _template_style_name(inputs.template_path)
-    if template_style == "ledger":
+    style = load_template_style(inputs.template_path)
+    spec = replace(
+        spec,
+        header=replace(
+            spec.header,
+            meta_row_gap_mm=float(style.header.meta_row_gap_mm),
+            stack_gap_mm=float(style.header.stack_gap_mm),
+            divider_thickness_mm=float(style.header.divider_thickness_mm),
+        ),
+    )
+    divider_gap_extra_mm = float(style.content_offset.divider_gap_extra_mm)
+    if divider_gap_extra_mm and normalized_doc_type in style.content_offset.doc_types:
         spec = replace(
             spec,
             header=replace(
                 spec.header,
-                meta_row_gap_mm=1.2,
-                divider_thickness_mm=0.6,
+                divider_gap_mm=float(spec.header.divider_gap_mm) + divider_gap_extra_mm,
             ),
         )
-    elif template_style == "maritime":
-        spec = replace(
-            spec,
-            header=replace(
-                spec.header,
-                meta_row_gap_mm=1.2,
-                stack_gap_mm=1.6,
-                divider_thickness_mm=0.4,
-            ),
-        )
-    elif template_style == "dossier":
-        spec = replace(
-            spec,
-            header=replace(
-                spec.header,
-                meta_row_gap_mm=1.4,
-                stack_gap_mm=2.0,
-                divider_thickness_mm=0.6,
-            ),
-        )
-    elif template_style == "midnight":
-        spec = replace(
-            spec,
-            header=replace(
-                spec.header,
-                meta_row_gap_mm=1.0,
-                stack_gap_mm=1.6,
-                divider_thickness_mm=0.45,
-            ),
-        )
+
     recovery_meta = None
     if normalized_doc_type == DOC_TYPE_RECOVERY:
         recovery_meta = _parse_recovery_key_lines(key_lines)
-        header_layout = spec.header.layout
-        if template_style in _STACKED_META_TEMPLATE_STYLES:
-            header_layout = "stacked"
-        meta_lines_extra = (
-            int(recovery_meta.quorum_value is not None)
-            + len(recovery_meta.signing_pub_lines)
-            + len(recovery_meta.passphrase_lines)
-        )
         spec = replace(
             spec,
             header=replace(
                 spec.header,
-                layout=header_layout,
-                meta_lines_extra=meta_lines_extra,
+                meta_lines_extra=(
+                    int(recovery_meta.quorum_value is not None)
+                    + len(recovery_meta.signing_pub_lines)
+                    + len(recovery_meta.passphrase_lines)
+                ),
             ),
         )
 
@@ -269,11 +244,12 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     fallback_state: FallbackConsumerState | None = None
     if fallback_result is not None:
         fallback_sections_data, fallback_state = fallback_result
+
     qr_kind = _qr_kind(qr_config)
     qr_resources: dict[str, tuple[str, bytes]] = {}
     if inputs.render_qr:
         qr_resources = _build_qr_resources(qr_payloads, config=qr_config, kind=qr_kind)
-    qr_image_builder = functools.partial(_qr_url_for_index, kind=qr_kind)
+    qr_url_for_index = functools.partial(_qr_url_for_index, kind=qr_kind)
 
     pages = build_pages(
         inputs=inputs,
@@ -281,53 +257,50 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
         layout=layout,
         layout_rest=layout_rest,
         fallback_lines=fallback_lines,
-        qr_payloads=qr_payloads,
-        qr_image_builder=qr_image_builder,
+        qr_image_builder=qr_url_for_index,
         fallback_sections_data=fallback_sections_data,
         fallback_state=fallback_state,
-        key_lines=key_lines,
-        keys_first_page_only=keys_first_page_only,
     )
 
-    context = _template_context(spec, layout, pages, doc_id=str(doc_id))
+    scan_hint = (
+        "Start at the top-left and follow each row."
+        if normalized_doc_type == DOC_TYPE_KIT
+        else None
+    )
+    recovery_view = None
+    if recovery_meta is not None:
+        recovery_view = RecoveryModel(
+            passphrase=recovery_meta.passphrase,
+            passphrase_lines=recovery_meta.passphrase_lines,
+            quorum_value=recovery_meta.quorum_value,
+            signing_pub_lines=recovery_meta.signing_pub_lines,
+        )
+    context = TemplateContext(
+        page_size_css=_page_size_css(spec),
+        page_width_mm=layout.page_w,
+        page_height_mm=layout.page_h,
+        margin_mm=layout.margin,
+        usable_width_mm=layout.usable_w,
+        doc_id=str(doc_id),
+        created_timestamp_utc=created_timestamp_utc,
+        doc=DocModel(title=spec.header.title, subtitle=spec.header.subtitle),
+        instructions=InstructionsModel(
+            label=spec.instructions.label or "Instructions",
+            lines=tuple(spec.instructions.lines),
+            scan_hint=scan_hint,
+        ),
+        pages=tuple(pages),
+        fallback_width_mm=layout.fallback_width,
+        recovery=recovery_view,
+    ).to_template_dict()
+
     context["shard_index"] = base_context.get("shard_index", 1)
     context["shard_total"] = base_context.get("shard_total", 1)
-    context["created_timestamp_utc"] = created_timestamp_utc
     if created_dt is not None:
         context["created_date"] = created_dt.date().isoformat()
-    if normalized_doc_type == DOC_TYPE_RECOVERY and recovery_meta is not None:
-        context["recovery"] = {
-            "passphrase": recovery_meta.passphrase,
-            "passphrase_lines": list(recovery_meta.passphrase_lines),
-            "quorum_value": recovery_meta.quorum_value,
-            "signing_pub_lines": list(recovery_meta.signing_pub_lines),
-        }
+
     html = render_template(inputs.template_path, context)
     render_html_to_pdf(html, inputs.output_path, resources=qr_resources)
-
-
-def _layout_spec(spec: DocumentSpec, doc_id: str, page_label: str) -> DocumentSpec:
-    return spec.with_header(doc_id=doc_id, page_label=page_label)
-
-
-def _template_context(
-    spec: DocumentSpec,
-    layout,
-    pages: list[dict[str, object]],
-    *,
-    doc_id: str,
-) -> dict[str, object]:
-    return {
-        "page_size_css": spec.page.size,
-        "page_width_mm": layout.page_w,
-        "page_height_mm": layout.page_h,
-        "margin_mm": layout.margin,
-        "usable_width_mm": layout.usable_w,
-        "doc_id": doc_id,
-        "keys": {"lines": list(spec.keys.lines)},
-        "fallback": {"width_mm": layout.fallback_width},
-        "pages": pages,
-    }
 
 
 def _qr_kind(config: QrConfig) -> str:
@@ -411,8 +384,4 @@ def _qr_kwargs(config: QrConfig) -> dict[str, Any]:
     return vars(config)
 
 
-__all__ = [
-    "FallbackSection",
-    "RenderInputs",
-    "render_frames_to_pdf",
-]
+__all__ = ["render_frames_to_pdf"]

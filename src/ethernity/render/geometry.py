@@ -32,6 +32,19 @@ def calc_cells(usable: float, cell: float, gap: float, max_cells: int | None) ->
     return count
 
 
+def expand_gap_to_fill(usable_w: float, cell_w: float, gap: float, cols: int) -> float:
+    if cols <= 1:
+        return gap
+
+    gaps = cols - 1
+    content_w = cols * cell_w + gaps * gap
+    extra = usable_w - content_w
+    if extra <= 0:
+        return gap
+
+    return gap + (extra / gaps)
+
+
 def adjust_rows_for_fallback(
     rows: int,
     grid_start_y: float,

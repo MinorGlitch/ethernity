@@ -14,9 +14,8 @@
  You should have received a copy of the GNU General Public License along with this program.
  If not, see <https://www.gnu.org/licenses/>.
 #}
-{% from 'css_base.j2' import reset_styles, page_styles, qr_grid_items_styles, qr_image_styles %}
 {% from 'css_variables.j2' import common_variables %}
-{% from 'html_components.j2' import divider, qr_grid, qr_grid_items %}
+{% from 'html_components.j2' import instructions_lines %}
 
 <!doctype html>
 <html lang="en">
@@ -28,123 +27,94 @@
       margin: 0;
     }
     :root {
-      /* Theme-specific colors */
+{{ common_variables() }}
       --ink: #0b1a26;
-      --ink-muted: #2f4352;
       --ink-soft: #516272;
       --ink-label: #3b4e5c;
+      --ink-muted: #2f4352;
       --ink-body: #1a2733;
       --accent: #2b3f46;
-      --rail: #2b3f46;
-      --surface: #f2eee6;
-      --surface-strong: #e2dbce;
       --surface-border: #bbae9c;
       --paper-top: #fbf6ef;
-      --paper-bottom: #ece2d5;
-      --grid: rgba(11, 26, 38, 0.06);
-      --qr-border: #b1a494;
-      --shadow: rgba(11, 26, 38, 0.16);
-
-      /* Theme-specific fonts */
-      --font-title: "Copperplate Gothic Bold", "Copperplate Gothic Light", "Copperplate", "Palatino Linotype", "Palatino", serif;
-      --font-body: "Lucida Sans", "Lucida Grande", "Trebuchet MS", sans-serif;
+      --font-title: "Copperplate Gothic Bold", "Palatino Linotype", serif;
+      --font-body: "Lucida Sans", "Trebuchet MS", sans-serif;
       --font-mono: "SFMono-Regular", "Menlo", "Consolas", "Courier New", monospace;
-
-      /* Theme-specific sizes */
-      --header-pad: 0.6mm 2mm;
-      --instructions-pad: 1.6mm 2.5mm 1.6mm 3mm;
-      --instructions-page-pad: 6mm 5mm 5mm 6mm;
-      --instructions-callout-pad: 3mm;
-      --instructions-checklist-pad: 3mm;
-      --scan-hint-pad: 0.6mm 2mm 0.6mm 1.4mm;
-      --qr-card-pad: 0.6mm;
-      --title-size: 18pt;
-      --subtitle-size: 9pt;
-      --meta-size: 7pt;
-      --meta-secondary-size: 8pt;
-      --meta-tertiary-size: 7.5pt;
-
-      /* Ledger overrides */
-      --space-8: 6mm;
-      --border-thin: 0.35mm;
-      --border-rail-thin: 1.2mm;
-      --border-accent: 2mm;
-
-{{ common_variables() }}
     }
-{{ reset_styles() }}
-{{ page_styles(page_width_mm, page_height_mm) }}
-    .header {
-      position: absolute;
-      left: {{ margin_mm }}mm;
-      top: {{ margin_mm }}mm;
-      width: {{ usable_width_mm }}mm;
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: var(--space-8);
-      align-items: start;
-    }
-    .header-left {
-      width: 100%;
-    }
-    .header-right {
-      display: grid;
-      gap: var(--space-2);
-      justify-items: end;
-      text-align: right;
-      font-size: var(--meta-size);
-      color: var(--ink-soft);
-      line-height: 1.2;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      align-self: start;
-    }
-    .header-right div {
-      padding: var(--header-pad);
-      border-radius: var(--radius-none);
-      border: var(--border-thin) solid var(--surface-border);
-      background: var(--white, #ffffff);
-    }
-    .header-right .meta-primary {
-      font-weight: 700;
-      color: var(--accent);
-      border-color: var(--accent);
-    }
-    .header-right .meta-secondary,
-    .header-right .meta-tertiary {
-      font-family: var(--font-mono);
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font-body);
       color: var(--ink);
-      text-transform: none;
-      letter-spacing: 0.04em;
+      background: var(--paper-top);
+      print-color-adjust: exact;
+      -webkit-print-color-adjust: exact;
     }
-    .header-right .meta-secondary {
-      font-size: var(--meta-secondary-size);
+    .page {
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      page-break-after: always;
+      padding: {{ margin_mm }}mm;
+      display: flex;
+      flex-direction: column;
+      gap: 2.4mm;
+      overflow: hidden;
+      background: var(--paper-top);
     }
-    .header-right .meta-tertiary {
-      font-size: var(--meta-tertiary-size);
+    .page:last-child { page-break-after: auto; }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8mm;
     }
     .title {
-      font-size: var(--title-size);
+      font-size: 18pt;
       font-weight: 700;
       font-family: var(--font-title);
-      color: var(--ink);
-      line-height: 1.1;
       letter-spacing: 0.08em;
       text-transform: uppercase;
+      line-height: 1.1;
     }
     .subtitle {
-      font-size: var(--subtitle-size);
-      font-style: normal;
+      font-size: 9pt;
       color: var(--ink-muted);
-      line-height: 1.2;
-      letter-spacing: 0.1em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
+      line-height: 1.2;
+    }
+    .meta {
+      display: flex;
+      flex-direction: column;
+      gap: 1.2mm;
+      align-items: flex-end;
+      min-width: 72mm;
+      font-size: 7pt;
+      text-align: right;
+    }
+    .meta-item {
+      width: 100%;
+      border: 0.35mm solid var(--surface-border);
+      background: #ffffff;
+      padding: 0.6mm 2mm;
+      border-radius: 0;
+      color: var(--ink-soft);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .meta-item.primary {
+      color: var(--accent);
+      border-color: var(--accent);
+      font-weight: 700;
+    }
+    .meta-item.mono {
+      color: var(--ink);
+      text-transform: none;
+      font-family: var(--font-mono);
+      letter-spacing: 0.04em;
     }
     .divider {
-      position: absolute;
-      left: {{ margin_mm }}mm;
-      width: {{ usable_width_mm }}mm;
       height: 0.6mm;
+      width: 100%;
       background: repeating-linear-gradient(
         90deg,
         var(--accent) 0,
@@ -153,236 +123,57 @@
         transparent 11mm
       );
       opacity: 0.9;
+      flex: 0 0 auto;
     }
-    .instructions {
-      position: absolute;
-      left: {{ margin_mm }}mm;
-      width: {{ usable_width_mm }}mm;
-      display: grid;
-      grid-template-columns: 28mm auto;
-      column-gap: var(--space-5);
-      font-size: 9pt;
-      line-height: 4.5mm;
+    .instructions-panel {
+      border-left: 1.2mm solid var(--accent);
+      border-top: 0.35mm solid var(--surface-border);
+      border-bottom: 0.35mm solid var(--surface-border);
+      background: linear-gradient(90deg, rgba(47, 58, 51, 0.06) 0, rgba(255, 255, 255, 0) 70%);
+      padding: 2mm 3.2mm;
       color: var(--ink-body);
-      background: linear-gradient(
-        90deg,
-        rgba(47, 58, 51, 0.06) 0,
-        rgba(255, 255, 255, 0) 70%
-      );
-      border-left: var(--border-rail) solid var(--accent);
-      border-top: var(--border-thin) solid var(--surface-border);
-      border-bottom: var(--border-thin) solid var(--surface-border);
-      border-radius: var(--radius-none);
-      padding: 1.6mm 2.5mm 1.6mm 3mm;
-      box-shadow: none;
+      line-height: 4.8mm;
+      font-size: 9.2pt;
     }
-    .instructions-label {
+    .instructions-title {
       font-size: 7pt;
       font-weight: 700;
       color: var(--ink-label);
       text-transform: uppercase;
       letter-spacing: 0.12em;
       font-family: var(--font-title);
+      margin-bottom: 0.4mm;
     }
-    .instructions-page {
-      position: absolute;
-      left: {{ margin_mm }}mm;
-      top: {{ margin_mm }}mm;
-      width: {{ usable_width_mm }}mm;
-      height: calc({{ page_height_mm }}mm - {{ margin_mm * 2 }}mm);
+    .instructions-full {
+      flex: 1 1 auto;
       display: grid;
-      grid-template-rows: auto 1fr auto;
-      gap: var(--space-7);
-      padding: 6mm 5mm 5mm 6mm;
-      border-radius: var(--radius-none);
-      background: var(--white, #ffffff);
-      border: var(--border-heavy) solid var(--surface-border);
-      border-left: var(--border-accent) solid var(--accent);
-      box-shadow: none;
+      align-content: start;
     }
-    .instructions-hero {
-      display: grid;
-      gap: var(--space-4);
-      padding-bottom: 2mm;
-      border-bottom: var(--border-thin) solid var(--surface-border);
-    }
-    .instructions-hero h2 {
-      margin: 0;
-      font-size: 18pt;
-      font-family: var(--font-title);
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    .instructions-hero p {
-      margin: 0;
-      font-size: 9pt;
-      color: var(--ink-muted);
-      letter-spacing: 0.04em;
-    }
-    .instructions-columns {
-      display: grid;
-      grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
-      gap: var(--space-8);
-      align-items: start;
-      height: 100%;
-    }
-    .instructions-section {
-      display: grid;
-      gap: var(--space-6);
-    }
-    .instructions-section h3 {
-      margin: 0;
-      font-size: 9pt;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      color: var(--ink-label);
-      font-family: var(--font-title);
-    }
-    .instructions-list {
-      margin: 0;
-      padding-left: 4mm;
-      display: grid;
-      gap: var(--space-3);
-      font-size: 9pt;
-      color: var(--ink-body);
-      line-height: 1.6;
-      list-style-type: square;
-    }
-    .instructions-steps {
-      display: grid;
-      gap: var(--space-5);
-    }
-    .step-row {
-      display: grid;
-      grid-template-columns: 5mm 1fr;
-      gap: var(--space-5);
-      align-items: start;
-      font-size: 9pt;
-      color: var(--ink-body);
-      line-height: 1.5;
-    }
-    .step-icon {
-      width: 4mm;
-      height: 4mm;
-      border-radius: var(--radius-none);
-      border: var(--border-thin) solid var(--surface-border);
-      background: var(--white, #ffffff);
-      position: relative;
-    }
-    .step-icon::after {
-      content: "";
-      position: absolute;
-      inset: 0.6mm;
-      border: var(--border-thin) solid var(--surface-border);
-      border-radius: var(--radius-none);
-    }
-    .instructions-callout {
-      border: var(--border-thin) solid var(--surface-border);
-      border-left: var(--border-rail) solid var(--accent);
-      border-radius: var(--radius-none);
-      padding: var(--instructions-callout-pad);
-      font-size: 9pt;
-      color: var(--ink-body);
-      background: var(--surface);
-      display: grid;
-      gap: var(--space-3);
-      box-shadow: none;
-    }
-    .instructions-callout strong {
-      font-size: 8pt;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--ink-label);
-      font-family: var(--font-title);
-    }
-    .instructions-checklist {
-      display: grid;
-      gap: var(--space-4);
-      border: var(--border-thin) solid var(--surface-border);
-      border-left: var(--border-rail) solid var(--accent);
-      border-radius: var(--radius-none);
-      padding: var(--instructions-checklist-pad);
-      background: var(--white, #ffffff);
-      box-shadow: none;
-    }
-    .check-item {
-      display: grid;
-      grid-template-columns: 4mm 1fr;
-      gap: var(--space-5);
-      align-items: start;
-      font-size: 9pt;
-      color: var(--ink-body);
-    }
-    .check-box {
-      width: 3.4mm;
-      height: 3.4mm;
-      border: var(--border-thin) solid var(--surface-border);
-      border-radius: var(--radius-none);
-      background: var(--white, #ffffff);
-    }
-    .instructions-footnote {
-      font-size: 8pt;
-      color: var(--ink-muted);
+    .content {
+      flex: 1 1 auto;
+      min-height: 0;
       display: flex;
-      justify-content: space-between;
-      gap: var(--space-7);
-      border-top: var(--border-thin) solid var(--surface-border);
-      padding-top: var(--space-5);
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
+      flex-direction: column;
+      gap: 2mm;
     }
-    .instructions-footnote div:last-child {
-      text-transform: none;
-      letter-spacing: 0.04em;
-      font-family: var(--font-mono);
+    .qr-grid-items {
+      display: grid;
+      grid-template-columns: repeat(var(--qr-cols), var(--qr-size));
+      grid-auto-rows: var(--qr-size);
+      column-gap: var(--qr-gap-x);
+      row-gap: var(--qr-gap-y);
+      align-content: start;
     }
-    .scan-hint {
-      margin-top: var(--space-1);
-      display: inline-flex;
-      align-items: center;
-      gap: var(--space-2);
-      font-size: 7pt;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--ink-muted);
-      background: var(--surface);
-      border: var(--border-thin) solid var(--surface-border);
-      border-left: var(--border-rail-thin) solid var(--accent);
-      border-radius: var(--radius-none);
-      padding: var(--scan-hint-pad);
+    .qr-cell {
+      width: var(--qr-size);
+      height: var(--qr-size);
     }
-    .scan-hint::before {
-      content: "Start";
-      font-weight: 700;
-      font-size: 6pt;
-      color: var(--ink);
-      background: var(--white, #ffffff);
-      border: var(--border-thin) solid var(--surface-border);
-      border-radius: var(--radius-none);
-      padding: 0.2mm 1.4mm;
-      letter-spacing: 0.06em;
-    }
-    .qr-grid {
-      position: absolute;
-      border: var(--border-strong) solid var(--qr-border);
-      border-radius: var(--radius-none);
-      overflow: hidden;
-      pointer-events: none;
-      z-index: 0;
-      background: var(--white, #ffffff);
-      box-shadow: none;
-    }
-    .qr-grid::after {
-      content: "";
-      position: absolute;
-      inset: 1.4mm;
-      border-radius: var(--radius-none);
-      background: linear-gradient(
-        135deg,
-        rgba(15, 31, 46, 0.06),
-        rgba(255, 255, 255, 0) 60%
-      );
-      pointer-events: none;
+    .qr-card {
+      width: 100%;
+      height: 100%;
+      border: 0.35mm solid var(--surface-border);
+      background: #ffffff;
+      padding: 0.6mm;
     }
     .qr {
       width: 100%;
@@ -390,142 +181,50 @@
       display: block;
       image-rendering: pixelated;
     }
-{{ qr_grid_items_styles() }}
-    .qr-card {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      border: var(--border-thin) solid var(--qr-border);
-      border-radius: var(--radius-none);
-      background: var(--white, #ffffff);
-      box-shadow: none;
-      padding: var(--qr-card-pad);
-      box-sizing: border-box;
-    }
   </style>
 </head>
 <body>
 {% for page in pages %}
   <section class="page">
-    <div class="header">
-      <div class="header-left">
-        <div class="title">Recovery Kit</div>
-        <div class="subtitle">Offline HTML bundle</div>
+    <header class="header">
+      <div>
+        <div class="title">{{ doc.title }}</div>
+        <div class="subtitle">{{ doc.subtitle }}</div>
       </div>
-      <div class="header-right">
-        <div class="meta-primary">{{ page.page_label }}</div>
-        <div class="meta-secondary">Document ID: {{ doc_id }}</div>
-        <div class="meta-tertiary">Created (UTC): {{ created_timestamp_utc }}</div>
+      <div class="meta">
+        <div class="meta-item primary">{{ page.page_label }}</div>
+        <div class="meta-item mono">Document ID: {{ doc_id }}</div>
+        <div class="meta-item mono">Created (UTC): {{ created_timestamp_utc }}</div>
       </div>
-    </div>
-    {{ divider(page) }}
+    </header>
+
+    <div class="divider"></div>
 
     {% if page.instructions_full_page %}
-    <div class="instructions-page">
-      <div class="instructions-hero">
-        <h2>How to Rebuild the Recovery Kit</h2>
-        <p>Use this page after scanning the QR pages. Keep everything offline.</p>
-      </div>
-      <div class="instructions-columns">
-        <div class="instructions-section">
-          <h3>Scan + Assemble</h3>
-          <div class="instructions-steps">
-            <div class="step-row">
-              <div class="step-icon"></div>
-              <div>Scan every QR code left to right, top to bottom.</div>
-            </div>
-            <div class="step-row">
-              <div class="step-icon"></div>
-              <div>Save each decoded chunk in order. Do not insert spaces or blank lines.</div>
-            </div>
-            <div class="step-row">
-              <div class="step-icon"></div>
-              <div>Concatenate the chunks into one continuous file.</div>
-            </div>
-            <div class="step-row">
-              <div class="step-icon"></div>
-              <div>Name the file exactly: recovery_kit.bundle.html</div>
-            </div>
-          </div>
-          <h3>Open the Kit</h3>
-          <div class="instructions-steps">
-            <div class="step-row">
-              <div class="step-icon"></div>
-              <div>Open recovery_kit.bundle.html in a browser while offline.</div>
-            </div>
-            <div class="step-row">
-              <div class="step-icon"></div>
-              <div>If the file is large, wait for it to finish loading.</div>
-            </div>
-            <div class="step-row">
-              <div class="step-icon"></div>
-              <div>Follow the on-screen prompts to recover your payload.</div>
-            </div>
-          </div>
-          <h3>Troubleshooting</h3>
-          <ul class="instructions-list">
-            <li>If the kit does not load, re-check chunk order and re-save the file.</li>
-            <li>Try another browser if rendering stalls.</li>
-            <li>Confirm the file size matches the sum of all QR chunks.</li>
-          </ul>
-        </div>
-        <div class="instructions-section">
-          <div class="instructions-callout">
-            <strong>Verify</strong>
-            <div>Confirm the kit loads and shows the Recovery Kit home screen.</div>
-            <div>If it fails to open, re-check the order and re-save the file.</div>
-          </div>
-          <div class="instructions-callout">
-            <strong>Storage</strong>
-            <div>Keep the QR pages and the bundle file in separate locations.</div>
-            <div>Store the bundle on a write-protected drive if possible.</div>
-          </div>
-          <div class="instructions-callout">
-            <strong>Security</strong>
-            <div>Work offline and on a trusted machine.</div>
-            <div>Delete temporary files after successful recovery.</div>
-          </div>
-          <div class="instructions-checklist">
-            <div class="check-item">
-              <span class="check-box"></span>
-              <div>All QR pages scanned in order.</div>
-            </div>
-            <div class="check-item">
-              <span class="check-box"></span>
-              <div>Bundle file saved with the correct name.</div>
-            </div>
-            <div class="check-item">
-              <span class="check-box"></span>
-              <div>Kit opens offline without errors.</div>
-            </div>
-            <div class="check-item">
-              <span class="check-box"></span>
-              <div>Recovery completed and data verified.</div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="instructions-footnote">
-        <div>Recovery Kit: offline HTML bundle</div>
-        <div>Document ID: {{ doc_id }}</div>
+    <div class="instructions-full">
+      <div class="instructions-panel">
+        <div class="instructions-title">{{ instructions.label }}</div>
+        <div>{{ instructions_lines(instructions.lines, scan_hint_text=instructions.scan_hint) }}</div>
       </div>
     </div>
-    {% elif page.show_instructions %}
-    <div class="instructions" style="top: calc({{ page.instructions_y_mm }}mm + var(--instructions-y-offset));">
-      <div class="instructions-label">Instructions</div>
-      <div>
-        <div>Scan every QR code left to right, top to bottom.</div>
-        <div>Paste the decoded chunks together in order (no separators).</div>
-        <div>Save the result as recovery_kit.bundle.html.</div>
-        <div>Open that file in a browser (offline) to run the kit.</div>
-        <div class="scan-hint">Start at the top-left and follow each row.</div>
+    {% else %}
+    <div class="content">
+      {% if page.qr_items and page.qr_grid %}
+      <div
+        class="qr-grid-items"
+        style="--qr-size: {{ page.qr_grid.size_mm }}mm; --qr-gap-x: {{ page.qr_grid.gap_x_mm }}mm; --qr-gap-y: {{ page.qr_grid.gap_y_mm }}mm; --qr-cols: {{ page.qr_grid.cols }};"
+      >
+        {% for slot in page.qr_items %}
+        <div class="qr-cell">
+          <div class="qr-card">
+            <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
+          </div>
+        </div>
+        {% endfor %}
       </div>
+      {% endif %}
     </div>
     {% endif %}
-
-    {{ qr_grid(page) }}
-    {{ qr_grid_items(page) }}
-
   </section>
 {% endfor %}
 </body>

@@ -134,7 +134,7 @@ class RenderService:
         render_fallback: bool = True,
         key_lines: Sequence[str] | None = None,
         fallback_sections: Sequence[FallbackSection] | None = None,
-        doc_type: str | None = None,
+        doc_type: str,
     ) -> RenderInputs:
         resolved_context = self.base_context(context)
         return RenderInputs(

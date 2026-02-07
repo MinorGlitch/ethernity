@@ -40,7 +40,7 @@ class RenderInputs:
     template_path: str | Path
     output_path: str | Path
     context: dict[str, object]
-    doc_type: str | None = None
+    doc_type: str
     qr_config: QrConfig | None = None
     qr_payloads: Sequence[bytes | str] | None = None
     fallback_payload: bytes | None = None

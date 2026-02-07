@@ -87,7 +87,6 @@ class MockHeaderSpec:
         divider_enabled: bool = False,
         divider_gap_mm: float = 2,
         divider_thickness_mm: float = 0.5,
-        layout: str = "stacked",
         title_size: float = 16,
         subtitle_size: float = 12,
         meta_size: float = 10,
@@ -100,7 +99,6 @@ class MockHeaderSpec:
         self.divider_enabled = divider_enabled
         self.divider_gap_mm = divider_gap_mm
         self.divider_thickness_mm = divider_thickness_mm
-        self.layout = layout
         self.title_size = title_size
         self.subtitle_size = subtitle_size
         self.meta_size = meta_size
@@ -293,26 +291,13 @@ class TestHeaderHeight(unittest.TestCase):
         self.assertGreater(h_with_div, h_no_div)
         self.assertAlmostEqual(h_with_div - h_no_div, 3.5, places=1)
 
-    def test_split_layout(self) -> None:
-        """Test split layout uses max of left/right."""
+    def test_header_uses_max_of_left_and_meta(self) -> None:
+        """Test header uses max of left and meta heights."""
         cfg = MockHeaderSpec(
             title="Title",
             subtitle="Subtitle",
             doc_id_label="ID:",
             doc_id="ABC123",
-            layout="split",
-        )
-        result = header_height(cfg, minimum=0)
-        self.assertGreater(result, 0)
-
-    def test_stacked_layout(self) -> None:
-        """Test stacked layout adds heights."""
-        cfg = MockHeaderSpec(
-            title="Title",
-            subtitle="Subtitle",
-            doc_id_label="ID:",
-            doc_id="ABC123",
-            layout="stacked",
         )
         result = header_height(cfg, minimum=0)
         self.assertGreater(result, 0)
