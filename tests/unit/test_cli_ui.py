@@ -185,12 +185,22 @@ class TestFormatAuthStatus(unittest.TestCase):
     def test_ignored_status(self) -> None:
         """Test ignored status."""
         result = format_auth_status("ignored", allow_unsigned=False)
-        self.assertEqual(result, "failed (check skipped)")
+        self.assertEqual(result, "failed (ignored due to --skip-auth-check)")
 
     def test_ignored_with_allow_unsigned(self) -> None:
         """Test ignored status with allow_unsigned."""
         result = format_auth_status("ignored", allow_unsigned=True)
-        self.assertEqual(result, "failed (check skipped)")
+        self.assertEqual(result, "failed (ignored due to --skip-auth-check)")
+
+    def test_skipped_status(self) -> None:
+        """Test skipped status."""
+        result = format_auth_status("skipped", allow_unsigned=True)
+        self.assertEqual(result, "skipped (--skip-auth-check)")
+
+    def test_invalid_status(self) -> None:
+        """Test invalid status formatting."""
+        result = format_auth_status("invalid", allow_unsigned=True)
+        self.assertEqual(result, "invalid (ignored due to --skip-auth-check)")
 
     def test_unknown_status_passthrough(self) -> None:
         """Test unknown status passes through."""

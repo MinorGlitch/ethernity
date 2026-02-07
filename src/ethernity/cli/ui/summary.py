@@ -80,8 +80,12 @@ def print_recover_summary(
 def format_auth_status(status: str, *, allow_unsigned: bool) -> str:
     if status == "verified":
         return "verified"
+    if status == "skipped":
+        return "skipped (--skip-auth-check)"
+    if status == "ignored":
+        return "failed (ignored due to --skip-auth-check)"
+    if status == "invalid":
+        return "invalid (ignored due to --skip-auth-check)" if allow_unsigned else "invalid"
     if status == "missing":
         return "skipped (--skip-auth-check)" if allow_unsigned else "missing"
-    if status == "ignored":
-        return "failed (check skipped)"
     return status
