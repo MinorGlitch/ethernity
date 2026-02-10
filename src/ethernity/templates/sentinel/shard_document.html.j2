@@ -1,0 +1,134 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+<!doctype html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8">
+  {% include 'partials/sentinel_tailwind_setup.j2' %}
+  <style>
+    {% include 'partials/material_symbols_local.j2' %}
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+
+    @media print {
+      body {
+        background: white !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      .print-sheet {
+        box-shadow: none !important;
+        margin: 0 !important;
+      }
+    }
+
+    .print-sheet {
+      box-sizing: border-box;
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      min-height: {{ page_height_mm }}mm;
+      margin: 0 auto;
+      page-break-after: always;
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+      overflow: hidden;
+      position: relative;
+      background: white;
+    }
+
+    .print-sheet:last-child {
+      page-break-after: auto;
+    }
+  </style>
+</head>
+<body class="bg-background-light font-display min-h-screen">
+{% for page in pages %}
+  <section class="print-sheet border border-border-light">
+    {% set sentinel_top_strip_text = 'Passphrase Shard // Store Separately // Threshold Protected' %}
+    {% set sentinel_header_classification = 'Threshold Protected' %}
+    {% set sentinel_footer_guidance = 'Single shard cannot recover the secret' %}
+    {% include 'partials/sentinel_shell_header.j2' %}
+    <div class="absolute inset-[6mm] border-2 border-dashed border-gray-300 pointer-events-none z-0"></div>
+
+    <div class="relative z-10 flex flex-col h-full p-[15mm] pt-4">
+      <section class="bg-gray-100 border-l-4 border-primary p-4 mb-6 flex items-start gap-3">
+        <span class="material-symbols-outlined text-primary">warning</span>
+        <div>
+          <h3 class="font-black text-sm uppercase tracking-[0.12em] mb-1">Critical Security Notice</h3>
+          <p class="text-xs leading-relaxed text-gray-700">
+            This document contains shard {{ shard_index }} of {{ shard_total }}. Possession of this shard alone is insufficient for recovery.
+            Recovery requires {{ shard_threshold if shard_threshold is defined else shard_total }}/{{ shard_total }} shards.
+            Store separately from other shards to prevent unauthorized reassembly.
+          </p>
+        </div>
+      </section>
+
+      <div class="flex-1 flex flex-col items-center justify-center gap-6">
+        <div class="text-center">
+          <h2 class="text-4xl font-black uppercase tracking-tight mb-2">Shard {{ '%02d' % shard_index }} Identity</h2>
+          <p class="font-mono text-sm text-text-secondary-light uppercase tracking-widest">Hash Reference: {{ doc_id[:4] }}-{{ doc_id[4:8] }}-{{ doc_id[-4:] }}</p>
+        </div>
+
+        {% if page.qr_items %}
+        <div class="relative group">
+          <div class="absolute -top-3 -left-3 w-6 h-6 border-t-2 border-l-2 border-primary"></div>
+          <div class="absolute -top-3 -right-3 w-6 h-6 border-t-2 border-r-2 border-primary"></div>
+          <div class="absolute -bottom-3 -left-3 w-6 h-6 border-b-2 border-l-2 border-primary"></div>
+          <div class="absolute -bottom-3 -right-3 w-6 h-6 border-b-2 border-r-2 border-primary"></div>
+          <div class="bg-white p-2 border border-gray-200">
+            <img
+              alt="Shard QR"
+              class="w-64 h-64 object-contain"
+              src="{{ page.qr_items[0].data_uri }}"
+              style="image-rendering: pixelated;"
+            >
+          </div>
+        </div>
+        {% endif %}
+
+        {% if page.fallback_blocks %}
+        <div class="w-full bg-gray-50 border border-gray-200 p-4 rounded-sm relative overflow-hidden">
+          <div class="absolute inset-0 opacity-[0.03] pointer-events-none" style="background-image: repeating-linear-gradient(45deg, #000 0, #000 1px, transparent 0, transparent 10px);"></div>
+          <div class="relative z-10">
+            <div class="flex items-center gap-2 mb-2">
+              <span class="material-symbols-outlined text-sm">keyboard</span>
+              <h3 class="text-xs font-bold uppercase tracking-widest">Manual Transcription</h3>
+            </div>
+            {% for block in page.fallback_blocks %}
+              {% if block.title %}
+              <p class="text-[10px] font-bold uppercase tracking-[0.12em] text-text-secondary-light mb-1 mt-2">{{ block.title }}</p>
+              {% endif %}
+              <div class="font-mono text-xs leading-tight tracking-wide text-black space-y-1">
+                {% for line in block.lines %}
+                <div class="whitespace-normal break-words">{{ line }}</div>
+                {% endfor %}
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+
+      {% include 'partials/sentinel_shell_footer.j2' %}
+    </div>
+  </section>
+{% endfor %}
+</body>
+</html>

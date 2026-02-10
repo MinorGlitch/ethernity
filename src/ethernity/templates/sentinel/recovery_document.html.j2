@@ -1,0 +1,338 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+<!doctype html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8">
+  {% include 'partials/sentinel_tailwind_setup.j2' %}
+  <style>
+    {% include 'partials/material_symbols_local.j2' %}
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+
+    @media print {
+      body {
+        background: white !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      .print-sheet {
+        box-shadow: none !important;
+        margin: 0 !important;
+      }
+    }
+
+    .print-sheet {
+      box-sizing: border-box;
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      min-height: {{ page_height_mm }}mm;
+      margin: 0 auto;
+      page-break-after: always;
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+      overflow: hidden;
+      position: relative;
+      background: white;
+    }
+
+    .print-sheet:last-child {
+      page-break-after: auto;
+    }
+
+    .lined-paper {
+      background-image: linear-gradient(#e6e1d6 1px, transparent 1px);
+      background-size: 100% 24px;
+      background-position-y: 22px;
+    }
+
+    .sentinel-fallback-fill {
+      background-image: repeating-linear-gradient(
+        to bottom,
+        transparent 0,
+        transparent 21px,
+        #e5e7eb 21px,
+        #e5e7eb 22px
+      );
+    }
+  </style>
+</head>
+<body class="bg-background-light font-display min-h-screen">
+{% for page in pages %}
+  <section class="print-sheet border border-border-light flex flex-col">
+    {% set sentinel_top_strip_text = 'Emergency Recovery Material // Keep Offline // Never Photograph' %}
+    {% set sentinel_header_classification = 'Manual Entry Only' %}
+    {% set sentinel_footer_guidance = 'Transcribe exactly; keep separate from QR pages' %}
+    {% include 'partials/sentinel_shell_header.j2' %}
+    {% if page.page_num == 1 %}
+    <div class="flex flex-col flex-1 min-h-0 overflow-hidden p-[10mm] pt-4 gap-4">
+      <div class="flex items-start gap-3 p-3 bg-primary/10 border border-primary/30 rounded">
+        <span class="material-symbols-outlined text-primary mt-0.5">warning</span>
+        <p class="text-xs text-black leading-relaxed">
+          Operate in an air-gapped environment only. Verify each fallback line and keep this sheet physically separate from QR pages.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-12 gap-5 flex-1 min-h-0">
+        <aside class="col-span-4 border border-border-light rounded bg-[#faf8f4] flex flex-col min-h-0">
+          <div class="p-3 border-b border-border-light bg-white/70">
+            <h2 class="text-xs font-black uppercase tracking-widest text-text-secondary-light">Recovery Session Log</h2>
+            <p class="text-[10px] text-text-secondary-light">Complete this checklist before manual transcription.</p>
+          </div>
+          <div class="p-3 flex flex-col gap-3 text-xs">
+            <div>
+              <label class="block text-[10px] uppercase font-bold text-text-secondary-light mb-1">Session</label>
+              <div class="border border-border-light rounded p-2 bg-white text-[10px] space-y-1">
+                <div class="flex items-start justify-between gap-2">
+                  <span class="uppercase font-bold text-text-secondary-light">Doc ID</span>
+                  <span class="font-mono text-right break-all">{{ doc_id }}</span>
+                </div>
+                <div class="flex items-start justify-between gap-2">
+                  <span class="uppercase font-bold text-text-secondary-light">Generated (UTC)</span>
+                  <span class="font-mono text-right">{{ created_timestamp_utc }}</span>
+                </div>
+                <div class="flex items-start justify-between gap-2">
+                  <span class="uppercase font-bold text-text-secondary-light">Page</span>
+                  <span class="font-mono text-right">{{ page.page_label }}</span>
+                </div>
+                <div class="flex items-start justify-between gap-2">
+                  <span class="uppercase font-bold text-text-secondary-light">Recovery Date</span>
+                  <span class="font-mono text-right">{{ created_date if created_date is defined else '' }}</span>
+                </div>
+                <div class="flex items-start justify-between gap-2">
+                  <span class="uppercase font-bold text-text-secondary-light">Quorum</span>
+                  <span class="font-mono text-right">{{ recovery.quorum_value if recovery.quorum_value else 'N/A' }}</span>
+                </div>
+              </div>
+            </div>
+            <div class="pt-2 border-t border-dashed border-border-light">
+              <p class="text-[10px] text-text-secondary-light uppercase font-bold mb-1">Offline Precheck</p>
+              <div class="space-y-1 text-[10px] text-gray-600 leading-relaxed">
+                <p>[ ] Wi-Fi / Ethernet / Bluetooth disabled.</p>
+                <p>[ ] No camera or phone in workspace.</p>
+                <p>[ ] USB drives disconnected.</p>
+                <p>[ ] Recovery sheet separated from QR pages.</p>
+              </div>
+            </div>
+            <div class="pt-2 border-t border-dashed border-border-light">
+              <p class="text-[10px] text-text-secondary-light uppercase font-bold mb-1">Accountability</p>
+              <div class="space-y-2">
+                <div>
+                  <label class="block text-[10px] uppercase font-bold text-text-secondary-light mb-1">Operator ID / Initials</label>
+                  <div class="border border-border-light rounded p-2 bg-white font-mono">________________ / ____</div>
+                </div>
+                <div>
+                  <label class="block text-[10px] uppercase font-bold text-text-secondary-light mb-1">Witness ID / Initials</label>
+                  <div class="border border-border-light rounded p-2 bg-white font-mono">________________ / ____</div>
+                </div>
+                <div>
+                  <label class="block text-[10px] uppercase font-bold text-text-secondary-light mb-1">Incident / Ticket</label>
+                  <div class="border border-border-light rounded p-2 bg-white font-mono">________________________</div>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="block text-[10px] uppercase font-bold text-text-secondary-light mb-1">Start UTC</label>
+                    <div class="border border-border-light rounded p-2 bg-white font-mono">__________</div>
+                  </div>
+                  <div>
+                    <label class="block text-[10px] uppercase font-bold text-text-secondary-light mb-1">End UTC</label>
+                    <div class="border border-border-light rounded p-2 bg-white font-mono">__________</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="mt-auto p-3 border-t border-border-light bg-white/60">
+            <p class="text-[10px] uppercase font-bold tracking-wider text-text-secondary-light mb-2">Attestation</p>
+            <p class="text-[10px] text-gray-600 mb-1">Isolation verified by:</p>
+            <div class="border border-border-light rounded p-2 bg-white font-mono mb-2">________________________</div>
+            <p class="text-[10px] text-gray-600 mb-1">Verification time (UTC):</p>
+            <div class="border border-border-light rounded p-2 bg-white font-mono">________________ UTC</div>
+          </div>
+        </aside>
+
+        <section class="col-span-8 border border-border-light rounded bg-white flex flex-col min-h-0">
+          <div class="px-4 py-3 border-b border-border-light bg-gray-50">
+            <h2 class="text-base font-black uppercase tracking-tight">Manual Transcription Sequence</h2>
+            <p class="text-xs text-text-secondary-light mt-1">Transcribe decrypted recovery lines exactly as shown.</p>
+          </div>
+          <div class="flex-1 p-4 overflow-hidden">
+            <div class="h-full border border-gray-200 rounded bg-white overflow-hidden flex flex-col">
+              {% if page.fallback_blocks %}
+                <div class="shrink-0">
+                {% set ns = namespace(used_rows=0) %}
+                {% for block in page.fallback_blocks %}
+                  {% if loop.index0 > 0 %}
+                  <div class="h-[22px] border-b border-gray-200"></div>
+                  {% set ns.used_rows = ns.used_rows + 1 %}
+                  {% endif %}
+                  {% if block.title %}
+                  <div class="grid grid-cols-[40px_1fr] gap-2 px-2 h-[22px] items-center border-b border-gray-200 bg-[#faf8f4]">
+                    <div></div>
+                    <div class="text-[9px] uppercase font-black tracking-widest text-text-secondary-light">{{ block.title }}</div>
+                  </div>
+                  {% set ns.used_rows = ns.used_rows + 1 %}
+                  {% endif %}
+                  {% for line in block.lines %}
+                  <div class="grid grid-cols-[40px_1fr] gap-2 px-2 h-[22px] items-center border-b border-gray-200 text-[9px] font-mono leading-none">
+                    <span class="text-right pr-1 text-text-secondary-light">{{ '%02d' % (block.line_offset + loop.index) }}.</span>
+                    <span class="tracking-normal whitespace-nowrap overflow-hidden">{{ line }}</span>
+                  </div>
+                  {% set ns.used_rows = ns.used_rows + 1 %}
+                  {% endfor %}
+                {% endfor %}
+                {% set has_quorum = recovery.quorum_value if recovery is defined else false %}
+                {% set has_passphrase = (recovery.passphrase_lines or recovery.passphrase) if recovery is defined else false %}
+                {% set has_signing_pub = recovery.signing_pub_lines if recovery is defined else false %}
+                {% set capacity_bonus_rows = 0 %}
+                {% if not has_quorum %}
+                  {% set capacity_bonus_rows = capacity_bonus_rows + 2 %}
+                {% endif %}
+                {% if not has_passphrase %}
+                  {% set capacity_bonus_rows = capacity_bonus_rows + 3 %}
+                {% endif %}
+                {% if not has_signing_pub %}
+                  {% set capacity_bonus_rows = capacity_bonus_rows + 3 %}
+                {% endif %}
+                {% set base_capacity_rows = page.fallback_line_capacity if page.fallback_line_capacity is defined else ns.used_rows %}
+                {% set capacity_rows = base_capacity_rows + capacity_bonus_rows %}
+                {% set visual_trim_rows = 4 %}
+                {% if capacity_rows > ns.used_rows %}
+                  {% set capacity_rows = [ns.used_rows, capacity_rows - visual_trim_rows] | max %}
+                {% endif %}
+                {% set filler_rows = capacity_rows - ns.used_rows %}
+                {% if filler_rows > 0 %}
+                  {% for _ in range(filler_rows) %}
+                  <div class="grid grid-cols-[40px_1fr] gap-2 px-2 h-[22px] items-center border-b border-gray-200">
+                    <span></span>
+                    <span></span>
+                  </div>
+                  {% endfor %}
+                {% endif %}
+                </div>
+                <div class="flex-1 sentinel-fallback-fill border-t border-gray-200"></div>
+              {% else %}
+                <p class="text-sm text-text-secondary-light p-2">No fallback lines on this page.</p>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="px-4 pb-4 space-y-2">
+            {% if recovery.quorum_value %}
+            <div>
+              <p class="text-[10px] font-bold uppercase text-text-secondary-light mb-1">Shard Quorum</p>
+              <div class="border border-border-light p-2 font-mono text-xs bg-[#faf8f4]">{{ recovery.quorum_value }}</div>
+            </div>
+            {% endif %}
+            {% if recovery.passphrase_lines %}
+            <div>
+              <p class="text-[10px] font-bold uppercase text-text-secondary-light mb-1">Passphrase</p>
+              <div class="border border-border-light p-2 font-mono text-xs bg-[#faf8f4]">{{ recovery.passphrase_lines | join(' ') }}</div>
+            </div>
+            {% elif recovery.passphrase %}
+            <div>
+              <p class="text-[10px] font-bold uppercase text-text-secondary-light mb-1">Passphrase</p>
+              <div class="border border-border-light p-2 font-mono text-xs bg-[#faf8f4]">{{ recovery.passphrase }}</div>
+            </div>
+            {% endif %}
+            {% if recovery.signing_pub_lines %}
+            <div>
+              <p class="text-[10px] font-bold uppercase text-text-secondary-light mb-1">Master Signing Public Key</p>
+              <div class="border border-border-light p-2 font-mono text-xs bg-[#faf8f4] break-all">
+                {{ recovery.signing_pub_lines | join(' ') }}
+              </div>
+            </div>
+            {% endif %}
+          </div>
+        </section>
+      </div>
+    </div>
+
+    {% else %}
+    <div class="flex flex-col flex-1 min-h-0 overflow-hidden p-[10mm] pt-3 gap-2">
+      <div class="flex items-center gap-2 px-2 py-1.5 bg-primary/10 border border-primary/30 rounded text-[10px]">
+        <span class="material-symbols-outlined text-primary text-[16px]">info</span>
+        <p class="text-black leading-relaxed font-semibold">
+          Keep row order intact and copy each line exactly.
+        </p>
+      </div>
+
+      <div class="border border-border-light rounded overflow-hidden flex-1 min-h-0 flex flex-col">
+        <div class="grid grid-cols-[34px_1fr_56px] gap-2 px-3 py-1.5 border-b border-black text-[10px] font-bold uppercase tracking-wider">
+          <div>Idx</div>
+          <div>Data Entry Block</div>
+          <div class="text-center">Verify</div>
+        </div>
+        <div class="flex-1 p-1.5 overflow-hidden">
+          {% if page.fallback_blocks %}
+          {% set ns = namespace(used_rows=0) %}
+          <div class="grid gap-0">
+            {% for block in page.fallback_blocks %}
+              {% if loop.index0 > 0 %}
+              <div class="grid grid-cols-[34px_1fr_56px] gap-2 items-center h-[19px]">
+                <div></div>
+                <div class="border-b border-gray-200"></div>
+                <div></div>
+              </div>
+              {% set ns.used_rows = ns.used_rows + 1 %}
+              {% endif %}
+              {% if block.title %}
+              <div class="grid grid-cols-[34px_1fr_56px] gap-2 items-center h-[19px]">
+                <div></div>
+                <div class="text-[8.5px] font-black uppercase tracking-widest text-text-secondary-light">{{ block.title }}</div>
+                <div></div>
+              </div>
+              {% set ns.used_rows = ns.used_rows + 1 %}
+              {% endif %}
+              {% for line in block.lines %}
+              <div class="grid grid-cols-[34px_1fr_56px] gap-2 items-center h-[19px]">
+                <div class="font-mono text-[11px] font-bold text-text-secondary-light text-right pr-1">{{ '%02d' % (block.line_offset + loop.index) }}</div>
+                <div class="h-[19px] border border-border-light bg-transparent px-2 flex items-center font-mono text-[9.25px] leading-none whitespace-nowrap overflow-hidden">{{ line }}</div>
+                <div class="h-[19px] border border-dashed border-border-light bg-[#faf8f4] flex items-center justify-center">
+                  <span class="material-symbols-outlined text-gray-400 text-[14px]">check_circle</span>
+                </div>
+              </div>
+              {% set ns.used_rows = ns.used_rows + 1 %}
+              {% endfor %}
+            {% endfor %}
+            {% set capacity_rows = page.fallback_line_capacity if page.fallback_line_capacity is defined else ns.used_rows %}
+            {% set filler_rows = capacity_rows - ns.used_rows %}
+            {% if filler_rows > 0 %}
+              {% for _ in range(filler_rows) %}
+              <div class="grid grid-cols-[34px_1fr_56px] gap-2 items-center h-[19px]">
+                <div></div>
+                <div class="h-[19px] border border-border-light bg-transparent"></div>
+                <div class="h-[19px] border border-dashed border-border-light bg-[#faf8f4]"></div>
+              </div>
+              {% endfor %}
+            {% endif %}
+          </div>
+          {% else %}
+          <p class="text-sm text-text-secondary-light p-2">No fallback lines on this page.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+    {% include 'partials/sentinel_shell_footer.j2' %}
+  </section>
+{% endfor %}
+</body>
+</html>
