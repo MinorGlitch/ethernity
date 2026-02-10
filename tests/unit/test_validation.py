@@ -20,7 +20,7 @@ from ethernity.core.validation import require_bytes, require_length
 
 class TestValidation(unittest.TestCase):
     def test_require_length_accepts_exact(self) -> None:
-        require_length(b"\x00\x01", 2, label="payload")
+        self.assertIsNone(require_length(b"\x00\x01", 2, label="payload"))
 
     def test_require_length_rejects_mismatch(self) -> None:
         with self.assertRaises(ValueError) as ctx:

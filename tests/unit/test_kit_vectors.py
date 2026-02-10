@@ -33,8 +33,11 @@ class TestKitVectors(unittest.TestCase):
             capture_output=True,
             check=False,
         )
-        if result.returncode != 0:
-            raise AssertionError(result.stderr.strip() or result.stdout.strip())
+        self.assertEqual(
+            result.returncode,
+            0,
+            msg=result.stderr.strip() or result.stdout.strip(),
+        )
 
 
 if __name__ == "__main__":
