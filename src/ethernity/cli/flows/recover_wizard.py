@@ -221,6 +221,8 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
         ):
             args.fallback_file = "-"
         plan = plan_from_args(args)
+        if plan.allow_unsigned:
+            _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
         return write_plan_outputs(plan, quiet=quiet, debug=debug)
 
     if show_header and not quiet:
@@ -229,8 +231,6 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
 
     validate_recover_args(args)
     _, qr_payload_encoding = resolve_recover_config(args)
-    if allow_unsigned:
-        _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
 
     with wizard_flow(name="Recovery", total_steps=4, quiet=quiet):
         with wizard_stage("Input"):
@@ -269,6 +269,8 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
             args=args,
             quiet=quiet,
         )
+        if plan.allow_unsigned:
+            _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
 
         if not quiet:
             with wizard_stage("Review"):

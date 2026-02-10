@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path
 
 from ...config import (
@@ -27,6 +28,7 @@ from ...config import (
     list_template_designs,
     load_app_config,
 )
+from ...config.installer import PACKAGE_ROOT
 from ...core.models import DocumentPlan, ShardingConfig, SigningSeedMode
 from ..api import (
     DEBUG_MAX_BYTES_DEFAULT,
@@ -58,6 +60,8 @@ from .backup_wizard import (
     resolve_signing_seed_mode,
     resolve_signing_seed_sharding,
 )
+
+_KIT_INDEX_TEMPLATE_MARKER = "kit_index_inventory_artifacts_v3"
 
 
 def _format_backup_input_error(exc: Exception) -> str:
@@ -268,6 +272,12 @@ def _prompt_inputs(
     return input_files, resolved_base, output_dir
 
 
+def _apply_qr_chunk_size_override(config: AppConfig, qr_chunk_size: int | None) -> AppConfig:
+    if qr_chunk_size is None:
+        return config
+    return replace(config, qr_chunk_size=qr_chunk_size)
+
+
 def _build_review_rows(
     passphrase: str | None,
     passphrase_words: int | None,
@@ -327,6 +337,7 @@ def _build_review_rows(
     else:
         review_rows.append(("Config", "default"))
     review_rows.append(("Paper size", str(config.paper_size)))
+    review_rows.append(("QR chunk size (preferred)", f"{config.qr_chunk_size} bytes"))
     if design:
         review_rows.append(("Template design", design))
     review_rows.append(("Output", None))
@@ -337,6 +348,9 @@ def _build_review_rows(
     review_rows.append(("Debug output", "enabled" if debug else "disabled"))
     review_rows.append(("QR template", str(config.template_path)))
     review_rows.append(("Recovery template", str(config.recovery_template_path)))
+    kit_index_template = _resolve_kit_index_template_path(config)
+    if kit_index_template.is_file():
+        review_rows.append(("Recovery kit index template", str(kit_index_template)))
     if plan.sharding is not None:
         review_rows.append(("Shard template", str(config.shard_template_path)))
     if (
@@ -350,6 +364,25 @@ def _build_review_rows(
     return review_rows
 
 
+def _resolve_kit_index_template_path(config: AppConfig) -> Path:
+    kit_template_path = config.kit_template_path
+    candidate = kit_template_path.with_name("kit_index_document.html.j2")
+    if candidate.is_file() and _is_compatible_kit_index_template(candidate):
+        return candidate
+    package_candidate = (
+        PACKAGE_ROOT / "templates" / kit_template_path.parent.name / "kit_index_document.html.j2"
+    )
+    return package_candidate
+
+
+def _is_compatible_kit_index_template(path: Path) -> bool:
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return _KIT_INDEX_TEMPLATE_MARKER in content
+
+
 def _print_completion_actions(result: BackupResult, quiet: bool) -> None:
     """Print the completion panel with next actions."""
     if quiet:
@@ -360,6 +393,8 @@ def _print_completion_actions(result: BackupResult, quiet: bool) -> None:
         "Print the QR document and store it securely.",
         "Store the recovery document separately.",
     ]
+    if result.kit_index_path:
+        actions.append("Store the recovery kit index separately.")
     if result.shard_paths:
         actions.append(f"Store {len(result.shard_paths)} shard documents in different locations.")
     if result.signing_key_shard_paths:
@@ -406,6 +441,7 @@ def run_wizard(
 
         config = load_app_config(config_path, paper_size=paper)
         config = apply_template_design(config, design)
+        config = _apply_qr_chunk_size_override(config, args.qr_chunk_size if args else None)
 
         with wizard_stage("Inputs"):
             input_files, resolved_base, output_dir = _prompt_inputs(args, quiet, debug)
@@ -465,10 +501,9 @@ def _should_use_wizard_for_backup(args: BackupArgs) -> bool:
 def run_backup_command(args: BackupArgs) -> int:
     config = load_app_config(args.config, paper_size=args.paper)
     config = apply_template_design(config, args.design)
+    config = _apply_qr_chunk_size_override(config, args.qr_chunk_size)
     inputs = list(args.input or [])
     input_dirs = list(args.input_dir or [])
-    if not inputs and not input_dirs and not os.isatty(0):
-        inputs.append("-")
 
     _validate_backup_args(args)
 

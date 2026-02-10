@@ -42,6 +42,7 @@ from ...render.types import RenderInputs
 from ..api import progress, status
 from ..constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
 from ..core.crypto import _doc_id_and_hash_from_ciphertext
+from ..core.log import _warn
 from ..core.types import BackupResult, InputFile
 from ..io.outputs import _ensure_output_dir
 from ..ui.debug import (
@@ -532,6 +533,14 @@ def run_backup(
         qr_config=config.qr_config,
         qr_payload_encoding=config.qr_payload_encoding,
     )
+    if main_chunk_size < config.qr_chunk_size:
+        _warn(
+            (
+                f"Requested QR chunk size ({config.qr_chunk_size} bytes) was reduced to "
+                f"{main_chunk_size} bytes to fit current QR settings."
+            ),
+            quiet=quiet,
+        )
     frames = chunk_payload(
         ciphertext,
         doc_id=doc_id,

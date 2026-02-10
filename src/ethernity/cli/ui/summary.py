@@ -48,6 +48,7 @@ def print_backup_summary(
                 result.recovery_path,
                 result.shard_paths,
                 result.signing_key_shard_paths,
+                result.kit_index_path,
             ),
         )
     )

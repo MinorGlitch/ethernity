@@ -37,6 +37,7 @@ class BackupResult:
     shard_paths: tuple[str, ...]
     signing_key_shard_paths: tuple[str, ...]
     passphrase_used: str | None
+    kit_index_path: str | None = None
 
 
 @dataclass
@@ -50,6 +51,7 @@ class BackupArgs:
     input_dir: list[str] | None = None
     base_dir: str | None = None
     output_dir: str | None = None
+    qr_chunk_size: int | None = None
     passphrase: str | None = None
     passphrase_generate: bool = False
     passphrase_words: int | None = None

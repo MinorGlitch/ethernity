@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import sys
 
+from ..core.log import _warn
 from ..core.types import RecoverArgs
 from .recover_flow import run_recover_plan
 from .recover_plan import plan_from_args
@@ -26,6 +27,8 @@ from .recover_wizard import run_recover_wizard as _run_recover_wizard
 
 def run_recover_command(args: RecoverArgs, *, debug: bool = False) -> int:
     plan = plan_from_args(args)
+    if plan.allow_unsigned:
+        _warn("Authentication check skipped - ensure you trust the source", quiet=args.quiet)
     return run_recover_plan(plan, quiet=args.quiet, debug=debug)
 
 

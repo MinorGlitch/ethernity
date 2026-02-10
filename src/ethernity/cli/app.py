@@ -141,8 +141,8 @@ def cli(
     if ctx.invoked_subcommand is None:
         if not sys.stdin.isatty():
             console_err.print(
-                "[red]Error:[/red] No subcommand provided. Use `ethernity backup` or "
-                "`ethernity recover`."
+                "[red]Error:[/red] No subcommand provided. "
+                "Run `ethernity --help` for available commands."
             )
             raise typer.Exit(code=2)
         config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)

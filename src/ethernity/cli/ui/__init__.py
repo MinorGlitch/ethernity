@@ -187,7 +187,8 @@ def status(
     if quiet:
         yield None
         return
-    if not context.animations_enabled:
+    force_render = isatty(sys.__stdout__, sys.stdout)
+    if not context.animations_enabled or not force_render:
         context.console.print(f"[subtitle]{message}[/subtitle]")
         yield None
         return
@@ -276,10 +277,13 @@ def build_outputs_tree(
     recovery_path: str,
     shard_paths: Sequence[str],
     signing_key_shard_paths: Sequence[str],
+    kit_index_path: str | None = None,
 ) -> Tree:
     tree = Tree("Documents", guide_style="muted")
     tree.add(f"[accent]QR document[/accent] {qr_path}")
     tree.add(f"[accent]Recovery document[/accent] {recovery_path}")
+    if kit_index_path:
+        tree.add(f"[accent]Recovery kit index[/accent] {kit_index_path}")
     if shard_paths:
         shards = tree.add(f"[accent]Shard documents[/accent] ({len(shard_paths)})")
         for path in shard_paths:
