@@ -1,0 +1,186 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+<!doctype html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8">
+  {% include 'partials/monograph_tailwind_setup.j2' %}
+  <style>
+    {% include 'partials/material_symbols_local.j2' %}
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+
+    @media print {
+      body {
+        background: white !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      .print-sheet {
+        box-shadow: none !important;
+        margin: 0 !important;
+      }
+    }
+
+    .print-sheet {
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      min-height: {{ page_height_mm }}mm;
+      margin: 0 auto;
+      page-break-after: always;
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+      overflow: hidden;
+      position: relative;
+      background: white;
+    }
+
+    .print-sheet:last-child {
+      page-break-after: auto;
+    }
+
+    .qr-render {
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+<body class="bg-background-light font-display min-h-screen text-ink-dark">
+{% for page in pages %}
+  <section class="print-sheet border border-line-subtle flex flex-col">
+    <header class="border-b border-line-subtle px-[12mm] py-[10mm] pb-[7mm]">
+      <div class="flex items-start justify-between gap-5">
+        <div>
+          <p class="text-[9px] font-black uppercase tracking-[0.2em] text-primary">Offline Archive Record</p>
+          <h1 class="mt-2 font-serif text-[24px] leading-[1.05] tracking-tight">
+            Shard Identifier:<br>
+            <span class="italic font-light">{{ ('Shard ' ~ ('%02d' % shard_index)) if page.page_num == 1 else ('Continuation Page ' ~ page.page_num) }}</span>
+          </h1>
+        </div>
+        <div class="text-right">
+          <div class="inline-flex flex-col items-end gap-1">
+            <span class="bg-[#f2f0f9] text-ink-light px-2 py-0.5 rounded text-[8px] font-mono font-medium uppercase tracking-wide">Confidential</span>
+            <span class="text-[8px] text-[#a39abc] font-mono">Ref: {{ doc_id[:4] }}-{{ doc_id[4:8] }}</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="flex-1 min-h-0 grid grid-cols-12">
+      <div class="col-span-8 border-r border-line-subtle bg-[#fbfbfd] p-[10mm] flex flex-col">
+        <div class="relative border border-[#ddd6ef] bg-white p-5 flex-1 min-h-0 flex flex-col">
+          <div class="absolute top-2 left-2 w-3 h-3 border-t border-l border-[#d4d0e7]"></div>
+          <div class="absolute top-2 right-2 w-3 h-3 border-t border-r border-[#d4d0e7]"></div>
+          <div class="absolute bottom-2 left-2 w-3 h-3 border-b border-l border-[#d4d0e7]"></div>
+          <div class="absolute bottom-2 right-2 w-3 h-3 border-b border-r border-[#d4d0e7]"></div>
+
+          {% if page.qr_items %}
+          <div class="mx-auto w-[68mm] h-[68mm] border border-[#ece7f7] bg-white p-2">
+            <img class="w-full h-full object-contain qr-render" src="{{ page.qr_items[0].data_uri }}" alt="Shard QR {{ page.qr_items[0].index }}">
+          </div>
+          {% else %}
+          <div class="mx-auto w-[68mm] h-[68mm] border border-dashed border-[#ece7f7] bg-white flex items-center justify-center text-[9px] font-mono text-ink-light">
+            No QR segment
+          </div>
+          {% endif %}
+
+          <div class="mt-4 text-center">
+            <p class="text-[8px] font-semibold text-ink-light uppercase tracking-[0.16em]">Encrypted Shard Key</p>
+            <div class="mt-2 border border-[#d4d0e7] px-4 py-2 relative bg-white font-mono text-[14px] tracking-[0.12em]">
+              <div class="absolute left-0 top-0 bottom-0 w-[1.2mm] bg-primary"></div>
+              {{ doc_id[:4] }}-{{ doc_id[4:8] }}-{{ doc_id[8:12] }}-{{ doc_id[12:16] }}
+            </div>
+            <p class="mt-2 text-[8px] text-[#787095]">
+              This pattern represents one cryptographic shard. {{ shard_total }} shards are required to reconstruct the master key.
+            </p>
+          </div>
+
+          <div class="mt-4 border border-[#ece7f7] bg-[#fbfaff] p-2 min-h-[44mm] overflow-hidden">
+            <p class="text-[8px] font-black uppercase tracking-[0.14em] text-ink-light mb-1">Manual Transcription</p>
+            {% if page.fallback_blocks %}
+              {% for block in page.fallback_blocks %}
+                {% if block.title %}
+                <p class="text-[7.5px] uppercase font-bold text-[#8f86b1] mb-0.5 mt-1">{{ block.title }}</p>
+                {% endif %}
+                <div class="font-mono text-[8px] leading-snug text-[#352f54]">
+                  {% for line in block.lines %}
+                  <div class="whitespace-nowrap overflow-hidden text-ellipsis">{{ line }}</div>
+                  {% endfor %}
+                </div>
+              {% endfor %}
+            {% else %}
+              <p class="text-[8px] italic text-ink-light">No fallback lines on this page.</p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <aside class="col-span-4 bg-white p-[10mm] flex flex-col">
+        <h2 class="font-serif text-[16px] italic mb-5">Record Metadata</h2>
+        <div class="space-y-4 text-[8.5px]">
+          <div>
+            <p class="text-[7px] font-black uppercase tracking-[0.14em] text-ink-light mb-0.5 flex items-center gap-1">
+              <span class="material-symbols-outlined text-[11px]">calendar_today</span>
+              Generation Date
+            </p>
+            <div class="border-b border-line-subtle pb-1 font-mono">{{ created_timestamp_utc }}</div>
+          </div>
+          <div>
+            <p class="text-[7px] font-black uppercase tracking-[0.14em] text-ink-light mb-0.5 flex items-center gap-1">
+              <span class="material-symbols-outlined text-[11px]">shield</span>
+              Security Level
+            </p>
+            <div class="border-b border-line-subtle pb-1 font-mono">Offline storage required</div>
+          </div>
+          <div>
+            <p class="text-[7px] font-black uppercase tracking-[0.14em] text-ink-light mb-0.5 flex items-center gap-1">
+              <span class="material-symbols-outlined text-[11px]">verified</span>
+              Checksum
+            </p>
+            <div class="border-b border-line-subtle pb-1 font-mono break-all">{{ doc_id }}{{ '%02d' % page.page_num }}</div>
+          </div>
+        </div>
+
+        <p class="mt-6 text-[8px] leading-relaxed text-[#8880a9] italic font-serif">
+          This page contains one shard only. Do not store it with other shards.
+          Record handoff events in the kit index whenever custody changes.
+        </p>
+
+        <div class="mt-auto pt-4 border-t border-line-subtle">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[8px] font-black">Verification Status</span>
+            <span class="inline-flex items-center gap-1 text-[7px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-black uppercase">
+              <span class="material-symbols-outlined text-[10px]">pending_actions</span>
+              Manual Check
+            </span>
+          </div>
+          <p class="text-[8px] font-black uppercase tracking-[0.12em] text-primary">Check Against Kit Index</p>
+        </div>
+      </aside>
+    </div>
+
+    <footer class="border-t border-line-subtle bg-[#f9f8fc] py-2 text-center">
+      <p class="text-[8px] text-ink-light/70 uppercase tracking-[0.2em] font-medium">
+        Monograph Archival Systems // Offline Backup // {{ page.page_label }}
+      </p>
+    </footer>
+  </section>
+{% endfor %}
+</body>
+</html>

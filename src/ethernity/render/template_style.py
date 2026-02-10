@@ -44,6 +44,7 @@ class TemplateCapabilities:
     wide_recovery_fallback_lines: bool = False
     extra_main_first_page_qr_slot: bool = False
     shard_first_page_bonus_lines: int = 0
+    signing_key_shard_first_page_bonus_lines: int = 0
 
 
 @dataclass(frozen=True)
@@ -150,6 +151,7 @@ def _parse_capabilities(value: object, *, style_name: str, path: Path) -> Templa
                 "wide_recovery_fallback_lines",
                 "extra_main_first_page_qr_slot",
                 "shard_first_page_bonus_lines",
+                "signing_key_shard_first_page_bonus_lines",
             }
         ),
         section="capabilities",
@@ -184,6 +186,12 @@ def _parse_capabilities(value: object, *, style_name: str, path: Path) -> Templa
         shard_first_page_bonus_lines=_optional_non_negative_int(
             value,
             "shard_first_page_bonus_lines",
+            default=0,
+            path=path,
+        ),
+        signing_key_shard_first_page_bonus_lines=_optional_non_negative_int(
+            value,
+            "signing_key_shard_first_page_bonus_lines",
             default=0,
             path=path,
         ),

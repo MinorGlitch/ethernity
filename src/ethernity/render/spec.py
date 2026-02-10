@@ -162,7 +162,7 @@ def document_spec(
     shard_index = _int_value(context.get("shard_index"), default=1)
     shard_total = _int_value(context.get("shard_total"), default=1)
     if normalized == DOC_TYPE_MAIN:
-        header = replace(header, title="Main Document", subtitle="Mode: passphrase")
+        header = replace(header, title="Main Document", subtitle="Passphrase-protected payload")
         instructions = replace(
             instructions,
             lines=(

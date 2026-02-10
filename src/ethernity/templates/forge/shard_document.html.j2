@@ -1,0 +1,174 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+<!doctype html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    {% include 'partials/forge_tailwind.j2' %}
+    {% include 'partials/material_symbols_local.j2' %}
+
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+
+    @media print {
+      body {
+        background-color: white !important;
+      }
+      .print-sheet {
+        box-shadow: none !important;
+        margin: 0 !important;
+      }
+    }
+
+    .print-sheet {
+      width: {{ page_width_mm }}mm;
+      min-height: {{ page_height_mm }}mm;
+      margin: 0 auto;
+      page-break-after: always;
+      background: white;
+    }
+
+    .print-sheet:last-child {
+      page-break-after: auto;
+    }
+
+    .watermark-pattern {
+      background-image: repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 40px,
+        rgba(0, 0, 0, 0.03) 40px,
+        rgba(0, 0, 0, 0.03) 80px
+      );
+    }
+  </style>
+</head>
+<body class="bg-background-light font-display min-h-screen flex flex-col overflow-x-hidden text-slate-900">
+{% for page in pages %}
+  <section class="print-sheet relative overflow-hidden text-black watermark-pattern">
+    <div class="absolute inset-0 p-[15mm] flex flex-col justify-between">
+      <header class="border-b-4 border-black pb-6 flex justify-between items-start">
+        <div class="flex flex-col">
+          <div class="flex items-center gap-3 mb-2">
+            <h2 class="text-3xl font-black tracking-tighter uppercase">Ethernity</h2>
+          </div>
+          <p class="text-sm font-bold tracking-widest uppercase text-slate-600">Secure Recovery Protocol</p>
+          <p class="text-sm text-slate-500 mt-2">{{ doc.subtitle }}</p>
+        </div>
+        <div class="text-right">
+          <h1 class="text-4xl font-black uppercase tracking-tight mb-1">Shard {{ '%02d' % shard_index }}</h1>
+          <p class="font-mono text-sm border border-black px-2 py-0.5 inline-block">{{ forge_copy.doc_id_label }}: {{ doc_id }}</p>
+          <p class="font-mono text-xs mt-1">{{ page.page_label }}</p>
+        </div>
+      </header>
+
+      <section class="mt-8 border-2 border-black p-4 bg-slate-100">
+        <div class="flex items-start gap-4">
+          <div class="bg-black p-2 flex items-center justify-center">
+            <span class="material-symbols-outlined text-3xl" style="color: #fff;">warning</span>
+          </div>
+          <div>
+            <h3 class="font-bold text-lg uppercase mb-1">Security Instructions</h3>
+            <ul class="list-disc list-inside text-sm space-y-1 font-medium text-slate-800">
+              <li>This document represents <strong>{{ shard_index }} of {{ shard_total }}</strong> shares required for recovery.</li>
+              {% if page.show_instructions %}
+                {% for line in instructions.lines %}
+                <li>{{ line }}</li>
+                {% endfor %}
+              {% endif %}
+              <li>Generated at {{ created_timestamp_utc }}.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="flex-1 flex flex-col justify-center items-center py-12 gap-8">
+        <div class="w-full flex justify-between border-b border-black pb-2 mb-4">
+          <div class="flex flex-col">
+            <span class="text-xs font-bold uppercase text-slate-500">Total Shards</span>
+            <span class="text-xl font-bold font-mono">{{ shard_total }}</span>
+          </div>
+          <div class="flex flex-col text-right">
+            <span class="text-xs font-bold uppercase text-slate-500">Generated</span>
+            <span class="text-xl font-bold font-mono">{{ created_timestamp_utc }}</span>
+          </div>
+        </div>
+
+        {% if page.qr_items %}
+        <div class="relative p-6 border-4 border-black">
+          <div class="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-black -mt-1 -ml-1"></div>
+          <div class="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-black -mt-1 -mr-1"></div>
+          <div class="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-black -mb-1 -ml-1"></div>
+          <div class="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-black -mb-1 -mr-1"></div>
+          <img
+            alt="High density QR code containing the encrypted shard data"
+            class="w-64 h-64 block"
+            src="{{ page.qr_items[0].data_uri }}"
+            style="image-rendering: pixelated;"
+          >
+        </div>
+        {% endif %}
+
+        {% if page.fallback_blocks %}
+        <div class="w-full bg-slate-50 border border-slate-300 p-4 mt-4">
+          <p class="text-xs font-bold uppercase mb-2 text-slate-500">Manual Entry String</p>
+          {% for block in page.fallback_blocks %}
+            {% if block.title %}
+            <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1 mt-2">{{ block.title }}</p>
+            {% endif %}
+            <div class="font-mono text-xs leading-tight tracking-wide text-slate-900">
+              {% for line in block.lines %}
+              <div class="whitespace-nowrap">{{ line }}</div>
+              {% endfor %}
+            </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </section>
+
+      <footer class="mt-auto pt-8 border-t-2 border-black border-dashed">
+        <div class="grid grid-cols-2 gap-12">
+          <div>
+            <div class="h-12 border-b border-black mb-2"></div>
+            <p class="text-xs font-bold uppercase tracking-wider">Validator Signature</p>
+          </div>
+          <div>
+            <div class="h-12 border-b border-black mb-2 flex items-end justify-end pb-1 font-mono text-sm">
+              ____ / ____ / ________
+            </div>
+            <p class="text-xs font-bold uppercase tracking-wider text-right">Date Verified</p>
+          </div>
+        </div>
+        <div class="mt-8 flex justify-between items-end text-[10px] uppercase text-slate-400 font-mono">
+          <div>
+            <p>{{ forge_copy.protocol_label }} {{ forge_copy.version }}</p>
+            <p>Doc Ref: ETH-REC-S{{ '%02d' % shard_index }}</p>
+          </div>
+          <div class="text-right">
+            <p>{{ page.page_label }}</p>
+            <p>Confidential</p>
+          </div>
+        </div>
+      </footer>
+    </div>
+  </section>
+{% endfor %}
+</body>
+</html>

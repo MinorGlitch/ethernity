@@ -41,6 +41,20 @@
     .page:last-child {
       page-break-after: auto;
     }
+    .page > .header {
+      z-index: 5 !important;
+    }
+    .page > .divider,
+    .page > .instructions {
+      z-index: 4 !important;
+    }
+    .page > .header .header-left {
+      min-width: 0;
+    }
+    .page > .header .subtitle {
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
 {% endmacro %}
 
 {% macro qr_grid_items_styles() %}

@@ -27,81 +27,137 @@ from ethernity.render.geometry import (
 
 
 class TestCalcCells(unittest.TestCase):
-    """Tests for calc_cells function."""
-
-    def test_basic_calculation(self) -> None:
-        """Test basic cell count calculation."""
-        # 100mm usable, 20mm cells, 5mm gaps
-        # Each cell+gap = 25mm, so 100/25 = 4 cells (with remaining gap not needed)
-        result = calc_cells(usable=100, cell=20, gap=5, max_cells=None)
-        self.assertEqual(result, 4)
-
-    def test_exact_fit(self) -> None:
-        """Test when cells fit exactly."""
-        # 3 cells * 30mm + 2 gaps * 5mm = 100mm
-        result = calc_cells(usable=100, cell=30, gap=5, max_cells=None)
-        # Formula: (100 + 5) // (30 + 5) = 105 // 35 = 3
-        self.assertEqual(result, 3)
-
-    def test_max_cells_limits(self) -> None:
-        """Test that max_cells limits the result."""
-        result = calc_cells(usable=100, cell=10, gap=2, max_cells=3)
-        self.assertEqual(result, 3)
-
-    def test_max_cells_not_limiting(self) -> None:
-        """Test max_cells when it's larger than calculated."""
-        result = calc_cells(usable=50, cell=20, gap=5, max_cells=10)
-        # (50 + 5) // (20 + 5) = 55 // 25 = 2
-        self.assertEqual(result, 2)
-
-    def test_single_cell(self) -> None:
-        """Test when only one cell fits."""
-        result = calc_cells(usable=25, cell=20, gap=10, max_cells=None)
-        # (25 + 10) // (20 + 10) = 35 // 30 = 1
-        self.assertEqual(result, 1)
-
-    def test_zero_gap(self) -> None:
-        """Test with zero gap between cells."""
-        result = calc_cells(usable=100, cell=25, gap=0, max_cells=None)
-        self.assertEqual(result, 4)
-
-    def test_large_cell_small_space(self) -> None:
-        """Test when cell is larger than usable space."""
-        result = calc_cells(usable=10, cell=20, gap=5, max_cells=None)
-        self.assertEqual(result, 0)
+    def test_calc_cells_cases(self) -> None:
+        cases = (
+            {
+                "name": "basic",
+                "usable": 100,
+                "cell": 20,
+                "gap": 5,
+                "max_cells": None,
+                "expected": 4,
+            },
+            {
+                "name": "exact-fit",
+                "usable": 100,
+                "cell": 30,
+                "gap": 5,
+                "max_cells": None,
+                "expected": 3,
+            },
+            {
+                "name": "max-limited",
+                "usable": 100,
+                "cell": 10,
+                "gap": 2,
+                "max_cells": 3,
+                "expected": 3,
+            },
+            {
+                "name": "max-not-limiting",
+                "usable": 50,
+                "cell": 20,
+                "gap": 5,
+                "max_cells": 10,
+                "expected": 2,
+            },
+            {
+                "name": "single-cell",
+                "usable": 25,
+                "cell": 20,
+                "gap": 10,
+                "max_cells": None,
+                "expected": 1,
+            },
+            {
+                "name": "zero-gap",
+                "usable": 100,
+                "cell": 25,
+                "gap": 0,
+                "max_cells": None,
+                "expected": 4,
+            },
+            {
+                "name": "cell-larger-than-space",
+                "usable": 10,
+                "cell": 20,
+                "gap": 5,
+                "max_cells": None,
+                "expected": 0,
+            },
+        )
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                result = calc_cells(
+                    usable=case["usable"],
+                    cell=case["cell"],
+                    gap=case["gap"],
+                    max_cells=case["max_cells"],
+                )
+                self.assertEqual(result, case["expected"])
 
 
 class TestExpandGapToFill(unittest.TestCase):
-    """Tests for expand_gap_to_fill function."""
-
-    def test_basic_expansion(self) -> None:
-        """Test basic gap expansion."""
-        # 100mm usable, 3 cols * 20mm cells + 2 gaps * 5mm = 70mm
-        # Extra = 30mm, distributed over 2 gaps = 15mm each
-        result = expand_gap_to_fill(usable_w=100, cell_w=20, gap=5, cols=3)
-        self.assertAlmostEqual(result, 20.0)  # 5 + 30/2 = 20
-
-    def test_single_column(self) -> None:
-        """Test with single column (no gap expansion possible)."""
-        result = expand_gap_to_fill(usable_w=100, cell_w=20, gap=5, cols=1)
-        self.assertEqual(result, 5)
-
-    def test_no_extra_space(self) -> None:
-        """Test when content exactly fills space."""
-        # 2 cells * 45mm + 1 gap * 10mm = 100mm exactly
-        result = expand_gap_to_fill(usable_w=100, cell_w=45, gap=10, cols=2)
-        self.assertEqual(result, 10)
-
-    def test_negative_extra_space(self) -> None:
-        """Test when content is larger than space (no change)."""
-        result = expand_gap_to_fill(usable_w=50, cell_w=30, gap=5, cols=3)
-        # 3*30 + 2*5 = 100 > 50, so no expansion
-        self.assertEqual(result, 5)
-
-    def test_zero_cols(self) -> None:
-        """Test with zero columns."""
-        result = expand_gap_to_fill(usable_w=100, cell_w=20, gap=5, cols=0)
-        self.assertEqual(result, 5)
+    def test_expand_gap_to_fill_cases(self) -> None:
+        cases = (
+            {
+                "name": "basic-expansion",
+                "usable_w": 100,
+                "cell_w": 20,
+                "gap": 5,
+                "cols": 3,
+                "expected": 20.0,
+                "approx": True,
+            },
+            {
+                "name": "single-column",
+                "usable_w": 100,
+                "cell_w": 20,
+                "gap": 5,
+                "cols": 1,
+                "expected": 5,
+                "approx": False,
+            },
+            {
+                "name": "no-extra-space",
+                "usable_w": 100,
+                "cell_w": 45,
+                "gap": 10,
+                "cols": 2,
+                "expected": 10,
+                "approx": False,
+            },
+            {
+                "name": "negative-extra-space",
+                "usable_w": 50,
+                "cell_w": 30,
+                "gap": 5,
+                "cols": 3,
+                "expected": 5,
+                "approx": False,
+            },
+            {
+                "name": "zero-cols",
+                "usable_w": 100,
+                "cell_w": 20,
+                "gap": 5,
+                "cols": 0,
+                "expected": 5,
+                "approx": False,
+            },
+        )
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                result = expand_gap_to_fill(
+                    usable_w=case["usable_w"],
+                    cell_w=case["cell_w"],
+                    gap=case["gap"],
+                    cols=case["cols"],
+                )
+                if case["approx"]:
+                    self.assertAlmostEqual(result, case["expected"])
+                else:
+                    self.assertEqual(result, case["expected"])
 
 
 class TestAdjustRowsForFallback(unittest.TestCase):
@@ -212,39 +268,34 @@ class TestFallbackLinesPerPageTextOnly(unittest.TestCase):
 
 
 class TestGroupsFromLineLength(unittest.TestCase):
-    """Tests for groups_from_line_length function."""
-
-    def test_basic_groups(self) -> None:
-        """Test basic group calculation."""
-        # Line length 80, group size 4 => groups separated by spaces
-        # 4 chars + 1 space = 5 per group, 80/5 = 16 groups (roughly)
-        groups = groups_from_line_length(line_length=80, group_size=4)
-        self.assertEqual(groups, 16)  # (80 + 1) // (4 + 1) = 16
-
-    def test_single_group(self) -> None:
-        """Test when line length equals group size."""
-        groups = groups_from_line_length(line_length=4, group_size=4)
-        self.assertEqual(groups, 1)
-
-    def test_smaller_than_group(self) -> None:
-        """Test when line length is smaller than group size."""
-        groups = groups_from_line_length(line_length=2, group_size=4)
-        self.assertEqual(groups, 1)
+    def test_groups_from_line_length_cases(self) -> None:
+        cases = (
+            {"line_length": 80, "group_size": 4, "expected": 16},
+            {"line_length": 4, "group_size": 4, "expected": 1},
+            {"line_length": 2, "group_size": 4, "expected": 1},
+        )
+        for case in cases:
+            with self.subTest(case=case):
+                groups = groups_from_line_length(
+                    line_length=case["line_length"],
+                    group_size=case["group_size"],
+                )
+                self.assertEqual(groups, case["expected"])
 
 
 class TestLineLengthFromGroups(unittest.TestCase):
-    """Tests for line_length_from_groups function."""
-
-    def test_basic_line_length(self) -> None:
-        """Test basic line length calculation."""
-        # 16 groups * (4 + 1) - 1 = 79
-        length = line_length_from_groups(groups=16, group_size=4)
-        self.assertEqual(length, 79)
-
-    def test_single_group(self) -> None:
-        """Test line length for single group."""
-        length = line_length_from_groups(groups=1, group_size=4)
-        self.assertEqual(length, 4)
+    def test_line_length_from_groups_cases(self) -> None:
+        cases = (
+            {"groups": 16, "group_size": 4, "expected": 79},
+            {"groups": 1, "group_size": 4, "expected": 4},
+        )
+        for case in cases:
+            with self.subTest(case=case):
+                length = line_length_from_groups(
+                    groups=case["groups"],
+                    group_size=case["group_size"],
+                )
+                self.assertEqual(length, case["expected"])
 
     def test_roundtrip(self) -> None:
         """Test that groups_from_line_length and line_length_from_groups are inverse-ish."""

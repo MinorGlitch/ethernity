@@ -37,7 +37,6 @@
       {% for slot in page.qr_items %}
       <div class="qr-cell">
         <div class="qr-card">
-          {% if show_index %}<div class="qr-index">{{ "%02d"|format(slot.index) }}</div>{% endif %}
           <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
         </div>
       </div>

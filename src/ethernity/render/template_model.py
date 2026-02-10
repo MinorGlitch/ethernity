@@ -101,6 +101,7 @@ class PageModel:
     instructions_y_mm: float | None = None
     qr_outline: QrOutlineModel | None = None
     sequence: QrSequenceModel | None = None
+    fallback_line_capacity: int = 0
 
 
 @dataclass(frozen=True)
@@ -209,6 +210,7 @@ class TemplateContext:
                 }
                 for block in page.fallback_blocks
             ],
+            "fallback_line_capacity": page.fallback_line_capacity,
         }
 
 

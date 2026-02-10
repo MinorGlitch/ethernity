@@ -1,0 +1,182 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+<!doctype html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    {% include 'partials/forge_tailwind.j2' %}
+    {% include 'partials/material_symbols_local.j2' %}
+
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+
+    @media print {
+      body {
+        background: white !important;
+        display: block !important;
+        min-height: 0 !important;
+      }
+      .print-sheet {
+        box-shadow: none !important;
+        margin: 0 !important;
+      }
+    }
+
+    .print-sheet {
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      min-height: {{ page_height_mm }}mm;
+      margin: 0 auto;
+      page-break-after: always;
+      background: white;
+      overflow: hidden;
+      break-inside: avoid-page;
+      page-break-inside: avoid;
+    }
+
+    .print-sheet:last-child {
+      page-break-after: auto;
+    }
+
+    .fallback-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: 3rem;
+      row-gap: 0;
+    }
+  </style>
+</head>
+<body class="bg-background-light font-display text-slate-900 min-h-screen flex flex-col overflow-x-hidden">
+{% for page in pages %}
+  <section class="print-sheet flex flex-col p-[15mm]">
+    <div class="flex flex-col border-b-2 border-black pb-4 mb-6">
+      <div class="flex justify-between items-start mb-4">
+        <div class="flex items-center gap-3">
+          <div class="size-10 border-2 border-black rounded flex items-center justify-center">
+            <span class="material-symbols-outlined text-3xl text-black">shield_lock</span>
+          </div>
+          <div class="flex flex-col">
+            <h1 class="text-2xl font-bold tracking-tight uppercase leading-none">{{ doc.title }}</h1>
+            <span class="text-xs font-mono tracking-widest text-slate-600 uppercase mt-1">{{ doc.subtitle }}</span>
+          </div>
+        </div>
+        <div class="flex flex-col items-end text-right">
+          <div class="border border-black px-2 py-1 text-xs font-mono mb-1 bg-slate-50">
+            {{ forge_copy.doc_id_label }}: <span class="font-bold">{{ doc_id }}</span>
+          </div>
+          <p class="text-[10px] text-slate-500 font-mono">{{ forge_copy.generated_utc_label }}: {{ created_timestamp_utc }}</p>
+          <p class="text-[10px] text-slate-500 font-mono">{{ page.page_label }}</p>
+        </div>
+      </div>
+      <div class="bg-slate-100 border border-slate-300 p-3 flex gap-3 items-start">
+        <span class="material-symbols-outlined text-xl mt-0.5">warning</span>
+        <div>
+          <h3 class="text-xs font-bold uppercase tracking-wider mb-1">Security Warning</h3>
+          <p class="text-xs leading-relaxed text-slate-800">
+            Store this document in a secure, fireproof location. Do not photograph, scan, or upload this sheet to any cloud service.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    {% if page.show_instructions %}
+    <div class="mb-6 px-2">
+      <h2 class="text-sm font-bold uppercase border-b border-black inline-block mb-3">{{ instructions.label }}</h2>
+      <ol class="list-decimal list-inside text-sm space-y-1 text-slate-800 pl-1">
+        {% for line in instructions.lines %}
+        <li>{{ line }}</li>
+        {% endfor %}
+        {% if instructions.scan_hint %}
+        <li>{{ instructions.scan_hint }}</li>
+        {% endif %}
+      </ol>
+    </div>
+    {% endif %}
+
+    <div class="flex-1 min-h-0 mb-4">
+      {% if page.fallback_blocks %}
+      <div class="fallback-grid">
+        {% for block in page.fallback_blocks %}
+          {% if block.title %}
+          <div class="col-span-2 text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1 mt-2">{{ block.title }}</div>
+          {% endif %}
+          {% for line in block.lines %}
+          <div class="flex items-end gap-3 py-1.5 border-b border-slate-300">
+            <span class="w-10 font-mono text-slate-500 text-right select-none text-sm">{{ '%02d' % (block.line_offset + loop.index) }}.</span>
+            <div class="flex-1 border-b-0 border-black border-dotted h-6 bg-slate-50/50 font-mono text-xs text-slate-800 px-2 py-1 whitespace-nowrap">{{ line }}</div>
+          </div>
+          {% endfor %}
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="text-sm text-slate-500">No fallback lines on this page.</div>
+      {% endif %}
+    </div>
+
+    {% if page.page_num == 1 %}
+    <div class="border-t-2 border-black pt-6 mt-auto">
+      <h2 class="text-sm font-bold uppercase mb-4 flex items-center gap-2">
+        <span class="material-symbols-outlined text-lg">fingerprint</span>
+        Extended Metadata
+      </h2>
+      <div class="space-y-4">
+        {% if recovery.quorum_value %}
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Shard Quorum</label>
+          <div class="border border-slate-400 p-2 bg-slate-50 font-mono text-xs">{{ recovery.quorum_value }}</div>
+        </div>
+        {% endif %}
+        {% if recovery.passphrase_lines %}
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Passphrase</label>
+          <div class="border border-slate-400 p-2 bg-slate-50 font-mono text-xs">{{ recovery.passphrase_lines | join(' ') }}</div>
+        </div>
+        {% elif recovery.passphrase %}
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Passphrase</label>
+          <div class="border border-slate-400 p-2 bg-slate-50 font-mono text-xs">{{ recovery.passphrase }}</div>
+        </div>
+        {% endif %}
+        {% if recovery.signing_pub_lines %}
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Master Signing Public Key</label>
+          <div class="border border-slate-400 p-3 bg-slate-50">
+            {% for line in recovery.signing_pub_lines %}
+            <p class="font-mono text-xs tracking-[0.1em] break-all leading-relaxed text-slate-800">{{ line }}</p>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="mt-2 shrink-0 pt-4 border-t border-slate-200 flex justify-between items-center text-[10px] text-slate-400 font-mono uppercase">
+      <span class="inline-flex items-center gap-1">
+        <span class="material-symbols-outlined text-sm">verified_user</span>
+        Securely Generated Offline
+      </span>
+      <span>{{ page.page_label }}</span>
+      <span>The Forge // Ethernity</span>
+    </div>
+  </section>
+{% endfor %}
+</body>
+</html>

@@ -1,0 +1,210 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+<!doctype html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8">
+  {% include 'partials/monograph_tailwind_setup.j2' %}
+  <style>
+    {% include 'partials/material_symbols_local.j2' %}
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+
+    @media print {
+      body {
+        background: white !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      .print-sheet {
+        box-shadow: none !important;
+        margin: 0 !important;
+      }
+    }
+
+    .print-sheet {
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      min-height: {{ page_height_mm }}mm;
+      margin: 0 auto;
+      page-break-after: always;
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+      overflow: hidden;
+      position: relative;
+      background: #fafaf5;
+    }
+
+    .print-sheet:last-child {
+      page-break-after: auto;
+    }
+
+    .qr-render {
+      image-rendering: pixelated;
+    }
+
+    .kit-grid {
+      display: grid;
+      grid-template-columns: repeat(var(--kit-cols), minmax(0, 1fr));
+    }
+  </style>
+</head>
+<body class="bg-background-light font-display min-h-screen text-ink-dark">
+{% for page in pages %}
+  {% if page.instructions_full_page %}
+  <section class="print-sheet border border-[#ebe8f1] bg-paper-texture flex flex-col px-[16mm] py-[14mm]">
+    <div class="absolute inset-[4mm] border border-ink-dark/6 pointer-events-none"></div>
+
+    <header class="text-center mb-8">
+      <div class="mb-3 opacity-60">
+        <span class="material-symbols-outlined text-[26px] text-ink-dark/70">lock</span>
+      </div>
+      <p class="uppercase tracking-[0.24em] text-[9px] font-semibold text-ink-dark/55">Archival Backup System • Vol. I</p>
+      <div class="w-10 h-px bg-ink-dark/20 my-3 mx-auto"></div>
+      <h1 class="font-serif text-[30px] leading-[1.08] font-bold tracking-tight">Recovery Kit Instructions</h1>
+      <p class="font-serif italic text-[12px] text-ink-light mt-1">Offline Digital Asset Restoration Strategy</p>
+    </header>
+
+    <section class="max-w-[152mm] mx-auto w-full">
+      <p class="font-serif text-[11px] leading-relaxed text-center text-ink-dark/85 mb-4">
+        This page contains the canonical offline procedure for rebuilding the recovery kit bundle.
+      </p>
+      <div class="space-y-2">
+        {% for line in instructions.lines %}
+        <div class="flex gap-3 border border-[#ebe8f1] bg-white/70 px-3 py-2">
+          <div class="shrink-0 size-5 rounded-full border border-[#d8d3e8] text-[9px] font-black flex items-center justify-center text-ink-light">{{ '%02d' % loop.index }}</div>
+          <p class="text-[10px] font-semibold text-ink-dark leading-relaxed">{{ line }}</p>
+        </div>
+        {% endfor %}
+        {% if instructions.scan_hint %}
+        <div class="flex gap-3 border border-[#ebe8f1] bg-white/70 px-3 py-2">
+          <div class="shrink-0 size-5 rounded-full border border-primary text-[10px] font-black flex items-center justify-center text-primary">
+            <span class="material-symbols-outlined text-[12px]">qr_code_scanner</span>
+          </div>
+          <p class="text-[10px] font-semibold text-ink-dark leading-relaxed">{{ instructions.scan_hint }}</p>
+        </div>
+        {% endif %}
+      </div>
+    </section>
+
+    <footer class="mt-auto pt-4 text-center">
+      <div class="w-[48mm] h-px bg-ink-dark/10 mx-auto mb-3"></div>
+      <p class="text-[8px] uppercase tracking-[0.18em] text-ink-dark/40 font-medium">Keep With Recovery Packet</p>
+      <p class="text-[8px] font-mono uppercase tracking-[0.14em] text-ink-light mt-1">{{ page.page_label }}</p>
+    </footer>
+  </section>
+
+  {% else %}
+  <section class="print-sheet border border-[#ebe8f1] bg-paper-texture flex flex-col px-[16mm] py-[14mm]">
+    <div class="absolute inset-[4mm] border border-ink-dark/5 pointer-events-none"></div>
+
+    {% if page.page_num == 1 %}
+    <header class="text-center">
+      <div class="mb-3 opacity-60">
+        <span class="material-symbols-outlined text-[26px] text-ink-dark/70">lock</span>
+      </div>
+      <p class="uppercase tracking-[0.24em] text-[9px] font-semibold text-ink-dark/55">Archival Backup System • Vol. I</p>
+      <div class="w-10 h-px bg-ink-dark/20 my-3 mx-auto"></div>
+      <h1 class="font-serif text-[34px] leading-[1.08] font-bold tracking-tight">Security<br>Recovery Kit</h1>
+      <p class="font-serif italic text-[12px] text-ink-light mt-1">Offline Digital Asset Restoration Strategy</p>
+    </header>
+
+    <section class="mt-5 text-center max-w-[148mm] mx-auto">
+      <p class="font-serif text-[11px] leading-relaxed text-ink-dark/86">
+        This packet stores the QR chunks required to rebuild the offline recovery kit.
+        Scan every chunk in order and verify sequence labels before reconstruction.
+      </p>
+      <div class="mt-4">
+        <p class="text-[8px] uppercase tracking-[0.14em] text-ink-dark/40 font-black">Custodian Name</p>
+        <div class="inline-block border-b border-ink-dark/20 px-6 py-1 min-w-[50mm] text-center mt-1">
+          <span class="font-serif italic text-[12px]">Custodian</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="mt-5 flex-1 min-h-0 flex flex-col">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-[10px] font-black uppercase tracking-[0.14em] text-primary">Encoded Recovery Chunks</h2>
+        <p class="text-[8px] font-mono uppercase tracking-[0.12em] text-ink-light">{{ page.page_label }}</p>
+      </div>
+      {% if page.qr_items %}
+      <div class="kit-grid gap-2 flex-1" style="--kit-cols: {{ page.qr_grid.cols if page.qr_grid else 3 }};">
+        {% for slot in page.qr_items %}
+        <article class="border border-[#ded9ef] bg-white/95 p-2 flex flex-col gap-1">
+          <div class="flex items-center justify-between">
+            <span class="text-[7px] font-mono uppercase tracking-[0.12em] text-ink-light">KIT {{ '%02d' % slot.index }}</span>
+            <span class="text-[7px] font-black uppercase text-primary">Seq</span>
+          </div>
+          <div class="aspect-square border border-[#e9e4f4] bg-white p-1">
+            <img class="w-full h-full object-contain qr-render" src="{{ slot.data_uri }}" alt="Recovery kit QR {{ slot.index }}">
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="flex-1 border border-dashed border-[#ded9ef] bg-white/70 flex items-center justify-center text-[9px] font-mono text-ink-light">
+        No QR chunks on this page.
+      </div>
+      {% endif %}
+    </section>
+    {% else %}
+    <header class="border-b border-line-subtle pb-3 mb-3">
+      <div class="flex items-end justify-between gap-4">
+        <div>
+          <h1 class="font-serif text-[22px] font-bold tracking-tight">Recovery Kit Chunks</h1>
+          <p class="text-[9px] uppercase tracking-[0.2em] text-primary font-semibold">Continuation Sheet</p>
+        </div>
+        <p class="text-[8px] font-mono uppercase tracking-[0.14em] text-ink-light">{{ page.page_label }}</p>
+      </div>
+    </header>
+
+    <section class="flex-1 min-h-0">
+      {% if page.qr_items %}
+      <div class="kit-grid gap-2 h-full" style="--kit-cols: {{ page.qr_grid.cols if page.qr_grid else 3 }};">
+        {% for slot in page.qr_items %}
+        <article class="border border-[#ded9ef] bg-white p-2 flex flex-col gap-1">
+          <div class="flex items-center justify-between border-b border-[#efeaf8] pb-1">
+            <span class="text-[7px] font-mono uppercase tracking-[0.12em] text-ink-light">KIT {{ '%02d' % slot.index }}</span>
+            <span class="text-[7px] font-black uppercase text-primary">Verify</span>
+          </div>
+          <div class="aspect-square border border-[#e9e4f4] bg-white p-1">
+            <img class="w-full h-full object-contain qr-render" src="{{ slot.data_uri }}" alt="Recovery kit QR {{ slot.index }}">
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="h-full border border-dashed border-[#ded9ef] bg-white/70 flex items-center justify-center text-[9px] font-mono text-ink-light">
+        No QR chunks on this page.
+      </div>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    <footer class="mt-3 pt-2 border-t border-ink-dark/10 flex items-center justify-between text-[8px] font-mono uppercase tracking-[0.14em] text-ink-light">
+      <span>Monograph Offline Archive</span>
+      <span>{{ page.page_label }}</span>
+      <span>{{ doc_id[:8] }}</span>
+    </footer>
+  </section>
+  {% endif %}
+{% endfor %}
+</body>
+</html>

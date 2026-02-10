@@ -116,7 +116,8 @@ def header_height(cfg: HeaderSpec, minimum: float) -> float:
         meta_lines += 1
     if page_label:
         meta_lines += 1
-    meta_lines += int(getattr(cfg, "meta_lines_extra", 0))
+    meta_lines_extra = max(0, int(getattr(cfg, "meta_lines_extra", 0)))
+    meta_lines += meta_lines_extra
     meta_height = meta_lines * font_line_height(cfg.meta_size)
     meta_gaps = max(0, meta_lines - 1) * meta_row_gap_mm
     meta_total_height = meta_height + meta_gaps
@@ -124,7 +125,10 @@ def header_height(cfg: HeaderSpec, minimum: float) -> float:
     left_sections = int(title_height > 0) + int(subtitle_height > 0)
     left_gaps = max(0, left_sections - 1) * stack_gap_mm
     left_height = title_height + subtitle_height + left_gaps
-    height += max(left_height, meta_total_height)
+    if meta_lines_extra > 0:
+        height += left_height + meta_total_height
+    else:
+        height += max(left_height, meta_total_height)
 
     if divider_enabled:
         height += float(cfg.divider_gap_mm)

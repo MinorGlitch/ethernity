@@ -1,5 +1,5 @@
 {
-  "name": "sentinel",
+  "name": "monograph",
   "header": {
     "meta_row_gap_mm": 1.2,
     "stack_gap_mm": 1.2,
@@ -11,10 +11,6 @@
   },
   "capabilities": {
     "repeat_primary_qr_on_shard_continuation": true,
-    "advanced_fallback_layout": true,
-    "wide_recovery_fallback_lines": true,
-    "extra_main_first_page_qr_slot": true,
-    "shard_first_page_bonus_lines": 1,
-    "signing_key_shard_first_page_bonus_lines": 8
+    "advanced_fallback_layout": true
   }
 }

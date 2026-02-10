@@ -60,6 +60,10 @@ def _shard_first_page_penalty_lines(capabilities: TemplateCapabilities) -> int:
     return max(0, _SHARD_FIRST_PAGE_PENALTY_LINES - capabilities.shard_first_page_bonus_lines)
 
 
+def _signing_key_shard_first_page_bonus_lines(capabilities: TemplateCapabilities) -> int:
+    return max(0, capabilities.signing_key_shard_first_page_bonus_lines)
+
+
 def resolve_layout_capabilities(inputs: RenderInputs) -> TemplateCapabilities:
     return load_template_style(inputs.template_path).capabilities
 
@@ -86,9 +90,12 @@ def fallback_text_width_override_mm(
         return line_width
     if normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD:
         qr_zone_mm = float(spec.qr_grid.qr_size_mm)
+        # Signing-shard templates place QR in a narrow side column; using the raw
+        # QR geometry can underestimate text width and force unnecessary wraps.
+        qr_column_mm = min(qr_zone_mm, usable_w / 3.0)
         return max(
             1.0,
-            usable_w - qr_zone_mm - _SIGNING_INTER_COLUMN_GAP_MM - _SIGNING_SECTION_PADDING_MM,
+            usable_w - qr_column_mm - _SIGNING_INTER_COLUMN_GAP_MM - _SIGNING_SECTION_PADDING_MM,
         )
     if normalized_doc_type == DOC_TYPE_SHARD:
         return max(1.0, usable_w - _SHARD_CARD_PADDING_MM)
@@ -174,7 +181,12 @@ def adjust_layout_fallback_capacity(
     if normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD:
         effective_lines = max(1, int(_SIGNING_PAYLOAD_ZONE_HEIGHT_MM // max(line_height, 0.1)))
         if include_instructions:
-            effective_lines = max(1, effective_lines - _SHARD_FIRST_PAGE_PENALTY_LINES)
+            effective_lines = max(
+                1,
+                effective_lines
+                - _shard_first_page_penalty_lines(capabilities)
+                + _signing_key_shard_first_page_bonus_lines(capabilities),
+            )
         return line_height, effective_lines
 
     if normalized_doc_type == DOC_TYPE_SHARD:
@@ -213,7 +225,12 @@ def adjust_page_fallback_capacity(
             int(_SIGNING_PAYLOAD_ZONE_HEIGHT_MM // max(page_layout.line_height, 0.1)),
         )
         if page_idx <= 0:
-            zone_lines = max(1, zone_lines - _SHARD_FIRST_PAGE_PENALTY_LINES)
+            zone_lines = max(
+                1,
+                zone_lines
+                - _shard_first_page_penalty_lines(capabilities)
+                + _signing_key_shard_first_page_bonus_lines(capabilities),
+            )
         return min(lines_capacity, zone_lines)
 
     if normalized_doc_type == DOC_TYPE_SHARD:

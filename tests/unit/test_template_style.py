@@ -37,6 +37,7 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertFalse(ledger.capabilities.wide_recovery_fallback_lines)
         self.assertFalse(ledger.capabilities.extra_main_first_page_qr_slot)
         self.assertEqual(ledger.capabilities.shard_first_page_bonus_lines, 0)
+        self.assertEqual(ledger.capabilities.signing_key_shard_first_page_bonus_lines, 0)
 
         maritime = load_template_style(_TEMPLATES_ROOT / "maritime" / "main_document.html.j2")
         self.assertEqual(maritime.name, "maritime")
@@ -79,6 +80,7 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertTrue(forge.capabilities.advanced_fallback_layout)
         self.assertFalse(forge.capabilities.wide_recovery_fallback_lines)
         self.assertEqual(forge.capabilities.shard_first_page_bonus_lines, 0)
+        self.assertEqual(forge.capabilities.signing_key_shard_first_page_bonus_lines, 0)
 
         sentinel = load_template_style(_TEMPLATES_ROOT / "sentinel" / "main_document.html.j2")
         self.assertEqual(sentinel.name, "sentinel")
@@ -92,6 +94,7 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertTrue(sentinel.capabilities.wide_recovery_fallback_lines)
         self.assertTrue(sentinel.capabilities.extra_main_first_page_qr_slot)
         self.assertEqual(sentinel.capabilities.shard_first_page_bonus_lines, 1)
+        self.assertEqual(sentinel.capabilities.signing_key_shard_first_page_bonus_lines, 8)
 
         monograph = load_template_style(_TEMPLATES_ROOT / "monograph" / "main_document.html.j2")
         self.assertEqual(monograph.name, "monograph")
@@ -105,6 +108,7 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertFalse(monograph.capabilities.wide_recovery_fallback_lines)
         self.assertFalse(monograph.capabilities.extra_main_first_page_qr_slot)
         self.assertEqual(monograph.capabilities.shard_first_page_bonus_lines, 0)
+        self.assertEqual(monograph.capabilities.signing_key_shard_first_page_bonus_lines, 0)
 
     def test_style_defaults_capabilities_when_missing(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -132,6 +136,7 @@ class TestTemplateStyle(unittest.TestCase):
             self.assertFalse(style.capabilities.wide_recovery_fallback_lines)
             self.assertFalse(style.capabilities.extra_main_first_page_qr_slot)
             self.assertEqual(style.capabilities.shard_first_page_bonus_lines, 0)
+            self.assertEqual(style.capabilities.signing_key_shard_first_page_bonus_lines, 0)
 
     def test_sentinel_style_defaults_extra_first_page_slot_when_omitted(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -164,6 +169,7 @@ class TestTemplateStyle(unittest.TestCase):
             self.assertTrue(style.capabilities.wide_recovery_fallback_lines)
             self.assertTrue(style.capabilities.extra_main_first_page_qr_slot)
             self.assertEqual(style.capabilities.shard_first_page_bonus_lines, 0)
+            self.assertEqual(style.capabilities.signing_key_shard_first_page_bonus_lines, 0)
 
     def test_style_rejects_unknown_top_level_keys(self) -> None:
         with TemporaryDirectory() as temp_dir:

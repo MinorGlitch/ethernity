@@ -1120,6 +1120,75 @@ class TestPdfLayout(unittest.TestCase):
 
         self.assertEqual(layout.fallback_lines_per_page, 11)
 
+    def test_sentinel_signing_key_shard_first_page_capacity_adds_bonus_line(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x35" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        spec = _build_spec(line_count=6, line_height=3.5)
+        pdf = FPDF(unit="mm", format=(100, 100))
+
+        forge_template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "forge"
+            / "signing_key_shard_document.html.j2"
+        )
+        forge_inputs = RenderInputs(
+            frames=[frame],
+            template_path=forge_template_path,
+            output_path="out.pdf",
+            context={"doc_id": frame.doc_id.hex()},
+            doc_type="signing_key_shard",
+            render_qr=True,
+            render_fallback=True,
+            fallback_payload=b"signing payload",
+        )
+        forge_layout, _ = compute_layout(
+            forge_inputs,
+            spec,
+            pdf,
+            key_lines=[],
+            include_instructions=True,
+        )
+
+        sentinel_template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "sentinel"
+            / "signing_key_shard_document.html.j2"
+        )
+        sentinel_inputs = RenderInputs(
+            frames=[frame],
+            template_path=sentinel_template_path,
+            output_path="out.pdf",
+            context={"doc_id": frame.doc_id.hex()},
+            doc_type="signing_key_shard",
+            render_qr=True,
+            render_fallback=True,
+            fallback_payload=b"signing payload",
+        )
+        sentinel_layout, _ = compute_layout(
+            sentinel_inputs,
+            spec,
+            pdf,
+            key_lines=[],
+            include_instructions=True,
+        )
+
+        self.assertEqual(
+            sentinel_layout.fallback_lines_per_page,
+            forge_layout.fallback_lines_per_page + 9,
+        )
+
     def test_forge_signing_key_shard_continuation_pages_use_more_fallback_capacity(self) -> None:
         frame = Frame(
             version=1,

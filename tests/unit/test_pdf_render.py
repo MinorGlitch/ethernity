@@ -16,6 +16,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from playwright.sync_api import sync_playwright
 
@@ -82,6 +83,59 @@ class TestPdfRender(unittest.TestCase):
 
             pdf_bytes = output_path.read_bytes()
             self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+
+    def test_render_frames_to_pdf_preserves_inventory_rows_context(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\x55" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "ledger"
+            / "main_document.html.j2"
+        )
+        context = {
+            "paper_size": "A4",
+            "inventory_rows": [
+                {
+                    "component_id": "QR-DOC-01",
+                    "detail": "Encrypted payload and auth QR frames",
+                    "status": "Generated",
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "out.pdf"
+            inputs = RenderInputs(
+                frames=frames,
+                template_path=template_path,
+                output_path=output_path,
+                context=context,
+                doc_type="main",
+                render_qr=False,
+                render_fallback=False,
+            )
+            with mock.patch("ethernity.render.pdf_render.render_html_to_pdf"):
+                with mock.patch(
+                    "ethernity.render.pdf_render.render_template",
+                    return_value="<html></html>",
+                ) as render_template_mock:
+                    render_frames_to_pdf(inputs)
+
+        rendered_context = render_template_mock.call_args[0][1]
+        self.assertIn("inventory_rows", rendered_context)
+        inventory_rows = rendered_context["inventory_rows"]
+        self.assertEqual(inventory_rows[0]["component_id"], "QR-DOC-01")
 
 
 if __name__ == "__main__":

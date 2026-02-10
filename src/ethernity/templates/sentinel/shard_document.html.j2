@@ -60,14 +60,14 @@
 </head>
 <body class="bg-background-light font-display min-h-screen">
 {% for page in pages %}
-  <section class="print-sheet border border-border-light">
+  <section class="print-sheet border border-border-light flex flex-col">
     {% set sentinel_top_strip_text = 'Passphrase Shard // Store Separately // Threshold Protected' %}
     {% set sentinel_header_classification = 'Threshold Protected' %}
     {% set sentinel_footer_guidance = 'Single shard cannot recover the secret' %}
     {% include 'partials/sentinel_shell_header.j2' %}
     <div class="absolute inset-[6mm] border-2 border-dashed border-gray-300 pointer-events-none z-0"></div>
 
-    <div class="relative z-10 flex flex-col h-full p-[15mm] pt-4">
+    <div class="relative z-10 flex-1 min-h-0 flex flex-col p-[15mm] pt-4">
       <section class="bg-gray-100 border-l-4 border-primary p-4 mb-6 flex items-start gap-3">
         <span class="material-symbols-outlined text-primary">warning</span>
         <div>
@@ -80,31 +80,33 @@
         </div>
       </section>
 
-      <div class="flex-1 flex flex-col items-center justify-center gap-6">
-        <div class="text-center">
+      <div class="flex-1 min-h-0 flex flex-col">
+        <div class="text-center shrink-0 mb-3">
           <h2 class="text-4xl font-black uppercase tracking-tight mb-2">Shard {{ '%02d' % shard_index }} Identity</h2>
           <p class="font-mono text-sm text-text-secondary-light uppercase tracking-widest">Hash Reference: {{ doc_id[:4] }}-{{ doc_id[4:8] }}-{{ doc_id[-4:] }}</p>
         </div>
 
-        {% if page.qr_items %}
-        <div class="relative group">
-          <div class="absolute -top-3 -left-3 w-6 h-6 border-t-2 border-l-2 border-primary"></div>
-          <div class="absolute -top-3 -right-3 w-6 h-6 border-t-2 border-r-2 border-primary"></div>
-          <div class="absolute -bottom-3 -left-3 w-6 h-6 border-b-2 border-l-2 border-primary"></div>
-          <div class="absolute -bottom-3 -right-3 w-6 h-6 border-b-2 border-r-2 border-primary"></div>
-          <div class="bg-white p-2 border border-gray-200">
-            <img
-              alt="Shard QR"
-              class="w-64 h-64 object-contain"
-              src="{{ page.qr_items[0].data_uri }}"
-              style="image-rendering: pixelated;"
-            >
+        <div class="flex-1 min-h-0 flex items-center justify-center">
+          {% if page.qr_items %}
+          <div class="relative group">
+            <div class="absolute -top-3 -left-3 w-6 h-6 border-t-2 border-l-2 border-primary"></div>
+            <div class="absolute -top-3 -right-3 w-6 h-6 border-t-2 border-r-2 border-primary"></div>
+            <div class="absolute -bottom-3 -left-3 w-6 h-6 border-b-2 border-l-2 border-primary"></div>
+            <div class="absolute -bottom-3 -right-3 w-6 h-6 border-b-2 border-r-2 border-primary"></div>
+            <div class="bg-white p-2 border border-gray-200">
+              <img
+                alt="Shard QR"
+                class="w-64 h-64 object-contain"
+                src="{{ page.qr_items[0].data_uri }}"
+                style="image-rendering: pixelated;"
+              >
+            </div>
           </div>
+          {% endif %}
         </div>
-        {% endif %}
 
         {% if page.fallback_blocks %}
-        <div class="w-full bg-gray-50 border border-gray-200 p-4 rounded-sm relative overflow-hidden">
+        <div class="w-full shrink-0 bg-gray-50 border border-gray-200 p-4 rounded-sm relative overflow-hidden">
           <div class="absolute inset-0 opacity-[0.03] pointer-events-none" style="background-image: repeating-linear-gradient(45deg, #000 0, #000 1px, transparent 0, transparent 10px);"></div>
           <div class="relative z-10">
             <div class="flex items-center gap-2 mb-2">

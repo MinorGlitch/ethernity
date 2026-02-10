@@ -1,0 +1,190 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+<!doctype html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8">
+  {% include 'partials/monograph_tailwind_setup.j2' %}
+  <style>
+    {% include 'partials/material_symbols_local.j2' %}
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+
+    @media print {
+      body {
+        background: white !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      .print-sheet {
+        box-shadow: none !important;
+        margin: 0 !important;
+      }
+    }
+
+    .print-sheet {
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      min-height: {{ page_height_mm }}mm;
+      margin: 0 auto;
+      page-break-after: always;
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+      overflow: hidden;
+      position: relative;
+      background: white;
+    }
+
+    .print-sheet:last-child {
+      page-break-after: auto;
+    }
+
+    .qr-render {
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+<body class="bg-background-light font-display min-h-screen text-[#0f172a]">
+{% for page in pages %}
+  {% set ns = namespace(entries=[]) %}
+  {% for block in page.fallback_blocks %}
+    {% for line in block.lines %}
+      {% set ns.entries = ns.entries + [{'num': block.line_offset + loop.index, 'line': line}] %}
+    {% endfor %}
+  {% endfor %}
+  {% set half = ((ns.entries | length) + 1) // 2 %}
+
+  <section class="print-sheet border border-[#dfe5e6]">
+    <div class="absolute inset-0 bg-[radial-gradient(circle_at_28%_24%,#b3e2c8_0%,#b8e7d4_28%,#9cded7_52%,#9ad4c7_76%,#d7efe3_100%)]"></div>
+    <div class="absolute inset-0 opacity-[0.06] pointer-events-none flex items-center justify-center">
+      <div class="w-[150mm] h-[150mm] border-[5mm] border-[#0f172a] rounded-full"></div>
+      <div class="absolute w-[108mm] h-[108mm] border-[3mm] border-[#0f172a] rounded-full"></div>
+    </div>
+
+    <div class="relative z-10 h-full flex flex-col p-[12mm]">
+      <header class="border-b-[1.6px] border-[#0f172a] pb-3">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h1 class="font-serif text-[22px] font-bold uppercase tracking-tight">Monograph</h1>
+            <p class="text-[8px] font-black uppercase tracking-[0.2em] text-[#4b5563]">Security Archival Systems</p>
+          </div>
+          <div class="relative size-[20mm] flex items-center justify-center rounded-full border-[0.6mm] border-brass text-brass bg-brass/5">
+            <div class="absolute inset-[1.2mm] border border-brass rounded-full opacity-60"></div>
+            <span class="material-symbols-outlined text-[20px]">verified_user</span>
+          </div>
+        </div>
+
+        <div class="mt-3 flex items-end justify-between">
+          <div>
+            <p class="text-[7px] font-black uppercase tracking-[0.16em] text-[#7c8798]">Data Handling</p>
+            <div class="mt-1 flex items-center gap-2">
+              <span class="text-[9px] font-black bg-[#0f172a] text-white px-1.5 py-0.5 uppercase">Sensitive</span>
+              <span class="font-serif text-[13px] italic font-semibold text-[#374151]">Signing Key Shard</span>
+            </div>
+          </div>
+          <div class="text-right">
+            <p class="text-[7px] font-black uppercase tracking-[0.16em] text-[#7c8798]">Reference ID</p>
+            <p class="font-mono text-[13px] font-bold">{{ doc_id[:4] }}-{{ doc_id[4:8] }}-{{ doc_id[8:12] }}</p>
+          </div>
+        </div>
+      </header>
+
+      <main class="flex-1 min-h-0 py-4 flex flex-col gap-4">
+        <div class="bg-white/80 border-l-2 border-brass p-3">
+          <h2 class="text-[9px] font-black uppercase tracking-[0.12em] text-brass mb-1 flex items-center gap-1.5">
+            <span class="material-symbols-outlined text-[12px]">info</span>
+            Recovery Instructions
+          </h2>
+          <p class="text-[8.5px] leading-relaxed italic font-serif text-[#3f4551]">
+            This document contains a partial signing key shard. This shard alone cannot reconstruct the full private key.
+            Store in a climate-controlled, fire-resistant environment. Do not photocopy or digitally scan after verification.
+          </p>
+        </div>
+
+        <div>
+          <div class="flex items-end justify-between border-b border-[#d5dce1] pb-1">
+            <h3 class="text-[11px] font-black uppercase tracking-[0.08em]">Mnemonic Sequence</h3>
+            <span class="text-[7px] font-mono text-[#7c8798]">Manual fallback lines</span>
+          </div>
+          <div class="mt-2 grid grid-cols-2 gap-x-7">
+            <div class="space-y-1.5">
+              {% for row in ns.entries[:half] %}
+              <div class="flex items-center gap-2 border-b border-dotted border-[#d5dce1] pb-1">
+                <span class="w-6 text-[8px] font-mono text-[#7c8798]">{{ '%02d' % row.num }}</span>
+                <span class="flex-1 text-center px-1.5 py-0.5 rounded bg-white/65 font-mono text-[8.8px] tracking-wide whitespace-nowrap overflow-hidden text-ellipsis">{{ row.line }}</span>
+              </div>
+              {% endfor %}
+            </div>
+            <div class="space-y-1.5">
+              {% for row in ns.entries[half:] %}
+              <div class="flex items-center gap-2 border-b border-dotted border-[#d5dce1] pb-1">
+                <span class="w-6 text-[8px] font-mono text-[#7c8798]">{{ '%02d' % row.num }}</span>
+                <span class="flex-1 text-center px-1.5 py-0.5 rounded bg-white/65 font-mono text-[8.8px] tracking-wide whitespace-nowrap overflow-hidden text-ellipsis">{{ row.line }}</span>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="mt-2 text-center">
+            <p class="text-[7px] uppercase tracking-[0.14em] text-[#8ca8a0] font-black">* Verify line order and spacing before storage</p>
+          </div>
+        </div>
+
+        <div class="mt-auto pt-4 grid grid-cols-2 gap-8">
+          <div>
+            <div class="h-9 border-b border-[#0f172a]"></div>
+            <p class="mt-1 text-[8px] font-black uppercase">Authorized Witness</p>
+            <p class="text-[7px] text-[#6b7280]">Sign & Date</p>
+          </div>
+          <div>
+            <div class="h-9 border-b border-[#0f172a]"></div>
+            <p class="mt-1 text-[8px] font-black uppercase">Key Custodian</p>
+            <p class="text-[7px] text-[#6b7280]">Sign & Date</p>
+          </div>
+        </div>
+      </main>
+
+      <footer class="pt-3 border-t border-[#d5dce1] flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-[15mm] h-[15mm] border border-[#0f172a] bg-white p-1">
+            {% if page.qr_items %}
+            <img class="w-full h-full object-contain qr-render" src="{{ page.qr_items[0].data_uri }}" alt="Signing key shard QR {{ page.qr_items[0].index }}">
+            {% else %}
+            <span class="material-symbols-outlined text-[16px] text-[#0f172a]">qr_code_2</span>
+            {% endif %}
+          </div>
+          <div class="text-[7px] font-mono text-[#6b7280] leading-snug">
+            <div>HASH: {{ doc_id }}{{ '%02d' % page.page_num }}</div>
+            <div>DATE: {{ created_timestamp_utc }}</div>
+            <div>SOURCE: PRINTED OFFLINE</div>
+          </div>
+        </div>
+        <div class="text-right">
+          <p class="text-[8px] font-black uppercase tracking-[0.12em]">{{ page.page_label }}</p>
+          <p class="text-[7px] uppercase tracking-[0.12em] text-[#6b7280] flex items-center justify-end gap-1">
+            <span class="material-symbols-outlined text-[10px]">lock</span>
+            End of Document
+          </p>
+        </div>
+      </footer>
+    </div>
+  </section>
+{% endfor %}
+</body>
+</html>

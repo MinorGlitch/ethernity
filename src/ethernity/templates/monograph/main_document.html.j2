@@ -1,0 +1,201 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+<!doctype html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8">
+  {% include 'partials/monograph_tailwind_setup.j2' %}
+  <style>
+    {% include 'partials/material_symbols_local.j2' %}
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+
+    @media print {
+      body {
+        background: white !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      .print-sheet {
+        box-shadow: none !important;
+        margin: 0 !important;
+      }
+    }
+
+    .print-sheet {
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      min-height: {{ page_height_mm }}mm;
+      margin: 0 auto;
+      page-break-after: always;
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+      overflow: hidden;
+      position: relative;
+      background: #fdfbf7;
+    }
+
+    .print-sheet:last-child {
+      page-break-after: auto;
+    }
+
+    .qr-render {
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+<body class="bg-background-light font-display min-h-screen text-ink-dark">
+{% for page in pages %}
+  {% set dense_mode = (page.qr_items | length) > 3 %}
+  <section class="print-sheet border border-[#e5e5e5] flex flex-col">
+    <div class="flex flex-1 min-h-0">
+      <aside class="w-[32%] border-r border-[#e5e5e5] bg-[#fbf9f4] p-[11mm] text-[10px] leading-relaxed text-ink-light flex flex-col gap-8">
+        <div>
+          <p class="uppercase tracking-[0.16em] text-[9px] font-black text-primary mb-2">Handling Instructions</p>
+          <p>
+            This page contains encoded recovery payloads. Do not fold across QR regions.
+            Keep pages flat, dry, and separated from recovery-text documents.
+          </p>
+        </div>
+        <div>
+          <p class="uppercase tracking-[0.16em] text-[9px] font-black text-primary mb-2">Verification</p>
+          <p>
+            Scan every segment with a compatible offline reader.
+            Manual restoration can be performed using the checksums below each section.
+          </p>
+        </div>
+        <div class="mt-auto opacity-70 font-mono text-[9px]">
+          <p>Generated UTC: {{ created_timestamp_utc }}</p>
+          <p>Document ID: {{ doc_id }}</p>
+          <p>Keep with matching recovery packet.</p>
+        </div>
+      </aside>
+
+      <div class="w-[68%] p-[11mm] flex flex-col min-h-0 relative">
+        <div class="absolute inset-0 flex items-center justify-center opacity-[0.035] pointer-events-none select-none overflow-hidden">
+          <span class="material-symbols-outlined text-[420px] text-ink-dark rotate-[-14deg]">verified_user</span>
+        </div>
+
+        <header class="relative z-10 border-b border-[#dcd6ef] pb-4 mb-4">
+          <div class="flex justify-between items-start gap-4">
+            <div>
+              <h1 class="font-serif text-[22px] leading-tight font-bold tracking-tight">Main Security Record</h1>
+              <div class="mt-2 flex items-center gap-3 text-[10px] font-mono uppercase tracking-wider text-ink-light">
+                <span>REF: {{ doc_id[:3] }}-{{ doc_id[3:5] }}-{{ doc_id[5:7] }}</span>
+                <span class="w-1 h-1 rounded-full bg-[#cfc9e4]"></span>
+                <span>Classification: Offline Recovery Payload</span>
+              </div>
+              <div class="mt-2 flex items-center justify-between text-[9px] uppercase tracking-[0.14em] text-ink-light">
+                <span>Verify custody signatures before use</span>
+                <span>{{ created_timestamp_utc }}</span>
+              </div>
+            </div>
+            <div class="shrink-0 w-14 h-14 border border-primary/30 rounded-full flex items-center justify-center rotate-[-15deg] text-[8px] font-black text-primary text-center leading-tight uppercase">
+              Offline<br>Use<br>Only
+            </div>
+          </div>
+        </header>
+
+        <main class="relative z-10 flex-1 min-h-0">
+            {% if page.qr_items %}
+            {% set section_titles = [
+              'Section I: Primary Payload',
+              'Section II: Continuation Payload',
+              'Section III: Verification Payload',
+              'Section IV: Recovery Continuation',
+              'Section V: Custody Continuation',
+              'Section VI: Final Payload'
+            ] %}
+            {% set section_blurbs = [
+              'Scan this segment first and record decoded output in sequence order.',
+              'Scan this continuation segment immediately after the previous segment.',
+              'Use this segment to confirm sequence integrity during reconstruction.',
+              'If scanning fails, use matching fallback lines in the Recovery Document.',
+              'Record custody transfer notes before moving this page between operators.',
+              'Scan this segment last for the current page sequence.'
+            ] %}
+
+            {% if dense_mode %}
+            <div class="grid grid-cols-2 gap-3">
+              {% for slot in page.qr_items %}
+              <article class="border border-[#e4dff2] bg-white p-2.5 flex flex-col gap-2">
+                <div class="flex items-center justify-between border-b border-[#ece7f7] pb-1">
+                  <h2 class="text-[9px] font-black uppercase tracking-wide text-primary">
+                    {{ section_titles[loop.index0] if loop.index0 < (section_titles | length) else ('Section ' ~ loop.index ~ ': Segment') }}
+                  </h2>
+                  <span class="text-[8px] font-mono text-[#b8b0d4]">0x{{ doc_id[(loop.index0 * 2) % (doc_id | length):((loop.index0 * 2) % (doc_id | length)) + 4] }}...</span>
+                </div>
+                <div class="flex gap-2 items-start">
+                  <div class="w-[26mm] h-[26mm] border border-[#ddd6ef] bg-white p-1 shrink-0">
+                    <img class="w-full h-full object-contain qr-render" src="{{ slot.data_uri }}" alt="QR section {{ slot.index }}">
+                  </div>
+                  <div class="min-w-0">
+                    <p class="text-[8.5px] leading-snug text-[#3f3861]">{{ section_blurbs[loop.index0] if loop.index0 < (section_blurbs | length) else 'Encrypted continuation segment for this document set.' }}</p>
+                    <p class="mt-1 text-[8px] font-mono text-[#867fb0] break-all">SHA-256: {{ doc_id[:24] }}{{ '%02d' % slot.index }}</p>
+                  </div>
+                </div>
+              </article>
+              {% endfor %}
+            </div>
+            {% else %}
+            <div class="flex flex-col gap-4">
+              {% for slot in page.qr_items %}
+              <article class="relative pl-4 border-l border-primary/30">
+                <div class="flex items-end justify-between border-b border-[#e5e0f2] pb-1 mb-2">
+                  <h2 class="text-[11px] font-black tracking-wide uppercase text-primary">
+                    {{ section_titles[loop.index0] if loop.index0 < (section_titles | length) else ('Section ' ~ loop.index ~ ': Segment') }}
+                  </h2>
+                  <span class="text-[8px] font-mono text-[#a39abc]">0x{{ doc_id[(loop.index0 * 2) % (doc_id | length):((loop.index0 * 2) % (doc_id | length)) + 4] }}...</span>
+                </div>
+                <div class="flex gap-4 items-start">
+                  <div class="w-[31mm] h-[31mm] border border-[#ddd6ef] bg-white p-1.5 shrink-0 shadow-sm">
+                    <img class="w-full h-full object-contain qr-render" src="{{ slot.data_uri }}" alt="QR section {{ slot.index }}">
+                  </div>
+                  <div class="min-w-0">
+                    <p class="font-serif text-[11px] leading-relaxed text-[#352f54] mb-2">
+                      {{ section_blurbs[loop.index0] if loop.index0 < (section_blurbs | length) else 'Encrypted continuation segment for this document set.' }}
+                    </p>
+                    <div class="bg-[#f6f4fb] border border-[#ece7f7] p-2 font-mono text-[9px] text-[#726b95] break-all">
+                      SHA-256: {{ doc_id[:30] }}{{ '%02d' % slot.index }}
+                    </div>
+                  </div>
+                </div>
+              </article>
+              {% endfor %}
+            </div>
+            {% endif %}
+          {% else %}
+          <div class="h-full border border-dashed border-[#ddd6ef] bg-white/60 flex items-center justify-center text-sm text-ink-light font-serif italic">
+            No QR payloads on this page.
+          </div>
+          {% endif %}
+        </main>
+
+        <footer class="relative z-10 mt-4 pt-3 border-t border-[#d7d0ee] flex items-center justify-between text-[9px] font-mono uppercase tracking-[0.14em] text-[#7e76a4]">
+          <span>Monograph Offline Archive</span>
+          <span>DOC ID: {{ doc_id[:3] }}-{{ doc_id[3:5] }}-{{ doc_id[5:7] }}</span>
+          <span>{{ page.page_label }}</span>
+        </footer>
+      </div>
+    </div>
+  </section>
+{% endfor %}
+</body>
+</html>
