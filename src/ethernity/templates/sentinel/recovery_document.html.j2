@@ -184,16 +184,16 @@
                   {% set ns.used_rows = ns.used_rows + 1 %}
                   {% endif %}
                   {% if block.title %}
-                  <div class="grid grid-cols-[40px_1fr] gap-2 px-2 h-[22px] items-center border-b border-gray-200 bg-[#faf8f4]">
+                  <div class="grid grid-cols-[34px_1fr] gap-2 px-2 h-[22px] items-center border-b border-gray-200 bg-[#faf8f4]">
                     <div></div>
                     <div class="text-[9px] uppercase font-black tracking-widest text-text-secondary-light">{{ block.title }}</div>
                   </div>
                   {% set ns.used_rows = ns.used_rows + 1 %}
                   {% endif %}
                   {% for line in block.lines %}
-                  <div class="grid grid-cols-[40px_1fr] gap-2 px-2 h-[22px] items-center border-b border-gray-200 text-[9px] font-mono leading-none">
+                  <div class="grid grid-cols-[34px_1fr] gap-2 px-2 h-[22px] items-center border-b border-gray-200 text-[9px] font-mono leading-none">
                     <span class="text-right pr-1 text-text-secondary-light">{{ '%02d' % (block.line_offset + loop.index) }}.</span>
-                    <span class="tracking-normal whitespace-nowrap overflow-hidden">{{ line }}</span>
+                    <span class="tracking-normal whitespace-nowrap">{{ line }}</span>
                   </div>
                   {% set ns.used_rows = ns.used_rows + 1 %}
                   {% endfor %}
@@ -220,7 +220,7 @@
                 {% set filler_rows = capacity_rows - ns.used_rows %}
                 {% if filler_rows > 0 %}
                   {% for _ in range(filler_rows) %}
-                  <div class="grid grid-cols-[40px_1fr] gap-2 px-2 h-[22px] items-center border-b border-gray-200">
+                  <div class="grid grid-cols-[34px_1fr] gap-2 px-2 h-[22px] items-center border-b border-gray-200">
                     <span></span>
                     <span></span>
                   </div>
@@ -275,7 +275,7 @@
       </div>
 
       <div class="border border-border-light rounded overflow-hidden flex-1 min-h-0 flex flex-col">
-        <div class="grid grid-cols-[34px_1fr_56px] gap-2 px-3 py-1.5 border-b border-black text-[10px] font-bold uppercase tracking-wider">
+        <div class="grid grid-cols-[30px_1fr_44px] gap-2 px-3 py-1.5 border-b border-black text-[10px] font-bold uppercase tracking-wider">
           <div>Idx</div>
           <div>Data Entry Block</div>
           <div class="text-center">Verify</div>
@@ -286,7 +286,7 @@
           <div class="grid gap-0">
             {% for block in page.fallback_blocks %}
               {% if loop.index0 > 0 %}
-              <div class="grid grid-cols-[34px_1fr_56px] gap-2 items-center h-[19px]">
+              <div class="grid grid-cols-[30px_1fr_44px] gap-2 items-center h-[19px]">
                 <div></div>
                 <div class="border-b border-gray-200"></div>
                 <div></div>
@@ -294,7 +294,7 @@
               {% set ns.used_rows = ns.used_rows + 1 %}
               {% endif %}
               {% if block.title %}
-              <div class="grid grid-cols-[34px_1fr_56px] gap-2 items-center h-[19px]">
+              <div class="grid grid-cols-[30px_1fr_44px] gap-2 items-center h-[19px]">
                 <div></div>
                 <div class="text-[8.5px] font-black uppercase tracking-widest text-text-secondary-light">{{ block.title }}</div>
                 <div></div>
@@ -302,9 +302,9 @@
               {% set ns.used_rows = ns.used_rows + 1 %}
               {% endif %}
               {% for line in block.lines %}
-              <div class="grid grid-cols-[34px_1fr_56px] gap-2 items-center h-[19px]">
+              <div class="grid grid-cols-[30px_1fr_44px] gap-2 items-center h-[19px]">
                 <div class="font-mono text-[11px] font-bold text-text-secondary-light text-right pr-1">{{ '%02d' % (block.line_offset + loop.index) }}</div>
-                <div class="h-[19px] border border-border-light bg-transparent px-2 flex items-center font-mono text-[9.25px] leading-none whitespace-nowrap overflow-hidden">{{ line }}</div>
+                <div class="h-[19px] border border-border-light bg-transparent px-2 flex items-center font-mono text-[9px] leading-none tracking-tight whitespace-nowrap">{{ line }}</div>
                 <div class="h-[19px] border border-dashed border-border-light bg-[#faf8f4] flex items-center justify-center">
                   <span class="material-symbols-outlined text-gray-400 text-[14px]">check_circle</span>
                 </div>
@@ -316,7 +316,7 @@
             {% set filler_rows = capacity_rows - ns.used_rows %}
             {% if filler_rows > 0 %}
               {% for _ in range(filler_rows) %}
-              <div class="grid grid-cols-[34px_1fr_56px] gap-2 items-center h-[19px]">
+              <div class="grid grid-cols-[30px_1fr_44px] gap-2 items-center h-[19px]">
                 <div></div>
                 <div class="h-[19px] border border-border-light bg-transparent"></div>
                 <div class="h-[19px] border border-dashed border-border-light bg-[#faf8f4]"></div>

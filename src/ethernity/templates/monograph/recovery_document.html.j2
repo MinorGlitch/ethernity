@@ -60,21 +60,30 @@
 <body class="bg-background-light font-display min-h-screen text-ink-dark">
 {% for page in pages %}
   {% set ns_auth = namespace(block=None) %}
-  {% set ns_main = namespace(lines=[]) %}
+  {% set ns_main = namespace(rows=[]) %}
   {% set ns_entries = namespace(rows=[]) %}
   {% for block in page.fallback_blocks %}
     {% if ns_auth.block is none and block.title and ('AUTH' in (block.title | upper)) %}
       {% set ns_auth.block = block %}
     {% else %}
       {% for line in block.lines %}
-        {% set ns_main.lines = ns_main.lines + [line] %}
+        {% set ns_main.rows = ns_main.rows + [{
+          'num': block.line_offset + loop.index,
+          'line': line
+        }] %}
       {% endfor %}
     {% endif %}
   {% endfor %}
   {% if ns_auth.block is not none %}
     {% set auth_lines = ns_auth.block.lines %}
+    {% set main_rows = ns_main.rows %}
   {% else %}
-    {% set auth_lines = ns_main.lines[:3] %}
+    {% set ns_auth_fallback = namespace(lines=[]) %}
+    {% for row in ns_main.rows[:3] %}
+      {% set ns_auth_fallback.lines = ns_auth_fallback.lines + [row.line] %}
+    {% endfor %}
+    {% set auth_lines = ns_auth_fallback.lines %}
+    {% set main_rows = ns_main.rows[3:] %}
   {% endif %}
 
   {% for block in page.fallback_blocks %}
@@ -91,36 +100,19 @@
     {% if page.page_num == 1 %}
       <div class="h-[2.2mm] w-full bg-gradient-to-r from-primary to-primary/40"></div>
       <div class="flex-1 p-[14mm] pb-[12mm] flex flex-col gap-5">
-        <header class="border-b border-line-subtle pb-4">
-          <div class="flex items-start justify-between gap-4">
-            <div>
-              <h1 class="font-serif text-[18px] md:text-[20px] font-black tracking-tight">Recovery Document</h1>
-              <p class="mt-1 text-[10px] uppercase tracking-[0.2em] text-primary font-semibold">Confidential // Manual Transcription</p>
-            </div>
-            <div class="w-12 h-12 border border-line-subtle rounded-sm bg-background-light/50 flex items-center justify-center">
-              <span class="material-symbols-outlined text-[26px] text-line-subtle">qr_code_2</span>
-            </div>
-          </div>
-          <div class="mt-3 flex items-end justify-between text-[9px] font-mono uppercase tracking-wide text-ink-light">
-            <div class="flex gap-5">
-              <div>
-                <p class="opacity-70">Archive Ref</p>
-                <p class="text-ink-dark font-bold">{{ doc_id[:3] }}-{{ doc_id[3:7] }}-{{ doc_id[7:10] }}</p>
-              </div>
-              <div>
-                <p class="opacity-70">Date Created</p>
-                <p class="text-ink-dark font-bold">{{ created_timestamp_utc }}</p>
-              </div>
-            </div>
-            <p class="text-ink-dark font-bold">{{ page.page_label }}</p>
-          </div>
-        </header>
+        {% set monograph_header_title = 'Recovery Document' %}
+        {% set monograph_header_subtitle = doc.subtitle %}
+        {% set monograph_header_classification = 'Manual Entry Only' %}
+        {% set monograph_header_guidance = 'Transcribe exactly; keep separate from QR pages' %}
+        {% set monograph_header_ref = doc_id[:3] ~ '-' ~ doc_id[3:7] ~ '-' ~ doc_id[7:10] %}
+        {% set monograph_header_icon = 'qr_code_2' %}
+        {% include 'partials/monograph_shell_header.j2' %}
 
         <div class="grid grid-cols-12 gap-5 flex-1 min-h-0">
           <section class="col-span-4 flex flex-col gap-4 min-h-0">
             <div class="flex items-center gap-2 border-b border-primary/20 pb-2">
               <span class="material-symbols-outlined text-primary text-[15px]">vpn_key</span>
-              <h2 class="font-serif text-[14px] italic font-bold">Auth // Key</h2>
+              <h2 class="font-serif text-[14px] italic font-bold">Recovery Keys</h2>
             </div>
             <p class="text-[9px] italic leading-relaxed text-ink-light border-l-2 border-primary/20 pl-2">
               Verification keys for restoration. Ensure exact character casing.
@@ -158,21 +150,47 @@
           <section class="col-span-8 flex flex-col gap-4 min-h-0">
             <div class="flex items-center gap-2 border-b border-primary/20 pb-2">
               <span class="material-symbols-outlined text-primary text-[15px]">text_fields</span>
-              <h2 class="font-serif text-[14px] italic font-bold">Main // Recovery Phrase</h2>
+              <h2 class="font-serif text-[14px] italic font-bold">Manual Transcription Sequence</h2>
             </div>
             <p class="text-[9px] italic leading-relaxed text-ink-light border-l-2 border-primary/20 pl-2">
               Primary recovery phrase. Write clearly in the numbered slots below. Order matters.
             </p>
 
-            <div class="grid grid-cols-2 gap-x-5 gap-y-0">
-              {% for idx in range(12) %}
-                <div class="flex items-end gap-2 py-1.5 border-b border-line-subtle">
-                  <span class="w-6 text-[9px] font-mono text-ink-light">{{ '%02d' % (idx + 1) }}.</span>
-                  <div class="flex-1 border-b border-dashed border-ink-light/30 h-3 text-[9px] font-mono text-ink-dark overflow-hidden whitespace-nowrap">
-                    {{ ns_main.lines[idx] if (ns_main.lines | length) > idx else '' }}
-                  </div>
-                </div>
+            {% set ns_visible_main = namespace(rows=main_rows) %}
+            {% if (ns_visible_main.rows | length) < 12 %}
+              {% for _ in range(12 - (ns_visible_main.rows | length)) %}
+                {% set ns_visible_main.rows = ns_visible_main.rows + [{'num': none, 'line': ''}] %}
               {% endfor %}
+            {% endif %}
+            {% set main_half = ((ns_visible_main.rows | length) + 1) // 2 %}
+            {% set left_main_rows = ns_visible_main.rows[:main_half] %}
+            {% set right_main_rows = ns_visible_main.rows[main_half:] %}
+
+            <div class="grid grid-cols-2 gap-x-4">
+              <div class="space-y-0">
+                {% for row in left_main_rows %}
+                  <div class="flex items-end gap-2 py-1.5 border-b border-line-subtle">
+                    <span class="w-7 text-[8.5px] font-mono text-ink-light">
+                      {% if row.num is not none %}{{ '%02d' % row.num }}.{% endif %}
+                    </span>
+                    <div class="flex-1 border-b border-dashed border-ink-light/30 min-h-[3mm] text-[8.5px] font-mono text-ink-dark tracking-tight break-all leading-tight">
+                      {{ row.line }}
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+              <div class="space-y-0">
+                {% for row in right_main_rows %}
+                  <div class="flex items-end gap-2 py-1.5 border-b border-line-subtle">
+                    <span class="w-7 text-[8.5px] font-mono text-ink-light">
+                      {% if row.num is not none %}{{ '%02d' % row.num }}.{% endif %}
+                    </span>
+                    <div class="flex-1 border-b border-dashed border-ink-light/30 min-h-[3mm] text-[8.5px] font-mono text-ink-dark tracking-tight break-all leading-tight">
+                      {{ row.line }}
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
             </div>
 
             <div class="mt-auto pt-2">
@@ -185,10 +203,9 @@
           </section>
         </div>
 
-        <footer class="mt-auto border-t border-[#16131d] pt-2.5 flex justify-between text-[8.5px] uppercase tracking-[0.14em] font-black">
-          <span>Monograph Systems</span>
-          <span>Keep Separate From QR Pages</span>
-        </footer>
+        {% set monograph_footer_left = 'Monograph Offline Archive' %}
+        {% set monograph_footer_right = 'Transcribe exactly; keep separate from QR pages' %}
+        {% include 'partials/monograph_shell_footer.j2' %}
       </div>
     {% else %}
       {% set half = ((ns_entries.rows | length) + 1) // 2 %}
@@ -196,33 +213,28 @@
       {% set right_rows = ns_entries.rows[half:] %}
 
       <div class="flex-1 p-[14mm] pb-[12mm] flex flex-col gap-5">
-        <header class="border-b border-[#16131d]/10 pb-4">
-          <div class="flex items-start justify-between gap-4">
-            <div>
-              <p class="text-[8px] font-mono uppercase tracking-[0.2em] text-ink-light">Recovery Fallback Continuation</p>
-              <h1 class="mt-1 text-[20px] font-black tracking-tight">Recovery Document</h1>
-            </div>
-            <div class="text-right font-mono">
-              <p class="text-[8px] uppercase tracking-[0.16em] text-ink-light">Page</p>
-              <p class="text-[12px] font-black">{{ page.page_label | replace('Page ', '') | replace(' / ', ' / ') }}</p>
-            </div>
-          </div>
-        </header>
+        {% set monograph_header_title = 'Recovery Document' %}
+        {% set monograph_header_subtitle = doc.subtitle %}
+        {% set monograph_header_classification = 'Manual Entry Only' %}
+        {% set monograph_header_guidance = 'Transcribe exactly; keep separate from QR pages' %}
+        {% set monograph_header_ref = doc_id[:3] ~ '-' ~ doc_id[3:7] ~ '-' ~ doc_id[7:10] %}
+        {% set monograph_header_icon = 'text_fields' %}
+        {% include 'partials/monograph_shell_header.j2' %}
 
         <div>
           <div class="flex items-start justify-between gap-4">
             <div class="max-w-[68%]">
-              <h2 class="text-[19px] font-black tracking-tight">Extended Recovery Lines</h2>
+              <h2 class="text-[19px] font-black tracking-tight">Manual Transcription Sequence</h2>
               <p class="mt-2 text-[9px] leading-relaxed text-ink-light">
-                Continue transcription here when the first recovery page is full.
-                Keep numbering intact and store this page with the same custody packet.
+                Keep row order intact and copy each line exactly.
+                Keep this page separate from QR pages.
               </p>
             </div>
             <div class="border border-line-subtle bg-background-light px-3 py-2">
               <div class="flex items-center gap-2">
                 <span class="material-symbols-outlined text-primary text-[18px]">lock</span>
                 <div>
-                  <p class="text-[7px] font-mono uppercase tracking-[0.14em] text-ink-light">Data Class</p>
+                  <p class="text-[7px] font-mono uppercase tracking-[0.14em] text-ink-light">Classification</p>
                   <p class="text-[8.5px] font-bold">Encrypted recovery payload</p>
                 </div>
               </div>
@@ -232,7 +244,7 @@
 
         <section>
           <div class="flex items-center justify-between mb-2">
-            <h3 class="font-mono text-[8px] font-black uppercase tracking-[0.16em]">Section 03: Fallback Sequence</h3>
+            <h3 class="font-mono text-[8px] font-black uppercase tracking-[0.16em]">Fallback Sequence</h3>
             <span class="h-px flex-1 bg-black/10 ml-3"></span>
           </div>
           <div class="grid grid-cols-2 gap-x-8">
@@ -240,7 +252,7 @@
               {% for row in left_rows %}
               <div class="flex items-end gap-2 py-1.5 border-b border-dashed border-[#dfdbe9]">
                 <span class="w-7 text-[9px] font-mono text-ink-light">{{ '%02d' % row.num }}.</span>
-                <div class="flex-1 text-[9px] font-mono text-ink-dark whitespace-nowrap overflow-hidden">{{ row.line }}</div>
+                <div class="flex-1 text-[9px] font-mono text-ink-dark break-all tracking-tight leading-tight">{{ row.line }}</div>
               </div>
               {% endfor %}
             </div>
@@ -248,7 +260,7 @@
               {% for row in right_rows %}
               <div class="flex items-end gap-2 py-1.5 border-b border-dashed border-[#dfdbe9]">
                 <span class="w-7 text-[9px] font-mono text-ink-light">{{ '%02d' % row.num }}.</span>
-                <div class="flex-1 text-[9px] font-mono text-ink-dark whitespace-nowrap overflow-hidden">{{ row.line }}</div>
+                <div class="flex-1 text-[9px] font-mono text-ink-dark break-all tracking-tight leading-tight">{{ row.line }}</div>
               </div>
               {% endfor %}
             </div>
@@ -257,7 +269,7 @@
 
         <section>
           <div class="flex items-center justify-between mb-2">
-            <h3 class="font-mono text-[8px] font-black uppercase tracking-[0.16em]">Section 04: Recovery Verification Checklist</h3>
+            <h3 class="font-mono text-[8px] font-black uppercase tracking-[0.16em]">Recovery Verification Checklist</h3>
             <span class="h-px flex-1 bg-black/10 ml-3"></span>
           </div>
           <div class="grid grid-cols-3 gap-4">
@@ -272,19 +284,19 @@
           </div>
           <div class="mt-3">
             <p class="text-[7px] font-mono uppercase tracking-wider text-ink-light mb-1">Notes / Quorum</p>
-            <div class="border-b border-black/20 py-1 text-[8.5px] italic text-ink-light">{{ recovery.quorum_value if recovery.quorum_value else 'Record quorum confirmation or leave blank.' }}</div>
+            <div class="border-b border-black/20 py-1 text-[8.5px] italic text-ink-light">{{ recovery.quorum_value if recovery.quorum_value else 'Record shard quorum or leave blank.' }}</div>
           </div>
         </section>
 
         <section class="flex-1">
           <div class="flex items-center justify-between mb-2">
-            <h3 class="font-mono text-[8px] font-black uppercase tracking-[0.16em]">Section 05: Operator Notes</h3>
+            <h3 class="font-mono text-[8px] font-black uppercase tracking-[0.16em]">Operator Notes</h3>
             <span class="h-px flex-1 bg-black/10 ml-3"></span>
           </div>
           <div class="h-[58mm] bg-[linear-gradient(transparent_17px,#ece8f5_18px)] bg-[length:100%_18px]"></div>
         </section>
 
-        <footer class="mt-auto pt-4 border-t-[1.5px] border-black flex items-end justify-between">
+        <section class="mt-auto pt-4 border-t-[1.5px] border-black flex items-end justify-between">
           <div>
             <div class="w-16 h-5 bg-black mb-1"></div>
             <p class="text-[7px] font-mono uppercase tracking-wider text-ink-light">Document Hash</p>
@@ -297,10 +309,13 @@
             </div>
             <div class="w-28">
               <div class="h-5 border-b border-black/20"></div>
-              <p class="mt-1 text-[7px] font-mono uppercase tracking-wider text-ink-light">Authorized Sig.</p>
+              <p class="mt-1 text-[7px] font-mono uppercase tracking-wider text-ink-light">Authorized Signature</p>
             </div>
           </div>
-        </footer>
+        </section>
+        {% set monograph_footer_left = 'Monograph Offline Archive' %}
+        {% set monograph_footer_right = 'Transcribe exactly; keep separate from QR pages' %}
+        {% include 'partials/monograph_shell_footer.j2' %}
       </div>
     {% endif %}
   </section>

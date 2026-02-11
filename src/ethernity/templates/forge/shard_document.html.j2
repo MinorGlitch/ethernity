@@ -39,10 +39,14 @@
 
     .print-sheet {
       width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
       min-height: {{ page_height_mm }}mm;
       margin: 0 auto;
       page-break-after: always;
       background: white;
+      overflow: hidden;
+      break-inside: avoid-page;
+      page-break-inside: avoid;
     }
 
     .print-sheet:last-child {
@@ -64,20 +68,14 @@
 {% for page in pages %}
   <section class="print-sheet relative overflow-hidden text-black watermark-pattern">
     <div class="absolute inset-0 p-[15mm] flex flex-col justify-between">
-      <header class="border-b-4 border-black pb-6 flex justify-between items-start">
-        <div class="flex flex-col">
-          <div class="flex items-center gap-3 mb-2">
-            <h2 class="text-3xl font-black tracking-tighter uppercase">Ethernity</h2>
-          </div>
-          <p class="text-sm font-bold tracking-widest uppercase text-slate-600">Secure Recovery Protocol</p>
-          <p class="text-sm text-slate-500 mt-2">{{ doc.subtitle }}</p>
-        </div>
-        <div class="text-right">
-          <h1 class="text-4xl font-black uppercase tracking-tight mb-1">Shard {{ '%02d' % shard_index }}</h1>
-          <p class="font-mono text-sm border border-black px-2 py-0.5 inline-block">{{ forge_copy.doc_id_label }}: {{ doc_id }}</p>
-          <p class="font-mono text-xs mt-1">{{ page.page_label }}</p>
-        </div>
-      </header>
+      {% set forge_header_title = 'Shard ' ~ ('%02d' % shard_index) %}
+      {% set forge_header_subtitle = doc.subtitle %}
+      {% set forge_header_kicker = 'The Forge // Secure Offline Storage' %}
+      {% set forge_header_classification = 'Confidential' %}
+      {% set forge_header_guidance = 'Single shard cannot recover the secret' %}
+      {% set forge_header_ref = doc_id %}
+      {% set forge_header_icon = 'shield_lock' %}
+      {% include 'partials/forge_shell_header.j2' %}
 
       <section class="mt-8 border-2 border-black p-4 bg-slate-100">
         <div class="flex items-start gap-4">
@@ -143,7 +141,7 @@
         {% endif %}
       </section>
 
-      <footer class="mt-auto pt-8 border-t-2 border-black border-dashed">
+      <section class="mt-auto pt-8 border-t-2 border-black border-dashed mb-4">
         <div class="grid grid-cols-2 gap-12">
           <div>
             <div class="h-12 border-b border-black mb-2"></div>
@@ -156,17 +154,11 @@
             <p class="text-xs font-bold uppercase tracking-wider text-right">Date Verified</p>
           </div>
         </div>
-        <div class="mt-8 flex justify-between items-end text-[10px] uppercase text-slate-400 font-mono">
-          <div>
-            <p>{{ forge_copy.protocol_label }} {{ forge_copy.version }}</p>
-            <p>Doc Ref: ETH-REC-S{{ '%02d' % shard_index }}</p>
-          </div>
-          <div class="text-right">
-            <p>{{ page.page_label }}</p>
-            <p>Confidential</p>
-          </div>
-        </div>
-      </footer>
+      </section>
+
+      {% set forge_footer_left = forge_copy.generator_label %}
+      {% set forge_footer_right = 'Single shard cannot recover the secret' %}
+      {% include 'partials/forge_shell_footer.j2' %}
     </div>
   </section>
 {% endfor %}

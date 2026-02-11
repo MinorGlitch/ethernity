@@ -66,25 +66,16 @@
 <body class="bg-background-light font-display text-slate-900 min-h-screen flex flex-col overflow-x-hidden">
 {% for page in pages %}
   <section class="print-sheet flex flex-col p-[15mm]">
+    {% set forge_header_title = doc.title %}
+    {% set forge_header_subtitle = doc.subtitle %}
+    {% set forge_header_kicker = 'The Forge // Secure Offline Storage' %}
+    {% set forge_header_classification = 'Manual Entry Only' %}
+    {% set forge_header_guidance = 'Transcribe exactly; keep separate from QR pages' %}
+    {% set forge_header_ref = doc_id %}
+    {% set forge_header_icon = 'shield_lock' %}
+    {% include 'partials/forge_shell_header.j2' %}
+
     <div class="flex flex-col border-b-2 border-black pb-4 mb-6">
-      <div class="flex justify-between items-start mb-4">
-        <div class="flex items-center gap-3">
-          <div class="size-10 border-2 border-black rounded flex items-center justify-center">
-            <span class="material-symbols-outlined text-3xl text-black">shield_lock</span>
-          </div>
-          <div class="flex flex-col">
-            <h1 class="text-2xl font-bold tracking-tight uppercase leading-none">{{ doc.title }}</h1>
-            <span class="text-xs font-mono tracking-widest text-slate-600 uppercase mt-1">{{ doc.subtitle }}</span>
-          </div>
-        </div>
-        <div class="flex flex-col items-end text-right">
-          <div class="border border-black px-2 py-1 text-xs font-mono mb-1 bg-slate-50">
-            {{ forge_copy.doc_id_label }}: <span class="font-bold">{{ doc_id }}</span>
-          </div>
-          <p class="text-[10px] text-slate-500 font-mono">{{ forge_copy.generated_utc_label }}: {{ created_timestamp_utc }}</p>
-          <p class="text-[10px] text-slate-500 font-mono">{{ page.page_label }}</p>
-        </div>
-      </div>
       <div class="bg-slate-100 border border-slate-300 p-3 flex gap-3 items-start">
         <span class="material-symbols-outlined text-xl mt-0.5">warning</span>
         <div>
@@ -168,14 +159,9 @@
     </div>
     {% endif %}
 
-    <div class="mt-2 shrink-0 pt-4 border-t border-slate-200 flex justify-between items-center text-[10px] text-slate-400 font-mono uppercase">
-      <span class="inline-flex items-center gap-1">
-        <span class="material-symbols-outlined text-sm">verified_user</span>
-        Securely Generated Offline
-      </span>
-      <span>{{ page.page_label }}</span>
-      <span>The Forge // Ethernity</span>
-    </div>
+    {% set forge_footer_left = forge_copy.generator_label %}
+    {% set forge_footer_right = 'Transcribe exactly; keep separate from QR pages' %}
+    {% include 'partials/forge_shell_footer.j2' %}
   </section>
 {% endfor %}
 </body>

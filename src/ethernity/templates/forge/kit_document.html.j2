@@ -40,10 +40,14 @@
 
     .print-sheet {
       width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
       min-height: {{ page_height_mm }}mm;
       margin: 0 auto;
       page-break-after: always;
       background: white;
+      overflow: hidden;
+      break-inside: avoid-page;
+      page-break-inside: avoid;
     }
 
     .print-sheet:last-child {
@@ -59,37 +63,14 @@
 {% for page in pages %}
   <section class="print-sheet flex flex-col p-[15mm] border border-gray-100">
     {% if page.instructions_full_page %}
-    <div class="flex flex-col gap-6 mb-8">
-      <div class="flex justify-between items-start border-b-2 border-gray-900 pb-6">
-        <div class="flex flex-col gap-2">
-          <div class="flex items-center gap-2 text-gray-900 mb-1">
-            <span class="material-symbols-outlined text-2xl">token</span>
-            <span class="text-xl font-black tracking-widest uppercase">Ethernity Forge</span>
-          </div>
-          <h1 class="text-4xl font-bold text-gray-900 tracking-tight">Recovery Kit Master Index</h1>
-          <p class="text-sm text-gray-600">{{ doc.subtitle }}</p>
-        </div>
-        <div class="text-right">
-          <div class="w-24 h-24 bg-gray-900 p-1 ml-auto">
-            <div class="w-full h-full bg-white flex items-center justify-center">
-              <span class="material-symbols-outlined text-6xl text-gray-900">qr_code_2</span>
-            </div>
-          </div>
-          <p class="text-xs font-mono mt-2 text-gray-500">Scan for digital verification</p>
-        </div>
-      </div>
-
-      <div class="grid grid-cols-2 gap-4 text-sm">
-        <div>
-          <p class="text-gray-500 uppercase text-xs font-bold tracking-wider mb-1">{{ forge_copy.generated_utc_label }}</p>
-          <p class="font-mono text-gray-900">{{ created_timestamp_utc }}</p>
-        </div>
-        <div>
-          <p class="text-gray-500 uppercase text-xs font-bold tracking-wider mb-1">{{ forge_copy.doc_id_label }}</p>
-          <p class="font-mono text-gray-900">{{ doc_id }}</p>
-        </div>
-      </div>
-    </div>
+    {% set forge_header_title = doc.title %}
+    {% set forge_header_subtitle = doc.subtitle %}
+    {% set forge_header_kicker = 'The Forge // Secure Offline Storage' %}
+    {% set forge_header_classification = 'Offline Processing Required' %}
+    {% set forge_header_guidance = 'Scan left-to-right, top-to-bottom' %}
+    {% set forge_header_ref = doc_id %}
+    {% set forge_header_icon = 'token' %}
+    {% include 'partials/forge_shell_header.j2' %}
 
     <div class="border-l-4 border-primary bg-blue-50 p-4 mb-8">
       <div class="flex gap-3">
@@ -98,6 +79,10 @@
           <h3 class="font-bold text-gray-900 text-sm uppercase mb-1">Critical Security Warning</h3>
           <p class="text-sm text-gray-700 leading-relaxed">
             This document acts as a table of contents and inventory log. Keep this document separate from your seed phrases or key shards.
+          </p>
+          <p class="mt-2 text-xs text-gray-600 inline-flex items-center gap-1">
+            <span class="material-symbols-outlined text-sm">qr_code_2</span>
+            Verify every scan in offline mode.
           </p>
         </div>
       </div>
@@ -128,30 +113,25 @@
       </div>
     </div>
     {% else %}
-    <div class="flex flex-col gap-6 mb-8">
-      <div class="flex justify-between items-start border-b-2 border-gray-900 pb-6">
-        <div class="flex flex-col gap-2">
-          <div class="flex items-center gap-2 text-gray-900 mb-1">
-            <span class="material-symbols-outlined text-2xl">token</span>
-            <span class="text-xl font-black tracking-widest uppercase">Ethernity Forge</span>
-          </div>
-          <h1 class="text-3xl font-bold text-gray-900 tracking-tight">{{ doc.title }}</h1>
-          <p class="text-sm text-gray-600">{{ doc.subtitle }}</p>
-        </div>
-        <div class="text-right text-xs font-mono text-gray-500">
-          <p>{{ page.page_label }}</p>
-          <p>{{ forge_copy.doc_id_label }}: {{ doc_id }}</p>
-          <p>{{ created_timestamp_utc }}</p>
-        </div>
-      </div>
+    {% set forge_header_title = doc.title %}
+    {% set forge_header_subtitle = doc.subtitle %}
+    {% set forge_header_kicker = 'The Forge // Secure Offline Storage' %}
+    {% set forge_header_classification = 'Offline Processing Required' %}
+    {% set forge_header_guidance = 'Scan left-to-right, top-to-bottom' %}
+    {% set forge_header_ref = doc_id %}
+    {% set forge_header_icon = 'token' %}
+    {% include 'partials/forge_shell_header.j2' %}
 
-      <div class="border-l-4 border-primary bg-blue-50 p-4">
-        <div class="flex items-start gap-3">
-          <span class="material-symbols-outlined text-primary text-xl">warning</span>
-          <p class="text-sm text-gray-700 leading-relaxed">
-            Scan every QR tile in this page before moving to the next page.
-          </p>
-        </div>
+    <div class="border-l-4 border-primary bg-blue-50 p-4 mb-8">
+      <div class="flex items-start gap-3">
+        <span class="material-symbols-outlined text-primary text-xl">warning</span>
+        <p class="text-sm text-gray-700 leading-relaxed">
+          Scan every QR tile in this page before moving to the next page.
+          <span class="inline-flex items-center gap-1 ml-1">
+            <span class="material-symbols-outlined text-sm">qr_code_2</span>
+            Keep scans offline.
+          </span>
+        </p>
       </div>
     </div>
 
@@ -180,7 +160,7 @@
     {% endif %}
     {% endif %}
 
-    <div class="mt-auto pt-8 border-t border-gray-200 flex justify-between items-end">
+    <section class="mt-auto pt-8 border-t border-gray-200 flex justify-between items-end mb-4">
       <div class="text-xs text-gray-400">
         <p>{{ forge_copy.protocol_label }} {{ forge_copy.version }}</p>
         <p>Printed from secure session ID: <span class="font-mono text-gray-600">{{ doc_id }}</span></p>
@@ -190,12 +170,16 @@
           <p class="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1">Custodian Signature</p>
           <div class="w-48 h-10 border-b border-gray-300 border-dashed"></div>
         </div>
-        <div class="text-[10px] font-mono inline-flex items-center gap-1">
+        <div class="text-[10px] font-mono inline-flex items-center gap-1 text-gray-500">
           <span class="material-symbols-outlined text-sm">lock</span>
-          END OF DOCUMENT
+          Verification Complete
         </div>
       </div>
-    </div>
+    </section>
+
+    {% set forge_footer_left = forge_copy.generator_label %}
+    {% set forge_footer_right = 'Scan left-to-right, top-to-bottom' %}
+    {% include 'partials/forge_shell_footer.j2' %}
   </section>
 {% endfor %}
 </body>

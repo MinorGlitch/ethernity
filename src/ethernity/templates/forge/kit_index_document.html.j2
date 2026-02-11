@@ -140,47 +140,24 @@
 
 {% for page_rows in row_chunks %}
   <section class="print-sheet flex flex-col p-[15mm] border border-gray-100">
-    <div class="flex flex-col gap-6 mb-8">
-      <div class="flex justify-between items-start border-b-2 border-gray-900 pb-6">
-        <div class="flex flex-col gap-2">
-          <div class="flex items-center gap-2 text-gray-900 mb-1">
-            <span class="text-xl font-black tracking-widest uppercase">Ethernity Forge</span>
-          </div>
-          <h1 class="text-4xl font-bold text-gray-900 tracking-tight">Recovery Kit Master Index</h1>
-          <p class="text-sm text-gray-600">{{ doc.subtitle }}</p>
-        </div>
-        <div class="text-right">
-          <div class="w-24 h-24 bg-gray-900 p-1 ml-auto">
-            <div class="w-full h-full bg-white flex items-center justify-center">
-              <span class="material-symbols-outlined text-6xl text-gray-900">qr_code_2</span>
-            </div>
-          </div>
-          <p class="text-xs font-mono mt-2 text-gray-500">Scan for digital verification</p>
-          <p class="text-xs font-mono mt-2 text-gray-500">Page {{ loop.index }} / {{ total_pages }}</p>
-        </div>
-      </div>
+    {% set forge_page_label = 'Page ' ~ loop.index ~ ' / ' ~ total_pages %}
+    {% set forge_header_title = 'Recovery Kit Master Index' %}
+    {% set forge_header_subtitle = doc.subtitle %}
+    {% set forge_header_kicker = 'The Forge // Secure Offline Storage' %}
+    {% set forge_header_classification = 'Authorized Personnel Only' %}
+    {% set forge_header_guidance = 'Inventory record only; keep separate' %}
+    {% set forge_header_ref = doc_id %}
+    {% set forge_header_icon = 'inventory_2' %}
+    {% include 'partials/forge_shell_header.j2' %}
 
-      <div class="grid grid-cols-2 gap-4 text-sm">
-        <div>
-          <p class="text-gray-500 uppercase text-xs font-bold tracking-wider mb-1">
-            {{ forge_copy.generated_utc_label }}
-          </p>
-          <p class="font-mono text-gray-900">{{ created_timestamp_utc }}</p>
-        </div>
-        <div>
-          <p class="text-gray-500 uppercase text-xs font-bold tracking-wider mb-1">
-            {{ forge_copy.doc_id_label }}
-          </p>
-          <p class="font-mono text-gray-900">{{ doc_id }}</p>
-        </div>
-        <div>
-          <p class="text-gray-500 uppercase text-xs font-bold tracking-wider mb-1">QR Pages</p>
-          <p class="font-mono text-gray-900">{{ kit_qr_pages | length }}</p>
-        </div>
-        <div>
-          <p class="text-gray-500 uppercase text-xs font-bold tracking-wider mb-1">QR Chunks</p>
-          <p class="font-mono text-gray-900">{{ ns.total_chunks }}</p>
-        </div>
+    <div class="grid grid-cols-2 gap-4 text-sm mb-6">
+      <div>
+        <p class="text-gray-500 uppercase text-xs font-bold tracking-wider mb-1">QR Pages</p>
+        <p class="font-mono text-gray-900">{{ kit_qr_pages | length }}</p>
+      </div>
+      <div>
+        <p class="text-gray-500 uppercase text-xs font-bold tracking-wider mb-1">QR Chunks</p>
+        <p class="font-mono text-gray-900">{{ ns.total_chunks }}</p>
       </div>
     </div>
 
@@ -229,7 +206,7 @@
       </div>
     </div>
 
-    <div class="mt-auto pt-8 border-t border-gray-200 flex justify-between items-end">
+    <section class="mt-auto pt-8 border-t border-gray-200 flex justify-between items-end mb-4">
       <div class="text-xs text-gray-400">
         <p>{{ forge_copy.protocol_label }} {{ forge_copy.version }}</p>
         <p>Printed from secure session ID: <span class="font-mono text-gray-600">{{ doc_id }}</span></p>
@@ -242,18 +219,18 @@
           </p>
           <div class="w-48 h-10 border-b border-gray-300 border-dashed"></div>
         </div>
-        <div class="flex items-center gap-1 text-gray-300">
+        <div class="flex items-center gap-1 text-gray-500">
           <span class="material-symbols-outlined text-sm">lock</span>
-          <span class="text-[10px] font-mono text-gray-500">END OF DOCUMENT</span>
+          <span class="text-[10px] font-mono">Verification Complete</span>
         </div>
       </div>
-      {% else %}
-      <div class="flex items-center gap-1 text-gray-300">
-        <span class="material-symbols-outlined text-sm">lock</span>
-        <span class="text-[10px] font-mono text-gray-500">CONTINUED</span>
-      </div>
       {% endif %}
-    </div>
+    </section>
+
+    {% set forge_footer_left = forge_copy.generator_label %}
+    {% set forge_footer_center = forge_page_label %}
+    {% set forge_footer_right = 'Inventory record only; keep separate' %}
+    {% include 'partials/forge_shell_footer.j2' %}
   </section>
 {% endfor %}
 </body>

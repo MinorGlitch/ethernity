@@ -1,0 +1,32 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+{% if forge_page_label is defined %}
+  {% set _forge_page_label = forge_page_label %}
+{% elif page is defined and page.page_label is defined %}
+  {% set _forge_page_label = page.page_label %}
+{% else %}
+  {% set _forge_page_label = '' %}
+{% endif %}
+{% set _forge_footer_left = forge_footer_left if forge_footer_left is defined else forge_copy.generator_label %}
+{% set _forge_footer_center = forge_footer_center if forge_footer_center is defined else _forge_page_label %}
+{% set _forge_footer_right = forge_footer_right if forge_footer_right is defined else '' %}
+{% set _forge_shell_footer_inset = forge_shell_footer_inset if forge_shell_footer_inset is defined else '' %}
+<footer class="forge-shell-footer mt-auto shrink-0 border-t border-slate-300 pt-4 max-w-full overflow-hidden flex items-center gap-3 text-[10px] font-mono uppercase tracking-[0.12em] text-slate-500{% if _forge_shell_footer_inset %} {{ _forge_shell_footer_inset }}{% endif %}">
+  <span class="min-w-0 flex-1 break-words">{{ _forge_footer_left }}</span>
+  <span class="min-w-0 px-2 text-center break-words">{{ _forge_footer_center }}</span>
+  <span class="min-w-0 flex-1 text-right break-words">{{ _forge_footer_right }}</span>
+</footer>

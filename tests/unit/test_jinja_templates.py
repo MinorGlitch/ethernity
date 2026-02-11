@@ -187,6 +187,189 @@ class TestJinjaTemplates(unittest.TestCase):
             raise AssertionError(f"unexpected sentinel template: {template_name}")
         return render_template(template_path, context)
 
+    def _render_monograph_template(self, template_name: str) -> str:
+        template_path = _ETHERNITY_ROOT / "templates" / "monograph" / template_name
+        context = _base_document_context()
+        if template_name == "main_document.html.j2":
+            context["pages"] = [_page_with_qr(page_num=1, page_label="Page 1 / 1")]
+            context["doc"] = {"title": "Main Document", "subtitle": _MAIN_SUBTITLE}
+        elif template_name == "recovery_document.html.j2":
+            context["pages"] = [
+                {
+                    **_page_base(page_num=1, page_label="Page 1 / 2"),
+                    "fallback_blocks": [
+                        {
+                            "title": "AUTH FRAME",
+                            "lines": [f"line-{idx:02d}" for idx in range(1, 8)],
+                            "line_offset": 0,
+                            "y_mm": 90.0,
+                            "height_mm": 80.0,
+                        }
+                    ],
+                },
+                {
+                    **_page_base(page_num=2, page_label="Page 2 / 2"),
+                    "show_instructions": False,
+                    "fallback_blocks": [
+                        {
+                            "title": None,
+                            "lines": [f"line-{idx:02d}" for idx in range(8, 18)],
+                            "line_offset": 7,
+                            "y_mm": 90.0,
+                            "height_mm": 80.0,
+                        }
+                    ],
+                },
+            ]
+            context["doc"] = {"title": "Recovery Document", "subtitle": "Keys + Text Fallback"}
+        elif template_name == "kit_document.html.j2":
+            context["pages"] = [
+                _page_with_qr(page_num=1, page_label="Page 1 / 2"),
+                {
+                    **_page_base(page_num=2, page_label="Page 2 / 2"),
+                    "instructions_full_page": True,
+                },
+            ]
+            context["doc"] = {"title": "Recovery Kit", "subtitle": "Offline HTML bundle"}
+            context["instructions"] = {
+                "label": "Instructions",
+                "lines": ["A", "B"],
+                "scan_hint": "Start at the top-left and follow each row.",
+            }
+        elif template_name == "kit_index_document.html.j2":
+            context["pages"] = [_page_with_qr(page_num=1, page_label="Page 1 / 1")]
+            context["doc"] = {"title": "Recovery Kit", "subtitle": "Offline HTML bundle"}
+            context["inventory_rows"] = [
+                {
+                    "component_id": "QR-DOC-01",
+                    "detail": "Encrypted payload and auth QR frames",
+                    "status": "Generated",
+                },
+                {
+                    "component_id": "RECOVERY-DOC-01",
+                    "detail": "Recovery keys and full fallback text",
+                    "status": "Generated",
+                },
+            ]
+        elif template_name in {"shard_document.html.j2", "signing_key_shard_document.html.j2"}:
+            context["pages"] = [
+                {
+                    **_page_with_qr(page_num=1, page_label="Page 1 / 1"),
+                    "fallback_blocks": [
+                        {
+                            "title": "MAIN",
+                            "lines": ["aaaa bbbb cccc dddd", "eeee ffff gggg hhhh"],
+                            "line_offset": 0,
+                            "y_mm": 90.0,
+                            "height_mm": 80.0,
+                        }
+                    ],
+                }
+            ]
+            context["doc"] = {
+                "title": "Signing Key Shard"
+                if template_name == "signing_key_shard_document.html.j2"
+                else "Shard Document",
+                "subtitle": "Shard 1 of 3",
+            }
+        else:
+            raise AssertionError(f"unexpected monograph template: {template_name}")
+        return render_template(template_path, context)
+
+    def _render_forge_template(self, template_name: str) -> str:
+        template_path = _ETHERNITY_ROOT / "templates" / "forge" / template_name
+        context = _base_document_context()
+        if template_name == "main_document.html.j2":
+            context["pages"] = [_page_with_qr(page_num=1, page_label="Page 1 / 1")]
+            context["doc"] = {"title": "Main Document", "subtitle": _MAIN_SUBTITLE}
+            context["instructions"] = {
+                "label": "Instructions",
+                "lines": ["A", "B", "C"],
+                "scan_hint": "Start at the top-left and follow each row.",
+            }
+        elif template_name == "recovery_document.html.j2":
+            context["pages"] = [
+                {
+                    **_page_base(page_num=1, page_label="Page 1 / 2"),
+                    "fallback_blocks": [
+                        {
+                            "title": "AUTH FRAME",
+                            "lines": [f"line-{idx:02d}" for idx in range(1, 8)],
+                            "line_offset": 0,
+                            "y_mm": 90.0,
+                            "height_mm": 80.0,
+                        }
+                    ],
+                },
+                {
+                    **_page_base(page_num=2, page_label="Page 2 / 2"),
+                    "show_instructions": False,
+                    "fallback_blocks": [
+                        {
+                            "title": None,
+                            "lines": [f"line-{idx:02d}" for idx in range(8, 18)],
+                            "line_offset": 7,
+                            "y_mm": 90.0,
+                            "height_mm": 80.0,
+                        }
+                    ],
+                },
+            ]
+            context["doc"] = {"title": "Recovery Document", "subtitle": "Keys + Text Fallback"}
+        elif template_name == "kit_document.html.j2":
+            context["pages"] = [
+                _page_with_qr(page_num=1, page_label="Page 1 / 2"),
+                {
+                    **_page_base(page_num=2, page_label="Page 2 / 2"),
+                    "instructions_full_page": True,
+                },
+            ]
+            context["doc"] = {"title": "Recovery Kit", "subtitle": "Offline HTML bundle"}
+            context["instructions"] = {
+                "label": "Instructions",
+                "lines": ["A", "B"],
+                "scan_hint": "Start at the top-left and follow each row.",
+            }
+        elif template_name == "kit_index_document.html.j2":
+            context["pages"] = [_page_with_qr(page_num=1, page_label="Page 1 / 1")]
+            context["doc"] = {"title": "Recovery Kit", "subtitle": "Offline HTML bundle"}
+            context["inventory_rows"] = [
+                {
+                    "component_id": "QR-DOC-01",
+                    "detail": "Encrypted payload and auth QR frames",
+                    "status": "Generated",
+                },
+                {
+                    "component_id": "RECOVERY-DOC-01",
+                    "detail": "Recovery keys and full fallback text",
+                    "status": "Generated",
+                },
+            ]
+        elif template_name in {"shard_document.html.j2", "signing_key_shard_document.html.j2"}:
+            context["pages"] = [
+                {
+                    **_page_with_qr(page_num=1, page_label="Page 1 / 1"),
+                    "fallback_blocks": [
+                        {
+                            "title": "MAIN",
+                            "lines": ["aaaa bbbb cccc dddd", "eeee ffff gggg hhhh"],
+                            "line_offset": 0,
+                            "y_mm": 90.0,
+                            "height_mm": 80.0,
+                        }
+                    ],
+                }
+            ]
+            context["doc"] = {
+                "title": "Signing Key Shard"
+                if template_name == "signing_key_shard_document.html.j2"
+                else "Shard Document",
+                "subtitle": "Shard 1 of 3",
+            }
+        else:
+            raise AssertionError(f"unexpected forge template: {template_name}")
+        return render_template(template_path, context)
+
     def test_document_templates_render(self) -> None:
         template_root = _ETHERNITY_ROOT / "templates"
         templates = sorted(template_root.rglob("*.html.j2"))
@@ -324,84 +507,26 @@ class TestJinjaTemplates(unittest.TestCase):
         self.assertIn("KIT 07", kit_rendered)
 
     def test_forge_wording_uses_canonical_labels_and_versions(self) -> None:
-        forge_root = _ETHERNITY_ROOT / "templates" / "forge"
-
-        main_context = _base_document_context()
-        main_context["pages"] = [_page_with_qr(page_num=1, page_label="Page 1 / 1")]
-        main_context["doc"] = {"title": "Main Document", "subtitle": _MAIN_SUBTITLE}
-        main_rendered = render_template(forge_root / "main_document.html.j2", main_context)
-        self.assertIn("DOC ID:", main_rendered)
-        self.assertIn("GENERATED (UTC):", main_rendered)
-        self.assertIn("The Forge Secure Backup System v2.1", main_rendered)
-        self.assertNotIn("UNIQUE ID:", main_rendered)
-
-        recovery_context = _base_document_context()
-        recovery_context["pages"] = [_page_base(page_num=1, page_label="Page 1 / 1")]
-        recovery_context["doc"] = {"title": "Recovery Document", "subtitle": "Keys + Text Fallback"}
-        recovery_rendered = render_template(
-            forge_root / "recovery_document.html.j2",
-            recovery_context,
-        )
-        self.assertIn("DOC ID:", recovery_rendered)
-        self.assertIn("GENERATED (UTC):", recovery_rendered)
-        self.assertNotIn("SHEET ID:", recovery_rendered)
-
-        kit_context = _base_document_context()
-        kit_context["doc"] = {"title": "Recovery Kit", "subtitle": "Offline HTML bundle"}
-        kit_context["pages"] = [
-            _page_with_qr(page_num=1, page_label="Page 1 / 2"),
-            {
-                **_page_base(page_num=2, page_label=""),
-                "instructions_full_page": True,
-                "qr_items": [],
-            },
+        forge_templates = [
+            "main_document.html.j2",
+            "recovery_document.html.j2",
+            "kit_document.html.j2",
+            "kit_index_document.html.j2",
+            "shard_document.html.j2",
+            "signing_key_shard_document.html.j2",
         ]
-        kit_rendered = render_template(forge_root / "kit_document.html.j2", kit_context)
-        self.assertIn("GENERATED (UTC)", kit_rendered)
-        self.assertIn("DOC ID", kit_rendered)
-        self.assertIn("Ethernity Forge Security Protocols v2.1", kit_rendered)
-        self.assertNotIn("Generated On", kit_rendered)
-        self.assertNotIn("Kit ID", kit_rendered)
-        self.assertNotIn("v2.4", kit_rendered)
+        for template_name in forge_templates:
+            with self.subTest(template=template_name):
+                rendered = self._render_forge_template(template_name)
+                self.assertIn("DOC ID:", rendered)
+                self.assertIn("GENERATED (UTC):", rendered)
+                self.assertIn("Generated by Ethernity Forge", rendered)
 
-        shard_context = _base_document_context()
-        shard_context["doc"] = {"title": "Shard Document", "subtitle": "Shard 1 of 3"}
-        shard_context["pages"] = [_page_with_qr(page_num=1, page_label="Page 1 / 1")]
-        shard_rendered = render_template(forge_root / "shard_document.html.j2", shard_context)
-        self.assertIn("DOC ID:", shard_rendered)
-        self.assertIn("Ethernity Forge Security Protocols v2.1", shard_rendered)
-        self.assertNotIn("Ethernity Protocol v2.0", shard_rendered)
-
-        signing_context = _base_document_context()
-        signing_context["doc"] = {
-            "title": "Signing Key Shard",
-            "subtitle": "Signing key shard 1 of 3",
-        }
-        signing_context["pages"] = [
-            {
-                **_page_with_qr(page_num=1, page_label="Page 1 / 1"),
-                "fallback_blocks": [
-                    {
-                        "title": "MAIN",
-                        "lines": ["aaaa bbbb cccc dddd", "eeee ffff gggg hhhh"],
-                        "line_offset": 0,
-                        "y_mm": 90.0,
-                        "height_mm": 80.0,
-                    }
-                ],
-            }
-        ]
-        signing_rendered = render_template(
-            forge_root / "signing_key_shard_document.html.j2",
-            signing_context,
-        )
-        self.assertIn("DOC ID:", signing_rendered)
-        self.assertIn("GENERATED (UTC):", signing_rendered)
-        self.assertIn("Forge v2.1", signing_rendered)
-        self.assertIn("Generated by Ethernity Forge", signing_rendered)
-        self.assertNotIn("DOC-ID:", signing_rendered)
-        self.assertNotIn("Generated by Ethernity Vault", signing_rendered)
-        self.assertNotIn("Session ID:", signing_rendered)
+        combined_rendered = "".join(self._render_forge_template(name) for name in forge_templates)
+        self.assertNotIn("UNIQUE ID:", combined_rendered)
+        self.assertNotIn("SHEET ID:", combined_rendered)
+        self.assertNotIn("DOC-ID:", combined_rendered)
+        self.assertNotIn("Generated by Ethernity Vault", combined_rendered)
 
     def test_forge_templates_use_local_material_symbols_font(self) -> None:
         forge_root = _ETHERNITY_ROOT / "templates" / "forge"
@@ -440,9 +565,9 @@ class TestJinjaTemplates(unittest.TestCase):
     def test_forge_templates_render_mock_icon_ligatures(self) -> None:
         forge_root = _ETHERNITY_ROOT / "templates" / "forge"
         expected_icons_by_template = {
-            "main_document.html.j2": ["visibility_off", "lock", "content_cut"],
-            "recovery_document.html.j2": ["shield_lock", "warning", "fingerprint", "verified_user"],
-            "shard_document.html.j2": ["warning"],
+            "main_document.html.j2": ["token", "visibility_off", "lock", "grid_view"],
+            "recovery_document.html.j2": ["shield_lock", "warning", "fingerprint"],
+            "shard_document.html.j2": ["shield_lock", "warning"],
             "signing_key_shard_document.html.j2": [
                 "token",
                 "shield_lock",
@@ -459,7 +584,6 @@ class TestJinjaTemplates(unittest.TestCase):
                 "lock",
             ],
             "kit_index_document.html.j2": [
-                "qr_code_2",
                 "warning",
                 "inventory_2",
                 "verified_user",
@@ -545,7 +669,7 @@ class TestJinjaTemplates(unittest.TestCase):
         self.assertIn("overflow: hidden;", rendered)
         self.assertIn("display: block !important;", rendered)
         self.assertIn('class="flex-1 min-h-0 mb-4"', rendered)
-        self.assertIn('class="mt-2 shrink-0 pt-4 border-t border-slate-200', rendered)
+        self.assertIn("forge-shell-footer", rendered)
 
     def test_forge_kit_index_template_paginates_inventory_rows(self) -> None:
         forge_root = _ETHERNITY_ROOT / "templates" / "forge"
@@ -568,6 +692,53 @@ class TestJinjaTemplates(unittest.TestCase):
         self.assertGreater(rendered.count('<section class="print-sheet'), 1)
         self.assertNotIn("additional entries", rendered)
         self.assertEqual(rendered.count("Custodian Signature"), 1)
+
+    def test_forge_templates_use_shared_shell_hooks(self) -> None:
+        forge_templates = [
+            "main_document.html.j2",
+            "recovery_document.html.j2",
+            "kit_document.html.j2",
+            "kit_index_document.html.j2",
+            "shard_document.html.j2",
+            "signing_key_shard_document.html.j2",
+        ]
+        for template_name in forge_templates:
+            with self.subTest(template=template_name):
+                rendered = self._render_forge_template(template_name)
+                self.assertIn("forge-shell-header", rendered)
+                self.assertIn("forge-shell-footer", rendered)
+
+    def test_forge_recovery_uses_same_shell_on_continuation_pages(self) -> None:
+        rendered = self._render_forge_template("recovery_document.html.j2")
+        self.assertEqual(rendered.count("forge-shell-header"), 2)
+        self.assertEqual(rendered.count("forge-shell-footer"), 2)
+
+    def test_forge_kit_pages_use_shared_shell_for_qr_and_instructions(self) -> None:
+        rendered = self._render_forge_template("kit_document.html.j2")
+        self.assertEqual(rendered.count("forge-shell-header"), 2)
+        self.assertEqual(rendered.count("forge-shell-footer"), 2)
+        self.assertIn("Page 1 / 2", rendered)
+        self.assertIn("Page 2 / 2", rendered)
+
+    def test_forge_kit_index_uses_single_shell_footer_on_all_pages(self) -> None:
+        forge_root = _ETHERNITY_ROOT / "templates" / "forge"
+        template_path = forge_root / "kit_index_document.html.j2"
+        context = _base_document_context()
+        context["doc"] = {"title": "Recovery Kit", "subtitle": "Offline HTML bundle"}
+        context["pages"] = [_page_with_qr(page_num=1, page_label="Page 1 / 1")]
+        context["inventory_rows"] = [
+            {
+                "component_id": f"COMP-{idx:02d}",
+                "detail": f"Detail {idx}",
+                "status": "Generated",
+            }
+            for idx in range(1, 18)
+        ]
+
+        rendered = render_template(template_path, context)
+        self.assertGreater(rendered.count("forge-shell-footer"), 1)
+        self.assertNotIn("CONTINUED", rendered)
+        self.assertNotIn("END OF DOCUMENT", rendered)
 
     def test_sentinel_templates_use_local_tailwind_runtime(self) -> None:
         tailwind_asset = (
@@ -613,12 +784,162 @@ class TestJinjaTemplates(unittest.TestCase):
         self.assertIn("DOC ID:", rendered)
         self.assertIn("GENERATED (UTC):", rendered)
 
+    def test_sentinel_kit_index_uses_first_and_continuation_row_limits(self) -> None:
+        template_path = _ETHERNITY_ROOT / "templates" / "sentinel" / "kit_index_document.html.j2"
+        context = _base_document_context()
+        context["doc"] = {"title": "Recovery Kit", "subtitle": "Offline HTML bundle"}
+        context["pages"] = [_page_with_qr(page_num=1, page_label="Page 1 / 1")]
+        context["inventory_rows"] = [
+            {
+                "component_id": f"COMP-{idx:02d}",
+                "detail": f"Detail {idx}",
+                "status": "Generated",
+            }
+            for idx in range(1, 21)
+        ]
+
+        rendered = render_template(template_path, context)
+        self.assertIn("Page 3 / 3", rendered)
+        self.assertNotIn("Page 5 / 5", rendered)
+
+    def test_sentinel_shell_partials_use_flexible_header_footer_constraints(self) -> None:
+        header_path = (
+            _ETHERNITY_ROOT / "templates" / "_shared" / "partials" / "sentinel_shell_header.j2"
+        )
+        footer_path = (
+            _ETHERNITY_ROOT / "templates" / "_shared" / "partials" / "sentinel_shell_footer.j2"
+        )
+
+        header_source = header_path.read_text(encoding="utf-8")
+        footer_source = footer_path.read_text(encoding="utf-8")
+
+        self.assertNotIn("w-[64mm]", header_source)
+        self.assertIn("break-words", footer_source)
+        self.assertNotIn("whitespace-nowrap", footer_source)
+
+    def test_sentinel_recovery_template_does_not_clip_fallback_lines(self) -> None:
+        template_path = _ETHERNITY_ROOT / "templates" / "sentinel" / "recovery_document.html.j2"
+        source = template_path.read_text(encoding="utf-8")
+        self.assertNotIn("whitespace-nowrap overflow-hidden", source)
+
     def test_sentinel_shard_templates_show_threshold_as_k_of_n(self) -> None:
         signing_rendered = self._render_sentinel_template("signing_key_shard_document.html.j2")
         self.assertIn("Threshold: 2/3 required", signing_rendered)
 
         shard_rendered = self._render_sentinel_template("shard_document.html.j2")
         self.assertIn("Recovery requires 2/3 shards.", shard_rendered)
+
+    def test_monograph_templates_use_shared_shell_hooks(self) -> None:
+        monograph_templates = [
+            "main_document.html.j2",
+            "recovery_document.html.j2",
+            "kit_document.html.j2",
+            "kit_index_document.html.j2",
+            "shard_document.html.j2",
+            "signing_key_shard_document.html.j2",
+        ]
+        for template_name in monograph_templates:
+            with self.subTest(template=template_name):
+                rendered = self._render_monograph_template(template_name)
+                self.assertIn("monograph-shell-header", rendered)
+                self.assertIn("monograph-shell-footer", rendered)
+
+    def test_monograph_recovery_uses_same_shell_on_continuation_pages(self) -> None:
+        rendered = self._render_monograph_template("recovery_document.html.j2")
+        self.assertEqual(rendered.count("monograph-shell-header"), 2)
+        self.assertEqual(rendered.count("monograph-shell-footer"), 2)
+
+    def test_monograph_kit_pages_use_shared_shell_for_qr_and_instructions(self) -> None:
+        rendered = self._render_monograph_template("kit_document.html.j2")
+        self.assertEqual(rendered.count("monograph-shell-header"), 2)
+        self.assertEqual(rendered.count("monograph-shell-footer"), 2)
+        self.assertIn("Page 1 / 2", rendered)
+        self.assertIn("Page 2 / 2", rendered)
+
+    def test_monograph_main_section_labels_use_global_roman_indices(self) -> None:
+        template_path = _ETHERNITY_ROOT / "templates" / "monograph" / "main_document.html.j2"
+        context = _base_document_context()
+        context["doc"] = {"title": "Main Document", "subtitle": _MAIN_SUBTITLE}
+        context["pages"] = [
+            {
+                **_page_base(page_num=1, page_label="Page 1 / 2"),
+                "qr_items": [{"index": 9, "data_uri": "data:image/png;base64,AA=="}],
+            },
+            {
+                **_page_base(page_num=2, page_label="Page 2 / 2"),
+                "qr_items": [{"index": 14, "data_uri": "data:image/png;base64,AA=="}],
+            },
+        ]
+
+        rendered = render_template(template_path, context)
+        self.assertIn("Section IX", rendered)
+        self.assertIn("Section XIV", rendered)
+        self.assertNotIn("Section 14", rendered)
+        self.assertNotIn("Custody Continuation", rendered)
+
+    def test_monograph_main_shell_header_precedes_directives_panel(self) -> None:
+        source = (_ETHERNITY_ROOT / "templates" / "monograph" / "main_document.html.j2").read_text(
+            encoding="utf-8"
+        )
+        header_pos = source.find("{% include 'partials/monograph_shell_header.j2' %}")
+        directives_pos = source.find("Directives")
+        self.assertGreaterEqual(header_pos, 0)
+        self.assertGreaterEqual(directives_pos, 0)
+        self.assertLess(header_pos, directives_pos)
+
+    def test_monograph_recovery_first_page_renders_lines_beyond_twelve(self) -> None:
+        template_path = _ETHERNITY_ROOT / "templates" / "monograph" / "recovery_document.html.j2"
+        context = _base_document_context()
+        context["doc"] = {"title": "Recovery Document", "subtitle": "Keys + Text Fallback"}
+        context["pages"] = [
+            {
+                **_page_base(page_num=1, page_label="Page 1 / 1"),
+                "fallback_blocks": [
+                    {
+                        "title": "AUTH FRAME",
+                        "lines": ["auth-01", "auth-02", "auth-03"],
+                        "line_offset": 0,
+                        "y_mm": 90.0,
+                        "height_mm": 80.0,
+                    },
+                    {
+                        "title": "MAIN",
+                        "lines": [f"main-{idx:02d}" for idx in range(1, 19)],
+                        "line_offset": 3,
+                        "y_mm": 140.0,
+                        "height_mm": 120.0,
+                    },
+                ],
+                "fallback_line_capacity": 34,
+            }
+        ]
+
+        rendered = render_template(template_path, context)
+        self.assertIn("main-13", rendered)
+        self.assertIn("main-18", rendered)
+
+    def test_monograph_fallback_templates_do_not_use_hard_line_truncation(self) -> None:
+        recovery_source = (
+            _ETHERNITY_ROOT / "templates" / "monograph" / "recovery_document.html.j2"
+        ).read_text(encoding="utf-8")
+        shard_source = (
+            _ETHERNITY_ROOT / "templates" / "monograph" / "shard_document.html.j2"
+        ).read_text(encoding="utf-8")
+        signing_source = (
+            _ETHERNITY_ROOT / "templates" / "monograph" / "signing_key_shard_document.html.j2"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("whitespace-nowrap overflow-hidden", recovery_source)
+        self.assertNotIn("whitespace-nowrap overflow-hidden", shard_source)
+        self.assertNotIn("whitespace-nowrap overflow-hidden", signing_source)
+        self.assertNotIn("text-ellipsis", shard_source)
+        self.assertNotIn("text-ellipsis", signing_source)
+
+    def test_monograph_shard_footer_uses_canonical_archive_label(self) -> None:
+        rendered = self._render_monograph_template("shard_document.html.j2")
+        self.assertIn("Monograph Offline Archive", rendered)
+        self.assertIn("Single shard cannot recover the secret", rendered)
+        self.assertNotIn("Monograph Archival Systems", rendered)
 
     def test_monograph_templates_use_local_tailwind_runtime(self) -> None:
         tailwind_asset = (

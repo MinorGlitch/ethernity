@@ -39,10 +39,14 @@
 
     .print-sheet {
       width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
       min-height: {{ page_height_mm }}mm;
       margin: 0 auto;
       page-break-after: always;
       background: white;
+      overflow: hidden;
+      break-inside: avoid-page;
+      page-break-inside: avoid;
     }
 
     .print-sheet:last-child {
@@ -63,27 +67,14 @@
 <body class="bg-background-light min-h-screen flex flex-col font-display text-slate-900">
 {% for page in pages %}
   <section class="print-sheet relative flex flex-col p-[15mm] text-slate-900">
-    <header class="mb-6 border-b-4 border-slate-900 pb-4">
-      <div class="flex items-start justify-between">
-        <div>
-          <p class="mb-1 text-xs font-bold uppercase tracking-widest text-slate-500">The Forge // Secure Offline Storage</p>
-          <h1 class="font-serif text-4xl font-bold uppercase tracking-tight text-slate-900">{{ doc.title }}</h1>
-          <p class="text-sm text-slate-600 mt-2">{{ doc.subtitle }}</p>
-        </div>
-        <div class="text-right">
-          <div class="mb-1 rounded border border-slate-900 px-2 py-1 font-mono text-2xl font-bold leading-none tracking-widest text-slate-900">
-            MASTER KEY
-          </div>
-        </div>
-      </div>
-      <div class="mt-4 flex items-center justify-between font-mono text-xs text-slate-600">
-        <div class="flex gap-6">
-          <span>{{ forge_copy.doc_id_label }}: <span class="font-bold text-slate-900">{{ doc_id }}</span></span>
-          <span>{{ forge_copy.generated_utc_label }}: <span class="font-bold text-slate-900">{{ created_timestamp_utc }}</span></span>
-        </div>
-        <div class="font-bold text-slate-900">{{ page.page_label }}</div>
-      </div>
-    </header>
+    {% set forge_header_title = doc.title %}
+    {% set forge_header_subtitle = doc.subtitle %}
+    {% set forge_header_kicker = 'The Forge // Secure Offline Storage' %}
+    {% set forge_header_classification = 'MASTER KEY' %}
+    {% set forge_header_guidance = 'Use with matching recovery document' %}
+    {% set forge_header_ref = doc_id %}
+    {% set forge_header_icon = 'token' %}
+    {% include 'partials/forge_shell_header.j2' %}
 
     {% if page.show_instructions %}
     <section class="mb-8 flex gap-6 border-b border-slate-200 pb-6">
@@ -131,15 +122,9 @@
     </section>
     {% endif %}
 
-    <footer class="mt-8 flex items-center justify-between border-t border-dotted border-slate-300 pt-4">
-      <div class="flex items-center gap-2 text-slate-400">
-        <span class="material-symbols-outlined text-[18px]">content_cut</span>
-        <span class="text-[10px] uppercase tracking-widest">Cut along line if needed</span>
-      </div>
-      <div class="text-right text-[10px] uppercase tracking-widest text-slate-400">
-        {{ forge_copy.backup_system_label }} {{ forge_copy.version }}
-      </div>
-    </footer>
+    {% set forge_footer_left = forge_copy.generator_label %}
+    {% set forge_footer_right = 'Use with matching recovery document' %}
+    {% include 'partials/forge_shell_footer.j2' %}
   </section>
 {% endfor %}
 </body>

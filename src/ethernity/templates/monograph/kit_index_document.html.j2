@@ -81,32 +81,15 @@
         Verified
       </div>
     </div>
-
-    <header class="px-[12mm] py-[10mm] pb-[8mm] border-b border-[#e6e5ec]">
-      <div class="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.18em] text-primary mb-2">
-        <span class="material-symbols-outlined text-[13px]">folder_open</span>
-        Secure Archive Inventory
-      </div>
-      <h1 class="text-[19px] font-black tracking-tight">Kit Index #{{ doc_id[:4] | upper }}-{{ doc_id[4:8] | upper }}</h1>
-      <p class="mt-1 text-[10px] text-[#64748b] max-w-[95mm]">
-        Authorized personnel only. Use this page to inventory components and record every custody transfer.
-      </p>
-
-      <div class="mt-5 grid grid-cols-3 gap-4 border-t border-[#ecebf3] pt-3">
-        <div>
-          <p class="text-[7px] font-black uppercase tracking-[0.14em] text-[#9ca3af]">Location</p>
-          <p class="text-[10px] font-semibold mt-0.5">Record in custody log below</p>
-        </div>
-        <div>
-          <p class="text-[7px] font-black uppercase tracking-[0.14em] text-[#9ca3af]">Reference No.</p>
-          <p class="text-[10px] font-mono mt-0.5">ARCH-{{ doc_id[:4] | upper }}-X</p>
-        </div>
-        <div>
-          <p class="text-[7px] font-black uppercase tracking-[0.14em] text-[#9ca3af]">Page</p>
-          <p class="text-[10px] font-mono mt-0.5">{{ loop.index }} / {{ total_pages }}</p>
-        </div>
-      </div>
-    </header>
+    {% set monograph_page_label = loop.index ~ ' / ' ~ total_pages %}
+    {% set monograph_header_title = 'Kit Index' %}
+    {% set monograph_header_subtitle = 'Secure Archive Inventory' %}
+    {% set monograph_header_classification = 'Authorized Personnel Only' %}
+    {% set monograph_header_guidance = 'Inventory and custody transfer log' %}
+    {% set monograph_header_ref = 'ARCH-' ~ (doc_id[:4] | upper) ~ '-X' %}
+    {% set monograph_header_icon = 'folder_open' %}
+    {% set monograph_shell_header_inset = 'px-[12mm] pt-[10mm]' %}
+    {% include 'partials/monograph_shell_header.j2' %}
 
     <div class="grid grid-cols-[35%_1fr] gap-5 px-[12mm] py-[8mm] flex-1 min-h-0">
       <section class="flex flex-col min-h-0">
@@ -205,13 +188,10 @@
       </section>
     </div>
 
-    <footer class="border-t border-[#e6e5ec] bg-[#f8f9fd] px-[12mm] py-[3mm] flex items-center justify-between">
-      <div class="flex items-center gap-1.5">
-        <div class="h-1.5 w-1.5 rounded-full bg-emerald-500"></div>
-        <span class="text-[8px] font-medium text-[#64748b]">Status: Logged Offline</span>
-      </div>
-      <span class="text-[8px] text-[#94a3b8]">DOC ID: {{ doc_id[:8] | upper }}</span>
-    </footer>
+    {% set monograph_footer_left = 'Monograph Offline Archive' %}
+    {% set monograph_footer_right = 'Inventory Record' %}
+    {% set monograph_shell_footer_inset = 'px-[12mm] py-[3mm] mt-0 bg-[#f8f9fd]' %}
+    {% include 'partials/monograph_shell_footer.j2' %}
   </section>
 {% endfor %}
 </body>

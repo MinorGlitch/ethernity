@@ -132,11 +132,19 @@
   {% set row_source = ns_rows.items %}
 {% endif %}
 
-{% set rows_per_page = first_page_row_limit %}
-{% set row_chunks = row_source | batch(rows_per_page, none) | list %}
-{% if not row_chunks %}
-  {% set row_chunks = [[]] %}
+{% set ns_chunks = namespace(items=[]) %}
+{% if row_source %}
+  {% set ns_chunks.items = ns_chunks.items + [row_source[:first_page_row_limit]] %}
+  {% set remaining_rows = row_source[first_page_row_limit:] %}
+  {% if remaining_rows %}
+    {% for continuation_rows in remaining_rows | batch(continuation_page_row_limit, none) %}
+      {% set ns_chunks.items = ns_chunks.items + [continuation_rows] %}
+    {% endfor %}
+  {% endif %}
+{% else %}
+  {% set ns_chunks.items = [[]] %}
 {% endif %}
+{% set row_chunks = ns_chunks.items %}
 {% set total_pages = row_chunks | length %}
 
 {% for page_rows in row_chunks %}

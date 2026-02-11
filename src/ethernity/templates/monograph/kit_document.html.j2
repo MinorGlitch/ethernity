@@ -71,16 +71,23 @@
   {% if page.instructions_full_page %}
   <section class="print-sheet border border-[#ebe8f1] bg-paper-texture flex flex-col px-[16mm] py-[14mm]">
     <div class="absolute inset-[4mm] border border-ink-dark/6 pointer-events-none"></div>
+    {% set monograph_header_title = doc.title %}
+    {% set monograph_header_subtitle = doc.subtitle %}
+    {% set monograph_header_classification = 'Offline Processing Required' %}
+    {% set monograph_header_guidance = 'Scan left-to-right, top-to-bottom in offline recovery flow' %}
+    {% set monograph_header_ref = doc_id[:4] ~ '-' ~ doc_id[4:8] %}
+    {% set monograph_header_icon = 'menu_book' %}
+    {% include 'partials/monograph_shell_header.j2' %}
 
-    <header class="text-center mb-8">
+    <section class="text-center mb-8">
       <div class="mb-3 opacity-60">
         <span class="material-symbols-outlined text-[26px] text-ink-dark/70">lock</span>
       </div>
-      <p class="uppercase tracking-[0.24em] text-[9px] font-semibold text-ink-dark/55">Archival Backup System • Vol. I</p>
+      <p class="uppercase tracking-[0.24em] text-[9px] font-semibold text-ink-dark/55">Offline Processing Required</p>
       <div class="w-10 h-px bg-ink-dark/20 my-3 mx-auto"></div>
-      <h1 class="font-serif text-[30px] leading-[1.08] font-bold tracking-tight">Recovery Kit Instructions</h1>
-      <p class="font-serif italic text-[12px] text-ink-light mt-1">Offline Digital Asset Restoration Strategy</p>
-    </header>
+      <h1 class="font-serif text-[30px] leading-[1.08] font-bold tracking-tight">{{ doc.title }}</h1>
+      <p class="font-serif italic text-[12px] text-ink-light mt-1">{{ doc.subtitle }}</p>
+    </section>
 
     <section class="max-w-[152mm] mx-auto w-full">
       <p class="font-serif text-[11px] leading-relaxed text-center text-ink-dark/85 mb-4">
@@ -104,11 +111,14 @@
       </div>
     </section>
 
-    <footer class="mt-auto pt-4 text-center">
+    <section class="mt-auto pt-4 text-center">
       <div class="w-[48mm] h-px bg-ink-dark/10 mx-auto mb-3"></div>
-      <p class="text-[8px] uppercase tracking-[0.18em] text-ink-dark/40 font-medium">Keep With Recovery Packet</p>
+      <p class="text-[8px] uppercase tracking-[0.18em] text-ink-dark/40 font-medium">Scan Left-To-Right, Top-To-Bottom</p>
       <p class="text-[8px] font-mono uppercase tracking-[0.14em] text-ink-light mt-1">{{ page.page_label }}</p>
-    </footer>
+    </section>
+    {% set monograph_footer_left = 'Monograph Offline Archive' %}
+    {% set monograph_footer_right = 'Scan left-to-right, top-to-bottom in offline recovery flow' %}
+    {% include 'partials/monograph_shell_footer.j2' %}
   </section>
 
   {% else %}
@@ -116,15 +126,13 @@
     <div class="absolute inset-[4mm] border border-ink-dark/5 pointer-events-none"></div>
 
     {% if page.page_num == 1 %}
-    <header class="text-center">
-      <div class="mb-3 opacity-60">
-        <span class="material-symbols-outlined text-[26px] text-ink-dark/70">lock</span>
-      </div>
-      <p class="uppercase tracking-[0.24em] text-[9px] font-semibold text-ink-dark/55">Archival Backup System • Vol. I</p>
-      <div class="w-10 h-px bg-ink-dark/20 my-3 mx-auto"></div>
-      <h1 class="font-serif text-[34px] leading-[1.08] font-bold tracking-tight">Security<br>Recovery Kit</h1>
-      <p class="font-serif italic text-[12px] text-ink-light mt-1">Offline Digital Asset Restoration Strategy</p>
-    </header>
+    {% set monograph_header_title = doc.title %}
+    {% set monograph_header_subtitle = doc.subtitle %}
+    {% set monograph_header_classification = 'Offline Processing Required' %}
+    {% set monograph_header_guidance = 'Scan left-to-right, top-to-bottom in offline recovery flow' %}
+    {% set monograph_header_ref = doc_id[:4] ~ '-' ~ doc_id[4:8] %}
+    {% set monograph_header_icon = 'lock' %}
+    {% include 'partials/monograph_shell_header.j2' %}
 
     <section class="mt-5 text-center max-w-[148mm] mx-auto">
       <p class="font-serif text-[11px] leading-relaxed text-ink-dark/86">
@@ -141,7 +149,7 @@
 
     <section class="mt-5 flex-1 min-h-0 flex flex-col">
       <div class="flex items-center justify-between mb-2">
-        <h2 class="text-[10px] font-black uppercase tracking-[0.14em] text-primary">Encoded Recovery Chunks</h2>
+        <h2 class="text-[10px] font-black uppercase tracking-[0.14em] text-primary">Recovery Segments</h2>
         <p class="text-[8px] font-mono uppercase tracking-[0.12em] text-ink-light">{{ page.page_label }}</p>
       </div>
       {% if page.qr_items %}
@@ -149,31 +157,29 @@
         {% for slot in page.qr_items %}
         <article class="border border-[#ded9ef] bg-white/95 p-2 flex flex-col gap-1">
           <div class="flex items-center justify-between">
-            <span class="text-[7px] font-mono uppercase tracking-[0.12em] text-ink-light">KIT {{ '%02d' % slot.index }}</span>
-            <span class="text-[7px] font-black uppercase text-primary">Seq</span>
+            <span class="text-[7px] font-mono uppercase tracking-[0.12em] text-ink-light">Segment {{ '%02d' % slot.index }}</span>
+            <span class="text-[7px] font-black uppercase text-primary">Scan In Order</span>
           </div>
           <div class="aspect-square border border-[#e9e4f4] bg-white p-1">
-            <img class="w-full h-full object-contain qr-render" src="{{ slot.data_uri }}" alt="Recovery kit QR {{ slot.index }}">
+            <img class="w-full h-full object-contain qr-render" src="{{ slot.data_uri }}" alt="QR segment {{ slot.index }}">
           </div>
         </article>
         {% endfor %}
       </div>
       {% else %}
       <div class="flex-1 border border-dashed border-[#ded9ef] bg-white/70 flex items-center justify-center text-[9px] font-mono text-ink-light">
-        No QR chunks on this page.
+        No QR segments on this page.
       </div>
       {% endif %}
     </section>
     {% else %}
-    <header class="border-b border-line-subtle pb-3 mb-3">
-      <div class="flex items-end justify-between gap-4">
-        <div>
-          <h1 class="font-serif text-[22px] font-bold tracking-tight">Recovery Kit Chunks</h1>
-          <p class="text-[9px] uppercase tracking-[0.2em] text-primary font-semibold">Continuation Sheet</p>
-        </div>
-        <p class="text-[8px] font-mono uppercase tracking-[0.14em] text-ink-light">{{ page.page_label }}</p>
-      </div>
-    </header>
+    {% set monograph_header_title = doc.title %}
+    {% set monograph_header_subtitle = doc.subtitle %}
+    {% set monograph_header_classification = 'Offline Processing Required' %}
+    {% set monograph_header_guidance = 'Scan left-to-right, top-to-bottom in offline recovery flow' %}
+    {% set monograph_header_ref = doc_id[:4] ~ '-' ~ doc_id[4:8] %}
+    {% set monograph_header_icon = 'qr_code_2' %}
+    {% include 'partials/monograph_shell_header.j2' %}
 
     <section class="flex-1 min-h-0">
       {% if page.qr_items %}
@@ -181,28 +187,26 @@
         {% for slot in page.qr_items %}
         <article class="border border-[#ded9ef] bg-white p-2 flex flex-col gap-1">
           <div class="flex items-center justify-between border-b border-[#efeaf8] pb-1">
-            <span class="text-[7px] font-mono uppercase tracking-[0.12em] text-ink-light">KIT {{ '%02d' % slot.index }}</span>
-            <span class="text-[7px] font-black uppercase text-primary">Verify</span>
+            <span class="text-[7px] font-mono uppercase tracking-[0.12em] text-ink-light">Segment {{ '%02d' % slot.index }}</span>
+            <span class="text-[7px] font-black uppercase text-primary">Scan In Order</span>
           </div>
           <div class="aspect-square border border-[#e9e4f4] bg-white p-1">
-            <img class="w-full h-full object-contain qr-render" src="{{ slot.data_uri }}" alt="Recovery kit QR {{ slot.index }}">
+            <img class="w-full h-full object-contain qr-render" src="{{ slot.data_uri }}" alt="QR segment {{ slot.index }}">
           </div>
         </article>
         {% endfor %}
       </div>
       {% else %}
       <div class="h-full border border-dashed border-[#ded9ef] bg-white/70 flex items-center justify-center text-[9px] font-mono text-ink-light">
-        No QR chunks on this page.
+        No QR segments on this page.
       </div>
       {% endif %}
     </section>
     {% endif %}
 
-    <footer class="mt-3 pt-2 border-t border-ink-dark/10 flex items-center justify-between text-[8px] font-mono uppercase tracking-[0.14em] text-ink-light">
-      <span>Monograph Offline Archive</span>
-      <span>{{ page.page_label }}</span>
-      <span>{{ doc_id[:8] }}</span>
-    </footer>
+    {% set monograph_footer_left = 'Monograph Offline Archive' %}
+    {% set monograph_footer_right = 'Scan left-to-right, top-to-bottom in offline recovery flow' %}
+    {% include 'partials/monograph_shell_footer.j2' %}
   </section>
   {% endif %}
 {% endfor %}
