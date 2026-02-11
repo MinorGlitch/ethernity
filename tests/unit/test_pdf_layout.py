@@ -26,7 +26,12 @@ from ethernity.render.geometry import (
     fallback_lines_per_page_text_only,
 )
 from ethernity.render.layout import compute_layout
-from ethernity.render.pdf_render import _parse_recovery_key_lines, _recovery_meta_lines_extra
+from ethernity.render.pdf_render import (
+    _apply_main_qr_grid_overrides,
+    _parse_recovery_key_lines,
+    _recovery_meta_lines_extra,
+    _uses_uniform_main_qr_capacity,
+)
 from ethernity.render.spec import (
     DocumentSpec,
     FallbackSpec,
@@ -157,6 +162,84 @@ class TestPdfLayout(unittest.TestCase):
                 self.assertEqual(layout.cols, 3)
                 self.assertEqual(layout.rows, 4)
                 self.assertEqual(layout.per_page, 12)
+
+    def test_monograph_main_enables_uniform_qr_capacity_across_pages(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\x12" * DOC_ID_LEN,
+                index=i,
+                total=30,
+                data=f"payload-{i}".encode("utf-8"),
+            )
+            for i in range(30)
+        ]
+        context = {
+            "doc_id": frames[0].doc_id.hex(),
+            "paper_size": "A4",
+            "created_timestamp_utc": "2026-01-01 00:00 UTC",
+        }
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "monograph"
+            / "main_document.html.j2"
+        )
+        inputs = RenderInputs(
+            frames=frames,
+            template_path=template_path,
+            output_path="out.pdf",
+            context=context,
+            doc_type="main",
+            render_fallback=False,
+        )
+        spec = document_spec("main", "A4", context)
+        style = load_template_style(template_path)
+        spec = replace(
+            spec,
+            header=replace(
+                spec.header,
+                meta_row_gap_mm=float(style.header.meta_row_gap_mm),
+                stack_gap_mm=float(style.header.stack_gap_mm),
+                divider_thickness_mm=float(style.header.divider_thickness_mm),
+            ),
+        )
+        spec = _apply_main_qr_grid_overrides(
+            spec=spec,
+            doc_type="main",
+            capabilities=style.capabilities,
+        )
+        pdf = FPDF(unit="mm", format="A4")
+        first_layout, _ = compute_layout(
+            inputs,
+            spec,
+            pdf,
+            key_lines=[],
+            include_keys=True,
+            include_instructions=True,
+        )
+        continuation_layout, _ = compute_layout(
+            inputs,
+            spec,
+            pdf,
+            key_lines=[],
+            include_keys=True,
+            include_instructions=False,
+        )
+
+        self.assertGreater(continuation_layout.per_page, first_layout.per_page)
+        self.assertEqual(first_layout.cols, 4)
+        self.assertEqual(first_layout.rows, 2)
+        self.assertEqual(first_layout.per_page, 8)
+        self.assertTrue(
+            _uses_uniform_main_qr_capacity(
+                doc_type="main",
+                capabilities=style.capabilities,
+            )
+        )
 
     def test_recovery_text_layout_smoke_across_styles(self) -> None:
         frame = Frame(
@@ -995,6 +1078,75 @@ class TestPdfLayout(unittest.TestCase):
             forge_layout.fallback_lines_per_page + 1,
         )
 
+    def test_monograph_shard_first_page_capacity_matches_sentinel_bonus_line(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x37" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        spec = _build_spec(line_count=6, line_height=3.5)
+        pdf = FPDF(unit="mm", format=(100, 100))
+
+        forge_template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "forge"
+            / "shard_document.html.j2"
+        )
+        forge_inputs = RenderInputs(
+            frames=[frame],
+            template_path=forge_template_path,
+            output_path="out.pdf",
+            context={"doc_id": frame.doc_id.hex()},
+            doc_type="shard",
+            render_qr=True,
+            render_fallback=True,
+            fallback_payload=b"shard payload",
+        )
+        forge_layout, _ = compute_layout(
+            forge_inputs,
+            spec,
+            pdf,
+            key_lines=[],
+            include_instructions=True,
+        )
+
+        monograph_template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "monograph"
+            / "shard_document.html.j2"
+        )
+        monograph_inputs = RenderInputs(
+            frames=[frame],
+            template_path=monograph_template_path,
+            output_path="out.pdf",
+            context={"doc_id": frame.doc_id.hex()},
+            doc_type="shard",
+            render_qr=True,
+            render_fallback=True,
+            fallback_payload=b"shard payload",
+        )
+        monograph_layout, _ = compute_layout(
+            monograph_inputs,
+            spec,
+            pdf,
+            key_lines=[],
+            include_instructions=True,
+        )
+
+        self.assertEqual(
+            monograph_layout.fallback_lines_per_page,
+            forge_layout.fallback_lines_per_page + 1,
+        )
+
     def test_non_forge_shard_uses_base_fallback_capacity(self) -> None:
         frame = Frame(
             version=1,
@@ -1186,6 +1338,75 @@ class TestPdfLayout(unittest.TestCase):
 
         self.assertEqual(
             sentinel_layout.fallback_lines_per_page,
+            forge_layout.fallback_lines_per_page + 9,
+        )
+
+    def test_monograph_signing_key_shard_first_page_capacity_matches_sentinel_bonus(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x38" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        spec = _build_spec(line_count=6, line_height=3.5)
+        pdf = FPDF(unit="mm", format=(100, 100))
+
+        forge_template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "forge"
+            / "signing_key_shard_document.html.j2"
+        )
+        forge_inputs = RenderInputs(
+            frames=[frame],
+            template_path=forge_template_path,
+            output_path="out.pdf",
+            context={"doc_id": frame.doc_id.hex()},
+            doc_type="signing_key_shard",
+            render_qr=True,
+            render_fallback=True,
+            fallback_payload=b"signing payload",
+        )
+        forge_layout, _ = compute_layout(
+            forge_inputs,
+            spec,
+            pdf,
+            key_lines=[],
+            include_instructions=True,
+        )
+
+        monograph_template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "monograph"
+            / "signing_key_shard_document.html.j2"
+        )
+        monograph_inputs = RenderInputs(
+            frames=[frame],
+            template_path=monograph_template_path,
+            output_path="out.pdf",
+            context={"doc_id": frame.doc_id.hex()},
+            doc_type="signing_key_shard",
+            render_qr=True,
+            render_fallback=True,
+            fallback_payload=b"signing payload",
+        )
+        monograph_layout, _ = compute_layout(
+            monograph_inputs,
+            spec,
+            pdf,
+            key_lines=[],
+            include_instructions=True,
+        )
+
+        self.assertEqual(
+            monograph_layout.fallback_lines_per_page,
             forge_layout.fallback_lines_per_page + 9,
         )
 

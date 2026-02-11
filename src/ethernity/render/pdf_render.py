@@ -29,14 +29,14 @@ from fpdf import FPDF
 
 from ..encoding.framing import encode_frame
 from ..qr.codec import QrConfig, qr_bytes
-from .doc_types import DOC_TYPE_KIT, DOC_TYPE_RECOVERY
+from .doc_types import DOC_TYPE_KIT, DOC_TYPE_MAIN, DOC_TYPE_RECOVERY
 from .fallback import FallbackConsumerState, FallbackSectionData, build_fallback_sections_data
 from .html_to_pdf import render_html_to_pdf
 from .layout import compute_layout
 from .pages import build_pages
 from .spec import DocumentSpec, document_spec
 from .template_model import DocModel, InstructionsModel, RecoveryModel, TemplateContext
-from .template_style import load_template_style
+from .template_style import TemplateCapabilities, load_template_style
 from .templating import render_template
 from .text import page_format
 from .types import RenderInputs
@@ -84,6 +84,32 @@ def _forge_copy_payload() -> ForgeCopy:
 
 def _is_forge_template(path: str | Path) -> bool:
     return Path(path).parent.name.strip().lower() in {"forge", "sentinel"}
+
+
+def _uses_uniform_main_qr_capacity(*, doc_type: str, capabilities: TemplateCapabilities) -> bool:
+    return doc_type.strip().lower() == DOC_TYPE_MAIN and capabilities.uniform_main_qr_capacity
+
+
+def _apply_main_qr_grid_overrides(
+    *,
+    spec: DocumentSpec,
+    doc_type: str,
+    capabilities: TemplateCapabilities,
+) -> DocumentSpec:
+    if doc_type != DOC_TYPE_MAIN:
+        return spec
+
+    qr_grid = spec.qr_grid
+    changed = False
+    if capabilities.main_qr_grid_size_mm is not None:
+        qr_grid = replace(qr_grid, qr_size_mm=float(capabilities.main_qr_grid_size_mm))
+        changed = True
+    if capabilities.main_qr_grid_max_cols is not None:
+        qr_grid = replace(qr_grid, max_cols=int(capabilities.main_qr_grid_max_cols))
+        changed = True
+    if not changed:
+        return spec
+    return replace(spec, qr_grid=qr_grid)
 
 
 def _wrap_passphrase(passphrase: str, *, words_per_line: int = 6) -> tuple[str, ...]:
@@ -274,6 +300,11 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
                 divider_gap_mm=float(spec.header.divider_gap_mm) + divider_gap_extra_mm,
             ),
         )
+    spec = _apply_main_qr_grid_overrides(
+        spec=spec,
+        doc_type=normalized_doc_type,
+        capabilities=style.capabilities,
+    )
 
     recovery_meta = None
     if normalized_doc_type == DOC_TYPE_RECOVERY:
@@ -310,6 +341,11 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
 
     keys_first_page_only = bool(spec.keys.first_page_only)
     instructions_first_page_only = bool(spec.instructions.first_page_only)
+    if _uses_uniform_main_qr_capacity(
+        doc_type=inputs.doc_type,
+        capabilities=style.capabilities,
+    ):
+        instructions_first_page_only = False
     layout_rest = None
     if instructions_first_page_only or keys_first_page_only:
         layout_rest, _ = compute_layout(

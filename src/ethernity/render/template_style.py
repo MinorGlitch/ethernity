@@ -43,6 +43,9 @@ class TemplateCapabilities:
     advanced_fallback_layout: bool = False
     wide_recovery_fallback_lines: bool = False
     extra_main_first_page_qr_slot: bool = False
+    uniform_main_qr_capacity: bool = False
+    main_qr_grid_size_mm: float | None = None
+    main_qr_grid_max_cols: int | None = None
     shard_first_page_bonus_lines: int = 0
     signing_key_shard_first_page_bonus_lines: int = 0
 
@@ -150,6 +153,9 @@ def _parse_capabilities(value: object, *, style_name: str, path: Path) -> Templa
                 "advanced_fallback_layout",
                 "wide_recovery_fallback_lines",
                 "extra_main_first_page_qr_slot",
+                "uniform_main_qr_capacity",
+                "main_qr_grid_size_mm",
+                "main_qr_grid_max_cols",
                 "shard_first_page_bonus_lines",
                 "signing_key_shard_first_page_bonus_lines",
             }
@@ -181,6 +187,24 @@ def _parse_capabilities(value: object, *, style_name: str, path: Path) -> Templa
             value,
             "extra_main_first_page_qr_slot",
             default=normalized_style_name == "sentinel",
+            path=path,
+        ),
+        uniform_main_qr_capacity=_optional_bool(
+            value,
+            "uniform_main_qr_capacity",
+            default=False,
+            path=path,
+        ),
+        main_qr_grid_size_mm=_optional_positive_number(
+            value,
+            "main_qr_grid_size_mm",
+            default=None,
+            path=path,
+        ),
+        main_qr_grid_max_cols=_optional_positive_int(
+            value,
+            "main_qr_grid_max_cols",
+            default=None,
             path=path,
         ),
         shard_first_page_bonus_lines=_optional_non_negative_int(
@@ -259,6 +283,36 @@ def _optional_non_negative_int(
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(f"missing or invalid '{key}' non-negative integer in {path}")
     return value
+
+
+def _optional_positive_int(
+    data: dict[str, object],
+    key: str,
+    *,
+    default: int | None,
+    path: Path,
+) -> int | None:
+    if key not in data:
+        return default
+    value = data.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"missing or invalid '{key}' positive integer in {path}")
+    return value
+
+
+def _optional_positive_number(
+    data: dict[str, object],
+    key: str,
+    *,
+    default: float | None,
+    path: Path,
+) -> float | None:
+    if key not in data:
+        return default
+    value = data.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        raise ValueError(f"missing or invalid '{key}' positive number in {path}")
+    return float(value)
 
 
 def _reject_unknown_keys(

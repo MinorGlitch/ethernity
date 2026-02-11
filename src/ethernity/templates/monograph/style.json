@@ -11,6 +11,11 @@
   },
   "capabilities": {
     "repeat_primary_qr_on_shard_continuation": true,
-    "advanced_fallback_layout": true
+    "advanced_fallback_layout": true,
+    "uniform_main_qr_capacity": true,
+    "main_qr_grid_size_mm": 43.0,
+    "main_qr_grid_max_cols": 4,
+    "shard_first_page_bonus_lines": 1,
+    "signing_key_shard_first_page_bonus_lines": 8
   }
 }
