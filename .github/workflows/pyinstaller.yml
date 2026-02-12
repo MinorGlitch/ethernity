@@ -149,18 +149,32 @@ jobs:
 
   build:
     needs: precheck
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - runner: ubuntu-latest
             artifact_os: linux
-          - os: macos-latest
+            artifact_arch: x64
+            archive_ext: tar.gz
+          - runner: ubuntu-24.04-arm
+            artifact_os: linux
+            artifact_arch: arm64
+            archive_ext: tar.gz
+          - runner: macos-13
             artifact_os: macos
-          - os: windows-latest
+            artifact_arch: x64
+            archive_ext: tar.gz
+          - runner: macos-14
+            artifact_os: macos
+            artifact_arch: arm64
+            archive_ext: tar.gz
+          - runner: windows-latest
             artifact_os: windows
+            artifact_arch: x64
+            archive_ext: zip
     permissions:
       contents: read
     steps:
@@ -202,7 +216,8 @@ jobs:
         env:
           RELEASE_TAG: ${{ needs.precheck.outputs.tag }}
           ARTIFACT_OS: ${{ matrix.artifact_os }}
-          ARTIFACT_ARCH: ${{ runner.arch }}
+          ARTIFACT_ARCH: ${{ matrix.artifact_arch }}
+          RUNNER_ARCH: ${{ runner.arch }}
           PACKAGER: pyinstaller
           PACKAGE_MODE: onedir
         run: uv run python scripts/package_pyinstaller.py
@@ -210,13 +225,11 @@ jobs:
       - name: Upload packaged artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: release-build-${{ matrix.artifact_os }}
+          name: release-build-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}
           if-no-files-found: error
           path: |
-            ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-*-pyinstaller-onedir.zip
-            ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-*-pyinstaller-onedir.tar.gz
-            ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-*-pyinstaller-onedir.zip.sha256
-            ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-*-pyinstaller-onedir.tar.gz.sha256
+            ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}-pyinstaller-onedir.${{ matrix.archive_ext }}
+            ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}-pyinstaller-onedir.${{ matrix.archive_ext }}.sha256
 
   provenance:
     needs: [precheck, build]
@@ -328,14 +341,29 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
+          tag="${{ needs.precheck.outputs.tag }}"
+          expected_archives=(
+            "dist-artifacts/ethernity-${tag}-linux-x64-pyinstaller-onedir.tar.gz"
+            "dist-artifacts/ethernity-${tag}-linux-arm64-pyinstaller-onedir.tar.gz"
+            "dist-artifacts/ethernity-${tag}-macos-x64-pyinstaller-onedir.tar.gz"
+            "dist-artifacts/ethernity-${tag}-macos-arm64-pyinstaller-onedir.tar.gz"
+            "dist-artifacts/ethernity-${tag}-windows-x64-pyinstaller-onedir.zip"
+          )
+
           archives=(dist-artifacts/*.zip dist-artifacts/*.tar.gz)
-          if (( ${#archives[@]} != 3 )); then
-            echo "expected exactly 3 archives (linux, macos, windows), found ${#archives[@]}" >&2
+          if (( ${#archives[@]} != ${#expected_archives[@]} )); then
+            echo "expected ${#expected_archives[@]} archives, found ${#archives[@]}" >&2
             ls -la dist-artifacts || true
             exit 1
           fi
 
-          for archive in "${archives[@]}"; do
+          for archive in "${expected_archives[@]}"; do
+            if [[ ! -f "${archive}" ]]; then
+              echo "missing expected archive: ${archive}" >&2
+              ls -la dist-artifacts || true
+              exit 1
+            fi
+
             checksum="${archive}.sha256"
             if [[ "${archive}" == *.tar.gz ]]; then
               stem="${archive%.tar.gz}"
