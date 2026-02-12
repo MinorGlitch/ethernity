@@ -118,7 +118,7 @@ class TestConfigCommand(unittest.TestCase):
         ctx = self._ctx(config="ctx.toml", quiet=False, debug=True)
         config_module.config(ctx, config=None, editor=None, print_path=True)
         resolve_config_path.assert_called_once_with("ctx.toml")
-        print_mock.assert_called_once_with("/tmp/print.toml")
+        print_mock.assert_called_once_with(str(Path("/tmp/print.toml")))
         open_in_editor.assert_not_called()
 
     def test_register(self) -> None:
