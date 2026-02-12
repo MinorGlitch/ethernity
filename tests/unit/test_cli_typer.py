@@ -13,12 +13,19 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+import re
 import unittest
 from unittest import mock
 
 from typer.testing import CliRunner
 
 from ethernity.cli import app
+
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _strip_ansi(text: str) -> str:
+    return ANSI_ESCAPE_RE.sub("", text)
 
 
 class TestCliTyper(unittest.TestCase):
@@ -58,20 +65,20 @@ class TestCliTyper(unittest.TestCase):
         with mock.patch("ethernity.cli.app.run_startup", return_value=False):
             result = self.runner.invoke(app, ["backup", "--help"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("--qr-chunk-size", result.output)
+        self.assertIn("--qr-chunk-size", _strip_ansi(result.output))
 
     def test_kit_help_lists_qr_chunk_size(self) -> None:
         with mock.patch("ethernity.cli.app.run_startup", return_value=False):
             result = self.runner.invoke(app, ["kit", "--help"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("--qr-chunk-size", result.output)
+        self.assertIn("--qr-chunk-size", _strip_ansi(result.output))
 
     def test_kit_old_chunk_size_flag_is_rejected(self) -> None:
         with mock.patch("ethernity.cli.app.run_startup", return_value=False):
             result = self.runner.invoke(app, ["kit", "--chunk-size", "100"])
         self.assertEqual(result.exit_code, 2)
         self.assertIn("No such option", result.output)
-        self.assertIn("--chunk-size", result.output)
+        self.assertIn("--chunk-size", _strip_ansi(result.output))
 
     def test_kit_custom_bundle_missing_file_returns_actionable_error(self) -> None:
         with mock.patch("ethernity.cli.app.run_startup", return_value=False):
