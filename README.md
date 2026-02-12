@@ -118,7 +118,7 @@ Typical use cases:
 ### Prerequisites
 
 - Python 3.13+ (for source and pip-based installs)
-- Playwright Chromium runtime (required for PDF rendering)
+- Chromium browser binaries for PDF rendering (auto-installed on first backup/render run)
 - Enough local disk space for generated PDFs and optional shard documents
 
 If you only use release binaries, Python is not required on the target machine.
@@ -169,7 +169,6 @@ For full verification and provenance guidance, use
 
 ```sh
 pipx install ethernity
-playwright install chromium
 ethernity --help
 ```
 
@@ -177,7 +176,6 @@ ethernity --help
 
 ```sh
 pip install ethernity
-playwright install chromium
 ethernity --help
 ```
 
@@ -187,6 +185,7 @@ ethernity --help
 git clone https://github.com/MinorGlitch/ethernity.git
 cd ethernity
 uv sync --extra dev --extra build
+# Optional pre-provisioning for offline/restricted environments:
 uv run playwright install chromium
 uv run ethernity --help
 ```
@@ -534,31 +533,13 @@ Each row follows `symptom -> fix`.
 
 | Symptom | Quick Fix |
 | --- | --- |
-| `playwright` errors during backup/render | Run `playwright install chromium` and retry. If in dev env, run `uv run playwright install chromium`. |
+| `playwright` errors during backup/render | Retry the same `ethernity` command and allow startup to install Chromium automatically. If `ETHERNITY_SKIP_PLAYWRIGHT_INSTALL=1` is set, unset it. For source/dev installs, you can pre-install with `uv run playwright install chromium`. |
 | Binary fails with wrong architecture | Re-download artifact matching your CPU (`x64` vs `arm64`) and OS. |
 | Recovery parser rejects mixed payload text | Split sources by document set; run one recovery mode at a time. |
 | `No such option` in CLI usage | Run `ethernity <command> --help` and use current flags (for example `--qr-chunk-size`). |
 | `cosign verify-blob` fails | Confirm you are verifying the exact archive with its matching `.sigstore.json` bundle. |
 | Checksum mismatch | Re-download archive and `.sha256`, then verify again before extraction. |
 | Recovery output seems wrong | Compare recovered hash/bytes with trusted source and rerun with fresh inputs. |
-
-### Playwright Runtime Not Installed
-
-Symptom:
-
-- PDF render or backup commands fail before document generation.
-
-Fix:
-
-```sh
-playwright install chromium
-```
-
-If using source checkout:
-
-```sh
-uv run playwright install chromium
-```
 
 ### Provenance Bundle Confusion
 
