@@ -17,28 +17,44 @@ import unittest
 from unittest import mock
 
 from ethernity.cli.flows.prompts import _ingest_shard_frame, _ShardPasteState
-from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE, ShardPayload, encode_shard_payload
+from ethernity.crypto.sharding import (
+    KEY_TYPE_PASSPHRASE,
+    KEY_TYPE_SIGNING_SEED,
+    ShardPayload,
+    encode_shard_payload,
+)
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
 
 
-def _build_shard_frame(*, share_index: int, share: bytes) -> Frame:
+def _build_shard_frame(
+    *,
+    share_index: int,
+    share: bytes,
+    key_type: str = KEY_TYPE_PASSPHRASE,
+    threshold: int = 2,
+    share_count: int = 3,
+    doc_hash: bytes = b"\x11" * 32,
+    sign_pub: bytes = b"\x22" * 32,
+    index: int = 0,
+    total: int = 1,
+) -> Frame:
     payload = ShardPayload(
         share_index=share_index,
-        threshold=2,
-        share_count=3,
-        key_type=KEY_TYPE_PASSPHRASE,
+        threshold=threshold,
+        share_count=share_count,
+        key_type=key_type,
         share=share,
         secret_len=len(share),
-        doc_hash=b"\x11" * 32,
-        sign_pub=b"\x22" * 32,
+        doc_hash=doc_hash,
+        sign_pub=sign_pub,
         signature=b"\x33" * 64,
     )
     return Frame(
         version=VERSION,
         frame_type=FrameType.KEY_DOCUMENT,
         doc_id=b"\x44" * DOC_ID_LEN,
-        index=0,
-        total=1,
+        index=index,
+        total=total,
         data=encode_shard_payload(payload),
     )
 
@@ -96,6 +112,79 @@ class TestRecoverShardPrompts(unittest.TestCase):
             mock.call("[success]All required shard documents captured.[/success]"),
             print_mock.mock_calls,
         )
+
+    def test_rejects_non_shard_frame_and_multiframe(self) -> None:
+        state = _ShardPasteState(frames=[], seen_shares={})
+        wrong_type = Frame(
+            version=VERSION,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x44" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"x",
+        )
+        multiframe = _build_shard_frame(share_index=1, share=b"\xaa" * 16, index=1, total=2)
+        with mock.patch("ethernity.cli.flows.prompts.console.print"):
+            with mock.patch("ethernity.cli.flows.prompts.console_err.print") as error_print_mock:
+                self.assertFalse(
+                    _ingest_shard_frame(frame=wrong_type, state=state, label="Shard documents")
+                )
+                self.assertFalse(
+                    _ingest_shard_frame(frame=multiframe, state=state, label="Shard documents")
+                )
+        self.assertEqual(len(state.frames), 0)
+        self.assertEqual(len(error_print_mock.mock_calls), 2)
+
+    def test_rejects_decode_error_and_wrong_key_type(self) -> None:
+        state = _ShardPasteState(frames=[], seen_shares={})
+        invalid = Frame(
+            version=VERSION,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=b"\x44" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"bad-cbor",
+        )
+        signing_seed_frame = _build_shard_frame(
+            share_index=1,
+            share=b"\xaa" * 16,
+            key_type=KEY_TYPE_SIGNING_SEED,
+        )
+        with mock.patch("ethernity.cli.flows.prompts.console.print"):
+            with mock.patch("ethernity.cli.flows.prompts.console_err.print") as error_print_mock:
+                self.assertFalse(
+                    _ingest_shard_frame(frame=invalid, state=state, label="Shard documents")
+                )
+                self.assertFalse(
+                    _ingest_shard_frame(
+                        frame=signing_seed_frame, state=state, label="Shard documents"
+                    )
+                )
+        self.assertEqual(len(state.frames), 0)
+        self.assertEqual(len(error_print_mock.mock_calls), 2)
+
+    def test_rejects_mismatched_shard_metadata(self) -> None:
+        state = _ShardPasteState(frames=[], seen_shares={})
+        first = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
+        mismatched = _build_shard_frame(
+            share_index=2,
+            share=b"\xbb" * 16,
+            threshold=3,
+            share_count=5,
+            doc_hash=b"\x99" * 32,
+            sign_pub=b"\x88" * 32,
+        )
+        with mock.patch("ethernity.cli.flows.prompts.console.print"):
+            with mock.patch("ethernity.cli.flows.prompts.console_err.print") as error_print_mock:
+                self.assertFalse(
+                    _ingest_shard_frame(frame=first, state=state, label="Shard documents")
+                )
+                self.assertFalse(
+                    _ingest_shard_frame(frame=mismatched, state=state, label="Shard documents")
+                )
+        self.assertEqual(len(state.frames), 1)
+        self.assertEqual(len(state.seen_shares), 1)
+        self.assertGreaterEqual(len(error_print_mock.mock_calls), 1)
 
 
 if __name__ == "__main__":
