@@ -24,10 +24,20 @@ class TestMainEntrypoints(unittest.TestCase):
         runpy.run_module("ethernity.__main__", run_name="__main__")
         cli_main.assert_called_once_with()
 
+    @mock.patch("ethernity.cli.main")
+    def test_package_main_import_path_does_not_dispatch(self, cli_main: mock.MagicMock) -> None:
+        runpy.run_module("ethernity.__main__", run_name="ethernity.__main__")
+        cli_main.assert_not_called()
+
     @mock.patch("ethernity.cli.app.main")
     def test_cli_main_dispatches_to_app_main(self, app_main: mock.MagicMock) -> None:
         runpy.run_module("ethernity.cli.__main__", run_name="__main__")
         app_main.assert_called_once_with()
+
+    @mock.patch("ethernity.cli.app.main")
+    def test_cli_main_import_path_does_not_dispatch(self, app_main: mock.MagicMock) -> None:
+        runpy.run_module("ethernity.cli.__main__", run_name="ethernity.cli.__main__")
+        app_main.assert_not_called()
 
 
 if __name__ == "__main__":
