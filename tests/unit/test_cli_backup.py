@@ -28,7 +28,9 @@ from ethernity import cli
 from ethernity.cli.core.types import BackupArgs
 from ethernity.cli.io.inputs import _load_input_files
 from ethernity.config import load_app_config
+from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
 from ethernity.core.models import DocumentPlan, ShardingConfig, SigningSeedMode
+from ethernity.encoding.framing import Frame
 from ethernity.formats import envelope_codec as envelope_codec_module
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -89,6 +91,87 @@ def _run_backup_with_plan(
 
 
 class TestCliBackup(unittest.TestCase):
+    def test_run_backup_enforces_ciphertext_bound(self) -> None:
+        config = load_app_config(path=DEFAULT_CONFIG_PATH)
+        plan = DocumentPlan(version=1, sealed=False, sharding=None)
+        input_file = cli.InputFile(
+            source_path=Path("input.bin"),
+            relative_path="input.bin",
+            data=b"payload",
+            mtime=None,
+        )
+
+        def _fake_chunk(
+            payload: bytes,
+            *,
+            doc_id: bytes,
+            frame_type: int,
+            chunk_size: int,
+            version: int = 1,
+        ) -> list[Frame]:
+            _ = payload, chunk_size
+            return [
+                Frame(
+                    version=version,
+                    frame_type=frame_type,
+                    doc_id=doc_id,
+                    index=0,
+                    total=1,
+                    data=b"x",
+                )
+            ]
+
+        cases = (
+            (MAX_CIPHERTEXT_BYTES - 1, False),
+            (MAX_CIPHERTEXT_BYTES, False),
+            (MAX_CIPHERTEXT_BYTES + 1, True),
+        )
+        for size, expect_error in cases:
+            with self.subTest(ciphertext_size=size):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    output_dir = Path(tmpdir) / "out"
+                    ciphertext = b"c" * size
+                    with mock.patch(
+                        "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
+                        return_value=(ciphertext, "auto-pass"),
+                    ):
+                        with mock.patch(
+                            "ethernity.cli.flows.backup_flow.chunk_payload",
+                            side_effect=_fake_chunk,
+                        ) as chunk_mock:
+                            with mock.patch(
+                                "ethernity.cli.flows.backup_flow.choose_frame_chunk_size",
+                                return_value=256,
+                            ):
+                                with mock.patch("ethernity.render.render_frames_to_pdf"):
+                                    if expect_error:
+                                        with self.assertRaisesRegex(
+                                            ValueError, "MAX_CIPHERTEXT_BYTES"
+                                        ):
+                                            cli.run_backup(
+                                                input_files=[input_file],
+                                                base_dir=None,
+                                                output_dir=str(output_dir),
+                                                plan=plan,
+                                                passphrase=None,
+                                                config=config,
+                                            )
+                                        chunk_mock.assert_not_called()
+                                    else:
+                                        result = cli.run_backup(
+                                            input_files=[input_file],
+                                            base_dir=None,
+                                            output_dir=str(output_dir),
+                                            plan=plan,
+                                            passphrase=None,
+                                            config=config,
+                                        )
+                                        self.assertEqual(
+                                            Path(result.qr_path).name,
+                                            "qr_document.pdf",
+                                        )
+                                        chunk_mock.assert_called_once()
+
     def test_run_backup_warns_when_chunk_size_reduced(self) -> None:
         config = load_app_config(path=DEFAULT_CONFIG_PATH)
         config = replace(config, qr_chunk_size=1024)

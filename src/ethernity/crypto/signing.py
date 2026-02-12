@@ -19,12 +19,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, cast
 
-import cbor2
 from Crypto.PublicKey import ECC
 from Crypto.Signature import eddsa
 
 from ..core.validation import require_bytes, require_dict, require_keys, require_length
-from ..encoding.cbor import dumps_canonical
+from ..encoding.cbor import dumps_canonical, loads_canonical
 
 AUTH_VERSION = 1
 AUTH_DOMAIN = b"ETHERNITY-AUTH-V1"
@@ -152,7 +151,7 @@ def encode_auth_payload(doc_hash: bytes, *, sign_pub: bytes, signature: bytes) -
 
 
 def decode_auth_payload(data: bytes) -> AuthPayload:
-    decoded = require_dict(cbor2.loads(data), label="auth payload")
+    decoded = require_dict(loads_canonical(data, label="auth payload"), label="auth payload")
     require_keys(decoded, ("version", "hash", "pub", "sig"), label="auth payload")
     version = decoded["version"]
     doc_hash = decoded["hash"]

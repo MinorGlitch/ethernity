@@ -19,11 +19,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, cast
 
-import cbor2
 from Crypto.Protocol.SecretSharing import Shamir
 
 from ..core.validation import require_bytes, require_dict, require_keys, require_length
-from ..encoding.cbor import dumps_canonical
+from ..encoding.cbor import dumps_canonical, loads_canonical
 from .signing import DOC_HASH_LEN, ED25519_PUB_LEN, ED25519_SEED_LEN, ED25519_SIG_LEN, sign_shard
 
 SHARD_VERSION = 1
@@ -117,7 +116,7 @@ def encode_shard_payload(payload: ShardPayload) -> bytes:
 
 
 def decode_shard_payload(data: bytes) -> ShardPayload:
-    decoded = require_dict(cbor2.loads(data), label="shard payload")
+    decoded = require_dict(loads_canonical(data, label="shard payload"), label="shard payload")
     require_keys(
         decoded,
         (

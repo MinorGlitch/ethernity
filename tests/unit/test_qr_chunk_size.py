@@ -35,7 +35,6 @@ class TestQrChunkSize(unittest.TestCase):
             doc_id=doc_id,
             frame_type=FrameType.MAIN_DOCUMENT,
             qr_config=qr_config,
-            qr_payload_encoding="base64",
         )
         self.assertGreater(chunk_size, 0)
         self.assertLessEqual(chunk_size, DEFAULT_CHUNK_SIZE)
@@ -49,7 +48,7 @@ class TestQrChunkSize(unittest.TestCase):
         self.assertGreater(len(frames), 1)
 
         for frame in (frames[0], frames[-1]):
-            qr_payload = encode_qr_payload(encode_frame(frame), encoding="base64")
+            qr_payload = encode_qr_payload(encode_frame(frame))
             make_qr(
                 qr_payload,
                 error=qr_config.error,
@@ -70,7 +69,6 @@ class TestQrChunkSize(unittest.TestCase):
             doc_id=doc_id,
             frame_type=FrameType.MAIN_DOCUMENT,
             qr_config=qr_config,
-            qr_payload_encoding="base64",
         )
         self.assertEqual(chunk_size, DEFAULT_CHUNK_SIZE)
 
@@ -86,7 +84,6 @@ class TestQrChunkSize(unittest.TestCase):
             doc_id=doc_id,
             frame_type=FrameType.MAIN_DOCUMENT,
             qr_config=qr_config,
-            qr_payload_encoding="base64",
         )
         self.assertGreater(chunk_size, 0)
         self.assertLess(chunk_size, DEFAULT_CHUNK_SIZE)
@@ -100,7 +97,7 @@ class TestQrChunkSize(unittest.TestCase):
         self.assertGreater(len(frames), 1)
 
         for frame in (frames[0], frames[-1]):
-            qr_payload = encode_qr_payload(encode_frame(frame), encoding="base64")
+            qr_payload = encode_qr_payload(encode_frame(frame))
             make_qr(
                 qr_payload,
                 error=qr_config.error,
