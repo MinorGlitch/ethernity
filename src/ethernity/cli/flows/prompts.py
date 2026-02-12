@@ -116,10 +116,12 @@ def _format_shard_input_error(exc: Exception) -> str:
     return format_qr_input_error(
         message,
         bad_payload_hint=(
-            "That doesn't look like a QR payload. Try scanning images or paste shard recovery text."
+            "That doesn't look like a QR payload. Paste one shard payload per line, "
+            "or switch to shard recovery text."
         ),
         no_qr_hint=(
-            "That doesn't look like a QR payload. Try scanning images or paste shard recovery text."
+            "That doesn't look like a QR payload. Paste one shard payload per line, "
+            "or switch to shard recovery text."
         ),
         file_hint="Check the path and try again.",
     )
@@ -130,10 +132,12 @@ def _format_shard_payload_error(exc: Exception) -> str:
     return format_qr_input_error(
         message,
         bad_payload_hint=(
-            "That doesn't look like a QR payload. Try scanning images or paste shard recovery text."
+            "That doesn't look like a QR payload. Paste one shard payload per line, "
+            "or switch to shard recovery text."
         ),
         no_qr_hint=(
-            "That doesn't look like a QR payload. Try scanning images or paste shard recovery text."
+            "That doesn't look like a QR payload. Paste one shard payload per line, "
+            "or switch to shard recovery text."
         ),
         default_hint="Try scanning images or paste shard recovery text.",
     )
@@ -192,12 +196,12 @@ def _ingest_shard_frame(*, frame: Frame, state: _ShardPasteState, label: str) ->
     if frame.frame_type != FrameType.KEY_DOCUMENT:
         console_err.print(
             "[error]That payload isn't a shard document. Use shard recovery text or QR "
-            "payloads.[/error]"
+            "payloads for passphrase shards only.[/error]"
         )
         return False
     if frame.total != 1 or frame.index != 0:
         console_err.print(
-            "[error]Shard QR payloads are single-frame; paste one payload per line.[/error]"
+            "[error]Shard QR payloads are single-frame; paste one payload line at a time.[/error]"
         )
         return False
 
@@ -208,7 +212,8 @@ def _ingest_shard_frame(*, frame: Frame, state: _ShardPasteState, label: str) ->
         return False
     if payload.key_type != KEY_TYPE_PASSPHRASE:
         console_err.print(
-            "[error]This shard isn't for the passphrase; use passphrase shards only.[/error]"
+            "[error]This shard isn't for the passphrase; "
+            "use passphrase shard documents only.[/error]"
         )
         return False
 
@@ -220,17 +225,20 @@ def _ingest_shard_frame(*, frame: Frame, state: _ShardPasteState, label: str) ->
     else:
         if payload.threshold != state.expected_threshold:
             console_err.print(
-                "[error]This shard has a different threshold than the previous ones.[/error]"
+                "[error]This shard has a different threshold than the previous ones. "
+                "Use shards from one quorum set.[/error]"
             )
             return False
         if state.expected_shares is not None and payload.share_count != state.expected_shares:
             console_err.print(
-                "[error]This shard has a different share count than the previous ones.[/error]"
+                "[error]This shard has a different share count than the previous ones. "
+                "Use shards from one quorum set.[/error]"
             )
             return False
         if state.expected_doc_hash is not None and payload.doc_hash != state.expected_doc_hash:
             console_err.print(
-                "[error]This shard is from a different document than the previous ones.[/error]"
+                "[error]This shard is from a different document than the previous ones. "
+                "Continue with shards from one backup.[/error]"
             )
             return False
         if state.expected_sign_pub is not None and payload.sign_pub != state.expected_sign_pub:
@@ -241,7 +249,8 @@ def _ingest_shard_frame(*, frame: Frame, state: _ShardPasteState, label: str) ->
     if existing_share is not None:
         if existing_share != payload.share:
             console_err.print(
-                "[error]This shard conflicts with one you've already provided.[/error]"
+                "[error]This shard conflicts with one you've already provided. "
+                "Keep only one version per share index.[/error]"
             )
         else:
             console.print("[subtitle]Duplicate shard ignored.[/subtitle]")
@@ -257,11 +266,6 @@ def _ingest_shard_frame(*, frame: Frame, state: _ShardPasteState, label: str) ->
     if remaining <= 0:
         console.print(f"[success]All required {label_lower} captured.[/success]")
         return True
-    console.print(
-        "[subtitle]"
-        f"{label}: {len(state.seen_shares)}/{state.expected_threshold}. Remaining: {remaining}"
-        "[/subtitle]"
-    )
     return False
 
 
@@ -275,6 +279,11 @@ def _prompt_shard_fallback_paste(
         remaining = state.expected_threshold - len(state.seen_shares)
         if remaining <= 0:
             return state.frames
+    console.print(
+        "[subtitle]"
+        "Paste shard recovery text in batches; we'll continue until enough shards are decoded."
+        "[/subtitle]"
+    )
     help_text: str | None = (
         "Paste shard recovery text (headers are ok). "
         "We'll keep asking until it decodes and stop once enough shards are collected."
@@ -442,6 +451,11 @@ def _prompt_shard_payload_paste(
         remaining = state.expected_threshold - len(state.seen_shares)
         if remaining <= 0:
             return state.frames
+    console.print(
+        "[subtitle]"
+        "Paste one shard QR payload per line. We'll stop once the threshold is met."
+        "[/subtitle]"
+    )
 
     for frame in initial_frames or []:
         if _ingest_shard_frame(frame=frame, state=state, label="Shard payloads"):

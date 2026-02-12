@@ -50,6 +50,24 @@ def _context() -> UIContext:
 
 
 class TestPromptPrimitives(unittest.TestCase):
+    def test_print_prompt_header_compact_suppresses_repeated_headers(self) -> None:
+        context = _context()
+        context.compact_prompt_headers = True
+        context.stage_prompt_count = 0
+        context.console.print = mock.MagicMock()
+        prompts_module.print_prompt_header("First", "hint", context=context)
+        prompts_module.print_prompt_header("Second", "hint", context=context)
+        self.assertEqual(context.stage_prompt_count, 2)
+        self.assertEqual(context.console.print.call_count, 2)
+
+    def test_print_prompt_header_non_compact_prints_each_time(self) -> None:
+        context = _context()
+        context.compact_prompt_headers = False
+        context.console.print = mock.MagicMock()
+        prompts_module.print_prompt_header("First", None, context=context)
+        prompts_module.print_prompt_header("Second", None, context=context)
+        self.assertEqual(context.console.print.call_count, 2)
+
     @mock.patch("ethernity.cli.ui.prompts.print_prompt_header")
     def test_prompt_optional_secret(self, print_prompt_header: mock.MagicMock) -> None:
         with mock.patch(
@@ -184,7 +202,7 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
             self.assertIn("dir/", values)
             self.assertNotIn(".hidden", values)
 
-            with self.assertRaisesRegex(ValueError, "No entries found"):
+            with self.assertRaisesRegex(ValueError, "No selectable entries"):
                 prompts_module._list_picker_entries(
                     str(root),
                     allow_files=False,
@@ -197,6 +215,20 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
                     str(root / "missing"),
                     allow_files=True,
                     allow_dirs=True,
+                    include_hidden=False,
+                )
+
+    def test_list_picker_entries_empty_error_is_actionable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaisesRegex(
+                ValueError,
+                "Choose another directory or switch to manual entry",
+            ):
+                prompts_module._list_picker_entries(
+                    str(root),
+                    allow_files=False,
+                    allow_dirs=False,
                     include_hidden=False,
                 )
 
@@ -241,6 +273,73 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
         )
         self.assertEqual(value2, "manual")
         manual_func.assert_called_once()
+
+    @mock.patch("ethernity.cli.ui.prompts.prompt_optional_path", return_value=None)
+    @mock.patch("ethernity.cli.ui.prompts.prompt_choice", return_value="select")
+    def test_run_picker_flow_uses_last_picker_dir_default(
+        self,
+        _prompt_choice: mock.MagicMock,
+        _prompt_optional_path: mock.MagicMock,
+    ) -> None:
+        context = _context()
+        context.last_picker_dir = "/tmp/last-picker"
+        select_func = mock.MagicMock(return_value="/tmp/last-picker/chosen.txt")
+        value = prompts_module._run_picker_flow(
+            selection_prompt="mode",
+            selection_help_text=None,
+            manual_label="manual",
+            directory_prompt="dir",
+            directory_help_text="help",
+            picker_help_text="picker",
+            context=context,
+            select_func=select_func,
+            manual_func=mock.MagicMock(),
+        )
+        self.assertEqual(value, "/tmp/last-picker/chosen.txt")
+        select_func.assert_called_once_with("/tmp/last-picker")
+
+    @mock.patch("ethernity.cli.ui.prompts.prompt_optional_path", return_value=".")
+    @mock.patch("ethernity.cli.ui.prompts.prompt_choice", return_value="select")
+    def test_run_picker_flow_updates_last_picker_dir_after_select(
+        self,
+        _prompt_choice: mock.MagicMock,
+        _prompt_optional_path: mock.MagicMock,
+    ) -> None:
+        context = _context()
+        context.last_picker_dir = "."
+        select_func = mock.MagicMock(return_value="/tmp/out/file.txt")
+        prompts_module._run_picker_flow(
+            selection_prompt="mode",
+            selection_help_text=None,
+            manual_label="manual",
+            directory_prompt="dir",
+            directory_help_text="help",
+            picker_help_text="picker",
+            context=context,
+            select_func=select_func,
+            manual_func=mock.MagicMock(),
+        )
+        self.assertEqual(context.last_picker_dir, "/tmp/out")
+
+    @mock.patch("ethernity.cli.ui.prompts.prompt_choice", return_value="manual")
+    def test_run_picker_flow_updates_last_picker_dir_after_manual(
+        self,
+        _prompt_choice: mock.MagicMock,
+    ) -> None:
+        context = _context()
+        manual_func = mock.MagicMock(return_value="/tmp/manual/path.txt")
+        prompts_module._run_picker_flow(
+            selection_prompt="mode",
+            selection_help_text=None,
+            manual_label="manual",
+            directory_prompt="dir",
+            directory_help_text="help",
+            picker_help_text="picker",
+            context=context,
+            select_func=mock.MagicMock(),
+            manual_func=manual_func,
+        )
+        self.assertEqual(context.last_picker_dir, "/tmp/manual")
 
     @mock.patch("ethernity.cli.ui.prompts.prompt_choice_list", return_value="chosen")
     def test_prompt_select_entries_single(

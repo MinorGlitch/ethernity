@@ -191,6 +191,48 @@ class TestCliApp(unittest.TestCase):
         run_wizard.assert_called_once()
         self.assertEqual(run_wizard.call_args.kwargs["args"].design, "forge")
 
+    @mock.patch("ethernity.cli.app._run_kit_render", return_value=None)
+    @mock.patch("ethernity.cli.app._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch("ethernity.cli.app.prompt_home_action", return_value="kit")
+    @mock.patch("ethernity.cli.app.ui_screen_mode", return_value=contextlib.nullcontext())
+    @mock.patch("ethernity.cli.app._resolve_config_and_paper", return_value=("cfg", "A4"))
+    @mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=True)
+    @mock.patch("ethernity.cli.app.run_startup", return_value=False)
+    def test_cli_interactive_kit_route(
+        self,
+        _run_startup: mock.MagicMock,
+        _stdin_tty: mock.MagicMock,
+        _resolve_config_and_paper: mock.MagicMock,
+        ui_screen_mode: mock.MagicMock,
+        _prompt_home_action: mock.MagicMock,
+        _run_cli: mock.MagicMock,
+        run_kit_render: mock.MagicMock,
+    ) -> None:
+        ctx = _Ctx(invoked_subcommand=None)
+        app_module.cli(
+            ctx,
+            config=None,
+            paper=None,
+            design="forge",
+            debug=False,
+            debug_max_bytes=1024,
+            quiet=False,
+            no_color=False,
+            no_animations=False,
+            init_config=False,
+            version=False,
+        )
+        ui_screen_mode.assert_called_once_with(quiet=False)
+        run_kit_render.assert_called_once_with(
+            bundle=None,
+            output=None,
+            config_value="cfg",
+            paper_value="A4",
+            design_value="forge",
+            qr_chunk_size=None,
+            quiet_value=False,
+        )
+
     @mock.patch("ethernity.cli.app.app")
     def test_main_dispatches(self, app_mock: mock.MagicMock) -> None:
         app_module.main()

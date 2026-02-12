@@ -124,15 +124,21 @@ def ui_screen_mode(
     context: UIContext | None = None,
 ) -> Generator[None, None, None]:
     context = _resolve_context(context)
-    previous = context.screen_mode
+    previous_screen_mode = context.screen_mode
+    previous_compact_prompt_headers = context.compact_prompt_headers
+    previous_stage_prompt_count = context.stage_prompt_count
     active = enabled and not quiet
     context.screen_mode = active
+    context.compact_prompt_headers = active
+    context.stage_prompt_count = 0
     try:
         if active:
             clear_screen(context=context)
         yield
     finally:
-        context.screen_mode = previous
+        context.screen_mode = previous_screen_mode
+        context.compact_prompt_headers = previous_compact_prompt_headers
+        context.stage_prompt_count = previous_stage_prompt_count
 
 
 @contextmanager
@@ -154,6 +160,7 @@ def wizard_stage(
 ) -> Generator[None, None, None]:
     context = _resolve_context(context)
     state = context.wizard_state
+    context.stage_prompt_count = 0
     if state is not None and not state.quiet:
         if state.step > 0:
             clear_screen(context=context)
@@ -353,9 +360,13 @@ def prompt_home_action(*, quiet: bool) -> str:
         {
             "backup": "Create a new backup PDF.",
             "recover": "Recover from an existing backup.",
+            "kit": "Generate a recovery kit QR document.",
         },
         default="backup",
-        help_text="You can also run `ethernity backup` or `ethernity recover` directly.",
+        help_text=(
+            "You can also run `ethernity backup`, `ethernity recover`, or `ethernity kit` "
+            "directly."
+        ),
     )
 
 
