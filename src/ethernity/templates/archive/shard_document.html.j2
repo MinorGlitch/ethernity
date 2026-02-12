@@ -1,0 +1,599 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+{% from 'css_variables.j2' import common_variables %}
+{% from 'html_components.j2' import instructions_lines %}
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+
+    :root {
+{{ common_variables() }}
+      --bg: #f6f7f8;
+      --paper: #ffffff;
+      --ink: #0f172a;
+      --muted: #64748b;
+      --rule: #d1d5db;
+      --accent: #1763cf;
+      --panel: #f8fafc;
+      --font-display: "Inter", "Segoe UI", sans-serif;
+      --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--font-display);
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .page {
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      page-break-after: always;
+      padding: {{ margin_mm }}mm;
+      border: 0.26mm solid #e5e7eb;
+      background: var(--paper);
+      display: flex;
+      flex-direction: column;
+      gap: 2mm;
+      overflow: hidden;
+    }
+
+    .page:last-child { page-break-after: auto; }
+
+    .doc {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1.9mm;
+    }
+
+    .header {
+      border-bottom: 0.62mm solid #0f172a;
+      padding-bottom: 1.8mm;
+      display: grid;
+      gap: 1.3mm;
+    }
+
+    .header-main {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 4mm;
+    }
+
+    .system-line {
+      display: flex;
+      align-items: center;
+      gap: 1.2mm;
+      color: #64748b;
+      font-size: 6.4pt;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-weight: 800;
+      margin-bottom: 0.5mm;
+    }
+
+    .system-line::before {
+      content: "";
+      width: 2.2mm;
+      height: 2.2mm;
+      border-radius: 999px;
+      background: #0f172a;
+      flex: 0 0 auto;
+    }
+
+    .title {
+      margin: 0;
+      font-size: 14.8pt;
+      line-height: 1.03;
+      text-transform: uppercase;
+      font-weight: 900;
+      letter-spacing: 0.01em;
+    }
+
+    .subtitle {
+      margin-top: 0.7mm;
+      color: #475569;
+      font-size: 7pt;
+      font-weight: 600;
+    }
+
+    .badge-col {
+      text-align: right;
+      display: grid;
+      gap: 0.5mm;
+    }
+
+    .badge {
+      justify-self: end;
+      background: #0f172a;
+      color: #fff;
+      padding: 0.8mm 1.9mm;
+      border-radius: 0.45mm;
+      font-family: var(--font-mono);
+      font-size: 6.8pt;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .conf {
+      font-family: var(--font-mono);
+      font-size: 5.8pt;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748b;
+      font-weight: 700;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1mm;
+      border: 0.2mm solid #e2e8f0;
+      background: #f8fafc;
+      padding: 1.2mm;
+    }
+
+    .meta-item {
+      display: grid;
+      gap: 0.35mm;
+      align-content: start;
+      min-height: 8.2mm;
+    }
+
+    .meta-k {
+      font-size: 5.6pt;
+      text-transform: uppercase;
+      letter-spacing: 0.11em;
+      color: #94a3b8;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .meta-v {
+      font-family: var(--font-mono);
+      font-size: 6.7pt;
+      color: #0f172a;
+      font-weight: 700;
+      line-height: 1.22;
+      word-break: break-word;
+    }
+
+    .security-level {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6mm;
+      color: var(--accent);
+      font-size: 6.2pt;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 800;
+    }
+
+    .security-level::before {
+      content: "";
+      width: 2mm;
+      height: 2mm;
+      border-radius: 999px;
+      background: var(--accent);
+      flex: 0 0 auto;
+    }
+
+    .instructions {
+      border: 0.22mm solid #d1d5db;
+      border-left: 1.1mm solid var(--accent);
+      background: var(--panel);
+      padding: 1.25mm 1.9mm;
+      display: grid;
+      grid-template-columns: 25mm 1fr;
+      gap: 2.6mm;
+      font-size: 7.5pt;
+      line-height: 1.38;
+    }
+
+    .instructions-label {
+      font-size: 5.8pt;
+      text-transform: uppercase;
+      letter-spacing: 0.11em;
+      color: #64748b;
+      font-weight: 800;
+    }
+
+    .instructions-full {
+      border: 0.22mm solid #d1d5db;
+      border-left: 1.1mm solid var(--accent);
+      background: var(--panel);
+      padding: 2.1mm 2.7mm;
+      display: grid;
+      gap: 0.8mm;
+      font-size: 8.5pt;
+      line-height: 1.45;
+    }
+
+    .instructions-full-label {
+      font-size: 6pt;
+      text-transform: uppercase;
+      letter-spacing: 0.11em;
+      color: #64748b;
+      font-weight: 800;
+    }
+
+    .content {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1.6mm;
+    }
+
+    .matrix-title {
+      text-align: center;
+      margin: 0;
+      font-size: 6.1pt;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: #94a3b8;
+      font-weight: 800;
+    }
+
+    .single-qr {
+      position: relative;
+      width: min(64mm, 100%);
+      aspect-ratio: 1 / 1;
+      margin: 0 auto;
+      border: 0.38mm solid #0f172a;
+      border-radius: 0.35mm;
+      background: #fff;
+      padding: 2mm;
+      display: grid;
+      place-items: center;
+    }
+
+    .single-qr::before,
+    .single-qr::after {
+      content: "";
+      position: absolute;
+      top: -0.6mm;
+      width: 4.2mm;
+      height: 4.2mm;
+      border-top: 0.55mm solid var(--accent);
+    }
+
+    .single-qr::before {
+      left: -0.6mm;
+      border-left: 0.55mm solid var(--accent);
+    }
+
+    .single-qr::after {
+      right: -0.6mm;
+      border-right: 0.55mm solid var(--accent);
+    }
+
+    .single-qr .qr {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      image-rendering: pixelated;
+      display: block;
+    }
+
+    .qr-grid {
+      display: grid;
+      grid-template-columns: repeat(var(--qr-cols), var(--qr-size));
+      grid-auto-rows: var(--qr-size);
+      gap: var(--qr-gap-y) var(--qr-gap-x);
+      align-content: start;
+    }
+
+    .qr-card {
+      width: var(--qr-size);
+      height: var(--qr-size);
+      border: 0.2mm solid #d1d5db;
+      background: #fff;
+      padding: 0.8mm;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 0.3mm;
+    }
+
+    .qr-label,
+    .qr-hint {
+      text-align: right;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      line-height: 1;
+    }
+
+    .qr-label {
+      font-size: 5.6pt;
+      color: #4b5563;
+      letter-spacing: 0.08em;
+      font-weight: 700;
+    }
+
+    .qr-hint {
+      font-size: 5.2pt;
+      color: #9ca3af;
+      letter-spacing: 0.06em;
+    }
+
+    .qr-card .qr {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      image-rendering: pixelated;
+      display: block;
+    }
+
+    .valid-chip {
+      align-self: center;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.8mm;
+      border: 0.2mm solid #e2e8f0;
+      background: #f8fafc;
+      border-radius: 999px;
+      padding: 0.75mm 1.8mm;
+      font-family: var(--font-mono);
+      font-size: 5.8pt;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 700;
+    }
+
+    .valid-chip::before {
+      content: "";
+      width: 2.1mm;
+      height: 2.1mm;
+      border-radius: 999px;
+      background: #16a34a;
+      flex: 0 0 auto;
+    }
+
+    .fallback {
+      margin-top: auto;
+      border-top: 0.2mm dashed #cbd5e1;
+      padding-top: 1.2mm;
+      display: grid;
+      gap: 0.8mm;
+    }
+
+    .fallback-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 2mm;
+    }
+
+    .fallback-title {
+      font-size: 6pt;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #64748b;
+      font-weight: 800;
+    }
+
+    .fallback-note {
+      font-family: var(--font-mono);
+      font-size: 5.6pt;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #94a3b8;
+    }
+
+    .fallback-list {
+      display: grid;
+      gap: 0.8mm;
+    }
+
+    .fallback-block {
+      border: 0.2mm solid #d1d5db;
+      background: #f8fafc;
+      padding: 0.8mm 1.6mm;
+      font-family: var(--font-mono);
+      font-size: 6.7pt;
+      color: #334155;
+      line-height: 1.3;
+    }
+
+    .block-head {
+      font-size: 5.7pt;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #6b7280;
+      font-weight: 800;
+      margin-bottom: 0.3mm;
+    }
+
+    .fallback-lines {
+      counter-reset: line var(--line-offset, 0);
+    }
+
+    .fallback-line {
+      position: relative;
+      white-space: pre;
+      padding-left: 6.3mm;
+    }
+
+    .fallback-line::before {
+      counter-increment: line;
+      content: counter(line, decimal-leading-zero);
+      position: absolute;
+      left: 0;
+      width: 5mm;
+      text-align: right;
+      color: #9ca3af;
+      font-size: 5.5pt;
+      letter-spacing: 0.06em;
+    }
+
+    .footer {
+      border-top: 0.2mm solid #f1f5f9;
+      padding-top: 0.8mm;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 2mm;
+      font-family: var(--font-mono);
+      font-size: 5.6pt;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #94a3b8;
+    }
+
+    .dot-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.8mm;
+    }
+
+    .dot {
+      width: 1.7mm;
+      height: 1.7mm;
+      border-radius: 999px;
+      background: #cbd5e1;
+    }
+
+    .dot:nth-child(2) { background: #94a3b8; }
+    .dot:nth-child(3) { background: #64748b; }
+    .dot:nth-child(4) { background: #0f172a; }
+  </style>
+</head>
+<body>
+{% for page in pages %}
+  <section class="page">
+    <div class="doc">
+      <header class="header">
+        <div class="header-main">
+          <div>
+            <div class="system-line">ShardSafe Archival System</div>
+            <h1 class="title">{{ doc.title }}</h1>
+            <div class="subtitle">{{ doc.subtitle }}</div>
+          </div>
+          <div class="badge-col">
+            <span class="badge">Shard {{ shard_index }} / {{ shard_total }}</span>
+            <span class="conf">Confidential</span>
+          </div>
+        </div>
+
+        <div class="meta-grid">
+          <div class="meta-item">
+            <div class="meta-k">Document ID</div>
+            <div class="meta-v">{{ doc_id }}</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-k">Page Index</div>
+            <div class="meta-v">{{ page.page_label }}</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-k">Created (UTC)</div>
+            <div class="meta-v">{{ created_timestamp_utc }}</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-k">Security Level</div>
+            <div class="meta-v"><span class="security-level">Critical</span></div>
+          </div>
+        </div>
+      </header>
+
+      {% if page.instructions_full_page %}
+        <section class="instructions-full">
+          <div class="instructions-full-label">{{ instructions.label }}</div>
+          <div>{{ instructions_lines(instructions.lines, scan_hint_text=instructions.scan_hint) }}</div>
+        </section>
+      {% else %}
+        {% if page.show_instructions %}
+        <section class="instructions">
+          <div class="instructions-label">{{ instructions.label }}</div>
+          <div>{{ instructions_lines(instructions.lines, scan_hint_text=instructions.scan_hint) }}</div>
+        </section>
+        {% endif %}
+
+        <section class="content">
+          <h3 class="matrix-title">Recovery Data Matrix</h3>
+
+          {% if page.qr_items and page.qr_grid %}
+            {% if page.qr_items|length == 1 %}
+            <div class="single-qr">
+              <img class="qr" src="{{ page.qr_items[0].data_uri }}" alt="QR code {{ page.qr_items[0].index }}">
+            </div>
+            {% else %}
+            <div
+              class="qr-grid"
+              style="--qr-size: {{ page.qr_grid.size_mm }}mm; --qr-gap-x: {{ page.qr_grid.gap_x_mm }}mm; --qr-gap-y: {{ page.qr_grid.gap_y_mm }}mm; --qr-cols: {{ page.qr_grid.cols }};"
+            >
+              {% for slot in page.qr_items %}
+              <div class="qr-card">
+                <div class="qr-label">Part {{ "%02d"|format(slot.index) }}</div>
+                <div class="qr-hint">Shard Segment</div>
+                <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
+          {% endif %}
+
+          <div class="valid-chip">SHA-256 Checksum Validated</div>
+
+          {% if page.fallback_blocks %}
+          <section class="fallback">
+            <div class="fallback-head">
+              <div class="fallback-title">Raw Text Fallback</div>
+              <div class="fallback-note">Use if QR is unreadable</div>
+            </div>
+            <div class="fallback-list">
+              {% for block in page.fallback_blocks %}
+              <div class="fallback-block">
+                {% if block.title %}<div class="block-head">{{ block.title }}</div>{% endif %}
+                <div class="fallback-lines" style="--line-offset: {{ block.line_offset }};">
+                  {% for line in block.lines %}
+                  <div class="fallback-line">{{ line }}</div>
+                  {% endfor %}
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </section>
+          {% endif %}
+        </section>
+      {% endif %}
+
+      <footer class="footer">
+        <span>Generated by ShardSafe System v1.2</span>
+        <span class="dot-row"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
+      </footer>
+    </div>
+  </section>
+{% endfor %}
+</body>
+</html>

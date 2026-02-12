@@ -1,0 +1,160 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+<!doctype html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8">
+  {% include 'partials/sentinel_tailwind_setup.j2' %}
+  <style>
+    {% include 'partials/material_symbols_local.j2' %}
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+
+    @media print {
+      body {
+        background: white !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      .print-sheet {
+        box-shadow: none !important;
+        margin: 0 !important;
+      }
+    }
+
+    .print-sheet {
+      box-sizing: border-box;
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      min-height: {{ page_height_mm }}mm;
+      margin: 0 auto;
+      page-break-after: always;
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+      overflow: hidden;
+      position: relative;
+      background: white;
+    }
+
+    .print-sheet:last-child {
+      page-break-after: auto;
+    }
+
+    .kit-grid {
+      display: grid;
+      grid-template-columns: repeat(var(--qr-cols), minmax(0, 1fr));
+    }
+  </style>
+</head>
+<body class="bg-background-light font-display min-h-screen text-charcoal">
+{% for page in pages %}
+  <section class="print-sheet border border-border-light flex flex-col">
+    {% set sentinel_top_strip_text = 'Recovery Kit Media // Offline Processing Only // Do Not Scan Online' %}
+    {% set sentinel_header_classification = 'Offline Processing Required' %}
+    {% set sentinel_header_subtitle = 'Offline HTML bundle' %}
+    {% set sentinel_footer_guidance = 'Scan left-to-right, top-to-bottom in offline recovery flow' %}
+    {% include 'partials/sentinel_shell_header.j2' %}
+
+    {% if not page.instructions_full_page %}
+    <div class="absolute inset-0 opacity-[0.03] pointer-events-none" style="background-image: radial-gradient(#1c170d 1px, transparent 1px); background-size: 20px 20px;"></div>
+    {% endif %}
+
+    <div class="relative z-10 flex flex-col flex-1 p-[15mm] pt-4 gap-5">
+      {% if page.instructions_full_page %}
+      <div class="bg-amber-50 border-l-4 border-primary p-4 rounded-r mb-2 flex items-start gap-3">
+        <span class="material-symbols-outlined text-primary shrink-0">warning</span>
+        <div>
+          <h3 class="font-bold text-sm uppercase">Critical Safety Warning</h3>
+          <p class="text-sm text-gray-700 mt-1">
+            Disconnect all network cables and disable Wi-Fi before recovery. Do not photograph any printed shard page.
+          </p>
+        </div>
+      </div>
+
+      <div class="grid gap-3 flex-1">
+        {% for line in instructions.lines %}
+        <article class="flex gap-4 p-4 rounded-lg border border-gray-200 bg-white shadow-sm">
+          <div class="flex items-center justify-center size-8 rounded-full border-2 border-gray-300 text-gray-500 font-bold text-sm shrink-0 mt-0.5">
+            {{ '%02d' % loop.index }}
+          </div>
+          <div class="flex-1">
+            <p class="font-bold text-black text-base leading-snug">{{ line }}</p>
+          </div>
+        </article>
+        {% endfor %}
+        {% if instructions.scan_hint %}
+        <article class="flex gap-4 p-4 rounded-lg border border-gray-200 bg-white shadow-sm">
+          <div class="flex items-center justify-center size-8 rounded-full border-2 border-primary text-primary font-bold text-sm shrink-0 mt-0.5">
+            <span class="material-symbols-outlined text-lg">qr_code_scanner</span>
+          </div>
+          <div class="flex-1">
+            <p class="font-bold text-black text-base leading-snug">{{ instructions.scan_hint }}</p>
+          </div>
+        </article>
+        {% endif %}
+      </div>
+
+      {% else %}
+      <div class="mb-2 flex items-center gap-3 p-3 bg-primary/10 border border-primary/30 rounded text-[#8a5d07]">
+        <span class="material-symbols-outlined">warning</span>
+        <span class="text-xs font-bold uppercase tracking-wide">Scan every QR code left to right, top to bottom before continuing.</span>
+      </div>
+
+      {% if page.qr_items %}
+      <div class="kit-grid gap-0 border-t border-l border-dashed border-[#d1c7b7] flex-1" style="--qr-cols: {{ page.qr_grid.cols if page.qr_grid else 3 }};">
+        {% for slot in page.qr_items %}
+        <article class="relative border-b border-r border-dashed border-[#d1c7b7] p-4 flex flex-col gap-3 bg-white hover:bg-[#faf9f6] transition-colors">
+          <div class="absolute top-0 right-0 p-1 opacity-20">
+            <span class="material-symbols-outlined text-sm text-charcoal">content_cut</span>
+          </div>
+
+          <div class="flex justify-between items-start">
+            <span class="font-mono text-[10px] text-text-secondary-light uppercase tracking-widest">SEQ {{ '%02d' % slot.index }}</span>
+            <span class="bg-charcoal text-white text-[10px] font-bold px-1.5 py-0.5 uppercase">Critical</span>
+          </div>
+
+          <div class="aspect-square w-full bg-white p-2 border-2 border-charcoal flex items-center justify-center">
+            <img
+              class="w-full h-full object-contain"
+              src="{{ slot.data_uri }}"
+              alt="Recovery kit QR {{ slot.index }}"
+              style="image-rendering: pixelated;"
+            >
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <h3 class="font-bold text-charcoal text-base leading-tight uppercase">Recovery Chunk {{ '%02d' % slot.index }}</h3>
+            <div class="flex flex-col gap-0.5 font-mono text-xs text-text-secondary-light">
+              <span class="flex justify-between"><span>TYPE:</span><span class="text-charcoal">KIT-DATA</span></span>
+              <span class="flex justify-between"><span>ORDER:</span><span class="text-charcoal">{{ '%02d' % slot.index }}</span></span>
+            </div>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% endif %}
+
+    </div>
+    {% include 'partials/sentinel_shell_footer.j2' %}
+  </section>
+{% endfor %}
+</body>
+</html>

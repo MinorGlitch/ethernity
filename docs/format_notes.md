@@ -49,6 +49,18 @@ Operational guidance:
 Some implementations auto-resolve a base directory (for example, to the common parent) when none is
 provided. This is a convenience behavior and not part of the on-disk format.
 
+## Recovery Input Auto-Parsing Contract
+
+When recovery input mode is auto-detected, implementations should apply this strict order:
+
+1. If fallback section markers are present (`MAIN FRAME`, `AUTH FRAME`, shard markers), parse as
+   fallback sections.
+2. Otherwise, if all non-empty lines decode as QR payload frames, parse as payload mode.
+3. Otherwise, if all non-empty lines are valid z-base-32 fallback lines, parse as fallback mode.
+4. Otherwise, fail with an explicit invalid/ambiguous-input error.
+
+Mixing payload and fallback lines in one input block is not supported.
+
 ## Passphrase Notes
 
 The project commonly defaults to 24-word BIP-39 mnemonics in interactive flows. This is not a format

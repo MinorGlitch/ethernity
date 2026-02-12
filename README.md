@@ -52,7 +52,7 @@ vendor formats.
 ### Document Generation
 - **QR codes** - High-density data encoding, scannable with any phone camera
 - **Fallback text** - z-base-32 encoded blocks for manual entry if QR scanning fails
-- **Multiple templates** - Choose from different visual designs (`ledger`, `archive_dossier`, `maritime_ledger`, `midnight_archive`)
+- **Multiple templates** - Choose from different visual designs (`ledger`, `dossier`, `maritime`, `midnight`)
 - **Paper sizes** - A4 and US Letter support
 
 ### Recovery Options
@@ -180,7 +180,7 @@ ethernity backup --input secret.txt --input credentials.json
 ethernity backup --input vault.kdbx --shard-count 3 --shard-threshold 2
 
 # Use a specific template design
-ethernity backup --design midnight_archive --input important.tar.gz
+ethernity backup --design midnight --input important.tar.gz
 
 # Specify paper size
 ethernity backup --paper Letter --input documents.zip

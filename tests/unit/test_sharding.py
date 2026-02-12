@@ -285,35 +285,41 @@ class TestSharding(unittest.TestCase):
         decoded = decode_shard_payload(cbor2.dumps(payload, canonical=True))
         self.assertEqual(decoded, expected)
 
-    def test_decode_rejects_threshold_exceeds_total(self) -> None:
-        payload = ShardPayload(
-            share_index=1,
-            threshold=3,
-            share_count=2,
-            key_type=KEY_TYPE_PASSPHRASE,
-            share=b"\x01" * 16,
-            secret_len=16,
-            doc_hash=b"\x00" * 32,
-            sign_pub=b"\x00" * 32,
-            signature=b"\x00" * 64,
+    def test_decode_rejects_threshold_or_index_exceeds_total(self) -> None:
+        cases = (
+            {
+                "name": "threshold-exceeds-total",
+                "payload": ShardPayload(
+                    share_index=1,
+                    threshold=3,
+                    share_count=2,
+                    key_type=KEY_TYPE_PASSPHRASE,
+                    share=b"\x01" * 16,
+                    secret_len=16,
+                    doc_hash=b"\x00" * 32,
+                    sign_pub=b"\x00" * 32,
+                    signature=b"\x00" * 64,
+                ),
+            },
+            {
+                "name": "index-exceeds-total",
+                "payload": ShardPayload(
+                    share_index=3,
+                    threshold=1,
+                    share_count=2,
+                    key_type=KEY_TYPE_PASSPHRASE,
+                    share=b"\x01" * 16,
+                    secret_len=16,
+                    doc_hash=b"\x00" * 32,
+                    sign_pub=b"\x00" * 32,
+                    signature=b"\x00" * 64,
+                ),
+            },
         )
-        with self.assertRaises(ValueError):
-            decode_shard_payload(encode_shard_payload(payload))
-
-    def test_decode_rejects_index_exceeds_total(self) -> None:
-        payload = ShardPayload(
-            share_index=3,
-            threshold=1,
-            share_count=2,
-            key_type=KEY_TYPE_PASSPHRASE,
-            share=b"\x01" * 16,
-            secret_len=16,
-            doc_hash=b"\x00" * 32,
-            sign_pub=b"\x00" * 32,
-            signature=b"\x00" * 64,
-        )
-        with self.assertRaises(ValueError):
-            decode_shard_payload(encode_shard_payload(payload))
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                with self.assertRaises(ValueError):
+                    decode_shard_payload(encode_shard_payload(case["payload"]))
 
     def test_signing_seed_payload_roundtrip(self) -> None:
         doc_hash = hashlib.blake2b(b"payload", digest_size=32).digest()
@@ -420,53 +426,39 @@ class TestSharding(unittest.TestCase):
             decode_shard_payload(cbor2.dumps(payload, canonical=True))
         self.assertIn("share_count", str(ctx.exception).lower())
 
-    def test_decode_rejects_share_not_block_multiple(self) -> None:
-        payload = {
+    def test_decode_rejects_invalid_share_length_shapes(self) -> None:
+        base_payload = {
             "version": SHARD_VERSION,
             "type": KEY_TYPE_PASSPHRASE,
             "threshold": 1,
             "share_count": 1,
             "share_index": 1,
             "length": 1,
-            "share": b"\x01" * 15,
-            "hash": b"\x00" * 32,
-            "pub": b"\x00" * 32,
-            "sig": b"\x00" * 64,
-        }
-        with self.assertRaises(ValueError):
-            decode_shard_payload(cbor2.dumps(payload, canonical=True))
-
-    def test_decode_rejects_length_exceeds_share(self) -> None:
-        payload = {
-            "version": SHARD_VERSION,
-            "type": KEY_TYPE_PASSPHRASE,
-            "threshold": 1,
-            "share_count": 1,
-            "share_index": 1,
-            "length": 17,
             "share": b"\x01" * 16,
             "hash": b"\x00" * 32,
             "pub": b"\x00" * 32,
             "sig": b"\x00" * 64,
         }
-        with self.assertRaises(ValueError):
-            decode_shard_payload(cbor2.dumps(payload, canonical=True))
-
-    def test_decode_rejects_share_length_inconsistent_with_length(self) -> None:
-        payload = {
-            "version": SHARD_VERSION,
-            "type": KEY_TYPE_PASSPHRASE,
-            "threshold": 1,
-            "share_count": 1,
-            "share_index": 1,
-            "length": 1,
-            "share": b"\x01" * 32,
-            "hash": b"\x00" * 32,
-            "pub": b"\x00" * 32,
-            "sig": b"\x00" * 64,
-        }
-        with self.assertRaises(ValueError):
-            decode_shard_payload(cbor2.dumps(payload, canonical=True))
+        cases = (
+            {
+                "name": "share-not-block-multiple",
+                "override": {"share": b"\x01" * 15},
+            },
+            {
+                "name": "length-exceeds-share",
+                "override": {"length": 17},
+            },
+            {
+                "name": "share-length-inconsistent-with-length",
+                "override": {"share": b"\x01" * 32},
+            },
+        )
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                payload = dict(base_payload)
+                payload.update(case["override"])
+                with self.assertRaises(ValueError):
+                    decode_shard_payload(cbor2.dumps(payload, canonical=True))
 
     def test_split_rejects_shares_over_255(self) -> None:
         doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()

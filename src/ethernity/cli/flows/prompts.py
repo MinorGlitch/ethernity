@@ -63,10 +63,18 @@ def _resolve_recover_output(
         if choice == "stdout":
             return None
         entry = entries[0][0]
-        default_name = "recovered.bin"
-        entry_path = getattr(entry, "path", None)
-        if entry_path:
-            default_name = Path(entry_path).name
+        default_name = _infer_recovered_filename(entry)
+        destination = prompt_choice(
+            "Output file destination",
+            {
+                "inferred": f"Use inferred filename ({default_name})",
+                "custom": "Choose custom file path",
+            },
+            default="inferred",
+            help_text="The inferred name comes from the decrypted envelope manifest.",
+        )
+        if destination == "inferred":
+            return default_name
         help_text = f"Leave blank to use {default_name}."
         path = prompt_optional_path_with_picker(
             "Output file path",
@@ -87,6 +95,15 @@ def _resolve_recover_output(
         picker_prompt="Select an output directory",
     )
     return directory or default_dir
+
+
+def _infer_recovered_filename(entry: object) -> str:
+    default_name = "recovered.bin"
+    entry_path = getattr(entry, "path", None)
+    if entry_path is None:
+        return default_name
+    candidate = Path(str(entry_path)).name.strip()
+    return candidate or default_name
 
 
 def _format_shard_input_error(exc: Exception) -> str:

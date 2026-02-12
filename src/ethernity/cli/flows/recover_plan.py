@@ -24,7 +24,6 @@ from ...crypto.signing import AuthPayload
 from ...encoding.chunking import reassemble_payload
 from ...encoding.framing import Frame, FrameType
 from ..core.crypto import _doc_id_and_hash_from_ciphertext
-from ..core.log import _warn
 from ..core.types import RecoverArgs
 from ..io.fallback_parser import format_fallback_error
 from ..io.frames import (
@@ -84,8 +83,6 @@ def plan_from_args(args: RecoverArgs) -> RecoveryPlan:
     _, qr_payload_encoding = resolve_recover_config(args)
     allow_unsigned = args.allow_unsigned
     quiet = args.quiet
-    if allow_unsigned:
-        _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
 
     frames, input_label, input_detail = _frames_from_args(
         args,
@@ -238,6 +235,12 @@ def _frames_from_args(
                 quiet=quiet,
             )
         except ValueError as exc:
+            message = str(exc).lower()
+            if fallback_file == "-" and "no recovery lines found" in message:
+                raise ValueError(
+                    "No recovery input found on stdin. Use --fallback-file, --payloads-file, "
+                    "--scan, or provide non-empty stdin."
+                ) from exc
             raise ValueError(format_fallback_error(exc, context="Recovery text")) from exc
     elif payloads_file:
         input_label = "QR payloads"

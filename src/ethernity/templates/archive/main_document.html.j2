@@ -1,0 +1,486 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+{% from 'css_variables.j2' import common_variables %}
+{% from 'html_components.j2' import instructions_lines %}
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+
+    :root {
+{{ common_variables() }}
+      --bg: #f6f7f8;
+      --paper: #ffffff;
+      --ink: #111418;
+      --muted: #6b7280;
+      --muted-soft: #9ca3af;
+      --rule: #d1d5db;
+      --accent: #1763cf;
+      --panel: #f9fafb;
+      --font-display: "Inter", "Segoe UI", sans-serif;
+      --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--font-display);
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .page {
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      padding: {{ margin_mm }}mm;
+      page-break-after: always;
+      background: var(--paper);
+      border: 0.26mm solid #e5e7eb;
+      display: flex;
+      flex-direction: column;
+      gap: 2.2mm;
+      overflow: hidden;
+    }
+
+    .page:last-child { page-break-after: auto; }
+
+    .doc {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2.2mm;
+    }
+
+    .header {
+      display: grid;
+      gap: 1.8mm;
+      border-bottom: 0.58mm solid #000;
+      padding-bottom: 1.9mm;
+    }
+
+    .header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 4mm;
+    }
+    .header-row > :first-child {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .title {
+      margin: 0;
+      font-size: 15pt;
+      line-height: 1.03;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.01em;
+    }
+
+    .mode-row {
+      margin-top: 0.9mm;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1.6mm;
+      row-gap: 0.5mm;
+      font-family: var(--font-mono);
+      font-size: 6.8pt;
+      text-transform: uppercase;
+      letter-spacing: 0.11em;
+      font-weight: 700;
+    }
+
+    .mode-chip {
+      background: #000;
+      color: #fff;
+      padding: 0.5mm 1.5mm;
+      font-size: 6.4pt;
+      white-space: nowrap;
+    }
+
+    .mode-text {
+      color: #111827;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      line-height: 1.25;
+    }
+
+    .meta-rail {
+      flex: 0 0 48mm;
+      min-width: 48mm;
+      max-width: 52mm;
+      display: grid;
+      gap: 0.7mm;
+      font-family: var(--font-mono);
+      font-size: 6.5pt;
+    }
+
+    .meta-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 2mm;
+      border-bottom: 0.23mm solid var(--rule);
+      padding-bottom: 0.4mm;
+    }
+
+    .meta-row:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .meta-k {
+      font-size: 5.8pt;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .meta-v {
+      color: #111827;
+      font-weight: 700;
+      text-align: right;
+      word-break: break-word;
+    }
+
+    .meta-v.accent { color: var(--accent); }
+
+    .instructions-panel {
+      border: 0.24mm solid #1f2937;
+      background: var(--panel);
+      padding: 1.5mm 2mm;
+      display: grid;
+      gap: 0.85mm;
+    }
+
+    .instructions-title {
+      display: flex;
+      align-items: center;
+      gap: 1mm;
+      font-size: 6.8pt;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #111827;
+      margin: 0;
+    }
+
+    .instructions-title::before {
+      content: "i";
+      width: 3.2mm;
+      height: 3.2mm;
+      border: 0.24mm solid #111827;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 6.1pt;
+      font-family: var(--font-mono);
+      font-weight: 700;
+    }
+
+    .instructions-body {
+      font-size: 7.5pt;
+      line-height: 1.38;
+      color: #1f2937;
+      display: grid;
+      gap: 0.45mm;
+      margin-left: 0.2mm;
+    }
+
+    .instructions-body > div {
+      position: relative;
+      padding-left: 3.6mm;
+    }
+
+    .instructions-body > div::before {
+      content: "-";
+      position: absolute;
+      left: 0;
+      color: #4b5563;
+      font-family: var(--font-mono);
+    }
+
+    .instructions-full {
+      border: 0.24mm solid #1f2937;
+      background: var(--panel);
+      padding: 2.4mm 3mm;
+      display: grid;
+      gap: 1mm;
+      font-size: 8.8pt;
+      line-height: 1.45;
+      color: #1f2937;
+    }
+
+    .instructions-full-label {
+      font-size: 6.4pt;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-weight: 800;
+      color: #4b5563;
+    }
+
+    .content {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1.8mm;
+    }
+
+    .qr-grid {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: repeat(var(--qr-cols), var(--qr-size));
+      grid-auto-rows: var(--qr-size);
+      gap: var(--qr-gap-y) var(--qr-gap-x);
+      align-content: start;
+      justify-content: start;
+    }
+
+    .qr-card {
+      border: 0.22mm solid #d1d5db;
+      border-radius: 0.9mm;
+      padding: 0.9mm;
+      background: #fff;
+      width: var(--qr-size);
+      height: var(--qr-size);
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 0.35mm;
+      align-items: start;
+    }
+
+    .qr {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      image-rendering: pixelated;
+      display: block;
+    }
+
+    .qr-label {
+      text-align: center;
+      margin-top: 0.4mm;
+      font-family: var(--font-mono);
+      font-size: 5.8pt;
+      font-weight: 700;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      line-height: 1;
+    }
+
+    .qr-checksum {
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 5.2pt;
+      color: var(--muted-soft);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      line-height: 1;
+    }
+
+    .fallback-wrap {
+      border-top: 0.28mm solid #000;
+      padding-top: 1.1mm;
+      display: grid;
+      gap: 0.8mm;
+    }
+
+    .fallback-list {
+      display: grid;
+      gap: 0.8mm;
+    }
+
+    .fallback {
+      border: 0.2mm solid var(--rule);
+      background: #f9fafb;
+      padding: 0.8mm 1.6mm;
+      font-family: var(--font-mono);
+      font-size: 6.8pt;
+      line-height: 1.32;
+      color: #334155;
+    }
+
+    .fallback-title {
+      font-family: var(--font-display);
+      font-size: 5.8pt;
+      font-weight: 800;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      color: #6b7280;
+      margin-bottom: 0.35mm;
+    }
+
+    .fallback-lines {
+      counter-reset: line var(--line-offset, 0);
+    }
+
+    .fallback-line {
+      position: relative;
+      white-space: pre;
+      padding-left: 6.5mm;
+    }
+
+    .fallback-line::before {
+      counter-increment: line;
+      content: counter(line, decimal-leading-zero);
+      position: absolute;
+      left: 0;
+      width: 5.2mm;
+      text-align: right;
+      color: #9ca3af;
+      font-size: 5.6pt;
+      letter-spacing: 0.06em;
+    }
+
+    .footer {
+      border-top: 0.26mm solid #000;
+      padding-top: 1mm;
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      align-items: center;
+      gap: 2mm;
+      font-family: var(--font-mono);
+      font-size: 5.9pt;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .footer-left {
+      display: flex;
+      align-items: center;
+      gap: 1.2mm;
+      min-width: 0;
+    }
+
+    .footer-left::before {
+      content: "";
+      width: 2mm;
+      height: 2mm;
+      border-radius: 999px;
+      background: var(--accent);
+      flex: 0 0 auto;
+    }
+  </style>
+</head>
+<body>
+{% for page in pages %}
+  <section class="page">
+    <div class="doc">
+      <header class="header">
+        <div class="header-row">
+          <div>
+            <h1 class="title">{{ doc.title }}</h1>
+            <div class="mode-row">
+              <span class="mode-chip">Mode</span>
+              <span class="mode-text">{{ doc.subtitle }}</span>
+            </div>
+          </div>
+
+          <div class="meta-rail">
+            <div class="meta-row">
+              <span class="meta-k">Page</span>
+              <span class="meta-v">{{ page.page_label }}</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-k">Doc ID</span>
+              <span class="meta-v accent">{{ doc_id }}</span>
+            </div>
+            <div class="meta-row">
+              <span class="meta-k">Created (UTC)</span>
+              <span class="meta-v">{{ created_timestamp_utc }}</span>
+            </div>
+          </div>
+        </div>
+
+        {% if page.show_instructions %}
+        <section class="instructions-panel">
+          <h3 class="instructions-title">Recovery Instructions</h3>
+          <div class="instructions-body">{{ instructions_lines(instructions.lines, scan_hint_text=instructions.scan_hint) }}</div>
+        </section>
+        {% endif %}
+      </header>
+
+      {% if page.instructions_full_page %}
+        <section class="instructions-full">
+          <div class="instructions-full-label">{{ instructions.label }}</div>
+          <div>{{ instructions_lines(instructions.lines, scan_hint_text=instructions.scan_hint) }}</div>
+        </section>
+      {% else %}
+        <section class="content">
+          {% if page.qr_items and page.qr_grid %}
+          <div
+            class="qr-grid"
+            style="--qr-size: {{ page.qr_grid.size_mm }}mm; --qr-gap-x: {{ page.qr_grid.gap_x_mm }}mm; --qr-gap-y: {{ page.qr_grid.gap_y_mm }}mm; --qr-cols: {{ page.qr_grid.cols }};"
+          >
+            {% for slot in page.qr_items %}
+            <div class="qr-card">
+              <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
+              <div class="qr-label">Part {{ "%02d"|format(slot.index) }}</div>
+              <div class="qr-checksum">checksum: n/a</div>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          {% if page.fallback_blocks %}
+          <section class="fallback-wrap">
+            <div class="fallback-list">
+              {% for block in page.fallback_blocks %}
+              <div class="fallback">
+                {% if block.title %}<div class="fallback-title">{{ block.title }}</div>{% endif %}
+                <div class="fallback-lines" style="--line-offset: {{ block.line_offset }};">
+                  {% for line in block.lines %}
+                  <div class="fallback-line">{{ line }}</div>
+                  {% endfor %}
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </section>
+          {% endif %}
+        </section>
+      {% endif %}
+
+      <footer class="footer">
+        <div class="footer-left">System Recovery Archival</div>
+        <div>Variant {{ page.page_num }} of {{ pages|length }}</div>
+        <div>v1.0.4</div>
+      </footer>
+    </div>
+  </section>
+{% endfor %}
+</body>
+</html>

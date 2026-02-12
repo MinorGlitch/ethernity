@@ -20,7 +20,6 @@ from fpdf import FPDF
 
 # Layout constants
 FALLBACK_VERTICAL_PADDING_MM = 0.0
-FALLBACK_HORIZONTAL_PADDING_MM = 2.0
 
 # Tolerance for coordinate comparisons (same row/column detection)
 COORDINATE_EPSILON = 0.01
@@ -36,11 +35,14 @@ def calc_cells(usable: float, cell: float, gap: float, max_cells: int | None) ->
 def expand_gap_to_fill(usable_w: float, cell_w: float, gap: float, cols: int) -> float:
     if cols <= 1:
         return gap
-    base_width = cols * cell_w + (cols - 1) * gap
-    extra = usable_w - base_width
+
+    gaps = cols - 1
+    content_w = cols * cell_w + gaps * gap
+    extra = usable_w - content_w
     if extra <= 0:
         return gap
-    return gap + extra / (cols - 1)
+
+    return gap + (extra / gaps)
 
 
 def adjust_rows_for_fallback(

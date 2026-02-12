@@ -17,7 +17,7 @@
 
 const ZBASE32_ALPHABET = "ybndrfg8ejkmcpqxot1uwisza345h769";
 
-export function isBase64(text) {
+function isBase64(text) {
   return /^[A-Za-z0-9+/=_-]+$/.test(text);
 }
 
@@ -97,20 +97,6 @@ export function readUvarint(bytes, offset) {
   throw new Error("truncated varint");
 }
 
-export function encodeUvarint(value) {
-  if (!Number.isFinite(value) || value < 0 || Math.floor(value) !== value) {
-    throw new Error("varint value must be a non-negative integer");
-  }
-  let v = value;
-  const out = [];
-  while (v >= 0x80) {
-    out.push((v % 128) | 0x80);
-    v = Math.floor(v / 128);
-  }
-  out.push(v);
-  return new Uint8Array(out);
-}
-
 export function bytesEqual(a, b) {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i += 1) {
@@ -137,5 +123,3 @@ export function concatBytes(a, b) {
   out.set(b, a.length);
   return out;
 }
-
-export { ZBASE32_ALPHABET };

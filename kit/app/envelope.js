@@ -21,7 +21,7 @@ import { decodeCbor } from "../lib/cbor.js";
 import { bytesEqual, readUvarint } from "../lib/encoding.js";
 import { ENVELOPE_MAGIC, ENVELOPE_VERSION, MANIFEST_VERSION } from "./constants.js";
 
-export function decodeEnvelope(bytes) {
+function decodeEnvelope(bytes) {
   if (bytes.length < 2) throw new Error("envelope too short");
   if (bytes[0] !== ENVELOPE_MAGIC[0] || bytes[1] !== ENVELOPE_MAGIC[1]) {
     throw new Error("invalid envelope magic");
@@ -48,7 +48,7 @@ export function decodeEnvelope(bytes) {
   return { manifest, payload };
 }
 
-export function parseManifest(manifest) {
+function parseManifest(manifest) {
   if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) {
     throw new Error("manifest must be a map");
   }

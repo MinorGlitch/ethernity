@@ -46,11 +46,16 @@ def decode_qr_from_bytes(png_data: bytes) -> list[bytes]:
 
 
 class TestQrCodec(unittest.TestCase):
-    def test_png_signature(self) -> None:
-        """Test that generated PNG has valid signature."""
-        data = b"hello"
-        png = qr_bytes(data, kind="png")
-        self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
+    def test_png_signature_for_bytes_and_text_payloads(self) -> None:
+        """Generated PNG bytes should start with a valid PNG signature."""
+        payloads = (
+            b"hello",
+            "TEST-123",
+        )
+        for payload in payloads:
+            with self.subTest(payload_type=type(payload).__name__):
+                png = qr_bytes(payload, kind="png")
+                self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
 
     def test_png_is_valid_image(self) -> None:
         """Test that generated PNG can be opened as an image."""
@@ -62,28 +67,18 @@ class TestQrCodec(unittest.TestCase):
             self.assertGreater(img.height, 0)
 
     @unittest.skipUnless(HAS_ZXING, "zxingcpp not available")
-    def test_bytes_payload_decodable(self) -> None:
-        """Test that binary payload QR code can be decoded back."""
-        data = b"hello-binary"
-        png = qr_bytes(data, kind="png")
-        decoded = decode_qr_from_bytes(png)
-        self.assertEqual(len(decoded), 1)
-        self.assertEqual(decoded[0], data)
-
-    @unittest.skipUnless(HAS_ZXING, "zxingcpp not available")
-    def test_text_payload_decodable(self) -> None:
-        """Test that text payload QR code can be decoded back."""
-        data = "TEST-123"
-        png = qr_bytes(data, kind="png")
-        decoded = decode_qr_from_bytes(png)
-        self.assertEqual(len(decoded), 1)
-        self.assertEqual(decoded[0], data.encode("utf-8"))
-
-    def test_text_payload(self) -> None:
-        """Test that text payload generates valid PNG."""
-        data = "TEST-123"
-        png = qr_bytes(data, kind="png")
-        self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
+    def test_payload_decodable_cases(self) -> None:
+        """Binary and text payloads should round-trip through QR encode/decode."""
+        cases = (
+            (b"hello-binary", b"hello-binary"),
+            ("TEST-123", b"TEST-123"),
+        )
+        for payload, expected in cases:
+            with self.subTest(payload_type=type(payload).__name__):
+                png = qr_bytes(payload, kind="png")
+                decoded = decode_qr_from_bytes(png)
+                self.assertEqual(len(decoded), 1)
+                self.assertEqual(decoded[0], expected)
 
     def test_module_shape_argument_rejected(self) -> None:
         """Test that module_shape argument is not supported."""
@@ -107,22 +102,22 @@ class TestQrCodec(unittest.TestCase):
         self.assertIn(b"</svg>", svg)
 
     @unittest.skipUnless(HAS_ZXING, "zxingcpp not available")
-    def test_various_scale_values(self) -> None:
-        """Test QR generation with different scale values."""
-        data = b"scale-test"
-        for scale in [1, 4, 10]:
-            png = qr_bytes(data, kind="png", scale=scale)
-            decoded = decode_qr_from_bytes(png)
-            self.assertEqual(decoded[0], data, f"Failed for scale={scale}")
-
-    @unittest.skipUnless(HAS_ZXING, "zxingcpp not available")
-    def test_various_border_values(self) -> None:
-        """Test QR generation with different border values."""
-        data = b"border-test"
-        for border in [0, 2, 4, 8]:
-            png = qr_bytes(data, kind="png", border=border)
-            decoded = decode_qr_from_bytes(png)
-            self.assertEqual(decoded[0], data, f"Failed for border={border}")
+    def test_option_variants_remain_decodable(self) -> None:
+        data = b"option-test"
+        cases = (
+            ("scale", {"scale": 1}),
+            ("scale", {"scale": 4}),
+            ("scale", {"scale": 10}),
+            ("border", {"border": 0}),
+            ("border", {"border": 2}),
+            ("border", {"border": 4}),
+            ("border", {"border": 8}),
+        )
+        for label, kwargs in cases:
+            with self.subTest(label=label, kwargs=kwargs):
+                png = qr_bytes(data, kind="png", **kwargs)
+                decoded = decode_qr_from_bytes(png)
+                self.assertEqual(decoded[0], data)
 
 
 if __name__ == "__main__":

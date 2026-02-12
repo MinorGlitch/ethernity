@@ -1,0 +1,54 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+{% if forge_page_label is defined %}
+  {% set _forge_page_label = forge_page_label %}
+{% elif page is defined and page.page_label is defined %}
+  {% set _forge_page_label = page.page_label %}
+{% else %}
+  {% set _forge_page_label = '' %}
+{% endif %}
+{% set _forge_header_title = forge_header_title if forge_header_title is defined else doc.title %}
+{% set _forge_header_subtitle = forge_header_subtitle if forge_header_subtitle is defined else doc.subtitle %}
+{% set _forge_header_kicker = forge_header_kicker if forge_header_kicker is defined else 'The Forge // Secure Offline Storage' %}
+{% set _forge_header_classification = forge_header_classification if forge_header_classification is defined else 'Offline Processing Required' %}
+{% set _forge_header_guidance = forge_header_guidance if forge_header_guidance is defined else '' %}
+{% set _forge_header_ref = forge_header_ref if forge_header_ref is defined else doc_id %}
+{% set _forge_header_icon = forge_header_icon if forge_header_icon is defined else 'token' %}
+{% set _forge_shell_header_inset = forge_shell_header_inset if forge_shell_header_inset is defined else '' %}
+<header class="forge-shell-header relative z-10 shrink-0 border-b-4 border-slate-900 pb-4 mb-6 max-w-full overflow-hidden{% if _forge_shell_header_inset %} {{ _forge_shell_header_inset }}{% endif %}">
+  <div class="w-full min-w-0 flex items-start justify-between gap-6">
+    <div class="min-w-0 flex-1">
+      <p class="mb-1 text-xs font-bold uppercase tracking-widest text-slate-500 break-words">{{ _forge_header_kicker }}</p>
+      <h1 class="font-serif text-4xl font-bold uppercase tracking-tight text-slate-900 break-words">{{ _forge_header_title }}</h1>
+      <p class="mt-2 text-sm text-slate-600 break-words">{{ _forge_header_subtitle }}</p>
+      {% if _forge_header_guidance %}
+      <p class="mt-2 text-[10px] uppercase tracking-[0.12em] text-slate-500 break-words">{{ _forge_header_guidance }}</p>
+      {% endif %}
+    </div>
+    <div class="min-w-0 w-2/5 shrink-0 flex items-start justify-end gap-2">
+      <div class="w-10 h-10 border border-slate-900 rounded-sm bg-slate-50 flex items-center justify-center shrink-0">
+        <span class="material-symbols-outlined text-[20px] text-slate-900">{{ _forge_header_icon }}</span>
+      </div>
+      <div class="min-w-0 max-w-full text-right font-mono text-[10px] uppercase tracking-[0.12em] text-slate-600 leading-snug">
+        <span class="inline-block max-w-full border border-slate-900 px-2 py-0.5 text-[10px] font-bold text-slate-900 break-words">{{ _forge_header_classification }}</span>
+        <p class="mt-2 break-all">DOC ID: {{ _forge_header_ref }}</p>
+        <p class="break-words">GENERATED (UTC): {{ created_timestamp_utc }}</p>
+        <p class="break-words">{{ _forge_page_label }}</p>
+      </div>
+    </div>
+  </div>
+</header>

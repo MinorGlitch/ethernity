@@ -25,6 +25,7 @@ from ..core.log import _warn
 from ..core.text import format_qr_input_error
 from .fallback_parser import (
     contains_fallback_markers as _contains_fallback_markers,
+    filter_fallback_lines as _filter_fallback_lines,
     parse_fallback_frame as _parse_fallback_frame,
     split_fallback_sections as _split_fallback_sections,
 )
@@ -123,6 +124,43 @@ def _frames_from_fallback_lines(
 def _frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bool) -> list[Frame]:
     lines = _read_text_lines(path)
     return _frames_from_fallback_lines(lines, allow_invalid_auth=allow_invalid_auth, quiet=quiet)
+
+
+def _non_empty_lines(lines: list[str]) -> list[str]:
+    return [line.strip() for line in lines if line.strip()]
+
+
+def _all_payload_lines_decode(lines: list[str], *, encoding: str) -> bool:
+    non_empty = _non_empty_lines(lines)
+    if not non_empty:
+        return False
+    for line in non_empty:
+        try:
+            _frame_from_payload_text(line, encoding)
+        except ValueError:
+            return False
+    return True
+
+
+def _all_lines_match_fallback_text(lines: list[str]) -> bool:
+    non_empty = _non_empty_lines(lines)
+    if not non_empty:
+        return False
+    filtered, skipped = _filter_fallback_lines(non_empty)
+    return skipped == 0 and len(filtered) == len(non_empty)
+
+
+def _detect_recovery_input_mode(lines: list[str]) -> str:
+    if _contains_fallback_markers(lines):
+        return "fallback_marked"
+    if _all_payload_lines_decode(lines, encoding="auto"):
+        return "payload"
+    if _all_lines_match_fallback_text(lines):
+        return "fallback"
+    raise ValueError(
+        "input is neither a valid QR payload list nor valid fallback text; "
+        "provide one format per input"
+    )
 
 
 def _auth_frames_from_fallback_lines(

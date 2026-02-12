@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Sequence
 
 from ..encoding.framing import encode_frame
@@ -24,13 +25,55 @@ from .fallback_text import format_zbase32_lines
 from .spec import DocumentSpec, FallbackSpec
 from .text import font_line_height
 from .types import FallbackSection, Layout, RenderInputs
-from .utils import float_value as _float_value, int_value as _int_value
+
+
+@dataclass
+class FallbackConsumerState:
+    """Mutable state for consuming fallback blocks across pages."""
+
+    section_idx: int = 0
+    line_idx: int = 0
+    line_numbers: list[int] = field(default_factory=list)
+
+    def current_line_number(self, section_idx: int) -> int:
+        """Get line number for a section, initializing if needed."""
+        while len(self.line_numbers) <= section_idx:
+            self.line_numbers.append(0)
+        return self.line_numbers[section_idx]
+
+    def advance_line_number(self, section_idx: int, count: int) -> None:
+        """Advance line number for a section."""
+        while len(self.line_numbers) <= section_idx:
+            self.line_numbers.append(0)
+        self.line_numbers[section_idx] += count
+
+
+@dataclass(frozen=True)
+class FallbackSectionData:
+    """Data for a fallback section."""
+
+    title: str
+    lines: tuple[str, ...]
+
+
+@dataclass
+class FallbackBlock:
+    """A block of fallback lines for rendering."""
+
+    title: str | None
+    section_title: str
+    lines: list[str]
+    gap_lines: int
+    line_offset: int
+    y_mm: float = 0.0
+    height_mm: float = 0.0
 
 
 def label_line_height_fallback(cfg: FallbackSpec) -> float:
     if cfg.label_line_height_mm is not None:
         return float(cfg.label_line_height_mm)
-    return font_line_height(cfg.label_size or cfg.font_size)
+    label_size = cfg.label_size if cfg.label_size > 0 else cfg.font_size
+    return font_line_height(label_size)
 
 
 def fallback_lines_from_sections(
@@ -59,12 +102,12 @@ def build_fallback_sections_data(
     inputs: RenderInputs,
     spec: DocumentSpec,
     layout: Layout,
-) -> tuple[list[dict[str, object]] | None, dict[str, int] | None]:
+) -> tuple[list[FallbackSectionData], FallbackConsumerState] | None:
     if not (inputs.render_fallback and inputs.fallback_sections):
-        return None, None
+        return None
     group_size = int(spec.fallback.group_size)
     line_length = int(layout.line_length)
-    fallback_sections_data: list[dict[str, object]] = []
+    sections: list[FallbackSectionData] = []
     for section in inputs.fallback_sections:
         title = fallback_section_title(section.label)
         lines = format_zbase32_lines(
@@ -73,11 +116,9 @@ def build_fallback_sections_data(
             line_length=line_length,
             line_count=None,
         )
-        fallback_sections_data.append({"title": title, "lines": lines})
-    fallback_state = {"section_idx": 0, "line_idx": 0}
-    for idx in range(len(fallback_sections_data)):
-        fallback_state[f"line_number_{idx}"] = 0
-    return fallback_sections_data, fallback_state
+        sections.append(FallbackSectionData(title=title, lines=tuple(lines)))
+    state = FallbackConsumerState()
+    return sections, state
 
 
 def fallback_section_title(label: str | None) -> str:
@@ -87,33 +128,31 @@ def fallback_section_title(label: str | None) -> str:
 
 
 def fallback_sections_remaining(
-    sections: list[dict[str, object]],
-    state: dict[str, int],
+    sections: list[FallbackSectionData],
+    state: FallbackConsumerState,
 ) -> bool:
-    idx = state.get("section_idx", 0)
-    line_idx = state.get("line_idx", 0)
-    if idx >= len(sections):
+    if state.section_idx >= len(sections):
         return False
-    current_lines = sections[idx].get("lines", [])
-    if isinstance(current_lines, list) and line_idx < len(current_lines):
+    current_section = sections[state.section_idx]
+    if state.line_idx < len(current_section.lines):
         return True
-    for section in sections[idx + 1 :]:
-        lines = section.get("lines", [])
-        if isinstance(lines, list) and lines:
+    for section in sections[state.section_idx + 1 :]:
+        if section.lines:
             return True
     return False
 
 
 def consume_fallback_blocks(
-    sections: list[dict[str, object]],
-    state: dict[str, int],
+    sections: list[FallbackSectionData],
+    state: FallbackConsumerState,
     lines_capacity: int,
-) -> list[dict[str, object]]:
-    blocks: list[dict[str, object]] = []
+) -> list[FallbackBlock]:
+    blocks: list[FallbackBlock] = []
     lines_left = lines_capacity
     first_block = True
 
-    while lines_left > 0 and state["section_idx"] < len(sections):
+    while lines_left > 0 and state.section_idx < len(sections):
+        # Add gap between sections (not before first)
         if not first_block:
             if lines_left <= 1:
                 break
@@ -122,64 +161,66 @@ def consume_fallback_blocks(
         else:
             gap_lines = 0
 
-        section = sections[state["section_idx"]]
-        section_title = section.get("title")
-        line_number_key = f"line_number_{state['section_idx']}"
-        line_number = _int_value(state.get(line_number_key), default=0)
-        lines = section.get("lines", [])
-        if not isinstance(lines, list) or not lines:
-            state["section_idx"] += 1
-            state["line_idx"] = 0
+        section = sections[state.section_idx]
+
+        # Skip empty sections
+        if not section.lines:
+            state.section_idx += 1
+            state.line_idx = 0
             first_block = False
             continue
 
-        remaining = len(lines) - state["line_idx"]
+        remaining = len(section.lines) - state.line_idx
         if remaining <= 0:
-            state["section_idx"] += 1
-            state["line_idx"] = 0
+            state.section_idx += 1
+            state.line_idx = 0
             first_block = False
             continue
 
-        show_title = state["line_idx"] == 0
+        # Check if we need to show title (only at start of section)
+        show_title = state.line_idx == 0
         title_lines = 1 if show_title else 0
+
+        # Need room for at least title + 1 line
         if lines_left <= title_lines:
             break
-        if title_lines:
-            lines_left -= title_lines
+
+        lines_left -= title_lines
         chunk_size = min(lines_left, remaining)
         if chunk_size <= 0:
-            lines_left += title_lines + gap_lines
             break
 
-        start = state["line_idx"]
+        # Extract chunk of lines
+        start = state.line_idx
         end = start + chunk_size
-        chunk = lines[start:end]
-        state["line_idx"] = end
+        chunk = list(section.lines[start:end])
+        state.line_idx = end
 
+        line_offset = state.current_line_number(state.section_idx)
         blocks.append(
-            {
-                "title": section.get("title") if show_title else None,
-                "section_title": section_title,
-                "lines": chunk,
-                "gap_lines": gap_lines,
-                "line_offset": line_number,
-            }
+            FallbackBlock(
+                title=section.title if show_title else None,
+                section_title=section.title,
+                lines=chunk,
+                gap_lines=gap_lines,
+                line_offset=line_offset,
+            )
         )
 
-        line_number += chunk_size
-        state[line_number_key] = line_number
+        state.advance_line_number(state.section_idx, chunk_size)
         lines_left -= chunk_size
         first_block = False
 
-        if state["line_idx"] >= len(lines):
-            state["section_idx"] += 1
-            state["line_idx"] = 0
+        # Move to next section if current is exhausted
+        if state.line_idx >= len(section.lines):
+            state.section_idx += 1
+            state.line_idx = 0
 
     return blocks
 
 
 def position_fallback_blocks(
-    blocks: list[dict[str, object]],
+    blocks: list[FallbackBlock],
     start_y: float,
     available_height: float,
     line_height: float,
@@ -188,20 +229,17 @@ def position_fallback_blocks(
     remaining = max(0.0, available_height)
 
     for block in blocks:
-        gap_lines = _int_value(block.get("gap_lines"), default=0)
-        if gap_lines > 0:
-            gap_mm = gap_lines * line_height
+        if block.gap_lines > 0:
+            gap_mm = block.gap_lines * line_height
             cursor_y += gap_mm
             remaining -= gap_mm
 
-        lines = block.get("lines", [])
-        line_count = len(lines) if isinstance(lines, list) else 0
-        title_lines = 1 if block.get("title") else 0
-        block_height = (title_lines + line_count) * line_height
-        block["y_mm"] = cursor_y
-        block["height_mm"] = block_height
+        title_lines = 1 if block.title else 0
+        block_height = (title_lines + len(block.lines)) * line_height
+        block.y_mm = cursor_y
+        block.height_mm = block_height
         cursor_y += block_height
         remaining -= block_height
 
     if blocks and remaining > 0:
-        blocks[-1]["height_mm"] = _float_value(blocks[-1].get("height_mm"), default=0.0) + remaining
+        blocks[-1].height_mm += remaining

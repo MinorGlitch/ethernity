@@ -1,0 +1,12 @@
+{
+  "name": "archive",
+  "header": {
+    "meta_row_gap_mm": 1.2,
+    "stack_gap_mm": 1.2,
+    "divider_thickness_mm": 0.5
+  },
+  "content_offset": {
+    "divider_gap_extra_mm": 0.0,
+    "doc_types": []
+  }
+}

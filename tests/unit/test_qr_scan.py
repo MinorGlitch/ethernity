@@ -21,14 +21,16 @@ from ethernity.qr.scan import QrScanError, _expand_paths
 
 
 class TestQrScanInputs(unittest.TestCase):
-    def test_missing_path(self) -> None:
-        with self.assertRaises(QrScanError):
-            list(_expand_paths([Path("does-not-exist")]))
-
-    def test_empty_directory(self) -> None:
+    def test_invalid_scan_paths_raise(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            with self.assertRaises(QrScanError):
-                list(_expand_paths([Path(tmpdir)]))
+            cases = (
+                ("missing-path", [Path("does-not-exist")]),
+                ("empty-directory", [Path(tmpdir)]),
+            )
+            for name, paths in cases:
+                with self.subTest(case=name):
+                    with self.assertRaises(QrScanError):
+                        list(_expand_paths(paths))
 
 
 if __name__ == "__main__":

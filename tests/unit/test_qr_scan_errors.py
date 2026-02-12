@@ -54,46 +54,45 @@ def _make_mock_decoder(
 class TestQrScanErrors(unittest.TestCase):
     """Tests for QR scanning error handling with proper test isolation."""
 
-    def test_no_payloads_found(self) -> None:
-        """Test that QrScanError is raised when no QR codes are found."""
-        mock_decoder = _make_mock_decoder(
-            decode_path=_decode_empty,
-            decode_bytes=_decode_empty,
+    def test_single_file_scan_outcomes(self) -> None:
+        cases = (
+            {
+                "name": "no-payloads",
+                "decode_path": _decode_empty,
+                "expect_error": True,
+                "error_contains": "no",
+            },
+            {
+                "name": "decode-error",
+                "decode_path": _decode_raises,
+                "expect_error": True,
+                "error_contains": None,
+            },
+            {
+                "name": "success",
+                "decode_path": _decode_single,
+                "expect_error": False,
+                "error_contains": None,
+            },
         )
-        with mock.patch.object(qr_scan, "_load_decoder", return_value=mock_decoder):
-            with tempfile.TemporaryDirectory() as tmpdir:
-                path = Path(tmpdir) / "test.png"
-                path.write_bytes(b"fake-png-content")
-                with self.assertRaises(QrScanError) as ctx:
-                    qr_scan.scan_qr_payloads([path])
-                # Error message may be "no qr codes" or similar
-                self.assertIn("no", str(ctx.exception).lower())
-
-    def test_decode_error_raises(self) -> None:
-        """Test that decode errors are wrapped in QrScanError."""
-        mock_decoder = _make_mock_decoder(
-            decode_path=_decode_raises,
-            decode_bytes=_decode_empty,
-        )
-        with mock.patch.object(qr_scan, "_load_decoder", return_value=mock_decoder):
-            with tempfile.TemporaryDirectory() as tmpdir:
-                path = Path(tmpdir) / "bad.png"
-                path.write_bytes(b"fake-png-content")
-                with self.assertRaises(QrScanError):
-                    qr_scan.scan_qr_payloads([path])
-
-    def test_successful_decode(self) -> None:
-        """Test successful QR decoding returns payloads."""
-        mock_decoder = _make_mock_decoder(
-            decode_path=_decode_single,
-            decode_bytes=_decode_single,
-        )
-        with mock.patch.object(qr_scan, "_load_decoder", return_value=mock_decoder):
-            with tempfile.TemporaryDirectory() as tmpdir:
-                path = Path(tmpdir) / "valid.png"
-                path.write_bytes(b"fake-png-content")
-                payloads = qr_scan.scan_qr_payloads([path])
-                self.assertEqual(payloads, [b"decoded-payload"])
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                mock_decoder = _make_mock_decoder(
+                    decode_path=case["decode_path"],
+                    decode_bytes=_decode_empty,
+                )
+                with mock.patch.object(qr_scan, "_load_decoder", return_value=mock_decoder):
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        path = Path(tmpdir) / "test.png"
+                        path.write_bytes(b"fake-png-content")
+                        if case["expect_error"]:
+                            with self.assertRaises(QrScanError) as ctx:
+                                qr_scan.scan_qr_payloads([path])
+                            if case["error_contains"]:
+                                self.assertIn(case["error_contains"], str(ctx.exception).lower())
+                        else:
+                            payloads = qr_scan.scan_qr_payloads([path])
+                            self.assertEqual(payloads, [b"decoded-payload"])
 
     def test_multiple_files(self) -> None:
         """Test scanning multiple files collects all payloads."""

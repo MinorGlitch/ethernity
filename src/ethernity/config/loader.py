@@ -234,14 +234,6 @@ def _parse_optional_bool(value: object) -> bool | None:
     return None
 
 
-def _parse_float(value: object, *, default: float) -> float:
-    return _parse_number(value, cast=float, default=default)
-
-
-def _parse_optional_float(value: object, *, default: float | None = None) -> float | None:
-    return _parse_optional_number(value, cast=float, default=default, label="float")
-
-
 def _parse_number(value: object, *, cast: Callable[[int | float | str], _T], default: _T) -> _T:
     if isinstance(value, (int, float, str)):
         return cast(value)

@@ -1,0 +1,186 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+<!doctype html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    {% include 'partials/forge_tailwind.j2' %}
+    {% include 'partials/material_symbols_local.j2' %}
+
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+
+    @media print {
+      body {
+        background-color: white !important;
+        color: black !important;
+      }
+      .print-sheet {
+        box-shadow: none !important;
+        margin: 0 !important;
+      }
+    }
+
+    .print-sheet {
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      min-height: {{ page_height_mm }}mm;
+      margin: 0 auto;
+      page-break-after: always;
+      background: white;
+      overflow: hidden;
+      break-inside: avoid-page;
+      page-break-inside: avoid;
+    }
+
+    .print-sheet:last-child {
+      page-break-after: auto;
+    }
+
+    .qr-grid-cards {
+      grid-template-columns: repeat(var(--forge-cols), minmax(0, 1fr));
+    }
+  </style>
+</head>
+<body class="bg-background-light font-display antialiased min-h-screen flex flex-col">
+{% for page in pages %}
+  <section class="print-sheet flex flex-col p-[15mm] border border-gray-100">
+    {% if page.instructions_full_page %}
+    {% set forge_header_title = doc.title %}
+    {% set forge_header_subtitle = doc.subtitle %}
+    {% set forge_header_kicker = 'The Forge // Secure Offline Storage' %}
+    {% set forge_header_classification = 'Offline Processing Required' %}
+    {% set forge_header_guidance = 'Scan left-to-right, top-to-bottom' %}
+    {% set forge_header_ref = doc_id %}
+    {% set forge_header_icon = 'token' %}
+    {% include 'partials/forge_shell_header.j2' %}
+
+    <div class="border-l-4 border-primary bg-blue-50 p-4 mb-8">
+      <div class="flex gap-3">
+        <span class="material-symbols-outlined text-primary text-xl">warning</span>
+        <div>
+          <h3 class="font-bold text-gray-900 text-sm uppercase mb-1">Critical Security Warning</h3>
+          <p class="text-sm text-gray-700 leading-relaxed">
+            This document acts as a table of contents and inventory log. Keep this document separate from your seed phrases or key shards.
+          </p>
+          <p class="mt-2 text-xs text-gray-600 inline-flex items-center gap-1">
+            <span class="material-symbols-outlined text-sm">qr_code_2</span>
+            Verify every scan in offline mode.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="mb-10">
+      <h2 class="text-lg font-bold text-gray-900 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4 flex items-center gap-2">
+        <span class="material-symbols-outlined text-lg">verified_user</span>
+        Security Verification Checklist
+      </h2>
+      <div class="grid grid-cols-1 gap-y-4">
+        {% for line in instructions.lines %}
+        <div class="flex items-start gap-4 p-3 border border-gray-100 rounded bg-gray-50/50">
+          <span class="material-symbols-outlined text-[22px] text-gray-500 mt-0.5">check_box_outline_blank</span>
+          <div>
+            <p class="text-sm font-semibold text-gray-900">{{ line }}</p>
+          </div>
+        </div>
+        {% endfor %}
+        {% if instructions.scan_hint %}
+        <div class="flex items-start gap-4 p-3 border border-gray-100 rounded bg-gray-50/50">
+          <span class="material-symbols-outlined text-[22px] text-gray-500 mt-0.5">check_box_outline_blank</span>
+          <div>
+            <p class="text-sm font-semibold text-gray-900">{{ instructions.scan_hint }}</p>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    {% set forge_header_title = doc.title %}
+    {% set forge_header_subtitle = doc.subtitle %}
+    {% set forge_header_kicker = 'The Forge // Secure Offline Storage' %}
+    {% set forge_header_classification = 'Offline Processing Required' %}
+    {% set forge_header_guidance = 'Scan left-to-right, top-to-bottom' %}
+    {% set forge_header_ref = doc_id %}
+    {% set forge_header_icon = 'token' %}
+    {% include 'partials/forge_shell_header.j2' %}
+
+    <div class="border-l-4 border-primary bg-blue-50 p-4 mb-8">
+      <div class="flex items-start gap-3">
+        <span class="material-symbols-outlined text-primary text-xl">warning</span>
+        <p class="text-sm text-gray-700 leading-relaxed">
+          Scan every QR tile in this page before moving to the next page.
+          <span class="inline-flex items-center gap-1 ml-1">
+            <span class="material-symbols-outlined text-sm">qr_code_2</span>
+            Keep scans offline.
+          </span>
+        </p>
+      </div>
+    </div>
+
+    {% if page.qr_items %}
+    <div
+      class="grid flex-1 gap-4 qr-grid-cards"
+      style="--forge-cols: {{ page.qr_grid.cols if page.qr_grid else 3 }};"
+    >
+      {% for slot in page.qr_items %}
+      <div class="flex flex-col rounded border border-slate-300 p-3">
+        <div class="mb-2 flex justify-between border-b border-slate-100 pb-1">
+          <span class="font-mono text-xs font-bold text-slate-900">KIT {{ '%02d' % slot.index }}</span>
+          <span class="font-mono text-[10px] text-slate-400">SEQ {{ '%02d' % slot.index }}</span>
+        </div>
+        <div class="aspect-square w-full rounded-sm bg-slate-900 p-1">
+          <img
+            class="h-full w-full bg-white"
+            src="{{ slot.data_uri }}"
+            alt="Recovery kit QR chunk {{ slot.index }}"
+            style="image-rendering: pixelated;"
+          >
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endif %}
+
+    <section class="mt-auto pt-8 border-t border-gray-200 flex justify-between items-end mb-4">
+      <div class="text-xs text-gray-400">
+        <p>{{ forge_copy.protocol_label }} {{ forge_copy.version }}</p>
+        <p>Printed from secure session ID: <span class="font-mono text-gray-600">{{ doc_id }}</span></p>
+      </div>
+      <div class="flex flex-col items-end">
+        <div class="text-right mb-2">
+          <p class="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1">Custodian Signature</p>
+          <div class="w-48 h-10 border-b border-gray-300 border-dashed"></div>
+        </div>
+        <div class="text-[10px] font-mono inline-flex items-center gap-1 text-gray-500">
+          <span class="material-symbols-outlined text-sm">lock</span>
+          Verification Complete
+        </div>
+      </div>
+    </section>
+
+    {% set forge_footer_left = forge_copy.generator_label %}
+    {% set forge_footer_right = 'Scan left-to-right, top-to-bottom' %}
+    {% include 'partials/forge_shell_footer.j2' %}
+  </section>
+{% endfor %}
+</body>
+</html>

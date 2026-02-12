@@ -91,6 +91,7 @@ class RenderService:
         *,
         shard_index: int,
         shard_total: int,
+        shard_threshold: int | None = None,
         qr_payloads: Sequence[bytes | str] | None = None,
         template_path: str | Path | None = None,
         doc_type: str | None = None,
@@ -99,7 +100,15 @@ class RenderService:
             frames=[frame],
             template_path=template_path or self.config.shard_template_path,
             output_path=output_path,
-            context=self.base_context({"shard_index": shard_index, "shard_total": shard_total}),
+            context=self.base_context(
+                {
+                    "shard_index": shard_index,
+                    "shard_total": shard_total,
+                    "shard_threshold": (
+                        shard_total if shard_threshold is None else shard_threshold
+                    ),
+                }
+            ),
             qr_payloads=qr_payloads,
             doc_type=doc_type or DOC_TYPE_SHARD,
         )
@@ -111,10 +120,11 @@ class RenderService:
         *,
         qr_payloads: Sequence[bytes | str],
         context: dict[str, object] | None = None,
+        template_path: str | Path | None = None,
     ) -> RenderInputs:
         return self._build_inputs(
             frames=frames,
-            template_path=self.config.kit_template_path,
+            template_path=template_path or self.config.kit_template_path,
             output_path=output_path,
             context=context,
             qr_payloads=qr_payloads,
@@ -134,7 +144,7 @@ class RenderService:
         render_fallback: bool = True,
         key_lines: Sequence[str] | None = None,
         fallback_sections: Sequence[FallbackSection] | None = None,
-        doc_type: str | None = None,
+        doc_type: str,
     ) -> RenderInputs:
         resolved_context = self.base_context(context)
         return RenderInputs(

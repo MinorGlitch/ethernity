@@ -17,8 +17,15 @@ import argparse
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+from typer.testing import CliRunner
 
 from ethernity import cli
+from ethernity.cli.core.types import RecoverArgs
+from ethernity.cli.flows import recover_wizard as recover_wizard_module
+from ethernity.cli.flows.recover import run_recover_command
 from ethernity.cli.flows.recover_plan import _resolve_passphrase
 from ethernity.cli.io.frames import _frames_from_fallback
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, encode_frame
@@ -28,6 +35,9 @@ from tests.test_support import suppress_output
 
 
 class TestCliRecoverValidation(unittest.TestCase):
+    def setUp(self) -> None:
+        self.runner = CliRunner()
+
     def test_invalid_mnemonic_checksum_rejected(self) -> None:
         passphrase = " ".join(
             [
@@ -57,41 +67,39 @@ class TestCliRecoverValidation(unittest.TestCase):
             )
         self.assertIn("mnemonic", str(ctx.exception).lower())
 
-    def test_conflicting_fallback_and_frames(self) -> None:
-        args = argparse.Namespace(
-            fallback_file="fallback.txt",
-            payloads_file="frames.txt",
-            scan=[],
-            passphrase="pass",
-            shard_fallback_file=[],
-            auth_fallback_file=None,
-            auth_payloads_file=None,
-            shard_payloads_file=[],
-            output=None,
-            allow_unsigned=False,
-            assume_yes=True,
-            quiet=True,
+    def test_conflicting_input_combinations(self) -> None:
+        cases = (
+            {
+                "name": "fallback-with-payloads",
+                "fallback_file": "fallback.txt",
+                "payloads_file": "frames.txt",
+                "scan": [],
+            },
+            {
+                "name": "scan-with-fallback",
+                "fallback_file": "fallback.txt",
+                "payloads_file": None,
+                "scan": ["scan.png"],
+            },
         )
-        with self.assertRaises(ValueError):
-            cli.run_recover_command(args)
-
-    def test_conflicting_scan_and_fallback(self) -> None:
-        args = argparse.Namespace(
-            fallback_file="fallback.txt",
-            payloads_file=None,
-            scan=["scan.png"],
-            passphrase="pass",
-            shard_fallback_file=[],
-            auth_fallback_file=None,
-            auth_payloads_file=None,
-            shard_payloads_file=[],
-            output=None,
-            allow_unsigned=False,
-            assume_yes=True,
-            quiet=True,
-        )
-        with self.assertRaises(ValueError):
-            cli.run_recover_command(args)
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                args = argparse.Namespace(
+                    fallback_file=case["fallback_file"],
+                    payloads_file=case["payloads_file"],
+                    scan=case["scan"],
+                    passphrase="pass",
+                    shard_fallback_file=[],
+                    auth_fallback_file=None,
+                    auth_payloads_file=None,
+                    shard_payloads_file=[],
+                    output=None,
+                    allow_unsigned=False,
+                    assume_yes=True,
+                    quiet=True,
+                )
+                with self.assertRaises(ValueError):
+                    cli.run_recover_command(args)
 
     def test_labeled_fallback_sections_parse(self) -> None:
         doc_id = b"\x10" * DOC_ID_LEN
@@ -241,6 +249,145 @@ class TestCliRecoverValidation(unittest.TestCase):
                 )
         self.assertEqual(len(frames), 1)
         self.assertEqual(frames[0].frame_type, FrameType.MAIN_DOCUMENT)
+
+    def test_recover_empty_stdin_non_tty_shows_input_guidance(self) -> None:
+        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            result = self.runner.invoke(cli.app, ["recover"], input="")
+        self.assertEqual(result.exit_code, 2)
+        self.assertIn("--fallback-file", result.output)
+        self.assertIn("--payloads-file", result.output)
+        self.assertIn("--scan", result.output)
+
+    def test_recover_non_tty_non_empty_stdin_auto_selects_fallback_mode(self) -> None:
+        captured: dict[str, str | None] = {}
+
+        def _capture_args(args: RecoverArgs, *, debug: bool = False) -> int:
+            self.assertFalse(debug)
+            captured["fallback_file"] = args.fallback_file
+            return 0
+
+        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            with mock.patch(
+                "ethernity.cli.commands.recover.run_recover_command",
+                side_effect=_capture_args,
+            ):
+                result = self.runner.invoke(cli.app, ["recover"], input="payload")
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(captured.get("fallback_file"), "-")
+
+    def test_recover_skip_auth_warning_not_emitted_before_input_validation(self) -> None:
+        args = RecoverArgs(allow_unsigned=True, quiet=False)
+        with mock.patch("ethernity.cli.flows.recover._warn") as warn_mock:
+            with self.assertRaises(ValueError):
+                run_recover_command(args)
+        warn_mock.assert_not_called()
+
+    def test_recover_skip_auth_warning_emitted_after_successful_plan(self) -> None:
+        events: list[str] = []
+        fake_plan = SimpleNamespace(allow_unsigned=True)
+
+        def _fake_plan_from_args(_args: RecoverArgs):
+            events.append("plan")
+            return fake_plan
+
+        def _fake_warn(_message: str, *, quiet: bool) -> None:
+            self.assertFalse(quiet)
+            events.append("warn")
+
+        def _fake_run_recover_plan(_plan, *, quiet: bool, debug: bool = False) -> int:
+            self.assertFalse(quiet)
+            self.assertFalse(debug)
+            events.append("run")
+            return 0
+
+        with mock.patch(
+            "ethernity.cli.flows.recover.plan_from_args",
+            side_effect=_fake_plan_from_args,
+        ):
+            with mock.patch(
+                "ethernity.cli.flows.recover._warn",
+                side_effect=_fake_warn,
+            ):
+                with mock.patch(
+                    "ethernity.cli.flows.recover.run_recover_plan",
+                    side_effect=_fake_run_recover_plan,
+                ):
+                    result = run_recover_command(RecoverArgs(allow_unsigned=True, quiet=False))
+        self.assertEqual(result, 0)
+        self.assertEqual(events, ["plan", "warn", "run"])
+
+    def test_recover_review_cancel_returns_code_1(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x55" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"ciphertext",
+        )
+        plan = SimpleNamespace(
+            shard_frames=(),
+            auth_status="verified",
+            allow_unsigned=False,
+            input_label="Recovery text",
+            input_detail="stdin",
+            main_frames=(frame,),
+            auth_frames=(),
+            doc_id=b"\x55" * DOC_ID_LEN,
+        )
+        args = RecoverArgs(quiet=False, assume_yes=False)
+        with mock.patch(
+            "ethernity.cli.flows.recover_wizard.sys.stdin.isatty",
+            return_value=True,
+        ):
+            with mock.patch(
+                "ethernity.cli.flows.recover_wizard.sys.stdout.isatty",
+                return_value=True,
+            ):
+                with mock.patch(
+                    "ethernity.cli.flows.recover_wizard.resolve_recover_config",
+                    return_value=(object(), "auto"),
+                ):
+                    with mock.patch(
+                        "ethernity.cli.flows.recover_wizard._prompt_recovery_input",
+                        return_value=([frame], "Recovery text", "stdin"),
+                    ):
+                        with mock.patch(
+                            "ethernity.cli.flows.recover_wizard._load_extra_auth_frames",
+                            return_value=[],
+                        ):
+                            with mock.patch(
+                                "ethernity.cli.flows.recover_wizard._prompt_key_material",
+                                return_value=("passphrase", [], [], []),
+                            ):
+                                with mock.patch(
+                                    "ethernity.cli.flows.recover_wizard._load_shard_frames",
+                                    return_value=[],
+                                ):
+                                    with mock.patch(
+                                        "ethernity.cli.flows.recover_wizard.build_recovery_plan",
+                                        return_value=plan,
+                                    ):
+                                        with mock.patch(
+                                            "ethernity.cli.flows.recover_wizard._build_recovery_review_rows",
+                                            return_value=[("Inputs", None)],
+                                        ):
+                                            with mock.patch(
+                                                "ethernity.cli.flows.recover_wizard.prompt_yes_no",
+                                                return_value=False,
+                                            ):
+                                                with mock.patch(
+                                                    "ethernity.cli.flows.recover_wizard.console.print"
+                                                ) as print_mock:
+                                                    run_wizard = (
+                                                        recover_wizard_module.run_recover_wizard
+                                                    )
+                                                    result = run_wizard(
+                                                        args=args,
+                                                        show_header=False,
+                                                    )
+        self.assertEqual(result, 1)
+        self.assertIn(mock.call("Recovery cancelled."), print_mock.mock_calls)
 
 
 if __name__ == "__main__":

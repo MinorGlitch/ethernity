@@ -88,16 +88,22 @@ def _build_paths() -> ConfigPaths:
 
 
 def list_template_designs() -> dict[str, Path]:
+    package_root = PACKAGE_ROOT / "templates"
+    if not package_root.exists():
+        return {}
+
+    paths = _build_paths()
     designs: dict[str, Path] = {}
-    for root in _template_design_roots():
-        if not root.exists():
+    for entry in sorted(package_root.iterdir(), key=lambda item: item.name.lower()):
+        if entry.name.startswith(".") or not entry.is_dir():
             continue
-        for entry in sorted(root.iterdir(), key=lambda item: item.name.lower()):
-            if entry.name.startswith(".") or not entry.is_dir():
-                continue
-            if not _is_template_design_dir(entry):
-                continue
-            designs.setdefault(entry.name, entry)
+        if not _is_template_design_dir(entry):
+            continue
+        user_override = paths.user_templates_root / entry.name
+        if user_override.is_dir() and _is_template_design_dir(user_override):
+            designs[entry.name] = user_override
+        else:
+            designs[entry.name] = entry
     return designs
 
 
@@ -113,14 +119,6 @@ def resolve_template_design_path(design: str) -> Path:
         if candidate.lower() == lowered:
             return path
     raise ValueError(f"unknown template design: {design}")
-
-
-def _template_design_roots() -> tuple[Path, Path]:
-    paths = _build_paths()
-    return (
-        paths.user_config_dir / "templates",
-        PACKAGE_ROOT / "templates",
-    )
 
 
 def _is_template_design_dir(path: Path) -> bool:
@@ -154,20 +152,42 @@ def _ensure_user_config(paths: ConfigPaths) -> bool:
     try:
         paths.user_config_dir.mkdir(parents=True, exist_ok=True)
         paths.user_templates_root.mkdir(parents=True, exist_ok=True)
-        paths.user_templates_dir.mkdir(parents=True, exist_ok=True)
-        _copy_template_designs(paths.user_templates_root)
         _copy_if_missing(DEFAULT_CONFIG_PATH, paths.user_config_path)
-        _copy_if_missing(DEFAULT_TEMPLATE_PATH, paths.user_template_paths["main"])
-        _copy_if_missing(DEFAULT_RECOVERY_TEMPLATE_PATH, paths.user_template_paths["recovery"])
-        _copy_if_missing(DEFAULT_SHARD_TEMPLATE_PATH, paths.user_template_paths["shard"])
-        _copy_if_missing(
-            DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
-            paths.user_template_paths["signing_key_shard"],
-        )
-        _copy_if_missing(DEFAULT_KIT_TEMPLATE_PATH, paths.user_template_paths["kit"])
+        _copy_template_designs(paths)
     except OSError:
         return False
     return True
+
+
+def _copy_template_designs(paths: ConfigPaths) -> None:
+    package_root = PACKAGE_ROOT / "templates"
+    if not package_root.exists():
+        return
+
+    shared_dir = package_root / "_shared"
+    if shared_dir.is_dir():
+        dest_shared = paths.user_templates_root / "_shared"
+        dest_shared.mkdir(parents=True, exist_ok=True)
+        for shared_path in sorted(shared_dir.rglob("*"), key=lambda item: str(item).lower()):
+            if shared_path.name.startswith(".") or not shared_path.is_file():
+                continue
+            relative = shared_path.relative_to(shared_dir)
+            destination = dest_shared / relative
+            _copy_if_missing(shared_path, destination)
+
+    for entry in sorted(package_root.iterdir(), key=lambda item: item.name.lower()):
+        if entry.name.startswith(".") or not entry.is_dir():
+            continue
+        if entry.name == "_shared":
+            continue
+        if not _is_template_design_dir(entry):
+            continue
+        dest_dir = paths.user_templates_root / entry.name
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for template_path in sorted(entry.iterdir(), key=lambda item: item.name.lower()):
+            if template_path.name.startswith(".") or not template_path.is_file():
+                continue
+            _copy_if_missing(template_path, dest_dir / template_path.name)
 
 
 def _copy_if_missing(source: Path, dest: Path) -> None:
@@ -175,18 +195,3 @@ def _copy_if_missing(source: Path, dest: Path) -> None:
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, dest)
-
-
-def _copy_template_designs(dest_root: Path) -> None:
-    source_root = PACKAGE_ROOT / "templates"
-    if not source_root.exists():
-        return
-    for entry in sorted(source_root.iterdir(), key=lambda item: item.name.lower()):
-        if entry.name.startswith(".") or not entry.is_dir():
-            continue
-        if not _is_template_design_dir(entry):
-            continue
-        dest_dir = dest_root / entry.name
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        for filename in TEMPLATE_FILENAMES:
-            _copy_if_missing(entry / filename, dest_dir / filename)

@@ -1,0 +1,52 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+{% if monograph_page_label is defined %}
+  {% set _monograph_page_label = monograph_page_label %}
+{% elif page is defined and page.page_label is defined %}
+  {% set _monograph_page_label = page.page_label %}
+{% else %}
+  {% set _monograph_page_label = '' %}
+{% endif %}
+{% set _monograph_header_title = monograph_header_title if monograph_header_title is defined else doc.title %}
+{% set _monograph_header_subtitle = monograph_header_subtitle if monograph_header_subtitle is defined else doc.subtitle %}
+{% set _monograph_header_classification = monograph_header_classification if monograph_header_classification is defined else 'Offline Only' %}
+{% set _monograph_header_guidance = monograph_header_guidance if monograph_header_guidance is defined else '' %}
+{% set _monograph_header_icon = monograph_header_icon if monograph_header_icon is defined else 'verified_user' %}
+{% set _monograph_header_ref = monograph_header_ref if monograph_header_ref is defined else doc_id %}
+{% set _monograph_shell_header_inset = monograph_shell_header_inset if monograph_shell_header_inset is defined else '' %}
+<header class="monograph-shell-header relative z-10 shrink-0 border-b border-line-subtle pb-3 mb-3 max-w-full overflow-hidden{% if _monograph_shell_header_inset %} {{ _monograph_shell_header_inset }}{% endif %}">
+  <div class="w-full min-w-0 grid grid-cols-[minmax(0,1fr)_minmax(0,46%)] gap-3 items-start">
+    <div class="min-w-0">
+      <h1 class="font-serif text-[20px] leading-tight font-bold tracking-tight break-words">{{ _monograph_header_title }}</h1>
+      <p class="mt-1 text-[9px] font-mono uppercase tracking-[0.16em] text-ink-light break-words">{{ _monograph_header_subtitle }}</p>
+      {% if _monograph_header_guidance %}
+      <p class="mt-1 text-[8px] uppercase tracking-[0.14em] text-ink-light break-words">{{ _monograph_header_guidance }}</p>
+      {% endif %}
+    </div>
+    <div class="min-w-0 flex items-start justify-end gap-2">
+      <div class="w-9 h-9 border border-line-subtle rounded-sm bg-background-light/50 flex items-center justify-center">
+        <span class="material-symbols-outlined text-[18px] text-primary">{{ _monograph_header_icon }}</span>
+      </div>
+      <div class="min-w-0 max-w-full text-right font-mono text-[7px] uppercase tracking-[0.14em] text-ink-light leading-snug">
+        <span class="inline-block max-w-full bg-[#f2f0f9] text-ink-light px-1.5 py-0.5 font-medium break-words">{{ _monograph_header_classification }}</span>
+        <p class="mt-1 break-all">DOC ID: {{ _monograph_header_ref }}</p>
+        <p class="break-words">GENERATED (UTC): {{ created_timestamp_utc }}</p>
+        <p class="break-words">{{ _monograph_page_label }}</p>
+      </div>
+    </div>
+  </div>
+</header>

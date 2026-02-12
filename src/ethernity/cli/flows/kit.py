@@ -106,7 +106,17 @@ def render_kit_qr_document(
 def _load_kit_bundle(bundle_path: str | Path | None) -> bytes:
     """Load the recovery kit bundle from the specified path or default locations."""
     if bundle_path:
-        return Path(bundle_path).read_bytes()
+        path = Path(bundle_path)
+        try:
+            return path.read_bytes()
+        except FileNotFoundError as exc:
+            raise ValueError(
+                f"bundle file not found: {path}. Check --bundle path or omit --bundle."
+            ) from exc
+        except OSError as exc:
+            raise ValueError(
+                f"unable to read bundle file: {path}. Check --bundle path and permissions."
+            ) from exc
     # Primary: load from installed package (src/ethernity/kit/)
     try:
         return files("ethernity.kit").joinpath(DEFAULT_KIT_BUNDLE_NAME).read_bytes()
@@ -132,7 +142,7 @@ def _validate_qr_payload_bytes(size: int, data: bytes, config: QrConfig) -> None
     if not _fits_qr_payload(data[:size], config):
         raise ValueError(
             "chunk_size is too large for the current QR settings; "
-            "lower --chunk-size or increase the QR version / error level."
+            "lower --qr-chunk-size or increase the QR version / error level."
         )
 
 

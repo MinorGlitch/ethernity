@@ -27,6 +27,8 @@ MAX_SHARDS = 255
 def _validate_backup_args(args: BackupArgs) -> None:
     if args.passphrase and args.passphrase_generate:
         raise ValueError("use either --passphrase or --generate-passphrase, not both")
+    if args.qr_chunk_size is not None and args.qr_chunk_size <= 0:
+        raise ValueError("qr chunk size must be a positive integer")
     if args.signing_key_mode is not None and args.signing_key_mode not in ("embedded", "sharded"):
         raise ValueError("signing key mode must be 'embedded' or 'sharded'")
     if args.signing_key_shard_threshold is not None or args.signing_key_shard_count is not None:

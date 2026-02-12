@@ -149,6 +149,10 @@ def _load_input_files(
         if rel in seen:
             raise ValueError(f"duplicate relative path '{rel}' from stdin")
         data = sys.stdin.read().encode("utf-8")
+        if not data:
+            raise ValueError(
+                "stdin input is empty; provide data with --input - or use --input/--input-dir"
+            )
         entries.append(
             InputFile(
                 source_path=None,

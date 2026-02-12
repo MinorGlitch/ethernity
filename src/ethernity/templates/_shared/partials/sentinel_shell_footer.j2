@@ -1,0 +1,29 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+{% if sentinel_page_label is defined %}
+  {% set _sentinel_page_label = sentinel_page_label %}
+{% elif page is defined and page.page_label is defined %}
+  {% set _sentinel_page_label = page.page_label %}
+{% else %}
+  {% set _sentinel_page_label = '' %}
+{% endif %}
+{% set _sentinel_footer_guidance = sentinel_footer_guidance if sentinel_footer_guidance is defined else '' %}
+<footer class="sentinel-shell-footer mt-auto shrink-0 border-t-2 border-black pt-3 px-[15mm] flex items-center gap-3 text-[9px] font-mono uppercase text-gray-500 tracking-[0.1em]">
+  <span class="min-w-0 flex-1 break-words">Sentinel Offline Archive</span>
+  <span class="min-w-0 px-2 text-center break-words">{{ _sentinel_page_label }}</span>
+  <span class="text-right min-w-0 flex-1 break-words">{{ _sentinel_footer_guidance }}</span>
+</footer>
