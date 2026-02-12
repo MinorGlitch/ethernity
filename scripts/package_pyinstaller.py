@@ -21,39 +21,124 @@ import os
 import tarfile
 import zipfile
 from pathlib import Path
+from typing import Final
+
+PACKAGER_EXPECTED: Final = "pyinstaller"
+PACKAGE_MODE_EXPECTED: Final = "onedir"
+DIST_DIR: Final = Path("dist")
+PYINSTALLER_DIR: Final = DIST_DIR / "ethernity"
 
 
-def main() -> None:
-    dist = Path("dist")
-    if not dist.exists():
+def _required_env(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise SystemExit(f"missing required environment variable: {name}")
+    return value
+
+
+def _normalize_tag(tag: str) -> str:
+    if tag.startswith("refs/tags/"):
+        return tag.removeprefix("refs/tags/")
+    return tag
+
+
+def _normalize_os(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized in {"ubuntu", "ubuntu-latest", "linux"}:
+        return "linux"
+    if normalized in {"macos", "macos-latest", "darwin"}:
+        return "macos"
+    if normalized in {"windows", "windows-latest", "win32"}:
+        return "windows"
+    raise SystemExit(f"unsupported ARTIFACT_OS value: {value}")
+
+
+def _normalize_arch(value: str) -> str:
+    normalized = value.strip().lower()
+    aliases = {
+        "x64": "x64",
+        "amd64": "x64",
+        "x86_64": "x64",
+        "arm64": "arm64",
+        "aarch64": "arm64",
+    }
+    arch = aliases.get(normalized)
+    if arch is None:
+        raise SystemExit(f"unsupported ARTIFACT_ARCH value: {value}")
+    return arch
+
+
+def _iter_dist_files(base_dir: Path) -> list[Path]:
+    files = [path for path in base_dir.rglob("*") if path.is_file()]
+    return sorted(files, key=lambda path: path.as_posix())
+
+
+def _ensure_dist_layout() -> None:
+    if not DIST_DIR.exists():
         raise SystemExit("dist/ not found; run PyInstaller first")
-    runner_os = os.environ.get("RUNNER_OS", "local")
-    base = f"ethernity-{runner_os}"
-    dist_paths = list(dist.glob("ethernity*"))
-    if not dist_paths:
-        raise SystemExit("no built artifacts found in dist/")
+    if not PYINSTALLER_DIR.is_dir():
+        raise SystemExit("expected onedir output at dist/ethernity/")
+    executable_candidates = [PYINSTALLER_DIR / "ethernity", PYINSTALLER_DIR / "ethernity.exe"]
+    if not any(path.exists() for path in executable_candidates):
+        raise SystemExit("expected ethernity executable in dist/ethernity/")
+    if not _iter_dist_files(PYINSTALLER_DIR):
+        raise SystemExit("dist/ethernity is empty")
 
-    if runner_os == "Windows":
-        output = Path(f"{base}.zip")
-        with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            for path in dist_paths:
-                if path.is_dir():
-                    for file in path.rglob("*"):
-                        zf.write(file, file.relative_to(dist))
-                else:
-                    zf.write(path, path.name)
-    else:
-        output = Path(f"{base}.tar.gz")
-        with tarfile.open(output, "w:gz") as tf:
-            for path in dist_paths:
-                if path.is_dir():
-                    tf.add(path, arcname=path.relative_to(dist))
-                else:
-                    tf.add(path, arcname=path.name)
 
+def _create_zip(output: Path) -> None:
+    files = _iter_dist_files(PYINSTALLER_DIR)
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as zip_handle:
+        for path in files:
+            archive_name = path.relative_to(DIST_DIR).as_posix()
+            info = zipfile.ZipInfo(filename=archive_name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.external_attr = 0o644 << 16
+            zip_handle.writestr(info, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED)
+
+
+def _tar_filter(info: tarfile.TarInfo) -> tarfile.TarInfo:
+    info.uid = 0
+    info.gid = 0
+    info.uname = "root"
+    info.gname = "root"
+    info.mtime = 0
+    return info
+
+
+def _create_tar_gz(output: Path) -> None:
+    with tarfile.open(output, "w:gz") as tar_handle:
+        tar_handle.add(
+            PYINSTALLER_DIR, arcname=PYINSTALLER_DIR.relative_to(DIST_DIR), filter=_tar_filter
+        )
+
+
+def _write_checksum(output: Path) -> Path:
     digest = hashlib.sha256(output.read_bytes()).hexdigest()
     checksum_path = output.with_suffix(output.suffix + ".sha256")
     checksum_path.write_text(f"{digest}  {output.name}\n", encoding="utf-8")
+    return checksum_path
+
+
+def main() -> None:
+    release_tag = _normalize_tag(_required_env("RELEASE_TAG"))
+    artifact_os = _normalize_os(_required_env("ARTIFACT_OS"))
+    artifact_arch = _normalize_arch(_required_env("ARTIFACT_ARCH"))
+    packager = _required_env("PACKAGER").lower()
+    package_mode = _required_env("PACKAGE_MODE").lower()
+    if packager != PACKAGER_EXPECTED:
+        raise SystemExit(f"PACKAGER must be {PACKAGER_EXPECTED!r}, got: {packager!r}")
+    if package_mode != PACKAGE_MODE_EXPECTED:
+        raise SystemExit(f"PACKAGE_MODE must be {PACKAGE_MODE_EXPECTED!r}, got: {package_mode!r}")
+
+    _ensure_dist_layout()
+    base_name = f"ethernity-{release_tag}-{artifact_os}-{artifact_arch}-{packager}-{package_mode}"
+    if artifact_os == "windows":
+        output = Path(f"{base_name}.zip")
+        _create_zip(output)
+    else:
+        output = Path(f"{base_name}.tar.gz")
+        _create_tar_gz(output)
+
+    checksum_path = _write_checksum(output)
     print(f"Created {output}")
     print(f"Created {checksum_path}")
 

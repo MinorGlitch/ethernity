@@ -14,6 +14,7 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 import unittest
+from unittest import mock
 
 from ethernity.cli.io.fallback_parser import (
     FilterConfig,
@@ -21,7 +22,10 @@ from ethernity.cli.io.fallback_parser import (
     _is_valid_zbase32_line,
     _parse_groups,
     filter_fallback_lines,
+    parse_fallback_frame,
 )
+from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
+from ethernity.encoding.zbase32 import encode_zbase32
 
 
 class TestIsValidZbase32Line(unittest.TestCase):
@@ -101,18 +105,18 @@ class TestFilterFallbackLines(unittest.TestCase):
         self.assertEqual(len(filtered), 2)  # final short line kept
         self.assertEqual(skipped, 0)
 
-    def test_short_line_alone_filtered(self) -> None:
+    def test_short_line_alone_kept(self) -> None:
         lines = ["yb"]  # short line with no prior content
         filtered, skipped = filter_fallback_lines(lines)
-        self.assertEqual(len(filtered), 0)
-        self.assertEqual(skipped, 1)
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(skipped, 0)
 
-    def test_min_groups_enforced(self) -> None:
+    def test_filter_config_does_not_reject_valid_zbase32_lines(self) -> None:
         lines = ["yb fg", "ybnr fghj kmnp qrst"]  # first line has only 2 groups
         config = FilterConfig(min_groups=3)
         filtered, skipped = filter_fallback_lines(lines, config)
-        self.assertEqual(len(filtered), 1)
-        self.assertEqual(skipped, 1)
+        self.assertEqual(len(filtered), 2)
+        self.assertEqual(skipped, 0)
 
     def test_configurable_max_group_length(self) -> None:
         lines = ["ybndr fghjk kmnpq"]  # 5-char groups
@@ -125,6 +129,53 @@ class TestFilterFallbackLines(unittest.TestCase):
         lines = ["ybnr fghj kmnp qrst"]
         filtered, skipped = filter_fallback_lines(lines)
         self.assertEqual(len(filtered), 1)
+        self.assertEqual(skipped, 0)
+
+    def test_parse_fallback_frame_accepts_ungrouped_single_line(self) -> None:
+        frame = Frame(
+            version=VERSION,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x31" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        encoded = encode_zbase32(encode_frame(frame))
+        parsed, skipped = parse_fallback_frame([encoded], label="fallback")
+        self.assertEqual(parsed.data, b"payload")
+        self.assertEqual(skipped, 0)
+
+    def test_parse_fallback_frame_rejects_line_limit_overflow(self) -> None:
+        lines = ["ybndr", "fghej", "kmcpq"]
+        with mock.patch("ethernity.cli.io.fallback_parser.MAX_FALLBACK_LINES", 2):
+            with self.assertRaisesRegex(ValueError, "MAX_FALLBACK_LINES"):
+                parse_fallback_frame(lines, label="fallback")
+
+    def test_parse_fallback_frame_rejects_normalized_char_limit_overflow(self) -> None:
+        lines = ["ybnd r", "fghe j"]
+        with mock.patch("ethernity.cli.io.fallback_parser.MAX_FALLBACK_LINES", 10):
+            with mock.patch("ethernity.cli.io.fallback_parser.MAX_FALLBACK_NORMALIZED_CHARS", 9):
+                with self.assertRaisesRegex(ValueError, "MAX_FALLBACK_NORMALIZED_CHARS"):
+                    parse_fallback_frame(lines, label="fallback")
+
+    def test_parse_fallback_frame_accepts_exact_bound_edges(self) -> None:
+        frame = Frame(
+            version=VERSION,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x32" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"edge",
+        )
+        line = encode_zbase32(encode_frame(frame))
+        normalized_chars = len(line.replace(" ", "").replace("-", ""))
+        with mock.patch("ethernity.cli.io.fallback_parser.MAX_FALLBACK_LINES", 1):
+            with mock.patch(
+                "ethernity.cli.io.fallback_parser.MAX_FALLBACK_NORMALIZED_CHARS",
+                normalized_chars,
+            ):
+                parsed, skipped = parse_fallback_frame([line], label="fallback")
+        self.assertEqual(parsed.data, b"edge")
         self.assertEqual(skipped, 0)
 
 

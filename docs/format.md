@@ -29,6 +29,12 @@ Lengths and indexes in binary headers MUST be encoded as unsigned varints ("uvar
 Encoding:
 - 7 bits of data per byte, little-endian.
 - MSB (0x80) is set on all bytes except the last.
+- Values MUST be in unsigned 64-bit range (0 ≤ value ≤ 2^64-1).
+- Uvarints MUST use the shortest possible encoding (no overlong forms).
+
+Decoder requirements:
+- Decoders MUST reject non-canonical (overlong) uvarints.
+- Decoders MUST reject uvarints outside unsigned 64-bit range.
 
 Used for:
 - Envelope version, manifest length, payload length
@@ -104,6 +110,10 @@ Manifest requirements (map keys):
   - if `sealed` is true, `seed` MUST be null
   - if `sealed` is false, `seed` MUST be 32 bytes
 - `files`: list of entries, MUST contain at least one file entry
+- The canonical CBOR byte length of the manifest MUST be ≤ `MAX_MANIFEST_CBOR_BYTES` (Section 17).
+- The number of file entries MUST be ≤ `MAX_MANIFEST_FILES` (Section 17).
+- Decoders MUST ignore unknown top-level manifest keys.
+- Encoders SHOULD NOT emit unknown top-level manifest keys for `MANIFEST_VERSION = 1`.
 
 File list requirements:
 - Encoders MUST reject empty `files` lists at creation time.
@@ -114,10 +124,14 @@ File entry requirements (map keys):
 - `size`: non-negative int
 - `hash`: 32 raw bytes (SHA-256 of file contents, not hex)
 - `mtime`: int or null
+- Decoders MUST ignore unknown file-entry keys.
+- Encoders SHOULD NOT emit unknown file-entry keys for `MANIFEST_VERSION = 1`.
 
 CBOR encoding requirements:
 - Manifests MUST use canonical CBOR encoding (RFC 8949) for deterministic output.
 - Indefinite-length CBOR items MUST NOT be used.
+- Decoders MUST reject manifests that are not canonical CBOR (including any indefinite-length
+  item).
 
 Ordering:
 - Encoders MUST sort file entries by `path` in ascending Unicode code point order before manifest
@@ -139,6 +153,9 @@ Path rules:
 - Paths MUST satisfy the normalization requirements in Section 16.
 - Paths that differ only by Unicode normalization are considered identical; duplicates MUST be rejected.
 - Paths MUST be relative (no leading `/`).
+- Paths MUST NOT contain empty segments (for example `a//b` or a trailing `/`).
+- Paths MUST NOT contain `.` or `..` segments.
+- Path UTF-8 byte length MUST be ≤ `MAX_PATH_BYTES` (Section 17).
 
 ## 5) Payload
 
@@ -170,13 +187,18 @@ Frame types:
 - MAIN_DOCUMENT = 0x44 ("D")
 - KEY_DOCUMENT  = 0x4B ("K")
 - AUTH          = 0x41 ("A")
+- Decoders MUST reject FRAME_TYPE values other than those listed above.
 
 Frame DATA semantics (Version 1):
 - For `FRAME_TYPE=MAIN_DOCUMENT`, reassembly of all frames in the group yields the complete age
   ciphertext (Section 13).
+- For `FRAME_TYPE=MAIN_DOCUMENT`, each frame DATA length MUST be ≤ `MAX_MAIN_FRAME_DATA_BYTES`
+  (Section 17).
 - For `FRAME_TYPE=AUTH`, DATA MUST be the canonical CBOR encoding of the Auth payload (Section 8).
+- For `FRAME_TYPE=AUTH`, DATA length MUST be ≤ `MAX_AUTH_CBOR_BYTES` (Section 17).
 - For `FRAME_TYPE=KEY_DOCUMENT`, DATA MUST be the canonical CBOR encoding of the Shard payload
   (Section 9).
+- For `FRAME_TYPE=KEY_DOCUMENT`, DATA length MUST be ≤ `MAX_SHARD_CBOR_BYTES` (Section 17).
 
 CRC:
 - CRC32 is computed over all bytes before the CRC field.
@@ -186,20 +208,28 @@ CRC:
 INDEX/TOTAL semantics:
 - INDEX is 0-based and MUST satisfy 0 ≤ INDEX < TOTAL.
 - TOTAL MUST be ≥ 1.
+- For `FRAME_TYPE=MAIN_DOCUMENT`, TOTAL MUST be ≤ `MAX_MAIN_FRAME_TOTAL` (Section 17).
 
 Frame reassembly:
-- Frames MAY be provided out of order; decoders MUST accept out-of-order frames.
-- Frames MUST be grouped by DOC_ID and FRAME_TYPE; frames from different documents MUST NOT be
-  combined in the same reassembly.
-- Within a reassembly group, all frames MUST have the same VERSION and TOTAL.
-- Reassembly concatenates DATA in ascending INDEX order (INDEX 0, 1, 2, ... TOTAL-1).
-- Decoders MUST reject incomplete frame sets (missing any INDEX).
-- Duplicate frames (same DOC_ID + FRAME_TYPE + INDEX):
+- For `FRAME_TYPE=MAIN_DOCUMENT`, frames MAY be provided out of order; decoders MUST accept
+  out-of-order frames.
+- `MAIN_DOCUMENT` frames MUST be grouped by DOC_ID and FRAME_TYPE; frames from different
+  documents MUST NOT be combined in the same reassembly.
+- Within a `MAIN_DOCUMENT` reassembly group, all frames MUST have the same VERSION and TOTAL.
+- `MAIN_DOCUMENT` reassembly concatenates DATA in ascending INDEX order
+  (INDEX 0, 1, 2, ... TOTAL-1).
+- Decoders MUST reject incomplete `MAIN_DOCUMENT` frame sets (missing any INDEX).
+- Decoders MUST reject reassembled MAIN ciphertext larger than `MAX_CIPHERTEXT_BYTES` (Section 17).
+- Duplicate `MAIN_DOCUMENT` frames (same DOC_ID + FRAME_TYPE + INDEX):
   - If TOTAL and DATA are identical, decoders SHOULD ignore the duplicate.
   - If TOTAL or DATA differs, decoders MUST reject as conflicting duplicates.
+- `AUTH` and `KEY_DOCUMENT` frames are independent single-frame payload units and MUST be decoded
+  individually. They are not part of multi-frame reassembly groups.
 
 Single-frame payloads (Version 1):
 - AUTH and KEY_DOCUMENT payloads MUST be encoded as a single frame (frame index=0, frame total=1).
+- Multiple `KEY_DOCUMENT` frames with the same DOC_ID are valid and represent distinct shard
+  payloads.
 
 ## 7) Document Identifiers
 
@@ -209,6 +239,32 @@ Definitions:
 
 `doc_id` is stored in every frame.
 `doc_hash` is signed and embedded in the auth/shard payloads.
+
+Binding requirements:
+- Decoders MUST derive `doc_hash` and `doc_id` from recovered MAIN ciphertext before accepting
+  associated AUTH/KEY payloads.
+- Any associated AUTH or KEY frame MUST have frame `DOC_ID == doc_id`.
+- Auth payload `hash` and shard payload `hash` MUST equal `doc_hash`.
+- In authenticated mode, decoders MUST treat any mismatch in these bindings as fatal and reject
+  recovery.
+- In rescue mode (Section 7.1), decoders MAY ignore mismatched AUTH payloads and continue
+  unauthenticated recovery of MAIN ciphertext, but MUST reject mismatched KEY payloads used for
+  passphrase reconstruction.
+
+### 7.1) Recovery Verification Modes
+
+Version 1 defines two decoder operation modes:
+
+- Authenticated mode (default):
+  - Decoders MUST enforce signature verification requirements in Sections 8 and 9.
+  - Missing/invalid required authentication material MUST be treated as fatal.
+- Rescue mode (explicit operator override):
+  - Decoders MAY continue recovery when AUTH is missing, malformed, or fails signature verification.
+  - Decoders MAY continue recovery when shard signatures fail verification, but only if all
+    non-signature shard validation and consistency checks still pass.
+  - Decoders MUST still enforce all non-signature structural checks (framing, bounds, canonical
+    CBOR, shard consistency).
+  - Decoders MUST clearly label the result as unauthenticated and MUST NOT report auth as verified.
 
 ## 8) Auth Payload (FrameType.AUTH data)
 
@@ -231,15 +287,25 @@ Requirements:
 - `hash`: 32 bytes
 - `pub`: 32 bytes (Ed25519 public key)
 - `sig`: 64 bytes Ed25519 signature
+- Decoders MUST ignore unknown auth payload keys.
+- Encoders SHOULD NOT emit unknown auth payload keys for `AUTH_VERSION = 1`.
 
 CBOR encoding requirements:
 - Auth payloads MUST use canonical CBOR encoding (RFC 8949) for deterministic output.
 - Indefinite-length CBOR items MUST NOT be used.
+- Decoders MUST reject auth payloads that are not canonical CBOR (including any indefinite-length
+  item).
 
 Signature domain:
-- Let `signed_auth_payload` be the auth payload CBOR map with the `sig` field omitted.
+- Let `signed_auth_payload` be a CBOR map containing exactly `version`, `hash`, and `pub`.
 - Message is `AUTH_DOMAIN + canonical_cbor(signed_auth_payload)`
 - AUTH_DOMAIN is defined in Section 2.1.
+
+Verification requirements:
+- In authenticated mode, decoders MUST verify `sig` as an Ed25519 signature over
+  `AUTH_DOMAIN + canonical_cbor(signed_auth_payload)`.
+- In authenticated mode, decoders MUST reject AUTH payloads with invalid signatures.
+- In rescue mode, decoders MAY ignore missing/invalid AUTH payloads and continue unauthenticated.
 
 ## 9) Shard Payload (FrameType.KEY_DOCUMENT data)
 
@@ -271,6 +337,8 @@ Requirements:
 - `hash`: 32 bytes
 - `pub`: 32 bytes
 - `sig`: 64 bytes
+- Decoders MUST ignore unknown shard payload keys.
+- Encoders SHOULD NOT emit unknown shard payload keys for `SHARD_VERSION = 1`.
 
 Validation rules:
 - `threshold`: MUST satisfy 1 ≤ threshold ≤ share_count
@@ -286,27 +354,52 @@ Decoders MUST reject shard payloads that violate these bounds.
 CBOR encoding requirements:
 - Shard payloads MUST use canonical CBOR encoding (RFC 8949) for deterministic output.
 - Indefinite-length CBOR items MUST NOT be used.
+- Decoders MUST reject shard payloads that are not canonical CBOR (including any indefinite-length
+  item).
 
 Signature domain:
-- Let `signed_shard_payload` be the shard payload CBOR map with the `sig` field omitted.
+- Let `signed_shard_payload` be a CBOR map containing exactly:
+  `version`, `type`, `threshold`, `share_count`, `share_index`, `length`, `share`, `hash`, and
+  `pub`.
 - Message is `SHARD_DOMAIN + canonical_cbor(signed_shard_payload)`
 - SHARD_DOMAIN is defined in Section 2.1.
 
-Each shard MUST be encoded as a single frame (frame index=0, frame total=1).
+Verification requirements:
+- In authenticated mode, decoders MUST verify `sig` as an Ed25519 signature over
+  `SHARD_DOMAIN + canonical_cbor(signed_shard_payload)`.
+- In authenticated mode, decoders MUST reject shard payloads with invalid signatures.
+- In rescue mode, decoders MAY proceed without shard signature verification, but MUST still enforce
+  shard structural/binding/consistency requirements before using shards for reconstruction.
+- In a shard reconstruction set, all shard payloads MUST share the same
+  `hash`, `pub`, `type`, `threshold`, and `share_count`.
+- Duplicate `share_index` handling:
+  - If the duplicated `share` bytes are identical, decoders SHOULD ignore the duplicate.
+  - If the duplicated `share` bytes differ, decoders MUST reject.
+- Set-level consistency requirements for `hash`, `pub`, `type`, `threshold`, and `share_count`
+  apply to the deduplicated reconstruction set after duplicate `share_index` resolution.
+- Decoders MAY perform stricter validation earlier (for example, rejecting duplicate entries that
+  disagree on consistency fields even when `share` bytes match).
+
+A recovery set MAY contain multiple `KEY_DOCUMENT` frames for the same DOC_ID.
+Each shard payload MUST be encoded as a single frame (frame index=0, frame total=1).
 
 ## 10) QR Payload Encoding
 
 QR payload text MUST be base64 without padding.
+Version 1 defines no alternative QR payload encodings.
 
 Encoding:
 - Base64 encode the raw frame bytes.
 - Strip trailing "=" padding characters.
 
 Decoding:
+- After whitespace removal, payload text MUST NOT contain "=" characters.
 - Restore padding to a multiple of 4.
 - Base64 decode with validation.
 
 Decoders MUST ignore whitespace in payloads.
+After whitespace removal, payload text length MUST be ≤ `MAX_QR_PAYLOAD_CHARS` (Section 17).
+Encoders and decoders MUST NOT negotiate or auto-detect alternate QR payload encodings in Version 1.
 
 ## 11) Fallback Text Encoding
 
@@ -318,6 +411,13 @@ Encoding:
 
 Decoding:
 - Remove whitespace and dashes (`-`), decode z-base-32 to raw frame bytes.
+- Decoders MUST treat z-base-32 letters case-insensitively.
+- For each fallback section, decoders MUST reject more than `MAX_FALLBACK_LINES` filtered lines
+  (Section 17).
+- For each fallback section, decoders MUST reject more than
+  `MAX_FALLBACK_NORMALIZED_CHARS` normalized z-base-32 characters (Section 17).
+- Recovery text sources (files/stdin) MUST be rejected if byte length exceeds
+  `MAX_RECOVERY_TEXT_BYTES` (Section 17).
 
 ## 12) Version Markers
 
@@ -442,7 +542,7 @@ Decoders MUST reject shard payloads where `share` and `length` are inconsistent.
 ### 15.4) Reconstruction
 
 Input:
-- At least t shares with distinct indices
+- At least t shares after applying duplicate handling rules from Section 9
 
 Process:
 - Lagrange interpolation over GF(2^128)
@@ -456,13 +556,14 @@ Output:
 
 - Maximum index: 255
 - Minimum threshold: 1
-- Maximum threshold: n
+- Maximum threshold: share_count
 - Maximum shares: 255
 
 Validation:
 - 1 ≤ threshold ≤ share_count ≤ 255
 - 1 ≤ share_index ≤ share_count
-- All indices in a reconstruction set MUST be distinct
+- After applying duplicate handling rules from Section 9, all indices in the effective
+  reconstruction set MUST be distinct
 
 Encoders MUST NOT generate and decoders MUST reject shard parameters outside these bounds.
 
@@ -481,6 +582,8 @@ Requirements:
 - Paths MUST be normalized to NFC before storage in manifest
 - Paths MUST be normalized to NFC before any comparison operation
 - Paths that are not valid UTF-8 MUST be rejected
+- Paths MUST NOT contain empty segments
+- Paths MUST NOT contain `.` or `..` segments
 
 ### 16.2) Normalization Function
 
@@ -489,3 +592,24 @@ Let `normalize_path(path)` return Unicode NFC normalization of `path`.
 ### 16.3) Reference
 
 Unicode Normalization Forms: https://unicode.org/reports/tr15/
+
+## 17) Resource Bounds
+
+This section defines mandatory Version 1 resource bounds.
+
+Encoders MUST NOT emit artifacts that exceed these bounds.
+Decoders MUST reject inputs that exceed these bounds.
+
+Constants:
+- `MAX_CIPHERTEXT_BYTES = 1_048_576`
+- `MAX_MAIN_FRAME_DATA_BYTES = 1_048_576`
+- `MAX_MAIN_FRAME_TOTAL = 4_096`
+- `MAX_QR_PAYLOAD_CHARS = 3_072`
+- `MAX_AUTH_CBOR_BYTES = 512`
+- `MAX_SHARD_CBOR_BYTES = 2_048`
+- `MAX_MANIFEST_CBOR_BYTES = 1_048_576`
+- `MAX_MANIFEST_FILES = 2_048`
+- `MAX_PATH_BYTES = 512`
+- `MAX_FALLBACK_NORMALIZED_CHARS = 2_000_000`
+- `MAX_FALLBACK_LINES = 50_000`
+- `MAX_RECOVERY_TEXT_BYTES = 10_485_760`

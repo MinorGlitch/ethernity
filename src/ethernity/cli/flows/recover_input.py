@@ -42,7 +42,6 @@ from ..io.frames import (
 
 def prompt_recovery_input_interactive(
     *,
-    qr_payload_encoding: str,
     allow_unsigned: bool,
     quiet: bool,
 ) -> tuple[list[Frame], str, str]:
@@ -91,7 +90,7 @@ def prompt_recovery_input_interactive(
                 input_label = "Scan"
                 input_detail = path
                 with status("Scanning QR images...", quiet=quiet):
-                    frames = _frames_from_scan([path], qr_payload_encoding)
+                    frames = _frames_from_scan([path])
             return frames, input_label, input_detail
         except (OSError, ValueError) as exc:
             console_err.print(f"[error]{format_recovery_input_error(exc)}[/error]")
@@ -123,7 +122,7 @@ def parse_recovery_lines(
         return frames, "Recovery text"
 
     try:
-        frames = _frames_from_payload_lines(lines, "auto", label="QR payloads", source=source)
+        frames = _frames_from_payload_lines(lines, label="QR payloads", source=source)
         return frames, "QR payloads"
     except ValueError as exc:
         raise ValueError(f"invalid QR payloads in {source}: {exc}") from exc
@@ -161,7 +160,7 @@ def prompt_text_or_payloads_stdin(
         return frames, "Recovery text"
 
     first_payload = initial_lines[0].strip()
-    first_frame = _frame_from_payload_text(first_payload, "auto")
+    first_frame = _frame_from_payload_text(first_payload)
     frames = collect_payload_frames(
         allow_unsigned=allow_unsigned,
         quiet=quiet,
@@ -325,7 +324,7 @@ def collect_payload_frames(
         payload_text = prompt_required(state.next_prompt(), help_text=help_text)
         help_text = None
         try:
-            frame = _frame_from_payload_text(payload_text, "auto")
+            frame = _frame_from_payload_text(payload_text)
         except ValueError as exc:
             console_err.print(f"[error]{format_recovery_input_error(exc)}[/error]")
             continue

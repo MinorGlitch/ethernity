@@ -25,6 +25,7 @@ from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
 from ethernity.crypto.signing import generate_signing_keypair
 from ethernity.encoding.chunking import chunk_payload
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, encode_frame
+from ethernity.encoding.qr_payloads import encode_qr_payload
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.formats.envelope_codec import build_single_file_manifest, encode_envelope
 from ethernity.render.fallback_text import format_zbase32_lines
@@ -57,7 +58,7 @@ class TestEndToEndSharding(unittest.TestCase):
             )
             frames_path = tmp_path / "frames.txt"
             frames_path.write_text(
-                "\n".join(encode_frame(frame).hex() for frame in frames),
+                "\n".join(encode_qr_payload(encode_frame(frame)) for frame in frames),
                 encoding="utf-8",
             )
 
@@ -82,7 +83,7 @@ class TestEndToEndSharding(unittest.TestCase):
             ]
             shard_frames_path = tmp_path / "shard_frames.txt"
             shard_frames_path.write_text(
-                "\n".join(encode_frame(frame).hex() for frame in shard_frames),
+                "\n".join(encode_qr_payload(encode_frame(frame)) for frame in shard_frames),
                 encoding="utf-8",
             )
 
@@ -126,7 +127,7 @@ class TestEndToEndSharding(unittest.TestCase):
             )
             frames_path = tmp_path / "frames.txt"
             frames_path.write_text(
-                "\n".join(encode_frame(frame).hex() for frame in frames),
+                "\n".join(encode_qr_payload(encode_frame(frame)) for frame in frames),
                 encoding="utf-8",
             )
 

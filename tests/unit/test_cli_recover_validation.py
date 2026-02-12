@@ -181,6 +181,19 @@ class TestCliRecoverValidation(unittest.TestCase):
         self.assertEqual(frames[0].frame_type, FrameType.MAIN_DOCUMENT)
         self.assertEqual(frames[0].data, main_frame.data)
 
+    def test_fallback_rejects_line_bound_overflow(self) -> None:
+        lines = ["ybndr", "fghej", "kmcpq"]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "fallback.txt"
+            path.write_text("\n".join(lines), encoding="utf-8")
+            with mock.patch("ethernity.cli.io.fallback_parser.MAX_FALLBACK_LINES", 2):
+                with self.assertRaisesRegex(ValueError, "MAX_FALLBACK_LINES"):
+                    _frames_from_fallback(
+                        str(path),
+                        allow_invalid_auth=False,
+                        quiet=True,
+                    )
+
     def test_labeled_fallback_invalid_auth_strict(self) -> None:
         doc_id = b"\x30" * DOC_ID_LEN
         main_frame = Frame(
@@ -275,6 +288,46 @@ class TestCliRecoverValidation(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(captured.get("fallback_file"), "-")
 
+    def test_recover_rescue_mode_flag_sets_allow_unsigned(self) -> None:
+        captured: dict[str, bool] = {}
+
+        def _capture_args(args: RecoverArgs, *, debug: bool = False) -> int:
+            self.assertFalse(debug)
+            captured["allow_unsigned"] = args.allow_unsigned
+            return 0
+
+        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            with mock.patch(
+                "ethernity.cli.commands.recover.run_recover_command",
+                side_effect=_capture_args,
+            ):
+                result = self.runner.invoke(
+                    cli.app,
+                    ["recover", "--fallback-file", "fallback.txt", "--rescue-mode"],
+                )
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertTrue(captured.get("allow_unsigned"))
+
+    def test_recover_skip_auth_check_alias_sets_allow_unsigned(self) -> None:
+        captured: dict[str, bool] = {}
+
+        def _capture_args(args: RecoverArgs, *, debug: bool = False) -> int:
+            self.assertFalse(debug)
+            captured["allow_unsigned"] = args.allow_unsigned
+            return 0
+
+        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            with mock.patch(
+                "ethernity.cli.commands.recover.run_recover_command",
+                side_effect=_capture_args,
+            ):
+                result = self.runner.invoke(
+                    cli.app,
+                    ["recover", "--fallback-file", "fallback.txt", "--skip-auth-check"],
+                )
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertTrue(captured.get("allow_unsigned"))
+
     def test_recover_skip_auth_warning_not_emitted_before_input_validation(self) -> None:
         args = RecoverArgs(allow_unsigned=True, quiet=False)
         with mock.patch("ethernity.cli.flows.recover._warn") as warn_mock:
@@ -346,7 +399,7 @@ class TestCliRecoverValidation(unittest.TestCase):
             ):
                 with mock.patch(
                     "ethernity.cli.flows.recover_wizard.resolve_recover_config",
-                    return_value=(object(), "auto"),
+                    return_value=(object(), "base64"),
                 ):
                     with mock.patch(
                         "ethernity.cli.flows.recover_wizard._prompt_recovery_input",

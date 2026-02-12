@@ -49,7 +49,6 @@ size = "A4"
 [qr]
 scale = "6"
 border = 2.0
-payload_encoding = 123
 version = "3"
 mask = 2
 micro = "true"
@@ -70,7 +69,6 @@ light = [4, 5, 6, 7]
             DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
         )
         self.assertEqual(config.paper_size, DEFAULT_PAPER_SIZE)
-        self.assertEqual(config.qr_payload_encoding, "base64")
         self.assertEqual(config.qr_config.scale, 6)
         self.assertEqual(config.qr_config.border, 2)
         self.assertEqual(config.qr_config.version, 3)
@@ -94,7 +92,6 @@ size = "A4"
 
         self.assertEqual(config.paper_size, "A4")
         self.assertEqual(config.template_path, DEFAULT_TEMPLATE_PATH)
-        self.assertEqual(config.qr_payload_encoding, "base64")
         self.assertEqual(config.qr_chunk_size, DEFAULT_CHUNK_SIZE)
 
     def test_load_app_config_empty_file(self) -> None:
@@ -167,6 +164,17 @@ chunk_size = 0
             path.write_text(toml, encoding="utf-8")
             with self.assertRaises(ValueError):
                 load_app_config(path=path)
+
+    def test_load_app_config_ignores_payload_encoding_key(self) -> None:
+        toml = """
+[qr]
+payload_encoding = "base64url"
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            config = load_app_config(path=path)
+        self.assertIsNotNone(config.qr_config)
 
     def test_load_app_config_qr_large_values(self) -> None:
         """Test QR config with larger valid values."""

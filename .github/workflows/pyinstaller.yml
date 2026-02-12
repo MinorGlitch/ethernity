@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Tag name for release (leave blank to skip release)"
-        required: false
+        description: "Tag name for release (required, e.g. v1.2.3)"
+        required: true
         type: string
       prerelease:
         description: "Mark as prerelease"
@@ -22,78 +22,356 @@ on:
         default: false
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}-${{ inputs.release_tag || 'none' }}
+  cancel-in-progress: false
 
 jobs:
+  precheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      commit_sha: ${{ steps.meta.outputs.commit_sha }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      draft: ${{ steps.meta.outputs.draft }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve target tag and commit
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            TAG="${{ inputs.release_tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+
+          if [[ -z "${TAG}" ]]; then
+            echo "release_tag is required" >&2
+            exit 1
+          fi
+          if [[ ! "${TAG}" =~ ^v ]]; then
+            echo "release tag must start with 'v': ${TAG}" >&2
+            exit 1
+          fi
+
+          git fetch --force --tags origin
+          if ! git rev-parse --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "tag not found: ${TAG}" >&2
+            exit 1
+          fi
+
+          COMMIT_SHA="$(git rev-list -n 1 "refs/tags/${TAG}")"
+          if [[ -z "${COMMIT_SHA}" ]]; then
+            echo "unable to resolve commit SHA for tag: ${TAG}" >&2
+            exit 1
+          fi
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            if [[ "${{ inputs.prerelease }}" == "true" ]]; then
+              PRERELEASE=true
+            else
+              PRERELEASE=false
+            fi
+            if [[ "${{ inputs.draft }}" == "true" ]]; then
+              DRAFT=true
+            else
+              DRAFT=false
+            fi
+          else
+            if [[ "${TAG}" == *-* ]]; then
+              PRERELEASE=true
+            else
+              PRERELEASE=false
+            fi
+            DRAFT=false
+          fi
+
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "commit_sha=${COMMIT_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "prerelease=${PRERELEASE}" >> "${GITHUB_OUTPUT}"
+          echo "draft=${DRAFT}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify CI succeeded for target commit
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_SHA: ${{ steps.meta.outputs.commit_sha }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          sha = os.environ["TARGET_SHA"]
+          token = os.environ["GITHUB_TOKEN"]
+          query = urllib.parse.urlencode(
+              {"head_sha": sha, "status": "completed", "per_page": "100"}
+          )
+          url = f"https://api.github.com/repos/{repo}/actions/workflows/ci.yml/runs?{query}"
+          req = urllib.request.Request(
+              url,
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {token}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(req) as response:  # noqa: S310
+              payload = json.load(response)
+
+          runs = payload.get("workflow_runs", [])
+          successful = [run for run in runs if run.get("conclusion") == "success"]
+          if not successful:
+              print(
+                  f"No successful CI workflow run found for commit {sha}. "
+                  "Release publishing is blocked.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          print(f"Found {len(successful)} successful CI workflow run(s) for {sha}.")
+          PY
+
   build:
+    needs: precheck
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_os: linux
+          - os: macos-latest
+            artifact_os: macos
+          - os: windows-latest
+            artifact_os: windows
+    permissions:
+      contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.precheck.outputs.commit_sha }}
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.13"
-          cache: "pip"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@8d55fbecc275b1c35dbe060458839f8d30439ccf # v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
 
       - name: Install build dependencies
+        run: uv sync --extra build --frozen
+
+      - name: Build with PyInstaller (onedir)
+        run: uv run pyinstaller --clean --noconfirm ethernity.spec
+
+      - name: Smoke test built executable
+        shell: bash
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install ".[build]"
-
-      - name: Build with PyInstaller
-        run: pyinstaller --clean --noconfirm ethernity.spec
-
-      - name: Package artifact
-        run: python scripts/package_pyinstaller.py
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: ethernity-${{ matrix.os }}
-          path: |
-            ethernity-${{ runner.os }}.zip
-            ethernity-${{ runner.os }}.tar.gz
-            ethernity-${{ runner.os }}.zip.sha256
-            ethernity-${{ runner.os }}.tar.gz.sha256
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
-    steps:
-      - name: Determine tag
-        id: tag
-        run: |
-          if [ -n "${{ inputs.release_tag }}" ]; then
-            echo "tag=${{ inputs.release_tag }}" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          if [[ "${{ matrix.artifact_os }}" == "windows" ]]; then
+            ./dist/ethernity/ethernity.exe --help >/dev/null
+            ./dist/ethernity/ethernity.exe --version
           else
-            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+            ./dist/ethernity/ethernity --help >/dev/null
+            ./dist/ethernity/ethernity --version
           fi
 
-      - name: Download artifacts
-        uses: actions/download-artifact@v7
-        with:
-          path: dist-artifacts
-          pattern: ethernity-*
-          merge-multiple: true
+      - name: Package release archive
+        env:
+          RELEASE_TAG: ${{ needs.precheck.outputs.tag }}
+          ARTIFACT_OS: ${{ matrix.artifact_os }}
+          ARTIFACT_ARCH: ${{ runner.arch }}
+          PACKAGER: pyinstaller
+          PACKAGE_MODE: onedir
+        run: uv run python scripts/package_pyinstaller.py
 
-      - name: List artifacts
-        run: ls -la dist-artifacts/
+      - name: Upload packaged artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-build-${{ matrix.artifact_os }}
+          if-no-files-found: error
+          path: |
+            ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-*-pyinstaller-onedir.zip
+            ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-*-pyinstaller-onedir.tar.gz
+            ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-*-pyinstaller-onedir.zip.sha256
+            ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-*-pyinstaller-onedir.tar.gz.sha256
+
+  provenance:
+    needs: [precheck, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.precheck.outputs.commit_sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@8d55fbecc275b1c35dbe060458839f8d30439ccf # v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: release-build-*
+          merge-multiple: true
+          path: dist-artifacts
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+
+      - name: Export locked requirements for SBOM
+        run: |
+          uv export --format requirements.txt --no-dev --extra build --frozen \
+            --output-file dist-artifacts/release-requirements.txt
+
+      - name: Generate SBOMs and sign artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          archives=(dist-artifacts/*.zip dist-artifacts/*.tar.gz)
+          if (( ${#archives[@]} == 0 )); then
+            echo "no archives found to sign" >&2
+            exit 1
+          fi
+
+          for archive in "${archives[@]}"; do
+            checksum="${archive}.sha256"
+            if [[ ! -f "${checksum}" ]]; then
+              echo "missing checksum for archive: ${archive}" >&2
+              exit 1
+            fi
+
+            if [[ "${archive}" == *.tar.gz ]]; then
+              stem="${archive%.tar.gz}"
+            else
+              stem="${archive%.zip}"
+            fi
+            sbom="${stem}.sbom.cdx.json"
+
+            uv run --with cyclonedx-bom cyclonedx-py requirements \
+              dist-artifacts/release-requirements.txt \
+              --pyproject pyproject.toml \
+              --output-reproducible \
+              --of JSON \
+              --output-file "${sbom}"
+
+            for file in "${archive}" "${checksum}" "${sbom}"; do
+              cosign sign-blob --yes \
+                --output-signature "${file}.sig" \
+                --output-certificate "${file}.pem" \
+                "${file}"
+            done
+          done
+
+      - name: Upload provenance artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-provenance
+          if-no-files-found: error
+          path: |
+            dist-artifacts/*.sbom.cdx.json
+            dist-artifacts/*.sig
+            dist-artifacts/*.pem
+
+  release:
+    needs: [precheck, provenance]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: always() && needs.precheck.result == 'success' && needs.provenance.result == 'success'
+    permissions:
+      contents: write
+    steps:
+      - name: Download all release artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist-artifacts
+
+      - name: Validate release artifact set completeness
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          archives=(dist-artifacts/*.zip dist-artifacts/*.tar.gz)
+          if (( ${#archives[@]} != 3 )); then
+            echo "expected exactly 3 archives (linux, macos, windows), found ${#archives[@]}" >&2
+            ls -la dist-artifacts || true
+            exit 1
+          fi
+
+          for archive in "${archives[@]}"; do
+            checksum="${archive}.sha256"
+            if [[ "${archive}" == *.tar.gz ]]; then
+              stem="${archive%.tar.gz}"
+            else
+              stem="${archive%.zip}"
+            fi
+            sbom="${stem}.sbom.cdx.json"
+
+            required=(
+              "${checksum}"
+              "${archive}.sig"
+              "${archive}.pem"
+              "${checksum}.sig"
+              "${checksum}.pem"
+              "${sbom}"
+              "${sbom}.sig"
+              "${sbom}.pem"
+            )
+            for file in "${required[@]}"; do
+              if [[ ! -f "${file}" ]]; then
+                echo "missing required release file: ${file}" >&2
+                exit 1
+              fi
+            done
+          done
 
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@738f0c76948a84ff818b6e43c8b515cb27dbc559 # v2.0.0
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          prerelease: ${{ (github.event_name == 'workflow_dispatch' && (inputs.prerelease == true || inputs.prerelease == 'true')) || (github.event_name != 'workflow_dispatch' && contains(steps.tag.outputs.tag, '-')) }}
-          draft: ${{ inputs.draft == true || inputs.draft == 'true' }}
+          tag_name: ${{ needs.precheck.outputs.tag }}
+          prerelease: ${{ needs.precheck.outputs.prerelease == 'true' }}
+          draft: ${{ needs.precheck.outputs.draft == 'true' }}
           generate_release_notes: true
           files: |
             dist-artifacts/*.zip
             dist-artifacts/*.tar.gz
             dist-artifacts/*.sha256
+            dist-artifacts/*.sbom.cdx.json
+            dist-artifacts/*.sig
+            dist-artifacts/*.pem

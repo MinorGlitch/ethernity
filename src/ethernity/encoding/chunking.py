@@ -18,7 +18,8 @@ from __future__ import annotations
 
 from typing import Iterable, Sequence
 
-from .framing import DOC_ID_LEN, VERSION, Frame, decode_frame
+from ..core.bounds import MAX_CIPHERTEXT_BYTES, MAX_MAIN_FRAME_TOTAL
+from .framing import DOC_ID_LEN, VERSION, Frame, FrameType, decode_frame
 from .zbase32 import decode_fallback_lines as _decode_fallback_lines
 
 DEFAULT_CHUNK_SIZE = 1024
@@ -40,6 +41,14 @@ def chunk_payload(
         raise ValueError("chunk_size must be positive")
 
     total = (len(payload) + chunk_size - 1) // chunk_size
+    if int(frame_type) == int(FrameType.MAIN_DOCUMENT) and total > MAX_MAIN_FRAME_TOTAL:
+        raise ValueError(
+            f"MAIN_DOCUMENT total exceeds MAX_MAIN_FRAME_TOTAL ({MAX_MAIN_FRAME_TOTAL}): {total}"
+        )
+    if int(frame_type) == int(FrameType.AUTH) and total != 1:
+        raise ValueError("AUTH payload must be a single-frame payload")
+    if int(frame_type) == int(FrameType.KEY_DOCUMENT) and total != 1:
+        raise ValueError("KEY_DOCUMENT payload must be a single-frame payload")
     base_size = len(payload) // total
     remainder = len(payload) % total
 
@@ -74,6 +83,8 @@ def reassemble_payload(
 
     doc_id = expected_doc_id or frames[0].doc_id
     frame_type = expected_frame_type if expected_frame_type is not None else frames[0].frame_type
+    if int(frame_type) != int(FrameType.MAIN_DOCUMENT):
+        raise ValueError("reassembly is only defined for MAIN_DOCUMENT frames")
     total = frames[0].total
     version = frames[0].version
 
@@ -106,7 +117,13 @@ def reassemble_payload(
     if len(seen) != total:
         raise ValueError("missing frames")
 
-    return b"".join(seen[idx].data for idx in range(total))
+    payload = b"".join(seen[idx].data for idx in range(total))
+    if len(payload) > MAX_CIPHERTEXT_BYTES:
+        raise ValueError(
+            f"reassembled payload exceeds MAX_CIPHERTEXT_BYTES ({MAX_CIPHERTEXT_BYTES}): "
+            f"{len(payload)} bytes"
+        )
+    return payload
 
 
 def fallback_lines_to_frame(lines: Iterable[str]) -> Frame:

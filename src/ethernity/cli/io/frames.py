@@ -16,10 +16,12 @@
 
 from __future__ import annotations
 
+import os
 import sys
 
+from ...core.bounds import MAX_QR_PAYLOAD_CHARS, MAX_RECOVERY_TEXT_BYTES
 from ...encoding.framing import Frame, FrameType, decode_frame
-from ...encoding.qr_payloads import decode_qr_payload, normalize_qr_payload_encoding
+from ...encoding.qr_payloads import decode_qr_payload
 from ...qr.scan import QrScanError, scan_qr_payloads
 from ..core.log import _warn
 from ..core.text import format_qr_input_error
@@ -48,7 +50,22 @@ def format_recovery_input_error(exc: Exception) -> str:
 def _read_text_lines(path: str) -> list[str]:
     if path == "-":
         text = sys.stdin.read()
+        text_bytes = len(text.encode("utf-8"))
+        if text_bytes > MAX_RECOVERY_TEXT_BYTES:
+            raise ValueError(
+                "recovery input exceeds "
+                f"MAX_RECOVERY_TEXT_BYTES ({MAX_RECOVERY_TEXT_BYTES}): {text_bytes} bytes"
+            )
     else:
+        try:
+            file_bytes = os.path.getsize(path)
+        except OSError:
+            file_bytes = None
+        if file_bytes is not None and file_bytes > MAX_RECOVERY_TEXT_BYTES:
+            raise ValueError(
+                "recovery input exceeds "
+                f"MAX_RECOVERY_TEXT_BYTES ({MAX_RECOVERY_TEXT_BYTES}): {file_bytes} bytes"
+            )
         try:
             with open(path, "r", encoding="utf-8") as handle:
                 text = handle.read()
@@ -61,6 +78,12 @@ def _read_text_lines(path: str) -> list[str]:
             raise ValueError(f"file not found: {path}") from exc
         except OSError as exc:
             raise ValueError(f"unable to read file: {path}") from exc
+        text_bytes = len(text.encode("utf-8"))
+        if text_bytes > MAX_RECOVERY_TEXT_BYTES:
+            raise ValueError(
+                "recovery input exceeds "
+                f"MAX_RECOVERY_TEXT_BYTES ({MAX_RECOVERY_TEXT_BYTES}): {text_bytes} bytes"
+            )
     return text.splitlines()
 
 
@@ -130,13 +153,13 @@ def _non_empty_lines(lines: list[str]) -> list[str]:
     return [line.strip() for line in lines if line.strip()]
 
 
-def _all_payload_lines_decode(lines: list[str], *, encoding: str) -> bool:
+def _all_payload_lines_decode(lines: list[str]) -> bool:
     non_empty = _non_empty_lines(lines)
     if not non_empty:
         return False
     for line in non_empty:
         try:
-            _frame_from_payload_text(line, encoding)
+            _frame_from_payload_text(line)
         except ValueError:
             return False
     return True
@@ -153,7 +176,7 @@ def _all_lines_match_fallback_text(lines: list[str]) -> bool:
 def _detect_recovery_input_mode(lines: list[str]) -> str:
     if _contains_fallback_markers(lines):
         return "fallback_marked"
-    if _all_payload_lines_decode(lines, encoding="auto"):
+    if _all_payload_lines_decode(lines):
         return "payload"
     if _all_lines_match_fallback_text(lines):
         return "fallback"
@@ -174,7 +197,10 @@ def _auth_frames_from_fallback_lines(
         "auth",
         allow_invalid=allow_invalid_auth,
         quiet=quiet,
-        missing_error="missing AUTH fallback section; include AUTH or use --skip-auth-check",
+        missing_error=(
+            "missing AUTH fallback section; include AUTH or use "
+            "--rescue-mode (or --skip-auth-check)"
+        ),
     )
     return [frame] if frame else []
 
@@ -197,7 +223,6 @@ def _frame_from_fallback_lines(lines: list[str], *, label: str) -> Frame:
 
 def _frames_from_payload_lines(
     lines: list[str],
-    encoding: str,
     *,
     label: str = "QR payloads",
     source: str = "input",
@@ -208,7 +233,7 @@ def _frames_from_payload_lines(
         if not payload_text:
             continue
         try:
-            frames.append(_frame_from_payload_text(payload_text, encoding))
+            frames.append(_frame_from_payload_text(payload_text))
         except ValueError as exc:
             raise ValueError(f"invalid QR payload on line {idx}: {exc}") from exc
     if not frames:
@@ -216,13 +241,13 @@ def _frames_from_payload_lines(
     return frames
 
 
-def _frames_from_payloads(path: str, encoding: str, *, label: str = "QR payloads") -> list[Frame]:
+def _frames_from_payloads(path: str, *, label: str = "QR payloads") -> list[Frame]:
     lines = _read_text_lines(path)
-    return _frames_from_payload_lines(lines, encoding, label=label, source=path)
+    return _frames_from_payload_lines(lines, label=label, source=path)
 
 
-def _auth_frames_from_payloads(path: str, encoding: str) -> list[Frame]:
-    frames = _frames_from_payloads(path, encoding, label="auth QR payloads")
+def _auth_frames_from_payloads(path: str) -> list[Frame]:
+    frames = _frames_from_payloads(path, label="auth QR payloads")
     for frame in frames:
         if frame.frame_type != FrameType.AUTH:
             raise ValueError("auth QR payloads file must contain AUTH payloads only")
@@ -232,17 +257,16 @@ def _auth_frames_from_payloads(path: str, encoding: str) -> list[Frame]:
 def _frames_from_shard_inputs(
     fallback_files: list[str],
     frame_files: list[str],
-    encoding: str,
 ) -> list[Frame]:
     frames: list[Frame] = []
     for path in fallback_files:
         frames.append(_frame_from_fallback(path))
     for path in frame_files:
-        frames.extend(_frames_from_payloads(path, encoding, label="shard QR payloads"))
+        frames.extend(_frames_from_payloads(path, label="shard QR payloads"))
     return frames
 
 
-def _frames_from_scan(paths: list[str], encoding: str) -> list[Frame]:
+def _frames_from_scan(paths: list[str]) -> list[Frame]:
     try:
         payloads = scan_qr_payloads(paths)
     except QrScanError as exc:
@@ -251,11 +275,9 @@ def _frames_from_scan(paths: list[str], encoding: str) -> list[Frame]:
         raise ValueError("no QR payloads found; check the scan path and image quality")
     frames: list[Frame] = []
     errors: list[str] = []
-    encoding = normalize_qr_payload_encoding(encoding)
     for idx, payload in enumerate(payloads, start=1):
         try:
-            decoded = decode_qr_payload(payload, encoding)
-            frames.append(decode_frame(decoded))
+            frames.append(_frame_from_payload_text(payload))
         except ValueError as exc:
             errors.append(f"#{idx}: {exc}")
             continue
@@ -309,35 +331,23 @@ def _split_main_and_auth_frames(frames: list[Frame]) -> tuple[list[Frame], list[
     return main_frames, auth_frames
 
 
-def _decode_payload(text: str, encoding: str) -> bytes:
-    cleaned = "".join(text.split())
-    if encoding == "hex":
-        return bytes.fromhex(cleaned)
-    if encoding == "base64":
-        return decode_qr_payload(cleaned, "base64")
-    if encoding == "base64url":
-        return decode_qr_payload(cleaned, "base64url")
-    if encoding != "auto":
-        raise ValueError(f"unknown encoding: {encoding}")
-
-    if _looks_like_hex(cleaned):
-        return bytes.fromhex(cleaned)
-    try:
-        return decode_qr_payload(cleaned, "base64")
-    except ValueError:
-        return decode_qr_payload(cleaned, "base64url")
+def _decode_payload(text: bytes | str) -> bytes:
+    if isinstance(text, bytes):
+        try:
+            decoded_text = text.decode("ascii")
+        except UnicodeDecodeError as exc:
+            raise ValueError("QR payload text must be ASCII") from exc
+    else:
+        decoded_text = text
+    cleaned = "".join(decoded_text.split())
+    if len(cleaned) > MAX_QR_PAYLOAD_CHARS:
+        raise ValueError(
+            f"QR payload exceeds MAX_QR_PAYLOAD_CHARS ({MAX_QR_PAYLOAD_CHARS}): "
+            f"{len(cleaned)} chars"
+        )
+    return decode_qr_payload(cleaned)
 
 
-def _looks_like_hex(text: str) -> bool:
-    if len(text) % 2 != 0 or not text:
-        return False
-    try:
-        bytes.fromhex(text)
-    except ValueError:
-        return False
-    return True
-
-
-def _frame_from_payload_text(payload_text: str, encoding: str) -> Frame:
-    payload = _decode_payload(payload_text, encoding)
+def _frame_from_payload_text(payload_text: bytes | str) -> Frame:
+    payload = _decode_payload(payload_text)
     return decode_frame(payload)

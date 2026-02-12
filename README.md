@@ -154,6 +154,45 @@ pip install -e .
 playwright install chromium
 ```
 
+### GitHub Release Artifacts
+
+GitHub Releases publish standalone PyInstaller `onedir` archives with this naming scheme:
+
+```text
+ethernity-{tag}-{os}-{arch}-pyinstaller-onedir.{zip|tar.gz}
+```
+
+Each archive ships with companion verification files:
+
+- `...sha256` (checksum)
+- `...sig` + `...pem` (Sigstore keyless signature + certificate)
+- `...sbom.cdx.json` (CycloneDX SBOM, with its own `.sig` + `.pem`)
+
+Legacy release asset naming has been retired; use the pattern above for automation.
+
+Verify checksum:
+
+```sh
+sha256sum -c ethernity-v1.2.3-linux-x64-pyinstaller-onedir.tar.gz.sha256
+```
+
+Verify Sigstore signature:
+
+```sh
+cosign verify-blob \
+  --certificate ethernity-v1.2.3-linux-x64-pyinstaller-onedir.tar.gz.pem \
+  --signature ethernity-v1.2.3-linux-x64-pyinstaller-onedir.tar.gz.sig \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp 'https://github.com/.+/.+/.github/workflows/pyinstaller.yml@refs/tags/.+' \
+  ethernity-v1.2.3-linux-x64-pyinstaller-onedir.tar.gz
+```
+
+Inspect SBOM:
+
+```sh
+cat ethernity-v1.2.3-linux-x64-pyinstaller-onedir.sbom.cdx.json
+```
+
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 ## Usage

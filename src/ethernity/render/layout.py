@@ -22,7 +22,7 @@ from typing import Sequence
 from fpdf import FPDF
 
 from ..encoding.chunking import reassemble_payload
-from ..encoding.framing import VERSION, Frame, encode_frame
+from ..encoding.framing import VERSION, Frame, FrameType, encode_frame
 from ..encoding.zbase32 import encode_zbase32
 from .doc_types import DOC_TYPE_RECOVERY
 from .fallback import (
@@ -167,7 +167,16 @@ def _build_fallback_lines(
 
     fallback_payload = inputs.fallback_payload
     if fallback_payload is None:
-        fallback_payload = reassemble_payload(inputs.frames)
+        first_frame = inputs.frames[0]
+        if int(first_frame.frame_type) == int(FrameType.MAIN_DOCUMENT):
+            fallback_payload = reassemble_payload(
+                inputs.frames,
+                expected_frame_type=FrameType.MAIN_DOCUMENT,
+            )
+        else:
+            if len(inputs.frames) != 1:
+                raise ValueError("non-main fallback rendering expects exactly one frame")
+            fallback_payload = first_frame.data
     frame = Frame(
         version=VERSION,
         frame_type=inputs.frames[0].frame_type,
