@@ -43,8 +43,9 @@ class TestOutputFiles(unittest.TestCase):
             base = Path(tmpdir)
             with self.assertRaisesRegex(ValueError, "unsafe output path"):
                 _safe_join(base, "../outside.txt")
+            absolute_path = str(Path(base.anchor) / "absolute" / "path.txt")
             with self.assertRaisesRegex(ValueError, "unsafe output path"):
-                _safe_join(base, "/absolute/path.txt")
+                _safe_join(base, absolute_path)
 
     def test_write_output_writes_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
