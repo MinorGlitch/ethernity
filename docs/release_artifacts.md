@@ -7,13 +7,13 @@ This document defines the release packaging outputs published via GitHub Release
 All binary archives use:
 
 ```text
-ethernity-{tag}-{os}-{arch}-pyinstaller-onedir.{zip|tar.gz}
+ethernity-{tag}-{os}-{arch}.{zip|tar.gz}
 ```
 
 Examples:
 
-- `ethernity-vX.Y.Z-linux-x64-pyinstaller-onedir.tar.gz`
-- `ethernity-vX.Y.Z-windows-x64-pyinstaller-onedir.zip`
+- `ethernity-vX.Y.Z-linux-x64.tar.gz`
+- `ethernity-vX.Y.Z-windows-x64.zip`
 
 Archives extract into a versioned root directory:
 
@@ -50,18 +50,18 @@ Notes:
 
 ```sh
 cosign verify-blob \
-  --bundle ethernity-vX.Y.Z-linux-x64-pyinstaller-onedir.tar.gz.sigstore.json \
-  ethernity-vX.Y.Z-linux-x64-pyinstaller-onedir.tar.gz
+  --bundle ethernity-vX.Y.Z-linux-x64.tar.gz.sigstore.json \
+  ethernity-vX.Y.Z-linux-x64.tar.gz
 ```
 
 Optional stricter identity constraints:
 
 ```sh
 cosign verify-blob \
-  --bundle ethernity-vX.Y.Z-linux-x64-pyinstaller-onedir.tar.gz.sigstore.json \
+  --bundle ethernity-vX.Y.Z-linux-x64.tar.gz.sigstore.json \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp 'https://github.com/.+/.+/.github/workflows/pyinstaller.yml@refs/tags/.+' \
-  ethernity-vX.Y.Z-linux-x64-pyinstaller-onedir.tar.gz
+  ethernity-vX.Y.Z-linux-x64.tar.gz
 ```
 
 ### 2) Verify detached signature (optional path)
@@ -70,15 +70,15 @@ Use this only when both `.sig` and `.pem` exist:
 
 ```sh
 cosign verify-blob \
-  --certificate ethernity-vX.Y.Z-linux-x64-pyinstaller-onedir.tar.gz.pem \
-  --signature ethernity-vX.Y.Z-linux-x64-pyinstaller-onedir.tar.gz.sig \
-  ethernity-vX.Y.Z-linux-x64-pyinstaller-onedir.tar.gz
+  --certificate ethernity-vX.Y.Z-linux-x64.tar.gz.pem \
+  --signature ethernity-vX.Y.Z-linux-x64.tar.gz.sig \
+  ethernity-vX.Y.Z-linux-x64.tar.gz
 ```
 
 ### 3) Inspect SBOM
 
 ```sh
-cat ethernity-vX.Y.Z-linux-x64-pyinstaller-onedir.sbom.cdx.json
+cat ethernity-vX.Y.Z-linux-x64.sbom.cdx.json
 ```
 
 ## Release Integrity Expectations
@@ -96,6 +96,22 @@ Release publishing is fail-closed: missing required variant artifacts should blo
 ### Missing `.sig`/`.pem`
 
 This can be valid when bundle-first signing is used. Check for `.sigstore.json` files.
+
+### macOS blocks launch with system policy errors
+
+If execution fails with `library load disallowed by system policy`, verify the archive bundle
+first, then apply local unblock steps:
+
+```sh
+cd ~/Downloads
+DIR="ethernity-vX.Y.Z-macos-arm64"
+
+xattr -dr com.apple.quarantine "${DIR}"
+codesign --force --deep --sign - "${DIR}/ethernity"
+"${DIR}/ethernity" --help
+```
+
+Use this only for trusted artifacts that passed Sigstore verification.
 
 ### Verification fails with identity constraints
 

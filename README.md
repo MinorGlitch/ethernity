@@ -131,23 +131,23 @@ Choose the archive matching your OS and CPU architecture.
 Artifact naming:
 
 ```text
-ethernity-{tag}-{os}-{arch}-pyinstaller-onedir.{zip|tar.gz}
+ethernity-{tag}-{os}-{arch}.{zip|tar.gz}
 ```
 
 Common examples:
 
-- `ethernity-vX.Y.Z-linux-x64-pyinstaller-onedir.tar.gz`
-- `ethernity-vX.Y.Z-linux-arm64-pyinstaller-onedir.tar.gz`
-- `ethernity-vX.Y.Z-macos-x64-pyinstaller-onedir.tar.gz`
-- `ethernity-vX.Y.Z-macos-arm64-pyinstaller-onedir.tar.gz`
-- `ethernity-vX.Y.Z-windows-x64-pyinstaller-onedir.zip`
+- `ethernity-vX.Y.Z-linux-x64.tar.gz`
+- `ethernity-vX.Y.Z-linux-arm64.tar.gz`
+- `ethernity-vX.Y.Z-macos-x64.tar.gz`
+- `ethernity-vX.Y.Z-macos-arm64.tar.gz`
+- `ethernity-vX.Y.Z-windows-x64.zip`
 
 Download and verify on Linux/macOS:
 
 ```sh
 TAG="vX.Y.Z"
 OS_ARCH="linux-x64"
-BASE="ethernity-${TAG}-${OS_ARCH}-pyinstaller-onedir.tar.gz"
+BASE="ethernity-${TAG}-${OS_ARCH}.tar.gz"
 
 curl -LO "https://github.com/MinorGlitch/ethernity/releases/download/${TAG}/${BASE}"
 curl -LO "https://github.com/MinorGlitch/ethernity/releases/download/${TAG}/${BASE}.sigstore.json"
@@ -493,7 +493,7 @@ For format-level guarantees and bounds, use:
 Release archive naming:
 
 ```text
-ethernity-{tag}-{os}-{arch}-pyinstaller-onedir.{zip|tar.gz}
+ethernity-{tag}-{os}-{arch}.{zip|tar.gz}
 ```
 
 Published variant summary:
@@ -515,7 +515,7 @@ Companion verification/provenance files:
 Quick verification path:
 
 ```sh
-BASE="ethernity-vX.Y.Z-linux-x64-pyinstaller-onedir.tar.gz"
+BASE="ethernity-vX.Y.Z-linux-x64.tar.gz"
 cosign verify-blob --bundle "${BASE}.sigstore.json" "${BASE}"
 ```
 
@@ -531,6 +531,7 @@ Each row follows `symptom -> fix`.
 | --- | --- |
 | `playwright` errors during backup/render | Retry the same `ethernity` command and allow startup to install Chromium automatically. If `ETHERNITY_SKIP_PLAYWRIGHT_INSTALL=1` is set, unset it. For source/dev installs, you can pre-install with `uv run playwright install chromium`. |
 | Binary fails with wrong architecture | Re-download artifact matching your CPU (`x64` vs `arm64`) and OS. |
+| macOS blocks launch with `library load disallowed by system policy` | Verify the archive bundle first, then apply the local unblock steps in `macOS Local Unblock` below. |
 | Recovery parser rejects mixed payload text | Split sources by document set; run one recovery mode at a time. |
 | `No such option` in CLI usage | Run `ethernity <command> --help` and use current flags (for example `--qr-chunk-size`). |
 | `cosign verify-blob` fails | Confirm you are verifying the exact archive with its matching `.sigstore.json` bundle. |
@@ -547,6 +548,25 @@ Fix:
 - this is valid in bundle-first signing workflows
 - verify with `cosign verify-blob --bundle ...` using the matching `.sigstore.json`
 - optional detached files may exist for some releases but are not required by default
+
+### macOS Local Unblock
+
+Symptom:
+
+- running `./ethernity` fails with `library load disallowed by system policy`.
+
+Fix (only after `cosign verify-blob --bundle ...` succeeds):
+
+```sh
+cd ~/Downloads
+DIR="ethernity-vX.Y.Z-macos-arm64"
+
+xattr -dr com.apple.quarantine "${DIR}"
+codesign --force --deep --sign - "${DIR}/ethernity"
+"${DIR}/ethernity" --help
+```
+
+Apply this only to a trusted archive you have already verified.
 
 ### Payload and Fallback Input Mistakes
 

@@ -228,7 +228,7 @@ jobs:
           name: release-build-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}
           if-no-files-found: error
           path: |
-            ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}-pyinstaller-onedir.${{ matrix.archive_ext }}
+            ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}.${{ matrix.archive_ext }}
 
   provenance:
     needs: [precheck, build]
@@ -339,11 +339,11 @@ jobs:
           shopt -s nullglob
           tag="${{ needs.precheck.outputs.tag }}"
           expected_archives=(
-            "dist-artifacts/ethernity-${tag}-linux-x64-pyinstaller-onedir.tar.gz"
-            "dist-artifacts/ethernity-${tag}-linux-arm64-pyinstaller-onedir.tar.gz"
-            "dist-artifacts/ethernity-${tag}-macos-x64-pyinstaller-onedir.tar.gz"
-            "dist-artifacts/ethernity-${tag}-macos-arm64-pyinstaller-onedir.tar.gz"
-            "dist-artifacts/ethernity-${tag}-windows-x64-pyinstaller-onedir.zip"
+            "dist-artifacts/ethernity-${tag}-linux-x64.tar.gz"
+            "dist-artifacts/ethernity-${tag}-linux-arm64.tar.gz"
+            "dist-artifacts/ethernity-${tag}-macos-x64.tar.gz"
+            "dist-artifacts/ethernity-${tag}-macos-arm64.tar.gz"
+            "dist-artifacts/ethernity-${tag}-windows-x64.zip"
           )
 
           archives=(dist-artifacts/*.zip dist-artifacts/*.tar.gz)
