@@ -319,7 +319,7 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
             select_func=select_func,
             manual_func=mock.MagicMock(),
         )
-        self.assertEqual(context.last_picker_dir, "/tmp/out")
+        self.assertEqual(Path(context.last_picker_dir), Path("/tmp/out"))
 
     @mock.patch("ethernity.cli.ui.prompts.prompt_choice", return_value="manual")
     def test_run_picker_flow_updates_last_picker_dir_after_manual(
@@ -339,7 +339,7 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
             select_func=mock.MagicMock(),
             manual_func=manual_func,
         )
-        self.assertEqual(context.last_picker_dir, "/tmp/manual")
+        self.assertEqual(Path(context.last_picker_dir), Path("/tmp/manual"))
 
     @mock.patch("ethernity.cli.ui.prompts.prompt_choice_list", return_value="chosen")
     def test_prompt_select_entries_single(

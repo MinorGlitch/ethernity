@@ -364,8 +364,7 @@ def prompt_home_action(*, quiet: bool) -> str:
         },
         default="backup",
         help_text=(
-            "You can also run `ethernity backup`, `ethernity recover`, or `ethernity kit` "
-            "directly."
+            "You can also run `ethernity backup`, `ethernity recover`, or `ethernity kit` directly."
         ),
     )
 
