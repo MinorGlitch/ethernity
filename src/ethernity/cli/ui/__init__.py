@@ -199,7 +199,10 @@ def status(
         transient=False,
         refresh_per_second=12,
     ) as live:
-        live.refresh()
+        try:
+            live.refresh()
+        except (OSError, ValueError):
+            pass
         try:
             context.console.file.flush()
         except (OSError, ValueError):
@@ -207,7 +210,10 @@ def status(
         try:
             yield live
         finally:
-            live.update(Text(f"{message} ✓", style="success"), refresh=True)
+            try:
+                live.update(Text(f"{message} ✓", style="success"), refresh=True)
+            except (OSError, ValueError):
+                pass
 
 
 def build_kv_table(rows: Sequence[tuple[str, str]], *, title: str | None = None) -> Table:

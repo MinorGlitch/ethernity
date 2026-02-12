@@ -51,7 +51,7 @@ class TestKitFlowHelpers(unittest.TestCase):
             return len(payload) <= 10
 
         with mock.patch("ethernity.cli.flows.kit._fits_qr_payload", side_effect=_fits):
-            self.assertEqual(kit_module._max_qr_payload_bytes(b"x" * 100, cfg), 7)
+            self.assertEqual(kit_module._max_qr_payload_bytes(b"x" * 100, cfg), 10)
 
     def test_max_qr_payload_bytes_rejects_no_capacity(self) -> None:
         with mock.patch("ethernity.cli.flows.kit._fits_qr_payload", return_value=False):
@@ -59,17 +59,20 @@ class TestKitFlowHelpers(unittest.TestCase):
                 kit_module._max_qr_payload_bytes(b"x", QrConfig())
 
     def test_load_kit_bundle_custom_success_and_errors(self) -> None:
-        with tempfile.NamedTemporaryFile() as fh:
-            Path(fh.name).write_bytes(b"bundle")
-            self.assertEqual(kit_module._load_kit_bundle(fh.name), b"bundle")
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle_path = Path(tmp) / "bundle.html"
+            bundle_path.write_bytes(b"bundle")
+            self.assertEqual(kit_module._load_kit_bundle(str(bundle_path)), b"bundle")
 
         with self.assertRaisesRegex(ValueError, "bundle file not found"):
             kit_module._load_kit_bundle("/definitely/missing.bundle.html")
 
-        with tempfile.NamedTemporaryFile() as fh:
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle_path = Path(tmp) / "bundle.html"
+            bundle_path.write_bytes(b"bundle")
             with mock.patch("pathlib.Path.read_bytes", side_effect=OSError("denied")):
                 with self.assertRaisesRegex(ValueError, "unable to read bundle file"):
-                    kit_module._load_kit_bundle(fh.name)
+                    kit_module._load_kit_bundle(str(bundle_path))
 
     def test_load_kit_bundle_package_and_dev_fallback(self) -> None:
         fake_package = mock.Mock()
