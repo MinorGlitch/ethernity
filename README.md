@@ -173,8 +173,9 @@ Current release variants:
 Each archive ships with companion verification files:
 
 - `...sha256` (checksum)
-- `...sig` + `...pem` (Sigstore keyless signature + certificate)
-- `...sbom.cdx.json` (CycloneDX SBOM, with its own `.sig` + `.pem`)
+- `...sigstore.json` (Sigstore bundle for keyless verification)
+- `...sig` + `...pem` (optional detached signature + certificate, when emitted by cosign)
+- `...sbom.cdx.json` (CycloneDX SBOM, with matching signing bundle/signature sidecars)
 
 Legacy release asset naming has been retired; use the pattern above for automation.
 
