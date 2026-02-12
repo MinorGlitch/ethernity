@@ -161,12 +161,19 @@ class TestCliFlowPrompts(unittest.TestCase):
             ),
             mock.patch.object(prompts, "_ingest_shard_frame", return_value=True) as ingest,
             mock.patch.object(prompts.console_err, "print") as err_print,
+            mock.patch.object(prompts.console, "print") as info_print,
         ):
             state = _ShardPasteState(frames=[], seen_shares={}, expected_threshold=1)
             frames = prompts._prompt_shard_payload_paste(state=state)
         self.assertEqual(frames, [])
         self.assertEqual(
             prompt_required.call_args_list[0].args[0], "Shard QR payload (1 remaining)"
+        )
+        self.assertTrue(
+            any(
+                "Paste one shard QR payload per line" in str(call)
+                for call in info_print.call_args_list
+            )
         )
         err_print.assert_called_once()
         ingest.assert_called_once()
@@ -221,14 +228,23 @@ class TestCliFlowPrompts(unittest.TestCase):
         prompt_more.assert_not_called()
 
         state = _ShardPasteState(frames=[], seen_shares={})
-        with mock.patch.object(
-            prompts,
-            "_prompt_shard_fallback_until_complete",
-            side_effect=[frame_one, frame_two],
+        with (
+            mock.patch.object(
+                prompts,
+                "_prompt_shard_fallback_until_complete",
+                side_effect=[frame_one, frame_two],
+            ),
+            mock.patch.object(prompts.console, "print") as info_print,
         ):
             with mock.patch.object(prompts.console_err, "print"):
                 frames = prompts._prompt_shard_fallback_paste(state=state)
         self.assertEqual(len(frames), 2)
+        self.assertTrue(
+            any(
+                "Paste shard recovery text in batches" in str(call)
+                for call in info_print.call_args_list
+            )
+        )
 
     def test_prompt_shard_text_or_payloads_stdin_paths(self) -> None:
         frame_one = _build_shard_frame(share_index=1, share=b"\xaa" * 16)

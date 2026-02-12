@@ -31,6 +31,11 @@ def _run_cli(func: Callable[[], Any], *, debug: bool) -> None:
         install_rich_traceback(show_locals=True)
     try:
         result = func()
+    except KeyboardInterrupt:
+        if debug:
+            raise
+        console_err.print("[warning]Cancelled by user.[/warning]")
+        raise typer.Exit(code=130)
     except (OSError, RuntimeError, ValueError, TypeError, LookupError) as exc:
         if debug:
             raise

@@ -64,6 +64,9 @@ class UIContext:
     animations_enabled: bool = True
     wizard_state: WizardState | None = None
     screen_mode: bool = False
+    compact_prompt_headers: bool = False
+    stage_prompt_count: int = 0
+    last_picker_dir: str = "."
 
 
 def _build_console(*, stderr: bool) -> Console:

@@ -176,6 +176,12 @@ def collect_fallback_frames(
     initial_lines: list[str] | None,
 ) -> list[Frame]:
     lines = list(initial_lines or [])
+    if not quiet:
+        console.print(
+            "[subtitle]"
+            "Paste fallback recovery text in batches; submit a batch with a blank line."
+            "[/subtitle]"
+        )
     help_text: str | None = (
         "Paste recovery text (fallback). "
         "You can paste in batches; we'll keep asking until it decodes."
@@ -240,20 +246,29 @@ class _PayloadCollectionState:
 
     def ingest(self, frame: Frame) -> bool:
         if frame.frame_type not in (FrameType.MAIN_DOCUMENT, FrameType.AUTH):
-            console_err.print("[error]Only main or auth QR payloads are accepted here.[/error]")
+            console_err.print(
+                "[error]Only MAIN or AUTH QR payloads are accepted here. "
+                "Paste a MAIN/AUTH payload for this document.[/error]"
+            )
             return False
 
         if self.expected_doc_id is None:
             self.expected_doc_id = frame.doc_id
         elif frame.doc_id != self.expected_doc_id:
-            console_err.print("[error]These payloads are from different documents.[/error]")
+            console_err.print(
+                "[error]These payloads are from different documents. "
+                "Continue with payloads from a single backup.[/error]"
+            )
             return False
 
         if frame.frame_type == FrameType.MAIN_DOCUMENT:
             if self.main_total is None:
                 self.main_total = frame.total
             elif frame.total != self.main_total:
-                console_err.print("[error]Frame count doesn't match earlier payloads.[/error]")
+                console_err.print(
+                    "[error]Frame count doesn't match earlier payloads. "
+                    "Use payloads from the same frame set.[/error]"
+                )
                 return False
 
         key = (int(frame.frame_type), int(frame.index), frame.doc_id)
@@ -261,7 +276,8 @@ class _PayloadCollectionState:
         if existing is not None:
             if existing.data != frame.data or existing.total != frame.total:
                 console_err.print(
-                    "[error]That payload conflicts with one you've already provided.[/error]"
+                    "[error]That payload conflicts with one you've already provided. "
+                    "Keep only one version of each frame index.[/error]"
                 )
             elif not self.quiet:
                 console.print("[subtitle]Duplicate payload ignored.[/subtitle]")
@@ -278,12 +294,6 @@ class _PayloadCollectionState:
 
     def _is_complete(self) -> bool:
         if self.main_total is None:
-            if not self.quiet:
-                console.print(
-                    "[subtitle]"
-                    "Waiting for a MAIN frame so we can count how many are needed."
-                    "[/subtitle]"
-                )
             return False
 
         remaining_main = max(self.main_total - len(self.main_indices), 0)
@@ -292,18 +302,6 @@ class _PayloadCollectionState:
             if not self.quiet:
                 console.print("[success]All required QR payloads captured.[/success]")
             return True
-
-        if not self.quiet:
-            auth_label = "ok" if self.auth_present else "missing"
-            if self.allow_unsigned:
-                auth_label = "optional"
-            console.print(
-                "[subtitle]"
-                f"Main QR payloads: {len(self.main_indices)}/{self.main_total}. "
-                f"Auth payload: {auth_label}. "
-                f"Remaining: {remaining_main + remaining_auth}"
-                "[/subtitle]"
-            )
         return False
 
 
@@ -313,6 +311,12 @@ def collect_payload_frames(
     quiet: bool,
     first_frame: Frame | None = None,
 ) -> list[Frame]:
+    if not quiet:
+        console.print(
+            "[subtitle]"
+            "Paste one QR payload per line. Include auth payload when requested."
+            "[/subtitle]"
+        )
     help_text: str | None = (
         "Paste one QR payload per line; we'll stop once all required payloads are collected."
     )

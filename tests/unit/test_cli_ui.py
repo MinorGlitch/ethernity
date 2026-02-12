@@ -73,6 +73,9 @@ class TestContextState(unittest.TestCase):
         self.assertEqual(context.theme, THEME)
         self.assertTrue(context.animations_enabled)
         self.assertIsNone(context.wizard_state)
+        self.assertFalse(context.compact_prompt_headers)
+        self.assertEqual(context.stage_prompt_count, 0)
+        self.assertEqual(context.last_picker_dir, ".")
         self.assertIsNotNone(context.console)
         self.assertIsNotNone(context.console_err)
 
@@ -203,9 +206,15 @@ class TestUIHelpers(unittest.TestCase):
     ) -> None:
         context = self._context()
         previous = context.screen_mode
+        previous_compact = context.compact_prompt_headers
+        context.stage_prompt_count = 4
         with ui_module.ui_screen_mode(quiet=False, context=context):
             self.assertTrue(context.screen_mode)
+            self.assertTrue(context.compact_prompt_headers)
+            self.assertEqual(context.stage_prompt_count, 0)
         self.assertEqual(context.screen_mode, previous)
+        self.assertEqual(context.compact_prompt_headers, previous_compact)
+        self.assertEqual(context.stage_prompt_count, 4)
         clear_screen.assert_called_once_with(context=context)
 
     @mock.patch("ethernity.cli.ui.clear_screen")
@@ -215,8 +224,14 @@ class TestUIHelpers(unittest.TestCase):
     ) -> None:
         context = self._context()
         context.screen_mode = False
+        context.compact_prompt_headers = False
+        context.stage_prompt_count = 2
         with ui_module.ui_screen_mode(quiet=True, context=context):
             self.assertFalse(context.screen_mode)
+            self.assertFalse(context.compact_prompt_headers)
+            self.assertEqual(context.stage_prompt_count, 0)
+        self.assertFalse(context.compact_prompt_headers)
+        self.assertEqual(context.stage_prompt_count, 2)
         clear_screen.assert_not_called()
 
     @mock.patch("ethernity.cli.ui.clear_screen")
@@ -233,6 +248,7 @@ class TestUIHelpers(unittest.TestCase):
         with ui_module.wizard_stage("Input", help_text="Collect frames", context=context):
             pass
         self.assertEqual(context.wizard_state.step, 1)
+        self.assertEqual(context.stage_prompt_count, 0)
         clear_screen.assert_not_called()
 
         with ui_module.wizard_stage("Keys", context=context):
@@ -358,6 +374,7 @@ class TestUIHelpers(unittest.TestCase):
         self.assertEqual(action_quiet, "backup")
         self.assertEqual(action_verbose, "backup")
         self.assertGreaterEqual(prompt_choice.call_count, 2)
+        self.assertIn("kit", prompt_choice.call_args.args[1])
         self.assertGreater(print_mock.call_count, 0)
 
     def test_empty_recover_args(self) -> None:

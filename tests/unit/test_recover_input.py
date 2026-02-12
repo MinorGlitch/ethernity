@@ -363,9 +363,7 @@ class TestRecoverInput(unittest.TestCase):
         state = _PayloadCollectionState(allow_unsigned=False, quiet=False)
         with mock.patch("ethernity.cli.flows.recover_input.console.print") as print_mock:
             self.assertFalse(state._is_complete())
-        self.assertTrue(
-            any("Waiting for a MAIN frame" in str(call) for call in print_mock.call_args_list)
-        )
+        print_mock.assert_not_called()
 
     def test_prompt_text_or_payloads_stdin_uses_fallback_when_mode_unknown(self) -> None:
         frame = Frame(
@@ -448,12 +446,21 @@ class TestRecoverInput(unittest.TestCase):
                     "ethernity.cli.flows.recover_input.status",
                     return_value=contextlib.nullcontext(),
                 ):
-                    frames = collect_fallback_frames(
-                        allow_unsigned=True,
-                        quiet=True,
-                        initial_lines=["not-fallback"],
-                    )
+                    with mock.patch(
+                        "ethernity.cli.flows.recover_input.console.print"
+                    ) as print_mock:
+                        frames = collect_fallback_frames(
+                            allow_unsigned=True,
+                            quiet=False,
+                            initial_lines=["not-fallback"],
+                        )
         self.assertEqual(frames, [frame])
+        self.assertTrue(
+            any(
+                "Paste fallback recovery text in batches" in str(call)
+                for call in print_mock.call_args_list
+            )
+        )
 
     def test_collect_payload_frames_retries_invalid_payload_then_succeeds(self) -> None:
         frame = Frame(
@@ -472,8 +479,12 @@ class TestRecoverInput(unittest.TestCase):
                 "ethernity.cli.flows.recover_input._frame_from_payload_text",
                 side_effect=[ValueError("bad"), frame],
             ):
-                frames = collect_payload_frames(allow_unsigned=True, quiet=True)
+                with mock.patch("ethernity.cli.flows.recover_input.console.print") as print_mock:
+                    frames = collect_payload_frames(allow_unsigned=True, quiet=False)
         self.assertEqual(frames, [frame])
+        self.assertTrue(
+            any("Paste one QR payload per line" in str(call) for call in print_mock.call_args_list)
+        )
 
     def test_collect_payload_frames_waits_for_auth_when_unsigned_not_allowed(self) -> None:
         main_frame = Frame(
