@@ -39,6 +39,7 @@ class ContentOffsetStyle:
 
 @dataclass(frozen=True)
 class TemplateCapabilities:
+    inject_forge_copy: bool = False
     repeat_primary_qr_on_shard_continuation: bool = False
     advanced_fallback_layout: bool = False
     wide_recovery_fallback_lines: bool = False
@@ -149,6 +150,7 @@ def _parse_capabilities(value: object, *, style_name: str, path: Path) -> Templa
         value,
         allowed_keys=frozenset(
             {
+                "inject_forge_copy",
                 "repeat_primary_qr_on_shard_continuation",
                 "advanced_fallback_layout",
                 "wide_recovery_fallback_lines",
@@ -165,6 +167,12 @@ def _parse_capabilities(value: object, *, style_name: str, path: Path) -> Templa
     )
     normalized_style_name = style_name.strip().lower()
     return TemplateCapabilities(
+        inject_forge_copy=_optional_bool(
+            value,
+            "inject_forge_copy",
+            default=False,
+            path=path,
+        ),
         repeat_primary_qr_on_shard_continuation=_optional_bool(
             value,
             "repeat_primary_qr_on_shard_continuation",

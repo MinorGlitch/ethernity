@@ -10,6 +10,7 @@
     "doc_types": []
   },
   "capabilities": {
+    "inject_forge_copy": true,
     "repeat_primary_qr_on_shard_continuation": true,
     "advanced_fallback_layout": true
   }
