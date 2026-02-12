@@ -294,6 +294,13 @@ function minifyClassNames(html, js) {
   return { html: updatedHtml, js: updatedJs };
 }
 
+async function ensureTrailingNewline(path) {
+  const text = await readFile(path, "utf8");
+  if (!text.endsWith("\n")) {
+    await writeFile(path, `${text}\n`, "utf8");
+  }
+}
+
 const kitDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const inputPath = resolve(kitDir, process.argv[2] ?? "recovery_kit.html");
 const bundleName = process.argv[3] ?? "recovery_kit.bundle.html";
@@ -330,7 +337,7 @@ const esbuildArgs = [
   "--define:process.env.NODE_ENV=\"production\"",
   `--outfile=${tmpOut}`,
 ];
-const result = spawnSync("npx", ["esbuild", ...esbuildArgs], {
+const result = spawnSync("npx", ["--no-install", "esbuild", ...esbuildArgs], {
   stdio: "inherit",
 });
 if (result.status !== 0) {
@@ -359,7 +366,7 @@ const htmlMinArgs = [
   rawOutputPath,
   tmpHtml,
 ];
-const htmlResult = spawnSync("npx", ["html-minifier-terser", ...htmlMinArgs], {
+const htmlResult = spawnSync("npx", ["--no-install", "html-minifier-terser", ...htmlMinArgs], {
   stdio: "inherit",
 });
 if (htmlResult.status !== 0) {
@@ -377,12 +384,15 @@ await writeFile(tmpLoader, loaderHtml, "utf8");
 const loaderMinArgs = [...htmlMinArgs];
 loaderMinArgs[loaderMinArgs.length - 2] = outputPath;
 loaderMinArgs[loaderMinArgs.length - 1] = tmpLoader;
-const loaderResult = spawnSync("npx", ["html-minifier-terser", ...loaderMinArgs], {
+const loaderResult = spawnSync("npx", ["--no-install", "html-minifier-terser", ...loaderMinArgs], {
   stdio: "inherit",
 });
 if (loaderResult.status !== 0) {
   process.exit(loaderResult.status ?? 1);
 }
+
+await ensureTrailingNewline(rawOutputPath);
+await ensureTrailingNewline(outputPath);
 
 await mkdir(dirname(packagePath), { recursive: true });
 await copyFile(outputPath, packagePath);

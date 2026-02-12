@@ -15,5 +15,9 @@
   "dependencies": {
     "age-encryption": "^0.3.0",
     "preact": "^10.24.2"
+  },
+  "devDependencies": {
+    "esbuild": "0.27.3",
+    "html-minifier-terser": "7.2.0"
   }
 }
