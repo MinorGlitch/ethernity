@@ -318,6 +318,7 @@ jobs:
           if-no-files-found: error
           path: |
             dist-artifacts/*.sbom.cdx.json
+            dist-artifacts/*.sigstore.json
             dist-artifacts/*.sig
             dist-artifacts/*.pem
 
@@ -374,18 +375,29 @@ jobs:
 
             required=(
               "${checksum}"
-              "${archive}.sig"
-              "${archive}.pem"
-              "${checksum}.sig"
-              "${checksum}.pem"
               "${sbom}"
-              "${sbom}.sig"
-              "${sbom}.pem"
             )
             for file in "${required[@]}"; do
               if [[ ! -f "${file}" ]]; then
                 echo "missing required release file: ${file}" >&2
                 exit 1
+              fi
+            done
+
+            signed_targets=("${archive}" "${checksum}" "${sbom}")
+            for target in "${signed_targets[@]}"; do
+              bundle="${target}.sigstore.json"
+              if [[ ! -f "${bundle}" ]]; then
+                echo "missing required bundle: ${bundle}" >&2
+                exit 1
+              fi
+              sig="${target}.sig"
+              cert="${target}.pem"
+              if [[ -f "${sig}" || -f "${cert}" ]]; then
+                if [[ ! -f "${sig}" || ! -f "${cert}" ]]; then
+                  echo "signature/certificate pair incomplete for: ${target}" >&2
+                  exit 1
+                fi
               fi
             done
           done
@@ -402,5 +414,6 @@ jobs:
             dist-artifacts/*.tar.gz
             dist-artifacts/*.sha256
             dist-artifacts/*.sbom.cdx.json
+            dist-artifacts/*.sigstore.json
             dist-artifacts/*.sig
             dist-artifacts/*.pem
