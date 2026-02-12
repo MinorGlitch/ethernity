@@ -3,7 +3,7 @@
 ## Purpose
 
 This repository contains a Python CLI and a browser-based recovery kit. This file defines stable
-conventions and a strict, working-tree inventory for contributors and coding agents.
+conventions and a glob-based, working-tree inventory contract for contributors and coding agents.
 
 ## Scope and Baseline
 
@@ -11,8 +11,8 @@ conventions and a strict, working-tree inventory for contributors and coding age
 - Inventory scope: `src/`, `kit/`, `tests/`, `scripts/`, `.github/`, and `docs/`.
 - Inventory excludes transient/generated directories unless called out explicitly:
   `src/ethernity/__pycache__/`, `.venv/`, `.mypy_cache/`, `.pytest_cache/`, `.ruff_cache/`,
-  `build/`, `dist/`,
-  `kit/node_modules/`.
+  `build/`, `dist/`, `kit/node_modules/`, `kit/dist/`, `src/ethernity.egg-info/`,
+  `scripts/__pycache__/`, `tests/**/__pycache__/`, `src/.claude/`.
 
 ## Stable Rules (Do / Don't)
 
@@ -27,6 +27,10 @@ conventions and a strict, working-tree inventory for contributors and coding age
 - Template capabilities: behavior toggles belong in design style.json files (for example
   `src/ethernity/templates/forge/style.json`) under the `capabilities` object, not ad-hoc
   template-name checks.
+- Template designs: discovery/prompt surfaces must expose only canonical design names:
+  `archive`, `dossier`, `forge`, `ledger`, `maritime`, `midnight`, `monograph`, `sentinel`.
+  Legacy aliases or stale copied names must not be surfaced. Enforcement point:
+  `src/ethernity/config/installer.py`.
 - Forge icons: Forge templates must use local material symbols assets via
   `src/ethernity/templates/_shared/partials/material_symbols_local.j2`; do not depend on remote
   icon CDNs.
@@ -52,8 +56,16 @@ conventions and a strict, working-tree inventory for contributors and coding age
 - Template style parsing and capability gates are in
   `src/ethernity/render/template_style.py`.
 - Supported capability keys in template style.json files:
+  - `inject_forge_copy`
   - `repeat_primary_qr_on_shard_continuation`
   - `advanced_fallback_layout`
+  - `wide_recovery_fallback_lines`
+  - `extra_main_first_page_qr_slot`
+  - `uniform_main_qr_capacity`
+  - `main_qr_grid_size_mm`
+  - `main_qr_grid_max_cols`
+  - `shard_first_page_bonus_lines`
+  - `signing_key_shard_first_page_bonus_lines`
 - HTML-to-PDF conversion is isolated in `src/ethernity/render/html_to_pdf.py`.
 - DOCX envelope rendering is isolated in `src/ethernity/render/docx_render.py`.
 - Storage envelope template path/size helpers are in `src/ethernity/render/storage_paths.py`.
@@ -66,334 +78,62 @@ conventions and a strict, working-tree inventory for contributors and coding age
 - Local Material Symbols font asset:
   `src/ethernity/templates/_shared/assets/material-symbols-outlined.ttf`.
 
-## Strict Inventory
+## Inventory Contract (Glob-Based)
 
-### Python Package: `src/ethernity`
+Use this section as the authoritative inventory contract for the repository.
+Paths are maintained by scope globs rather than exhaustive file-by-file lists.
 
-- Package root:
-  - `src/ethernity/__init__.py`
-  - `src/ethernity/__main__.py`
-  - `src/ethernity/py.typed`
+### Source and Runtime Code
 
-- CLI root:
-  - `src/ethernity/cli/__init__.py`
-  - `src/ethernity/cli/__main__.py`
-  - `src/ethernity/cli/api.py`
-  - `src/ethernity/cli/app.py`
-  - `src/ethernity/cli/command_registry.py`
-  - `src/ethernity/cli/constants.py`
-  - `src/ethernity/cli/startup.py`
+- `src/ethernity/**/*.py`
+- `src/ethernity/py.typed`
+- `src/ethernity/templates/**/*`
+- `src/ethernity/storage/**/*`
 
-- CLI commands:
-  - `src/ethernity/cli/commands/__init__.py`
-  - `src/ethernity/cli/commands/backup.py`
-  - `src/ethernity/cli/commands/config.py`
-  - `src/ethernity/cli/commands/kit.py`
-  - `src/ethernity/cli/commands/recover.py`
-  - `src/ethernity/cli/commands/render.py`
+### Browser Kit
 
-- CLI core:
-  - `src/ethernity/cli/core/__init__.py`
-  - `src/ethernity/cli/core/common.py`
-  - `src/ethernity/cli/core/crypto.py`
-  - `src/ethernity/cli/core/log.py`
-  - `src/ethernity/cli/core/plan.py`
-  - `src/ethernity/cli/core/text.py`
-  - `src/ethernity/cli/core/types.py`
+- `kit/app/**/*`
+- `kit/lib/**/*`
+- `kit/scripts/**/*`
+- `kit/build_kit.mjs`
+- `kit/package.json`
+- `kit/package-lock.json`
+- `kit/recovery_kit.html`
 
-- CLI flows:
-  - `src/ethernity/cli/flows/__init__.py`
-  - `src/ethernity/cli/flows/backup.py`
-  - `src/ethernity/cli/flows/backup_flow.py`
-  - `src/ethernity/cli/flows/backup_plan.py`
-  - `src/ethernity/cli/flows/backup_wizard.py`
-  - `src/ethernity/cli/flows/kit.py`
-  - `src/ethernity/cli/flows/prompts.py`
-  - `src/ethernity/cli/flows/recover.py`
-  - `src/ethernity/cli/flows/recover_flow.py`
-  - `src/ethernity/cli/flows/recover_input.py`
-  - `src/ethernity/cli/flows/recover_plan.py`
-  - `src/ethernity/cli/flows/recover_wizard.py`
+### Tests
 
-- CLI I/O:
-  - `src/ethernity/cli/io/__init__.py`
-  - `src/ethernity/cli/io/fallback_parser.py`
-  - `src/ethernity/cli/io/frames.py`
-  - `src/ethernity/cli/io/inputs.py`
-  - `src/ethernity/cli/io/outputs.py`
+- `tests/**/*.py`
+- `tests/fixtures/**/*`
 
-- CLI keys:
-  - `src/ethernity/cli/keys/__init__.py`
-  - `src/ethernity/cli/keys/recover_keys.py`
+### Scripts and Automation
 
-- CLI UI:
-  - `src/ethernity/cli/ui/__init__.py`
-  - `src/ethernity/cli/ui/debug.py`
-  - `src/ethernity/cli/ui/prompts.py`
-  - `src/ethernity/cli/ui/state.py`
-  - `src/ethernity/cli/ui/summary.py`
+- `scripts/*`
+- `.github/workflows/*`
+- `.github/actions/setup-python/action.yml`
+- `.github/dependabot.yml`
+- `.github/ISSUE_TEMPLATE/*`
 
-- Config:
-  - `src/ethernity/config/__init__.py`
-  - `src/ethernity/config/config.toml`
-  - `src/ethernity/config/installer.py`
-  - `src/ethernity/config/loader.py`
+### Docs
 
-- Core domain:
-  - `src/ethernity/core/__init__.py`
-  - `src/ethernity/core/models.py`
-  - `src/ethernity/core/validation.py`
+- `docs/*.md`
 
-- Crypto:
-  - `src/ethernity/crypto/__init__.py`
-  - `src/ethernity/crypto/age_runtime.py`
-  - `src/ethernity/crypto/passphrases.py`
-  - `src/ethernity/crypto/sharding.py`
-  - `src/ethernity/crypto/signing.py`
+### Critical Anchor Files
 
-- Encoding:
-  - `src/ethernity/encoding/__init__.py`
-  - `src/ethernity/encoding/cbor.py`
-  - `src/ethernity/encoding/chunking.py`
-  - `src/ethernity/encoding/framing.py`
-  - `src/ethernity/encoding/qr_payloads.py`
-  - `src/ethernity/encoding/varint.py`
-  - `src/ethernity/encoding/zbase32.py`
+These paths are high-signal anchors that should remain present and accurate:
 
-- Formats:
-  - `src/ethernity/formats/__init__.py`
-  - `src/ethernity/formats/envelope_codec.py`
-  - `src/ethernity/formats/envelope_types.py`
-
-- Kit package data:
-  - `src/ethernity/kit/__init__.py`
-  - `src/ethernity/kit/recovery_kit.bundle.html`
-
-- QR:
-  - `src/ethernity/qr/__init__.py`
-  - `src/ethernity/qr/capacity.py`
-  - `src/ethernity/qr/codec.py`
-  - `src/ethernity/qr/scan.py`
-
-- Render:
-  - `src/ethernity/render/__init__.py`
-  - `src/ethernity/render/doc_types.py`
-  - `src/ethernity/render/docx_render.py`
-  - `src/ethernity/render/fallback.py`
-  - `src/ethernity/render/fallback_text.py`
-  - `src/ethernity/render/geometry.py`
-  - `src/ethernity/render/html_to_pdf.py`
-  - `src/ethernity/render/layout.py`
-  - `src/ethernity/render/layout_policy.py`
-  - `src/ethernity/render/pages.py`
-  - `src/ethernity/render/pdf_render.py`
-  - `src/ethernity/render/service.py`
-  - `src/ethernity/render/spec.py`
-  - `src/ethernity/render/storage_paths.py`
-  - `src/ethernity/render/template_model.py`
-  - `src/ethernity/render/template_style.py`
-  - `src/ethernity/render/templating.py`
-  - `src/ethernity/render/text.py`
-  - `src/ethernity/render/types.py`
-  - `src/ethernity/render/utils.py`
-
-- Storage templates/assets:
-  - `src/ethernity/storage/envelope_c4.html.j2`
-  - `src/ethernity/storage/envelope_c5.html.j2`
-  - `src/ethernity/storage/envelope_c6.html.j2`
-  - `src/ethernity/storage/envelope_dl.html.j2`
-  - `src/ethernity/storage/logo.png`
-
-### Template Source: `src/ethernity/templates`
-
-- Shared:
-  - `src/ethernity/templates/_shared/css_base.j2`
-  - `src/ethernity/templates/_shared/css_variables.j2`
-  - `src/ethernity/templates/_shared/html_components.j2`
-  - `src/ethernity/templates/_shared/assets/material-symbols-outlined.ttf`
-  - `src/ethernity/templates/_shared/partials/forge_tailwind.j2`
-  - `src/ethernity/templates/_shared/partials/material_symbols_local.j2`
-
-- Archive:
-  - `src/ethernity/templates/archive/kit_document.html.j2`
-  - `src/ethernity/templates/archive/main_document.html.j2`
-  - `src/ethernity/templates/archive/recovery_document.html.j2`
-  - `src/ethernity/templates/archive/shard_document.html.j2`
-  - `src/ethernity/templates/archive/signing_key_shard_document.html.j2`
-  - `src/ethernity/templates/archive/style.json`
-
-- Dossier:
-  - `src/ethernity/templates/dossier/kit_document.html.j2`
-  - `src/ethernity/templates/dossier/main_document.html.j2`
-  - `src/ethernity/templates/dossier/recovery_document.html.j2`
-  - `src/ethernity/templates/dossier/shard_document.html.j2`
-  - `src/ethernity/templates/dossier/signing_key_shard_document.html.j2`
-  - `src/ethernity/templates/dossier/style.json`
-
-- Forge:
-  - `src/ethernity/templates/forge/kit_document.html.j2`
-  - `src/ethernity/templates/forge/kit_index_document.html.j2`
-  - `src/ethernity/templates/forge/main_document.html.j2`
-  - `src/ethernity/templates/forge/recovery_document.html.j2`
-  - `src/ethernity/templates/forge/shard_document.html.j2`
-  - `src/ethernity/templates/forge/signing_key_shard_document.html.j2`
-  - `src/ethernity/templates/forge/style.json`
-
-- Ledger:
-  - `src/ethernity/templates/ledger/kit_document.html.j2`
-  - `src/ethernity/templates/ledger/main_document.html.j2`
-  - `src/ethernity/templates/ledger/recovery_document.html.j2`
-  - `src/ethernity/templates/ledger/shard_document.html.j2`
-  - `src/ethernity/templates/ledger/signing_key_shard_document.html.j2`
-  - `src/ethernity/templates/ledger/style.json`
-
-- Maritime:
-  - `src/ethernity/templates/maritime/kit_document.html.j2`
-  - `src/ethernity/templates/maritime/main_document.html.j2`
-  - `src/ethernity/templates/maritime/recovery_document.html.j2`
-  - `src/ethernity/templates/maritime/shard_document.html.j2`
-  - `src/ethernity/templates/maritime/signing_key_shard_document.html.j2`
-  - `src/ethernity/templates/maritime/style.json`
-
-- Midnight:
-  - `src/ethernity/templates/midnight/kit_document.html.j2`
-  - `src/ethernity/templates/midnight/main_document.html.j2`
-  - `src/ethernity/templates/midnight/recovery_document.html.j2`
-  - `src/ethernity/templates/midnight/shard_document.html.j2`
-  - `src/ethernity/templates/midnight/signing_key_shard_document.html.j2`
-  - `src/ethernity/templates/midnight/style.json`
-
-### Browser Kit Source: `kit/`
-
-- App root:
-  - `kit/app/App.jsx`
-  - `kit/app/actions.js`
-  - `kit/app/auth.js`
-  - `kit/app/constants.js`
-  - `kit/app/envelope.js`
-  - `kit/app/frames.js`
-  - `kit/app/index.jsx`
-  - `kit/app/io.js`
-  - `kit/app/shard_auth.js`
-  - `kit/app/shards.js`
-  - `kit/app/steps.jsx`
-
-- App components:
-  - `kit/app/components/CollectorStep.jsx`
-  - `kit/app/components/DecryptSection.jsx`
-  - `kit/app/components/FrameCollector.jsx`
-  - `kit/app/components/RecoveredFiles.jsx`
-  - `kit/app/components/ShardCollector.jsx`
-  - `kit/app/components/StatusStrip.jsx`
-  - `kit/app/components/StepNav.jsx`
-  - `kit/app/components/StepShell.jsx`
-  - `kit/app/components/common.jsx`
-
-- App state:
-  - `kit/app/state/initial.js`
-  - `kit/app/state/reducer.js`
-  - `kit/app/state/selectors.js`
-
-- Browser crypto/libs:
-  - `kit/lib/age_scrypt.js`
-  - `kit/lib/blake2b.js`
-  - `kit/lib/cbor.js`
-  - `kit/lib/crc32.js`
-  - `kit/lib/encoding.js`
-  - `kit/lib/shamir.js`
-  - `kit/lib/zip.js`
-
-- Build/runtime files:
-  - `kit/build_kit.mjs`
-  - `kit/package.json`
-  - `kit/package-lock.json`
-  - `kit/recovery_kit.html`
-  - `kit/scripts/run_parse_vectors.mjs`
-
-### Tests: `tests/`
-
-- Root/support:
-  - `tests/__init__.py`
-  - `tests/test_support.py`
-  - `tests/fixtures/recovery_parse_vectors.json`
-
-- E2E:
-  - `tests/e2e/__init__.py`
-  - `tests/e2e/test_end_to_end_cli.py`
-  - `tests/e2e/test_end_to_end_sharding.py`
-
-- Integration:
-  - `tests/integration/__init__.py`
-  - `tests/integration/test_integration_backup.py`
-  - `tests/integration/test_integration_recover.py`
-
-- Unit:
-  - `tests/unit/__init__.py`
-  - `tests/unit/test_age_cli.py`
-  - `tests/unit/test_backup_args_validation.py`
-  - `tests/unit/test_chunking.py`
-  - `tests/unit/test_cli_backup.py`
-  - `tests/unit/test_cli_flows.py`
-  - `tests/unit/test_cli_recover_validation.py`
-  - `tests/unit/test_cli_startup.py`
-  - `tests/unit/test_cli_typer.py`
-  - `tests/unit/test_cli_ui.py`
-  - `tests/unit/test_config.py`
-  - `tests/unit/test_envelope.py`
-  - `tests/unit/test_fallback_blocks.py`
-  - `tests/unit/test_fallback_parser.py`
-  - `tests/unit/test_framing.py`
-  - `tests/unit/test_input_files.py`
-  - `tests/unit/test_jinja_templates.py`
-  - `tests/unit/test_kit_vectors.py`
-  - `tests/unit/test_passphrases.py`
-  - `tests/unit/test_pdf_layout.py`
-  - `tests/unit/test_pdf_pages.py`
-  - `tests/unit/test_pdf_recovery_meta.py`
-  - `tests/unit/test_pdf_render.py`
-  - `tests/unit/test_qr_chunk_size.py`
-  - `tests/unit/test_qr_codec.py`
-  - `tests/unit/test_qr_payloads.py`
-  - `tests/unit/test_qr_scan.py`
-  - `tests/unit/test_qr_scan_errors.py`
-  - `tests/unit/test_qr_scan_more.py`
-  - `tests/unit/test_recover_input.py`
-  - `tests/unit/test_recover_prompts.py`
-  - `tests/unit/test_render_geometry.py`
-  - `tests/unit/test_render_pages.py`
-  - `tests/unit/test_render_spec.py`
-  - `tests/unit/test_render_text.py`
-  - `tests/unit/test_sharding.py`
-  - `tests/unit/test_signing.py`
-  - `tests/unit/test_template_style.py`
-  - `tests/unit/test_templating_shared_dir.py`
-  - `tests/unit/test_validation.py`
-
-### Scripts: `scripts/`
-
-- `scripts/build_pyinstaller.sh`
-- `scripts/build_pyinstaller.ps1`
-- `scripts/package_pyinstaller.py`
-- `scripts/build_nuitka.sh`
-- `scripts/build_nuitka.ps1`
-
-### GitHub: `.github/`
-
-- Workflows:
-  - `.github/workflows/ci.yml`
-  - `.github/workflows/pyinstaller.yml`
-
-- Composite action:
-  - `.github/actions/setup-python/action.yml`
-
-- Other repo automation/config:
-  - `.github/dependabot.yml`
-  - `.github/ISSUE_TEMPLATE/open-source-readiness.md`
-
-### Docs: `docs/`
-
+- `src/ethernity/cli/app.py`
+- `src/ethernity/config/installer.py`
+- `src/ethernity/render/template_style.py`
+- `src/ethernity/core/bounds.py`
 - `docs/format.md`
 - `docs/format_notes.md`
+- `docs/release_artifacts.md`
+
+### Inventory Maintenance Rules
+
+- New files under the listed globs are in scope without AGENTS updates.
+- Update this file when architecture contracts, capability keys, or anchor files change.
+- Do not treat excluded transient/generated paths as authoritative inventory.
 
 ## Tooling and CI
 
@@ -427,8 +167,8 @@ conventions and a strict, working-tree inventory for contributors and coding age
 - Kit bundle rebuild: `cd kit && npm ci && node build_kit.mjs`
 - PyInstaller local build (bash): `scripts/build_pyinstaller.sh`
 - PyInstaller local build (PowerShell): `scripts/build_pyinstaller.ps1`
-- Nuitka local build (bash): `scripts/build_nuitka.sh --standalone`
-- Nuitka local build (PowerShell): `scripts/build_nuitka.ps1 --standalone`
+- Nuitka local build (bash): `scripts/build_nuitka.sh` with `--standalone`
+- Nuitka local build (PowerShell): `scripts/build_nuitka.ps1` with `--standalone`
 
 ## Runtime Notes
 
