@@ -163,11 +163,11 @@ jobs:
             artifact_os: linux
             artifact_arch: arm64
             archive_ext: tar.gz
-          - runner: macos-13
+          - runner: macos-15-intel
             artifact_os: macos
             artifact_arch: x64
             archive_ext: tar.gz
-          - runner: macos-14
+          - runner: macos-latest
             artifact_os: macos
             artifact_arch: arm64
             archive_ext: tar.gz
