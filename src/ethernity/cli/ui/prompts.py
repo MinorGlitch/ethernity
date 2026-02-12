@@ -64,10 +64,14 @@ def print_prompt_header(
     context: UIContext | None = None,
 ) -> None:
     context = _resolve_context(context)
+    if context.compact_prompt_headers and context.stage_prompt_count > 0:
+        context.stage_prompt_count += 1
+        return
     output = context.console
     output.print(Rule(style="rule"))
     if help_text:
         output.print(Padding(format_hint(help_text), (0, 0, 0, 1)))
+    context.stage_prompt_count += 1
 
 
 def prompt_optional_secret(
@@ -243,8 +247,7 @@ def prompt_choice_list(
     context = _resolve_context(context)
     items = list(items)
     choices = [questionary.Choice(title=label, value=key) for key, label in items]
-    if help_text:
-        context.console.print(Padding(format_hint(help_text), (0, 0, 0, 1)))
+    print_prompt_header(title or "Select an option", help_text, context=context)
     value = _select_without_default_highlight(
         title or "Select an option",
         choices=choices,
@@ -286,11 +289,31 @@ def _list_picker_entries(
         label = f"{name}/" if is_dir else name
         entries.append((str(entry), label))
     if not entries:
-        raise ValueError(f"No entries found in {root}.")
+        raise ValueError(
+            f"No selectable entries in {root}. Choose another directory or switch to manual entry."
+        )
     return entries
 
 
 T = TypeVar("T")
+
+
+def _remember_picker_directory(context: UIContext, value: object) -> None:
+    path_value: str | None = None
+    if isinstance(value, str):
+        path_value = value
+    elif isinstance(value, list) and value and isinstance(value[0], str):
+        path_value = value[0]
+    if path_value is None:
+        return
+    stripped = path_value.strip()
+    if not stripped or stripped == "-":
+        return
+    path = Path(stripped).expanduser()
+    if path.exists() and path.is_dir():
+        context.last_picker_dir = str(path)
+    else:
+        context.last_picker_dir = str(path.parent)
 
 
 def _run_picker_flow(
@@ -323,13 +346,17 @@ def _run_picker_flow(
                 help_text=directory_help_text,
                 context=context,
             )
-            directory = directory or "."
+            directory = directory or context.last_picker_dir or "."
             try:
-                return select_func(directory)
+                selected = select_func(directory)
+                _remember_picker_directory(context, selected)
+                return selected
             except ValueError as exc:
                 context.console_err.print(f"[error]{exc}[/error]")
                 continue
-        return manual_func()
+        manual_value = manual_func()
+        _remember_picker_directory(context, manual_value)
+        return manual_value
 
 
 def _prompt_select_entries(

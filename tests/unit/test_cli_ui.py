@@ -73,6 +73,9 @@ class TestContextState(unittest.TestCase):
         self.assertEqual(context.theme, THEME)
         self.assertTrue(context.animations_enabled)
         self.assertIsNone(context.wizard_state)
+        self.assertFalse(context.compact_prompt_headers)
+        self.assertEqual(context.stage_prompt_count, 0)
+        self.assertEqual(context.last_picker_dir, ".")
         self.assertIsNotNone(context.console)
         self.assertIsNotNone(context.console_err)
 
@@ -197,6 +200,41 @@ class TestUIHelpers(unittest.TestCase):
         self.assertIs(context.wizard_state, previous)
 
     @mock.patch("ethernity.cli.ui.clear_screen")
+    def test_ui_screen_mode_sets_and_restores_state(
+        self,
+        clear_screen: mock.MagicMock,
+    ) -> None:
+        context = self._context()
+        previous = context.screen_mode
+        previous_compact = context.compact_prompt_headers
+        context.stage_prompt_count = 4
+        with ui_module.ui_screen_mode(quiet=False, context=context):
+            self.assertTrue(context.screen_mode)
+            self.assertTrue(context.compact_prompt_headers)
+            self.assertEqual(context.stage_prompt_count, 0)
+        self.assertEqual(context.screen_mode, previous)
+        self.assertEqual(context.compact_prompt_headers, previous_compact)
+        self.assertEqual(context.stage_prompt_count, 4)
+        clear_screen.assert_called_once_with(context=context)
+
+    @mock.patch("ethernity.cli.ui.clear_screen")
+    def test_ui_screen_mode_quiet_skips_clear(
+        self,
+        clear_screen: mock.MagicMock,
+    ) -> None:
+        context = self._context()
+        context.screen_mode = False
+        context.compact_prompt_headers = False
+        context.stage_prompt_count = 2
+        with ui_module.ui_screen_mode(quiet=True, context=context):
+            self.assertFalse(context.screen_mode)
+            self.assertFalse(context.compact_prompt_headers)
+            self.assertEqual(context.stage_prompt_count, 0)
+        self.assertFalse(context.compact_prompt_headers)
+        self.assertEqual(context.stage_prompt_count, 2)
+        clear_screen.assert_not_called()
+
+    @mock.patch("ethernity.cli.ui.clear_screen")
     def test_wizard_stage_step_progression_and_help_text(
         self,
         clear_screen: mock.MagicMock,
@@ -210,6 +248,7 @@ class TestUIHelpers(unittest.TestCase):
         with ui_module.wizard_stage("Input", help_text="Collect frames", context=context):
             pass
         self.assertEqual(context.wizard_state.step, 1)
+        self.assertEqual(context.stage_prompt_count, 0)
         clear_screen.assert_not_called()
 
         with ui_module.wizard_stage("Keys", context=context):
@@ -256,6 +295,22 @@ class TestUIHelpers(unittest.TestCase):
             with ui_module.status("Preparing...", quiet=False, context=context) as status_live:
                 self.assertIs(status_live, live)
         live.update.assert_called_once()
+
+    @mock.patch("ethernity.cli.ui.isatty", return_value=True)
+    def test_status_animated_screen_mode_is_transient(self, _isatty: mock.MagicMock) -> None:
+        context = self._context(force_terminal=True)
+        context.animations_enabled = True
+        context.screen_mode = True
+        context.console.file = mock.MagicMock()
+        live = mock.MagicMock()
+        live_cm = mock.MagicMock()
+        live_cm.__enter__.return_value = live
+        live_cm.__exit__.return_value = False
+        with mock.patch("ethernity.cli.ui.Live", return_value=live_cm) as live_ctor:
+            with ui_module.status("Preparing...", quiet=False, context=context) as status_live:
+                self.assertIs(status_live, live)
+        self.assertTrue(live_ctor.call_args.kwargs["transient"])
+        live.update.assert_not_called()
 
     def test_build_table_and_panel_helpers(self) -> None:
         kv = ui_module.build_kv_table([("A", "1")], title="Meta")
@@ -319,6 +374,7 @@ class TestUIHelpers(unittest.TestCase):
         self.assertEqual(action_quiet, "backup")
         self.assertEqual(action_verbose, "backup")
         self.assertGreaterEqual(prompt_choice.call_count, 2)
+        self.assertIn("kit", prompt_choice.call_args.args[1])
         self.assertGreater(print_mock.call_count, 0)
 
     def test_empty_recover_args(self) -> None:

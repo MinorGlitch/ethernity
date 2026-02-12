@@ -49,10 +49,31 @@ class TestCliCoreCommon(unittest.TestCase):
         print_mock.assert_called_once()
         self.assertIn("boom", str(print_mock.call_args.args[0]))
 
+    @mock.patch("ethernity.cli.core.common.console_err.print")
+    def test_run_cli_keyboard_interrupt_exits_130(
+        self,
+        print_mock: mock.MagicMock,
+    ) -> None:
+        with self.assertRaises(typer.Exit) as exc_info:
+            common_module._run_cli(
+                lambda: (_ for _ in ()).throw(KeyboardInterrupt()),
+                debug=False,
+            )
+        self.assertEqual(exc_info.exception.exit_code, 130)
+        print_mock.assert_called_once()
+        self.assertIn("Cancelled by user.", str(print_mock.call_args.args[0]))
+
     def test_run_cli_debug_reraises(self) -> None:
         with self.assertRaises(LookupError):
             common_module._run_cli(
                 lambda: (_ for _ in ()).throw(LookupError("debug-error")),
+                debug=True,
+            )
+
+    def test_run_cli_debug_keyboard_interrupt_reraises(self) -> None:
+        with self.assertRaises(KeyboardInterrupt):
+            common_module._run_cli(
+                lambda: (_ for _ in ()).throw(KeyboardInterrupt()),
                 debug=True,
             )
 
