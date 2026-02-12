@@ -44,6 +44,7 @@ from ..api import (
     prompt_path_with_picker,
     prompt_paths_with_picker,
     prompt_yes_no,
+    ui_screen_mode,
     wizard_flow,
     wizard_stage,
 )
@@ -414,79 +415,82 @@ def run_wizard(
     quiet: bool = False,
     args: BackupArgs | None = None,
 ) -> int:
-    with wizard_flow(name="Backup", total_steps=5, quiet=quiet):
-        if not quiet:
-            console.print("[title]Ethernity backup wizard[/title]")
-            console.print("[subtitle]Guided setup for backup documents.[/subtitle]")
-            console.print("[subtitle]Defaults favor recovery (2-of-3 shards, unsealed).[/subtitle]")
+    with ui_screen_mode(quiet=quiet):
+        with wizard_flow(name="Backup", total_steps=5, quiet=quiet):
+            if not quiet:
+                console.print("[title]Ethernity backup wizard[/title]")
+                console.print("[subtitle]Guided setup for backup documents.[/subtitle]")
+                console.print(
+                    "[subtitle]Defaults favor recovery (2-of-3 shards, unsealed).[/subtitle]"
+                )
 
-        with wizard_stage("Encryption"):
-            passphrase, passphrase_words = _prompt_encryption(args)
+            with wizard_stage("Encryption"):
+                passphrase, passphrase_words = _prompt_encryption(args)
 
-        with wizard_stage("Recovery"):
-            sealed, debug, signing_seed_mode, sharding, signing_seed_sharding = (
-                _prompt_recovery_options(args, debug_override, quiet)
+            with wizard_stage("Recovery"):
+                sealed, debug, signing_seed_mode, sharding, signing_seed_sharding = (
+                    _prompt_recovery_options(args, debug_override, quiet)
+                )
+
+            with wizard_stage("Layout"):
+                config_path, paper = _prompt_layout(config_path, paper_size)
+                design = _prompt_design(args)
+
+            plan = build_document_plan(
+                sealed=sealed,
+                signing_seed_mode=signing_seed_mode,
+                sharding=sharding,
+                signing_seed_sharding=signing_seed_sharding,
             )
 
-        with wizard_stage("Layout"):
-            config_path, paper = _prompt_layout(config_path, paper_size)
-            design = _prompt_design(args)
+            config = load_app_config(config_path, paper_size=paper)
+            config = apply_template_design(config, design)
+            config = _apply_qr_chunk_size_override(config, args.qr_chunk_size if args else None)
 
-        plan = build_document_plan(
-            sealed=sealed,
-            signing_seed_mode=signing_seed_mode,
-            sharding=sharding,
-            signing_seed_sharding=signing_seed_sharding,
-        )
+            with wizard_stage("Inputs"):
+                input_files, resolved_base, output_dir = _prompt_inputs(args, quiet, debug)
 
-        config = load_app_config(config_path, paper_size=paper)
-        config = apply_template_design(config, design)
-        config = _apply_qr_chunk_size_override(config, args.qr_chunk_size if args else None)
+            review_rows = _build_review_rows(
+                passphrase,
+                passphrase_words,
+                plan,
+                input_files,
+                resolved_base,
+                output_dir,
+                config_path,
+                paper,
+                design,
+                config,
+                debug,
+            )
 
-        with wizard_stage("Inputs"):
-            input_files, resolved_base, output_dir = _prompt_inputs(args, quiet, debug)
+            with wizard_stage("Review"):
+                console.print(panel("Review", build_review_table(review_rows)))
+                if not prompt_yes_no(
+                    "Proceed with backup",
+                    default=True,
+                    help_text="Select no to cancel.",
+                ):
+                    console.print("Backup cancelled.")
+                    return 1
 
-        review_rows = _build_review_rows(
-            passphrase,
-            passphrase_words,
-            plan,
-            input_files,
-            resolved_base,
-            output_dir,
-            config_path,
-            paper,
-            design,
-            config,
-            debug,
-        )
+            if args is not None:
+                _validate_backup_args(args)
 
-        with wizard_stage("Review"):
-            console.print(panel("Review", build_review_table(review_rows)))
-            if not prompt_yes_no(
-                "Proceed with backup",
-                default=True,
-                help_text="Select no to cancel.",
-            ):
-                console.print("Backup cancelled.")
-                return 1
-
-        if args is not None:
-            _validate_backup_args(args)
-
-        result = run_backup(
-            input_files=input_files,
-            base_dir=resolved_base,
-            output_dir=output_dir,
-            plan=plan,
-            passphrase=passphrase,
-            passphrase_words=passphrase_words,
-            config=config,
-            debug=debug,
-            debug_max_bytes=debug_max_bytes,
-            quiet=quiet,
-        )
-        print_backup_summary(result, plan, passphrase, quiet=quiet)
-        _print_completion_actions(result, quiet)
+            result = run_backup(
+                input_files=input_files,
+                base_dir=resolved_base,
+                output_dir=output_dir,
+                plan=plan,
+                passphrase=passphrase,
+                passphrase_words=passphrase_words,
+                config=config,
+                debug=debug,
+                debug_max_bytes=debug_max_bytes,
+                quiet=quiet,
+            )
+            print_backup_summary(result, plan, passphrase, quiet=quiet)
+            _print_completion_actions(result, quiet)
     return 0
 
 

@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+import contextlib
 import importlib
 import unittest
 from dataclasses import dataclass
@@ -122,6 +123,7 @@ class TestCliApp(unittest.TestCase):
     @mock.patch("ethernity.cli.app._run_cli", side_effect=lambda func, debug: func())
     @mock.patch("ethernity.cli.app.empty_recover_args", return_value=RecoverArgs())
     @mock.patch("ethernity.cli.app.prompt_home_action", return_value="recover")
+    @mock.patch("ethernity.cli.app.ui_screen_mode", return_value=contextlib.nullcontext())
     @mock.patch("ethernity.cli.app._resolve_config_and_paper", return_value=("cfg", "A4"))
     @mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=True)
     @mock.patch("ethernity.cli.app.run_startup", return_value=False)
@@ -130,6 +132,7 @@ class TestCliApp(unittest.TestCase):
         _run_startup: mock.MagicMock,
         _stdin_tty: mock.MagicMock,
         _resolve_config_and_paper: mock.MagicMock,
+        ui_screen_mode: mock.MagicMock,
         _prompt_home_action: mock.MagicMock,
         _empty_recover_args: mock.MagicMock,
         _run_cli: mock.MagicMock,
@@ -149,12 +152,14 @@ class TestCliApp(unittest.TestCase):
             init_config=False,
             version=False,
         )
+        ui_screen_mode.assert_called_once_with(quiet=False)
         run_recover_wizard.assert_called_once()
         self.assertTrue(run_recover_wizard.call_args.kwargs["debug"])
 
     @mock.patch("ethernity.cli.app.run_wizard", return_value=0)
     @mock.patch("ethernity.cli.app._run_cli", side_effect=lambda func, debug: func())
     @mock.patch("ethernity.cli.app.prompt_home_action", return_value="backup")
+    @mock.patch("ethernity.cli.app.ui_screen_mode", return_value=contextlib.nullcontext())
     @mock.patch("ethernity.cli.app._resolve_config_and_paper", return_value=("cfg", "A4"))
     @mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=True)
     @mock.patch("ethernity.cli.app.run_startup", return_value=False)
@@ -163,6 +168,7 @@ class TestCliApp(unittest.TestCase):
         _run_startup: mock.MagicMock,
         _stdin_tty: mock.MagicMock,
         _resolve_config_and_paper: mock.MagicMock,
+        ui_screen_mode: mock.MagicMock,
         _prompt_home_action: mock.MagicMock,
         _run_cli: mock.MagicMock,
         run_wizard: mock.MagicMock,
@@ -181,6 +187,7 @@ class TestCliApp(unittest.TestCase):
             init_config=False,
             version=False,
         )
+        ui_screen_mode.assert_called_once_with(quiet=False)
         run_wizard.assert_called_once()
         self.assertEqual(run_wizard.call_args.kwargs["args"].design, "forge")
 

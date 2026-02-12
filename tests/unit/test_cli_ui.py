@@ -197,6 +197,29 @@ class TestUIHelpers(unittest.TestCase):
         self.assertIs(context.wizard_state, previous)
 
     @mock.patch("ethernity.cli.ui.clear_screen")
+    def test_ui_screen_mode_sets_and_restores_state(
+        self,
+        clear_screen: mock.MagicMock,
+    ) -> None:
+        context = self._context()
+        previous = context.screen_mode
+        with ui_module.ui_screen_mode(quiet=False, context=context):
+            self.assertTrue(context.screen_mode)
+        self.assertEqual(context.screen_mode, previous)
+        clear_screen.assert_called_once_with(context=context)
+
+    @mock.patch("ethernity.cli.ui.clear_screen")
+    def test_ui_screen_mode_quiet_skips_clear(
+        self,
+        clear_screen: mock.MagicMock,
+    ) -> None:
+        context = self._context()
+        context.screen_mode = False
+        with ui_module.ui_screen_mode(quiet=True, context=context):
+            self.assertFalse(context.screen_mode)
+        clear_screen.assert_not_called()
+
+    @mock.patch("ethernity.cli.ui.clear_screen")
     def test_wizard_stage_step_progression_and_help_text(
         self,
         clear_screen: mock.MagicMock,
@@ -256,6 +279,22 @@ class TestUIHelpers(unittest.TestCase):
             with ui_module.status("Preparing...", quiet=False, context=context) as status_live:
                 self.assertIs(status_live, live)
         live.update.assert_called_once()
+
+    @mock.patch("ethernity.cli.ui.isatty", return_value=True)
+    def test_status_animated_screen_mode_is_transient(self, _isatty: mock.MagicMock) -> None:
+        context = self._context(force_terminal=True)
+        context.animations_enabled = True
+        context.screen_mode = True
+        context.console.file = mock.MagicMock()
+        live = mock.MagicMock()
+        live_cm = mock.MagicMock()
+        live_cm.__enter__.return_value = live
+        live_cm.__exit__.return_value = False
+        with mock.patch("ethernity.cli.ui.Live", return_value=live_cm) as live_ctor:
+            with ui_module.status("Preparing...", quiet=False, context=context) as status_live:
+                self.assertIs(status_live, live)
+        self.assertTrue(live_ctor.call_args.kwargs["transient"])
+        live.update.assert_not_called()
 
     def test_build_table_and_panel_helpers(self) -> None:
         kv = ui_module.build_kv_table([("A", "1")], title="Meta")
