@@ -133,8 +133,8 @@ class TestCliStartup(unittest.TestCase):
                 with mock.patch.dict(os.environ, {}, clear=False):
                     os.environ.pop("PLAYWRIGHT_NODEJS_PATH", None)
                     node_path, cli_path = startup._playwright_driver_command()
-        self.assertEqual(node_path, "/opt/pw/driver/node")
-        self.assertEqual(cli_path, "/opt/pw/driver/package/cli.js")
+        self.assertEqual(Path(node_path), Path("/opt/pw") / "driver" / "node")
+        self.assertEqual(Path(cli_path), Path("/opt/pw") / "driver" / "package" / "cli.js")
 
         with mock.patch.object(startup.inspect, "getfile", return_value="/opt/pw/__init__.py"):
             with mock.patch.object(startup.sys, "platform", "win32"):
@@ -143,7 +143,7 @@ class TestCliStartup(unittest.TestCase):
                 ):
                     node_path, cli_path = startup._playwright_driver_command()
         self.assertEqual(node_path, "C:/node.exe")
-        self.assertEqual(cli_path, "/opt/pw/driver/package/cli.js")
+        self.assertEqual(Path(cli_path), Path("/opt/pw") / "driver" / "package" / "cli.js")
 
     def test_playwright_chromium_installed_success_and_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
