@@ -117,6 +117,25 @@ def configure_ui(
 
 
 @contextmanager
+def ui_screen_mode(
+    *,
+    enabled: bool = True,
+    quiet: bool = False,
+    context: UIContext | None = None,
+) -> Generator[None, None, None]:
+    context = _resolve_context(context)
+    previous = context.screen_mode
+    active = enabled and not quiet
+    context.screen_mode = active
+    try:
+        if active:
+            clear_screen(context=context)
+        yield
+    finally:
+        context.screen_mode = previous
+
+
+@contextmanager
 def wizard_flow(
     *, name: str, total_steps: int, quiet: bool, context: UIContext | None = None
 ) -> Generator[WizardState, None, None]:
@@ -192,11 +211,12 @@ def status(
         context.console.print(f"[subtitle]{message}[/subtitle]")
         yield None
         return
+    transient = context.screen_mode
     spinner = Spinner("dots", text=Text(message, style="subtitle"))
     with Live(
         spinner,
         console=context.console,
-        transient=False,
+        transient=transient,
         refresh_per_second=12,
     ) as live:
         try:
@@ -210,10 +230,11 @@ def status(
         try:
             yield live
         finally:
-            try:
-                live.update(Text(f"{message} ✓", style="success"), refresh=True)
-            except (OSError, ValueError):
-                pass
+            if not transient:
+                try:
+                    live.update(Text(f"{message} ✓", style="success"), refresh=True)
+                except (OSError, ValueError):
+                    pass
 
 
 def build_kv_table(rows: Sequence[tuple[str, str]], *, title: str | None = None) -> Table:
@@ -383,6 +404,7 @@ __all__ = [
     "prompt_select_path",
     "prompt_select_paths",
     "prompt_yes_no",
+    "ui_screen_mode",
     "progress",
     "status",
     "validate_path",

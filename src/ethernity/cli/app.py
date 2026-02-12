@@ -27,6 +27,7 @@ from .api import (
     console_err,
     empty_recover_args,
     prompt_home_action,
+    ui_screen_mode,
 )
 from .core.common import _get_version, _paper_callback, _resolve_config_and_paper, _run_cli
 from .core.types import BackupArgs
@@ -146,7 +147,8 @@ def cli(
             )
             raise typer.Exit(code=2)
         config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
-        action = prompt_home_action(quiet=quiet)
+        with ui_screen_mode(quiet=quiet):
+            action = prompt_home_action(quiet=quiet)
         if action == "recover":
             args = empty_recover_args(config=config_value, paper=paper_value, quiet=quiet)
             _run_cli(lambda: run_recover_wizard(args, debug=debug), debug=debug)

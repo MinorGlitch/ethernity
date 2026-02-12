@@ -63,6 +63,7 @@ class UIContext:
     console_err: Console
     animations_enabled: bool = True
     wizard_state: WizardState | None = None
+    screen_mode: bool = False
 
 
 def _build_console(*, stderr: bool) -> Console:

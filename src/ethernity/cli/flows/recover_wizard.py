@@ -27,6 +27,7 @@ from ..api import (
     prompt_required_secret,
     prompt_yes_no,
     status,
+    ui_screen_mode,
     wizard_flow,
     wizard_stage,
 )
@@ -222,85 +223,88 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
             _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
         return write_plan_outputs(plan, quiet=quiet, debug=debug)
 
-    if show_header and not quiet:
-        console.print("[title]Ethernity recovery wizard[/title]")
-        console.print("[subtitle]Guided recovery of backup documents.[/subtitle]")
+    with ui_screen_mode(quiet=quiet):
+        if show_header and not quiet:
+            console.print("[title]Ethernity recovery wizard[/title]")
+            console.print("[subtitle]Guided recovery of backup documents.[/subtitle]")
 
-    validate_recover_args(args)
-    resolve_recover_config(args)
+        validate_recover_args(args)
+        resolve_recover_config(args)
 
-    with wizard_flow(name="Recovery", total_steps=4, quiet=quiet):
-        with wizard_stage("Input"):
-            frames, input_label, input_detail = _prompt_recovery_input(args, allow_unsigned, quiet)
+        with wizard_flow(name="Recovery", total_steps=4, quiet=quiet):
+            with wizard_stage("Input"):
+                frames, input_label, input_detail = _prompt_recovery_input(
+                    args, allow_unsigned, quiet
+                )
 
-        extra_auth_frames = _load_extra_auth_frames(args, allow_unsigned, quiet)
+            extra_auth_frames = _load_extra_auth_frames(args, allow_unsigned, quiet)
 
-        with wizard_stage("Keys"):
-            (
-                passphrase,
+            with wizard_stage("Keys"):
+                (
+                    passphrase,
+                    shard_fallback_files,
+                    shard_payloads_file,
+                    pasted_shard_frames,
+                ) = _prompt_key_material(args, quiet=quiet)
+
+            shard_frames = _load_shard_frames(
                 shard_fallback_files,
                 shard_payloads_file,
-                pasted_shard_frames,
-            ) = _prompt_key_material(args, quiet=quiet)
+                extra_frames=pasted_shard_frames,
+                quiet=quiet,
+            )
 
-        shard_frames = _load_shard_frames(
-            shard_fallback_files,
-            shard_payloads_file,
-            extra_frames=pasted_shard_frames,
-            quiet=quiet,
-        )
+            plan = build_recovery_plan(
+                frames=frames,
+                extra_auth_frames=extra_auth_frames,
+                shard_frames=shard_frames,
+                passphrase=passphrase,
+                allow_unsigned=allow_unsigned,
+                input_label=input_label,
+                input_detail=input_detail,
+                shard_fallback_files=shard_fallback_files,
+                shard_payloads_file=shard_payloads_file,
+                output_path=args.output,
+                args=args,
+                quiet=quiet,
+            )
+            if plan.allow_unsigned:
+                _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
 
-        plan = build_recovery_plan(
-            frames=frames,
-            extra_auth_frames=extra_auth_frames,
-            shard_frames=shard_frames,
-            passphrase=passphrase,
-            allow_unsigned=allow_unsigned,
-            input_label=input_label,
-            input_detail=input_detail,
-            shard_fallback_files=shard_fallback_files,
-            shard_payloads_file=shard_payloads_file,
-            output_path=args.output,
-            args=args,
-            quiet=quiet,
-        )
-        if plan.allow_unsigned:
-            _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
+            if not quiet:
+                with wizard_stage("Review"):
+                    review_rows = _build_recovery_review_rows(plan, args)
+                    console.print(panel("Review", build_review_table(review_rows)))
+                    if not assume_yes and not prompt_yes_no(
+                        "Proceed with recovery",
+                        default=True,
+                        help_text="Select no to cancel.",
+                    ):
+                        console.print("Recovery cancelled.")
+                        return 1
 
-        if not quiet:
-            with wizard_stage("Review"):
-                review_rows = _build_recovery_review_rows(plan, args)
-                console.print(panel("Review", build_review_table(review_rows)))
+            extracted = decrypt_and_extract(plan, quiet=quiet, debug=debug)
+
+            with wizard_stage("Output"):
+                output_path = _resolve_recover_output(
+                    extracted, args.output, interactive=True, doc_id=plan.doc_id
+                )
                 if not assume_yes and not prompt_yes_no(
-                    "Proceed with recovery",
+                    "Proceed with writing files",
                     default=True,
                     help_text="Select no to cancel.",
                 ):
                     console.print("Recovery cancelled.")
                     return 1
 
-        extracted = decrypt_and_extract(plan, quiet=quiet, debug=debug)
-
-        with wizard_stage("Output"):
-            output_path = _resolve_recover_output(
-                extracted, args.output, interactive=True, doc_id=plan.doc_id
+            write_recovered_outputs(
+                extracted,
+                output_path=output_path,
+                auth_status=plan.auth_status,
+                allow_unsigned=plan.allow_unsigned,
+                quiet=quiet,
             )
-            if not assume_yes and not prompt_yes_no(
-                "Proceed with writing files",
-                default=True,
-                help_text="Select no to cancel.",
-            ):
-                console.print("Recovery cancelled.")
-                return 1
-
-        write_recovered_outputs(
-            extracted,
-            output_path=output_path,
-            auth_status=plan.auth_status,
-            allow_unsigned=plan.allow_unsigned,
-            quiet=quiet,
-        )
-        return 0
+            return 0
 
 
 def _load_extra_auth_frames(args: RecoverArgs, allow_unsigned: bool, quiet: bool) -> list:
