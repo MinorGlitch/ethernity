@@ -147,18 +147,19 @@ def _validate_qr_payload_bytes(size: int, data: bytes, config: QrConfig) -> None
 
 
 def _max_qr_payload_bytes(data: bytes, config: QrConfig) -> int:
-    upper = _MAX_QR_PROBE_BYTES
-    while upper > 1 and not _fits_qr_payload(data[:upper], config):
-        upper //= 2
-    if upper <= 1 and not _fits_qr_payload(data[:1], config):
+    max_probe = max(1, min(len(data), _MAX_QR_PROBE_BYTES))
+    if not _fits_qr_payload(data[:1], config):
         raise ValueError("QR settings cannot encode any payload bytes")
+    if _fits_qr_payload(data[:max_probe], config):
+        return max_probe
     lower = 1
-    while lower < upper:
-        mid = (lower + upper + 1) // 2
+    upper = max_probe
+    while lower + 1 < upper:
+        mid = (lower + upper) // 2
         if _fits_qr_payload(data[:mid], config):
             lower = mid
         else:
-            upper = mid - 1
+            upper = mid
     return lower
 
 

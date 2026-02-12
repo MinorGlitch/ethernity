@@ -146,11 +146,13 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
             prompts_module._select_without_default_highlight("Pick", choices=[], default=None)
 
     def test_select_without_default_highlight_returns_question(self) -> None:
-        question = prompts_module._select_without_default_highlight(
-            "Pick",
-            choices=[questionary.Choice(title="A", value="a")],
-            default="a",
-        )
+        with mock.patch("ethernity.cli.ui.prompts.common.create_inquirer_layout"):
+            with mock.patch("ethernity.cli.ui.prompts.Application", return_value=mock.MagicMock()):
+                question = prompts_module._select_without_default_highlight(
+                    "Pick",
+                    choices=[questionary.Choice(title="A", value="a")],
+                    default="a",
+                )
         self.assertIsNotNone(question)
 
     @mock.patch(

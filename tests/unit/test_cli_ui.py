@@ -247,9 +247,15 @@ class TestUIHelpers(unittest.TestCase):
         context = self._context(force_terminal=True)
         context.animations_enabled = True
         context.console.file = mock.MagicMock()
-        context.console.file.flush.side_effect = [OSError("no flush"), None, None, None]
-        with ui_module.status("Preparing...", quiet=False, context=context) as live:
-            self.assertIsNotNone(live)
+        context.console.file.flush.side_effect = OSError("no flush")
+        live = mock.MagicMock()
+        live_cm = mock.MagicMock()
+        live_cm.__enter__.return_value = live
+        live_cm.__exit__.return_value = False
+        with mock.patch("ethernity.cli.ui.Live", return_value=live_cm):
+            with ui_module.status("Preparing...", quiet=False, context=context) as status_live:
+                self.assertIs(status_live, live)
+        live.update.assert_called_once()
 
     def test_build_table_and_panel_helpers(self) -> None:
         kv = ui_module.build_kv_table([("A", "1")], title="Meta")

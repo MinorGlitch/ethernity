@@ -238,7 +238,7 @@ class TestConfigInstaller(unittest.TestCase):
             )
             with mock.patch.object(installer, "PACKAGE_ROOT", root / "missing-package"):
                 installer._copy_template_designs(paths)
-        self.assertFalse(paths.user_templates_root.exists())
+            self.assertFalse(paths.user_templates_root.exists())
 
     def test_copy_if_missing_respects_existing_and_copies_when_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
