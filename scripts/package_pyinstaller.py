@@ -133,7 +133,7 @@ def main() -> None:
 
     _ensure_dist_layout()
     archive_root = _archive_root_name(release_tag, artifact_os, artifact_arch)
-    base_name = f"ethernity-{release_tag}-{artifact_os}-{artifact_arch}-{packager}-{package_mode}"
+    base_name = f"ethernity-{release_tag}-{artifact_os}-{artifact_arch}"
     if artifact_os == "windows":
         output = Path(f"{base_name}.zip")
         _create_zip(output, archive_root)
