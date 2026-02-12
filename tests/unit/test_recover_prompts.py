@@ -129,6 +129,62 @@ class TestResolveRecoverOutput(unittest.TestCase):
         mock_prompt_choice.assert_not_called()
         mock_prompt_optional_path_with_picker.assert_called_once()
 
+    def test_returns_preselected_output_or_noninteractive_unchanged(self) -> None:
+        entry = _ManifestEntry("doc.txt")
+        self.assertEqual(
+            _resolve_recover_output(
+                [(entry, b"payload")],
+                "chosen.txt",
+                interactive=True,
+                doc_id=b"\x11" * 16,
+            ),
+            "chosen.txt",
+        )
+        self.assertIsNone(
+            _resolve_recover_output(
+                [(entry, b"payload")],
+                None,
+                interactive=False,
+                doc_id=b"\x11" * 16,
+            )
+        )
+        self.assertIsNone(
+            _resolve_recover_output(
+                [],
+                None,
+                interactive=True,
+                doc_id=b"\x11" * 16,
+            )
+        )
+
+    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
+    def test_multi_file_without_doc_id_uses_recovered_output_default(
+        self,
+        mock_prompt_optional_path_with_picker: mock.MagicMock,
+    ) -> None:
+        mock_prompt_optional_path_with_picker.return_value = None
+        entries = [(_ManifestEntry("a.txt"), b"a"), (_ManifestEntry("b.txt"), b"b")]
+        resolved = _resolve_recover_output(entries, None, interactive=True, doc_id=None)
+        self.assertEqual(resolved, "recovered-output")
+
+    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    def test_inferred_filename_trims_to_basename(
+        self,
+        mock_prompt_choice: mock.MagicMock,
+        mock_prompt_optional_path_with_picker: mock.MagicMock,
+    ) -> None:
+        mock_prompt_choice.side_effect = ["file", "inferred"]
+        entry = _ManifestEntry("  /nested/path/archive.zip  ")
+        resolved = _resolve_recover_output(
+            [(entry, b"payload")],
+            None,
+            interactive=True,
+            doc_id=b"\x11" * 16,
+        )
+        self.assertEqual(resolved, "archive.zip")
+        mock_prompt_optional_path_with_picker.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
