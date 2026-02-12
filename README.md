@@ -162,6 +162,14 @@ GitHub Releases publish standalone PyInstaller `onedir` archives with this namin
 ethernity-{tag}-{os}-{arch}-pyinstaller-onedir.{zip|tar.gz}
 ```
 
+Current release variants:
+
+- `linux-x64` (`.tar.gz`)
+- `linux-arm64` (`.tar.gz`)
+- `macos-x64` (`.tar.gz`)
+- `macos-arm64` (`.tar.gz`)
+- `windows-x64` (`.zip`)
+
 Each archive ships with companion verification files:
 
 - `...sha256` (checksum)
