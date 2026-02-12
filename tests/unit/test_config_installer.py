@@ -84,6 +84,9 @@ class TestConfigInstaller(unittest.TestCase):
 
                     _create_design(templates_root, "ledger")
                     _create_design(templates_root, "maritime")
+                    _create_design(templates_root, "archive_dossier")
+                    _create_design(templates_root, "maritime_ledger")
+                    _create_design(templates_root, "midnight_archive")
                     _create_design(templates_root, ".hidden")
                     (templates_root / "file.txt").write_text("x", encoding="utf-8")
                     (templates_root / "invalid").mkdir(parents=True, exist_ok=True)
@@ -95,6 +98,9 @@ class TestConfigInstaller(unittest.TestCase):
         self.assertEqual(set(result.keys()), {"ledger", "maritime"})
         self.assertEqual(result["ledger"], user_ledger)
         self.assertEqual(result["maritime"], package_root / "templates" / "maritime")
+        self.assertNotIn("archive_dossier", result)
+        self.assertNotIn("maritime_ledger", result)
+        self.assertNotIn("midnight_archive", result)
 
     def test_resolve_template_design_path_variants(self) -> None:
         designs = {

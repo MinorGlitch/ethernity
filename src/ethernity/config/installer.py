@@ -33,6 +33,16 @@ DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH = (
 )
 DEFAULT_KIT_TEMPLATE_PATH = PACKAGE_ROOT / "templates/ledger/kit_document.html.j2"
 DEFAULT_TEMPLATE_STYLE = DEFAULT_TEMPLATE_PATH.parent.name
+SUPPORTED_TEMPLATE_DESIGNS = (
+    "archive",
+    "dossier",
+    "forge",
+    "ledger",
+    "maritime",
+    "midnight",
+    "monograph",
+    "sentinel",
+)
 TEMPLATE_FILENAMES = (
     DEFAULT_TEMPLATE_PATH.name,
     DEFAULT_RECOVERY_TEMPLATE_PATH.name,
@@ -94,16 +104,17 @@ def list_template_designs() -> dict[str, Path]:
 
     paths = _build_paths()
     designs: dict[str, Path] = {}
-    for entry in sorted(package_root.iterdir(), key=lambda item: item.name.lower()):
-        if entry.name.startswith(".") or not entry.is_dir():
+    for design_name in SUPPORTED_TEMPLATE_DESIGNS:
+        entry = package_root / design_name
+        if not entry.is_dir():
             continue
         if not _is_template_design_dir(entry):
             continue
-        user_override = paths.user_templates_root / entry.name
+        user_override = paths.user_templates_root / design_name
         if user_override.is_dir() and _is_template_design_dir(user_override):
-            designs[entry.name] = user_override
+            designs[design_name] = user_override
         else:
-            designs[entry.name] = entry
+            designs[design_name] = entry
     return designs
 
 
