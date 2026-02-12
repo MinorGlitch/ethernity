@@ -15,6 +15,12 @@ Examples:
 - `ethernity-vX.Y.Z-linux-x64-pyinstaller-onedir.tar.gz`
 - `ethernity-vX.Y.Z-windows-x64-pyinstaller-onedir.zip`
 
+Archives extract into a versioned root directory:
+
+```text
+ethernity-{tag}-{os}-{arch}
+```
+
 ## Published Variant Matrix
 
 Current release matrix:
@@ -29,9 +35,8 @@ Current release matrix:
 
 Each archive is published with sidecars:
 
-- `*.sha256` - SHA-256 checksum
 - `*.sbom.cdx.json` - CycloneDX SBOM
-- `*.sigstore.json` - Sigstore bundle (required provenance artifact)
+- `*.sigstore.json` - Sigstore bundle for signed artifacts (archive and SBOM)
 - `*.sig` and `*.pem` - optional detached signature/certificate pair (may be absent)
 
 Notes:
@@ -41,21 +46,7 @@ Notes:
 
 ## Verification Workflow
 
-### 1) Verify checksum
-
-Linux/macOS:
-
-```sh
-sha256sum -c ethernity-vX.Y.Z-linux-x64-pyinstaller-onedir.tar.gz.sha256
-```
-
-macOS with `shasum` fallback:
-
-```sh
-shasum -a 256 -c ethernity-vX.Y.Z-macos-arm64-pyinstaller-onedir.tar.gz.sha256
-```
-
-### 2) Verify Sigstore bundle (recommended)
+### 1) Verify Sigstore bundle (recommended)
 
 ```sh
 cosign verify-blob \
@@ -73,7 +64,7 @@ cosign verify-blob \
   ethernity-vX.Y.Z-linux-x64-pyinstaller-onedir.tar.gz
 ```
 
-### 3) Verify detached signature (optional path)
+### 2) Verify detached signature (optional path)
 
 Use this only when both `.sig` and `.pem` exist:
 
@@ -84,7 +75,7 @@ cosign verify-blob \
   ethernity-vX.Y.Z-linux-x64-pyinstaller-onedir.tar.gz
 ```
 
-### 4) Inspect SBOM
+### 3) Inspect SBOM
 
 ```sh
 cat ethernity-vX.Y.Z-linux-x64-pyinstaller-onedir.sbom.cdx.json
@@ -95,9 +86,8 @@ cat ethernity-vX.Y.Z-linux-x64-pyinstaller-onedir.sbom.cdx.json
 A complete archive set for each variant includes:
 
 - archive
-- checksum
 - SBOM
-- bundle files for archive/checksum/SBOM
+- bundle files for archive/SBOM
 
 Release publishing is fail-closed: missing required variant artifacts should block publication.
 
@@ -106,10 +96,6 @@ Release publishing is fail-closed: missing required variant artifacts should blo
 ### Missing `.sig`/`.pem`
 
 This can be valid when bundle-first signing is used. Check for `.sigstore.json` files.
-
-### Checksum mismatch
-
-Do not use the artifact. Re-download and verify again.
 
 ### Verification fails with identity constraints
 
