@@ -14,6 +14,7 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 import base64
+import contextlib
 import io
 import json
 import tempfile
@@ -21,7 +22,14 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.flows.recover_input import _PayloadCollectionState, parse_recovery_lines
+from ethernity.cli.flows.recover_input import (
+    _PayloadCollectionState,
+    collect_fallback_frames,
+    collect_payload_frames,
+    parse_recovery_lines,
+    prompt_recovery_input_interactive,
+    prompt_text_or_payloads_stdin,
+)
 from ethernity.cli.io.frames import _frame_from_payload_text, _frames_from_scan, _read_text_lines
 from ethernity.core.bounds import MAX_QR_PAYLOAD_CHARS
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
@@ -270,6 +278,326 @@ class TestRecoverInput(unittest.TestCase):
             with mock.patch("ethernity.cli.io.frames.MAX_RECOVERY_TEXT_BYTES", 10):
                 lines = _read_text_lines(str(path))
         self.assertEqual(lines, ["x" * 10])
+
+    def test_payload_collection_next_prompt_transitions(self) -> None:
+        state = _PayloadCollectionState(allow_unsigned=False, quiet=True)
+        self.assertEqual(state.next_prompt(), "QR payload")
+        state.main_total = 2
+        state.main_indices = {0}
+        self.assertEqual(state.next_prompt(), "QR payload (2 remaining)")
+        state.main_indices = {0, 1}
+        self.assertEqual(state.next_prompt(), "Auth QR payload (1 remaining)")
+
+    def test_payload_collection_rejects_total_mismatch(self) -> None:
+        state = _PayloadCollectionState(allow_unsigned=True, quiet=True)
+        first = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x51" * DOC_ID_LEN,
+            index=0,
+            total=2,
+            data=b"a",
+        )
+        second = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x51" * DOC_ID_LEN,
+            index=1,
+            total=3,
+            data=b"b",
+        )
+        self.assertFalse(state.ingest(first))
+        self.assertFalse(state.ingest(second))
+
+    def test_payload_collection_rejects_conflicting_duplicate(self) -> None:
+        state = _PayloadCollectionState(allow_unsigned=True, quiet=True)
+        first = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x52" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"first",
+        )
+        second = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x52" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"second",
+        )
+        self.assertTrue(state.ingest(first))
+        self.assertFalse(state.ingest(second))
+
+    def test_payload_collection_ignores_identical_duplicate_in_verbose_mode(self) -> None:
+        state = _PayloadCollectionState(allow_unsigned=True, quiet=False)
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x53" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"same",
+        )
+        with mock.patch("ethernity.cli.flows.recover_input.console.print") as print_mock:
+            self.assertTrue(state.ingest(frame))
+            self.assertFalse(state.ingest(frame))
+        self.assertTrue(
+            any("Duplicate payload ignored." in str(call) for call in print_mock.call_args_list)
+        )
+
+    def test_payload_collection_rejects_non_main_or_auth_frames(self) -> None:
+        state = _PayloadCollectionState(allow_unsigned=True, quiet=True)
+        shard = Frame(
+            version=1,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=b"\x54" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"shard",
+        )
+        self.assertFalse(state.ingest(shard))
+
+    def test_payload_collection_waiting_message_when_no_main_seen(self) -> None:
+        state = _PayloadCollectionState(allow_unsigned=False, quiet=False)
+        with mock.patch("ethernity.cli.flows.recover_input.console.print") as print_mock:
+            self.assertFalse(state._is_complete())
+        self.assertTrue(
+            any("Waiting for a MAIN frame" in str(call) for call in print_mock.call_args_list)
+        )
+
+    def test_prompt_text_or_payloads_stdin_uses_fallback_when_mode_unknown(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x55" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        with mock.patch(
+            "ethernity.cli.flows.recover_input.prompt_required", return_value="bad input"
+        ):
+            with mock.patch(
+                "ethernity.cli.flows.recover_input._detect_recovery_input_mode",
+                side_effect=ValueError("bad"),
+            ):
+                with mock.patch(
+                    "ethernity.cli.flows.recover_input.collect_fallback_frames",
+                    return_value=[frame],
+                ) as collect_mock:
+                    frames, label = prompt_text_or_payloads_stdin(
+                        allow_unsigned=True,
+                        quiet=True,
+                    )
+        self.assertEqual(label, "Recovery text")
+        self.assertEqual(frames, [frame])
+        collect_mock.assert_called_once()
+
+    def test_prompt_text_or_payloads_stdin_uses_payload_flow(self) -> None:
+        first_frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x56" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        with mock.patch(
+            "ethernity.cli.flows.recover_input.prompt_required", return_value="payload"
+        ):
+            with mock.patch(
+                "ethernity.cli.flows.recover_input._detect_recovery_input_mode",
+                return_value="payload",
+            ):
+                with mock.patch(
+                    "ethernity.cli.flows.recover_input._frame_from_payload_text",
+                    return_value=first_frame,
+                ):
+                    with mock.patch(
+                        "ethernity.cli.flows.recover_input.collect_payload_frames",
+                        return_value=[first_frame],
+                    ) as collect_mock:
+                        frames, label = prompt_text_or_payloads_stdin(
+                            allow_unsigned=True,
+                            quiet=True,
+                        )
+        self.assertEqual(label, "QR payloads")
+        self.assertEqual(frames, [first_frame])
+        collect_mock.assert_called_once()
+
+    def test_collect_fallback_frames_retries_after_invalid_initial_lines(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x57" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        with mock.patch(
+            "ethernity.cli.flows.recover_input._frames_from_fallback_lines",
+            side_effect=[ValueError("bad"), [frame]],
+        ):
+            with mock.patch(
+                "ethernity.cli.flows.recover_input.prompt_multiline",
+                return_value=["ybndr fghj"],
+            ):
+                with mock.patch(
+                    "ethernity.cli.flows.recover_input.status",
+                    return_value=contextlib.nullcontext(),
+                ):
+                    frames = collect_fallback_frames(
+                        allow_unsigned=True,
+                        quiet=True,
+                        initial_lines=["not-fallback"],
+                    )
+        self.assertEqual(frames, [frame])
+
+    def test_collect_payload_frames_retries_invalid_payload_then_succeeds(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x58" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        with mock.patch(
+            "ethernity.cli.flows.recover_input.prompt_required",
+            side_effect=["bad", "good"],
+        ):
+            with mock.patch(
+                "ethernity.cli.flows.recover_input._frame_from_payload_text",
+                side_effect=[ValueError("bad"), frame],
+            ):
+                frames = collect_payload_frames(allow_unsigned=True, quiet=True)
+        self.assertEqual(frames, [frame])
+
+    def test_collect_payload_frames_waits_for_auth_when_unsigned_not_allowed(self) -> None:
+        main_frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x59" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"main",
+        )
+        auth_frame = Frame(
+            version=1,
+            frame_type=FrameType.AUTH,
+            doc_id=b"\x59" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"auth",
+        )
+        with mock.patch("ethernity.cli.flows.recover_input.prompt_required", return_value="auth"):
+            with mock.patch(
+                "ethernity.cli.flows.recover_input._frame_from_payload_text",
+                return_value=auth_frame,
+            ):
+                frames = collect_payload_frames(
+                    allow_unsigned=False,
+                    quiet=True,
+                    first_frame=main_frame,
+                )
+        self.assertEqual(len(frames), 2)
+        self.assertEqual(
+            {frame.frame_type for frame in frames}, {FrameType.MAIN_DOCUMENT, FrameType.AUTH}
+        )
+
+    def test_prompt_recovery_input_interactive_uses_text_stdin_path(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x60" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        with mock.patch("ethernity.cli.flows.recover_input.prompt_choice", return_value="text"):
+            with mock.patch(
+                "ethernity.cli.flows.recover_input.prompt_path_with_picker", return_value="-"
+            ):
+                with mock.patch(
+                    "ethernity.cli.flows.recover_input.prompt_text_or_payloads_stdin",
+                    return_value=([frame], "Recovery text"),
+                ):
+                    frames, label, detail = prompt_recovery_input_interactive(
+                        allow_unsigned=True,
+                        quiet=True,
+                    )
+        self.assertEqual(label, "Recovery text")
+        self.assertEqual(detail, "stdin")
+        self.assertEqual(frames, [frame])
+
+    def test_prompt_recovery_input_interactive_uses_scan_path(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x61" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        with mock.patch("ethernity.cli.flows.recover_input.prompt_choice", return_value="scan"):
+            with mock.patch(
+                "ethernity.cli.flows.recover_input.prompt_path_with_picker",
+                return_value="scan.png",
+            ):
+                with mock.patch(
+                    "ethernity.cli.flows.recover_input._frames_from_scan",
+                    return_value=[frame],
+                ):
+                    with mock.patch(
+                        "ethernity.cli.flows.recover_input.status",
+                        return_value=contextlib.nullcontext(),
+                    ):
+                        frames, label, detail = prompt_recovery_input_interactive(
+                            allow_unsigned=True,
+                            quiet=True,
+                        )
+        self.assertEqual(label, "Scan")
+        self.assertEqual(detail, "scan.png")
+        self.assertEqual(frames, [frame])
+
+    def test_prompt_recovery_input_interactive_retries_after_parse_error(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x62" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        with mock.patch(
+            "ethernity.cli.flows.recover_input.prompt_choice",
+            side_effect=["text", "scan"],
+        ):
+            with mock.patch(
+                "ethernity.cli.flows.recover_input.prompt_path_with_picker",
+                side_effect=["recovery.txt", "scan.png"],
+            ):
+                with mock.patch(
+                    "ethernity.cli.flows.recover_input._read_text_lines",
+                    side_effect=[ValueError("bad"), ["line"]],
+                ):
+                    with mock.patch(
+                        "ethernity.cli.flows.recover_input._frames_from_scan",
+                        return_value=[frame],
+                    ):
+                        with mock.patch(
+                            "ethernity.cli.flows.recover_input.status",
+                            return_value=contextlib.nullcontext(),
+                        ):
+                            frames, label, detail = prompt_recovery_input_interactive(
+                                allow_unsigned=True,
+                                quiet=True,
+                            )
+        self.assertEqual(label, "Scan")
+        self.assertEqual(detail, "scan.png")
+        self.assertEqual(frames, [frame])
 
 
 if __name__ == "__main__":
