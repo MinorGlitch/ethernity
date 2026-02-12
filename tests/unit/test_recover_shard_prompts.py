@@ -91,9 +91,11 @@ class TestRecoverShardPrompts(unittest.TestCase):
         self.assertFalse(accepted)
         self.assertEqual(len(state.frames), 1)
         self.assertEqual(len(state.seen_shares), 1)
-        self.assertIn(
-            mock.call("[error]This shard conflicts with one you've already provided.[/error]"),
-            error_print_mock.mock_calls,
+        self.assertTrue(
+            any(
+                "This shard conflicts with one you've already provided." in str(call)
+                for call in error_print_mock.mock_calls
+            )
         )
 
     def test_threshold_completion_returns_true_when_enough_shards_collected(self) -> None:

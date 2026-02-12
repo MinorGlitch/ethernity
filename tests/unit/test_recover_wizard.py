@@ -500,6 +500,10 @@ class TestRunRecoverWizard(unittest.TestCase):
         "ethernity.cli.flows.recover_wizard._prompt_recovery_input",
         return_value=([_frame(FrameType.MAIN_DOCUMENT)], "Recovery text", "stdin"),
     )
+    @mock.patch(
+        "ethernity.cli.flows.recover_wizard.ui_screen_mode",
+        return_value=contextlib.nullcontext(),
+    )
     @mock.patch("ethernity.cli.flows.recover_wizard.resolve_recover_config")
     @mock.patch("ethernity.cli.flows.recover_wizard.validate_recover_args")
     @mock.patch("ethernity.cli.flows.recover_wizard.sys.stdout.isatty", return_value=True)
@@ -510,6 +514,7 @@ class TestRunRecoverWizard(unittest.TestCase):
         _stdout_tty: mock.MagicMock,
         _validate_recover_args: mock.MagicMock,
         _resolve_recover_config: mock.MagicMock,
+        ui_screen_mode: mock.MagicMock,
         _prompt_recovery_input: mock.MagicMock,
         _load_extra_auth_frames: mock.MagicMock,
         _prompt_key_material: mock.MagicMock,
@@ -541,6 +546,7 @@ class TestRunRecoverWizard(unittest.TestCase):
         )
 
         self.assertEqual(result, 0)
+        ui_screen_mode.assert_called_once_with(quiet=False)
         write_recovered_outputs.assert_called_once_with(
             extracted,
             output_path="out",

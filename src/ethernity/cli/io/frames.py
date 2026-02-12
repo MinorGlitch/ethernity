@@ -38,7 +38,8 @@ def format_recovery_input_error(exc: Exception) -> str:
     return format_qr_input_error(
         message,
         bad_payload_hint=(
-            "That doesn't look like a QR payload. Try scanning images or paste recovery text."
+            "That doesn't look like a QR payload. Paste one payload per line, "
+            "or switch to recovery text."
         ),
         no_qr_hint="No QR data found. Try a clearer scan or paste recovery text.",
         scan_failed_hint="Check the scan path and try again.",

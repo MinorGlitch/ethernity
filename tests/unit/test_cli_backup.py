@@ -833,6 +833,7 @@ class TestCliBackup(unittest.TestCase):
                 "ethernity.cli.flows.backup._load_input_files",
                 return_value=([input_file], None),
             ),
+            mock.patch("ethernity.cli.flows.backup.ui_screen_mode") as screen_mode,
             mock.patch("ethernity.cli.flows.backup.run_backup", return_value=result),
             mock.patch("ethernity.cli.flows.backup.print_backup_summary"),
             mock.patch("ethernity.cli.flows.backup._print_completion_actions"),
@@ -840,6 +841,7 @@ class TestCliBackup(unittest.TestCase):
             exit_code = cli.run_backup_command(args)
         self.assertEqual(exit_code, 0)
         warn_mock.assert_not_called()
+        screen_mode.assert_not_called()
 
 
 class TestCliBackupUx(unittest.TestCase):
@@ -950,10 +952,15 @@ class TestCliBackupUx(unittest.TestCase):
                 "ethernity.cli.flows.backup.prompt_yes_no",
                 return_value=False,
             ),
+            mock.patch(
+                "ethernity.cli.flows.backup.ui_screen_mode",
+                return_value=contextlib.nullcontext(),
+            ) as screen_mode,
             mock.patch("ethernity.cli.flows.backup.console.print") as print_mock,
         ):
             result = cli.run_wizard(quiet=True)
         self.assertEqual(result, 1)
+        screen_mode.assert_called_once_with(quiet=True)
         self.assertIn(mock.call("Backup cancelled."), print_mock.mock_calls)
 
 
