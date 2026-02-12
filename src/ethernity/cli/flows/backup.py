@@ -493,7 +493,7 @@ def run_wizard(
 def _should_use_wizard_for_backup(args: BackupArgs) -> bool:
     if args.input or args.input_dir:
         return False
-    if not os.isatty(0):
+    if not os.isatty(0) or not os.isatty(1):
         return False
     return True
 
