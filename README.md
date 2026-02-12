@@ -150,14 +150,12 @@ OS_ARCH="linux-x64"
 BASE="ethernity-${TAG}-${OS_ARCH}-pyinstaller-onedir.tar.gz"
 
 curl -LO "https://github.com/MinorGlitch/ethernity/releases/download/${TAG}/${BASE}"
-curl -LO "https://github.com/MinorGlitch/ethernity/releases/download/${TAG}/${BASE}.sha256"
 curl -LO "https://github.com/MinorGlitch/ethernity/releases/download/${TAG}/${BASE}.sigstore.json"
 
-sha256sum -c "${BASE}.sha256"
 cosign verify-blob --bundle "${BASE}.sigstore.json" "${BASE}"
 
 tar -xzf "${BASE}"
-./ethernity-${TAG}-${OS_ARCH}-pyinstaller-onedir/ethernity --help
+./ethernity-${TAG}-${OS_ARCH}/ethernity --help
 ```
 
 For full verification and provenance guidance, use
@@ -510,16 +508,14 @@ Companion verification/provenance files:
 
 | File | Role |
 | --- | --- |
-| `*.sha256` | checksum manifest |
 | `*.sbom.cdx.json` | CycloneDX software bill of materials |
-| `*.sigstore.json` | Sigstore bundle (required provenance artifact) |
+| `*.sigstore.json` | Sigstore bundle for signed artifacts (archive and SBOM) |
 | `*.sig` / `*.pem` | optional detached signature/certificate path |
 
 Quick verification path:
 
 ```sh
 BASE="ethernity-vX.Y.Z-linux-x64-pyinstaller-onedir.tar.gz"
-sha256sum -c "${BASE}.sha256"
 cosign verify-blob --bundle "${BASE}.sigstore.json" "${BASE}"
 ```
 
@@ -538,7 +534,6 @@ Each row follows `symptom -> fix`.
 | Recovery parser rejects mixed payload text | Split sources by document set; run one recovery mode at a time. |
 | `No such option` in CLI usage | Run `ethernity <command> --help` and use current flags (for example `--qr-chunk-size`). |
 | `cosign verify-blob` fails | Confirm you are verifying the exact archive with its matching `.sigstore.json` bundle. |
-| Checksum mismatch | Re-download archive and `.sha256`, then verify again before extraction. |
 | Recovery output seems wrong | Compare recovered hash/bytes with trusted source and rerun with fresh inputs. |
 
 ### Provenance Bundle Confusion

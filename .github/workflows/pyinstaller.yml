@@ -229,7 +229,6 @@ jobs:
           if-no-files-found: error
           path: |
             ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}-pyinstaller-onedir.${{ matrix.archive_ext }}
-            ethernity-${{ needs.precheck.outputs.tag }}-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}-pyinstaller-onedir.${{ matrix.archive_ext }}.sha256
 
   provenance:
     needs: [precheck, build]
@@ -283,12 +282,6 @@ jobs:
           fi
 
           for archive in "${archives[@]}"; do
-            checksum="${archive}.sha256"
-            if [[ ! -f "${checksum}" ]]; then
-              echo "missing checksum for archive: ${archive}" >&2
-              exit 1
-            fi
-
             if [[ "${archive}" == *.tar.gz ]]; then
               stem="${archive%.tar.gz}"
             else
@@ -303,7 +296,8 @@ jobs:
               --of JSON \
               --output-file "${sbom}"
 
-            for file in "${archive}" "${checksum}" "${sbom}"; do
+            # Sign distributable payloads directly.
+            for file in "${archive}" "${sbom}"; do
               cosign sign-blob --yes \
                 --bundle "${file}.sigstore.json" \
                 --output-signature "${file}.sig" \
@@ -366,7 +360,6 @@ jobs:
               exit 1
             fi
 
-            checksum="${archive}.sha256"
             if [[ "${archive}" == *.tar.gz ]]; then
               stem="${archive%.tar.gz}"
             else
@@ -375,7 +368,6 @@ jobs:
             sbom="${stem}.sbom.cdx.json"
 
             required=(
-              "${checksum}"
               "${sbom}"
             )
             for file in "${required[@]}"; do
@@ -385,7 +377,7 @@ jobs:
               fi
             done
 
-            signed_targets=("${archive}" "${checksum}" "${sbom}")
+            signed_targets=("${archive}" "${sbom}")
             for target in "${signed_targets[@]}"; do
               bundle="${target}.sigstore.json"
               if [[ ! -f "${bundle}" ]]; then
@@ -413,7 +405,6 @@ jobs:
           files: |
             dist-artifacts/*.zip
             dist-artifacts/*.tar.gz
-            dist-artifacts/*.sha256
             dist-artifacts/*.sbom.cdx.json
             dist-artifacts/*.sigstore.json
             dist-artifacts/*.sig

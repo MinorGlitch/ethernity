@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import os
 import tarfile
 import zipfile
@@ -85,11 +84,15 @@ def _ensure_dist_layout() -> None:
         raise SystemExit("dist/ethernity is empty")
 
 
-def _create_zip(output: Path) -> None:
+def _archive_root_name(release_tag: str, artifact_os: str, artifact_arch: str) -> str:
+    return f"ethernity-{release_tag}-{artifact_os}-{artifact_arch}"
+
+
+def _create_zip(output: Path, archive_root: str) -> None:
     files = _iter_dist_files(PYINSTALLER_DIR)
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as zip_handle:
         for path in files:
-            archive_name = path.relative_to(DIST_DIR).as_posix()
+            archive_name = (Path(archive_root) / path.relative_to(PYINSTALLER_DIR)).as_posix()
             info = zipfile.ZipInfo(filename=archive_name, date_time=(1980, 1, 1, 0, 0, 0))
             info.external_attr = 0o644 << 16
             zip_handle.writestr(info, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED)
@@ -104,18 +107,9 @@ def _tar_filter(info: tarfile.TarInfo) -> tarfile.TarInfo:
     return info
 
 
-def _create_tar_gz(output: Path) -> None:
+def _create_tar_gz(output: Path, archive_root: str) -> None:
     with tarfile.open(output, "w:gz") as tar_handle:
-        tar_handle.add(
-            PYINSTALLER_DIR, arcname=PYINSTALLER_DIR.relative_to(DIST_DIR), filter=_tar_filter
-        )
-
-
-def _write_checksum(output: Path) -> Path:
-    digest = hashlib.sha256(output.read_bytes()).hexdigest()
-    checksum_path = output.with_suffix(output.suffix + ".sha256")
-    checksum_path.write_text(f"{digest}  {output.name}\n", encoding="utf-8")
-    return checksum_path
+        tar_handle.add(PYINSTALLER_DIR, arcname=archive_root, filter=_tar_filter)
 
 
 def main() -> None:
@@ -138,17 +132,16 @@ def main() -> None:
             )
 
     _ensure_dist_layout()
+    archive_root = _archive_root_name(release_tag, artifact_os, artifact_arch)
     base_name = f"ethernity-{release_tag}-{artifact_os}-{artifact_arch}-{packager}-{package_mode}"
     if artifact_os == "windows":
         output = Path(f"{base_name}.zip")
-        _create_zip(output)
+        _create_zip(output, archive_root)
     else:
         output = Path(f"{base_name}.tar.gz")
-        _create_tar_gz(output)
+        _create_tar_gz(output, archive_root)
 
-    checksum_path = _write_checksum(output)
     print(f"Created {output}")
-    print(f"Created {checksum_path}")
 
 
 if __name__ == "__main__":
