@@ -1,0 +1,595 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+{% from 'css_base.j2' import reset_styles, page_styles, qr_grid_items_styles, qr_image_styles %}
+{% from 'css_variables.j2' import common_variables %}
+{% from 'html_components.j2' import divider, qr_grid, qr_grid_items, qr_sequence, instructions_lines %}
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+    :root {
+      {{ common_variables() }}
+
+      --ink: #0c2230;
+      --ink-muted: #31495a;
+      --ink-soft: #5a7384;
+      --ink-label: #223643;
+      --accent: #0c2b3c;
+      --rail: #0c2b3c;
+      --paper-top: #f2f6f7;
+      --paper-bottom: #dfe7ea;
+      --surface: #f7fbfc;
+      --surface-border: #b7c4c9;
+      --rule: #c1ced2;
+      --rule-strong: #869aa3;
+      --note: #e9f0f2;
+      --tab: #c7dde0;
+      --pin: #465c68;
+      --stamp: #1f5e73;
+      --font-title: "Baskerville", "Goudy Old Style", "Palatino Linotype", "Palatino", serif;
+      --font-body: "Gill Sans", "Trebuchet MS", "Verdana", sans-serif;
+      --font-mono: "SFMono-Regular", "Menlo", "Consolas", "Courier New", monospace;
+      --header-pad: 2mm 3mm;
+      --instructions-pad: 0 3mm;
+      --instructions-page-pad: 6mm 5mm 5mm 8mm;
+      --instructions-callout-pad: 3mm;
+      --instructions-checklist-pad: 3mm;
+      --scan-hint-pad: 0.6mm 2mm 0.6mm 1.4mm;
+      --qr-card-pad: 0.8mm;
+      --border-fine: 0.25mm;
+      --title-size: 15.5pt;
+      --subtitle-size: 8pt;
+      --meta-size: 7.2pt;
+      --meta-label-size: 6pt;
+      --meta-value-size: 7.2pt;
+    }
+{{ reset_styles() }}
+{{ page_styles(page_width_mm, page_height_mm) }}
+    .header {
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      top: {{ margin_mm }}mm;
+      width: {{ usable_width_mm }}mm;
+      display: grid;
+      grid-template-columns: 1fr 48mm;
+      gap: var(--space-8);
+      align-items: start;
+    }
+    .header-left {
+      display: grid;
+      gap: var(--space-4);
+    }
+    .title {
+      font-size: var(--title-size);
+      font-weight: 600;
+      font-family: var(--font-title);
+      color: var(--ink);
+      line-height: 1.1;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .subtitle {
+      font-size: var(--subtitle-size);
+      font-style: normal;
+      color: var(--ink-muted);
+      line-height: 1.2;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+    .meta-grid {
+      display: grid;
+      grid-template-columns: 22mm auto;
+      gap: var(--space-2) var(--space-6);
+      font-size: var(--meta-size);
+      line-height: 1.2;
+      align-items: baseline;
+    }
+    .meta-label {
+      font-size: var(--meta-label-size);
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--ink-soft);
+      font-family: var(--font-title);
+    }
+    .meta-value {
+      font-size: var(--meta-value-size);
+      letter-spacing: 0.08em;
+      color: var(--ink);
+      font-family: var(--font-mono);
+    }
+    .header-right {
+      justify-self: end;
+      align-self: start;
+      border: var(--border-heavy) solid var(--rule-strong);
+      border-radius: var(--radius-md);
+      padding: var(--header-pad);
+      text-align: left;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      background: linear-gradient(180deg, rgba(248, 251, 250, 0.95) 0%, var(--surface) 100%);
+    }
+    .stamp-title {
+      font-size: 7pt;
+      color: var(--stamp);
+      font-family: var(--font-title);
+    }
+    .stamp-value {
+      margin-top: var(--space-1);
+      font-size: 9pt;
+      font-weight: 700;
+      color: var(--ink);
+      font-family: var(--font-title);
+      letter-spacing: 0.12em;
+    }
+    .divider {
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      width: {{ usable_width_mm }}mm;
+      height: 0.4mm;
+      background: repeating-linear-gradient(
+        90deg,
+        var(--rule-strong) 0,
+        var(--rule-strong) 14mm,
+        transparent 14mm,
+        transparent 18mm
+      );
+      opacity: 0.7;
+    }
+    .instructions {
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      width: {{ usable_width_mm }}mm;
+      display: grid;
+      grid-template-columns: minmax(26mm, max-content) 1fr;
+      column-gap: var(--space-5);
+      font-size: 9pt;
+      line-height: 4.5mm;
+      color: var(--ink);
+      background: linear-gradient(
+        90deg,
+        rgba(15, 43, 60, 0.06) 0,
+        rgba(255, 255, 255, 0) 70%
+      );
+      border: none;
+      border-radius: var(--radius-md);
+      padding: 0 3mm;
+      box-shadow: none;
+      outline: var(--border-strong) solid var(--rule-strong);
+      z-index: 2;
+    }
+
+.instructions::before {
+  content: none;
+}
+    .instructions-label {
+      font-size: 6.5pt;
+      font-weight: 700;
+      color: var(--stamp);
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      font-family: var(--font-title);
+      background: rgba(42, 95, 110, 0.12);
+      padding: 0 1.2mm;
+      justify-self: start;
+      align-self: start;
+      grid-column: 1;
+      grid-row: 1;
+    }
+    .instructions > div:not(.instructions-label) {
+      grid-column: 2;
+      grid-row: 1;
+    }
+    .instructions-page {
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      top: {{ margin_mm }}mm;
+      width: {{ usable_width_mm }}mm;
+      height: calc({{ page_height_mm }}mm - {{ margin_mm * 2 }}mm);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: var(--space-7);
+      padding: 6mm 5mm 5mm 8mm;
+      border-radius: var(--radius-none);
+      background: var(--surface);
+      border: var(--border-rail) double var(--rule-strong);
+      box-shadow: none;
+    }
+    .instructions-page::before {
+      content: "INSTRUCTION INSERT";
+      position: absolute;
+      top: 3mm;
+      right: 5mm;
+      font-size: 7pt;
+      letter-spacing: 0.2em;
+      font-family: var(--font-title);
+      color: var(--stamp);
+      border: var(--border-base) solid var(--stamp);
+      padding: 0.3mm 1.4mm;
+      background: rgba(42, 95, 110, 0.08);
+    }
+    .instructions-hero {
+      display: grid;
+      gap: var(--space-4);
+      padding-bottom: 2mm;
+      border-bottom: var(--border-heavy) double var(--rule-strong);
+    }
+    .instructions-hero h2 {
+      margin: 0;
+      font-size: 15pt;
+      font-family: var(--font-title);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .instructions-hero p {
+      margin: 0;
+      font-size: 9pt;
+      color: var(--ink-muted);
+      letter-spacing: 0.06em;
+    }
+    .instructions-columns {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+      gap: var(--space-9);
+      align-items: start;
+      height: 100%;
+    }
+    .instructions-section {
+      display: grid;
+      gap: var(--space-6);
+    }
+    .instructions-section h3 {
+      margin: 0;
+      font-size: 9pt;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--stamp);
+      font-family: var(--font-title);
+      border: var(--border-base) solid var(--stamp);
+      padding: 0.4mm 1.2mm;
+      display: inline-block;
+      background: rgba(42, 95, 110, 0.08);
+    }
+    .instructions-list {
+      margin: 0;
+      padding-left: 4mm;
+      display: grid;
+      gap: var(--space-3);
+      font-size: 9pt;
+      color: var(--ink);
+      line-height: 1.6;
+      list-style-type: square;
+    }
+    .instructions-steps {
+      display: grid;
+      gap: var(--space-5);
+    }
+    .step-row {
+      display: grid;
+      grid-template-columns: 5mm 1fr;
+      gap: var(--space-5);
+      align-items: start;
+      font-size: 9pt;
+      color: var(--ink);
+      line-height: 1.5;
+    }
+    .step-icon {
+      width: 4mm;
+      height: 4mm;
+      border-radius: var(--radius-none);
+      border: var(--border-base) solid var(--rule-strong);
+      background: var(--tab);
+      position: relative;
+    }
+    .step-icon::after {
+      content: "";
+      position: absolute;
+      inset: 0.6mm;
+      border: var(--border-base) solid var(--rule);
+      border-radius: var(--radius-none);
+    }
+    .instructions-callout {
+      border: none;
+      border-radius: var(--radius-md);
+      padding: var(--instructions-callout-pad);
+      font-size: 9pt;
+      color: var(--ink);
+      background: var(--note);
+      display: grid;
+      gap: var(--space-3);
+      box-shadow: none;
+      outline: var(--border-base) solid var(--rule);
+    }
+    .instructions-callout strong {
+      font-size: 8pt;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--stamp);
+      font-family: var(--font-title);
+    }
+    .instructions-checklist {
+      display: grid;
+      gap: var(--space-4);
+      border: none;
+      border-radius: var(--radius-md);
+      padding: var(--instructions-checklist-pad);
+      background: var(--white, #ffffff);
+      box-shadow: none;
+      outline: var(--border-base) solid var(--rule);
+    }
+    .check-item {
+      display: grid;
+      grid-template-columns: 4mm 1fr;
+      gap: var(--space-5);
+      align-items: start;
+      font-size: 9pt;
+      color: var(--ink);
+    }
+    .check-box {
+      width: 3.4mm;
+      height: 3.4mm;
+      border: var(--border-base) solid var(--rule-strong);
+      border-radius: var(--radius-none);
+      background: var(--white, #ffffff);
+    }
+    .instructions-footnote {
+      font-size: 8pt;
+      color: var(--ink-muted);
+      display: flex;
+      justify-content: space-between;
+      gap: var(--space-7);
+      border-top: var(--border-heavy) double var(--rule-strong);
+      padding-top: var(--space-5);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+    .instructions-footnote div:last-child {
+      text-transform: none;
+      letter-spacing: 0.04em;
+      font-family: var(--font-mono);
+    }
+    .scan-hint {
+      margin-top: var(--space-1);
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: 7pt;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--ink-muted);
+      background: var(--note);
+      border: var(--border-base) solid var(--rule-strong);
+      border-radius: var(--radius-none);
+      padding: var(--scan-hint-pad);
+    }
+    .scan-hint::before {
+      content: "Start";
+      font-weight: 700;
+      font-size: 6pt;
+      color: var(--ink);
+      background: var(--white, #ffffff);
+      border: var(--border-base) solid var(--rule-strong);
+      border-radius: var(--radius-none);
+      padding: 0.2mm 1.4mm;
+      letter-spacing: 0.08em;
+    }
+    .qr-grid {
+      position: absolute;
+      border: none;
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 0;
+      background: var(--surface);
+      box-shadow: none;
+      outline: var(--border-heavy) solid var(--rule-strong);
+    }
+    .qr-grid::before {
+      content: "";
+      position: absolute;
+      inset: 2mm;
+      pointer-events: none;
+    }
+    .qr-grid::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        repeating-linear-gradient(
+          90deg,
+          transparent 0,
+          transparent 22mm,
+          rgba(16, 37, 51, 0.04) 22mm,
+          rgba(16, 37, 51, 0.04) 22.2mm
+        ),
+        repeating-linear-gradient(
+          0deg,
+          transparent 0,
+          transparent 22mm,
+          rgba(16, 37, 51, 0.04) 22mm,
+          rgba(16, 37, 51, 0.04) 22.2mm
+        );
+      opacity: 0.25;
+      pointer-events: none;
+    }
+{{ qr_grid_items_styles() }}
+    .qr-sequence {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .qr-sequence line {
+      stroke: var(--rail);
+      stroke-width: 0.25mm;
+      stroke-dasharray: 1.6mm 1.2mm;
+      opacity: 0.5;
+    }
+    .qr-sequence text {
+      fill: var(--rail);
+      font-size: 6.5pt;
+      font-family: var(--font-mono);
+      letter-spacing: 0.1em;
+    }
+    .qr-card {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      z-index: 1;
+    }
+{{ qr_image_styles() }}
+  </style>
+</head>
+<body>
+{% for page in pages %}
+  <section class="page">
+    <div class="header">
+      <div class="header-left">
+        <div class="title">{{ doc.title }}</div>
+        <div class="subtitle">{{ doc.subtitle }}</div>
+        <div class="meta-grid">
+          <div class="meta-label">Document ID</div>
+          <div class="meta-value">{{ doc_id }}</div>
+          <div class="meta-label">Page</div>
+          <div class="meta-value">{{ page.page_label }}</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="stamp-title">Created (UTC)</div>
+        <div class="stamp-value">{{ created_timestamp_utc }}</div>
+      </div>
+    </div>
+    {{ divider(page) }}
+
+    {% if page.instructions_full_page %}
+    <div class="instructions-page">
+      <div class="instructions-hero">
+        <h2>How to Rebuild the Recovery Kit</h2>
+        <p>Use this page after scanning the QR pages. Keep everything offline.</p>
+      </div>
+      <div class="instructions-columns">
+        <div class="instructions-section">
+          <h3>Scan + Assemble</h3>
+          <div class="instructions-steps">
+            <div class="step-row">
+              <div class="step-icon"></div>
+              <div>Scan every QR code left to right, top to bottom.</div>
+            </div>
+            <div class="step-row">
+              <div class="step-icon"></div>
+              <div>Save each decoded chunk in order. Do not insert spaces or blank lines.</div>
+            </div>
+            <div class="step-row">
+              <div class="step-icon"></div>
+              <div>Concatenate the chunks into one continuous file.</div>
+            </div>
+            <div class="step-row">
+              <div class="step-icon"></div>
+              <div>Name the file exactly: recovery_kit.bundle.html</div>
+            </div>
+          </div>
+          <h3>Open the Kit</h3>
+          <div class="instructions-steps">
+            <div class="step-row">
+              <div class="step-icon"></div>
+              <div>Open recovery_kit.bundle.html in a browser while offline.</div>
+            </div>
+            <div class="step-row">
+              <div class="step-icon"></div>
+              <div>If the file is large, wait for it to finish loading.</div>
+            </div>
+            <div class="step-row">
+              <div class="step-icon"></div>
+              <div>Follow the on-screen prompts to recover your payload.</div>
+            </div>
+          </div>
+          <h3>Troubleshooting</h3>
+          <ul class="instructions-list">
+            <li>If the kit does not load, re-check chunk order and re-save the file.</li>
+            <li>Try another browser if rendering stalls.</li>
+            <li>Confirm the file size matches the sum of all QR chunks.</li>
+          </ul>
+        </div>
+        <div class="instructions-section">
+          <div class="instructions-callout">
+            <strong>Verify</strong>
+            <div>Confirm the kit loads and shows the Recovery Kit home screen.</div>
+            <div>If it fails to open, re-check the order and re-save the file.</div>
+          </div>
+          <div class="instructions-callout">
+            <strong>Storage</strong>
+            <div>Keep the QR pages and the bundle file in separate locations.</div>
+            <div>Store the bundle on a write-protected drive if possible.</div>
+          </div>
+          <div class="instructions-callout">
+            <strong>Security</strong>
+            <div>Work offline and on a trusted machine.</div>
+            <div>Delete temporary files after successful recovery.</div>
+          </div>
+          <div class="instructions-checklist">
+            <div class="check-item">
+              <span class="check-box"></span>
+              <div>All QR pages scanned in order.</div>
+            </div>
+            <div class="check-item">
+              <span class="check-box"></span>
+              <div>Bundle file saved with the correct name.</div>
+            </div>
+            <div class="check-item">
+              <span class="check-box"></span>
+              <div>Kit opens offline without errors.</div>
+            </div>
+            <div class="check-item">
+              <span class="check-box"></span>
+              <div>Recovery completed and data verified.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="instructions-footnote">
+        <div>Recovery Kit: offline HTML bundle</div>
+        <div>Document ID: {{ doc_id }}</div>
+      </div>
+    </div>
+    {% elif page.show_instructions %}
+    <div class="instructions" style="top: {{ page.instructions_y_mm }}mm;">
+      <div class="instructions-label">{{ instructions.label }}</div>
+      <div>
+        {{ instructions_lines(instructions.lines, scan_hint_text=instructions.scan_hint) }}
+      </div>
+    </div>
+    {% endif %}
+
+    {{ qr_grid(page) }}
+
+    {{ qr_sequence(page, page_width_mm, page_height_mm) }}
+
+    {{ qr_grid_items(page, show_index=true) }}
+
+  </section>
+{% endfor %}
+</body>
+</html>

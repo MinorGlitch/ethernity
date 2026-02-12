@@ -53,8 +53,8 @@ class HeaderSpec:
     subtitle_size: float = 10.0
     meta_size: float = 8.0
     meta_lines_extra: int = 0
-    layout: str = "split"
-    split_left_ratio: float = 0.7
+    meta_row_gap_mm: float = 0.0
+    stack_gap_mm: float = 0.0
     divider_enabled: bool = True
     divider_gap_mm: float = 2.5
     divider_thickness_mm: float = 0.5
@@ -131,7 +131,7 @@ def document_spec(
 ) -> DocumentSpec:
     normalized = doc_type.strip().lower()
     if normalized not in DOC_TYPES:
-        normalized = DOC_TYPE_MAIN
+        raise ValueError(f"unsupported doc type: {doc_type}")
     header = HeaderSpec()
     instructions = TextBlockSpec(
         label="Instructions",
@@ -162,7 +162,7 @@ def document_spec(
     shard_index = _int_value(context.get("shard_index"), default=1)
     shard_total = _int_value(context.get("shard_total"), default=1)
     if normalized == DOC_TYPE_MAIN:
-        header = replace(header, title="Main Document", subtitle="Mode: passphrase")
+        header = replace(header, title="Main Document", subtitle="Passphrase-protected payload")
         instructions = replace(
             instructions,
             lines=(
@@ -191,8 +191,10 @@ def document_spec(
         instructions = replace(
             instructions,
             lines=(
-                "Scan QR codes in order and concatenate the payloads.",
-                "Write the output to recovery_kit.bundle.html.",
+                "Scan every QR code left to right, top to bottom.",
+                "Paste the decoded chunks together in order (no separators).",
+                "Save the result as recovery_kit.bundle.html.",
+                "Open that file in a browser (offline) to run the kit.",
             ),
         )
         if paper_size.strip().lower() == "letter":

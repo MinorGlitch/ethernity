@@ -87,10 +87,12 @@ class MockHeaderSpec:
         divider_enabled: bool = False,
         divider_gap_mm: float = 2,
         divider_thickness_mm: float = 0.5,
-        layout: str = "stacked",
         title_size: float = 16,
         subtitle_size: float = 12,
         meta_size: float = 10,
+        meta_lines_extra: int = 0,
+        meta_row_gap_mm: float = 0.0,
+        stack_gap_mm: float = 0.0,
     ) -> None:
         self.title = title
         self.subtitle = subtitle
@@ -100,10 +102,12 @@ class MockHeaderSpec:
         self.divider_enabled = divider_enabled
         self.divider_gap_mm = divider_gap_mm
         self.divider_thickness_mm = divider_thickness_mm
-        self.layout = layout
         self.title_size = title_size
         self.subtitle_size = subtitle_size
         self.meta_size = meta_size
+        self.meta_lines_extra = meta_lines_extra
+        self.meta_row_gap_mm = meta_row_gap_mm
+        self.stack_gap_mm = stack_gap_mm
 
 
 class TestPageFormat(unittest.TestCase):
@@ -293,29 +297,66 @@ class TestHeaderHeight(unittest.TestCase):
         self.assertGreater(h_with_div, h_no_div)
         self.assertAlmostEqual(h_with_div - h_no_div, 3.5, places=1)
 
-    def test_split_layout(self) -> None:
-        """Test split layout uses max of left/right."""
+    def test_header_uses_max_of_left_and_meta_when_no_extra_meta(self) -> None:
+        """Header keeps max(left, meta) behavior when meta_lines_extra is zero."""
         cfg = MockHeaderSpec(
             title="Title",
             subtitle="Subtitle",
             doc_id_label="ID:",
             doc_id="ABC123",
-            layout="split",
+            page_label="Page 1 / 1",
+            title_size=16,
+            subtitle_size=12,
+            meta_size=8,
+            stack_gap_mm=1.4,
+            meta_row_gap_mm=1.0,
+            meta_lines_extra=0,
         )
-        result = header_height(cfg, minimum=0)
-        self.assertGreater(result, 0)
+        left = font_line_height(16) + font_line_height(12) + 1.4
+        meta = (2 * font_line_height(8)) + 1.0
+        self.assertAlmostEqual(header_height(cfg, minimum=0), max(left, meta), places=6)
 
-    def test_stacked_layout(self) -> None:
-        """Test stacked layout adds heights."""
+    def test_header_stacks_left_and_meta_when_extra_meta_lines_present(self) -> None:
+        """Header switches to left+meta when extra recovery metadata is present."""
         cfg = MockHeaderSpec(
             title="Title",
             subtitle="Subtitle",
             doc_id_label="ID:",
             doc_id="ABC123",
-            layout="stacked",
+            page_label="Page 1 / 1",
+            title_size=16,
+            subtitle_size=12,
+            meta_size=8,
+            stack_gap_mm=1.4,
+            meta_row_gap_mm=1.0,
+            meta_lines_extra=3,
         )
-        result = header_height(cfg, minimum=0)
-        self.assertGreater(result, 0)
+        left = font_line_height(16) + font_line_height(12) + 1.4
+        meta = (5 * font_line_height(8)) + (4 * 1.0)
+        self.assertAlmostEqual(header_height(cfg, minimum=0), left + meta, places=6)
+
+    def test_header_numeric_formula_with_gaps_and_divider(self) -> None:
+        """Header math includes stack/meta gaps and divider contribution."""
+        cfg = MockHeaderSpec(
+            title="Title",
+            subtitle="Subtitle",
+            doc_id_label="ID:",
+            doc_id="ABC123",
+            page_label="Page 1 / 1",
+            title_size=20,
+            subtitle_size=10,
+            meta_size=8,
+            stack_gap_mm=2.0,
+            meta_row_gap_mm=1.4,
+            meta_lines_extra=2,
+            divider_enabled=True,
+            divider_gap_mm=2.5,
+            divider_thickness_mm=0.6,
+        )
+        left = font_line_height(20) + font_line_height(10) + 2.0
+        meta = (4 * font_line_height(8)) + (3 * 1.4)
+        divider = 2.5 + 0.6
+        self.assertAlmostEqual(header_height(cfg, minimum=0), left + meta + divider, places=6)
 
 
 class TestLinesHeight(unittest.TestCase):

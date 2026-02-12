@@ -1,0 +1,32 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+{% if monograph_page_label is defined %}
+  {% set _monograph_page_label = monograph_page_label %}
+{% elif page is defined and page.page_label is defined %}
+  {% set _monograph_page_label = page.page_label %}
+{% else %}
+  {% set _monograph_page_label = '' %}
+{% endif %}
+{% set _monograph_footer_left = monograph_footer_left if monograph_footer_left is defined else 'Monograph Offline Archive' %}
+{% set _monograph_footer_center = monograph_footer_center if monograph_footer_center is defined else _monograph_page_label %}
+{% set _monograph_footer_right = monograph_footer_right if monograph_footer_right is defined else ('DOC ID: ' ~ (doc_id[:8] | upper)) %}
+{% set _monograph_shell_footer_inset = monograph_shell_footer_inset if monograph_shell_footer_inset is defined else '' %}
+<footer class="monograph-shell-footer mt-3 shrink-0 pt-2 border-t border-line-subtle max-w-full overflow-hidden grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-2 items-center text-[8px] font-mono uppercase tracking-[0.14em] text-ink-light{% if _monograph_shell_footer_inset %} {{ _monograph_shell_footer_inset }}{% endif %}">
+  <span class="min-w-0 break-words">{{ _monograph_footer_left }}</span>
+  <span class="text-center px-2 break-words">{{ _monograph_footer_center }}</span>
+  <span class="text-right min-w-0 break-all">{{ _monograph_footer_right }}</span>
+</footer>

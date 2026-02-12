@@ -23,6 +23,7 @@ from rich.progress import Progress
 
 from ... import render as render_module
 from ...config import AppConfig
+from ...config.installer import PACKAGE_ROOT
 from ...core.models import DocumentPlan, SigningSeedMode
 from ...crypto import (
     encrypt_bytes_with_passphrase,
@@ -41,6 +42,7 @@ from ...render.types import RenderInputs
 from ..api import progress, status
 from ..constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
 from ..core.crypto import _doc_id_and_hash_from_ciphertext
+from ..core.log import _warn
 from ..core.types import BackupResult, InputFile
 from ..io.outputs import _ensure_output_dir
 from ..ui.debug import (
@@ -48,6 +50,79 @@ from ..ui.debug import (
     _normalize_debug_max_bytes,
     _print_pre_encryption_debug,
 )
+
+_KIT_INDEX_TEMPLATE_NAME = "kit_index_document.html.j2"
+_KIT_INDEX_TEMPLATE_MARKER = "kit_index_inventory_artifacts_v3"
+
+
+def _is_compatible_kit_index_template(path: Path) -> bool:
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return _KIT_INDEX_TEMPLATE_MARKER in content
+
+
+def _resolve_kit_index_template_path(config: AppConfig) -> Path | None:
+    kit_template_path = Path(config.kit_template_path)
+    candidate = kit_template_path.with_name(_KIT_INDEX_TEMPLATE_NAME)
+    package_candidate = (
+        PACKAGE_ROOT / "templates" / kit_template_path.parent.name / _KIT_INDEX_TEMPLATE_NAME
+    )
+
+    if candidate.is_file() and _is_compatible_kit_index_template(candidate):
+        return candidate
+
+    if package_candidate.is_file():
+        return package_candidate
+
+    # If the active design is loaded from a user override that predates the
+    # index template, fallback to the packaged design copy.
+    if candidate.is_file():
+        return candidate
+
+    return None
+
+
+def _build_kit_index_inventory_rows(
+    *,
+    shard_payloads: list[ShardPayload],
+    signing_key_shard_payloads: list[ShardPayload],
+) -> list[dict[str, str]]:
+    rows = [
+        {
+            "component_id": "QR-DOC-01",
+            "detail": "Encrypted payload and auth QR frames",
+            "status": "Generated",
+        },
+        {
+            "component_id": "RECOVERY-DOC-01",
+            "detail": "Recovery keys and full fallback text",
+            "status": "Generated",
+        },
+    ]
+
+    if shard_payloads:
+        for shard in sorted(shard_payloads, key=lambda item: item.share_index):
+            rows.append(
+                {
+                    "component_id": f"SHARD-{shard.share_index:02d}",
+                    "detail": (f"Passphrase shard {shard.share_index} of {shard.share_count}"),
+                    "status": "Generated",
+                }
+            )
+
+    if signing_key_shard_payloads:
+        for shard in sorted(signing_key_shard_payloads, key=lambda item: item.share_index):
+            rows.append(
+                {
+                    "component_id": f"SIGNING-SHARD-{shard.share_index:02d}",
+                    "detail": (f"Signing-key shard {shard.share_index} of {shard.share_count}"),
+                    "status": "Generated",
+                }
+            )
+
+    return rows
 
 
 def _render_shard(
@@ -78,6 +153,7 @@ def _render_shard(
         shard_path,
         shard_index=shard.share_index,
         shard_total=shard.share_count,
+        shard_threshold=shard.threshold,
         qr_payloads=render_service.build_qr_payloads([shard_frame]),
         template_path=template_path,
         doc_type=doc_type,
@@ -176,6 +252,7 @@ def _render_all_documents(
     *,
     qr_inputs: RenderInputs,
     recovery_inputs: RenderInputs,
+    kit_index_inputs: RenderInputs | None,
     shard_payloads: list[ShardPayload],
     signing_key_shard_payloads: list[ShardPayload],
     doc_id: bytes,
@@ -190,6 +267,7 @@ def _render_all_documents(
 
     render_total = (
         2
+        + (1 if kit_index_inputs is not None else 0)
         + (len(shard_payloads) if shard_payloads else 0)
         + (len(signing_key_shard_payloads) if signing_key_shard_payloads else 0)
     )
@@ -201,6 +279,7 @@ def _render_all_documents(
                 render_total=render_total,
                 qr_inputs=qr_inputs,
                 recovery_inputs=recovery_inputs,
+                kit_index_inputs=kit_index_inputs,
                 shard_payloads=shard_payloads,
                 signing_key_shard_payloads=signing_key_shard_payloads,
                 doc_id=doc_id,
@@ -212,6 +291,7 @@ def _render_all_documents(
             shard_paths, signing_key_shard_paths = _render_without_progress(
                 qr_inputs=qr_inputs,
                 recovery_inputs=recovery_inputs,
+                kit_index_inputs=kit_index_inputs,
                 shard_payloads=shard_payloads,
                 signing_key_shard_payloads=signing_key_shard_payloads,
                 doc_id=doc_id,
@@ -230,6 +310,7 @@ def _render_with_progress(
     render_total: int,
     qr_inputs: RenderInputs,
     recovery_inputs: RenderInputs,
+    kit_index_inputs: RenderInputs | None,
     shard_payloads: list[ShardPayload],
     signing_key_shard_payloads: list[ShardPayload],
     doc_id: bytes,
@@ -250,6 +331,11 @@ def _render_with_progress(
     progress_bar.update(task_id, description="Rendering recovery document...")
     render_module.render_frames_to_pdf(recovery_inputs)
     progress_bar.advance(task_id)
+
+    if kit_index_inputs is not None:
+        progress_bar.update(task_id, description="Rendering recovery kit index...")
+        render_module.render_frames_to_pdf(kit_index_inputs)
+        progress_bar.advance(task_id)
 
     if shard_payloads:
         sorted_shards = sorted(shard_payloads, key=lambda shard: shard.share_index)
@@ -295,6 +381,7 @@ def _render_without_progress(
     *,
     qr_inputs: RenderInputs,
     recovery_inputs: RenderInputs,
+    kit_index_inputs: RenderInputs | None,
     shard_payloads: list[ShardPayload],
     signing_key_shard_payloads: list[ShardPayload],
     doc_id: bytes,
@@ -312,6 +399,10 @@ def _render_without_progress(
 
     with status("Rendering recovery document...", quiet=status_quiet):
         render_module.render_frames_to_pdf(recovery_inputs)
+
+    if kit_index_inputs is not None:
+        with status("Rendering recovery kit index...", quiet=status_quiet):
+            render_module.render_frames_to_pdf(kit_index_inputs)
 
     if shard_payloads:
         with status("Rendering shard documents...", quiet=status_quiet):
@@ -442,6 +533,14 @@ def run_backup(
         qr_config=config.qr_config,
         qr_payload_encoding=config.qr_payload_encoding,
     )
+    if main_chunk_size < config.qr_chunk_size:
+        _warn(
+            (
+                f"Requested QR chunk size ({config.qr_chunk_size} bytes) was reduced to "
+                f"{main_chunk_size} bytes to fit current QR settings."
+            ),
+            quiet=quiet,
+        )
     frames = chunk_payload(
         ciphertext,
         doc_id=doc_id,
@@ -452,10 +551,33 @@ def run_backup(
     output_dir = _ensure_output_dir(output_dir, doc_id.hex())
     qr_path = os.path.join(output_dir, "qr_document.pdf")
     recovery_path = os.path.join(output_dir, "recovery_document.pdf")
+    kit_index_template = _resolve_kit_index_template_path(config)
+    kit_index_path = None
+    if kit_index_template is not None:
+        kit_index_path = os.path.join(output_dir, "recovery_kit_index.pdf")
 
     render_service = RenderService(config)
     qr_payloads = render_service.build_qr_payloads(qr_frames)
     qr_inputs = render_service.qr_inputs(qr_frames, qr_path, qr_payloads=qr_payloads)
+    kit_index_context = render_service.base_context(
+        {
+            "inventory_rows": _build_kit_index_inventory_rows(
+                shard_payloads=shard_payloads,
+                signing_key_shard_payloads=signing_key_shard_payloads,
+            )
+        }
+    )
+    kit_index_inputs = (
+        render_service.kit_inputs(
+            qr_frames,
+            kit_index_path,
+            qr_payloads=qr_payloads,
+            context=kit_index_context,
+            template_path=kit_index_template,
+        )
+        if kit_index_template is not None and kit_index_path is not None
+        else None
+    )
 
     main_fallback_frame = Frame(
         version=VERSION,
@@ -477,6 +599,7 @@ def run_backup(
     shard_paths, signing_key_shard_paths = _render_all_documents(
         qr_inputs=qr_inputs,
         recovery_inputs=recovery_inputs,
+        kit_index_inputs=kit_index_inputs,
         shard_payloads=shard_payloads,
         signing_key_shard_payloads=signing_key_shard_payloads,
         doc_id=doc_id,
@@ -490,6 +613,7 @@ def run_backup(
         doc_id=doc_id,
         qr_path=qr_path,
         recovery_path=recovery_path,
+        kit_index_path=kit_index_path,
         shard_paths=tuple(shard_paths),
         signing_key_shard_paths=tuple(signing_key_shard_paths),
         passphrase_used=passphrase_used,

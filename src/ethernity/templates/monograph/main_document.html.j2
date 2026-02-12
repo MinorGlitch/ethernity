@@ -1,0 +1,179 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+<!doctype html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8">
+  {% include 'partials/monograph_tailwind_setup.j2' %}
+  <style>
+    {% include 'partials/material_symbols_local.j2' %}
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+
+    @media print {
+      body {
+        background: white !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      .print-sheet {
+        box-shadow: none !important;
+        margin: 0 !important;
+      }
+    }
+
+    .print-sheet {
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      min-height: {{ page_height_mm }}mm;
+      margin: 0 auto;
+      page-break-after: always;
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+      overflow: hidden;
+      position: relative;
+      background: #fdfbf7;
+    }
+
+    .print-sheet:last-child {
+      page-break-after: auto;
+    }
+
+    .qr-render {
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+<body class="bg-background-light font-display min-h-screen text-ink-dark">
+{% macro roman_numeral(value) -%}
+  {%- set number = value | int -%}
+  {%- if number <= 0 -%}
+    {{- number -}}
+  {%- else -%}
+    {%- set ns = namespace(rem=number, out='') -%}
+    {%- for pair in [
+      (1000, 'M'),
+      (900, 'CM'),
+      (500, 'D'),
+      (400, 'CD'),
+      (100, 'C'),
+      (90, 'XC'),
+      (50, 'L'),
+      (40, 'XL'),
+      (10, 'X'),
+      (9, 'IX'),
+      (5, 'V'),
+      (4, 'IV'),
+      (1, 'I')
+    ] -%}
+      {%- set quotient = ns.rem // pair[0] -%}
+      {%- if quotient > 0 -%}
+        {%- set ns.out = ns.out ~ (pair[1] * quotient) -%}
+        {%- set ns.rem = ns.rem % pair[0] -%}
+      {%- endif -%}
+    {%- endfor -%}
+    {{- ns.out -}}
+  {%- endif -%}
+{%- endmacro %}
+{% for page in pages %}
+  {% set dense_mode = (page.qr_items | length) > 3 %}
+  <section class="print-sheet border border-[#e5e5e5] flex flex-col">
+    {% set monograph_header_title = 'Main Security Record' %}
+    {% set monograph_header_subtitle = doc.subtitle %}
+    {% set monograph_header_classification = 'Do Not Scan Online' %}
+    {% set monograph_header_guidance = 'Use with matching recovery document' %}
+    {% set monograph_header_ref = doc_id[:3] ~ '-' ~ doc_id[3:5] ~ '-' ~ doc_id[5:7] %}
+    {% set monograph_header_icon = 'verified_user' %}
+    {% set monograph_shell_header_inset = 'px-[11mm] pt-[10mm] pb-[7mm] mb-0' %}
+    {% include 'partials/monograph_shell_header.j2' %}
+
+    <div class="flex flex-1 min-h-0">
+      <aside class="w-[32%] border-r border-[#e5e5e5] bg-[#fbf9f4] p-[11mm] pt-[8mm] text-[10px] leading-relaxed text-ink-light flex flex-col gap-8">
+        <div>
+          <p class="uppercase tracking-[0.16em] text-[9px] font-black text-primary mb-2">Directives</p>
+          <p>
+            This document contains encrypted backup payload fragments.
+            Keep this printout air-gapped and physically secured.
+          </p>
+        </div>
+        <div>
+          <p class="uppercase tracking-[0.16em] text-[9px] font-black text-primary mb-2">Security Notice</p>
+          <p>
+            Continuation sheet for encrypted backup fragments.
+            Scan every QR tile in order and validate sequence labels.
+          </p>
+        </div>
+        <div class="mt-auto opacity-70 font-mono text-[9px]">
+          <p>Use with matching recovery document.</p>
+        </div>
+      </aside>
+
+      <div class="w-[68%] p-[11mm] pt-[8mm] flex flex-col min-h-0 relative">
+        <div class="absolute inset-0 flex items-center justify-center opacity-[0.035] pointer-events-none select-none overflow-hidden">
+          <span class="material-symbols-outlined text-[420px] text-ink-dark rotate-[-14deg]">verified_user</span>
+        </div>
+
+        <main class="relative z-10 flex-1 min-h-0">
+            {% if page.qr_items %}
+            {% if dense_mode %}
+            <div class="grid grid-cols-2 gap-3">
+              {% for slot in page.qr_items %}
+              {% set section_number = slot.index if slot.index is defined else loop.index %}
+              <article class="border border-[#e4dff2] bg-white p-1.5 flex flex-col gap-1.5">
+                <h2 class="text-[9px] font-black uppercase tracking-wide text-primary border-b border-[#ece7f7] pb-0.5">
+                  Section {{ roman_numeral(section_number) }}
+                </h2>
+                <div class="mx-auto w-full max-w-[48mm] aspect-square border border-[#ddd6ef] bg-white p-1">
+                  <img class="w-full h-full object-contain qr-render" src="{{ slot.data_uri }}" alt="QR section {{ slot.index }}">
+                </div>
+              </article>
+              {% endfor %}
+            </div>
+            {% else %}
+            <div class="flex flex-col gap-4">
+              {% for slot in page.qr_items %}
+              {% set section_number = slot.index if slot.index is defined else loop.index %}
+              <article class="relative pl-4 border-l border-primary/30">
+                <h2 class="text-[11px] font-black tracking-wide uppercase text-primary border-b border-[#e5e0f2] pb-1 mb-2">
+                  Section {{ roman_numeral(section_number) }}
+                </h2>
+                <div class="mx-auto w-full max-w-[50mm] aspect-square border border-[#ddd6ef] bg-white p-1.5 shadow-sm">
+                  <img class="w-full h-full object-contain qr-render" src="{{ slot.data_uri }}" alt="QR section {{ slot.index }}">
+                </div>
+              </article>
+              {% endfor %}
+            </div>
+            {% endif %}
+          {% else %}
+          <div class="h-full border border-dashed border-[#ddd6ef] bg-white/60 flex items-center justify-center text-sm text-ink-light font-serif italic">
+            No QR payloads on this page.
+          </div>
+        {% endif %}
+      </main>
+      </div>
+    </div>
+    {% set monograph_footer_left = 'Monograph Offline Archive' %}
+    {% set monograph_footer_right = 'Use with matching recovery document' %}
+    {% set monograph_shell_footer_inset = 'px-[11mm] py-2 mt-0' %}
+    {% include 'partials/monograph_shell_footer.j2' %}
+  </section>
+{% endfor %}
+</body>
+</html>

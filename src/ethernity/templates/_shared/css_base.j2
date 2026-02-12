@@ -1,0 +1,141 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+
+{% macro reset_styles() %}
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: var(--font-body);
+      color: var(--ink);
+      background: var(--paper-top);
+      print-color-adjust: exact;
+      -webkit-print-color-adjust: exact;
+    }
+{% endmacro %}
+
+{% macro page_styles(page_width_mm, page_height_mm) %}
+    .page {
+      position: relative;
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      page-break-after: always;
+      overflow: hidden;
+      background: var(--paper-top);
+    }
+    .page:last-child {
+      page-break-after: auto;
+    }
+    .page > .header {
+      z-index: 5 !important;
+    }
+    .page > .divider,
+    .page > .instructions {
+      z-index: 4 !important;
+    }
+    .page > .header .header-left {
+      min-width: 0;
+    }
+    .page > .header .subtitle {
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+{% endmacro %}
+
+{% macro qr_grid_items_styles() %}
+    .qr-grid-items {
+      position: absolute;
+      display: grid;
+      grid-template-columns: repeat(var(--qr-cols), var(--qr-size));
+      grid-auto-rows: var(--qr-size);
+      column-gap: var(--qr-gap-x);
+      row-gap: var(--qr-gap-y);
+      z-index: 1;
+    }
+    .qr-cell {
+      width: var(--qr-size);
+      height: var(--qr-size);
+    }
+{% endmacro %}
+
+{% macro qr_image_styles() %}
+    .qr {
+      width: 100%;
+      height: 100%;
+      display: block;
+      image-rendering: pixelated;
+    }
+{% endmacro %}
+
+{% macro fallback_base_styles(margin_mm, fallback_width_mm) %}
+    .fallback {
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      width: {{ fallback_width_mm }}mm;
+      font-family: var(--font-mono);
+      font-size: var(--fallback-font-size, 7pt);
+      line-height: var(--fallback-line, 3.2mm);
+      color: var(--ink);
+      background: var(--white, #ffffff);
+      padding: var(--fallback-pad, 1.6mm 2.5mm 1.6mm 3mm);
+      border: var(--border-thin) solid var(--surface-border, var(--panel-border, var(--plate-border)));
+      border-left: var(--border-rail) solid var(--accent);
+    }
+    .fallback-line {
+      white-space: pre;
+      letter-spacing: 0.06em;
+    }
+    .fallback-label {
+      position: absolute;
+      font-size: var(--fallback-label-size, 6.5pt);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--ink-label, var(--ink-muted));
+      font-family: var(--font-title, var(--font-body));
+    }
+{% endmacro %}
+
+{% macro keys_base_styles(margin_mm, usable_width_mm) %}
+    .keys {
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      width: {{ usable_width_mm }}mm;
+      font-family: var(--font-mono);
+      font-size: var(--keys-font-size, 7pt);
+      line-height: var(--keys-line, 3.6mm);
+      color: var(--ink);
+      background: var(--white, #ffffff);
+      padding: var(--keys-pad, 1.6mm 2.5mm 1.6mm 3mm);
+      border: var(--border-thin) solid var(--surface-border, var(--panel-border, var(--plate-border)));
+      border-left: var(--border-rail) solid var(--accent);
+    }
+    .keys-line {
+      white-space: pre;
+      letter-spacing: 0.04em;
+    }
+    .keys-label {
+      position: absolute;
+      font-size: var(--keys-label-size, 6.5pt);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--ink-label, var(--ink-muted));
+      font-family: var(--font-title, var(--font-body));
+    }
+{% endmacro %}

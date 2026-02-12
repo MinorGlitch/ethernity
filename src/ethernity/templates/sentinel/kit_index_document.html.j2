@@ -1,0 +1,238 @@
+{# kit_index_inventory_artifacts_v3
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+<!doctype html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8">
+  {% include 'partials/sentinel_tailwind_setup.j2' %}
+  <style>
+    {% include 'partials/material_symbols_local.j2' %}
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+
+    @media print {
+      body {
+        background: white !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      .print-sheet {
+        box-shadow: none !important;
+        margin: 0 !important;
+      }
+    }
+
+    .print-sheet {
+      box-sizing: border-box;
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      min-height: {{ page_height_mm }}mm;
+      margin: 0 auto;
+      page-break-after: always;
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+      overflow: hidden;
+      position: relative;
+      background: white;
+    }
+
+    .print-sheet:last-child {
+      page-break-after: auto;
+    }
+  </style>
+</head>
+<body class="bg-background-light font-display min-h-screen text-text-main-light">
+{% macro inventory_table(rows) %}
+  <div class="overflow-hidden rounded-lg border border-border-light">
+    <table class="w-full text-left text-sm">
+      <thead class="bg-gray-50 text-xs uppercase font-bold text-text-secondary-light border-b border-border-light">
+        <tr>
+          <th class="px-3 py-2">Component ID</th>
+          <th class="px-3 py-2">Designated Custodian</th>
+          <th class="px-3 py-2">Storage Location</th>
+          <th class="px-3 py-2 text-center">Status</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-border-light">
+        {% set ns_table = namespace(has_rows=false) %}
+        {% for row in rows %}
+          {% if row %}
+          {% set ns_table.has_rows = true %}
+          <tr>
+            <td class="px-3 py-3 font-mono text-xs">
+              <p class="font-semibold text-sm text-black">{{ row.component_id }}</p>
+              <p class="text-[10px] text-text-secondary-light mt-1">{{ row.detail }}</p>
+            </td>
+            <td class="px-3 py-3"><div class="h-6 border-b border-dashed border-border-light"></div></td>
+            <td class="px-3 py-3"><div class="h-6 border-b border-dashed border-border-light"></div></td>
+            <td class="px-3 py-3 text-center">
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 border border-green-200">
+                {{ row.status if row.status is defined else 'Generated' }}
+              </span>
+            </td>
+          </tr>
+          {% endif %}
+        {% endfor %}
+        {% if not ns_table.has_rows %}
+        <tr>
+          <td colspan="4" class="px-3 py-3 text-sm text-text-secondary-light">No inventory entries.</td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+{% endmacro %}
+
+{% set kit_qr_pages = pages | rejectattr('instructions_full_page') | list %}
+{% set first_page_row_limit = 4 %}
+{% set continuation_page_row_limit = 14 %}
+{% set ns = namespace(total_chunks=0) %}
+{% for page in kit_qr_pages %}
+  {% set ns.total_chunks = ns.total_chunks + (page.qr_items | length) %}
+{% endfor %}
+
+{% if inventory_rows is defined and inventory_rows %}
+  {% set row_source = inventory_rows %}
+{% else %}
+  {% set ns_rows = namespace(items=[]) %}
+  {% for index_page in kit_qr_pages %}
+    {% set first_qr = index_page.qr_items[0].index if index_page.qr_items else none %}
+    {% set last_qr = index_page.qr_items[-1].index if index_page.qr_items else none %}
+    {% if first_qr is not none and last_qr is not none %}
+      {% set detail = 'KIT %02d' % first_qr %}
+      {% if last_qr != first_qr %}
+        {% set detail = detail ~ (' to KIT %02d' % last_qr) %}
+      {% endif %}
+    {% else %}
+      {% set detail = 'No QR chunks' %}
+    {% endif %}
+    {% set ns_rows.items = ns_rows.items + [{
+      'component_id': 'KIT-PAGE-' ~ ('%02d' % index_page.page_num),
+      'detail': detail,
+      'status': 'Generated'
+    }] %}
+  {% endfor %}
+  {% set row_source = ns_rows.items %}
+{% endif %}
+
+{% set ns_chunks = namespace(items=[]) %}
+{% if row_source %}
+  {% set ns_chunks.items = ns_chunks.items + [row_source[:first_page_row_limit]] %}
+  {% set remaining_rows = row_source[first_page_row_limit:] %}
+  {% if remaining_rows %}
+    {% for continuation_rows in remaining_rows | batch(continuation_page_row_limit, none) %}
+      {% set ns_chunks.items = ns_chunks.items + [continuation_rows] %}
+    {% endfor %}
+  {% endif %}
+{% else %}
+  {% set ns_chunks.items = [[]] %}
+{% endif %}
+{% set row_chunks = ns_chunks.items %}
+{% set total_pages = row_chunks | length %}
+
+{% for page_rows in row_chunks %}
+  <section class="print-sheet border border-border-light flex flex-col">
+    {% set sentinel_top_strip_text = 'Custody Log // Offline Record // Authorized Personnel Only' %}
+    {% set sentinel_header_title = 'Recovery Kit Index & Log' %}
+    {% set sentinel_header_subtitle = 'Track all components and record every custody transfer.' %}
+    {% set sentinel_header_classification = 'Authorized Personnel Only' %}
+    {% set sentinel_page_label = 'Page %d / %d' % (loop.index, total_pages) %}
+    {% set sentinel_footer_guidance = 'Inventory record only; store separately from shard/recovery docs' %}
+    {% include 'partials/sentinel_shell_header.j2' %}
+
+    <div class="grid grid-cols-3 gap-px bg-border-light border-b border-border-light">
+      <div class="bg-white p-4 text-center">
+        <p class="text-xs uppercase font-semibold text-text-secondary-light mb-1">QR Pages</p>
+        <p class="text-2xl font-black">{{ kit_qr_pages | length }}</p>
+      </div>
+      <div class="bg-white p-4 text-center">
+        <p class="text-xs uppercase font-semibold text-text-secondary-light mb-1">QR Chunks</p>
+        <p class="text-2xl font-black">{{ ns.total_chunks }}</p>
+      </div>
+      <div class="bg-white p-4 text-center">
+        <p class="text-xs uppercase font-semibold text-text-secondary-light mb-1">Generated (UTC)</p>
+        <p class="font-mono text-sm">{{ created_timestamp_utc }}</p>
+      </div>
+    </div>
+
+    <div class="p-[15mm] pt-6 flex-1 flex flex-col gap-6">
+      <div class="bg-primary/10 border-l-4 border-primary p-3 rounded-r">
+        <div class="flex items-start gap-3">
+          <span class="material-symbols-outlined text-primary text-2xl">warning</span>
+          <div>
+            <h3 class="font-bold text-sm uppercase">Critical Security Warning</h3>
+            <p class="text-sm text-gray-700">This document is an inventory index only. Keep it separate from all shard and recovery documents.</p>
+          </div>
+        </div>
+      </div>
+
+      <section>
+        <h2 class="text-lg font-bold uppercase tracking-tight mb-3 flex items-center gap-2">
+          <span class="material-symbols-outlined">inventory_2</span>
+          Hardware Inventory
+        </h2>
+        {{ inventory_table(page_rows) }}
+      </section>
+
+      <section class="flex-1 flex flex-col">
+        <h2 class="text-lg font-bold uppercase tracking-tight mb-3 flex items-center gap-2">
+          <span class="material-symbols-outlined">history_edu</span>
+          Chain of Custody
+        </h2>
+        <div class="rounded-lg border border-border-light overflow-hidden flex-1 flex flex-col">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-gray-50 text-xs uppercase font-bold text-text-secondary-light border-b border-border-light">
+              <tr>
+                <th class="px-4 py-3 w-36">Date</th>
+                <th class="px-4 py-3 w-44">Person</th>
+                <th class="px-4 py-3">Action / Notes</th>
+                <th class="px-4 py-3 w-40 text-right">Signature</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-border-light">
+              <tr class="h-16">
+                <td class="px-4 border-r border-dashed border-border-light font-mono text-xs"></td>
+                <td class="px-4 border-r border-dashed border-border-light"></td>
+                <td class="px-4 border-r border-dashed border-border-light"></td>
+                <td class="px-4"></td>
+              </tr>
+              <tr class="h-16">
+                <td class="px-4 border-r border-dashed border-border-light font-mono text-xs"></td>
+                <td class="px-4 border-r border-dashed border-border-light"></td>
+                <td class="px-4 border-r border-dashed border-border-light"></td>
+                <td class="px-4"></td>
+              </tr>
+              <tr class="h-16">
+                <td class="px-4 border-r border-dashed border-border-light font-mono text-xs"></td>
+                <td class="px-4 border-r border-dashed border-border-light"></td>
+                <td class="px-4 border-r border-dashed border-border-light"></td>
+                <td class="px-4"></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    {% include 'partials/sentinel_shell_footer.j2' %}
+  </section>
+{% endfor %}
+</body>
+</html>

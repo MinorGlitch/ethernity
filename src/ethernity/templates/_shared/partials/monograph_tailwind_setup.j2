@@ -1,0 +1,54 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+{% include 'partials/tailwind_playcdn_local.j2' %}
+<script>
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        colors: {
+          primary: "#3617cf",
+          "background-light": "#f6f6f8",
+          "background-dark": "#141121",
+          parchment: "#fdfbf7",
+          "ink-dark": "#100e1b",
+          "ink-light": "#5a4e97",
+          "line-subtle": "#e9e7f3",
+          brass: "#b5a642",
+          "brass-light": "#e5ddbf",
+        },
+        fontFamily: {
+          display: ["Inter", "Segoe UI", "Helvetica Neue", "Arial", "sans-serif"],
+          serif: ["Playfair Display", "Merriweather", "Georgia", "Times New Roman", "serif"],
+          mono: ["JetBrains Mono", "Roboto Mono", "SFMono-Regular", "Menlo", "Monaco", "Consolas", "Courier New", "monospace"],
+        },
+        borderRadius: {
+          DEFAULT: "0.125rem",
+          lg: "0.25rem",
+          xl: "0.5rem",
+          full: "0.75rem",
+        },
+        boxShadow: {
+          paper: "0 2px 4px rgba(0, 0, 0, 0.02), 0 8px 16px rgba(0, 0, 0, 0.02), 0 24px 48px rgba(0, 0, 0, 0.02)",
+        },
+        backgroundImage: {
+          "paper-texture": "url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjZmZmIi8+CjxyZWN0IHdpZHRoPSIxIiBoZWlnaHQ9IjEiIGZpbGw9IiNjY2MiIG9wYWNpdHk9IjAuMSIvPgo8L3N2Zz4=')",
+        },
+      },
+    },
+  };
+</script>

@@ -41,6 +41,9 @@ def _resolve_auth_payload(
     if not auth_frames:
         if require_auth:
             raise ValueError("missing auth payload; use --skip-auth-check to skip verification")
+        if allow_unsigned:
+            _warn("no auth payload provided; skipping auth verification", quiet=quiet)
+            return None, "skipped"
         return None, "missing"
     if len(auth_frames) > 1:
         raise ValueError("multiple auth payloads provided")
@@ -53,17 +56,17 @@ def _resolve_auth_payload(
         payload = decode_auth_payload(frame.data)
     except ValueError as exc:
         if allow_unsigned:
-            _warn(f"invalid auth payload ignored: {exc}", quiet=quiet)
-            return None, "ignored"
+            _warn(f"invalid auth payload; verification skipped: {exc}", quiet=quiet)
+            return None, "invalid"
         raise
     if payload.doc_hash != doc_hash:
         if allow_unsigned:
-            _warn("auth doc_hash mismatch ignored", quiet=quiet)
+            _warn("auth doc_hash mismatch; verification skipped", quiet=quiet)
             return None, "ignored"
         raise ValueError("auth doc_hash does not match ciphertext")
     if not verify_auth(doc_hash, sign_pub=payload.sign_pub, signature=payload.signature):
         if allow_unsigned:
-            _warn("auth signature verification failed; ignoring", quiet=quiet)
+            _warn("auth signature verification failed; verification skipped", quiet=quiet)
             return None, "ignored"
         raise ValueError("invalid auth signature")
     return payload, "verified"

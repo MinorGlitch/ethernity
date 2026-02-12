@@ -1,0 +1,114 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+
+{% macro divider(page) %}
+    <div class="divider" style="top: {{ page.divider_y_mm }}mm;"></div>
+{% endmacro %}
+
+{% macro qr_grid(page) %}
+{% if page.qr_outline %}
+    <div
+      class="qr-grid"
+      style="left: {{ page.qr_outline.x_mm }}mm; top: {{ page.qr_outline.y_mm }}mm; width: {{ page.qr_outline.width_mm }}mm; height: {{ page.qr_outline.height_mm }}mm;"
+    ></div>
+{% endif %}
+{% endmacro %}
+
+{% macro qr_grid_items(page, show_index=false) %}
+{% if page.qr_items and page.qr_grid %}
+    <div
+      class="qr-grid-items"
+      style="left: {{ page.qr_grid.x_mm }}mm; top: {{ page.qr_grid.y_mm }}mm; --qr-size: {{ page.qr_grid.size_mm }}mm; --qr-gap-x: {{ page.qr_grid.gap_x_mm }}mm; --qr-gap-y: {{ page.qr_grid.gap_y_mm }}mm; --qr-cols: {{ page.qr_grid.cols }};"
+    >
+      {% for slot in page.qr_items %}
+      <div class="qr-cell">
+        <div class="qr-card">
+          <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+{% endif %}
+{% endmacro %}
+
+{% macro qr_sequence(page, page_width_mm, page_height_mm) %}
+{% if page.sequence %}
+    <svg class="qr-sequence" viewBox="0 0 {{ page_width_mm }} {{ page_height_mm }}">
+      {% for line in page.sequence.lines %}
+      <line x1="{{ line.x1 }}" y1="{{ line.y1 }}" x2="{{ line.x2 }}" y2="{{ line.y2 }}"></line>
+      {% endfor %}
+      {% for label in page.sequence.labels %}
+      <text x="{{ label.x }}" y="{{ label.y }}" text-anchor="middle" dominant-baseline="central">
+        {{ label.text }}
+      </text>
+      {% endfor %}
+    </svg>
+{% endif %}
+{% endmacro %}
+
+{% macro fallback_blocks(page) %}
+{% if page.fallback_blocks %}
+    {%- for block in page.fallback_blocks %}
+    <div class="fallback" style="top: {{ block.y_mm }}mm; height: {{ block.height_mm }}mm;">
+      {%- if block.title %}
+      <div class="fallback-title">{{ block.title }}</div>
+      {%- endif %}
+      <div class="fallback-lines" style="counter-reset: line {{ block.line_offset | default(0) }};">
+        {%- for line in block.lines %}
+        <div class="fallback-line">{{ line }}</div>
+        {%- endfor %}
+      </div>
+    </div>
+    {%- endfor %}
+{% endif %}
+{% endmacro %}
+
+{% macro instructions_lines(lines, scan_hint_text=none) %}
+{%- for line in lines %}
+<div>{{ line }}</div>
+{%- endfor %}
+{% if scan_hint_text %}<div class="scan-hint">{{ scan_hint_text }}</div>{% endif %}
+{% endmacro %}
+
+{% macro instructions_main() %}
+<div>Scan all QR codes in any order.</div>
+<div>Use the Recovery Document for text fallback if needed.</div>
+{% endmacro %}
+
+{% macro instructions_kit(with_scan_hint=true) %}
+<div>Scan every QR code left to right, top to bottom.</div>
+<div>Paste the decoded chunks together in order (no separators).</div>
+<div>Save the result as recovery_kit.bundle.html.</div>
+<div>Open that file in a browser (offline) to run the kit.</div>
+{% if with_scan_hint %}<div class="scan-hint">Start at the top-left and follow each row.</div>{% endif %}
+{% endmacro %}
+
+{% macro instructions_recovery() %}
+<div>This document contains recovery keys and full text fallback.</div>
+<div>Keep it separate from the QR document.</div>
+<div>Fallback includes AUTH + MAIN sections; keep the labels when transcribing.</div>
+{% endmacro %}
+
+{% macro instructions_shard() %}
+<div>This document is one shard of the passphrase.</div>
+<div>Keep shards separate and secure.</div>
+{% endmacro %}
+
+{% macro instructions_signing_key_shard() %}
+<div>This document is one shard of the signing key.</div>
+<div>Keep signing-key shards separate and secure.</div>
+{% endmacro %}

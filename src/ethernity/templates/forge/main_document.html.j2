@@ -1,0 +1,131 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+<!doctype html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    {% include 'partials/forge_tailwind.j2' %}
+    {% include 'partials/material_symbols_local.j2' %}
+
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+
+    @media print {
+      body {
+        background: white !important;
+      }
+      .print-sheet {
+        box-shadow: none !important;
+        margin: 0 !important;
+      }
+    }
+
+    .print-sheet {
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      min-height: {{ page_height_mm }}mm;
+      margin: 0 auto;
+      page-break-after: always;
+      background: white;
+      overflow: hidden;
+      break-inside: avoid-page;
+      page-break-inside: avoid;
+    }
+
+    .print-sheet:last-child {
+      page-break-after: auto;
+    }
+
+    .qr-grid-cards {
+      grid-template-columns: repeat(var(--forge-cols), minmax(0, 1fr));
+      align-content: start;
+    }
+
+    .qr-grid-cards > div {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+  </style>
+</head>
+<body class="bg-background-light min-h-screen flex flex-col font-display text-slate-900">
+{% for page in pages %}
+  <section class="print-sheet relative flex flex-col p-[15mm] text-slate-900">
+    {% set forge_header_title = doc.title %}
+    {% set forge_header_subtitle = doc.subtitle %}
+    {% set forge_header_kicker = 'The Forge // Secure Offline Storage' %}
+    {% set forge_header_classification = 'MASTER KEY' %}
+    {% set forge_header_guidance = 'Use with matching recovery document' %}
+    {% set forge_header_ref = doc_id %}
+    {% set forge_header_icon = 'token' %}
+    {% include 'partials/forge_shell_header.j2' %}
+
+    {% if page.show_instructions %}
+    <section class="mb-8 flex gap-6 border-b border-slate-200 pb-6">
+      <div class="flex w-1/3 flex-col gap-2">
+        <h3 class="font-serif text-lg font-bold text-slate-900">{{ instructions.label }}</h3>
+        <p class="text-sm leading-relaxed text-slate-600">
+          {{ instructions.scan_hint if instructions.scan_hint else "Follow these steps strictly to ensure security during recovery." }}
+        </p>
+      </div>
+      <div class="grid flex-1 grid-cols-3 gap-4">
+        {% set instruction_icons = ['visibility_off', 'lock', 'grid_view'] %}
+        {% for line in instructions.lines %}
+        <div class="flex flex-col gap-2 rounded bg-slate-50 p-3">
+          <span class="material-symbols-outlined text-2xl text-slate-800">
+            {{ instruction_icons[loop.index0] if loop.index0 < (instruction_icons | length) else 'info' }}
+          </span>
+          <p class="text-xs font-medium leading-tight text-slate-700">{{ line }}</p>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if page.qr_items %}
+    <section
+      class="grid gap-4 qr-grid-cards"
+      style="--forge-cols: {{ page.qr_grid.cols if page.qr_grid else 3 }};"
+    >
+      {% for slot in page.qr_items %}
+      <div class="flex flex-col rounded border border-slate-300 p-3">
+        <div class="mb-2 flex justify-between border-b border-slate-100 pb-1">
+          <span class="font-mono text-xs font-bold text-slate-900">PART {{ '%02d' % slot.index }}</span>
+          <span class="font-mono text-[10px] text-slate-400">CS: {{ '%02d' % slot.index }}</span>
+        </div>
+        <div class="aspect-square w-full rounded-sm bg-white p-0">
+          <img
+            class="h-full w-full bg-white"
+            src="{{ slot.data_uri }}"
+            alt="High density QR code for backup part {{ slot.index }}"
+            style="image-rendering: pixelated;"
+          >
+        </div>
+      </div>
+      {% endfor %}
+    </section>
+    {% endif %}
+
+    {% set forge_footer_left = forge_copy.generator_label %}
+    {% set forge_footer_right = 'Use with matching recovery document' %}
+    {% include 'partials/forge_shell_footer.j2' %}
+  </section>
+{% endfor %}
+</body>
+</html>

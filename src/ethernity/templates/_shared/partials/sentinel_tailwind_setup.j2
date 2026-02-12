@@ -1,0 +1,56 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+{% include 'partials/tailwind_playcdn_local.j2' %}
+<script>
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        colors: {
+          primary: "#f2a20d",
+          "background-light": "#f8f7f5",
+          "background-dark": "#221c10",
+          "surface-light": "#ffffff",
+          "surface-dark": "#2d261a",
+          "border-light": "#e8dfce",
+          "border-dark": "#3d3423",
+          "text-main-light": "#1c170d",
+          "text-main-dark": "#f4efe7",
+          "text-secondary-light": "#9c7f49",
+          "text-secondary-dark": "#bfab84",
+          "danger": "#cf3030",
+          "charcoal": "#1c170d",
+        },
+        fontFamily: {
+          display: ["Public Sans", "sans-serif"],
+          mono: ["Roboto Mono", "Courier New", "monospace"],
+        },
+        borderRadius: {
+          DEFAULT: "0.125rem",
+          sm: "0.125rem",
+          lg: "0.25rem",
+          xl: "0.5rem",
+          full: "0.75rem",
+        },
+        backgroundImage: {
+          "hazard-pattern": "repeating-linear-gradient(45deg, #000, #000 10px, #f2a20d 10px, #f2a20d 20px)",
+          "grid-dot": "radial-gradient(#1c170d 1px, transparent 1px)",
+        },
+      },
+    },
+  };
+</script>

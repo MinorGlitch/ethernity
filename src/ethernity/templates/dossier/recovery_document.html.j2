@@ -1,0 +1,362 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+{% from 'css_base.j2' import reset_styles, page_styles, qr_grid_items_styles, qr_image_styles %}
+{% from 'css_variables.j2' import common_variables %}
+{% from 'html_components.j2' import divider, fallback_blocks, instructions_lines %}
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+    :root {
+      {{ common_variables() }}
+
+      --ink: #1a202b;
+      --ink-muted: #4a5562;
+      --ink-soft: #6d7684;
+      --ink-label: #394351;
+      --accent: #2b343e;
+      --rail: #2b343e;
+      --paper-top: #f6f6f1;
+      --paper-bottom: #e7e8e0;
+      --surface: #fcfcf6;
+      --surface-border: #c4c7bb;
+      --rule: #c3c8bf;
+      --rule-strong: #8f979a;
+      --note: #f0f1ea;
+      --tab: #d8dbd1;
+      --pin: #525a66;
+      --stamp: #8a2f36;
+      --font-title: "Garamond", "Baskerville", "Palatino Linotype", "Palatino", serif;
+      --font-body: "Franklin Gothic Book", "Franklin Gothic Medium", "Gill Sans", "Trebuchet MS", sans-serif;
+      --font-mono: "SFMono-Regular", "Menlo", "Consolas", "Courier New", monospace;
+      --header-pad: 2.5mm 2mm;
+      --instructions-pad: 0 3mm;
+      --fallback-pad: 0 4mm 0 calc(var(--strip-width) + var(--line-num-offset) + 1mm);
+      --line-num-offset: 6.5mm;
+      --line-num-width: 4.8mm;
+      --space-1: 1mm;
+      --space-2: 1.2mm;
+      --space-3: 1.4mm;
+      --space-4: 1.5mm;
+      --space-5: 1.6mm;
+      --space-6: 2mm;
+      --space-7: 3mm;
+      --space-8: 4mm;
+      --space-9: 6mm;
+      --border-hairline: 0.2mm;
+      --border-fine: 0.25mm;
+      --border-thin: 0.3mm;
+      --border-base: 0.35mm;
+      --border-strong: 0.45mm;
+      --border-heavy: 0.6mm;
+      --border-thick: 0.8mm;
+      --border-rail: 1.6mm;
+      --radius-none: 0;
+      --title-size: 16pt;
+      --subtitle-size: 8.5pt;
+      --meta-size: 7.5pt;
+      --meta-label-size: 6.5pt;
+      --meta-value-size: 7.5pt;
+      --fallback-font-size: 9.0pt;
+      --fallback-line: 4.2mm;
+      --line-num-size: 6pt;
+      --line-num-letter-spacing: 0.08em;
+    }
+    {{ reset_styles() }}
+    {{ page_styles(page_width_mm, page_height_mm) }}
+    .header {
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      top: {{ margin_mm }}mm;
+      width: {{ usable_width_mm }}mm;
+      display: grid;
+      grid-template-columns: 1fr 45mm;
+      gap: var(--space-9);
+      align-items: start;
+    }
+    .header-left {
+      display: grid;
+      gap: var(--space-6);
+    }
+    .title {
+      font-size: var(--title-size);
+      font-weight: 700;
+      font-family: var(--font-title);
+      color: var(--ink);
+      line-height: 1.1;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+    .subtitle {
+      font-size: var(--subtitle-size);
+      font-style: normal;
+      color: var(--ink-muted);
+      line-height: 1.2;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .meta-grid {
+      display: grid;
+      grid-template-columns: 24mm auto;
+      gap: var(--space-3) var(--space-7);
+      font-size: var(--meta-size);
+      line-height: 1.2;
+      align-items: baseline;
+    }
+    .meta-label {
+      font-size: var(--meta-label-size);
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--ink-soft);
+      font-family: var(--font-title);
+    }
+    .meta-value {
+      font-size: var(--meta-value-size);
+      letter-spacing: 0.08em;
+      color: var(--ink);
+      font-family: var(--font-mono);
+    }
+    .header-right {
+      justify-self: end;
+      align-self: start;
+      border: var(--border-heavy) solid var(--stamp);
+      border-radius: var(--radius-none);
+      padding: var(--header-pad);
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      background: rgba(122, 44, 47, 0.08);
+    }
+    .stamp-title {
+      font-size: 7pt;
+      color: var(--stamp);
+      font-family: var(--font-title);
+    }
+    .stamp-value {
+      margin-top: var(--space-1);
+      font-size: 9pt;
+      font-weight: 700;
+      color: var(--ink);
+      font-family: var(--font-title);
+      letter-spacing: 0.12em;
+    }
+    .divider {
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      width: {{ usable_width_mm }}mm;
+      height: 0.6mm;
+      background: repeating-linear-gradient(
+        90deg,
+        var(--rule-strong) 0,
+        var(--rule-strong) 8mm,
+        transparent 8mm,
+        transparent 12mm
+      );
+      opacity: 0.7;
+    }
+    .instructions {
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      width: {{ usable_width_mm }}mm;
+      display: grid;
+      grid-template-columns: minmax(26mm, max-content) 1fr;
+      column-gap: var(--space-6);
+      font-size: 9pt;
+      line-height: 4.5mm;
+      color: var(--ink);
+      background: var(--note);
+      border: none;
+      border-radius: var(--radius-none);
+      padding: var(--instructions-pad);
+      box-shadow: none;
+      outline: var(--border-base) solid var(--rule);
+    }
+    .instructions::before {
+      content: "";
+      position: absolute;
+      top: -2mm;
+      right: 10mm;
+      width: 4mm;
+      height: 4mm;
+      border-radius: 50%;
+      background: var(--pin);
+      box-shadow: none;
+    }
+    .instructions-label {
+      font-size: 7pt;
+      font-weight: 700;
+      color: var(--stamp);
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-family: var(--font-title);
+      border: var(--border-base) solid var(--stamp);
+      padding: 0.3mm 1.1mm;
+      justify-self: start;
+      align-self: start;
+      background: rgba(122, 44, 47, 0.08);
+      grid-column: 1;
+      grid-row: 1;
+    }
+    .instructions > div:not(.instructions-label) {
+      grid-column: 2;
+      grid-row: 1;
+    }
+    .fallback {
+      --strip-width: 8mm;
+      position: absolute;
+      left: {{ margin_mm }}mm;
+      width: {{ fallback.width_mm }}mm;
+      font-family: "Courier", "Courier New", monospace;
+      font-size: var(--fallback-font-size);
+      line-height: var(--fallback-line);
+      letter-spacing: 0;
+      font-kerning: none;
+      font-variant-ligatures: none;
+      font-feature-settings: "liga" 0, "calt" 0;
+      color: var(--ink);
+      background: var(--surface);
+      padding: var(--fallback-pad);
+      overflow: hidden;
+      border: none;
+      box-shadow: none;
+      border-radius: var(--radius-none);
+      font-variant-numeric: tabular-nums;
+      outline: var(--border-base) solid var(--rule);
+    }
+    .fallback::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: var(--strip-width);
+      height: 100%;
+      background: linear-gradient(
+        90deg,
+        var(--rail) 0,
+        var(--rail) 1.2mm,
+        var(--tab) 1.2mm,
+        var(--tab) 100%
+      );
+      border-right: var(--border-base) solid var(--rule);
+    }
+    .fallback-title {
+      position: absolute;
+      left: 1.4mm;
+      top: 1.5mm;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--stamp);
+      font-family: var(--font-title);
+      font-size: 7pt;
+      writing-mode: vertical-rl;
+      line-height: var(--fallback-line);
+      margin: 0;
+      padding: 0;
+    }
+    .fallback-lines {
+      position: relative;
+      counter-reset: line;
+      padding-left: 0;
+      padding-top: 0;
+      background: none;
+    }
+    .fallback-line {
+      position: relative;
+      line-height: var(--fallback-line);
+      margin: 0;
+      white-space: pre;
+    }
+    .fallback-line::before {
+      counter-increment: line;
+      content: counter(line, decimal-leading-zero);
+      position: absolute;
+      left: calc(-1 * var(--line-num-offset));
+      width: var(--line-num-width);
+      text-align: right;
+      font-size: var(--line-num-size);
+      letter-spacing: var(--line-num-letter-spacing);
+      color: var(--ink-soft);
+    }
+  </style>
+</head>
+<body>
+{% for page in pages %}
+  <section class="page">
+    <header class="header">
+      <div class="header-left">
+        <div class="title">{{ doc.title }}</div>
+        <div class="subtitle">{{ doc.subtitle }}</div>
+        <div class="meta-grid">
+          <div class="meta-label">Document ID</div>
+          <div class="meta-value">{{ doc_id }}</div>
+          {% if recovery.quorum_value %}
+          <div class="meta-label">Shard Quorum</div>
+          <div class="meta-value">{{ recovery.quorum_value }}</div>
+          {% endif %}
+          {% if recovery.signing_pub_lines %}
+          <div class="meta-label">Signing Pub Key</div>
+          <div class="meta-value">
+            {%- for line in recovery.signing_pub_lines -%}
+            {{ line }}{% if not loop.last %}<br>{% endif %}
+            {%- endfor -%}
+          </div>
+          {% endif %}
+          {% if recovery.passphrase %}
+          <div class="meta-label">Passphrase</div>
+          <div class="meta-value">
+            {%- if recovery.passphrase_lines -%}
+              {%- for line in recovery.passphrase_lines -%}
+              {{ line }}{% if not loop.last %}<br>{% endif %}
+              {%- endfor -%}
+            {%- else -%}
+              {{ recovery.passphrase }}
+            {%- endif -%}
+          </div>
+          {% endif %}
+          <div class="meta-label">Page</div>
+          <div class="meta-value">{{ page.page_label }}</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="stamp-title">Created (UTC)</div>
+        <div class="stamp-value">{{ created_timestamp_utc }}</div>
+      </div>
+    </header>
+
+    {{ divider(page) }}
+
+    {% if page.show_instructions %}
+    <aside class="instructions" style="top: {{ page.instructions_y_mm }}mm;">
+      <div class="instructions-label">{{ instructions.label }}</div>
+      <div>
+        {{ instructions_lines(instructions.lines) }}
+      </div>
+    </aside>
+    {% endif %}
+
+    {{ fallback_blocks(page) }}
+  </section>
+{% endfor %}
+</body>
+</html>

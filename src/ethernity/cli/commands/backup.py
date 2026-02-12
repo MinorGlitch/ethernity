@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import functools
-import sys
 from pathlib import Path
 from typing import Literal
 
@@ -67,6 +66,15 @@ def backup(
         "-o",
         help="Where to write PDFs (default: backup-<doc_id>).",
         rich_help_panel="Outputs",
+    ),
+    qr_chunk_size: int | None = typer.Option(
+        None,
+        "--qr-chunk-size",
+        help=(
+            "Preferred ciphertext bytes per QR frame. Lower values create more codes "
+            "but easier scanning; renderer may reduce to fit."
+        ),
+        rich_help_panel="Config",
     ),
     passphrase: str | None = typer.Option(
         None,
@@ -179,6 +187,7 @@ def backup(
         input_dir=[str(path) for path in (input_dir or [])],
         base_dir=base_dir,
         output_dir=output_dir,
+        qr_chunk_size=qr_chunk_size,
         passphrase=passphrase,
         passphrase_generate=passphrase_generate,
         passphrase_words=passphrase_words,
@@ -206,10 +215,10 @@ def backup(
             debug=debug_value,
         )
         return
-    if not args.input and not args.input_dir and sys.stdin.isatty():
+    if not args.input and not args.input_dir:
         console_err.print(
-            "Input is required for non-interactive backup. Use --input PATH, --input-dir DIR, "
-            "pipe data, or run without 'backup' to use the wizard."
+            "Input is required for non-interactive backup. "
+            "Use --input PATH, --input-dir DIR, or --input - for stdin."
         )
         raise typer.Exit(code=2)
     _run_cli(functools.partial(run_backup_command, args), debug=debug_value)

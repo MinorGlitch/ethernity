@@ -1,0 +1,86 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+
+{% set brand_name = brand_name|default("Ethernity") %}
+{% set logo_src_value = logo_src|default("") %}
+{% if not logo_src_value %}
+  {% set logo_src_value = asset_data_uri("logo.png") %}
+{% endif %}
+{% set page_width_mm = page_width_mm|default(229) %}
+{% set page_height_mm = page_height_mm|default(324) %}
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    @page {
+      /* C4 envelope: 229mm x 324mm (portrait), 324mm x 229mm (landscape) */
+      size: {{ page_width_mm }}mm {{ page_height_mm }}mm;
+      margin: 0;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: #000;
+      background: #fff;
+    }
+    .page {
+      position: relative;
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      overflow: hidden;
+      background: #fff;
+    }
+    .frame {
+      position: absolute;
+      inset: 7mm;
+      border: 0.35mm solid #000;
+      border-radius: 3mm;
+    }
+    .logo-center {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      display: grid;
+      place-items: center;
+      text-align: center;
+      width: 130mm;
+      max-width: calc(100% - 18mm);
+    }
+    .logo {
+      display: block;
+      width: 100mm;
+      max-width: 100%;
+      height: auto;
+      margin: 0 auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="frame"></div>
+    <div class="logo-center">
+      <img class="logo" src="{{ logo_src_value }}" alt="{{ brand_name }} logo">
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,43 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+{% if sentinel_page_label is defined %}
+  {% set _sentinel_page_label = sentinel_page_label %}
+{% elif page is defined and page.page_label is defined %}
+  {% set _sentinel_page_label = page.page_label %}
+{% else %}
+  {% set _sentinel_page_label = '' %}
+{% endif %}
+{% set _sentinel_header_title = sentinel_header_title if sentinel_header_title is defined else doc.title %}
+{% set _sentinel_header_subtitle = sentinel_header_subtitle if sentinel_header_subtitle is defined else doc.subtitle %}
+{% set _sentinel_header_classification = sentinel_header_classification if sentinel_header_classification is defined else 'Offline Only' %}
+<div class="sentinel-shell-top-strip relative z-10 shrink-0 min-h-8 py-1 bg-primary border-b-4 border-black flex items-center justify-center px-[15mm]">
+  <p class="text-[9px] font-black uppercase tracking-[0.12em] text-black text-center leading-tight">
+    {{ sentinel_top_strip_text }}
+  </p>
+</div>
+<header class="sentinel-shell-header relative z-10 shrink-0 border-b-2 border-black pb-3 px-[15mm] grid grid-cols-[minmax(0,1fr)_60mm] gap-6 items-end">
+  <div class="min-w-0">
+    <h1 class="text-3xl font-black text-black tracking-tighter uppercase leading-none">{{ _sentinel_header_title }}</h1>
+    <p class="mt-1 text-xs uppercase tracking-[0.1em] text-text-secondary-light">{{ _sentinel_header_subtitle }}</p>
+  </div>
+  <div class="min-w-0 w-full text-right font-mono text-[9px] text-text-secondary-light leading-tight">
+    <span class="inline-block max-w-full bg-black text-white px-2 py-0.5 text-xs font-bold uppercase mb-1">{{ _sentinel_header_classification }}</span>
+    <p class="mt-2 break-all">DOC ID: {{ doc_id }}</p>
+    <p>GENERATED (UTC): {{ created_timestamp_utc }}</p>
+    <p>{{ _sentinel_page_label }}</p>
+  </div>
+</header>

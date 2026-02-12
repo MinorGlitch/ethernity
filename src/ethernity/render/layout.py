@@ -24,6 +24,7 @@ from fpdf import FPDF
 from ..encoding.chunking import reassemble_payload
 from ..encoding.framing import VERSION, Frame, encode_frame
 from ..encoding.zbase32 import encode_zbase32
+from .doc_types import DOC_TYPE_RECOVERY
 from .fallback import (
     fallback_lines_from_sections,
     label_line_height_fallback,
@@ -38,7 +39,15 @@ from .geometry import (
     line_length_from_groups,
     max_groups_for_width,
 )
+from .layout_policy import (
+    adjust_layout_fallback_capacity,
+    fallback_text_width_override_mm,
+    max_rows_override_for_template,
+    resolve_layout_capabilities,
+    should_force_max_rows,
+)
 from .spec import DocumentSpec
+from .template_style import TemplateCapabilities
 from .text import (
     header_height,
     instructions_height,
@@ -89,7 +98,7 @@ def _calculate_content_positions(
     if include_keys:
         keys_height = lines_height(keys_cfg, wrapped_key_lines)
     else:
-        wrapped_key_lines = []
+        wrapped_key_lines = list(key_lines)
         keys_height = 0.0
 
     header_h = header_height(header_cfg, header_min_height)
@@ -108,6 +117,8 @@ def _calculate_fallback_line_length(
     spec: DocumentSpec,
     page_w: float,
     margin: float,
+    *,
+    text_width_override_mm: float | None = None,
 ) -> tuple[int, int, float, str, float]:
     """Calculate fallback text parameters.
 
@@ -124,8 +135,11 @@ def _calculate_fallback_line_length(
     original_cell_margin = pdf.c_margin
     pdf.c_margin = 0
     fallback_width = page_w - 2 * margin
-    padding_mm = float(fallback_cfg.padding_mm)
-    fallback_width_safe = max(1.0, fallback_width - (2 * float(padding_mm)))
+    if text_width_override_mm is None:
+        padding_mm = float(fallback_cfg.padding_mm)
+        fallback_width_safe = max(1.0, fallback_width - (2 * float(padding_mm)))
+    else:
+        fallback_width_safe = max(1.0, float(text_width_override_mm))
     max_groups = max_groups_for_width(pdf, group_size, fallback_width_safe)
     if line_length_cfg > 0:
         max_groups = min(max_groups, groups_from_line_length(line_length_cfg, group_size))
@@ -170,6 +184,15 @@ def _build_fallback_lines(
     )
 
 
+def _recovery_has_shard_quorum(key_lines: Sequence[str]) -> bool:
+    prefix = "Recover with "
+    suffix = " shard documents."
+    for line in key_lines:
+        if line.startswith(prefix) and line.endswith(suffix):
+            return True
+    return False
+
+
 def _calculate_qr_grid(
     inputs: RenderInputs,
     spec: DocumentSpec,
@@ -180,6 +203,8 @@ def _calculate_qr_grid(
     margin: float,
     line_height: float,
     min_lines: int,
+    include_instructions: bool,
+    capabilities: TemplateCapabilities,
 ) -> tuple[int, int, int, float | None, float, int]:
     """Calculate QR grid dimensions.
 
@@ -189,7 +214,13 @@ def _calculate_qr_grid(
     qr_size = float(qr_cfg.qr_size_mm)
     gap = float(qr_cfg.gap_mm)
     max_cols = qr_cfg.max_cols
-    max_rows = qr_cfg.max_rows
+    max_rows = max_rows_override_for_template(
+        capabilities=capabilities,
+        doc_type=inputs.doc_type,
+        max_rows=qr_cfg.max_rows,
+        include_instructions=include_instructions,
+        content_start_y=content_start_y,
+    )
 
     cols = rows = per_page = 0
     gap_y_override = None
@@ -208,7 +239,11 @@ def _calculate_qr_grid(
         if cols <= 0 or rows <= 0:
             raise ValueError("page too small for configured grid")
 
-        if not inputs.render_fallback and max_rows:
+        if (
+            not inputs.render_fallback
+            and max_rows
+            and should_force_max_rows(capabilities=capabilities)
+        ):
             desired_rows = int(max_rows)
             if desired_rows > rows and desired_rows > 1:
                 required_gap = (usable_h_grid - desired_rows * qr_size) / (desired_rows - 1)
@@ -268,10 +303,24 @@ def compute_layout(
     page_w, page_h = pdf.w, pdf.h
     usable_h = page_h - margin - content_start_y
     fallback_width = page_w - 2 * margin
+    capabilities = resolve_layout_capabilities(inputs)
 
     # Calculate fallback line parameters
+    text_width_override_mm = fallback_text_width_override_mm(
+        capabilities=capabilities,
+        doc_type=inputs.doc_type,
+        spec=spec,
+        page_w=page_w,
+        margin=margin,
+    )
     line_length, group_size, line_height, fallback_font, fallback_size = (
-        _calculate_fallback_line_length(pdf, spec, page_w, margin)
+        _calculate_fallback_line_length(
+            pdf,
+            spec,
+            page_w,
+            margin,
+            text_width_override_mm=text_width_override_mm,
+        )
     )
 
     # Build fallback lines
@@ -300,6 +349,28 @@ def compute_layout(
         margin,
         line_height,
         min_lines,
+        include_instructions,
+        capabilities,
+    )
+
+    line_height, fallback_lines_per_page_val = adjust_layout_fallback_capacity(
+        capabilities=capabilities,
+        doc_type=inputs.doc_type,
+        content_start_y=content_start_y,
+        page_h=page_h,
+        margin=margin,
+        line_height=line_height,
+        fallback_lines_per_page_val=fallback_lines_per_page_val,
+        include_recovery_metadata_footer=(
+            inputs.doc_type.strip().lower() == DOC_TYPE_RECOVERY and include_instructions
+        ),
+        recovery_meta_lines_extra=int(spec.header.meta_lines_extra),
+        include_instructions=include_instructions,
+        recovery_has_quorum=(
+            _recovery_has_shard_quorum(key_lines)
+            if inputs.doc_type.strip().lower() == DOC_TYPE_RECOVERY
+            else None
+        ),
     )
 
     # Calculate total pages

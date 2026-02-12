@@ -47,7 +47,7 @@ def _run_kit_render(
     config_value: str | None,
     paper_value: str | None,
     design_value: str | None,
-    chunk_size: int | None,
+    qr_chunk_size: int | None,
     quiet_value: bool,
 ) -> None:
     result = render_kit_qr_document(
@@ -56,7 +56,7 @@ def _run_kit_render(
         config_path=config_value,
         paper_size=paper_value,
         design=design_value,
-        chunk_size=chunk_size,
+        chunk_size=qr_chunk_size,
         quiet=quiet_value,
     )
     if not quiet_value:
@@ -82,9 +82,9 @@ def kit(
         "-b",
         help="Custom recovery kit HTML bundle to use instead of the built-in one.",
     ),
-    chunk_size: int | None = typer.Option(
+    qr_chunk_size: int | None = typer.Option(
         None,
-        "--chunk-size",
+        "--qr-chunk-size",
         help=(
             "Data per QR code in bytes. Lower values create more codes but are easier "
             "to scan (default: %s)." % DEFAULT_KIT_CHUNK_SIZE
@@ -130,7 +130,7 @@ def kit(
             config_value=config_value,
             paper_value=paper_value,
             design_value=design_value,
-            chunk_size=chunk_size,
+            qr_chunk_size=qr_chunk_size,
             quiet_value=quiet_value,
         ),
         debug=bool(_ctx_value(ctx, "debug")),

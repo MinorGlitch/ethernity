@@ -1,0 +1,562 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+{% from 'css_variables.j2' import common_variables %}
+{% from 'html_components.j2' import instructions_lines %}
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+
+    :root {
+{{ common_variables() }}
+      --bg: #f3f4f6;
+      --paper: #ffffff;
+      --ink: #111418;
+      --muted: #6b7280;
+      --muted-soft: #9ca3af;
+      --rule: #d1d5db;
+      --panel: #f9fafb;
+      --accent: #1763cf;
+      --font-display: "Inter", "Segoe UI", sans-serif;
+      --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--font-display);
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .page {
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      page-break-after: always;
+      background: var(--paper);
+      border: 0.26mm solid #e5e7eb;
+      padding: {{ margin_mm }}mm;
+      display: flex;
+      flex-direction: column;
+      gap: 2.2mm;
+      overflow: hidden;
+    }
+
+    .page:last-child { page-break-after: auto; }
+
+    .doc {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2mm;
+    }
+
+    .header {
+      display: grid;
+      gap: 1.5mm;
+      border-bottom: 0.58mm solid #000;
+      padding-bottom: 1.7mm;
+    }
+
+    .head-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 4mm;
+    }
+
+    .title {
+      margin: 0;
+      font-size: 15pt;
+      line-height: 1.02;
+      text-transform: uppercase;
+      font-weight: 900;
+      letter-spacing: 0.01em;
+    }
+
+    .badge-col {
+      text-align: right;
+      display: grid;
+      gap: 0.5mm;
+    }
+
+    .badge {
+      display: inline-block;
+      justify-self: end;
+      background: var(--accent);
+      color: #fff;
+      font-size: 6.2pt;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.11em;
+      font-weight: 800;
+      padding: 0.5mm 1.5mm;
+      border-radius: 0.45mm;
+      white-space: nowrap;
+    }
+
+    .subtitle {
+      font-size: 6.6pt;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #4b5563;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1.1mm;
+      padding-top: 0.9mm;
+      border-top: 0.2mm solid #e5e7eb;
+    }
+
+    .meta-item {
+      display: grid;
+      gap: 0.35mm;
+      align-content: start;
+      min-height: 8.5mm;
+    }
+
+    .meta-k {
+      font-size: 5.6pt;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #6b7280;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .meta-v {
+      font-family: var(--font-mono);
+      font-size: 6.8pt;
+      color: #111827;
+      line-height: 1.24;
+      font-weight: 700;
+      word-break: break-word;
+    }
+
+    .instructions {
+      border: 0.22mm solid #d1d5db;
+      border-left: 1.1mm solid var(--accent);
+      background: var(--panel);
+      padding: 1.3mm 1.9mm;
+      display: grid;
+      grid-template-columns: 25mm 1fr;
+      gap: 2.8mm;
+      font-size: 7.6pt;
+      line-height: 1.4;
+    }
+
+    .instructions-label {
+      font-size: 5.9pt;
+      text-transform: uppercase;
+      letter-spacing: 0.11em;
+      color: #6b7280;
+      font-weight: 800;
+    }
+
+    .instructions-full {
+      border: 0.22mm solid #d1d5db;
+      border-left: 1.1mm solid var(--accent);
+      background: var(--panel);
+      padding: 2.2mm 2.9mm;
+      font-size: 8.6pt;
+      line-height: 1.45;
+      display: grid;
+      gap: 0.8mm;
+    }
+
+    .instructions-full-label {
+      font-size: 6.2pt;
+      text-transform: uppercase;
+      letter-spacing: 0.11em;
+      color: #6b7280;
+      font-weight: 800;
+    }
+
+    .body {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1.8mm;
+    }
+
+    .section {
+      display: grid;
+      gap: 0.8mm;
+      border: 0.2mm solid #e5e7eb;
+      background: #fff;
+      padding: 1.2mm 1.8mm;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      gap: 1mm;
+      margin: 0;
+    }
+
+    .section-title {
+      font-size: 7pt;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 800;
+      color: #111827;
+    }
+
+    .section-rule {
+      flex: 1 1 auto;
+      height: 0.2mm;
+      background: #d1d5db;
+    }
+
+    .section-code {
+      font-size: 5.8pt;
+      font-family: var(--font-mono);
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+    }
+
+    .seed-grid {
+      border-left: 0.5mm solid rgba(23, 99, 207, 0.25);
+      padding-left: 1.5mm;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 0.5mm 1.2mm;
+    }
+
+    .seed-line {
+      display: flex;
+      align-items: baseline;
+      gap: 0.8mm;
+      border-bottom: 0.18mm solid #f1f5f9;
+      padding: 0.45mm 0;
+      font-family: var(--font-mono);
+      font-size: 6.7pt;
+    }
+
+    .seed-num {
+      color: #9ca3af;
+      font-size: 5.7pt;
+      min-width: 3.6mm;
+      text-align: right;
+      flex: 0 0 auto;
+    }
+
+    .seed-word {
+      color: #111827;
+      font-weight: 600;
+      word-break: break-word;
+    }
+
+    .hex-panel {
+      border: 0.18mm solid #e5e7eb;
+      background: #f9fafb;
+      padding: 1.1mm 1.6mm;
+      display: grid;
+      gap: 0.5mm;
+      font-family: var(--font-mono);
+      font-size: 6.6pt;
+      line-height: 1.3;
+      color: #111827;
+      word-break: break-word;
+    }
+
+    .fallback-list {
+      display: grid;
+      gap: 0.8mm;
+      min-height: 0;
+    }
+
+    .fallback {
+      border: 0.2mm solid #d1d5db;
+      background: #f9fafb;
+      padding: 0.75mm 1.5mm;
+      font-family: var(--font-mono);
+      font-size: 6.7pt;
+      line-height: 1.3;
+      color: #334155;
+    }
+
+    .fallback-title {
+      font-family: var(--font-display);
+      font-size: 5.7pt;
+      text-transform: uppercase;
+      letter-spacing: 0.11em;
+      color: #6b7280;
+      font-weight: 800;
+      margin-bottom: 0.3mm;
+    }
+
+    .fallback-lines {
+      counter-reset: line var(--line-offset, 0);
+    }
+
+    .fallback-line {
+      position: relative;
+      white-space: pre;
+      padding-left: 6.2mm;
+    }
+
+    .fallback-line::before {
+      counter-increment: line;
+      content: counter(line, decimal-leading-zero);
+      position: absolute;
+      left: 0;
+      width: 5mm;
+      text-align: right;
+      color: #9ca3af;
+      font-size: 5.5pt;
+      letter-spacing: 0.06em;
+    }
+
+    .bottom {
+      border-top: 0.45mm solid #000;
+      padding-top: 1.2mm;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2.2mm;
+    }
+
+    .panel-title {
+      font-size: 6.1pt;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+      font-weight: 800;
+      color: #111827;
+      margin-bottom: 0.5mm;
+    }
+
+    .bullet-lines {
+      display: grid;
+      gap: 0.35mm;
+      font-size: 6.7pt;
+      line-height: 1.35;
+      color: #1f2937;
+    }
+
+    .bullet-line {
+      position: relative;
+      padding-left: 2.4mm;
+    }
+
+    .bullet-line::before {
+      content: "-";
+      position: absolute;
+      left: 0;
+      color: #6b7280;
+      font-family: var(--font-mono);
+    }
+
+    .footer {
+      border-top: 0.2mm solid #e5e7eb;
+      padding-top: 0.8mm;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 2mm;
+      font-family: var(--font-mono);
+      font-size: 5.8pt;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #6b7280;
+    }
+
+    .footer-left {
+      display: inline-flex;
+      align-items: center;
+      gap: 1mm;
+      min-width: 0;
+    }
+
+    .footer-left::before {
+      content: "";
+      width: 2mm;
+      height: 2mm;
+      border-radius: 999px;
+      background: var(--accent);
+      flex: 0 0 auto;
+    }
+  </style>
+</head>
+<body>
+{% for page in pages %}
+  <section class="page">
+    <div class="doc">
+      <header class="header">
+        <div class="head-top">
+          <h1 class="title">{{ doc.title }}</h1>
+          <div class="badge-col">
+            <span class="badge">Confidential</span>
+            <span class="subtitle">{{ doc.subtitle }}</span>
+          </div>
+        </div>
+
+        <div class="meta-grid">
+          <div class="meta-item">
+            <div class="meta-k">Document ID</div>
+            <div class="meta-v">{{ doc_id }}</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-k">Created (UTC)</div>
+            <div class="meta-v">{{ created_timestamp_utc }}</div>
+          </div>
+          {% if recovery and recovery.quorum_value %}
+          <div class="meta-item">
+            <div class="meta-k">Shard Quorum</div>
+            <div class="meta-v">{{ recovery.quorum_value }}</div>
+          </div>
+          {% endif %}
+          {% if recovery and recovery.signing_pub_lines %}
+          <div class="meta-item">
+            <div class="meta-k">Signing Key</div>
+            <div class="meta-v">{{ recovery.signing_pub_lines | join(' ') }}</div>
+          </div>
+          {% endif %}
+          {% if recovery and recovery.passphrase_lines %}
+          <div class="meta-item">
+            <div class="meta-k">Passphrase</div>
+            <div class="meta-v">{{ recovery.passphrase_lines | join(' ') }}</div>
+          </div>
+          {% elif recovery and recovery.passphrase %}
+          <div class="meta-item">
+            <div class="meta-k">Passphrase</div>
+            <div class="meta-v">{{ recovery.passphrase }}</div>
+          </div>
+          {% endif %}
+          <div class="meta-item">
+            <div class="meta-k">Page</div>
+            <div class="meta-v">{{ page.page_label }}</div>
+          </div>
+        </div>
+      </header>
+
+      {% if page.instructions_full_page %}
+        <section class="instructions-full">
+          <div class="instructions-full-label">{{ instructions.label }}</div>
+          <div>{{ instructions_lines(instructions.lines, scan_hint_text=instructions.scan_hint) }}</div>
+        </section>
+      {% else %}
+        {% if page.show_instructions %}
+        <section class="instructions">
+          <div class="instructions-label">{{ instructions.label }}</div>
+          <div>{{ instructions_lines(instructions.lines, scan_hint_text=instructions.scan_hint) }}</div>
+        </section>
+        {% endif %}
+
+        <section class="body">
+          {% set seed_words = recovery.passphrase_lines if recovery and recovery.passphrase_lines else [] %}
+          {% if seed_words %}
+          <section class="section">
+            <div class="section-head">
+              <span class="section-title">Master Mnemonic Seed</span>
+              <span class="section-rule"></span>
+              <span class="section-code">BIP-39</span>
+            </div>
+            <div class="seed-grid">
+              {% for line in seed_words %}
+                {% for word in line.split() %}
+                <div class="seed-line">
+                  <span class="seed-num">{{ "%02d."|format(loop.index + ((loop.parentloop.index0) * 6)) }}</span>
+                  <span class="seed-word">{{ word }}</span>
+                </div>
+                {% endfor %}
+              {% endfor %}
+            </div>
+          </section>
+          {% endif %}
+
+          {% if recovery and recovery.signing_pub_lines %}
+          <section class="section">
+            <div class="section-head">
+              <span class="section-title">Raw Hex Entropy</span>
+              <span class="section-rule"></span>
+              <span class="section-code">256-bit</span>
+            </div>
+            <div class="hex-panel">
+              {% for line in recovery.signing_pub_lines %}<div>{{ line }}</div>{% endfor %}
+            </div>
+          </section>
+          {% endif %}
+
+          {% if page.fallback_blocks %}
+          <section class="section">
+            <div class="section-head">
+              <span class="section-title">Fallback Blocks</span>
+              <span class="section-rule"></span>
+              <span class="section-code">Manual</span>
+            </div>
+            <div class="fallback-list">
+              {% for block in page.fallback_blocks %}
+              <div class="fallback">
+                {% if block.title %}<div class="fallback-title">{{ block.title }}</div>{% endif %}
+                <div class="fallback-lines" style="--line-offset: {{ block.line_offset }};">
+                  {% for line in block.lines %}
+                  <div class="fallback-line">{{ line }}</div>
+                  {% endfor %}
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </section>
+          {% endif %}
+        </section>
+      {% endif %}
+
+      <section class="bottom">
+        <div>
+          <div class="panel-title">Security Instructions</div>
+          <div class="bullet-lines">
+            <div class="bullet-line">Store this document in a fireproof and waterproof location.</div>
+            <div class="bullet-line">Do not photograph or store these values in cloud services.</div>
+            <div class="bullet-line">Treat all recovery material as high-risk secret data.</div>
+          </div>
+        </div>
+        <div>
+          <div class="panel-title">Validation</div>
+          <div class="bullet-lines">
+            <div class="bullet-line">Verified by: __________________</div>
+            <div class="bullet-line">Date validated: ____ / ____ / ____</div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <span class="footer-left">Secure Recovery System v3.1</span>
+        <span>Page {{ page.page_num }} of {{ pages|length }}</span>
+      </footer>
+    </div>
+  </section>
+{% endfor %}
+</body>
+</html>

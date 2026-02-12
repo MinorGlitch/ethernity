@@ -1,0 +1,324 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+<!doctype html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8">
+  {% include 'partials/monograph_tailwind_setup.j2' %}
+  <style>
+    {% include 'partials/material_symbols_local.j2' %}
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+
+    @media print {
+      body {
+        background: white !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      .print-sheet {
+        box-shadow: none !important;
+        margin: 0 !important;
+      }
+    }
+
+    .print-sheet {
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      min-height: {{ page_height_mm }}mm;
+      margin: 0 auto;
+      page-break-after: always;
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+      overflow: hidden;
+      position: relative;
+      background: white;
+    }
+
+    .print-sheet:last-child {
+      page-break-after: auto;
+    }
+  </style>
+</head>
+<body class="bg-background-light font-display min-h-screen text-ink-dark">
+{% for page in pages %}
+  {% set ns_auth = namespace(block=None) %}
+  {% set ns_main = namespace(rows=[]) %}
+  {% set ns_entries = namespace(rows=[]) %}
+  {% for block in page.fallback_blocks %}
+    {% if ns_auth.block is none and block.title and ('AUTH' in (block.title | upper)) %}
+      {% set ns_auth.block = block %}
+    {% else %}
+      {% for line in block.lines %}
+        {% set ns_main.rows = ns_main.rows + [{
+          'num': block.line_offset + loop.index,
+          'line': line
+        }] %}
+      {% endfor %}
+    {% endif %}
+  {% endfor %}
+  {% if ns_auth.block is not none %}
+    {% set auth_lines = ns_auth.block.lines %}
+    {% set main_rows = ns_main.rows %}
+  {% else %}
+    {% set ns_auth_fallback = namespace(lines=[]) %}
+    {% for row in ns_main.rows[:3] %}
+      {% set ns_auth_fallback.lines = ns_auth_fallback.lines + [row.line] %}
+    {% endfor %}
+    {% set auth_lines = ns_auth_fallback.lines %}
+    {% set main_rows = ns_main.rows[3:] %}
+  {% endif %}
+
+  {% for block in page.fallback_blocks %}
+    {% for line in block.lines %}
+      {% set ns_entries.rows = ns_entries.rows + [{
+        'num': block.line_offset + loop.index,
+        'line': line,
+        'title': block.title
+      }] %}
+    {% endfor %}
+  {% endfor %}
+
+  <section class="print-sheet border border-[#e5e5e5] flex flex-col">
+    {% if page.page_num == 1 %}
+      <div class="h-[2.2mm] w-full bg-gradient-to-r from-primary to-primary/40"></div>
+      <div class="flex-1 p-[14mm] pb-[12mm] flex flex-col gap-5">
+        {% set monograph_header_title = 'Recovery Document' %}
+        {% set monograph_header_subtitle = doc.subtitle %}
+        {% set monograph_header_classification = 'Manual Entry Only' %}
+        {% set monograph_header_guidance = 'Transcribe exactly; keep separate from QR pages' %}
+        {% set monograph_header_ref = doc_id[:3] ~ '-' ~ doc_id[3:7] ~ '-' ~ doc_id[7:10] %}
+        {% set monograph_header_icon = 'qr_code_2' %}
+        {% include 'partials/monograph_shell_header.j2' %}
+
+        <div class="grid grid-cols-12 gap-5 flex-1 min-h-0">
+          <section class="col-span-4 flex flex-col gap-4 min-h-0">
+            <div class="flex items-center gap-2 border-b border-primary/20 pb-2">
+              <span class="material-symbols-outlined text-primary text-[15px]">vpn_key</span>
+              <h2 class="font-serif text-[14px] italic font-bold">Recovery Keys</h2>
+            </div>
+            <p class="text-[9px] italic leading-relaxed text-ink-light border-l-2 border-primary/20 pl-2">
+              Verification keys for restoration. Ensure exact character casing.
+            </p>
+            <div class="space-y-4">
+              <div>
+                <p class="text-[8px] font-black uppercase tracking-wider text-ink-light">Fingerprint (0x01)</p>
+                <div class="mt-1 border-b border-dashed border-ink-light/40 py-1 font-mono text-[10px]">
+                  {{ auth_lines[0] if (auth_lines | length) > 0 else '____________' }}
+                </div>
+              </div>
+              <div>
+                <p class="text-[8px] font-black uppercase tracking-wider text-ink-light">Checksum (0x02)</p>
+                <div class="mt-1 border-b border-dashed border-ink-light/40 py-1 font-mono text-[10px]">
+                  {{ auth_lines[1] if (auth_lines | length) > 1 else '____________' }}
+                </div>
+              </div>
+              <div>
+                <p class="text-[8px] font-black uppercase tracking-wider text-ink-light">Master Key ID (0x03)</p>
+                <div class="mt-1 border-b border-dashed border-ink-light/40 py-1 font-mono text-[10px]">
+                  {{ auth_lines[2] if (auth_lines | length) > 2 else '____________' }}
+                </div>
+              </div>
+            </div>
+            <div class="mt-auto p-3 bg-background-light border border-line-subtle rounded-sm">
+              <div class="flex items-start gap-2">
+                <span class="material-symbols-outlined text-primary text-[14px] mt-0.5">info</span>
+                <p class="text-[8.5px] leading-relaxed text-ink-light">
+                  Do not share these keys. They are required to validate recovery phrase integrity.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section class="col-span-8 flex flex-col gap-4 min-h-0">
+            <div class="flex items-center gap-2 border-b border-primary/20 pb-2">
+              <span class="material-symbols-outlined text-primary text-[15px]">text_fields</span>
+              <h2 class="font-serif text-[14px] italic font-bold">Manual Transcription Sequence</h2>
+            </div>
+            <p class="text-[9px] italic leading-relaxed text-ink-light border-l-2 border-primary/20 pl-2">
+              Primary recovery phrase. Write clearly in the numbered slots below. Order matters.
+            </p>
+
+            {% set ns_visible_main = namespace(rows=main_rows) %}
+            {% if (ns_visible_main.rows | length) < 12 %}
+              {% for _ in range(12 - (ns_visible_main.rows | length)) %}
+                {% set ns_visible_main.rows = ns_visible_main.rows + [{'num': none, 'line': ''}] %}
+              {% endfor %}
+            {% endif %}
+            {% set main_half = ((ns_visible_main.rows | length) + 1) // 2 %}
+            {% set left_main_rows = ns_visible_main.rows[:main_half] %}
+            {% set right_main_rows = ns_visible_main.rows[main_half:] %}
+
+            <div class="grid grid-cols-2 gap-x-4">
+              <div class="space-y-0">
+                {% for row in left_main_rows %}
+                  <div class="flex items-end gap-2 py-1.5 border-b border-line-subtle">
+                    <span class="w-7 text-[8.5px] font-mono text-ink-light">
+                      {% if row.num is not none %}{{ '%02d' % row.num }}.{% endif %}
+                    </span>
+                    <div class="flex-1 border-b border-dashed border-ink-light/30 min-h-[3mm] text-[8.5px] font-mono text-ink-dark tracking-tight break-all leading-tight">
+                      {{ row.line }}
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+              <div class="space-y-0">
+                {% for row in right_main_rows %}
+                  <div class="flex items-end gap-2 py-1.5 border-b border-line-subtle">
+                    <span class="w-7 text-[8.5px] font-mono text-ink-light">
+                      {% if row.num is not none %}{{ '%02d' % row.num }}.{% endif %}
+                    </span>
+                    <div class="flex-1 border-b border-dashed border-ink-light/30 min-h-[3mm] text-[8.5px] font-mono text-ink-dark tracking-tight break-all leading-tight">
+                      {{ row.line }}
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+
+            <div class="mt-auto pt-2">
+              <div class="flex items-center gap-2 text-[8px] uppercase tracking-[0.16em] text-ink-light">
+                <div class="h-px bg-line-subtle flex-1"></div>
+                <span>End of Page 1</span>
+                <div class="h-px bg-line-subtle flex-1"></div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        {% set monograph_footer_left = 'Monograph Offline Archive' %}
+        {% set monograph_footer_right = 'Transcribe exactly; keep separate from QR pages' %}
+        {% include 'partials/monograph_shell_footer.j2' %}
+      </div>
+    {% else %}
+      {% set half = ((ns_entries.rows | length) + 1) // 2 %}
+      {% set left_rows = ns_entries.rows[:half] %}
+      {% set right_rows = ns_entries.rows[half:] %}
+
+      <div class="flex-1 p-[14mm] pb-[12mm] flex flex-col gap-5">
+        {% set monograph_header_title = 'Recovery Document' %}
+        {% set monograph_header_subtitle = doc.subtitle %}
+        {% set monograph_header_classification = 'Manual Entry Only' %}
+        {% set monograph_header_guidance = 'Transcribe exactly; keep separate from QR pages' %}
+        {% set monograph_header_ref = doc_id[:3] ~ '-' ~ doc_id[3:7] ~ '-' ~ doc_id[7:10] %}
+        {% set monograph_header_icon = 'text_fields' %}
+        {% include 'partials/monograph_shell_header.j2' %}
+
+        <div>
+          <div class="flex items-start justify-between gap-4">
+            <div class="max-w-[68%]">
+              <h2 class="text-[19px] font-black tracking-tight">Manual Transcription Sequence</h2>
+              <p class="mt-2 text-[9px] leading-relaxed text-ink-light">
+                Keep row order intact and copy each line exactly.
+                Keep this page separate from QR pages.
+              </p>
+            </div>
+            <div class="border border-line-subtle bg-background-light px-3 py-2">
+              <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-primary text-[18px]">lock</span>
+                <div>
+                  <p class="text-[7px] font-mono uppercase tracking-[0.14em] text-ink-light">Classification</p>
+                  <p class="text-[8.5px] font-bold">Encrypted recovery payload</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <section>
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-mono text-[8px] font-black uppercase tracking-[0.16em]">Fallback Sequence</h3>
+            <span class="h-px flex-1 bg-black/10 ml-3"></span>
+          </div>
+          <div class="grid grid-cols-2 gap-x-8">
+            <div class="space-y-0">
+              {% for row in left_rows %}
+              <div class="flex items-end gap-2 py-1.5 border-b border-dashed border-[#dfdbe9]">
+                <span class="w-7 text-[9px] font-mono text-ink-light">{{ '%02d' % row.num }}.</span>
+                <div class="flex-1 text-[9px] font-mono text-ink-dark break-all tracking-tight leading-tight">{{ row.line }}</div>
+              </div>
+              {% endfor %}
+            </div>
+            <div class="space-y-0">
+              {% for row in right_rows %}
+              <div class="flex items-end gap-2 py-1.5 border-b border-dashed border-[#dfdbe9]">
+                <span class="w-7 text-[9px] font-mono text-ink-light">{{ '%02d' % row.num }}.</span>
+                <div class="flex-1 text-[9px] font-mono text-ink-dark break-all tracking-tight leading-tight">{{ row.line }}</div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-mono text-[8px] font-black uppercase tracking-[0.16em]">Recovery Verification Checklist</h3>
+            <span class="h-px flex-1 bg-black/10 ml-3"></span>
+          </div>
+          <div class="grid grid-cols-3 gap-4">
+            <div>
+              <p class="text-[7px] font-mono uppercase tracking-wider text-ink-light mb-1">Words Verified</p>
+              <div class="border border-line-subtle bg-background-light px-2 py-1 text-[8px] font-semibold">[ ] Complete</div>
+            </div>
+            <div class="col-span-2">
+              <p class="text-[7px] font-mono uppercase tracking-wider text-ink-light mb-1">Operator Initials</p>
+              <div class="border-b border-black/20 py-1 text-[8.5px] font-mono">______________________</div>
+            </div>
+          </div>
+          <div class="mt-3">
+            <p class="text-[7px] font-mono uppercase tracking-wider text-ink-light mb-1">Notes / Quorum</p>
+            <div class="border-b border-black/20 py-1 text-[8.5px] italic text-ink-light">{{ recovery.quorum_value if recovery.quorum_value else 'Record shard quorum or leave blank.' }}</div>
+          </div>
+        </section>
+
+        <section class="flex-1">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-mono text-[8px] font-black uppercase tracking-[0.16em]">Operator Notes</h3>
+            <span class="h-px flex-1 bg-black/10 ml-3"></span>
+          </div>
+          <div class="h-[58mm] bg-[linear-gradient(transparent_17px,#ece8f5_18px)] bg-[length:100%_18px]"></div>
+        </section>
+
+        <section class="mt-auto pt-4 border-t-[1.5px] border-black flex items-end justify-between">
+          <div>
+            <div class="w-16 h-5 bg-black mb-1"></div>
+            <p class="text-[7px] font-mono uppercase tracking-wider text-ink-light">Document Hash</p>
+            <p class="text-[8px] font-mono font-black text-primary">{{ doc_id[:2] }}-{{ doc_id[2:4] }}-{{ doc_id[4:6] }}-{{ doc_id[6:8] }}-{{ doc_id[8:10] }}</p>
+          </div>
+          <div class="flex gap-5">
+            <div class="w-24">
+              <div class="h-5 border-b border-black/20"></div>
+              <p class="mt-1 text-[7px] font-mono uppercase tracking-wider text-ink-light">Date</p>
+            </div>
+            <div class="w-28">
+              <div class="h-5 border-b border-black/20"></div>
+              <p class="mt-1 text-[7px] font-mono uppercase tracking-wider text-ink-light">Authorized Signature</p>
+            </div>
+          </div>
+        </section>
+        {% set monograph_footer_left = 'Monograph Offline Archive' %}
+        {% set monograph_footer_right = 'Transcribe exactly; keep separate from QR pages' %}
+        {% include 'partials/monograph_shell_footer.j2' %}
+      </div>
+    {% endif %}
+  </section>
+{% endfor %}
+</body>
+</html>

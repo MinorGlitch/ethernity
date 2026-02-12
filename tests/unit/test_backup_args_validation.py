@@ -20,6 +20,18 @@ from ethernity.cli.core.types import BackupArgs
 
 
 class TestBackupArgsValidation(unittest.TestCase):
+    def test_qr_chunk_size_zero_rejected(self) -> None:
+        args = BackupArgs(qr_chunk_size=0)
+        with self.assertRaises(ValueError) as ctx:
+            _validate_backup_args(args)
+        self.assertIn("qr chunk size", str(ctx.exception).lower())
+
+    def test_qr_chunk_size_negative_rejected(self) -> None:
+        args = BackupArgs(qr_chunk_size=-1)
+        with self.assertRaises(ValueError) as ctx:
+            _validate_backup_args(args)
+        self.assertIn("qr chunk size", str(ctx.exception).lower())
+
     def test_shard_count_over_255_rejected(self) -> None:
         args = BackupArgs(shard_threshold=2, shard_count=256)
         with self.assertRaises(ValueError) as ctx:

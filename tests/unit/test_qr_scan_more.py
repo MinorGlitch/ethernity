@@ -20,6 +20,7 @@ import unittest
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 from ethernity.qr import scan as qr_scan
 from ethernity.qr.scan import QrDecoder, QrScanError, _iter_scan_files, _scan_pdf
@@ -109,13 +110,9 @@ class TestQrScanMore(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "note.txt"
             path.write_text("x", encoding="utf-8")
-            original_loader = qr_scan._load_decoder
-            qr_scan._load_decoder = lambda: decoder
-            try:
+            with mock.patch.object(qr_scan, "_load_decoder", return_value=decoder):
                 with self.assertRaises(QrScanError):
                     qr_scan.scan_qr_payloads([path])
-            finally:
-                qr_scan._load_decoder = original_loader
 
     def test_scan_pdf_decodes_images_and_skips_errors(self) -> None:
         decoder = QrDecoder(

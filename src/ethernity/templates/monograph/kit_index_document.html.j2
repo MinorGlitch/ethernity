@@ -1,0 +1,198 @@
+{# kit_index_inventory_artifacts_v3
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+<!doctype html>
+<html class="light" lang="en">
+<head>
+  <meta charset="utf-8">
+  {% include 'partials/monograph_tailwind_setup.j2' %}
+  <style>
+    {% include 'partials/material_symbols_local.j2' %}
+    @page {
+      size: {{ page_size_css }};
+      margin: 0;
+    }
+
+    @media print {
+      body {
+        background: white !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
+      .print-sheet {
+        box-shadow: none !important;
+        margin: 0 !important;
+      }
+    }
+
+    .print-sheet {
+      width: {{ page_width_mm }}mm;
+      height: {{ page_height_mm }}mm;
+      min-height: {{ page_height_mm }}mm;
+      margin: 0 auto;
+      page-break-after: always;
+      page-break-inside: avoid;
+      break-inside: avoid-page;
+      overflow: hidden;
+      position: relative;
+      background: white;
+    }
+
+    .print-sheet:last-child {
+      page-break-after: auto;
+    }
+  </style>
+</head>
+<body class="bg-background-light font-display min-h-screen text-[#0f172a]">
+{% if inventory_rows is defined and inventory_rows %}
+  {% set rows_source = inventory_rows %}
+{% else %}
+  {% set rows_source = [
+    {'component_id': 'QR-DOC-01', 'detail': 'Encrypted payload and auth QR frames', 'status': 'Generated'},
+    {'component_id': 'RECOVERY-DOC-01', 'detail': 'Recovery keys and full fallback text', 'status': 'Generated'}
+  ] %}
+{% endif %}
+
+{% set rows_per_page = 8 %}
+{% set row_pages = rows_source | batch(rows_per_page, none) | list %}
+{% if not row_pages %}
+  {% set row_pages = [[]] %}
+{% endif %}
+{% set total_pages = row_pages | length %}
+
+{% for page_rows in row_pages %}
+  <section class="print-sheet border border-[#e6e5ec] flex flex-col">
+    <div class="absolute right-0 top-0 h-16 w-16 overflow-hidden">
+      <div class="absolute right-[-24px] top-[20px] w-[96px] rotate-45 bg-emerald-500 py-0.5 text-center text-[8px] font-black uppercase tracking-[0.16em] text-white">
+        Verified
+      </div>
+    </div>
+    {% set monograph_page_label = loop.index ~ ' / ' ~ total_pages %}
+    {% set monograph_header_title = 'Kit Index' %}
+    {% set monograph_header_subtitle = 'Secure Archive Inventory' %}
+    {% set monograph_header_classification = 'Authorized Personnel Only' %}
+    {% set monograph_header_guidance = 'Inventory and custody transfer log' %}
+    {% set monograph_header_ref = 'ARCH-' ~ (doc_id[:4] | upper) ~ '-X' %}
+    {% set monograph_header_icon = 'folder_open' %}
+    {% set monograph_shell_header_inset = 'px-[12mm] pt-[10mm]' %}
+    {% include 'partials/monograph_shell_header.j2' %}
+
+    <div class="grid grid-cols-[35%_1fr] gap-5 px-[12mm] py-[8mm] flex-1 min-h-0">
+      <section class="flex flex-col min-h-0">
+        <div class="flex items-center justify-between border-b border-[#ecebf3] pb-2 mb-2">
+          <h2 class="text-[9px] font-black uppercase tracking-[0.14em]">Kit Contents</h2>
+          <span class="material-symbols-outlined text-[#94a3b8] text-[14px]">inventory_2</span>
+        </div>
+
+        <div class="space-y-1">
+          {% set ns_list = namespace(has_rows=false) %}
+          {% for row in page_rows %}
+            {% if row %}
+            {% set ns_list.has_rows = true %}
+            <label class="flex items-start gap-2 border border-[#f0eff6] bg-[#fcfcfe] p-2">
+              <input
+                {% if row.status is defined and (row.status | lower) in ['generated', 'verified', 'ready'] %}checked{% endif %}
+                type="checkbox"
+                class="mt-0.5 h-3 w-3 rounded border-[#cdd2df] text-primary"
+              >
+              <div>
+                <p class="text-[10px] font-semibold leading-tight">{{ row.component_id }}</p>
+                <p class="text-[8px] text-[#8a91a6] mt-0.5">{{ row.detail }}</p>
+              </div>
+            </label>
+            {% endif %}
+          {% endfor %}
+          {% if not ns_list.has_rows %}
+          <p class="text-[9px] italic text-[#8a91a6]">No entries in this section.</p>
+          {% endif %}
+        </div>
+
+        <div class="mt-auto border border-[#ecebf3] bg-[#f8f9fd] p-2.5">
+          <p class="text-[7px] font-black uppercase tracking-[0.14em] text-[#94a3b8] mb-1">Location Reference</p>
+          <div class="h-[18mm] rounded border border-[#dbe1ef] bg-[radial-gradient(#3617cf_1px,transparent_1px)] [background-size:3mm_3mm] relative">
+            <span class="material-symbols-outlined text-primary text-[16px] absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">location_on</span>
+          </div>
+          <p class="mt-1 text-[7px] text-[#94a3b8]">Write room / box coordinates in the table.</p>
+        </div>
+      </section>
+
+      <section class="flex flex-col min-h-0">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-[9px] font-black uppercase tracking-[0.14em]">Custody & Audit Log</h2>
+          <span class="text-[8px] font-semibold text-primary">Write Entry</span>
+        </div>
+
+        <div class="border border-[#e6e5ec] overflow-hidden">
+          <table class="w-full text-left">
+            <thead>
+              <tr class="bg-[#f8f8fc]">
+                <th class="border-b border-r border-[#ecebf3] px-2 py-1.5 text-[7px] font-black uppercase tracking-[0.12em] text-[#7f879b] w-[18mm]">Date</th>
+                <th class="border-b border-r border-[#ecebf3] px-2 py-1.5 text-[7px] font-black uppercase tracking-[0.12em] text-[#7f879b]">Action Performed</th>
+                <th class="border-b border-[#ecebf3] px-2 py-1.5 text-[7px] font-black uppercase tracking-[0.12em] text-[#7f879b] w-[14mm] text-center">Initials</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% set ns_table = namespace(has_rows=false) %}
+              {% for row in page_rows %}
+                {% if row %}
+                {% set ns_table.has_rows = true %}
+                <tr>
+                  <td class="border-b border-r border-[#ecebf3] px-2 py-1.5 text-[8px] font-mono text-[#7f879b]">{{ created_timestamp_utc[:10] if created_timestamp_utc else '----' }}</td>
+                  <td class="border-b border-r border-[#ecebf3] px-2 py-1.5">
+                    <p class="text-[9px] font-semibold leading-tight">{{ row.component_id }}</p>
+                    <p class="text-[8px] text-[#7f879b] leading-tight">{{ row.detail }}</p>
+                  </td>
+                  <td class="border-b border-[#ecebf3] px-2 py-1.5 text-center">
+                    <span class="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#f0f2fa] text-[7px] font-black text-[#64748b]">{{ (row.component_id[:2] | upper) if row.component_id else 'NA' }}</span>
+                  </td>
+                </tr>
+                {% endif %}
+              {% endfor %}
+              {% if not ns_table.has_rows %}
+                {% for _ in range(3) %}
+                <tr>
+                  <td class="border-b border-r border-[#ecebf3] px-2 py-2"></td>
+                  <td class="border-b border-r border-[#ecebf3] px-2 py-2"></td>
+                  <td class="border-b border-[#ecebf3] px-2 py-2"></td>
+                </tr>
+                {% endfor %}
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="mt-auto pt-4">
+          <div class="flex items-end justify-between border-b border-[#cdd2df] pb-1">
+            <span class="font-serif italic text-[18px] text-[#1e293b]">Custodian Signature</span>
+            <span class="font-mono text-[8px] text-[#94a3b8]">{{ created_timestamp_utc }}</span>
+          </div>
+          <div class="flex justify-between mt-1 text-[7px] font-black uppercase tracking-[0.12em] text-[#94a3b8]">
+            <span>Authorized Signature</span>
+            <span>Digital Verification ID: {{ doc_id[:3] | upper }}-{{ doc_id[3:7] | upper }}</span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    {% set monograph_footer_left = 'Monograph Offline Archive' %}
+    {% set monograph_footer_right = 'Inventory Record' %}
+    {% set monograph_shell_footer_inset = 'px-[12mm] py-[3mm] mt-0 bg-[#f8f9fd]' %}
+    {% include 'partials/monograph_shell_footer.j2' %}
+  </section>
+{% endfor %}
+</body>
+</html>

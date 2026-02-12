@@ -60,7 +60,7 @@ def render_html_to_pdf(
     try:
         if resources:
             page.route(
-                "https://ethernity.local/qr/**",
+                "https://ethernity.local/**",
                 lambda route, request: _route_resource(route, request, resources),
             )
         page.set_content(html, wait_until="networkidle")

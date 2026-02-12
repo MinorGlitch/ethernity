@@ -24,6 +24,7 @@ from ..encoding.framing import Frame
 from ..qr.codec import QrConfig
 
 if TYPE_CHECKING:
+    from .fallback import FallbackConsumerState, FallbackSectionData
     from .spec import DocumentSpec
 
 
@@ -39,7 +40,7 @@ class RenderInputs:
     template_path: str | Path
     output_path: str | Path
     context: dict[str, object]
-    doc_type: str | None = None
+    doc_type: str
     qr_config: QrConfig | None = None
     qr_payloads: Sequence[bytes | str] | None = None
     fallback_payload: bytes | None = None
@@ -88,7 +89,7 @@ class PageBuildContext:
     layout_rest: Layout | None
     fallback_lines: Sequence[str]
     qr_payloads: Sequence[bytes | str]
-    fallback_sections_data: Sequence[dict[str, object]] | None
-    fallback_state: dict[str, int] | None
+    fallback_sections_data: Sequence["FallbackSectionData"] | None
+    fallback_state: "FallbackConsumerState | None"
     key_lines: Sequence[str]
     keys_first_page_only: bool

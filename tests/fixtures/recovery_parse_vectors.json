@@ -1,0 +1,83 @@
+{
+  "recovery_cases": [
+    {
+      "name": "marker_fallback_main_auth",
+      "input": "=== MAIN FRAME ===\nefey ntyb yryo nyeb yryo yyej pios 15tp ctoz\neamj bxyz o\n=== AUTH FRAME ===\nefey noeb yryo nyeb yryo yyej cf4z e4bp ctoz\neajk zske s\n",
+      "allow_unsigned": false,
+      "expect_label": "Recovery text",
+      "expect_frame_types": ["MAIN_DOCUMENT", "AUTH"]
+    },
+    {
+      "name": "payload_lines_main_auth",
+      "input": "QVABRAEBAQEBAQEBAAEJbWFpbi1kYXRhaQvBeA\nQVABQQEBAQEBAQEBAAEJYXV0aC1kYXRhKr2Uiw\n",
+      "allow_unsigned": false,
+      "expect_label": "QR payloads",
+      "expect_frame_types": ["MAIN_DOCUMENT", "AUTH"]
+    },
+    {
+      "name": "unmarked_fallback_main",
+      "input": "efey ntyb yryo nyeb yryo yyej pios 15tp ctoz\neamj bxyz o\n",
+      "allow_unsigned": true,
+      "expect_label": "Recovery text",
+      "expect_frame_types": ["MAIN_DOCUMENT"]
+    },
+    {
+      "name": "invalid_auth_fallback_allowed",
+      "input": "=== MAIN FRAME ===\nefey ntyb yryo nyeb yryo yyej pios 15tp ctoz\neamj bxyz o\n=== AUTH FRAME ===\nthis is not valid fallback\n",
+      "allow_unsigned": true,
+      "expect_label": "Recovery text",
+      "expect_frame_types": ["MAIN_DOCUMENT"]
+    },
+    {
+      "name": "invalid_auth_fallback_strict",
+      "input": "=== MAIN FRAME ===\nefey ntyb yryo nyeb yryo yyej pios 15tp ctoz\neamj bxyz o\n=== AUTH FRAME ===\nthis is not valid fallback\n",
+      "allow_unsigned": false,
+      "expect_error_contains": "invalid recovery text"
+    },
+    {
+      "name": "mixed_payload_and_fallback_rejected",
+      "input": "QVABRAEBAQEBAQEBAAEJbWFpbi1kYXRhaQvBeA\nefey ntyb yryo nyeb yryo yyej pios 15tp ctoz\n",
+      "allow_unsigned": true,
+      "expect_error_contains": "unable to parse recovery text"
+    }
+  ],
+  "kit_payload_cases": [
+    {
+      "name": "kit_payload_lines_main_auth",
+      "input": "QVABRAEBAQEBAQEBAAEJbWFpbi1kYXRhaQvBeA\nQVABQQEBAQEBAQEBAAEJYXV0aC1kYXRhKr2Uiw\n",
+      "expect_added": 2
+    },
+    {
+      "name": "kit_marker_fallback_main_auth",
+      "input": "=== MAIN FRAME ===\nefey ntyb yryo nyeb yryo yyej pios 15tp ctoz\neamj bxyz o\n=== AUTH FRAME ===\nefey noeb yryo nyeb yryo yyej cf4z e4bp ctoz\neajk zske s\n",
+      "expect_added": 2
+    },
+    {
+      "name": "kit_unmarked_fallback_main",
+      "input": "efey ntyb yryo nyeb yryo yyej pios 15tp ctoz\neamj bxyz o\n",
+      "expect_added": 1
+    },
+    {
+      "name": "kit_mixed_payload_fallback_error",
+      "input": "QVABRAEBAQEBAQEBAAEJbWFpbi1kYXRhaQvBeA\nefey ntyb yryo nyeb yryo yyej pios 15tp ctoz\n",
+      "expect_error_contains": "input is neither valid QR payloads nor valid fallback text"
+    }
+  ],
+  "kit_shard_cases": [
+    {
+      "name": "kit_shard_payload",
+      "input": "QVABSwEBAQEBAQEBAAEKc2hhcmQtZGF0YXIVzuM\n",
+      "expect_added": 1
+    },
+    {
+      "name": "kit_shard_fallback",
+      "input": "efey n1ab yryo nyeb yryo yyek qpwg nhur fi1g\nn7db qekh 7aa\n",
+      "expect_added": 1
+    },
+    {
+      "name": "kit_shard_mixed_error",
+      "input": "QVABSwEBAQEBAQEBAAEKc2hhcmQtZGF0YXIVzuM\nefey n1ab yryo nyeb yryo yyek qpwg nhur fi1g\n",
+      "expect_error_contains": "input is neither valid shard payloads nor valid fallback text"
+    }
+  ]
+}
