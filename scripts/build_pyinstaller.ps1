@@ -15,6 +15,5 @@
 
 $ErrorActionPreference = "Stop"
 
-python -m pip install --upgrade pip
-python -m pip install ".[build]"
-pyinstaller --clean --noconfirm ethernity.spec
+uv sync --extra build --frozen
+uv run pyinstaller --clean --noconfirm ethernity.spec

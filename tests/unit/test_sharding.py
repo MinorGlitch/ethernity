@@ -141,6 +141,45 @@ class TestSharding(unittest.TestCase):
         )
         self.assertEqual(recovered, passphrase)
 
+    def test_multiple_single_frame_shards_same_doc_id_are_valid(self) -> None:
+        passphrase = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        shares = split_passphrase(
+            passphrase,
+            threshold=2,
+            shares=3,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        frames = [
+            Frame(
+                version=VERSION,
+                frame_type=FrameType.KEY_DOCUMENT,
+                doc_id=b"\x12" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=encode_shard_payload(shares[0]),
+            ),
+            Frame(
+                version=VERSION,
+                frame_type=FrameType.KEY_DOCUMENT,
+                doc_id=b"\x12" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=encode_shard_payload(shares[1]),
+            ),
+        ]
+        recovered = _passphrase_from_shard_frames(
+            frames,
+            expected_doc_id=b"\x12" * DOC_ID_LEN,
+            expected_doc_hash=doc_hash,
+            expected_sign_pub=sign_pub,
+            allow_unsigned=False,
+        )
+        self.assertEqual(recovered, passphrase)
+
     def test_recover_passphrase_requires_threshold(self) -> None:
         passphrase = "needs-two"
         doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
@@ -284,6 +323,40 @@ class TestSharding(unittest.TestCase):
         }
         decoded = decode_shard_payload(cbor2.dumps(payload, canonical=True))
         self.assertEqual(decoded, expected)
+
+    def test_decode_shard_payload_rejects_non_canonical_cbor(self) -> None:
+        doc_hash = hashlib.blake2b(b"payload", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        share = b"\x01" * 16
+        signature = sign_shard(
+            doc_hash,
+            shard_version=SHARD_VERSION,
+            key_type=KEY_TYPE_PASSPHRASE,
+            threshold=2,
+            share_count=3,
+            share_index=1,
+            secret_len=16,
+            share=share,
+            sign_pub=sign_pub,
+            sign_priv=sign_priv,
+        )
+        payload = {
+            "version": SHARD_VERSION,
+            "type": KEY_TYPE_PASSPHRASE,
+            "threshold": 2,
+            "share_count": 3,
+            "share_index": 1,
+            "length": 16,
+            "share": share,
+            "hash": doc_hash,
+            "pub": sign_pub,
+            "sig": signature,
+        }
+        non_canonical = cbor2.dumps(payload, canonical=False)
+        canonical = cbor2.dumps(payload, canonical=True)
+        self.assertNotEqual(non_canonical, canonical)
+        with self.assertRaisesRegex(ValueError, "canonical CBOR"):
+            decode_shard_payload(non_canonical)
 
     def test_decode_rejects_threshold_or_index_exceeds_total(self) -> None:
         cases = (

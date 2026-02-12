@@ -49,6 +49,17 @@ Operational guidance:
 Some implementations auto-resolve a base directory (for example, to the common parent) when none is
 provided. This is a convenience behavior and not part of the on-disk format.
 
+## Implementation Behavior Notes
+
+As of 2026-02-11, `ethernity.encoding.chunking.reassemble_payload` is defined for
+`FRAME_TYPE=MAIN_DOCUMENT` only. `AUTH` and `KEY_DOCUMENT` payloads are single-frame units and
+should be decoded directly from their frame `data` bytes.
+
+Some CLI flows expose an explicit unsigned-recovery override (for example, `--rescue-mode`, with
+`--skip-auth-check` as a legacy alias). This corresponds to rescue mode in `docs/format.md`
+(Section 7.1), where recovery may continue if AUTH is missing/invalid and results are treated as
+unauthenticated.
+
 ## Recovery Input Auto-Parsing Contract
 
 When recovery input mode is auto-detected, implementations should apply this strict order:
@@ -60,6 +71,26 @@ When recovery input mode is auto-detected, implementations should apply this str
 4. Otherwise, fail with an explicit invalid/ambiguous-input error.
 
 Mixing payload and fallback lines in one input block is not supported.
+
+## Resource Bounds Rationale (1 MiB v1 Profile)
+
+The v1 profile uses a strict fail-closed bound set centered on a `1 MiB` ciphertext ceiling.
+
+Design intent:
+- Keep worst-case memory/CPU bounded for CLI recovery and frame parsing paths.
+- Keep fallback-MAIN behavior compatible with current single-frame recovery text output.
+- Keep limits round and operationally predictable for implementation and testing.
+
+Operational implications:
+- Oversized artifacts are rejected instead of partially parsed.
+- QR payload limits are intentionally conservative to avoid generating unreadable/high-density codes.
+- Fallback parsing applies independent caps to source bytes, filtered line count, and normalized
+  z-base-32 character count so malformed or adversarial text fails early.
+
+## QR Payload Encoding Note
+
+Version 1 fixes QR payload encoding to base64 (no padding) as defined in `docs/format.md`.
+There is no runtime/profile negotiation of QR payload encoding in v1.
 
 ## Passphrase Notes
 
@@ -115,7 +146,8 @@ bumped and older versions kept decodable.
 
 CBOR payload evolution guidance:
 - These payloads are CBOR maps. New optional fields should be added as new map keys.
-- Decoders typically ignore unknown keys to allow forward compatibility.
+- Decoders ignore unknown keys (as defined normatively in `docs/format.md`) to allow forward
+  compatibility.
 - Encoders should avoid emitting keys not defined in the format specification for a given version.
 
 Backward compatibility guidance:

@@ -15,7 +15,8 @@
 
 import unittest
 
-from ethernity.core.validation import require_bytes, require_length
+from ethernity.core.bounds import MAX_PATH_BYTES
+from ethernity.core.validation import normalize_manifest_path, require_bytes, require_length
 
 
 class TestValidation(unittest.TestCase):
@@ -45,6 +46,50 @@ class TestValidation(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             require_length(b"\x00", 2, label="doc_hash", prefix="shard ")
         self.assertIn("shard doc_hash must be 2 bytes", str(ctx.exception))
+
+    def test_normalize_manifest_path_rejects_absolute(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            normalize_manifest_path("/abs/file.txt", label="manifest file path")
+        self.assertIn("relative", str(ctx.exception))
+
+    def test_normalize_manifest_path_rejects_backslashes(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            normalize_manifest_path(r"dir\file.txt", label="manifest file path")
+        self.assertIn("POSIX separators", str(ctx.exception))
+
+    def test_normalize_manifest_path_accepts_relative_posix(self) -> None:
+        self.assertEqual(
+            normalize_manifest_path("dir/sub/file.txt", label="manifest file path"),
+            "dir/sub/file.txt",
+        )
+
+    def test_normalize_manifest_path_rejects_dot_segments(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            normalize_manifest_path("dir/./file.txt", label="manifest file path")
+        self.assertIn("'.' or '..'", str(ctx.exception))
+
+    def test_normalize_manifest_path_rejects_dotdot_segments(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            normalize_manifest_path("dir/../file.txt", label="manifest file path")
+        self.assertIn("'.' or '..'", str(ctx.exception))
+
+    def test_normalize_manifest_path_rejects_empty_segments(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            normalize_manifest_path("dir//file.txt", label="manifest file path")
+        self.assertIn("empty path segments", str(ctx.exception))
+
+    def test_normalize_manifest_path_accepts_exact_utf8_byte_limit(self) -> None:
+        exact = "a" * MAX_PATH_BYTES
+        self.assertEqual(
+            normalize_manifest_path(exact, label="manifest file path"),
+            exact,
+        )
+
+    def test_normalize_manifest_path_rejects_utf8_byte_limit_overflow(self) -> None:
+        too_long = "a" * (MAX_PATH_BYTES + 1)
+        with self.assertRaises(ValueError) as ctx:
+            normalize_manifest_path(too_long, label="manifest file path")
+        self.assertIn("MAX_PATH_BYTES", str(ctx.exception))
 
 
 if __name__ == "__main__":

@@ -20,6 +20,8 @@ import unicodedata
 from collections.abc import Iterable
 from typing import Any, TypeVar
 
+from .bounds import MAX_PATH_BYTES
+
 T = TypeVar("T")
 
 
@@ -53,6 +55,28 @@ def normalize_path(path: object, *, label: str = "path") -> str:
     except UnicodeEncodeError as exc:
         raise ValueError(f"{label} must be valid UTF-8") from exc
     return unicodedata.normalize("NFC", path)
+
+
+def normalize_manifest_path(path: object, *, label: str = "path") -> str:
+    """Normalize and validate manifest path constraints."""
+    normalized = normalize_path(path, label=label)
+    if not normalized:
+        raise ValueError(f"{label} must be a non-empty string")
+    if normalized.startswith("/"):
+        raise ValueError(f"{label} must be relative (no leading '/')")
+    if "\\" in normalized:
+        raise ValueError(f"{label} must use POSIX separators ('/')")
+    segments = normalized.split("/")
+    if any(segment == "" for segment in segments):
+        raise ValueError(f"{label} must not contain empty path segments")
+    if any(segment in {".", ".."} for segment in segments):
+        raise ValueError(f"{label} must not contain '.' or '..' path segments")
+    path_bytes = len(normalized.encode("utf-8"))
+    if path_bytes > MAX_PATH_BYTES:
+        raise ValueError(
+            f"{label} exceeds MAX_PATH_BYTES ({MAX_PATH_BYTES} bytes): {path_bytes} bytes"
+        )
+    return normalized
 
 
 def require_length(value: bytes, length: int, *, label: str, prefix: str = "") -> None:

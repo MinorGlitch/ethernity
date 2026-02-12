@@ -345,7 +345,7 @@ def _prompt_shard_text_or_payloads_stdin(
         lines = [first_line]
 
     try:
-        first_frame = _frame_from_payload_text(lines[0], "auto")
+        first_frame = _frame_from_payload_text(lines[0])
     except ValueError:
         return _prompt_shard_fallback_paste(initial_lines=lines, state=state)
 
@@ -353,7 +353,6 @@ def _prompt_shard_text_or_payloads_stdin(
         try:
             frames = _frames_from_payload_lines(
                 lines,
-                "auto",
                 label="shard QR payloads",
                 source="stdin",
             )
@@ -375,7 +374,7 @@ def _frames_from_shard_text_or_payload_files(paths: list[str]) -> list[Frame]:
         else:
             text_paths.append(path)
     if scan_paths:
-        frames.extend(_frames_from_scan(scan_paths, "base64"))
+        frames.extend(_frames_from_scan(scan_paths))
     for path in text_paths:
         lines = _read_text_lines(path)
         frames.extend(_frames_from_shard_text_or_payload_lines(lines, source=path))
@@ -404,7 +403,6 @@ def _frames_from_shard_text_or_payload_lines(
     try:
         return _frames_from_payload_lines(
             lines,
-            "auto",
             label="shard QR payloads",
             source=source,
         )
@@ -463,7 +461,7 @@ def _prompt_shard_payload_paste(
         help_text = None
 
         try:
-            frame = _frame_from_payload_text(payload_text, "auto")
+            frame = _frame_from_payload_text(payload_text)
         except ValueError as exc:
             console_err.print(f"[error]{_format_shard_payload_error(exc)}[/error]")
             continue

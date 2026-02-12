@@ -16,10 +16,14 @@
 
 from __future__ import annotations
 
+_MAX_UVARINT = (1 << 64) - 1
+
 
 def encode_uvarint(value: int) -> bytes:
     if value < 0:
         raise ValueError("value must be non-negative")
+    if value > _MAX_UVARINT:
+        raise ValueError("value must be <= 2^64-1")
     out = bytearray()
     while True:
         byte = value & 0x7F
@@ -33,6 +37,8 @@ def encode_uvarint(value: int) -> bytes:
 
 
 def decode_uvarint(data: bytes, start: int) -> tuple[int, int]:
+    if start < 0:
+        raise ValueError("start must be non-negative")
     value = 0
     shift = 0
     idx = start
@@ -40,9 +46,14 @@ def decode_uvarint(data: bytes, start: int) -> tuple[int, int]:
         if idx >= len(data):
             raise ValueError("truncated varint")
         byte = data[idx]
+        payload = byte & 0x7F
+        if shift == 63 and payload > 1:
+            raise ValueError("varint too large")
         idx += 1
-        value |= (byte & 0x7F) << shift
+        value |= payload << shift
         if byte & 0x80 == 0:
+            if data[start:idx] != encode_uvarint(value):
+                raise ValueError("non-canonical varint")
             return value, idx
         shift += 7
         if shift > 63:

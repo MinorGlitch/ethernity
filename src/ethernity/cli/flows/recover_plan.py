@@ -64,9 +64,9 @@ class RecoveryPlan:
     shard_payloads_file: tuple[str, ...]
 
 
-def resolve_recover_config(args: RecoverArgs) -> tuple[object, str]:
+def resolve_recover_config(args: RecoverArgs) -> object:
     config = load_app_config(args.config, paper_size=args.paper)
-    return config, config.qr_payload_encoding
+    return config
 
 
 def validate_recover_args(args: RecoverArgs) -> None:
@@ -80,13 +80,12 @@ def validate_recover_args(args: RecoverArgs) -> None:
 
 def plan_from_args(args: RecoverArgs) -> RecoveryPlan:
     validate_recover_args(args)
-    _, qr_payload_encoding = resolve_recover_config(args)
+    resolve_recover_config(args)
     allow_unsigned = args.allow_unsigned
     quiet = args.quiet
 
     frames, input_label, input_detail = _frames_from_args(
         args,
-        qr_payload_encoding=qr_payload_encoding,
         allow_unsigned=allow_unsigned,
         quiet=quiet,
     )
@@ -217,7 +216,6 @@ def _resolve_passphrase(
 def _frames_from_args(
     args: RecoverArgs,
     *,
-    qr_payload_encoding: str,
     allow_unsigned: bool,
     quiet: bool,
 ) -> tuple[list[Frame], str | None, str | None]:
@@ -246,17 +244,14 @@ def _frames_from_args(
         input_label = "QR payloads"
         input_detail = payloads_file
         try:
-            frames = _frames_from_payloads(
-                payloads_file,
-                "auto",
-            )
+            frames = _frames_from_payloads(payloads_file)
         except ValueError as exc:
             raise ValueError(format_recovery_input_error(exc)) from exc
     elif scan:
         input_label = "Scan"
         input_detail = ", ".join(scan)
         try:
-            frames = _frames_from_scan(scan, qr_payload_encoding)
+            frames = _frames_from_scan(scan)
         except ValueError as exc:
             raise ValueError(format_recovery_input_error(exc)) from exc
     else:
@@ -287,7 +282,7 @@ def _extra_auth_frames_from_args(
         except ValueError as exc:
             raise ValueError(format_fallback_error(exc, context="Auth recovery text")) from exc
     if auth_payloads_file:
-        extra_auth_frames.extend(_auth_frames_from_payloads(auth_payloads_file, "auto"))
+        extra_auth_frames.extend(_auth_frames_from_payloads(auth_payloads_file))
     return extra_auth_frames
 
 
@@ -304,7 +299,6 @@ def _shard_frames_from_args(
             shard_frames = _frames_from_shard_inputs(
                 shard_fallback_files,
                 shard_payloads_file,
-                "auto",
             )
         except ValueError as exc:
             raise ValueError(format_fallback_error(exc, context="Shard recovery text")) from exc

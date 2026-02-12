@@ -120,8 +120,12 @@ def recover(
     ),
     allow_unsigned: bool = typer.Option(
         False,
+        "--rescue-mode",
         "--skip-auth-check",
-        help="Skip authentication verification (use only if you trust the source).",
+        help=(
+            "Enable rescue mode and continue without authentication verification "
+            "(legacy alias: --skip-auth-check)."
+        ),
         rich_help_panel="Verification",
     ),
     assume_yes: bool = typer.Option(

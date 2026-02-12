@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from ...core.bounds import MAX_FALLBACK_LINES, MAX_FALLBACK_NORMALIZED_CHARS
 from ...encoding.chunking import fallback_lines_to_frame
 from ...encoding.framing import Frame
 from ...encoding.zbase32 import ZBASE32_ALPHABET
@@ -40,7 +41,14 @@ def _is_valid_zbase32_line(line: str) -> bool:
     stripped = line.strip()
     if not stripped:
         return False
-    return all(ch.lower() in _ALLOWED_CHARS or ch.isspace() for ch in stripped)
+    has_payload_char = False
+    for ch in stripped:
+        if ch.isspace() or ch == "-":
+            continue
+        if ch.lower() not in ZBASE32_ALPHABET:
+            return False
+        has_payload_char = True
+    return has_payload_char
 
 
 def _parse_groups(line: str) -> list[str]:
@@ -101,9 +109,8 @@ def filter_fallback_lines(
     Returns:
         Tuple of (filtered_lines, skipped_count)
     """
-    config = config or FilterConfig()
+    _ = config or FilterConfig()
     filtered: list[str] = []
-    candidates: list[tuple[str, int]] = []
     skipped = 0
 
     for line in lines:
@@ -111,32 +118,34 @@ def filter_fallback_lines(
         if not stripped:
             continue
 
-        if not _is_valid_zbase32_line(line):
+        if not _is_valid_zbase32_line(stripped):
             skipped += 1
             continue
 
-        parts = _parse_groups(stripped)
-        if not _is_valid_group_structure(parts, config):
-            skipped += 1
-            continue
-
-        candidates.append((stripped, len(parts)))
-
-    for idx, (line, group_count) in enumerate(candidates):
-        if _should_include_candidate(
-            group_count, idx, len(candidates), bool(filtered), config.min_groups
-        ):
-            filtered.append(line)
-        else:
-            skipped += 1
+        filtered.append(stripped)
 
     return filtered, skipped
+
+
+def _normalized_zbase_chars(lines: Sequence[str]) -> int:
+    return sum(1 for line in lines for ch in line if not ch.isspace() and ch != "-")
 
 
 def parse_fallback_frame(lines: Sequence[str], *, label: str) -> tuple[Frame, int]:
     filtered, skipped = filter_fallback_lines(lines)
     if not filtered:
         raise ValueError(f"no recovery lines found ({label}); check the z-base-32 recovery text")
+    if len(filtered) > MAX_FALLBACK_LINES:
+        raise ValueError(
+            f"{label} fallback exceeds MAX_FALLBACK_LINES ({MAX_FALLBACK_LINES}): "
+            f"{len(filtered)} lines"
+        )
+    normalized_chars = _normalized_zbase_chars(filtered)
+    if normalized_chars > MAX_FALLBACK_NORMALIZED_CHARS:
+        raise ValueError(
+            f"{label} fallback exceeds MAX_FALLBACK_NORMALIZED_CHARS "
+            f"({MAX_FALLBACK_NORMALIZED_CHARS}): {normalized_chars} chars"
+        )
     return fallback_lines_to_frame(filtered), skipped
 
 

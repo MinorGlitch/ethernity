@@ -82,11 +82,11 @@ def format_auth_status(status: str, *, allow_unsigned: bool) -> str:
     if status == "verified":
         return "verified"
     if status == "skipped":
-        return "skipped (--skip-auth-check)"
+        return "skipped (--rescue-mode)"
     if status == "ignored":
-        return "failed (ignored due to --skip-auth-check)"
+        return "failed (ignored due to --rescue-mode)"
     if status == "invalid":
-        return "invalid (ignored due to --skip-auth-check)" if allow_unsigned else "invalid"
+        return "invalid (ignored due to --rescue-mode)" if allow_unsigned else "invalid"
     if status == "missing":
-        return "skipped (--skip-auth-check)" if allow_unsigned else "missing"
+        return "skipped (--rescue-mode)" if allow_unsigned else "missing"
     return status

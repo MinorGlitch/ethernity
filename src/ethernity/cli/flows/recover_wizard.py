@@ -59,7 +59,6 @@ from .recover_plan import (
 
 def _prompt_recovery_input(
     args: RecoverArgs,
-    qr_payload_encoding: str,
     allow_unsigned: bool,
     quiet: bool,
 ) -> tuple[list, str | None, str | None]:
@@ -101,17 +100,15 @@ def _prompt_recovery_input(
             with status("Reading QR payloads...", quiet=quiet):
                 frames = _frames_from_payloads(
                     args.payloads_file,
-                    "auto",
                     label="frame",
                 )
     elif args.scan:
         input_label = "Scan"
         input_detail = ", ".join(args.scan)
         with status("Scanning QR images...", quiet=quiet):
-            frames = _frames_from_scan(args.scan, qr_payload_encoding)
+            frames = _frames_from_scan(args.scan)
     else:
         frames, input_label, input_detail = prompt_recovery_input_interactive(
-            qr_payload_encoding=qr_payload_encoding,
             allow_unsigned=allow_unsigned,
             quiet=quiet,
         )
@@ -230,13 +227,11 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
         console.print("[subtitle]Guided recovery of backup documents.[/subtitle]")
 
     validate_recover_args(args)
-    _, qr_payload_encoding = resolve_recover_config(args)
+    resolve_recover_config(args)
 
     with wizard_flow(name="Recovery", total_steps=4, quiet=quiet):
         with wizard_stage("Input"):
-            frames, input_label, input_detail = _prompt_recovery_input(
-                args, qr_payload_encoding, allow_unsigned, quiet
-            )
+            frames, input_label, input_detail = _prompt_recovery_input(args, allow_unsigned, quiet)
 
         extra_auth_frames = _load_extra_auth_frames(args, allow_unsigned, quiet)
 
@@ -323,7 +318,7 @@ def _load_extra_auth_frames(args: RecoverArgs, allow_unsigned: bool, quiet: bool
         except ValueError as exc:
             raise ValueError(format_fallback_error(exc, context="Auth recovery text")) from exc
     if args.auth_payloads_file:
-        extra_auth_frames.extend(_auth_frames_from_payloads(args.auth_payloads_file, "auto"))
+        extra_auth_frames.extend(_auth_frames_from_payloads(args.auth_payloads_file))
     return extra_auth_frames
 
 
@@ -345,7 +340,6 @@ def _load_shard_frames(
                     _frames_from_shard_inputs(
                         shard_fallback_files,
                         shard_payloads_file,
-                        "auto",
                     )
                 )
             except ValueError as exc:

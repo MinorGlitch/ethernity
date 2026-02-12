@@ -21,3 +21,12 @@ import cbor2
 
 def dumps_canonical(value: object) -> bytes:
     return cbor2.dumps(value, canonical=True)
+
+
+def loads_canonical(data: bytes, *, label: str) -> object:
+    decoded = cbor2.loads(data)
+    if dumps_canonical(decoded) != data:
+        raise ValueError(
+            f"{label} must use canonical CBOR encoding (indefinite-length items are not allowed)"
+        )
+    return decoded

@@ -15,12 +15,12 @@ runs:
   using: composite
   steps:
     - name: Set up Python ${{ inputs.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
       with:
         python-version: ${{ inputs.python-version }}
 
     - name: Set up uv
-      uses: astral-sh/setup-uv@v3
+      uses: astral-sh/setup-uv@8d55fbecc275b1c35dbe060458839f8d30439ccf # v3
       with:
         enable-cache: true
         cache-dependency-glob: "uv.lock"

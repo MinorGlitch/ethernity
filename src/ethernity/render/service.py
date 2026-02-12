@@ -21,8 +21,9 @@ from pathlib import Path
 from typing import Sequence
 
 from ..config import AppConfig
+from ..core.bounds import MAX_QR_PAYLOAD_CHARS
 from ..encoding.framing import Frame, encode_frame
-from ..encoding.qr_payloads import encode_qr_payload, normalize_qr_payload_encoding
+from ..encoding.qr_payloads import encode_qr_payload
 from .doc_types import (
     DOC_TYPE_KIT,
     DOC_TYPE_MAIN,
@@ -43,8 +44,23 @@ class RenderService:
         return context
 
     def build_qr_payloads(self, frames: Sequence[Frame]) -> list[bytes | str]:
-        encoding = normalize_qr_payload_encoding(self.config.qr_payload_encoding)
-        return [encode_qr_payload(encode_frame(frame), encoding=encoding) for frame in frames]
+        payloads: list[bytes | str] = []
+        for frame in frames:
+            payload = encode_qr_payload(encode_frame(frame))
+            if isinstance(payload, bytes):
+                try:
+                    payload_text = payload.decode("ascii")
+                except UnicodeDecodeError as exc:
+                    raise ValueError("QR payload text must be ASCII") from exc
+            else:
+                payload_text = payload
+            if len(payload_text) > MAX_QR_PAYLOAD_CHARS:
+                raise ValueError(
+                    f"QR payload exceeds MAX_QR_PAYLOAD_CHARS ({MAX_QR_PAYLOAD_CHARS}): "
+                    f"{len(payload_text)} chars"
+                )
+            payloads.append(payload)
+        return payloads
 
     def qr_inputs(
         self,

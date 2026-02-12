@@ -4,12 +4,20 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Setup Python
         uses: ./.github/actions/setup-python
       - name: Ruff lint
@@ -17,9 +25,10 @@ jobs:
 
   format:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Setup Python
         uses: ./.github/actions/setup-python
       - name: Ruff format
@@ -27,9 +36,10 @@ jobs:
 
   mypy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Setup Python
         uses: ./.github/actions/setup-python
       - name: Mypy
@@ -37,6 +47,7 @@ jobs:
 
   test:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -44,7 +55,7 @@ jobs:
         python-version: ["3.13"]
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Setup Python
         uses: ./.github/actions/setup-python
         with:
@@ -54,24 +65,41 @@ jobs:
       - name: Run integration tests
         run: uv run pytest tests/integration -v
 
-  coverage:
+  e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+      - name: Run e2e tests
+        run: uv run pytest tests/e2e -v
+
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Setup Python
         uses: ./.github/actions/setup-python
       - name: Run tests with coverage
-        run: uv run pytest tests/unit tests/integration --cov=ethernity --cov-report=term-missing
+        run: |
+          uv run pytest tests/unit tests/integration \
+            --cov=ethernity \
+            --cov-report=term-missing \
+            --cov-fail-under=85
 
   kit-verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
         with:
           node-version: "20"
           cache: "npm"
@@ -104,3 +132,6 @@ jobs:
           echo "Build completed successfully"
           ls -la src/ethernity/kit/recovery_kit.bundle.html
           ls -la kit/dist/
+
+      - name: Verify bundle is up to date
+        run: git diff --exit-code -- src/ethernity/kit/recovery_kit.bundle.html

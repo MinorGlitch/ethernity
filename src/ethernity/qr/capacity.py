@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from ..encoding.framing import DOC_ID_LEN, VERSION, Frame, encode_frame
-from ..encoding.qr_payloads import encode_qr_payload, normalize_qr_payload_encoding
+from ..encoding.qr_payloads import encode_qr_payload
 from .codec import QrConfig, make_qr
 
 
@@ -28,12 +28,11 @@ def choose_frame_chunk_size(
     doc_id: bytes,
     frame_type: int,
     qr_config: QrConfig,
-    qr_payload_encoding: str,
 ) -> int:
     """Choose a chunk_size for chunk_payload() that fits the current QR settings.
 
     The chosen size is <= preferred_chunk_size and is validated by probing QR capacity using the
-    *actual* per-frame QR payload encoding (frame bytes -> QR payload string/bytes).
+    Version 1 QR payload representation (frame bytes -> base64 text without padding).
     """
     if payload_len <= 0:
         raise ValueError("payload_len must be positive")
@@ -43,8 +42,6 @@ def choose_frame_chunk_size(
         raise ValueError(f"doc_id must be {DOC_ID_LEN} bytes")
 
     chunk_size = min(preferred_chunk_size, payload_len)
-    encoding = normalize_qr_payload_encoding(qr_payload_encoding)
-
     while True:
         total = (payload_len + chunk_size - 1) // chunk_size
         max_data_len = _max_frame_data_len(payload_len, total=total)
@@ -54,7 +51,6 @@ def choose_frame_chunk_size(
             doc_id=doc_id,
             frame_type=frame_type,
             qr_config=qr_config,
-            qr_payload_encoding=encoding,
         ):
             return chunk_size
         chunk_size = _max_fitting_frame_data_len(
@@ -63,7 +59,6 @@ def choose_frame_chunk_size(
             doc_id=doc_id,
             frame_type=frame_type,
             qr_config=qr_config,
-            qr_payload_encoding=encoding,
         )
         if chunk_size <= 0:
             raise ValueError("unable to select a valid chunk size for current QR settings")
@@ -83,7 +78,6 @@ def _fits_qr_frame(
     doc_id: bytes,
     frame_type: int,
     qr_config: QrConfig,
-    qr_payload_encoding: str,
 ) -> bool:
     if data_len <= 0:
         return False
@@ -102,7 +96,7 @@ def _fits_qr_frame(
         total=total,
         data=b"\xff" * data_len,
     )
-    qr_payload = encode_qr_payload(encode_frame(frame), encoding=qr_payload_encoding)
+    qr_payload = encode_qr_payload(encode_frame(frame))
     return _fits_qr_payload(qr_payload, qr_config)
 
 
@@ -113,7 +107,6 @@ def _max_fitting_frame_data_len(
     doc_id: bytes,
     frame_type: int,
     qr_config: QrConfig,
-    qr_payload_encoding: str,
 ) -> int:
     if upper <= 0:
         raise ValueError("upper must be positive")
@@ -124,11 +117,10 @@ def _max_fitting_frame_data_len(
         doc_id=doc_id,
         frame_type=frame_type,
         qr_config=qr_config,
-        qr_payload_encoding=qr_payload_encoding,
     ):
         raise ValueError(
             "QR settings cannot encode even the smallest frame payload; "
-            "increase QR version / error level or change payload encoding"
+            "increase QR version or lower error correction"
         )
 
     lower = 1
@@ -141,7 +133,6 @@ def _max_fitting_frame_data_len(
             doc_id=doc_id,
             frame_type=frame_type,
             qr_config=qr_config,
-            qr_payload_encoding=qr_payload_encoding,
         ):
             lower = mid
         else:

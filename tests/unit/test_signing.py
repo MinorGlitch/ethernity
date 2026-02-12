@@ -131,6 +131,46 @@ class TestSigning(unittest.TestCase):
         self.assertEqual(decoded.sign_pub, sign_pub)
         self.assertEqual(decoded.signature, signature)
 
+    def test_decode_auth_payload_rejects_non_canonical_cbor(self) -> None:
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        signature = sign_auth(doc_hash, sign_pub=sign_pub, sign_priv=sign_priv)
+        payload = {
+            "version": AUTH_VERSION,
+            "hash": doc_hash,
+            "pub": sign_pub,
+            "sig": signature,
+        }
+        non_canonical = cbor2.dumps(payload, canonical=False)
+        canonical = cbor2.dumps(payload, canonical=True)
+        self.assertNotEqual(non_canonical, canonical)
+        with self.assertRaisesRegex(ValueError, "canonical CBOR"):
+            decode_auth_payload(non_canonical)
+
+    def test_decode_auth_payload_rejects_indefinite_length_map(self) -> None:
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        signature = sign_auth(doc_hash, sign_pub=sign_pub, sign_priv=sign_priv)
+        payload = b"".join(
+            [
+                b"\xbf",
+                b"\x67version",
+                b"\x01",
+                b"\x64hash",
+                b"\x58\x20",
+                doc_hash,
+                b"\x63pub",
+                b"\x58\x20",
+                sign_pub,
+                b"\x63sig",
+                b"\x58\x40",
+                signature,
+                b"\xff",
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "canonical CBOR"):
+            decode_auth_payload(payload)
+
 
 if __name__ == "__main__":
     unittest.main()

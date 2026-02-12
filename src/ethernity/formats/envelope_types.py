@@ -18,8 +18,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..core.bounds import MAX_MANIFEST_FILES
 from ..core.validation import (
-    normalize_path,
+    normalize_manifest_path,
     require_bytes,
     require_dict,
     require_keys,
@@ -38,7 +39,11 @@ class ManifestFile:
     mtime: int | None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "path", normalize_path(self.path, label="manifest file path"))
+        object.__setattr__(
+            self,
+            "path",
+            normalize_manifest_path(self.path, label="manifest file path"),
+        )
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -60,6 +65,11 @@ class EnvelopeManifest:
     def to_cbor(self) -> dict[str, object]:
         if not self.files:
             raise ValueError("manifest files are required")
+        if len(self.files) > MAX_MANIFEST_FILES:
+            raise ValueError(
+                f"manifest files exceed MAX_MANIFEST_FILES ({MAX_MANIFEST_FILES}): "
+                f"{len(self.files)} entries"
+            )
 
         if self.sealed:
             if self.signing_seed is not None:
@@ -136,6 +146,11 @@ class EnvelopeManifest:
             )
         if not isinstance(files_raw, list) or not files_raw:
             raise ValueError("manifest files are required")
+        if len(files_raw) > MAX_MANIFEST_FILES:
+            raise ValueError(
+                f"manifest files exceed MAX_MANIFEST_FILES ({MAX_MANIFEST_FILES}): "
+                f"{len(files_raw)} entries"
+            )
         files: list[ManifestFile] = []
         seen_paths: set[str] = set()
         for entry in files_raw:

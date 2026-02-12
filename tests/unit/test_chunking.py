@@ -15,6 +15,7 @@
 
 import unittest
 
+from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES, MAX_MAIN_FRAME_TOTAL
 from ethernity.encoding.chunking import (
     chunk_payload,
     fallback_lines_to_frame,
@@ -101,10 +102,23 @@ class TestChunking(unittest.TestCase):
         payload = b"0123456789" * 50
         doc_id = b"\x22" * DOC_ID_LEN
         frames = chunk_payload(
-            payload, doc_id=doc_id, frame_type=FrameType.KEY_DOCUMENT, chunk_size=64
+            payload, doc_id=doc_id, frame_type=FrameType.MAIN_DOCUMENT, chunk_size=64
         )
         rebuilt = reassemble_payload(frames)
         self.assertEqual(rebuilt, payload)
+
+    def test_reassemble_non_main_document_rejected(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=b"\x21" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        with self.assertRaises(ValueError) as ctx:
+            reassemble_payload([frame])
+        self.assertIn("MAIN_DOCUMENT", str(ctx.exception))
 
     def test_chunk_reassemble_missing(self) -> None:
         payload = b"0123456789" * 20
@@ -141,6 +155,71 @@ class TestChunking(unittest.TestCase):
             data=frames[0].data,
         )
         with self.assertRaises(ValueError):
+            reassemble_payload(frames)
+
+    def test_chunk_payload_rejects_main_total_bound_overflow(self) -> None:
+        payload = b"x" * (MAX_MAIN_FRAME_TOTAL + 1)
+        doc_id = b"\x45" * DOC_ID_LEN
+        with self.assertRaisesRegex(ValueError, "MAX_MAIN_FRAME_TOTAL"):
+            chunk_payload(
+                payload,
+                doc_id=doc_id,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                chunk_size=1,
+            )
+
+    def test_chunk_payload_rejects_auth_multi_frame(self) -> None:
+        with self.assertRaisesRegex(ValueError, "single-frame"):
+            chunk_payload(
+                b"ab",
+                doc_id=b"\x47" * DOC_ID_LEN,
+                frame_type=FrameType.AUTH,
+                chunk_size=1,
+            )
+
+    def test_chunk_payload_rejects_key_multi_frame(self) -> None:
+        with self.assertRaisesRegex(ValueError, "single-frame"):
+            chunk_payload(
+                b"ab",
+                doc_id=b"\x48" * DOC_ID_LEN,
+                frame_type=FrameType.KEY_DOCUMENT,
+                chunk_size=1,
+            )
+
+    def test_chunk_payload_accepts_single_frame_auth_and_key(self) -> None:
+        for frame_type in (FrameType.AUTH, FrameType.KEY_DOCUMENT):
+            with self.subTest(frame_type=frame_type):
+                frames = chunk_payload(
+                    b"ab",
+                    doc_id=b"\x49" * DOC_ID_LEN,
+                    frame_type=frame_type,
+                    chunk_size=8,
+                )
+                self.assertEqual(len(frames), 1)
+                self.assertEqual(frames[0].index, 0)
+                self.assertEqual(frames[0].total, 1)
+
+    def test_reassemble_rejects_ciphertext_bound_overflow(self) -> None:
+        doc_id = b"\x46" * DOC_ID_LEN
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=doc_id,
+                index=0,
+                total=2,
+                data=b"a" * (MAX_CIPHERTEXT_BYTES // 2 + 1),
+            ),
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=doc_id,
+                index=1,
+                total=2,
+                data=b"b" * (MAX_CIPHERTEXT_BYTES // 2),
+            ),
+        ]
+        with self.assertRaisesRegex(ValueError, "MAX_CIPHERTEXT_BYTES"):
             reassemble_payload(frames)
 
     # ==========================================================================

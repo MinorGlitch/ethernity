@@ -24,6 +24,7 @@ from rich.progress import Progress
 from ... import render as render_module
 from ...config import AppConfig
 from ...config.installer import PACKAGE_ROOT
+from ...core.bounds import MAX_CIPHERTEXT_BYTES
 from ...core.models import DocumentPlan, SigningSeedMode
 from ...crypto import (
     encrypt_bytes_with_passphrase,
@@ -491,6 +492,11 @@ def run_backup(
         ciphertext, passphrase_used = encrypt_bytes_with_passphrase(
             envelope, passphrase=passphrase, passphrase_words=passphrase_words
         )
+    if len(ciphertext) > MAX_CIPHERTEXT_BYTES:
+        raise ValueError(
+            f"ciphertext exceeds MAX_CIPHERTEXT_BYTES ({MAX_CIPHERTEXT_BYTES}): "
+            f"{len(ciphertext)} bytes"
+        )
     if passphrase_used is None:
         raise ValueError("passphrase generation failed")
     passphrase_final = passphrase if passphrase is not None else passphrase_used
@@ -531,7 +537,6 @@ def run_backup(
         doc_id=doc_id,
         frame_type=FrameType.MAIN_DOCUMENT,
         qr_config=config.qr_config,
-        qr_payload_encoding=config.qr_payload_encoding,
     )
     if main_chunk_size < config.qr_chunk_size:
         _warn(

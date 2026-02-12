@@ -16,14 +16,17 @@
 import hashlib
 import unicodedata
 import unittest
+from unittest import mock
 
 import cbor2
 
+from ethernity.core.bounds import MAX_MANIFEST_CBOR_BYTES, MAX_MANIFEST_FILES
 from ethernity.encoding.varint import encode_uvarint
 from ethernity.formats.envelope_codec import (
     MAGIC,
     build_manifest_and_payload,
     decode_envelope,
+    decode_manifest,
     encode_envelope,
     encode_manifest,
     extract_payloads,
@@ -286,6 +289,30 @@ class TestEnvelope(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_manifest_and_payload(parts, sealed=True, created_at=0.0)
 
+    def test_manifest_builder_rejects_absolute_paths(self) -> None:
+        parts = [PayloadPart(path="/abs/file.txt", data=b"x", mtime=None)]
+        with self.assertRaises(ValueError) as ctx:
+            build_manifest_and_payload(parts, sealed=True, created_at=0.0)
+        self.assertIn("relative", str(ctx.exception))
+
+    def test_manifest_builder_rejects_backslash_paths(self) -> None:
+        parts = [PayloadPart(path=r"dir\file.txt", data=b"x", mtime=None)]
+        with self.assertRaises(ValueError) as ctx:
+            build_manifest_and_payload(parts, sealed=True, created_at=0.0)
+        self.assertIn("POSIX separators", str(ctx.exception))
+
+    def test_manifest_builder_rejects_dotdot_segments(self) -> None:
+        parts = [PayloadPart(path="dir/../file.txt", data=b"x", mtime=None)]
+        with self.assertRaises(ValueError) as ctx:
+            build_manifest_and_payload(parts, sealed=True, created_at=0.0)
+        self.assertIn("'.' or '..'", str(ctx.exception))
+
+    def test_manifest_builder_rejects_empty_segments(self) -> None:
+        parts = [PayloadPart(path="dir//file.txt", data=b"x", mtime=None)]
+        with self.assertRaises(ValueError) as ctx:
+            build_manifest_and_payload(parts, sealed=True, created_at=0.0)
+        self.assertIn("empty path segments", str(ctx.exception))
+
     def test_manifest_ascii_paths_unchanged(self) -> None:
         parts = [PayloadPart(path="docs/file.txt", data=b"x", mtime=None)]
         manifest, _ = build_manifest_and_payload(parts, sealed=True, created_at=0.0)
@@ -316,6 +343,46 @@ class TestEnvelope(unittest.TestCase):
         with self.assertRaises(ValueError):
             EnvelopeManifest.from_cbor(data)
 
+    def test_manifest_decoder_rejects_absolute_paths(self) -> None:
+        data = _make_manifest_cbor(
+            sealed=True,
+            seed=None,
+            files=[_make_manifest_file_entry(path="/abs/file.txt")],
+        )
+        with self.assertRaises(ValueError) as ctx:
+            EnvelopeManifest.from_cbor(data)
+        self.assertIn("relative", str(ctx.exception))
+
+    def test_manifest_decoder_rejects_backslash_paths(self) -> None:
+        data = _make_manifest_cbor(
+            sealed=True,
+            seed=None,
+            files=[_make_manifest_file_entry(path=r"dir\file.txt")],
+        )
+        with self.assertRaises(ValueError) as ctx:
+            EnvelopeManifest.from_cbor(data)
+        self.assertIn("POSIX separators", str(ctx.exception))
+
+    def test_manifest_decoder_rejects_dotdot_segments(self) -> None:
+        data = _make_manifest_cbor(
+            sealed=True,
+            seed=None,
+            files=[_make_manifest_file_entry(path="dir/../file.txt")],
+        )
+        with self.assertRaises(ValueError) as ctx:
+            EnvelopeManifest.from_cbor(data)
+        self.assertIn("'.' or '..'", str(ctx.exception))
+
+    def test_manifest_decoder_rejects_empty_segments(self) -> None:
+        data = _make_manifest_cbor(
+            sealed=True,
+            seed=None,
+            files=[_make_manifest_file_entry(path="dir//file.txt")],
+        )
+        with self.assertRaises(ValueError) as ctx:
+            EnvelopeManifest.from_cbor(data)
+        self.assertIn("empty path segments", str(ctx.exception))
+
     def test_manifest_rejects_invalid_signing_seed(self) -> None:
         data = _make_manifest_cbor(seed="not-bytes")
         with self.assertRaises(ValueError):
@@ -328,6 +395,14 @@ class TestEnvelope(unittest.TestCase):
         manifest = EnvelopeManifest.from_cbor(data)
         self.assertEqual(manifest.format_version, MANIFEST_VERSION)
         self.assertEqual(manifest.signing_seed, TEST_SIGNING_SEED)
+
+    def test_manifest_decoder_rejects_non_canonical_cbor(self) -> None:
+        data = _make_manifest_cbor()
+        non_canonical = cbor2.dumps(data, canonical=False)
+        canonical = cbor2.dumps(data, canonical=True)
+        self.assertNotEqual(non_canonical, canonical)
+        with self.assertRaisesRegex(ValueError, "canonical CBOR"):
+            decode_manifest(non_canonical)
 
     def test_manifest_rejects_hex_sha256(self) -> None:
         data = _make_manifest_cbor(files=[_make_manifest_file_entry(hash_value="00" * 32)])
@@ -344,6 +419,81 @@ class TestEnvelope(unittest.TestCase):
         data = _make_manifest_cbor(seed=None)
         with self.assertRaises(ValueError):
             EnvelopeManifest.from_cbor(data)
+
+    def test_encode_manifest_respects_manifest_cbor_bound(self) -> None:
+        manifest = EnvelopeManifest(
+            format_version=MANIFEST_VERSION,
+            created_at=0.0,
+            sealed=True,
+            signing_seed=None,
+            files=(
+                ManifestFile(
+                    path="payload.bin",
+                    size=1,
+                    sha256=hashlib.sha256(b"x").digest(),
+                    mtime=None,
+                ),
+            ),
+        )
+        encoded = encode_manifest(manifest)
+        self.assertLessEqual(len(encoded), MAX_MANIFEST_CBOR_BYTES)
+        with mock.patch(
+            "ethernity.formats.envelope_codec.MAX_MANIFEST_CBOR_BYTES",
+            len(encoded),
+        ):
+            self.assertEqual(encode_manifest(manifest), encoded)
+        with mock.patch(
+            "ethernity.formats.envelope_codec.MAX_MANIFEST_CBOR_BYTES",
+            len(encoded) - 1,
+        ):
+            with self.assertRaisesRegex(ValueError, "MAX_MANIFEST_CBOR_BYTES"):
+                encode_manifest(manifest)
+
+    def test_decode_manifest_rejects_manifest_cbor_bound_overflow(self) -> None:
+        oversize_bytes = b"\x00" * (MAX_MANIFEST_CBOR_BYTES + 1)
+        with self.assertRaisesRegex(ValueError, "MAX_MANIFEST_CBOR_BYTES"):
+            decode_manifest(oversize_bytes)
+
+    def test_manifest_accepts_max_files(self) -> None:
+        files = tuple(
+            ManifestFile(
+                path=f"f{i}.txt",
+                size=1,
+                sha256=hashlib.sha256(bytes([i % 256])).digest(),
+                mtime=None,
+            )
+            for i in range(MAX_MANIFEST_FILES)
+        )
+        manifest = EnvelopeManifest(
+            format_version=MANIFEST_VERSION,
+            created_at=0.0,
+            sealed=True,
+            signing_seed=None,
+            files=files,
+        )
+        encoded = encode_manifest(manifest)
+        decoded = decode_manifest(encoded)
+        self.assertEqual(len(decoded.files), MAX_MANIFEST_FILES)
+
+    def test_manifest_rejects_more_than_max_files(self) -> None:
+        files = tuple(
+            ManifestFile(
+                path=f"f{i}.txt",
+                size=1,
+                sha256=hashlib.sha256(bytes([i % 256])).digest(),
+                mtime=None,
+            )
+            for i in range(MAX_MANIFEST_FILES + 1)
+        )
+        manifest = EnvelopeManifest(
+            format_version=MANIFEST_VERSION,
+            created_at=0.0,
+            sealed=True,
+            signing_seed=None,
+            files=files,
+        )
+        with self.assertRaisesRegex(ValueError, "MAX_MANIFEST_FILES"):
+            encode_manifest(manifest)
 
     def test_manifest_rejects_seed_when_sealed(self) -> None:
         data = _make_manifest_cbor(sealed=True, seed=TEST_SIGNING_SEED)
@@ -572,6 +722,27 @@ class TestEnvelope(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             decode_envelope(bad_envelope)
         self.assertIn("version", str(ctx.exception).lower())
+
+    def test_decode_envelope_rejects_non_canonical_version_varint(self) -> None:
+        manifest_data = _make_manifest_cbor(
+            sealed=True,
+            seed=None,
+            files=[_make_manifest_file_entry(path="f.bin", size=1)],
+        )
+        manifest_bytes = cbor2.dumps(manifest_data, canonical=True)
+        payload = b"x"
+        encoded = (
+            MAGIC
+            + encode_uvarint(1)
+            + encode_uvarint(len(manifest_bytes))
+            + manifest_bytes
+            + encode_uvarint(len(payload))
+            + payload
+        )
+        # Replace canonical VERSION=1 (0x01) with overlong encoding (0x81 0x00).
+        non_canonical = encoded[:2] + b"\x81\x00" + encoded[3:]
+        with self.assertRaisesRegex(ValueError, "non-canonical varint"):
+            decode_envelope(non_canonical)
 
 
 if __name__ == "__main__":

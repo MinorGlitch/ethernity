@@ -21,10 +21,9 @@ import os
 import time
 from pathlib import Path
 
-import cbor2
-
-from ..core.validation import normalize_path
-from ..encoding.cbor import dumps_canonical
+from ..core.bounds import MAX_MANIFEST_CBOR_BYTES
+from ..core.validation import normalize_manifest_path, normalize_path
+from ..encoding.cbor import dumps_canonical, loads_canonical
 from ..encoding.varint import (
     decode_uvarint as _decode_uvarint,
     encode_uvarint as _encode_uvarint,
@@ -90,7 +89,7 @@ def build_manifest_and_payload(
     seen_paths: set[str] = set()
     normalized_parts: list[tuple[str, PayloadPart]] = []
     for part in parts:
-        normalized_parts.append((normalize_path(part.path, label="payload path"), part))
+        normalized_parts.append((normalize_manifest_path(part.path, label="payload path"), part))
     normalized_parts.sort(key=lambda item: item[0])
 
     for path, part in normalized_parts:
@@ -118,12 +117,23 @@ def build_manifest_and_payload(
 
 
 def encode_manifest(manifest: EnvelopeManifest) -> bytes:
-    return dumps_canonical(manifest.to_cbor())
+    encoded = dumps_canonical(manifest.to_cbor())
+    if len(encoded) > MAX_MANIFEST_CBOR_BYTES:
+        raise ValueError(
+            f"manifest exceeds MAX_MANIFEST_CBOR_BYTES ({MAX_MANIFEST_CBOR_BYTES}): "
+            f"{len(encoded)} bytes"
+        )
+    return encoded
 
 
 def decode_manifest(data: bytes) -> EnvelopeManifest:
+    if len(data) > MAX_MANIFEST_CBOR_BYTES:
+        raise ValueError(
+            f"manifest exceeds MAX_MANIFEST_CBOR_BYTES ({MAX_MANIFEST_CBOR_BYTES}): "
+            f"{len(data)} bytes"
+        )
     try:
-        decoded = cbor2.loads(data)
+        decoded = loads_canonical(data, label="manifest")
     except UnicodeDecodeError as exc:
         raise ValueError("manifest contains invalid UTF-8") from exc
     return EnvelopeManifest.from_cbor(decoded)
@@ -155,6 +165,11 @@ def decode_envelope(data: bytes) -> tuple[EnvelopeManifest, bytes]:
         raise ValueError(f"unsupported envelope version: {version}")
 
     manifest_len, idx = _decode_uvarint(data, idx)
+    if manifest_len > MAX_MANIFEST_CBOR_BYTES:
+        raise ValueError(
+            f"manifest exceeds MAX_MANIFEST_CBOR_BYTES ({MAX_MANIFEST_CBOR_BYTES}): "
+            f"{manifest_len} bytes"
+        )
     end_manifest = idx + manifest_len
     if end_manifest > len(data):
         raise ValueError("truncated manifest")

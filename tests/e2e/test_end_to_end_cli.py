@@ -23,6 +23,7 @@ from pathlib import Path
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.encoding.chunking import chunk_payload
 from ethernity.encoding.framing import DOC_ID_LEN, FrameType, encode_frame
+from ethernity.encoding.qr_payloads import encode_qr_payload
 from ethernity.formats.envelope_codec import build_single_file_manifest, encode_envelope
 from tests.test_support import build_cli_env, ensure_playwright_browsers
 
@@ -137,7 +138,7 @@ class TestEndToEndCli(unittest.TestCase):
             )
             frames_path = tmp_path / "frames.txt"
             frames_path.write_text(
-                "\n".join(encode_frame(frame).hex() for frame in frames),
+                "\n".join(encode_qr_payload(encode_frame(frame)) for frame in frames),
                 encoding="utf-8",
             )
             output_path = tmp_path / "recovered.bin"

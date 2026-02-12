@@ -16,6 +16,12 @@
 import unittest
 import zlib
 
+from ethernity.core.bounds import (
+    MAX_AUTH_CBOR_BYTES,
+    MAX_MAIN_FRAME_DATA_BYTES,
+    MAX_MAIN_FRAME_TOTAL,
+    MAX_SHARD_CBOR_BYTES,
+)
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, decode_frame, encode_frame
 
 
@@ -95,6 +101,127 @@ class TestFraming(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             encode_frame(frame)
+
+    def test_main_frame_data_accepts_exact_limit(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x05" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"x" * MAX_MAIN_FRAME_DATA_BYTES,
+        )
+        encoded = encode_frame(frame)
+        decoded = decode_frame(encoded)
+        self.assertEqual(len(decoded.data), MAX_MAIN_FRAME_DATA_BYTES)
+
+    def test_main_frame_data_rejects_limit_overflow(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x06" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"x" * (MAX_MAIN_FRAME_DATA_BYTES + 1),
+        )
+        with self.assertRaisesRegex(ValueError, "MAX_MAIN_FRAME_DATA_BYTES"):
+            encode_frame(frame)
+
+    def test_main_frame_total_rejects_limit_overflow(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x07" * DOC_ID_LEN,
+            index=0,
+            total=MAX_MAIN_FRAME_TOTAL + 1,
+            data=b"x",
+        )
+        with self.assertRaisesRegex(ValueError, "MAX_MAIN_FRAME_TOTAL"):
+            encode_frame(frame)
+
+    def test_auth_frame_data_rejects_limit_overflow(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.AUTH,
+            doc_id=b"\x08" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"a" * (MAX_AUTH_CBOR_BYTES + 1),
+        )
+        with self.assertRaisesRegex(ValueError, "MAX_AUTH_CBOR_BYTES"):
+            encode_frame(frame)
+
+    def test_auth_frame_rejects_non_single_frame_metadata(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.AUTH,
+            doc_id=b"\x8a" * DOC_ID_LEN,
+            index=1,
+            total=2,
+            data=b"a",
+        )
+        with self.assertRaisesRegex(ValueError, "single-frame"):
+            encode_frame(frame)
+
+    def test_shard_frame_data_rejects_limit_overflow(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=b"\x09" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"s" * (MAX_SHARD_CBOR_BYTES + 1),
+        )
+        with self.assertRaisesRegex(ValueError, "MAX_SHARD_CBOR_BYTES"):
+            encode_frame(frame)
+
+    def test_shard_frame_rejects_non_single_frame_metadata(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=b"\x8b" * DOC_ID_LEN,
+            index=1,
+            total=2,
+            data=b"s",
+        )
+        with self.assertRaisesRegex(ValueError, "single-frame"):
+            encode_frame(frame)
+
+    def test_decode_rejects_auth_non_single_frame_metadata(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x8c" * DOC_ID_LEN,
+            index=0,
+            total=2,
+            data=b"auth",
+        )
+        encoded = bytearray(encode_frame(frame))
+        # FRAME_TYPE byte is at MAGIC(2) + VERSION(1).
+        encoded[3] = int(FrameType.AUTH)
+        body = bytes(encoded[:-4])
+        crc = zlib.crc32(body) & 0xFFFFFFFF
+        encoded[-4:] = crc.to_bytes(4, "big")
+        with self.assertRaisesRegex(ValueError, "single-frame"):
+            decode_frame(bytes(encoded))
+
+    def test_decode_rejects_shard_non_single_frame_metadata(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x8d" * DOC_ID_LEN,
+            index=0,
+            total=2,
+            data=b"shard",
+        )
+        encoded = bytearray(encode_frame(frame))
+        # FRAME_TYPE byte is at MAGIC(2) + VERSION(1).
+        encoded[3] = int(FrameType.KEY_DOCUMENT)
+        body = bytes(encoded[:-4])
+        crc = zlib.crc32(body) & 0xFFFFFFFF
+        encoded[-4:] = crc.to_bytes(4, "big")
+        with self.assertRaisesRegex(ValueError, "single-frame"):
+            decode_frame(bytes(encoded))
 
     # ==========================================================================
     # Edge Case Tests
@@ -249,6 +376,42 @@ class TestFraming(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             decode_frame(bytes(encoded))
         self.assertIn("type", str(ctx.exception).lower())
+
+    def test_decode_rejects_non_canonical_version_varint(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x64" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"data",
+        )
+        encoded = encode_frame(frame)
+        body = encoded[:-4]
+        # Replace canonical VERSION=1 (0x01) with overlong encoding (0x81 0x00).
+        mutated_body = body[:2] + b"\x81\x00" + body[3:]
+        crc = zlib.crc32(mutated_body) & 0xFFFFFFFF
+        mutated = mutated_body + crc.to_bytes(4, "big")
+        with self.assertRaisesRegex(ValueError, "non-canonical varint"):
+            decode_frame(mutated)
+
+    def test_decode_rejects_non_canonical_index_varint(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x65" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"data",
+        )
+        encoded = encode_frame(frame)
+        body = encoded[:-4]
+        # INDEX starts after MAGIC(2)+VERSION(1)+FRAME_TYPE(1)+DOC_ID(8) == offset 12.
+        mutated_body = body[:12] + b"\x80\x00" + body[13:]
+        crc = zlib.crc32(mutated_body) & 0xFFFFFFFF
+        mutated = mutated_body + crc.to_bytes(4, "big")
+        with self.assertRaisesRegex(ValueError, "non-canonical varint"):
+            decode_frame(mutated)
 
     def test_decode_truncated_frame(self) -> None:
         """Test decoding truncated frame raises ValueError."""

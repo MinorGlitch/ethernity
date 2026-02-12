@@ -27,9 +27,8 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="ethernity",
     debug=False,
     bootloader_ignore_signals=False,
@@ -38,4 +37,14 @@ exe = EXE(
     console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name="ethernity",
 )

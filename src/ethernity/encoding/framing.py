@@ -20,6 +20,12 @@ import zlib
 from dataclasses import dataclass
 from enum import IntEnum
 
+from ..core.bounds import (
+    MAX_AUTH_CBOR_BYTES,
+    MAX_MAIN_FRAME_DATA_BYTES,
+    MAX_MAIN_FRAME_TOTAL,
+    MAX_SHARD_CBOR_BYTES,
+)
 from .varint import decode_uvarint as _decode_uvarint, encode_uvarint as _encode_uvarint
 
 MAGIC = b"AP"
@@ -122,7 +128,7 @@ def _validate_frame(frame: Frame) -> None:
 
     frame_type = int(frame.frame_type)
     try:
-        FrameType(frame_type)
+        frame_type_enum = FrameType(frame_type)
     except ValueError as exc:
         raise ValueError(f"unsupported frame type: {frame_type}") from exc
 
@@ -134,3 +140,34 @@ def _validate_frame(frame: Frame) -> None:
         raise ValueError("index must be < total")
     if len(frame.doc_id) != DOC_ID_LEN:
         raise ValueError(f"doc_id must be {DOC_ID_LEN} bytes")
+
+    data_len = len(frame.data)
+    if frame_type_enum == FrameType.MAIN_DOCUMENT:
+        if frame.total > MAX_MAIN_FRAME_TOTAL:
+            raise ValueError(
+                f"MAIN_DOCUMENT total exceeds MAX_MAIN_FRAME_TOTAL ({MAX_MAIN_FRAME_TOTAL}): "
+                f"{frame.total}"
+            )
+        if data_len > MAX_MAIN_FRAME_DATA_BYTES:
+            raise ValueError(
+                "MAIN_DOCUMENT data exceeds "
+                f"MAX_MAIN_FRAME_DATA_BYTES ({MAX_MAIN_FRAME_DATA_BYTES}): {data_len} bytes"
+            )
+    elif frame_type_enum == FrameType.AUTH:
+        if frame.total != 1 or frame.index != 0:
+            raise ValueError("AUTH payload must be a single-frame payload (index=0,total=1)")
+        if data_len > MAX_AUTH_CBOR_BYTES:
+            raise ValueError(
+                f"AUTH data exceeds MAX_AUTH_CBOR_BYTES ({MAX_AUTH_CBOR_BYTES}): "
+                f"{data_len} bytes"
+            )
+    elif frame_type_enum == FrameType.KEY_DOCUMENT:
+        if frame.total != 1 or frame.index != 0:
+            raise ValueError(
+                "KEY_DOCUMENT payload must be a single-frame payload (index=0,total=1)"
+            )
+        if data_len > MAX_SHARD_CBOR_BYTES:
+            raise ValueError(
+                f"KEY_DOCUMENT data exceeds MAX_SHARD_CBOR_BYTES ({MAX_SHARD_CBOR_BYTES}): "
+                f"{data_len} bytes"
+            )
