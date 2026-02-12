@@ -31,16 +31,16 @@ class TestRenderCommand(unittest.TestCase):
         return mock.Mock(obj=dict(values))
 
     def test_data_uri_for_path_with_known_and_unknown_mime(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".png") as fh:
-            path = Path(fh.name)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "logo.png"
             path.write_bytes(b"\x89PNG")
             uri = render_module._data_uri_for_path(path)
         self.assertTrue(uri.startswith("data:image/png;base64,"))
         payload = uri.split(",", 1)[1]
         self.assertEqual(base64.b64decode(payload), b"\x89PNG")
 
-        with tempfile.NamedTemporaryFile(suffix=".blobx") as fh:
-            path = Path(fh.name)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "payload.blobx"
             path.write_bytes(b"abc")
             with mock.patch.object(mimetypes, "guess_type", return_value=(None, None)):
                 uri = render_module._data_uri_for_path(path)
@@ -70,8 +70,9 @@ class TestRenderCommand(unittest.TestCase):
         render_envelope_docx: mock.MagicMock,
         print_mock: mock.MagicMock,
     ) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".png") as fh:
-            logo = Path(fh.name)
+        with tempfile.TemporaryDirectory() as tmp:
+            logo = Path(tmp) / "logo.png"
+            logo.write_bytes(b"\x89PNG")
             ctx = self._ctx(debug=True, quiet=False)
             render_module.render(
                 ctx,

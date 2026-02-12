@@ -56,9 +56,11 @@ class TestRecoverCommand(unittest.TestCase):
         with self.assertRaises(typer.BadParameter):
             recover_command._expand_shard_dir("/definitely/missing")
 
-        with tempfile.NamedTemporaryFile() as fh:
+        with tempfile.TemporaryDirectory() as tmp:
+            file_path = Path(tmp) / "not-a-dir.txt"
+            file_path.write_text("x", encoding="utf-8")
             with self.assertRaises(typer.BadParameter):
-                recover_command._expand_shard_dir(fh.name)
+                recover_command._expand_shard_dir(str(file_path))
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
