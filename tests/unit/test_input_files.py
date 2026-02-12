@@ -13,11 +13,33 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+import io
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from ethernity.cli.io.inputs import _load_input_files
+
+
+class _FakeProgress:
+    def __init__(self) -> None:
+        self._next_id = 0
+        self.events: list[tuple[str, object]] = []
+
+    def add_task(self, description: str, total=None) -> int:
+        self._next_id += 1
+        self.events.append(("add", (description, total)))
+        return self._next_id
+
+    def update(self, task_id: int, **kwargs) -> None:
+        self.events.append(("update", (task_id, kwargs)))
+
+    def refresh(self) -> None:
+        self.events.append(("refresh", None))
+
+    def advance(self, task_id: int) -> None:
+        self.events.append(("advance", task_id))
 
 
 class TestInputFiles(unittest.TestCase):
@@ -53,6 +75,96 @@ class TestInputFiles(unittest.TestCase):
             with self.assertRaises(ValueError) as ctx:
                 _load_input_files([str(path)], [], str(base), allow_stdin=False)
             self.assertIn("outside base dir", str(ctx.exception))
+
+    def test_stdin_not_allowed(self) -> None:
+        with self.assertRaisesRegex(ValueError, "stdin input is not supported here"):
+            _load_input_files(["-"], [], None, allow_stdin=False)
+
+    def test_no_input_files_found(self) -> None:
+        with self.assertRaisesRegex(ValueError, "no input files found"):
+            _load_input_files([], [], None, allow_stdin=False)
+
+    def test_input_dir_not_found(self) -> None:
+        with self.assertRaisesRegex(ValueError, "input dir not found"):
+            _load_input_files([], ["/no/such/dir"], None, allow_stdin=False)
+
+    def test_input_dir_not_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "file.txt"
+            path.write_text("x", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "input dir is not a directory"):
+                _load_input_files([], [str(path)], None, allow_stdin=False)
+
+    def test_input_file_not_found(self) -> None:
+        with self.assertRaisesRegex(ValueError, "input file not found"):
+            _load_input_files(["/no/such/file"], [], None, allow_stdin=False)
+
+    def test_input_path_not_a_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir)
+            with mock.patch("pathlib.Path.is_dir", return_value=False):
+                with self.assertRaisesRegex(ValueError, "input path is not a file"):
+                    _load_input_files([str(path)], [], None, allow_stdin=False)
+
+    def test_empty_stdin_rejected(self) -> None:
+        with mock.patch("ethernity.cli.io.inputs.sys.stdin", new=io.StringIO("")):
+            with self.assertRaisesRegex(ValueError, "stdin input is empty"):
+                _load_input_files(["-"], [], None, allow_stdin=True)
+
+    def test_duplicate_relative_path_from_stdin(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "data.txt"
+            file_path.write_text("file", encoding="utf-8")
+            with mock.patch("ethernity.cli.io.inputs.sys.stdin", new=io.StringIO("stdin-data")):
+                with self.assertRaisesRegex(ValueError, "duplicate relative path 'data.txt'"):
+                    _load_input_files([str(file_path), "-"], [], None, allow_stdin=True)
+
+    def test_commonpath_error_reports_different_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            left = Path(tmpdir) / "left.txt"
+            right = Path(tmpdir) / "right.txt"
+            left.write_text("left", encoding="utf-8")
+            right.write_text("right", encoding="utf-8")
+            with mock.patch(
+                "ethernity.cli.io.inputs.os.path.commonpath",
+                side_effect=ValueError("different drives"),
+            ):
+                with self.assertRaisesRegex(ValueError, "different roots"):
+                    _load_input_files([str(left), str(right)], [], None, allow_stdin=False)
+
+    def test_invalid_utf8_relative_path_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "file.txt"
+            path.write_bytes(b"data")
+            with mock.patch(
+                "ethernity.cli.io.inputs.normalize_path",
+                side_effect=ValueError("invalid utf8"),
+            ):
+                with self.assertRaisesRegex(ValueError, "not valid UTF-8"):
+                    _load_input_files([str(path)], [], None, allow_stdin=False)
+
+    def test_progress_updates_are_emitted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "root"
+            root.mkdir(parents=True)
+            for idx in range(11):
+                (root / f"file-{idx}.txt").write_text(f"payload-{idx}", encoding="utf-8")
+
+            progress = _FakeProgress()
+            entries, _ = _load_input_files(
+                [],
+                [str(root)],
+                None,
+                allow_stdin=False,
+                progress=progress,
+            )
+
+        self.assertEqual(len(entries), 11)
+        update_events = [event for event in progress.events if event[0] == "update"]
+        self.assertTrue(update_events)
+        descriptions = [payload[1].get("description", "") for _, payload in update_events]
+        self.assertTrue(any("Scanning input files..." in desc for desc in descriptions))
+        self.assertTrue(any("Reading input files..." in desc for desc in descriptions))
 
 
 if __name__ == "__main__":
