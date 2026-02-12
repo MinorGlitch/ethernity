@@ -158,8 +158,7 @@ def _validate_frame(frame: Frame) -> None:
             raise ValueError("AUTH payload must be a single-frame payload (index=0,total=1)")
         if data_len > MAX_AUTH_CBOR_BYTES:
             raise ValueError(
-                f"AUTH data exceeds MAX_AUTH_CBOR_BYTES ({MAX_AUTH_CBOR_BYTES}): "
-                f"{data_len} bytes"
+                f"AUTH data exceeds MAX_AUTH_CBOR_BYTES ({MAX_AUTH_CBOR_BYTES}): {data_len} bytes"
             )
     elif frame_type_enum == FrameType.KEY_DOCUMENT:
         if frame.total != 1 or frame.index != 0:
