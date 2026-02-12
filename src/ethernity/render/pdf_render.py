@@ -82,10 +82,6 @@ def _forge_copy_payload() -> ForgeCopy:
     )
 
 
-def _is_forge_template(path: str | Path) -> bool:
-    return Path(path).parent.name.strip().lower() in {"forge", "sentinel"}
-
-
 def _uses_uniform_main_qr_capacity(*, doc_type: str, capabilities: TemplateCapabilities) -> bool:
     return doc_type.strip().lower() == DOC_TYPE_MAIN and capabilities.uniform_main_qr_capacity
 
@@ -428,7 +424,7 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     for key in _CONTEXT_PASSTHROUGH_KEYS:
         if key in base_context:
             context[key] = base_context[key]
-    if _is_forge_template(inputs.template_path):
+    if style.capabilities.inject_forge_copy:
         context["forge_copy"] = asdict(_forge_copy_payload())
     if created_dt is not None:
         context["created_date"] = created_dt.date().isoformat()
