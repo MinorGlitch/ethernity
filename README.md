@@ -481,6 +481,69 @@ ethernity --debug backup --input ./secret.txt --output-dir ./backup-out
 ethernity --debug --debug-reveal-secrets backup --input ./secret.txt --output-dir ./backup-out
 ```
 
+### Template Config Migration (Name-First)
+
+Template sections in `config.toml` are now design-name based.
+Legacy `path = "templates/.../*.html.j2"` keys are unsupported in this build.
+
+```toml
+[templates]
+default_name = "sentinel"
+
+[template]
+name = "sentinel"
+
+[recovery_template]
+name = "sentinel"
+
+[shard_template]
+name = "sentinel"
+
+[signing_key_shard_template]
+name = "monograph"
+
+[kit_template]
+name = "sentinel"
+```
+
+### Operator Defaults in Config
+
+You can set stable operator defaults in `config.toml` to reduce repeated flags.
+Resolution order is: `CLI flag > env var > config > built-in default`.
+
+One-way boolean caveat:
+- `quiet`, `no_color`, and `no_animations` are OR-style.
+- CLI can force them on, but there are no inverse flags to force them off in this wave.
+
+```toml
+[defaults.backup]
+base_dir = ""
+output_dir = ""
+shard_threshold = 0
+shard_count = 0
+signing_key_mode = "" # embedded | sharded
+signing_key_shard_threshold = 0
+signing_key_shard_count = 0
+
+[defaults.recover]
+output = ""
+
+[ui]
+quiet = false
+no_color = false
+no_animations = false
+
+[debug]
+max_bytes = 1024
+
+[runtime]
+render_jobs = "auto" # or positive integer
+```
+
+Safety policy:
+- risky recovery bypass controls remain explicit CLI-only decisions
+- this build does not support config defaults for `--rescue-mode` or `--yes`
+
 ### Help Surfaces
 
 ```sh

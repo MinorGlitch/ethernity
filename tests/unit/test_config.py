@@ -18,12 +18,15 @@ import unittest
 from pathlib import Path
 
 from ethernity.config import (
+    DEFAULT_KIT_TEMPLATE_PATH,
     DEFAULT_PAPER_SIZE,
     DEFAULT_RECOVERY_TEMPLATE_PATH,
     DEFAULT_SHARD_TEMPLATE_PATH,
     DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
     DEFAULT_TEMPLATE_PATH,
+    apply_template_design,
     load_app_config,
+    load_cli_defaults,
 )
 from ethernity.encoding.chunking import DEFAULT_CHUNK_SIZE
 
@@ -31,18 +34,6 @@ from ethernity.encoding.chunking import DEFAULT_CHUNK_SIZE
 class TestConfig(unittest.TestCase):
     def test_load_app_config_parses_qr_config(self) -> None:
         toml = """
-[template]
-path = 123
-
-[recovery_template]
-path = 456
-
-[shard_template]
-path = 789
-
-[signing_key_shard_template]
-path = 1011
-
 [page]
 size = "A4"
 
@@ -195,30 +186,126 @@ mask = 7
         self.assertEqual(config.qr_config.version, 40)
         self.assertEqual(config.qr_config.mask, 7)
 
-    def test_load_app_config_template_paths(self) -> None:
-        """Test loading config with custom template paths."""
+    def test_load_app_config_template_names_per_section(self) -> None:
         toml = """
 [template]
-path = "/custom/template.html"
+name = "sentinel"
 
 [recovery_template]
-path = "/custom/recovery.html"
+name = "sentinel"
 
 [shard_template]
-path = "/custom/shard.html"
+name = "sentinel"
+
+[signing_key_shard_template]
+name = "monograph"
+
+[kit_template]
+name = "sentinel"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
             path.write_text(toml, encoding="utf-8")
             config = load_app_config(path=path)
 
-        def assert_custom_path(actual: Path, expected_suffix: str) -> None:
-            self.assertTrue(actual.is_absolute())
-            self.assertTrue(actual.as_posix().endswith(expected_suffix))
+        self.assertEqual(config.template_path.parent.name, "sentinel")
+        self.assertEqual(config.recovery_template_path.parent.name, "sentinel")
+        self.assertEqual(config.shard_template_path.parent.name, "sentinel")
+        self.assertEqual(config.signing_key_shard_template_path.parent.name, "monograph")
+        self.assertEqual(config.kit_template_path.parent.name, "sentinel")
+        self.assertEqual(config.template_path.name, DEFAULT_TEMPLATE_PATH.name)
+        self.assertEqual(config.recovery_template_path.name, DEFAULT_RECOVERY_TEMPLATE_PATH.name)
+        self.assertEqual(config.shard_template_path.name, DEFAULT_SHARD_TEMPLATE_PATH.name)
+        self.assertEqual(
+            config.signing_key_shard_template_path.name,
+            DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH.name,
+        )
+        self.assertEqual(config.kit_template_path.name, DEFAULT_KIT_TEMPLATE_PATH.name)
 
-        assert_custom_path(config.template_path, "/custom/template.html")
-        assert_custom_path(config.recovery_template_path, "/custom/recovery.html")
-        assert_custom_path(config.shard_template_path, "/custom/shard.html")
+    def test_load_app_config_template_default_name_fallback(self) -> None:
+        toml = """
+[templates]
+default_name = "forge"
+
+[signing_key_shard_template]
+name = "monograph"
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            config = load_app_config(path=path)
+
+        self.assertEqual(config.template_path.parent.name, "forge")
+        self.assertEqual(config.recovery_template_path.parent.name, "forge")
+        self.assertEqual(config.shard_template_path.parent.name, "forge")
+        self.assertEqual(config.kit_template_path.parent.name, "forge")
+        self.assertEqual(config.signing_key_shard_template_path.parent.name, "monograph")
+
+    def test_load_app_config_rejects_legacy_template_path_key(self) -> None:
+        toml = """
+[template]
+path = "templates/ledger/main_document.html.j2"
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "template.path is unsupported"):
+                load_app_config(path=path)
+
+    def test_load_app_config_rejects_blank_template_name(self) -> None:
+        toml = """
+[template]
+name = "   "
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "template.name must be a non-empty string"):
+                load_app_config(path=path)
+
+    def test_load_app_config_rejects_unknown_template_name(self) -> None:
+        toml = """
+[template]
+name = "does-not-exist"
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "unknown template design"):
+                load_app_config(path=path)
+
+    def test_load_app_config_rejects_invalid_default_name(self) -> None:
+        toml = """
+[templates]
+default_name = 123
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            with self.assertRaisesRegex(
+                ValueError, "templates.default_name must be a non-empty string"
+            ):
+                load_app_config(path=path)
+
+    def test_apply_template_design_overrides_name_resolved_templates(self) -> None:
+        toml = """
+[templates]
+default_name = "sentinel"
+
+[signing_key_shard_template]
+name = "monograph"
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            config = load_app_config(path=path)
+
+        overridden = apply_template_design(config, "forge")
+        self.assertEqual(overridden.template_path.parent.name, "forge")
+        self.assertEqual(overridden.recovery_template_path.parent.name, "forge")
+        self.assertEqual(overridden.shard_template_path.parent.name, "forge")
+        self.assertEqual(overridden.signing_key_shard_template_path.parent.name, "forge")
+        self.assertEqual(overridden.kit_template_path.parent.name, "forge")
 
     def test_load_app_config_color_tuples(self) -> None:
         """Test loading config with RGB color tuples."""
@@ -249,6 +336,125 @@ light = [255, 255, 255, 128]
 
         self.assertEqual(config.qr_config.dark, (0, 0, 0, 255))
         self.assertEqual(config.qr_config.light, (255, 255, 255, 128))
+
+    def test_load_app_config_parses_cli_defaults_sections(self) -> None:
+        toml = """
+[defaults.backup]
+base_dir = "/tmp/base"
+output_dir = "/tmp/out"
+shard_threshold = 2
+shard_count = 3
+signing_key_mode = "sharded"
+signing_key_shard_threshold = 2
+signing_key_shard_count = 3
+
+[defaults.recover]
+output = "/tmp/recovered"
+
+[ui]
+quiet = true
+no_color = true
+no_animations = true
+
+[debug]
+max_bytes = 4096
+
+[runtime]
+render_jobs = 6
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            config = load_app_config(path=path)
+
+        self.assertEqual(config.cli_defaults.backup.base_dir, "/tmp/base")
+        self.assertEqual(config.cli_defaults.backup.output_dir, "/tmp/out")
+        self.assertEqual(config.cli_defaults.backup.shard_threshold, 2)
+        self.assertEqual(config.cli_defaults.backup.shard_count, 3)
+        self.assertEqual(config.cli_defaults.backup.signing_key_mode, "sharded")
+        self.assertEqual(config.cli_defaults.backup.signing_key_shard_threshold, 2)
+        self.assertEqual(config.cli_defaults.backup.signing_key_shard_count, 3)
+        self.assertEqual(config.cli_defaults.recover.output, "/tmp/recovered")
+        self.assertTrue(config.cli_defaults.ui.quiet)
+        self.assertTrue(config.cli_defaults.ui.no_color)
+        self.assertTrue(config.cli_defaults.ui.no_animations)
+        self.assertEqual(config.cli_defaults.debug.max_bytes, 4096)
+        self.assertEqual(config.cli_defaults.runtime.render_jobs, 6)
+
+    def test_load_cli_defaults_parses_unset_sentinels(self) -> None:
+        toml = """
+[defaults.backup]
+base_dir = ""
+output_dir = ""
+shard_threshold = 0
+shard_count = 0
+signing_key_mode = ""
+signing_key_shard_threshold = 0
+signing_key_shard_count = 0
+
+[defaults.recover]
+output = ""
+
+[debug]
+max_bytes = 0
+
+[runtime]
+render_jobs = "auto"
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            defaults = load_cli_defaults(path=path)
+
+        self.assertIsNone(defaults.backup.base_dir)
+        self.assertIsNone(defaults.backup.output_dir)
+        self.assertIsNone(defaults.backup.shard_threshold)
+        self.assertIsNone(defaults.backup.shard_count)
+        self.assertIsNone(defaults.backup.signing_key_mode)
+        self.assertIsNone(defaults.backup.signing_key_shard_threshold)
+        self.assertIsNone(defaults.backup.signing_key_shard_count)
+        self.assertIsNone(defaults.recover.output)
+        self.assertIsNone(defaults.debug.max_bytes)
+        self.assertEqual(defaults.runtime.render_jobs, "auto")
+
+    def test_load_cli_defaults_rejects_invalid_signing_key_mode(self) -> None:
+        toml = """
+[defaults.backup]
+signing_key_mode = "invalid"
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            with self.assertRaisesRegex(
+                ValueError,
+                "defaults.backup.signing_key_mode must be 'embedded', 'sharded', or empty",
+            ):
+                load_cli_defaults(path=path)
+
+    def test_load_cli_defaults_rejects_invalid_render_jobs(self) -> None:
+        toml = """
+[runtime]
+render_jobs = "many"
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            with self.assertRaisesRegex(
+                ValueError,
+                "runtime.render_jobs must be an integer",
+            ):
+                load_cli_defaults(path=path)
+
+    def test_load_cli_defaults_rejects_invalid_ui_bool(self) -> None:
+        toml = """
+[ui]
+no_color = "maybe"
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "ui.no_color must be a boolean"):
+                load_cli_defaults(path=path)
 
 
 if __name__ == "__main__":

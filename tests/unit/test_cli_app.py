@@ -22,6 +22,7 @@ from unittest import mock
 import typer
 
 from ethernity.cli.core.types import RecoverArgs
+from ethernity.config import CliDefaults, DebugDefaults, UiDefaults
 
 app_module = importlib.import_module("ethernity.cli.app")
 
@@ -95,12 +96,14 @@ class TestCliApp(unittest.TestCase):
         self.assertEqual(exc_info.exception.exit_code, 0)
 
     @mock.patch("ethernity.cli.app.console_err.print")
+    @mock.patch("ethernity.cli.app.load_cli_defaults", return_value=CliDefaults())
     @mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=False)
     @mock.patch("ethernity.cli.app.run_startup", return_value=False)
     def test_cli_no_subcommand_non_tty_errors(
         self,
         _run_startup: mock.MagicMock,
         _stdin_tty: mock.MagicMock,
+        _load_cli_defaults: mock.MagicMock,
         print_err: mock.MagicMock,
     ) -> None:
         ctx = _Ctx(invoked_subcommand=None)
@@ -127,6 +130,7 @@ class TestCliApp(unittest.TestCase):
     @mock.patch("ethernity.cli.app.empty_recover_args", return_value=RecoverArgs())
     @mock.patch("ethernity.cli.app.prompt_home_action", return_value="recover")
     @mock.patch("ethernity.cli.app.ui_screen_mode", return_value=contextlib.nullcontext())
+    @mock.patch("ethernity.cli.app.load_cli_defaults", return_value=CliDefaults())
     @mock.patch("ethernity.cli.app._resolve_config_and_paper", return_value=("cfg", "A4"))
     @mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=True)
     @mock.patch("ethernity.cli.app.run_startup", return_value=False)
@@ -135,6 +139,7 @@ class TestCliApp(unittest.TestCase):
         _run_startup: mock.MagicMock,
         _stdin_tty: mock.MagicMock,
         _resolve_config_and_paper: mock.MagicMock,
+        _load_cli_defaults: mock.MagicMock,
         ui_screen_mode: mock.MagicMock,
         _prompt_home_action: mock.MagicMock,
         _empty_recover_args: mock.MagicMock,
@@ -171,6 +176,7 @@ class TestCliApp(unittest.TestCase):
     @mock.patch("ethernity.cli.app._run_cli", side_effect=lambda func, debug: func())
     @mock.patch("ethernity.cli.app.prompt_home_action", return_value="backup")
     @mock.patch("ethernity.cli.app.ui_screen_mode", return_value=contextlib.nullcontext())
+    @mock.patch("ethernity.cli.app.load_cli_defaults", return_value=CliDefaults())
     @mock.patch("ethernity.cli.app._resolve_config_and_paper", return_value=("cfg", "A4"))
     @mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=True)
     @mock.patch("ethernity.cli.app.run_startup", return_value=False)
@@ -179,6 +185,7 @@ class TestCliApp(unittest.TestCase):
         _run_startup: mock.MagicMock,
         _stdin_tty: mock.MagicMock,
         _resolve_config_and_paper: mock.MagicMock,
+        _load_cli_defaults: mock.MagicMock,
         ui_screen_mode: mock.MagicMock,
         _prompt_home_action: mock.MagicMock,
         _run_cli: mock.MagicMock,
@@ -208,6 +215,7 @@ class TestCliApp(unittest.TestCase):
     @mock.patch("ethernity.cli.app._run_cli", side_effect=lambda func, debug: func())
     @mock.patch("ethernity.cli.app.prompt_home_action", return_value="kit")
     @mock.patch("ethernity.cli.app.ui_screen_mode", return_value=contextlib.nullcontext())
+    @mock.patch("ethernity.cli.app.load_cli_defaults", return_value=CliDefaults())
     @mock.patch("ethernity.cli.app._resolve_config_and_paper", return_value=("cfg", "A4"))
     @mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=True)
     @mock.patch("ethernity.cli.app.run_startup", return_value=False)
@@ -216,6 +224,7 @@ class TestCliApp(unittest.TestCase):
         _run_startup: mock.MagicMock,
         _stdin_tty: mock.MagicMock,
         _resolve_config_and_paper: mock.MagicMock,
+        _load_cli_defaults: mock.MagicMock,
         ui_screen_mode: mock.MagicMock,
         _prompt_home_action: mock.MagicMock,
         _run_cli: mock.MagicMock,
@@ -246,6 +255,116 @@ class TestCliApp(unittest.TestCase):
             qr_chunk_size=None,
             quiet_value=False,
         )
+
+    @mock.patch("ethernity.cli.app.configure_ui")
+    @mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=False)
+    @mock.patch("ethernity.cli.app.run_startup", return_value=False)
+    def test_cli_applies_config_defaults_post_startup(
+        self,
+        _run_startup: mock.MagicMock,
+        _stdin_tty: mock.MagicMock,
+        configure_ui: mock.MagicMock,
+    ) -> None:
+        defaults = CliDefaults(
+            ui=UiDefaults(quiet=True, no_color=True, no_animations=True),
+            debug=DebugDefaults(max_bytes=4096),
+        )
+        with mock.patch("ethernity.cli.app.load_cli_defaults", return_value=defaults):
+            ctx = _Ctx(invoked_subcommand="backup")
+            app_module.cli(
+                ctx,
+                config=None,
+                paper=None,
+                design=None,
+                debug=False,
+                debug_max_bytes=None,
+                quiet=False,
+                no_color=False,
+                no_animations=False,
+                init_config=False,
+                version=False,
+            )
+
+        self.assertIsNotNone(ctx.obj)
+        ctx_obj = {} if ctx.obj is None else ctx.obj
+        self.assertEqual(ctx_obj["quiet"], True)
+        self.assertEqual(ctx_obj["no_color"], True)
+        self.assertEqual(ctx_obj["no_animations"], True)
+        self.assertEqual(ctx_obj["debug_max_bytes"], 4096)
+        configure_ui.assert_called_once_with(no_color=True, no_animations=True)
+
+    @mock.patch("ethernity.cli.app.configure_ui")
+    @mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=False)
+    @mock.patch("ethernity.cli.app.run_startup", return_value=False)
+    def test_cli_explicit_flags_override_config_defaults(
+        self,
+        _run_startup: mock.MagicMock,
+        _stdin_tty: mock.MagicMock,
+        configure_ui: mock.MagicMock,
+    ) -> None:
+        defaults = CliDefaults(
+            ui=UiDefaults(quiet=False, no_color=False, no_animations=False),
+            debug=DebugDefaults(max_bytes=256),
+        )
+        with mock.patch("ethernity.cli.app.load_cli_defaults", return_value=defaults):
+            ctx = _Ctx(invoked_subcommand="backup")
+            app_module.cli(
+                ctx,
+                config=None,
+                paper=None,
+                design=None,
+                debug=False,
+                debug_max_bytes=1234,
+                quiet=True,
+                no_color=True,
+                no_animations=True,
+                init_config=False,
+                version=False,
+            )
+
+        self.assertIsNotNone(ctx.obj)
+        ctx_obj = {} if ctx.obj is None else ctx.obj
+        self.assertEqual(ctx_obj["quiet"], True)
+        self.assertEqual(ctx_obj["no_color"], True)
+        self.assertEqual(ctx_obj["no_animations"], True)
+        self.assertEqual(ctx_obj["debug_max_bytes"], 1234)
+        configure_ui.assert_called_once_with(no_color=True, no_animations=True)
+
+    @mock.patch("ethernity.cli.app.configure_ui")
+    @mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=False)
+    @mock.patch("ethernity.cli.app.run_startup", return_value=False)
+    def test_cli_one_way_boolean_merge_uses_cli_or_config(
+        self,
+        _run_startup: mock.MagicMock,
+        _stdin_tty: mock.MagicMock,
+        configure_ui: mock.MagicMock,
+    ) -> None:
+        defaults = CliDefaults(
+            ui=UiDefaults(quiet=True, no_color=True, no_animations=False),
+            debug=DebugDefaults(max_bytes=None),
+        )
+        with mock.patch("ethernity.cli.app.load_cli_defaults", return_value=defaults):
+            ctx = _Ctx(invoked_subcommand="backup")
+            app_module.cli(
+                ctx,
+                config=None,
+                paper=None,
+                design=None,
+                debug=False,
+                debug_max_bytes=None,
+                quiet=False,
+                no_color=False,
+                no_animations=True,
+                init_config=False,
+                version=False,
+            )
+
+        self.assertIsNotNone(ctx.obj)
+        ctx_obj = {} if ctx.obj is None else ctx.obj
+        self.assertEqual(ctx_obj["quiet"], True)  # from config
+        self.assertEqual(ctx_obj["no_color"], True)  # from config
+        self.assertEqual(ctx_obj["no_animations"], True)  # from CLI flag
+        configure_ui.assert_called_once_with(no_color=True, no_animations=True)
 
     @mock.patch("ethernity.cli.app.app")
     def test_main_dispatches(self, app_mock: mock.MagicMock) -> None:

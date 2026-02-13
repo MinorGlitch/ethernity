@@ -22,6 +22,7 @@ from typing import Literal
 
 import typer
 
+from ...config import BackupDefaults
 from ..api import DEBUG_MAX_BYTES_DEFAULT, console_err
 from ..core.common import _ctx_value, _paper_callback, _resolve_config_and_paper, _run_cli
 from ..core.types import BackupArgs
@@ -174,30 +175,54 @@ def backup(
 ) -> None:
     config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
     design_value = design or _ctx_value(ctx, "design")
+    defaults = _ctx_value(ctx, "backup_defaults")
+    if not isinstance(defaults, BackupDefaults):
+        defaults = BackupDefaults()
+
     debug_value = debug or bool(_ctx_value(ctx, "debug"))
     debug_max_value = (
         int(_ctx_value(ctx, "debug_max_bytes") or 0) if debug_max_bytes is None else debug_max_bytes
     )
     debug_reveal_value = bool(_ctx_value(ctx, "debug_reveal_secrets"))
     quiet_value = quiet or bool(_ctx_value(ctx, "quiet"))
+    base_dir_value = base_dir if base_dir is not None else defaults.base_dir
+    output_dir_value = output_dir if output_dir is not None else defaults.output_dir
+    shard_threshold_value = (
+        shard_threshold if shard_threshold is not None else defaults.shard_threshold
+    )
+    shard_count_value = shard_count if shard_count is not None else defaults.shard_count
+    signing_key_mode_value = (
+        signing_key_mode if signing_key_mode is not None else defaults.signing_key_mode
+    )
+    signing_key_shard_threshold_value = (
+        signing_key_shard_threshold
+        if signing_key_shard_threshold is not None
+        else defaults.signing_key_shard_threshold
+    )
+    signing_key_shard_count_value = (
+        signing_key_shard_count
+        if signing_key_shard_count is not None
+        else defaults.signing_key_shard_count
+    )
+
     args = BackupArgs(
         config=config_value,
         paper=paper_value,
         design=design_value,
         input=[str(path) for path in (input or [])],
         input_dir=[str(path) for path in (input_dir or [])],
-        base_dir=base_dir,
-        output_dir=output_dir,
+        base_dir=base_dir_value,
+        output_dir=output_dir_value,
         qr_chunk_size=qr_chunk_size,
         passphrase=passphrase,
         passphrase_generate=passphrase_generate,
         passphrase_words=passphrase_words,
         sealed=sealed,
-        shard_threshold=shard_threshold,
-        shard_count=shard_count,
-        signing_key_mode=signing_key_mode,
-        signing_key_shard_threshold=signing_key_shard_threshold,
-        signing_key_shard_count=signing_key_shard_count,
+        shard_threshold=shard_threshold_value,
+        shard_count=shard_count_value,
+        signing_key_mode=signing_key_mode_value,
+        signing_key_shard_threshold=signing_key_shard_threshold_value,
+        signing_key_shard_count=signing_key_shard_count_value,
         debug=debug_value,
         debug_max_bytes=debug_max_value,
         debug_reveal_secrets=debug_reveal_value,
