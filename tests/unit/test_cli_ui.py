@@ -351,6 +351,12 @@ class TestUIHelpers(unittest.TestCase):
         self.assertIsNone(ui_module.build_recovered_tree([], output_path=None))
         single = ui_module.build_recovered_tree([(SimpleNamespace(path="a.txt"), b"x")], "a.txt")
         self.assertIsNotNone(single)
+        single_dir = ui_module.build_recovered_tree(
+            [(SimpleNamespace(path="a.txt"), b"x")],
+            "out-dir",
+            single_entry_output_is_directory=True,
+        )
+        self.assertIsNotNone(single_dir)
         multi = ui_module.build_recovered_tree(
             [
                 (SimpleNamespace(path="a.txt"), b"x"),
@@ -362,6 +368,9 @@ class TestUIHelpers(unittest.TestCase):
         out = io.StringIO()
         Console(file=out, force_terminal=False, theme=THEME).print(multi)
         self.assertIn("out-dir", out.getvalue())
+        out = io.StringIO()
+        Console(file=out, force_terminal=False, theme=THEME).print(single_dir)
+        self.assertIn("a.txt", out.getvalue())
 
     @mock.patch("ethernity.cli.ui.prompt_choice", return_value="backup")
     def test_prompt_home_action_quiet_and_non_quiet_paths(
