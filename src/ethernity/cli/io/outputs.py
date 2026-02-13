@@ -20,7 +20,6 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ...core.validation import normalize_path
-from ..api import console_err
 
 
 def _ensure_directory(path: str | Path, *, exist_ok: bool) -> Path:
@@ -57,8 +56,6 @@ def _write_output(path: str | None, data: bytes, *, quiet: bool) -> None:
     if path:
         with open(path, "wb") as handle:
             handle.write(data)
-        if not quiet:
-            console_err.print(f"[dim]- wrote {path}[/dim]")
     else:
         sys.stdout.buffer.write(data)
 
@@ -68,11 +65,12 @@ def _write_recovered_outputs(
     entries: Sequence[tuple[object, bytes]],
     *,
     quiet: bool,
+    single_entry_output_is_directory: bool = False,
 ) -> None:
     if not entries:
         raise ValueError("no payloads to write")
     if output_path:
-        if len(entries) == 1:
+        if len(entries) == 1 and not single_entry_output_is_directory:
             _write_output(output_path, entries[0][1], quiet=quiet)
             return
         base_dir = _ensure_directory(output_path, exist_ok=True)

@@ -88,18 +88,22 @@ Constants:
   "created": created_at,    // canonical encoder output: int unix epoch seconds
   "sealed": sealed,         // bool
   "seed": signing_seed,     // bytes or null (Ed25519 seed, 32 bytes)
-  "files": files            // list[file_entry]
+  "input_origin": origin,   // string: "file", "directory", or "mixed"
+  "input_roots": roots,     // list[str], directory source leaf labels
+  "path_encoding": mode,    // string: "direct" or "prefix_table"
+  "path_prefixes": prefixes,// list[str], required when mode is "prefix_table"
+  "files": files            // list[file_entry_direct] or list[file_entry_prefix]
 }
 ```
 
-File entry (CBOR map):
+File entry (direct mode):
 ```
-{
-  "path": path,
-  "size": size,
-  "hash": sha256,
-  "mtime": mtime
-}
+[path, size, sha256, mtime]
+```
+
+File entry (prefix-table mode):
+```
+[prefix_index, suffix, size, sha256, mtime]
 ```
 
 Manifest requirements (map keys):
@@ -110,23 +114,43 @@ Manifest requirements (map keys):
 - `seed`:
   - if `sealed` is true, `seed` MUST be null
   - if `sealed` is false, `seed` MUST be 32 bytes
+- `input_origin`: string in `{"file", "directory", "mixed"}`
+- `input_roots`: list of non-empty UTF-8 strings, each a leaf label (no `/` or `\`)
+- cross-field consistency:
+  - if `input_origin` is `"file"`, `input_roots` MUST be empty
+  - if `input_origin` is `"directory"` or `"mixed"`, `input_roots` MUST be non-empty
+- `path_encoding`: string in `{"direct", "prefix_table"}`
+- `path_prefixes`:
+  - required when `path_encoding` is `"prefix_table"`
+  - MUST be a non-empty list of strings
+  - first element MUST be `""`
+  - elements MUST be unique
 - `files`: list of entries, MUST contain at least one file entry
 - The canonical CBOR byte length of the manifest MUST be ≤ `MAX_MANIFEST_CBOR_BYTES` (Section 17).
 - The number of file entries MUST be ≤ `MAX_MANIFEST_FILES` (Section 17).
 - Decoders MUST ignore unknown top-level manifest keys.
 - Encoders SHOULD NOT emit unknown top-level manifest keys for `MANIFEST_VERSION = 1`.
+- Decoders in this implementation require `input_origin`, `input_roots`, and `path_encoding`.
+  This build also requires array-based `files` entries and rejects legacy map-style file entries.
 
 File list requirements:
 - Encoders MUST reject empty `files` lists at creation time.
 - Decoders MUST reject manifests/envelopes with empty `files` lists.
 
-File entry requirements (map keys):
+File entry requirements (direct mode):
 - `path`: non-empty string
 - `size`: non-negative int
 - `hash`: 32 raw bytes (SHA-256 of file contents, not hex)
 - `mtime`: int or null
-- Decoders MUST ignore unknown file-entry keys.
-- Encoders SHOULD NOT emit unknown file-entry keys for `MANIFEST_VERSION = 1`.
+
+File entry requirements (prefix-table mode):
+- `prefix_index`: int in `[0, len(path_prefixes)-1]`
+- `suffix`: non-empty string
+- `size`: non-negative int
+- `hash`: 32 raw bytes (SHA-256 of file contents, not hex)
+- `mtime`: int or null
+- reconstructed path is `suffix` when `path_prefixes[prefix_index] == ""`,
+  otherwise `path_prefixes[prefix_index] + "/" + suffix`.
 
 CBOR encoding requirements:
 - Manifests MUST use canonical CBOR encoding (RFC 8949) for deterministic output.
@@ -147,7 +171,9 @@ Sealing controls whether the signing seed is present in the encrypted manifest:
 
 ## 4) File Paths
 
-File paths are stored directly in each file entry as `path`.
+File paths are represented according to `path_encoding`:
+- direct mode stores full path in each file entry
+- prefix-table mode stores `prefix_index + suffix` and reconstructs full path via `path_prefixes`
 
 Path rules:
 - Stored paths MUST use POSIX separators (`/`).
@@ -441,7 +467,9 @@ Current version values (Version 1):
 ### 12.1) v1.1 Clarification and Compatibility Notes
 
 This specification revision is a v1.1 clarification pass only. It does not change the v1 wire
-format, binary framing, or payload layouts.
+format, binary framing, or payload layouts. However, this implementation requires the manifest
+`input_origin`, `input_roots`, and `path_encoding` keys, requires array-based `files` entries,
+and rejects legacy map-style file-entry manifests.
 
 Compatibility and extensibility guidance:
 - Manifest/auth/shard payloads are CBOR maps. Decoders ignore unknown keys for forward

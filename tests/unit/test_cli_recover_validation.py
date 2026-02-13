@@ -347,9 +347,18 @@ class TestCliRecoverValidation(unittest.TestCase):
             self.assertFalse(quiet)
             events.append("warn")
 
-        def _fake_run_recover_plan(_plan, *, quiet: bool, debug: bool = False) -> int:
+        def _fake_run_recover_plan(
+            _plan,
+            *,
+            quiet: bool,
+            debug: bool = False,
+            debug_max_bytes: int = 0,
+            debug_reveal_secrets: bool = False,
+        ) -> int:
             self.assertFalse(quiet)
             self.assertFalse(debug)
+            self.assertEqual(debug_max_bytes, 0)
+            self.assertFalse(debug_reveal_secrets)
             events.append("run")
             return 0
 

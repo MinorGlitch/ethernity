@@ -16,23 +16,58 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Literal, Sequence
 
 import cbor2
+from rich import box
+from rich.rule import Rule
+from rich.syntax import Syntax
+from rich.table import Table
+from rich.text import Text
 
 from ...core.models import DocumentPlan
 from ...encoding.zbase32 import encode_zbase32
 from ...formats.envelope_codec import encode_manifest
 from ...formats.envelope_types import EnvelopeManifest
-from ..api import console
+from ..api import build_kv_table, console, panel
 from ..core.types import InputFile
+from .state import isatty
+
+if TYPE_CHECKING:
+    from ...formats.envelope_types import ManifestFile
+
+
+RenderMode = Literal["rich_tty", "plain"]
+
+
+@dataclass(frozen=True)
+class DebugRenderOptions:
+    max_bytes: int | None
+    reveal_secrets: bool
 
 
 def _normalize_debug_max_bytes(value: int | None) -> int | None:
     if value is None or value <= 0:
         return None
     return value
+
+
+def _resolve_render_options(*, max_bytes: int | None, reveal_secrets: bool) -> DebugRenderOptions:
+    return DebugRenderOptions(
+        max_bytes=_normalize_debug_max_bytes(max_bytes),
+        reveal_secrets=reveal_secrets,
+    )
+
+
+def _resolve_render_mode() -> RenderMode:
+    if isatty(sys.__stdout__, sys.stdout):
+        return "rich_tty"
+    return "plain"
 
 
 def _format_grouped_lines(
@@ -133,82 +168,18 @@ def _hexdump(data: bytes, *, max_bytes: int | None) -> str:
     return "\n".join(lines)
 
 
-def _print_pre_encryption_debug(
-    *,
-    payload: bytes,
-    input_files: list[InputFile],
-    base_dir: Path | None,
-    manifest: bytes | EnvelopeManifest,
-    envelope: bytes,
-    plan: DocumentPlan,
-    passphrase: str | None,
-    signing_seed: bytes | None = None,
-    signing_pub: bytes | None = None,
-    signing_seed_stored: bool | None = None,
-    debug_max_bytes: int | None,
-) -> None:
-    if isinstance(manifest, EnvelopeManifest):
-        manifest_bytes = encode_manifest(manifest)
-        manifest_display: object | None = _json_safe(manifest.to_dict())
-    else:
-        manifest_bytes = manifest
-        manifest_display = None
+def _format_masked_text_secret(secret: str) -> str:
+    raw = secret.encode("utf-8", "strict")
+    digest = hashlib.blake2b(raw, digest_size=8).hexdigest()
+    return (
+        f"<masked chars={len(secret)} bytes={len(raw)} blake2b8={digest}; "
+        "use --debug-reveal-secrets to reveal>"
+    )
 
-    console.print("[bold]Payload summary:[/bold]")
-    console.print(f"- input file count: {len(input_files)}")
-    console.print(f"- payload bytes: {len(payload)}")
-    if base_dir:
-        console.print(f"- base dir: {base_dir}")
-    console.print(f"- envelope bytes: {len(envelope)}")
-    console.print(f"- sealed: {plan.sealed}")
-    if passphrase:
-        console.print(f"- passphrase: {passphrase}")
-    if plan.sharding:
-        console.print(f"- sharding: {plan.sharding.threshold} of {plan.sharding.shares}")
-    if signing_seed is not None or signing_pub is not None:
-        console.print()
-        console.print("[bold]Signing keys:[/bold]")
-        if signing_pub is not None:
-            console.print("Signing public key (hex):")
-            for line in _format_hex_lines(signing_pub, line_length=80):
-                console.print(line)
-        if signing_seed is not None:
-            if signing_seed_stored is True:
-                label = "Signing seed (stored in envelope)"
-            elif signing_seed_stored is False:
-                label = "Signing seed (not stored in envelope)"
-            else:
-                label = "Signing seed"
-            console.print(f"{label} (hex):")
-            for line in _format_hex_lines(signing_seed, line_length=80):
-                console.print(line)
-        elif signing_seed_stored is not None:
-            stored_label = "yes" if signing_seed_stored else "no"
-            console.print(f"Signing seed stored in envelope: {stored_label}")
-    console.print()
 
-    console.print("[bold]Payload (hex):[/bold]")
-    console.print(_hexdump(payload, max_bytes=debug_max_bytes))
-    console.print()
-
-    console.print("[bold]Manifest JSON:[/bold]")
-    manifest_raw = _decode_manifest_raw(manifest_bytes)
-    if manifest_display is None:
-        manifest_display = manifest_raw
-    if manifest_display is None:
-        console.print("(unable to decode manifest JSON)")
-    else:
-        console.print(json.dumps(manifest_display, indent=2, sort_keys=True))
-    console.print()
-
-    console.print("[bold]Envelope (hex):[/bold]")
-    console.print(_hexdump(envelope, max_bytes=debug_max_bytes))
-    console.print()
-
-    console.print("[bold]Payload z-base-32:[/bold]")
-    for line in _format_zbase32_lines(payload, line_length=80, max_bytes=debug_max_bytes):
-        console.print(line)
-    console.print()
+def _format_masked_bytes_secret(secret: bytes) -> str:
+    digest = hashlib.blake2b(secret, digest_size=8).hexdigest()
+    return f"<masked bytes={len(secret)} blake2b8={digest}; use --debug-reveal-secrets to reveal>"
 
 
 def _json_safe(value: object) -> object:
@@ -233,3 +204,307 @@ def _decode_manifest_raw(data: bytes) -> object | None:
     except (UnicodeDecodeError, json.JSONDecodeError):
         return None
     return _json_safe(decoded)
+
+
+def _entry_path(entry: object) -> str:
+    path = getattr(entry, "path", "payload.bin")
+    return str(path)
+
+
+def _entry_size(entry: object, data: bytes) -> int:
+    size = getattr(entry, "size", None)
+    if isinstance(size, int) and size >= 0:
+        return size
+    return len(data)
+
+
+def _print_header(flow: str, subtitle: str, *, mode: RenderMode) -> None:
+    if mode == "rich_tty":
+        console.print(panel(f"{flow} Debug", Text(subtitle, style="subtitle"), style="accent"))
+    else:
+        console.print(f"=== {flow.lower()} debug ===", markup=False)
+        console.print(subtitle, markup=False)
+    console.print()
+
+
+def _print_section_title(title: str, *, mode: RenderMode) -> None:
+    if mode == "rich_tty":
+        console.print(Rule(Text(title, style="title"), align="left", style="rule"))
+    else:
+        console.print(f"{title}:", markup=False)
+
+
+def _print_kv_section(
+    title: str,
+    rows: Sequence[tuple[str, str]],
+    *,
+    mode: RenderMode,
+) -> None:
+    _print_section_title(title, mode=mode)
+    if mode == "rich_tty":
+        console.print(build_kv_table(rows))
+    else:
+        for key, value in rows:
+            console.print(f"- {key}: {value}", markup=False)
+    console.print()
+
+
+def _print_text_section(title: str, text: str, *, mode: RenderMode) -> None:
+    if mode == "rich_tty":
+        console.print(panel(title, Text(text, style="muted"), style="panel"))
+    else:
+        console.print(f"{title}:", markup=False)
+        console.print(text, markup=False)
+    console.print()
+
+
+def _print_manifest_section(manifest_bytes: bytes, *, mode: RenderMode) -> None:
+    manifest_raw = _decode_manifest_raw(manifest_bytes)
+    if manifest_raw is None:
+        message = "(unable to decode manifest CBOR map)"
+        if mode == "rich_tty":
+            console.print(
+                panel(
+                    "Manifest CBOR map JSON",
+                    Text(message, style="warning"),
+                    style="warning",
+                )
+            )
+        else:
+            console.print("Manifest CBOR map JSON:", markup=False)
+            console.print(message, markup=False)
+        console.print()
+        return
+
+    manifest_json = json.dumps(manifest_raw, indent=2, sort_keys=True)
+    if mode == "rich_tty":
+        try:
+            renderable: object = Syntax(manifest_json, "json", word_wrap=True)
+        except (ValueError, TypeError):
+            renderable = Text(manifest_json, style="muted")
+        console.print(panel("Manifest CBOR map JSON", renderable, style="panel"))
+    else:
+        console.print("Manifest CBOR map JSON:", markup=False)
+        console.print(manifest_json, markup=False)
+    console.print()
+
+
+def _print_recovered_entries_section(
+    extracted: Sequence[tuple[ManifestFile | object, bytes]],
+    *,
+    mode: RenderMode,
+) -> None:
+    _print_section_title("Recovered Entries", mode=mode)
+    if not extracted:
+        console.print("(no entries)", markup=False)
+        console.print()
+        return
+
+    limit = 20
+    if mode == "rich_tty":
+        table = Table(box=box.SIMPLE, show_header=True, header_style="accent")
+        table.add_column("#", style="muted", no_wrap=True)
+        table.add_column("Path")
+        table.add_column("Bytes", justify="right", no_wrap=True)
+        for index, (entry, data) in enumerate(extracted[:limit], start=1):
+            table.add_row(str(index), _entry_path(entry), str(_entry_size(entry, data)))
+        if len(extracted) > limit:
+            remaining = len(extracted) - limit
+            table.add_row("...", f"{remaining} more entries omitted", "")
+        console.print(table)
+    else:
+        for entry, data in extracted[:limit]:
+            console.print(
+                f"- {_entry_path(entry)} ({_entry_size(entry, data)} bytes)",
+                markup=False,
+            )
+        if len(extracted) > limit:
+            remaining = len(extracted) - limit
+            console.print(f"... omitted {remaining} additional entries", markup=False)
+    console.print()
+
+
+def print_backup_debug(
+    *,
+    payload: bytes,
+    input_files: list[InputFile],
+    base_dir: Path | None,
+    manifest: bytes | EnvelopeManifest,
+    envelope: bytes,
+    plan: DocumentPlan,
+    passphrase: str | None,
+    signing_seed: bytes | None = None,
+    signing_pub: bytes | None = None,
+    signing_seed_stored: bool | None = None,
+    debug_max_bytes: int | None,
+    reveal_secrets: bool = False,
+) -> None:
+    options = _resolve_render_options(max_bytes=debug_max_bytes, reveal_secrets=reveal_secrets)
+    mode = _resolve_render_mode()
+    manifest_bytes = (
+        encode_manifest(manifest) if isinstance(manifest, EnvelopeManifest) else manifest
+    )
+
+    _print_header("Backup", "Pre-encryption diagnostics", mode=mode)
+
+    summary_rows: list[tuple[str, str]] = [
+        ("Mode", "backup"),
+        ("Input files", str(len(input_files))),
+        ("Payload bytes", str(len(payload))),
+        ("Envelope bytes", str(len(envelope))),
+        ("Sealed", "yes" if plan.sealed else "no"),
+    ]
+    if base_dir is not None:
+        summary_rows.append(("Base directory", str(base_dir)))
+    if plan.sharding is not None:
+        summary_rows.append(("Sharding", f"{plan.sharding.threshold} of {plan.sharding.shares}"))
+    _print_kv_section("Summary", summary_rows, mode=mode)
+
+    secret_rows: list[tuple[str, str]] = []
+    if passphrase is not None:
+        passphrase_display = (
+            passphrase if options.reveal_secrets else _format_masked_text_secret(passphrase)
+        )
+        secret_rows.append(("Passphrase", passphrase_display))
+    if signing_seed is not None:
+        signing_seed_display = (
+            "revealed in hex block below"
+            if options.reveal_secrets
+            else _format_masked_bytes_secret(signing_seed)
+        )
+        secret_rows.append(("Signing private key", signing_seed_display))
+    if not secret_rows:
+        secret_rows.append(("Secrets", "(none)"))
+    _print_kv_section("Secrets", secret_rows, mode=mode)
+
+    _print_manifest_section(manifest_bytes, mode=mode)
+
+    _print_text_section(
+        "Payload Preview (hex)",
+        _hexdump(payload, max_bytes=options.max_bytes),
+        mode=mode,
+    )
+    _print_text_section(
+        "Envelope Preview (hex)",
+        _hexdump(envelope, max_bytes=options.max_bytes),
+        mode=mode,
+    )
+    payload_zbase = _format_zbase32_lines(payload, line_length=80, max_bytes=options.max_bytes)
+    _print_text_section(
+        "Payload Preview (z-base-32)",
+        "\n".join(payload_zbase) if payload_zbase else "(empty)",
+        mode=mode,
+    )
+
+    detail_rows: list[tuple[str, str]] = []
+    if signing_seed_stored is not None:
+        detail_rows.append(
+            ("Signing seed stored in envelope", "yes" if signing_seed_stored else "no")
+        )
+    if signing_pub is not None:
+        detail_rows.append(("Signing public key", "present (hex below)"))
+    else:
+        detail_rows.append(("Signing public key", "not available"))
+    _print_kv_section("Backup Details", detail_rows, mode=mode)
+
+    if signing_pub is not None:
+        signing_pub_hex = "\n".join(_format_hex_lines(signing_pub, line_length=80))
+        _print_text_section("Signing Public Key (hex)", signing_pub_hex, mode=mode)
+    if signing_seed is not None and options.reveal_secrets:
+        signing_seed_hex = "\n".join(_format_hex_lines(signing_seed, line_length=80))
+        _print_text_section("Signing Private Key (hex, revealed)", signing_seed_hex, mode=mode)
+
+
+def _print_pre_encryption_debug(
+    *,
+    payload: bytes,
+    input_files: list[InputFile],
+    base_dir: Path | None,
+    manifest: bytes | EnvelopeManifest,
+    envelope: bytes,
+    plan: DocumentPlan,
+    passphrase: str | None,
+    signing_seed: bytes | None = None,
+    signing_pub: bytes | None = None,
+    signing_seed_stored: bool | None = None,
+    debug_max_bytes: int | None,
+) -> None:
+    """Compatibility wrapper for old call sites."""
+    print_backup_debug(
+        payload=payload,
+        input_files=input_files,
+        base_dir=base_dir,
+        manifest=manifest,
+        envelope=envelope,
+        plan=plan,
+        passphrase=passphrase,
+        signing_seed=signing_seed,
+        signing_pub=signing_pub,
+        signing_seed_stored=signing_seed_stored,
+        debug_max_bytes=debug_max_bytes,
+        reveal_secrets=False,
+    )
+
+
+def print_recover_debug(
+    *,
+    manifest: EnvelopeManifest,
+    extracted: Sequence[tuple[ManifestFile | object, bytes]],
+    ciphertext: bytes,
+    passphrase: str | None,
+    auth_status: str,
+    allow_unsigned: bool,
+    output_path: str | None,
+    debug_max_bytes: int | None,
+    reveal_secrets: bool = False,
+) -> None:
+    options = _resolve_render_options(max_bytes=debug_max_bytes, reveal_secrets=reveal_secrets)
+    mode = _resolve_render_mode()
+    manifest_bytes = encode_manifest(manifest)
+
+    _print_header("Recover", "Post-decryption diagnostics", mode=mode)
+
+    summary_rows = [
+        ("Mode", "recover"),
+        ("Ciphertext bytes", str(len(ciphertext))),
+        ("Extracted files", str(len(extracted))),
+        ("Auth status", auth_status),
+        ("Rescue mode", "enabled" if allow_unsigned else "disabled"),
+        ("Output target", output_path or "stdout"),
+    ]
+    _print_kv_section("Summary", summary_rows, mode=mode)
+
+    if passphrase is None:
+        secret_rows = [("Passphrase", "(none)")]
+    else:
+        passphrase_display = (
+            passphrase if options.reveal_secrets else _format_masked_text_secret(passphrase)
+        )
+        secret_rows = [("Passphrase", passphrase_display)]
+    _print_kv_section("Secrets", secret_rows, mode=mode)
+
+    _print_manifest_section(manifest_bytes, mode=mode)
+
+    if not extracted:
+        recovered_preview = "(no entries)"
+    else:
+        preview_count = min(3, len(extracted))
+        preview_lines: list[str] = []
+        for index, (entry, data) in enumerate(extracted[:preview_count], start=1):
+            preview_lines.append(f"entry {index}: {_entry_path(entry)}")
+            preview_lines.append(_hexdump(data, max_bytes=options.max_bytes))
+            if index < preview_count:
+                preview_lines.append("")
+        if len(extracted) > preview_count:
+            remaining = len(extracted) - preview_count
+            preview_lines.append(f"... omitted previews for {remaining} more entries")
+        recovered_preview = "\n".join(preview_lines)
+    _print_text_section("Recovered Payload Preview (hex)", recovered_preview, mode=mode)
+
+    _print_text_section(
+        "Ciphertext Preview (hex)",
+        _hexdump(ciphertext, max_bytes=options.max_bytes),
+        mode=mode,
+    )
+
+    _print_recovered_entries_section(extracted, mode=mode)
