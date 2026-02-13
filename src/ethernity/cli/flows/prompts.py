@@ -146,7 +146,7 @@ def _infer_recovered_directory(
         return fallback
     if input_origin == "directory" and len(input_roots) == 1:
         candidate = input_roots[0].strip()
-        if candidate:
+        if candidate and candidate not in {".", ".."}:
             return candidate
     return fallback
 
