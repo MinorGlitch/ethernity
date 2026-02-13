@@ -466,7 +466,20 @@ flowchart TD
 | `--paper` | override paper size | `ethernity --paper Letter backup ...` |
 | `--design` | select template design | `ethernity --design forge backup ...` |
 | `--quiet` | suppress non-error output | `ethernity --quiet recover ...` |
-| `--debug` | show expanded debug output | `ethernity --debug backup ...` |
+| `--debug` | show expanded debug output (secrets masked by default) | `ethernity --debug backup ...` |
+| `--debug-max-bytes` | cap debug preview size (`0` disables cap) | `ethernity --debug --debug-max-bytes 4096 backup ...` |
+| `--debug-reveal-secrets` | reveal full passphrase/private key material in debug output | `ethernity --debug --debug-reveal-secrets backup ...` |
+
+Use `--debug-reveal-secrets` only in controlled environments and never in shared terminals/log collectors.
+Debug output is richer in interactive terminals and automatically falls back to plain text in redirected logs.
+
+```sh
+# Safe debug (masked secrets)
+ethernity --debug backup --input ./secret.txt --output-dir ./backup-out
+
+# Full secret reveal (opt-in, high risk)
+ethernity --debug --debug-reveal-secrets backup --input ./secret.txt --output-dir ./backup-out
+```
 
 ### Template Config Migration (Name-First)
 
@@ -615,6 +628,7 @@ Rows follow the onboarding sequence: install/run, verification, then recovery.
 | Verification | `cosign verify-blob` fails | Verify the exact archive with the matching `.sigstore.json` bundle from the same tag. |
 | Verification | expecting `.sig`/`.pem` but release has only `.sigstore.json` | This is valid for bundle-first signing; use `cosign verify-blob --bundle ...`. |
 | Recovery Input | parser rejects mixed payload text | Split by document set and recover one mode/source at a time. |
+| Recovery Input | `manifest path_encoding is required` or `manifest file entry must use array encoding` | This release intentionally hard-breaks older manifests. Recover with a pre-break build or recreate the backup with this release. |
 | Recovery Input | `No such option` | Use `ethernity <command> --help` and current flags (for example `--qr-chunk-size`). |
 | Recovery Validation | recovered output seems wrong | Compare hashes/bytes against a trusted source and retry with fresh inputs. |
 

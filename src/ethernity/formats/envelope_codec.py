@@ -56,6 +56,8 @@ def build_single_file_manifest(
         sealed=sealed,
         created_at=created_at,
         signing_seed=signing_seed,
+        input_origin="file",
+        input_roots=(),
     )
     return manifest
 
@@ -66,6 +68,8 @@ def build_manifest_and_payload(
     sealed: bool = False,
     created_at: float | None = None,
     signing_seed: bytes | None = None,
+    input_origin: str = "file",
+    input_roots: tuple[str, ...] | list[str] = (),
 ) -> tuple[EnvelopeManifest, bytes]:
     if not parts:
         raise ValueError("at least one payload part is required")
@@ -111,6 +115,8 @@ def build_manifest_and_payload(
         created_at=created,
         sealed=sealed,
         signing_seed=signing_seed_bytes,
+        input_origin=input_origin,
+        input_roots=tuple(input_roots),
         files=tuple(files),
     )
     return manifest, bytes(payload)

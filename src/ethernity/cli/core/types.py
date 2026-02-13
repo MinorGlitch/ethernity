@@ -63,6 +63,7 @@ class BackupArgs:
     signing_key_shard_count: int | None = None
     debug: bool = False
     debug_max_bytes: int = 0
+    debug_reveal_secrets: bool = False
     quiet: bool = False
 
 
@@ -84,4 +85,6 @@ class RecoverArgs:
     output: str | None = None
     allow_unsigned: bool = False
     assume_yes: bool = False
+    debug_max_bytes: int = 0
+    debug_reveal_secrets: bool = False
     quiet: bool = False

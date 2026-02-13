@@ -183,6 +183,7 @@ def backup(
     debug_max_value = (
         int(_ctx_value(ctx, "debug_max_bytes") or 0) if debug_max_bytes is None else debug_max_bytes
     )
+    debug_reveal_value = bool(_ctx_value(ctx, "debug_reveal_secrets"))
     quiet_value = quiet or bool(_ctx_value(ctx, "quiet"))
     base_dir_value = base_dir if base_dir is not None else defaults.base_dir
     output_dir_value = output_dir if output_dir is not None else defaults.output_dir
@@ -224,6 +225,7 @@ def backup(
         signing_key_shard_count=signing_key_shard_count_value,
         debug=debug_value,
         debug_max_bytes=debug_max_value,
+        debug_reveal_secrets=debug_reveal_value,
         quiet=quiet_value,
     )
     if _should_use_wizard_for_backup(args):
@@ -232,6 +234,7 @@ def backup(
                 run_wizard,
                 debug_override=debug_value if debug_value else None,
                 debug_max_bytes=debug_max_value,
+                debug_reveal_secrets=debug_reveal_value,
                 config_path=config_value,
                 paper_size=paper_value,
                 quiet=quiet_value,

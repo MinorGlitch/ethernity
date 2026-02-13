@@ -49,7 +49,7 @@ from ..io.outputs import _ensure_output_dir
 from ..ui.debug import (
     _append_signing_key_lines,
     _normalize_debug_max_bytes,
-    _print_pre_encryption_debug,
+    print_backup_debug,
 )
 
 _KIT_INDEX_TEMPLATE_NAME = "kit_index_document.html.j2"
@@ -167,6 +167,8 @@ def _prepare_envelope(
     input_files: list[InputFile],
     plan: DocumentPlan,
     sign_priv: bytes,
+    input_origin: str,
+    input_roots: list[str],
 ) -> tuple[bytes, bytes]:
     """Prepare the envelope from input files. Returns (envelope, payload)."""
     parts = [
@@ -177,6 +179,8 @@ def _prepare_envelope(
         parts,
         sealed=plan.sealed,
         signing_seed=sign_priv if not plan.sealed else None,
+        input_origin=input_origin,
+        input_roots=input_roots,
     )
     envelope = envelope_codec_module.encode_envelope(payload, manifest)
     return envelope, payload
@@ -442,12 +446,15 @@ def run_backup(
     input_files: list[InputFile],
     base_dir: Path | None,
     output_dir: str | None,
+    input_origin: str = "file",
+    input_roots: list[str] | None = None,
     plan: DocumentPlan,
     passphrase: str | None,
     passphrase_words: int | None = None,
     config: AppConfig,
     debug: bool = False,
     debug_max_bytes: int | None = None,
+    debug_reveal_secrets: bool = False,
     quiet: bool = False,
 ) -> BackupResult:
     """Run the backup process and generate PDF documents."""
@@ -469,11 +476,17 @@ def run_backup(
 
     # Prepare envelope and handle debug output
     with status("Preparing payload...", quiet=status_quiet):
-        envelope, payload = _prepare_envelope(input_files, plan, sign_priv)
+        envelope, payload = _prepare_envelope(
+            input_files,
+            plan,
+            sign_priv,
+            input_origin,
+            input_roots or [],
+        )
         manifest = envelope_codec_module.decode_envelope(envelope)[0]
 
     if debug:
-        _print_pre_encryption_debug(
+        print_backup_debug(
             payload=payload,
             input_files=input_files,
             base_dir=base_dir,
@@ -485,6 +498,7 @@ def run_backup(
             signing_pub=sign_pub,
             signing_seed_stored=store_signing_key,
             debug_max_bytes=_normalize_debug_max_bytes(debug_max_bytes),
+            reveal_secrets=debug_reveal_secrets,
         )
 
     # Encrypt payload

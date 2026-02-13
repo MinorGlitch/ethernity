@@ -372,7 +372,13 @@ class TestRunRecoverWizard(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(args.fallback_file, "-")
         warn_mock.assert_called_once()
-        write_plan_outputs.assert_called_once_with(plan, quiet=False, debug=True)
+        write_plan_outputs.assert_called_once_with(
+            plan,
+            quiet=False,
+            debug=True,
+            debug_max_bytes=0,
+            debug_reveal_secrets=False,
+        )
 
     @mock.patch("ethernity.cli.flows.recover_wizard.console.print")
     @mock.patch("ethernity.cli.flows.recover_wizard.prompt_yes_no", return_value=False)
@@ -427,7 +433,7 @@ class TestRunRecoverWizard(unittest.TestCase):
 
     @mock.patch("ethernity.cli.flows.recover_wizard.write_recovered_outputs")
     @mock.patch("ethernity.cli.flows.recover_wizard._resolve_recover_output", return_value="out")
-    @mock.patch("ethernity.cli.flows.recover_wizard.decrypt_and_extract")
+    @mock.patch("ethernity.cli.flows.recover_wizard.decrypt_manifest_and_extract")
     @mock.patch("ethernity.cli.flows.recover_wizard.prompt_yes_no", side_effect=[True, False])
     @mock.patch(
         "ethernity.cli.flows.recover_wizard._build_recovery_review_rows", return_value=[("A", "B")]
@@ -459,7 +465,7 @@ class TestRunRecoverWizard(unittest.TestCase):
         build_recovery_plan: mock.MagicMock,
         _build_recovery_review_rows: mock.MagicMock,
         _prompt_yes_no: mock.MagicMock,
-        decrypt_and_extract: mock.MagicMock,
+        decrypt_manifest_and_extract: mock.MagicMock,
         _resolve_recover_output: mock.MagicMock,
         write_recovered_outputs: mock.MagicMock,
     ) -> None:
@@ -474,7 +480,10 @@ class TestRunRecoverWizard(unittest.TestCase):
             auth_frames=(),
             doc_id=main.doc_id,
         )
-        decrypt_and_extract.return_value = [(SimpleNamespace(path="a.txt"), b"x")]
+        decrypt_manifest_and_extract.return_value = (
+            SimpleNamespace(input_origin="file", input_roots=()),
+            [(SimpleNamespace(path="a.txt"), b"x")],
+        )
 
         result = wizard.run_recover_wizard(
             RecoverArgs(quiet=False, assume_yes=False), show_header=False
@@ -485,7 +494,8 @@ class TestRunRecoverWizard(unittest.TestCase):
 
     @mock.patch("ethernity.cli.flows.recover_wizard.write_recovered_outputs")
     @mock.patch("ethernity.cli.flows.recover_wizard._resolve_recover_output", return_value="out")
-    @mock.patch("ethernity.cli.flows.recover_wizard.decrypt_and_extract")
+    @mock.patch("ethernity.cli.flows.recover_wizard.print_recover_debug")
+    @mock.patch("ethernity.cli.flows.recover_wizard.decrypt_manifest_and_extract")
     @mock.patch("ethernity.cli.flows.recover_wizard.prompt_yes_no", side_effect=[True, True])
     @mock.patch(
         "ethernity.cli.flows.recover_wizard._build_recovery_review_rows", return_value=[("A", "B")]
@@ -522,7 +532,8 @@ class TestRunRecoverWizard(unittest.TestCase):
         build_recovery_plan: mock.MagicMock,
         _build_recovery_review_rows: mock.MagicMock,
         _prompt_yes_no: mock.MagicMock,
-        decrypt_and_extract: mock.MagicMock,
+        decrypt_manifest_and_extract: mock.MagicMock,
+        print_recover_debug: mock.MagicMock,
         _resolve_recover_output: mock.MagicMock,
         write_recovered_outputs: mock.MagicMock,
     ) -> None:
@@ -539,7 +550,10 @@ class TestRunRecoverWizard(unittest.TestCase):
         )
         build_recovery_plan.return_value = plan
         extracted = [(SimpleNamespace(path="a.txt"), b"x")]
-        decrypt_and_extract.return_value = extracted
+        decrypt_manifest_and_extract.return_value = (
+            SimpleNamespace(input_origin="mixed", input_roots=("vault",)),
+            extracted,
+        )
 
         result = wizard.run_recover_wizard(
             RecoverArgs(quiet=False, assume_yes=False), show_header=False
@@ -547,37 +561,150 @@ class TestRunRecoverWizard(unittest.TestCase):
 
         self.assertEqual(result, 0)
         ui_screen_mode.assert_called_once_with(quiet=False)
+        _resolve_recover_output.assert_called_once_with(
+            extracted,
+            None,
+            interactive=True,
+            doc_id=main.doc_id,
+            input_origin="mixed",
+            input_roots=("vault",),
+        )
         write_recovered_outputs.assert_called_once_with(
             extracted,
             output_path="out",
             auth_status="verified",
             allow_unsigned=False,
             quiet=False,
+            single_entry_output_is_directory=True,
+        )
+        print_recover_debug.assert_not_called()
+
+    @mock.patch("ethernity.cli.flows.recover_wizard.write_recovered_outputs")
+    @mock.patch("ethernity.cli.flows.recover_wizard._resolve_recover_output", return_value="out")
+    @mock.patch("ethernity.cli.flows.recover_wizard.print_recover_debug")
+    @mock.patch("ethernity.cli.flows.recover_wizard.decrypt_manifest_and_extract")
+    @mock.patch("ethernity.cli.flows.recover_wizard.prompt_yes_no", side_effect=[True, True])
+    @mock.patch(
+        "ethernity.cli.flows.recover_wizard._build_recovery_review_rows", return_value=[("A", "B")]
+    )
+    @mock.patch("ethernity.cli.flows.recover_wizard.build_recovery_plan")
+    @mock.patch("ethernity.cli.flows.recover_wizard._load_shard_frames", return_value=[])
+    @mock.patch(
+        "ethernity.cli.flows.recover_wizard._prompt_key_material", return_value=("pass", [], [], [])
+    )
+    @mock.patch("ethernity.cli.flows.recover_wizard._load_extra_auth_frames", return_value=[])
+    @mock.patch(
+        "ethernity.cli.flows.recover_wizard._prompt_recovery_input",
+        return_value=([_frame(FrameType.MAIN_DOCUMENT)], "Recovery text", "stdin"),
+    )
+    @mock.patch("ethernity.cli.flows.recover_wizard.resolve_recover_config")
+    @mock.patch("ethernity.cli.flows.recover_wizard.validate_recover_args")
+    @mock.patch("ethernity.cli.flows.recover_wizard.sys.stdout.isatty", return_value=True)
+    @mock.patch("ethernity.cli.flows.recover_wizard.sys.stdin.isatty", return_value=True)
+    def test_interactive_debug_mode_prints_recover_debug(
+        self,
+        _stdin_tty: mock.MagicMock,
+        _stdout_tty: mock.MagicMock,
+        _validate_recover_args: mock.MagicMock,
+        _resolve_recover_config: mock.MagicMock,
+        _prompt_recovery_input: mock.MagicMock,
+        _load_extra_auth_frames: mock.MagicMock,
+        _prompt_key_material: mock.MagicMock,
+        _load_shard_frames: mock.MagicMock,
+        build_recovery_plan: mock.MagicMock,
+        _build_recovery_review_rows: mock.MagicMock,
+        _prompt_yes_no: mock.MagicMock,
+        decrypt_manifest_and_extract: mock.MagicMock,
+        print_recover_debug: mock.MagicMock,
+        _resolve_recover_output: mock.MagicMock,
+        _write_recovered_outputs: mock.MagicMock,
+    ) -> None:
+        main = _frame(FrameType.MAIN_DOCUMENT)
+        plan = SimpleNamespace(
+            allow_unsigned=False,
+            shard_frames=(),
+            auth_status="verified",
+            input_label="Recovery text",
+            input_detail="stdin",
+            main_frames=(main,),
+            auth_frames=(),
+            doc_id=main.doc_id,
+            ciphertext=b"cipher",
+            passphrase="secret",
+        )
+        build_recovery_plan.return_value = plan
+        extracted = [(SimpleNamespace(path="a.txt"), b"x")]
+        manifest = SimpleNamespace(input_origin="file", input_roots=())
+        decrypt_manifest_and_extract.return_value = (manifest, extracted)
+
+        result = wizard.run_recover_wizard(
+            RecoverArgs(
+                quiet=False,
+                assume_yes=False,
+                debug_max_bytes=512,
+                debug_reveal_secrets=True,
+            ),
+            debug=True,
+            show_header=False,
+        )
+
+        self.assertEqual(result, 0)
+        print_recover_debug.assert_called_once_with(
+            manifest=manifest,
+            extracted=extracted,
+            ciphertext=b"cipher",
+            passphrase="secret",
+            auth_status="verified",
+            allow_unsigned=False,
+            output_path=None,
+            debug_max_bytes=512,
+            reveal_secrets=True,
         )
 
 
 class TestWritePlanOutputs(unittest.TestCase):
+    @mock.patch("ethernity.cli.flows.recover_wizard.print_recover_debug")
     @mock.patch("ethernity.cli.flows.recover_wizard.write_recovered_outputs")
-    @mock.patch("ethernity.cli.flows.recover_wizard.decrypt_and_extract")
+    @mock.patch("ethernity.cli.flows.recover_wizard.decrypt_manifest_and_extract")
     def test_write_plan_outputs_success(
         self,
-        decrypt_and_extract: mock.MagicMock,
+        decrypt_manifest_and_extract: mock.MagicMock,
         write_recovered_outputs: mock.MagicMock,
+        print_recover_debug: mock.MagicMock,
     ) -> None:
-        plan = SimpleNamespace(output_path="out", auth_status="verified", allow_unsigned=False)
+        plan = SimpleNamespace(
+            output_path="out",
+            auth_status="verified",
+            allow_unsigned=False,
+            ciphertext=b"cipher",
+            passphrase="secret",
+        )
         extracted = [(SimpleNamespace(path="x"), b"y")]
-        decrypt_and_extract.return_value = extracted
+        manifest = SimpleNamespace(input_origin="directory")
+        decrypt_manifest_and_extract.return_value = (manifest, extracted)
 
         result = wizard.write_plan_outputs(plan, quiet=True, debug=True)
 
         self.assertEqual(result, 0)
-        decrypt_and_extract.assert_called_once_with(plan, quiet=True, debug=True)
+        decrypt_manifest_and_extract.assert_called_once_with(plan, quiet=True, debug=True)
+        print_recover_debug.assert_called_once_with(
+            manifest=manifest,
+            extracted=extracted,
+            ciphertext=b"cipher",
+            passphrase="secret",
+            auth_status="verified",
+            allow_unsigned=False,
+            output_path="out",
+            debug_max_bytes=0,
+            reveal_secrets=False,
+        )
         write_recovered_outputs.assert_called_once_with(
             extracted,
             output_path="out",
             auth_status="verified",
             allow_unsigned=False,
             quiet=True,
+            single_entry_output_is_directory=True,
         )
 
 
