@@ -525,29 +525,18 @@ Use the full release verification guide for complete steps and troubleshooting:
 ## Troubleshooting (Quick Fixes)
 
 Use this section for common onboarding blockers.
-Each row follows `symptom -> fix`.
+Rows follow the onboarding sequence: install/run, verification, then recovery.
 
-| Symptom | Quick Fix |
-| --- | --- |
-| `playwright` errors during backup/render | Retry the same `ethernity` command and allow startup to install Chromium automatically. If `ETHERNITY_SKIP_PLAYWRIGHT_INSTALL=1` is set, unset it. For source/dev installs, you can pre-install with `uv run playwright install chromium`. |
-| Binary fails with wrong architecture | Re-download artifact matching your CPU (`x64` vs `arm64`) and OS. |
-| macOS blocks launch with `library load disallowed by system policy` | Verify the archive bundle first, then apply the local unblock steps in `macOS Local Unblock` below. |
-| Recovery parser rejects mixed payload text | Split sources by document set; run one recovery mode at a time. |
-| `No such option` in CLI usage | Run `ethernity <command> --help` and use current flags (for example `--qr-chunk-size`). |
-| `cosign verify-blob` fails | Confirm you are verifying the exact archive with its matching `.sigstore.json` bundle. |
-| Recovery output seems wrong | Compare recovered hash/bytes with trusted source and rerun with fresh inputs. |
-
-### Provenance Bundle Confusion
-
-Symptom:
-
-- expecting `.sig` and `.pem` files, but release includes only `.sigstore.json`.
-
-Fix:
-
-- this is valid in bundle-first signing workflows
-- verify with `cosign verify-blob --bundle ...` using the matching `.sigstore.json`
-- optional detached files may exist for some releases but are not required by default
+| Stage | Symptom | Quick fix |
+| --- | --- | --- |
+| Install/Run | Binary fails with wrong architecture | Download the artifact matching your OS and CPU (`x64` or `arm64`). |
+| Install/Run | `playwright` errors during backup/render | Re-run the command and allow startup to install Chromium; unset `ETHERNITY_SKIP_PLAYWRIGHT_INSTALL` if set. |
+| macOS Launch | `library load disallowed by system policy` | Verify the archive first, then apply local unblock steps. See `macOS Local Unblock` below. |
+| Verification | `cosign verify-blob` fails | Verify the exact archive with the matching `.sigstore.json` bundle from the same tag. |
+| Verification | expecting `.sig`/`.pem` but release has only `.sigstore.json` | This is valid for bundle-first signing; use `cosign verify-blob --bundle ...`. |
+| Recovery Input | parser rejects mixed payload text | Split by document set and recover one mode/source at a time. |
+| Recovery Input | `No such option` | Use `ethernity <command> --help` and current flags (for example `--qr-chunk-size`). |
+| Recovery Validation | recovered output seems wrong | Compare hashes/bytes against a trusted source and retry with fresh inputs. |
 
 ### macOS Local Unblock
 
@@ -555,7 +544,7 @@ Symptom:
 
 - running `./ethernity` fails with `library load disallowed by system policy`.
 
-Fix (only after `cosign verify-blob --bundle ...` succeeds):
+Only after `cosign verify-blob --bundle ...` succeeds:
 
 ```sh
 cd ~/Downloads
@@ -567,6 +556,22 @@ codesign --force --deep --sign - "${DIR}/ethernity"
 ```
 
 Apply this only to a trusted archive you have already verified.
+
+### Provenance Bundle Confusion
+
+Symptom:
+
+- expecting `.sig`/`.pem` files, but release includes only `.sigstore.json`.
+
+Fix:
+
+- bundle-first signing is expected
+- `.sig`/`.pem` are optional detached files; `.sigstore.json` is primary in the default flow
+- verify with:
+
+```sh
+cosign verify-blob --bundle "ethernity-vX.Y.Z-linux-x64.tar.gz.sigstore.json" "ethernity-vX.Y.Z-linux-x64.tar.gz"
+```
 
 ### Payload and Fallback Input Mistakes
 
