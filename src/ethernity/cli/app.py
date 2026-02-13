@@ -20,9 +20,11 @@ import sys
 
 import typer
 
+from ..config import load_cli_defaults
 from . import command_registry
 from .api import (
     DEBUG_MAX_BYTES_DEFAULT,
+    configure_ui,
     console,
     console_err,
     empty_recover_args,
@@ -73,10 +75,11 @@ def cli(
         help="Show plaintext debug details.",
         rich_help_panel="Debug",
     ),
-    debug_max_bytes: int = typer.Option(
-        DEBUG_MAX_BYTES_DEFAULT,
+    debug_max_bytes: int | None = typer.Option(
+        None,
         "--debug-max-bytes",
         help=f"Limit debug dump size (default: {DEBUG_MAX_BYTES_DEFAULT}, 0 = no limit).",
+        show_default=str(DEBUG_MAX_BYTES_DEFAULT),
         rich_help_panel="Debug",
     ),
     quiet: bool = typer.Option(
@@ -127,6 +130,23 @@ def cli(
         raise typer.Exit(code=2)
     if should_exit:
         raise typer.Exit()
+    try:
+        cli_defaults = load_cli_defaults(path=config)
+    except (OSError, RuntimeError, ValueError) as exc:
+        console_err.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(code=2)
+
+    effective_quiet = quiet or cli_defaults.ui.quiet
+    effective_no_color = no_color or cli_defaults.ui.no_color
+    effective_no_animations = no_animations or cli_defaults.ui.no_animations
+    effective_debug_max_bytes = (
+        cli_defaults.debug.max_bytes if debug_max_bytes is None else debug_max_bytes
+    )
+    if effective_debug_max_bytes is None:
+        effective_debug_max_bytes = DEBUG_MAX_BYTES_DEFAULT
+
+    configure_ui(no_color=effective_no_color, no_animations=effective_no_animations)
+
     ctx.ensure_object(dict)
     ctx.obj.update(
         {
@@ -134,10 +154,13 @@ def cli(
             "paper": paper,
             "design": design,
             "debug": debug,
-            "debug_max_bytes": debug_max_bytes,
-            "quiet": quiet,
-            "no_color": no_color,
-            "no_animations": no_animations,
+            "debug_max_bytes": effective_debug_max_bytes,
+            "quiet": effective_quiet,
+            "no_color": effective_no_color,
+            "no_animations": effective_no_animations,
+            "backup_defaults": cli_defaults.backup,
+            "recover_defaults": cli_defaults.recover,
+            "runtime_defaults": cli_defaults.runtime,
         }
     )
     if ctx.invoked_subcommand is None:
@@ -148,10 +171,14 @@ def cli(
             )
             raise typer.Exit(code=2)
         config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
-        with ui_screen_mode(quiet=quiet):
-            action = prompt_home_action(quiet=quiet)
+        with ui_screen_mode(quiet=effective_quiet):
+            action = prompt_home_action(quiet=effective_quiet)
         if action == "recover":
-            args = empty_recover_args(config=config_value, paper=paper_value, quiet=quiet)
+            args = empty_recover_args(
+                config=config_value,
+                paper=paper_value,
+                quiet=effective_quiet,
+            )
             _run_cli(lambda: run_recover_wizard(args, debug=debug), debug=debug)
         elif action == "kit":
             _run_cli(
@@ -162,7 +189,7 @@ def cli(
                     paper_value=paper_value,
                     design_value=design,
                     qr_chunk_size=None,
-                    quiet_value=quiet,
+                    quiet_value=effective_quiet,
                 ),
                 debug=debug,
             )
@@ -171,10 +198,10 @@ def cli(
             _run_cli(
                 lambda: run_wizard(
                     debug_override=debug if debug else None,
-                    debug_max_bytes=debug_max_bytes,
+                    debug_max_bytes=effective_debug_max_bytes,
                     config_path=config_value,
                     paper_size=paper_value,
-                    quiet=quiet,
+                    quiet=effective_quiet,
                     args=wizard_args,
                 ),
                 debug=debug,

@@ -28,6 +28,7 @@ from ethernity.cli.flows import recover_wizard as recover_wizard_module
 from ethernity.cli.flows.recover import run_recover_command
 from ethernity.cli.flows.recover_plan import _resolve_passphrase
 from ethernity.cli.io.frames import _frames_from_fallback
+from ethernity.config.installer import DEFAULT_CONFIG_PATH
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.render.fallback_text import format_zbase32_lines
@@ -265,7 +266,11 @@ class TestCliRecoverValidation(unittest.TestCase):
 
     def test_recover_empty_stdin_non_tty_shows_input_guidance(self) -> None:
         with mock.patch("ethernity.cli.app.run_startup", return_value=False):
-            result = self.runner.invoke(cli.app, ["recover"], input="")
+            result = self.runner.invoke(
+                cli.app,
+                ["recover", "--config", str(DEFAULT_CONFIG_PATH)],
+                input="",
+            )
         self.assertEqual(result.exit_code, 2)
         self.assertIn("--fallback-file", result.output)
         self.assertIn("--payloads-file", result.output)

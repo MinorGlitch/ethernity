@@ -28,7 +28,15 @@ from typer.testing import CliRunner
 from ethernity import cli
 from ethernity.cli.core.types import BackupArgs
 from ethernity.cli.io.inputs import _load_input_files
-from ethernity.config import load_app_config
+from ethernity.config import (
+    BackupDefaults,
+    CliDefaults,
+    DebugDefaults,
+    RecoverDefaults,
+    RuntimeDefaults,
+    UiDefaults,
+    load_app_config,
+)
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
 from ethernity.core.models import DocumentPlan, ShardingConfig, SigningSeedMode
 from ethernity.encoding.framing import Frame
@@ -847,6 +855,12 @@ class TestCliBackup(unittest.TestCase):
 class TestCliBackupUx(unittest.TestCase):
     def setUp(self) -> None:
         self.runner = CliRunner()
+        self._load_defaults_patcher = mock.patch(
+            "ethernity.cli.app.load_cli_defaults",
+            return_value=CliDefaults(),
+        )
+        self._load_defaults_patcher.start()
+        self.addCleanup(self._load_defaults_patcher.stop)
 
     def test_load_input_files_rejects_empty_stdin(self) -> None:
         with mock.patch("ethernity.cli.io.inputs.sys.stdin", new=io.StringIO("")):
@@ -907,6 +921,96 @@ class TestCliBackupUx(unittest.TestCase):
                 )
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(captured.get("qr_chunk_size"), 640)
+
+    def test_backup_inherits_operator_defaults_when_cli_values_unset(self) -> None:
+        captured: dict[str, object] = {}
+
+        def _capture_args(args: BackupArgs) -> int:
+            captured["base_dir"] = args.base_dir
+            captured["output_dir"] = args.output_dir
+            captured["shard_threshold"] = args.shard_threshold
+            captured["shard_count"] = args.shard_count
+            captured["signing_key_mode"] = args.signing_key_mode
+            captured["signing_key_shard_threshold"] = args.signing_key_shard_threshold
+            captured["signing_key_shard_count"] = args.signing_key_shard_count
+            return 0
+
+        defaults = CliDefaults(
+            backup=BackupDefaults(
+                base_dir="./vault",
+                output_dir="./out",
+                shard_threshold=2,
+                shard_count=3,
+                signing_key_mode="sharded",
+                signing_key_shard_threshold=2,
+                signing_key_shard_count=3,
+            ),
+            recover=RecoverDefaults(),
+            ui=UiDefaults(),
+            debug=DebugDefaults(),
+            runtime=RuntimeDefaults(),
+        )
+
+        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            with mock.patch("ethernity.cli.app.load_cli_defaults", return_value=defaults):
+                with mock.patch(
+                    "ethernity.cli.commands.backup.run_backup_command",
+                    side_effect=_capture_args,
+                ):
+                    result = self.runner.invoke(
+                        cli.app,
+                        ["backup", "--input", "-"],
+                        input="payload",
+                    )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(captured.get("base_dir"), "./vault")
+        self.assertEqual(captured.get("output_dir"), "./out")
+        self.assertEqual(captured.get("shard_threshold"), 2)
+        self.assertEqual(captured.get("shard_count"), 3)
+        self.assertEqual(captured.get("signing_key_mode"), "sharded")
+        self.assertEqual(captured.get("signing_key_shard_threshold"), 2)
+        self.assertEqual(captured.get("signing_key_shard_count"), 3)
+
+    def test_backup_cli_values_override_operator_defaults(self) -> None:
+        captured: dict[str, object] = {}
+
+        def _capture_args(args: BackupArgs) -> int:
+            captured["output_dir"] = args.output_dir
+            captured["shard_threshold"] = args.shard_threshold
+            return 0
+
+        defaults = CliDefaults(
+            backup=BackupDefaults(output_dir="./default-out", shard_threshold=2),
+            recover=RecoverDefaults(),
+            ui=UiDefaults(),
+            debug=DebugDefaults(),
+            runtime=RuntimeDefaults(),
+        )
+
+        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            with mock.patch("ethernity.cli.app.load_cli_defaults", return_value=defaults):
+                with mock.patch(
+                    "ethernity.cli.commands.backup.run_backup_command",
+                    side_effect=_capture_args,
+                ):
+                    result = self.runner.invoke(
+                        cli.app,
+                        [
+                            "backup",
+                            "--input",
+                            "-",
+                            "--output-dir",
+                            "./cli-out",
+                            "--shard-threshold",
+                            "4",
+                        ],
+                        input="payload",
+                    )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(captured.get("output_dir"), "./cli-out")
+        self.assertEqual(captured.get("shard_threshold"), 4)
 
     def test_backup_review_cancel_returns_code_1(self) -> None:
         input_file = cli.InputFile(

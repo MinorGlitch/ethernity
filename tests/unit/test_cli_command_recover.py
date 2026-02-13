@@ -24,6 +24,7 @@ import typer
 from ethernity.cli.commands import recover as recover_command
 from ethernity.cli.core.types import RecoverArgs
 from ethernity.cli.flows import recover as recover_flow
+from ethernity.config import RecoverDefaults
 
 
 class TestRecoverCommand(unittest.TestCase):
@@ -126,6 +127,58 @@ class TestRecoverCommand(unittest.TestCase):
         self.assertEqual(args.shard_fallback_file, ["manual.txt", "dir1.txt"])
         self.assertTrue(args.allow_unsigned)
         self.assertEqual(run_recover_command.call_args.kwargs["debug"], True)
+
+    @mock.patch("ethernity.cli.commands.recover.run_recover_command", return_value=0)
+    @mock.patch("ethernity.cli.commands.recover._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch("ethernity.cli.commands.recover._should_use_wizard_for_recover", return_value=False)
+    @mock.patch("ethernity.cli.commands.recover._expand_shard_dir", return_value=[])
+    @mock.patch(
+        "ethernity.cli.commands.recover._resolve_config_and_paper", return_value=("cfg", "A4")
+    )
+    @mock.patch("ethernity.cli.commands.recover.sys.stdin.isatty", return_value=True)
+    def test_recover_uses_operator_default_output_when_unset(
+        self,
+        _stdin_tty: mock.MagicMock,
+        _resolve_config_and_paper: mock.MagicMock,
+        _expand_shard_dir: mock.MagicMock,
+        _should_use_wizard_for_recover: mock.MagicMock,
+        _run_cli: mock.MagicMock,
+        run_recover_command: mock.MagicMock,
+    ) -> None:
+        ctx = self._ctx(
+            quiet=False,
+            debug=False,
+            recover_defaults=RecoverDefaults(output="./default-recovered"),
+        )
+        self._call_recover(ctx)
+        args = run_recover_command.call_args.args[0]
+        self.assertEqual(args.output, "./default-recovered")
+
+    @mock.patch("ethernity.cli.commands.recover.run_recover_command", return_value=0)
+    @mock.patch("ethernity.cli.commands.recover._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch("ethernity.cli.commands.recover._should_use_wizard_for_recover", return_value=False)
+    @mock.patch("ethernity.cli.commands.recover._expand_shard_dir", return_value=[])
+    @mock.patch(
+        "ethernity.cli.commands.recover._resolve_config_and_paper", return_value=("cfg", "A4")
+    )
+    @mock.patch("ethernity.cli.commands.recover.sys.stdin.isatty", return_value=True)
+    def test_recover_cli_output_overrides_operator_default(
+        self,
+        _stdin_tty: mock.MagicMock,
+        _resolve_config_and_paper: mock.MagicMock,
+        _expand_shard_dir: mock.MagicMock,
+        _should_use_wizard_for_recover: mock.MagicMock,
+        _run_cli: mock.MagicMock,
+        run_recover_command: mock.MagicMock,
+    ) -> None:
+        ctx = self._ctx(
+            quiet=False,
+            debug=False,
+            recover_defaults=RecoverDefaults(output="./default-recovered"),
+        )
+        self._call_recover(ctx, output="./explicit.bin")
+        args = run_recover_command.call_args.args[0]
+        self.assertEqual(args.output, "./explicit.bin")
 
     def test_register(self) -> None:
         app = typer.Typer()
