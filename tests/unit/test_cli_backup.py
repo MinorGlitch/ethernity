@@ -773,7 +773,7 @@ class TestCliBackup(unittest.TestCase):
             ),
             mock.patch(
                 "ethernity.cli.flows.backup._load_input_files",
-                return_value=([input_file], Path("/resolved")),
+                return_value=([input_file], Path("/resolved"), "file", []),
             ),
             mock.patch(
                 "ethernity.cli.flows.backup.run_backup", return_value=result
@@ -790,12 +790,15 @@ class TestCliBackup(unittest.TestCase):
             input_files=[input_file],
             base_dir=Path("/resolved"),
             output_dir="out",
+            input_origin="file",
+            input_roots=[],
             plan=plan,
             passphrase="manual-pass",
             passphrase_words=15,
             config=config,
             debug=False,
             debug_max_bytes=0,
+            debug_reveal_secrets=False,
             quiet=False,
         )
         summary_mock.assert_called_once_with(result, plan, "manual-pass", quiet=False)
@@ -831,7 +834,7 @@ class TestCliBackup(unittest.TestCase):
             ),
             mock.patch(
                 "ethernity.cli.flows.backup._load_input_files",
-                return_value=([input_file], None),
+                return_value=([input_file], None, "file", []),
             ),
             mock.patch("ethernity.cli.flows.backup.ui_screen_mode") as screen_mode,
             mock.patch("ethernity.cli.flows.backup.run_backup", return_value=result),
@@ -856,8 +859,12 @@ class TestCliBackupUx(unittest.TestCase):
 
     def test_load_input_files_accepts_non_empty_stdin(self) -> None:
         with mock.patch("ethernity.cli.io.inputs.sys.stdin", new=io.StringIO("payload")):
-            entries, base = _load_input_files(["-"], [], None, allow_stdin=True)
+            entries, base, input_origin, input_roots = _load_input_files(
+                ["-"], [], None, allow_stdin=True
+            )
         self.assertIsNone(base)
+        self.assertEqual(input_origin, "file")
+        self.assertEqual(input_roots, [])
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0].relative_path, "data.txt")
         self.assertEqual(entries[0].data, b"payload")
@@ -942,7 +949,7 @@ class TestCliBackupUx(unittest.TestCase):
             ),
             mock.patch(
                 "ethernity.cli.flows.backup._prompt_inputs",
-                return_value=([input_file], None, None),
+                return_value=([input_file], None, None, "file", []),
             ),
             mock.patch(
                 "ethernity.cli.flows.backup._build_review_rows",

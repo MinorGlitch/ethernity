@@ -51,7 +51,7 @@ class TestPrepareEnvelope(unittest.TestCase):
         ]
         plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
 
-        envelope, payload = _prepare_envelope(input_files, plan, sign_priv)
+        envelope, payload = _prepare_envelope(input_files, plan, sign_priv, "file", [])
 
         # Verify envelope can be decoded
         manifest, decoded_payload = decode_envelope(envelope)
@@ -68,7 +68,7 @@ class TestPrepareEnvelope(unittest.TestCase):
         ]
         plan = DocumentPlan(version=1, sealed=True, sharding=None, signing_seed_sharding=None)
 
-        envelope, payload = _prepare_envelope(input_files, plan, sign_priv)
+        envelope, payload = _prepare_envelope(input_files, plan, sign_priv, "file", [])
 
         manifest, _ = decode_envelope(envelope)
         self.assertTrue(manifest.sealed)
@@ -84,7 +84,7 @@ class TestPrepareEnvelope(unittest.TestCase):
         ]
         plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
 
-        envelope, payload = _prepare_envelope(input_files, plan, sign_priv)
+        envelope, payload = _prepare_envelope(input_files, plan, sign_priv, "mixed", ["input"])
 
         manifest, decoded_payload = decode_envelope(envelope)
         self.assertEqual(len(manifest.files), 3)

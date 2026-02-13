@@ -158,6 +158,8 @@ def recover(
     config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
     quiet_value = quiet or bool(_ctx_value(ctx, "quiet"))
     debug_value = bool(_ctx_value(ctx, "debug"))
+    debug_max_value = int(_ctx_value(ctx, "debug_max_bytes") or 0)
+    debug_reveal_value = bool(_ctx_value(ctx, "debug_reveal_secrets"))
 
     if not fallback_file and not payloads_file and not (scan or []) and not sys.stdin.isatty():
         fallback_file = "-"
@@ -181,6 +183,8 @@ def recover(
         output=output,
         allow_unsigned=allow_unsigned,
         assume_yes=assume_yes,
+        debug_max_bytes=debug_max_value,
+        debug_reveal_secrets=debug_reveal_value,
         quiet=quiet_value,
     )
     if _should_use_wizard_for_recover(args):
