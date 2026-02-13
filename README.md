@@ -180,6 +180,8 @@ For full verification and provenance guidance, use
 
 ### 2) Install via pipx or pip
 
+When `ethernity` is available on PyPI, `pipx` and `pip` are valid install paths.
+
 `pipx` is recommended when you want isolated CLI installation:
 
 ```sh
@@ -477,14 +479,17 @@ Debug output is richer in interactive terminals and automatically falls back to 
 # Safe debug (masked secrets)
 ethernity --debug backup --input ./secret.txt --output-dir ./backup-out
 
+# Recover debug (masked secrets)
+ethernity --debug recover --scan ./backup-demo --output ./restored.bin
+
 # Full secret reveal (opt-in, high risk)
 ethernity --debug --debug-reveal-secrets backup --input ./secret.txt --output-dir ./backup-out
 ```
 
-### Template Config Migration (Name-First)
+### Template Config (Design Names)
 
-Template sections in `config.toml` are now design-name based.
-Legacy `path = "templates/.../*.html.j2"` keys are unsupported in this build.
+Template sections in `config.toml` are design-name based.
+Use `name = "<design>"` in each template section.
 
 ```toml
 [templates]
@@ -515,6 +520,10 @@ One-way boolean caveat:
 - `quiet`, `no_color`, and `no_animations` are OR-style.
 - CLI can force them on, but there are no inverse flags to force them off in this wave.
 
+Runtime/defaults notes:
+- `debug.max_bytes = 0` means unset and falls back to the CLI default behavior.
+- `ETHERNITY_RENDER_JOBS` overrides `[runtime].render_jobs` when set.
+
 ```toml
 [defaults.backup]
 base_dir = ""
@@ -542,7 +551,7 @@ render_jobs = "auto" # or positive integer
 
 Safety policy:
 - risky recovery bypass controls remain explicit CLI-only decisions
-- this build does not support config defaults for `--rescue-mode` or `--yes`
+- config defaults intentionally do not support `--rescue-mode` or `--yes`
 
 ### Help Surfaces
 
@@ -628,7 +637,7 @@ Rows follow the onboarding sequence: install/run, verification, then recovery.
 | Verification | `cosign verify-blob` fails | Verify the exact archive with the matching `.sigstore.json` bundle from the same tag. |
 | Verification | expecting `.sig`/`.pem` but release has only `.sigstore.json` | This is valid for bundle-first signing; use `cosign verify-blob --bundle ...`. |
 | Recovery Input | parser rejects mixed payload text | Split by document set and recover one mode/source at a time. |
-| Recovery Input | `manifest path_encoding is required` or `manifest file entry must use array encoding` | This release intentionally hard-breaks older manifests. Recover with a pre-break build or recreate the backup with this release. |
+| Recovery Input | `manifest input_origin is required`, `manifest input_roots is required`, `manifest path_encoding is required`, or `manifest file entry must use array encoding` | This indicates a manifest schema mismatch for the current recovery path. Recreate the backup with the current release before relying on recovery output. |
 | Recovery Input | `No such option` | Use `ethernity <command> --help` and current flags (for example `--qr-chunk-size`). |
 | Recovery Validation | recovered output seems wrong | Compare hashes/bytes against a trusted source and retry with fresh inputs. |
 
