@@ -23,7 +23,6 @@
 {% endif %}
 {% set _sentinel_header_title = sentinel_header_title if sentinel_header_title is defined else doc.title %}
 {% set _sentinel_header_subtitle = sentinel_header_subtitle if sentinel_header_subtitle is defined else doc.subtitle %}
-{% set _sentinel_header_classification = sentinel_header_classification if sentinel_header_classification is defined else 'Offline Only' %}
 <div class="sentinel-shell-top-strip relative z-10 shrink-0 min-h-8 py-1 bg-primary border-b-4 border-black flex items-center justify-center px-[15mm]">
   <p class="text-[9px] font-black uppercase tracking-[0.12em] text-black text-center leading-tight">
     {{ sentinel_top_strip_text }}
@@ -35,8 +34,7 @@
     <p class="mt-1 text-xs uppercase tracking-[0.1em] text-text-secondary-light">{{ _sentinel_header_subtitle }}</p>
   </div>
   <div class="min-w-0 w-full text-right font-mono text-[9px] text-text-secondary-light leading-tight">
-    <span class="inline-block max-w-full bg-black text-white px-2 py-0.5 text-xs font-bold uppercase mb-1">{{ _sentinel_header_classification }}</span>
-    <p class="mt-2 break-all">DOC ID: {{ doc_id }}</p>
+    <p class="break-all">DOC ID: {{ doc_id }}</p>
     <p>GENERATED (UTC): {{ created_timestamp_utc }}</p>
     <p>{{ _sentinel_page_label }}</p>
   </div>

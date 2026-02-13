@@ -321,6 +321,7 @@ def compute_layout(
         spec=spec,
         page_w=page_w,
         margin=margin,
+        include_instructions=include_instructions,
     )
     line_length, group_size, line_height, fallback_font, fallback_size = (
         _calculate_fallback_line_length(

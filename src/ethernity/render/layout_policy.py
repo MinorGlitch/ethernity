@@ -35,7 +35,8 @@ _MAIN_FIRST_PAGE_CONTENT_START_THRESHOLD_MM = 45.0
 _RECOVERY_COLUMN_GAP_MM = 12.0
 _RECOVERY_NUMBER_GUTTER_MM = 14.0
 _RECOVERY_CONTENT_PADDING_MM = 6.0
-_RECOVERY_WIDE_LINE_BONUS_MM = 53.0
+_RECOVERY_WIDE_LINE_BONUS_MM = 64.0
+_RECOVERY_WIDE_CONTINUATION_LINE_BONUS_MM = 166.0
 _SIGNING_INTER_COLUMN_GAP_MM = 8.0
 _SIGNING_SECTION_PADDING_MM = 8.0
 _SHARD_CARD_PADDING_MM = 8.0
@@ -45,7 +46,8 @@ _RECOVERY_META_BASELINE_LINES = 3
 _RECOVERY_META_SECTION_OVERHEAD_MM = 12.0
 _RECOVERY_META_EXTRA_LINE_MM = 8.0
 _RECOVERY_CONTINUATION_ROW_PENALTY_LINES = 2
-_RECOVERY_WIDE_FIRST_PAGE_BONUS_LINES = 8
+_RECOVERY_WIDE_CONTINUATION_BONUS_LINES = 7
+_RECOVERY_WIDE_FIRST_PAGE_BONUS_LINES = 7
 _RECOVERY_LIGHT_META_FIRST_PAGE_BONUS_LINES = 10
 _RECOVERY_NO_QUORUM_FIRST_PAGE_BONUS_LINES = 2
 
@@ -75,6 +77,7 @@ def fallback_text_width_override_mm(
     spec: DocumentSpec,
     page_w: float,
     margin: float,
+    include_instructions: bool,
 ) -> float | None:
     if not capabilities.advanced_fallback_layout:
         return None
@@ -86,7 +89,12 @@ def fallback_text_width_override_mm(
         column_w = max(1.0, (usable_w - _RECOVERY_COLUMN_GAP_MM) / 2.0)
         line_width = max(1.0, column_w - _RECOVERY_NUMBER_GUTTER_MM - _RECOVERY_CONTENT_PADDING_MM)
         if capabilities.wide_recovery_fallback_lines:
-            line_width = max(1.0, line_width + _RECOVERY_WIDE_LINE_BONUS_MM)
+            width_bonus = (
+                _RECOVERY_WIDE_LINE_BONUS_MM
+                if include_instructions
+                else _RECOVERY_WIDE_CONTINUATION_LINE_BONUS_MM
+            )
+            line_width = max(1.0, line_width + width_bonus)
         return line_width
     if normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD:
         qr_zone_mm = float(spec.qr_grid.qr_size_mm)
@@ -176,6 +184,8 @@ def adjust_layout_fallback_capacity(
                 1,
                 effective_lines - _RECOVERY_CONTINUATION_ROW_PENALTY_LINES,
             )
+            if capabilities.wide_recovery_fallback_lines:
+                effective_lines += _RECOVERY_WIDE_CONTINUATION_BONUS_LINES
         return effective_line_height, effective_lines
 
     if normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD:
@@ -257,7 +267,10 @@ def adjust_page_fallback_capacity(
                     zone_lines += _RECOVERY_NO_QUORUM_FIRST_PAGE_BONUS_LINES
             zone_lines += _recovery_first_page_light_meta_bonus_lines(recovery_meta_lines_extra)
             return min(lines_capacity, zone_lines)
-        return max(1, lines_capacity - _RECOVERY_CONTINUATION_ROW_PENALTY_LINES)
+        continuation_lines = max(1, lines_capacity - _RECOVERY_CONTINUATION_ROW_PENALTY_LINES)
+        if capabilities.wide_recovery_fallback_lines:
+            continuation_lines += _RECOVERY_WIDE_CONTINUATION_BONUS_LINES
+        return continuation_lines
 
     return lines_capacity
 

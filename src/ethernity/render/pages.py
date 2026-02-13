@@ -257,6 +257,7 @@ def _build_fallback_blocks(
             fallback_sections_data,
             fallback_state,
             lines_capacity,
+            line_length=page_layout.line_length,
         )
     else:
         if page_idx <= 0:
