@@ -57,7 +57,12 @@ def _resolve_recover_output(
         return output_path
     single_entry = len(entries) == 1
     if single_entry and input_origin in {"directory", "mixed"}:
-        return _prompt_output_directory(doc_id, input_origin=input_origin, input_roots=input_roots)
+        return _prompt_output_directory(
+            doc_id,
+            entries=entries,
+            input_origin=input_origin,
+            input_roots=input_roots,
+        )
     if single_entry:
         choice = prompt_choice(
             "Recovered file output",
@@ -90,7 +95,12 @@ def _resolve_recover_output(
         )
         return path or default_name
 
-    return _prompt_output_directory(doc_id, input_origin=input_origin, input_roots=input_roots)
+    return _prompt_output_directory(
+        doc_id,
+        entries=entries,
+        input_origin=input_origin,
+        input_roots=input_roots,
+    )
 
 
 def _infer_recovered_filename(entry: object) -> str:
@@ -105,11 +115,13 @@ def _infer_recovered_filename(entry: object) -> str:
 def _prompt_output_directory(
     doc_id: bytes | None,
     *,
+    entries: Sequence[tuple[object, bytes]],
     input_origin: str,
     input_roots: Sequence[str],
 ) -> str:
     default_dir = _infer_recovered_directory(
         doc_id,
+        entries=entries,
         input_origin=input_origin,
         input_roots=input_roots,
     )
@@ -138,6 +150,7 @@ def _prompt_output_directory(
 def _infer_recovered_directory(
     doc_id: bytes | None,
     *,
+    entries: Sequence[tuple[object, bytes]],
     input_origin: str,
     input_roots: Sequence[str],
 ) -> str:
@@ -146,9 +159,29 @@ def _infer_recovered_directory(
         return fallback
     if input_origin == "directory" and len(input_roots) == 1:
         candidate = input_roots[0].strip()
-        if candidate and candidate not in {".", ".."}:
+        if (
+            candidate
+            and candidate not in {".", ".."}
+            and not _entries_already_include_root(entries, candidate)
+        ):
             return candidate
     return fallback
+
+
+def _entries_already_include_root(
+    entries: Sequence[tuple[object, bytes]],
+    root_label: str,
+) -> bool:
+    if not entries:
+        return False
+    for entry, _data in entries:
+        raw_path = getattr(entry, "path", None)
+        if raw_path is None:
+            return False
+        parts = Path(str(raw_path).strip()).parts
+        if not parts or parts[0] != root_label:
+            return False
+    return True
 
 
 def _format_shard_input_error(exc: Exception) -> str:

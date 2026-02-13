@@ -238,7 +238,7 @@ class TestResolveRecoverOutput(unittest.TestCase):
 
     @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
     @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
-    def test_single_entry_directory_origin_prefers_manifest_parent(
+    def test_single_entry_directory_origin_with_prefixed_entry_uses_fallback(
         self,
         mock_prompt_choice: mock.MagicMock,
         mock_prompt_optional_path_with_picker: mock.MagicMock,
@@ -254,7 +254,7 @@ class TestResolveRecoverOutput(unittest.TestCase):
             input_roots=("vault",),
         )
 
-        self.assertEqual(resolved, "vault")
+        self.assertEqual(resolved, "recovered-" + ("69" * 16))
         mock_prompt_choice.assert_called_once()
         mock_prompt_optional_path_with_picker.assert_not_called()
 
@@ -372,6 +372,31 @@ class TestResolveRecoverOutput(unittest.TestCase):
         )
 
         self.assertEqual(resolved, "recovered-" + ("71" * 16))
+        mock_prompt_choice.assert_called_once()
+        mock_prompt_optional_path_with_picker.assert_not_called()
+
+    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    def test_directory_origin_multi_file_with_prefixed_paths_uses_fallback_directory(
+        self,
+        mock_prompt_choice: mock.MagicMock,
+        mock_prompt_optional_path_with_picker: mock.MagicMock,
+    ) -> None:
+        mock_prompt_choice.return_value = "inferred"
+
+        resolved = _resolve_recover_output(
+            [
+                (_ManifestEntry("vault/a/file.txt"), b"a"),
+                (_ManifestEntry("vault/b/file.txt"), b"b"),
+            ],
+            None,
+            interactive=True,
+            doc_id=b"\x72" * 16,
+            input_origin="directory",
+            input_roots=("vault",),
+        )
+
+        self.assertEqual(resolved, "recovered-" + ("72" * 16))
         mock_prompt_choice.assert_called_once()
         mock_prompt_optional_path_with_picker.assert_not_called()
 

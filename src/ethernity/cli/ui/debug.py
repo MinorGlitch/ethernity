@@ -18,21 +18,31 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Literal, Sequence
 
 import cbor2
+from rich import box
+from rich.rule import Rule
+from rich.syntax import Syntax
+from rich.table import Table
+from rich.text import Text
 
 from ...core.models import DocumentPlan
 from ...encoding.zbase32 import encode_zbase32
 from ...formats.envelope_codec import encode_manifest
 from ...formats.envelope_types import EnvelopeManifest
-from ..api import console
+from ..api import build_kv_table, console, panel
 from ..core.types import InputFile
+from .state import isatty
 
 if TYPE_CHECKING:
     from ...formats.envelope_types import ManifestFile
+
+
+RenderMode = Literal["rich_tty", "plain"]
 
 
 @dataclass(frozen=True)
@@ -52,6 +62,12 @@ def _resolve_render_options(*, max_bytes: int | None, reveal_secrets: bool) -> D
         max_bytes=_normalize_debug_max_bytes(max_bytes),
         reveal_secrets=reveal_secrets,
     )
+
+
+def _resolve_render_mode() -> RenderMode:
+    if isatty(sys.__stdout__, sys.stdout):
+        return "rich_tty"
+    return "plain"
 
 
 def _format_grouped_lines(
@@ -192,19 +208,6 @@ def _decode_manifest_raw(data: bytes) -> object | None:
     return _json_safe(decoded)
 
 
-def _print_manifest_section(manifest_bytes: bytes) -> None:
-    manifest_raw = _decode_manifest_raw(manifest_bytes)
-    console.print("[bold]Manifest CBOR map JSON:[/bold]")
-    if manifest_raw is None:
-        console.print("(unable to decode manifest CBOR map)")
-    else:
-        console.print(
-            json.dumps(manifest_raw, indent=2, sort_keys=True),
-            markup=False,
-        )
-    console.print()
-
-
 def _entry_path(entry: object) -> str:
     path = getattr(entry, "path", "payload.bin")
     return str(path)
@@ -215,6 +218,112 @@ def _entry_size(entry: object, data: bytes) -> int:
     if isinstance(size, int) and size >= 0:
         return size
     return len(data)
+
+
+def _print_header(flow: str, subtitle: str, *, mode: RenderMode) -> None:
+    if mode == "rich_tty":
+        console.print(panel(f"{flow} Debug", Text(subtitle, style="subtitle"), style="accent"))
+    else:
+        console.print(f"=== {flow.lower()} debug ===", markup=False)
+        console.print(subtitle, markup=False)
+    console.print()
+
+
+def _print_section_title(title: str, *, mode: RenderMode) -> None:
+    if mode == "rich_tty":
+        console.print(Rule(Text(title, style="title"), align="left", style="rule"))
+    else:
+        console.print(f"{title}:", markup=False)
+
+
+def _print_kv_section(
+    title: str,
+    rows: Sequence[tuple[str, str]],
+    *,
+    mode: RenderMode,
+) -> None:
+    _print_section_title(title, mode=mode)
+    if mode == "rich_tty":
+        console.print(build_kv_table(rows))
+    else:
+        for key, value in rows:
+            console.print(f"- {key}: {value}", markup=False)
+    console.print()
+
+
+def _print_text_section(title: str, text: str, *, mode: RenderMode) -> None:
+    if mode == "rich_tty":
+        console.print(panel(title, Text(text, style="muted"), style="panel"))
+    else:
+        console.print(f"{title}:", markup=False)
+        console.print(text, markup=False)
+    console.print()
+
+
+def _print_manifest_section(manifest_bytes: bytes, *, mode: RenderMode) -> None:
+    manifest_raw = _decode_manifest_raw(manifest_bytes)
+    if manifest_raw is None:
+        message = "(unable to decode manifest CBOR map)"
+        if mode == "rich_tty":
+            console.print(
+                panel(
+                    "Manifest CBOR map JSON",
+                    Text(message, style="warning"),
+                    style="warning",
+                )
+            )
+        else:
+            console.print("Manifest CBOR map JSON:", markup=False)
+            console.print(message, markup=False)
+        console.print()
+        return
+
+    manifest_json = json.dumps(manifest_raw, indent=2, sort_keys=True)
+    if mode == "rich_tty":
+        try:
+            renderable: object = Syntax(manifest_json, "json", word_wrap=True)
+        except (ValueError, TypeError):
+            renderable = Text(manifest_json, style="muted")
+        console.print(panel("Manifest CBOR map JSON", renderable, style="panel"))
+    else:
+        console.print("Manifest CBOR map JSON:", markup=False)
+        console.print(manifest_json, markup=False)
+    console.print()
+
+
+def _print_recovered_entries_section(
+    extracted: Sequence[tuple[ManifestFile | object, bytes]],
+    *,
+    mode: RenderMode,
+) -> None:
+    _print_section_title("Recovered Entries", mode=mode)
+    if not extracted:
+        console.print("(no entries)", markup=False)
+        console.print()
+        return
+
+    limit = 20
+    if mode == "rich_tty":
+        table = Table(box=box.SIMPLE, show_header=True, header_style="accent")
+        table.add_column("#", style="muted", no_wrap=True)
+        table.add_column("Path")
+        table.add_column("Bytes", justify="right", no_wrap=True)
+        for index, (entry, data) in enumerate(extracted[:limit], start=1):
+            table.add_row(str(index), _entry_path(entry), str(_entry_size(entry, data)))
+        if len(extracted) > limit:
+            remaining = len(extracted) - limit
+            table.add_row("...", f"{remaining} more entries omitted", "")
+        console.print(table)
+    else:
+        for entry, data in extracted[:limit]:
+            console.print(
+                f"- {_entry_path(entry)} ({_entry_size(entry, data)} bytes)",
+                markup=False,
+            )
+        if len(extracted) > limit:
+            remaining = len(extracted) - limit
+            console.print(f"... omitted {remaining} additional entries", markup=False)
+    console.print()
 
 
 def print_backup_debug(
@@ -233,66 +342,79 @@ def print_backup_debug(
     reveal_secrets: bool = False,
 ) -> None:
     options = _resolve_render_options(max_bytes=debug_max_bytes, reveal_secrets=reveal_secrets)
-    if isinstance(manifest, EnvelopeManifest):
-        manifest_bytes = encode_manifest(manifest)
-    else:
-        manifest_bytes = manifest
+    mode = _resolve_render_mode()
+    manifest_bytes = (
+        encode_manifest(manifest) if isinstance(manifest, EnvelopeManifest) else manifest
+    )
 
-    console.print("[bold]Debug Summary:[/bold]")
-    console.print("- mode: backup", markup=False)
-    console.print(f"- input file count: {len(input_files)}", markup=False)
-    console.print(f"- payload bytes: {len(payload)}", markup=False)
-    console.print(f"- envelope bytes: {len(envelope)}", markup=False)
-    console.print(f"- sealed: {plan.sealed}", markup=False)
-    if base_dir:
-        console.print(f"- base dir: {base_dir}", markup=False)
+    _print_header("Backup", "Pre-encryption diagnostics", mode=mode)
+
+    summary_rows: list[tuple[str, str]] = [
+        ("Mode", "backup"),
+        ("Input files", str(len(input_files))),
+        ("Payload bytes", str(len(payload))),
+        ("Envelope bytes", str(len(envelope))),
+        ("Sealed", "yes" if plan.sealed else "no"),
+    ]
+    if base_dir is not None:
+        summary_rows.append(("Base directory", str(base_dir)))
+    if plan.sharding is not None:
+        summary_rows.append(("Sharding", f"{plan.sharding.threshold} of {plan.sharding.shares}"))
+    _print_kv_section("Summary", summary_rows, mode=mode)
+
+    secret_rows: list[tuple[str, str]] = []
     if passphrase is not None:
         passphrase_display = (
             passphrase if options.reveal_secrets else _format_masked_text_secret(passphrase)
         )
-        console.print(f"- passphrase: {passphrase_display}", markup=False)
-    if plan.sharding:
-        console.print(
-            f"- sharding: {plan.sharding.threshold} of {plan.sharding.shares}",
-            markup=False,
+        secret_rows.append(("Passphrase", passphrase_display))
+    if signing_seed is not None:
+        signing_seed_display = (
+            "revealed in hex block below"
+            if options.reveal_secrets
+            else _format_masked_bytes_secret(signing_seed)
         )
+        secret_rows.append(("Signing private key", signing_seed_display))
+    if not secret_rows:
+        secret_rows.append(("Secrets", "(none)"))
+    _print_kv_section("Secrets", secret_rows, mode=mode)
+
+    _print_manifest_section(manifest_bytes, mode=mode)
+
+    _print_text_section(
+        "Payload Preview (hex)",
+        _hexdump(payload, max_bytes=options.max_bytes),
+        mode=mode,
+    )
+    _print_text_section(
+        "Envelope Preview (hex)",
+        _hexdump(envelope, max_bytes=options.max_bytes),
+        mode=mode,
+    )
+    payload_zbase = _format_zbase32_lines(payload, line_length=80, max_bytes=options.max_bytes)
+    _print_text_section(
+        "Payload Preview (z-base-32)",
+        "\n".join(payload_zbase) if payload_zbase else "(empty)",
+        mode=mode,
+    )
+
+    detail_rows: list[tuple[str, str]] = []
     if signing_seed_stored is not None:
-        stored_label = "yes" if signing_seed_stored else "no"
-        console.print(f"- signing seed stored in envelope: {stored_label}", markup=False)
-    console.print()
+        detail_rows.append(
+            ("Signing seed stored in envelope", "yes" if signing_seed_stored else "no")
+        )
+    if signing_pub is not None:
+        detail_rows.append(("Signing public key", "present (hex below)"))
+    else:
+        detail_rows.append(("Signing public key", "not available"))
+    _print_kv_section("Backup Details", detail_rows, mode=mode)
 
-    if signing_seed is not None or signing_pub is not None:
-        console.print("[bold]Signing Material:[/bold]")
-        if signing_pub is not None:
-            console.print("Signing public key (hex):", markup=False)
-            for line in _format_hex_lines(signing_pub, line_length=80):
-                console.print(line, markup=False)
-        if signing_seed is not None:
-            if options.reveal_secrets:
-                console.print("Signing private key (hex, revealed):", markup=False)
-                for line in _format_hex_lines(signing_seed, line_length=80):
-                    console.print(line, markup=False)
-            else:
-                console.print(
-                    f"Signing private key: {_format_masked_bytes_secret(signing_seed)}",
-                    markup=False,
-                )
-        console.print()
-
-    _print_manifest_section(manifest_bytes)
-
-    console.print("[bold]Payload Preview (hex):[/bold]")
-    console.print(_hexdump(payload, max_bytes=options.max_bytes), markup=False)
-    console.print()
-
-    console.print("[bold]Envelope Preview (hex):[/bold]")
-    console.print(_hexdump(envelope, max_bytes=options.max_bytes), markup=False)
-    console.print()
-
-    console.print("[bold]Payload Preview (z-base-32):[/bold]")
-    for line in _format_zbase32_lines(payload, line_length=80, max_bytes=options.max_bytes):
-        console.print(line, markup=False)
-    console.print()
+    if signing_pub is not None:
+        signing_pub_hex = "\n".join(_format_hex_lines(signing_pub, line_length=80))
+        _print_text_section("Signing Public Key (hex)", signing_pub_hex, mode=mode)
+    if signing_seed is not None and options.reveal_secrets:
+        signing_seed_hex = "\n".join(_format_hex_lines(signing_seed, line_length=80))
+        _print_text_section("Signing Private Key (hex, revealed)", signing_seed_hex, mode=mode)
 
 
 def _print_pre_encryption_debug(
@@ -339,50 +461,52 @@ def print_recover_debug(
     reveal_secrets: bool = False,
 ) -> None:
     options = _resolve_render_options(max_bytes=debug_max_bytes, reveal_secrets=reveal_secrets)
+    mode = _resolve_render_mode()
     manifest_bytes = encode_manifest(manifest)
 
-    console.print("[bold]Debug Summary:[/bold]")
-    console.print("- mode: recover", markup=False)
-    console.print(f"- ciphertext bytes: {len(ciphertext)}", markup=False)
-    console.print(f"- extracted files: {len(extracted)}", markup=False)
-    console.print(f"- auth status: {auth_status}", markup=False)
-    console.print(f"- rescue mode: {'enabled' if allow_unsigned else 'disabled'}", markup=False)
-    console.print(f"- output target: {output_path or 'stdout'}", markup=False)
-    if passphrase is not None:
+    _print_header("Recover", "Post-decryption diagnostics", mode=mode)
+
+    summary_rows = [
+        ("Mode", "recover"),
+        ("Ciphertext bytes", str(len(ciphertext))),
+        ("Extracted files", str(len(extracted))),
+        ("Auth status", auth_status),
+        ("Rescue mode", "enabled" if allow_unsigned else "disabled"),
+        ("Output target", output_path or "stdout"),
+    ]
+    _print_kv_section("Summary", summary_rows, mode=mode)
+
+    if passphrase is None:
+        secret_rows = [("Passphrase", "(none)")]
+    else:
         passphrase_display = (
             passphrase if options.reveal_secrets else _format_masked_text_secret(passphrase)
         )
-        console.print(f"- passphrase: {passphrase_display}", markup=False)
-    console.print()
+        secret_rows = [("Passphrase", passphrase_display)]
+    _print_kv_section("Secrets", secret_rows, mode=mode)
 
-    _print_manifest_section(manifest_bytes)
+    _print_manifest_section(manifest_bytes, mode=mode)
 
-    console.print("[bold]Recovered Entries:[/bold]")
     if not extracted:
-        console.print("(no entries)", markup=False)
-    else:
-        for entry, data in extracted:
-            console.print(
-                f"- {_entry_path(entry)} ({_entry_size(entry, data)} bytes)",
-                markup=False,
-            )
-    console.print()
-
-    console.print("[bold]Recovered Payload Preview (hex):[/bold]")
-    if not extracted:
-        console.print("(no entries)", markup=False)
+        recovered_preview = "(no entries)"
     else:
         preview_count = min(3, len(extracted))
+        preview_lines: list[str] = []
         for index, (entry, data) in enumerate(extracted[:preview_count], start=1):
-            console.print(f"entry {index}: {_entry_path(entry)}", markup=False)
-            console.print(_hexdump(data, max_bytes=options.max_bytes), markup=False)
+            preview_lines.append(f"entry {index}: {_entry_path(entry)}")
+            preview_lines.append(_hexdump(data, max_bytes=options.max_bytes))
             if index < preview_count:
-                console.print()
+                preview_lines.append("")
         if len(extracted) > preview_count:
             remaining = len(extracted) - preview_count
-            console.print(f"... omitted previews for {remaining} more entries", markup=False)
-    console.print()
+            preview_lines.append(f"... omitted previews for {remaining} more entries")
+        recovered_preview = "\n".join(preview_lines)
+    _print_text_section("Recovered Payload Preview (hex)", recovered_preview, mode=mode)
 
-    console.print("[bold]Ciphertext Preview (hex):[/bold]")
-    console.print(_hexdump(ciphertext, max_bytes=options.max_bytes), markup=False)
-    console.print()
+    _print_text_section(
+        "Ciphertext Preview (hex)",
+        _hexdump(ciphertext, max_bytes=options.max_bytes),
+        mode=mode,
+    )
+
+    _print_recovered_entries_section(extracted, mode=mode)

@@ -471,6 +471,7 @@ flowchart TD
 | `--debug-reveal-secrets` | reveal full passphrase/private key material in debug output | `ethernity --debug --debug-reveal-secrets backup ...` |
 
 Use `--debug-reveal-secrets` only in controlled environments and never in shared terminals/log collectors.
+Debug output is richer in interactive terminals and automatically falls back to plain text in redirected logs.
 
 ```sh
 # Safe debug (masked secrets)
