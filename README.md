@@ -118,6 +118,7 @@ Typical use cases:
 ### Prerequisites
 
 - Python 3.13+ (for source and pip-based installs)
+- `cosign` (only if you plan to verify release artifacts before extracting/running)
 - Chromium browser binaries for PDF rendering (auto-installed on first backup/render run)
 - Enough local disk space for generated PDFs and optional shard documents
 
@@ -156,6 +157,22 @@ cosign verify-blob --bundle "${BASE}.sigstore.json" "${BASE}"
 
 tar -xzf "${BASE}"
 ./ethernity-${TAG}-${OS_ARCH}/ethernity --help
+```
+
+Windows PowerShell equivalent:
+
+```powershell
+$Tag = "vX.Y.Z"
+$OsArch = "windows-x64"
+$Base = "ethernity-$Tag-$OsArch.zip"
+
+Invoke-WebRequest "https://github.com/MinorGlitch/ethernity/releases/download/$Tag/$Base" -OutFile $Base
+Invoke-WebRequest "https://github.com/MinorGlitch/ethernity/releases/download/$Tag/$Base.sigstore.json" -OutFile "$Base.sigstore.json"
+
+cosign verify-blob --bundle "$Base.sigstore.json" "$Base"
+
+Expand-Archive -Path $Base -DestinationPath .
+.\ethernity-$Tag-$OsArch\ethernity.exe --help
 ```
 
 For full verification and provenance guidance, use
@@ -224,8 +241,8 @@ If your workflow uses shards:
 ```sh
 ethernity recover \
   --scan ./backup-demo \
-  --shard-file ./shards/shard-01.txt \
-  --shard-file ./shards/shard-02.txt \
+  --shard-fallback-file ./shards/shard-01.txt \
+  --shard-fallback-file ./shards/shard-02.txt \
   --output ./restored.bin
 ```
 
@@ -341,7 +358,7 @@ If auth material is provided separately:
 ```sh
 ethernity recover \
   --scan ./incident/scans \
-  --auth-scan ./incident/auth-scans \
+  --auth-payloads-file ./incident/auth_payloads.txt \
   --output ./incident/recovered.tar
 ```
 
@@ -423,9 +440,9 @@ flowchart TD
 | Situation | Best Input Path |
 | --- | --- |
 | Clean QR scans available | `--scan` |
-| QR lines copied from logs/exports | payload text ingest |
+| QR lines copied from logs/exports | `--payloads-file` |
 | Scan quality poor but fallback text present | `--fallback-file` |
-| Partial scans plus shard text files | `--scan` + `--shard-file` |
+| Partial scans plus shard text files | `--scan` + `--shard-fallback-file` |
 
 ## Command Cheatsheet
 
