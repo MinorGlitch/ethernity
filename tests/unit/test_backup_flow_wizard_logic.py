@@ -185,11 +185,20 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
             mock.patch.object(
                 backup,
                 "_load_input_files",
-                side_effect=[ValueError("no input files found"), ([input_file], Path("/base"))],
+                side_effect=[
+                    ValueError("no input files found"),
+                    ([input_file], Path("/base"), "file", []),
+                ],
             ) as load_inputs,
             mock.patch.object(backup.console_err, "print") as error_print,
         ):
-            input_files, resolved_base, output_dir = backup._prompt_inputs(
+            (
+                input_files,
+                resolved_base,
+                output_dir,
+                input_origin,
+                input_roots,
+            ) = backup._prompt_inputs(
                 BackupArgs(base_dir="/base"),
                 quiet=False,
                 debug=True,
@@ -197,6 +206,8 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
         self.assertEqual(len(input_files), 1)
         self.assertEqual(resolved_base, Path("/base"))
         self.assertIsNone(output_dir)
+        self.assertEqual(input_origin, "file")
+        self.assertEqual(input_roots, [])
         self.assertEqual(load_inputs.call_count, 2)
         error_print.assert_called_once()
         progress_mock.assert_any_call(quiet=True)

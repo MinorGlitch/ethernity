@@ -167,6 +167,8 @@ def _prepare_envelope(
     input_files: list[InputFile],
     plan: DocumentPlan,
     sign_priv: bytes,
+    input_origin: str,
+    input_roots: list[str],
 ) -> tuple[bytes, bytes]:
     """Prepare the envelope from input files. Returns (envelope, payload)."""
     parts = [
@@ -177,6 +179,8 @@ def _prepare_envelope(
         parts,
         sealed=plan.sealed,
         signing_seed=sign_priv if not plan.sealed else None,
+        input_origin=input_origin,
+        input_roots=input_roots,
     )
     envelope = envelope_codec_module.encode_envelope(payload, manifest)
     return envelope, payload
@@ -442,6 +446,8 @@ def run_backup(
     input_files: list[InputFile],
     base_dir: Path | None,
     output_dir: str | None,
+    input_origin: str = "file",
+    input_roots: list[str] | None = None,
     plan: DocumentPlan,
     passphrase: str | None,
     passphrase_words: int | None = None,
@@ -469,7 +475,13 @@ def run_backup(
 
     # Prepare envelope and handle debug output
     with status("Preparing payload...", quiet=status_quiet):
-        envelope, payload = _prepare_envelope(input_files, plan, sign_priv)
+        envelope, payload = _prepare_envelope(
+            input_files,
+            plan,
+            sign_priv,
+            input_origin,
+            input_roots or [],
+        )
         manifest = envelope_codec_module.decode_envelope(envelope)[0]
 
     if debug:

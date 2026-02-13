@@ -21,6 +21,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from rich.progress import Progress, TaskID
 
@@ -58,9 +59,12 @@ def _load_input_files(
     *,
     allow_stdin: bool,
     progress: Progress | None = None,
-) -> tuple[list[InputFile], Path | None]:
+) -> tuple[list[InputFile], Path | None, Literal["file", "directory", "mixed"], list[str]]:
     paths: list[Path] = []
     stdin_requested = False
+    has_directory_source = False
+    has_file_source = False
+    input_roots: list[str] = []
     has_scan_inputs = any(raw != "-" for raw in input_paths) or bool(input_dirs)
     scan_task_id = (
         progress.add_task("Scanning input files...", total=None)
@@ -74,11 +78,15 @@ def _load_input_files(
     for raw in input_paths:
         if raw == "-":
             stdin_requested = True
+            has_file_source = True
             continue
         path = Path(raw).expanduser()
         if path.is_dir():
+            has_directory_source = True
+            input_roots.append(_directory_root_label(path))
             paths.extend(_walk_directory(path, on_file=tracker.tick))
         else:
+            has_file_source = True
             paths.append(path)
             tracker.tick()
 
@@ -88,6 +96,8 @@ def _load_input_files(
             raise ValueError(f"input dir not found: {path}")
         if not path.is_dir():
             raise ValueError(f"input dir is not a directory: {path}")
+        has_directory_source = True
+        input_roots.append(_directory_root_label(path))
         paths.extend(_walk_directory(path, on_file=tracker.tick))
 
     if stdin_requested and not allow_stdin:
@@ -163,7 +173,13 @@ def _load_input_files(
         )
 
     entries.sort(key=lambda item: item.relative_path)
-    return entries, base
+    if has_directory_source and has_file_source:
+        input_origin: Literal["file", "directory", "mixed"] = "mixed"
+    elif has_directory_source:
+        input_origin = "directory"
+    else:
+        input_origin = "file"
+    return entries, base, input_origin, input_roots
 
 
 def _walk_directory(path: Path, *, on_file: Callable[[], None] | None = None) -> list[Path]:
@@ -211,3 +227,10 @@ def _relative_path(path: Path, base_dir: Path | None) -> str:
         return normalize_path(rel, label="relative path")
     except ValueError as exc:
         raise ValueError(f"input file path is not valid UTF-8: {path!r}") from exc
+
+
+def _directory_root_label(path: Path) -> str:
+    label = path.expanduser().resolve().name.strip()
+    if not label:
+        raise ValueError(f"input directory path has no leaf name: {path}")
+    return label

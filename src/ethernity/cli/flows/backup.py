@@ -235,8 +235,11 @@ def _prompt_inputs(
     args: BackupArgs | None,
     quiet: bool,
     debug: bool,
-) -> tuple[list, Path | None, str | None]:
-    """Prompt for input files. Returns (input_files, resolved_base, output_dir)."""
+) -> tuple[list, Path | None, str | None, str, list[str]]:
+    """Prompt for input files.
+
+    Returns (input_files, resolved_base, output_dir, input_origin, input_roots).
+    """
     while True:
         input_values = prompt_paths_with_picker(
             "Input paths (files or directories, blank to finish)",
@@ -258,7 +261,7 @@ def _prompt_inputs(
         status_quiet = quiet or debug
         try:
             with progress(quiet=status_quiet) as progress_bar:
-                input_files, resolved_base = _load_input_files(
+                input_files, resolved_base, input_origin, input_roots = _load_input_files(
                     input_values,
                     [],
                     base_dir,
@@ -270,7 +273,7 @@ def _prompt_inputs(
             continue
         break
 
-    return input_files, resolved_base, output_dir
+    return input_files, resolved_base, output_dir, input_origin, input_roots
 
 
 def _apply_qr_chunk_size_override(config: AppConfig, qr_chunk_size: int | None) -> AppConfig:
@@ -448,7 +451,9 @@ def run_wizard(
             config = _apply_qr_chunk_size_override(config, args.qr_chunk_size if args else None)
 
             with wizard_stage("Inputs"):
-                input_files, resolved_base, output_dir = _prompt_inputs(args, quiet, debug)
+                input_files, resolved_base, output_dir, input_origin, input_roots = _prompt_inputs(
+                    args, quiet, debug
+                )
 
             review_rows = _build_review_rows(
                 passphrase,
@@ -481,6 +486,8 @@ def run_wizard(
                 input_files=input_files,
                 base_dir=resolved_base,
                 output_dir=output_dir,
+                input_origin=input_origin,
+                input_roots=input_roots,
                 plan=plan,
                 passphrase=passphrase,
                 passphrase_words=passphrase_words,
@@ -526,7 +533,7 @@ def run_backup_command(args: BackupArgs) -> int:
     output_dir = args.output_dir
     status_quiet = quiet or debug
     with progress(quiet=status_quiet) as progress_bar:
-        input_files, resolved_base = _load_input_files(
+        input_files, resolved_base, input_origin, input_roots = _load_input_files(
             inputs,
             input_dirs,
             args.base_dir,
@@ -537,6 +544,8 @@ def run_backup_command(args: BackupArgs) -> int:
         input_files=input_files,
         base_dir=resolved_base,
         output_dir=output_dir,
+        input_origin=input_origin,
+        input_roots=input_roots,
         plan=plan,
         passphrase=passphrase,
         passphrase_words=passphrase_words,
@@ -555,6 +564,8 @@ def run_backup(
     input_files: list[InputFile],
     base_dir: Path | None,
     output_dir: str | None,
+    input_origin: str = "file",
+    input_roots: list[str] | None = None,
     plan: DocumentPlan,
     passphrase: str | None,
     passphrase_words: int | None = None,
@@ -567,6 +578,8 @@ def run_backup(
         input_files=input_files,
         base_dir=base_dir,
         output_dir=output_dir,
+        input_origin=input_origin,
+        input_roots=input_roots,
         plan=plan,
         passphrase=passphrase,
         passphrase_words=passphrase_words,
