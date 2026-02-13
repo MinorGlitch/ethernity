@@ -33,6 +33,8 @@ from ethernity.formats.envelope_codec import (
 )
 from ethernity.formats.envelope_types import (
     MANIFEST_VERSION,
+    PATH_ENCODING_DIRECT,
+    PATH_ENCODING_PREFIX_TABLE,
     EnvelopeManifest,
     ManifestFile,
     PayloadPart,
@@ -47,13 +49,13 @@ def _make_manifest_file_entry(
     size: int = 4,
     hash_value: object = b"\x00" * 32,
     mtime: object = None,
-) -> dict[str, object]:
-    return {
-        "path": path,
-        "size": size,
-        "hash": hash_value,
-        "mtime": mtime,
-    }
+    prefix_index: int | None = None,
+    suffix: str | None = None,
+) -> list[object]:
+    if prefix_index is None:
+        return [path, size, hash_value, mtime]
+    resolved_suffix = suffix if suffix is not None else path
+    return [prefix_index, resolved_suffix, size, hash_value, mtime]
 
 
 def _make_manifest_cbor(
@@ -64,13 +66,20 @@ def _make_manifest_cbor(
     seed: object = TEST_SIGNING_SEED,
     input_origin: object = "file",
     input_roots: object | None = None,
-    files: list[dict[str, object]] | None = None,
+    path_encoding: object = PATH_ENCODING_DIRECT,
+    path_prefixes: object | None = None,
+    files: list[list[object]] | None = None,
 ) -> dict[str, object]:
     if input_roots is None:
         if input_origin in {"directory", "mixed"}:
             input_roots = ["root"]
         else:
             input_roots = []
+    if files is None:
+        if path_encoding == PATH_ENCODING_PREFIX_TABLE:
+            files = [_make_manifest_file_entry(prefix_index=0, suffix="payload.bin")]
+        else:
+            files = [_make_manifest_file_entry()]
     return {
         "version": version,
         "created": created,
@@ -78,7 +87,9 @@ def _make_manifest_cbor(
         "seed": seed,
         "input_origin": input_origin,
         "input_roots": input_roots,
-        "files": files if files is not None else [_make_manifest_file_entry()],
+        "path_encoding": path_encoding,
+        "path_prefixes": path_prefixes if path_prefixes is not None else [""],
+        "files": files,
     }
 
 
@@ -119,7 +130,70 @@ class TestEnvelope(unittest.TestCase):
         self.assertEqual(decoded["version"], MANIFEST_VERSION)
         self.assertEqual(decoded["input_origin"], "file")
         self.assertEqual(decoded["input_roots"], [])
+        self.assertEqual(decoded["path_encoding"], PATH_ENCODING_DIRECT)
         self.assertIn("files", decoded)
+        self.assertIsInstance(decoded["files"][0], list)
+
+    def test_manifest_adaptive_encoding_chooses_direct_for_flat_paths(self) -> None:
+        parts = [
+            PayloadPart(path=f"file_{index:03d}.txt", data=b"x", mtime=index) for index in range(80)
+        ]
+        manifest, payload = build_manifest_and_payload(
+            parts, sealed=False, created_at=0.0, signing_seed=TEST_SIGNING_SEED
+        )
+        encoded = encode_manifest(manifest)
+        decoded = cbor2.loads(encoded)
+        self.assertEqual(decoded["path_encoding"], PATH_ENCODING_DIRECT)
+        self.assertNotIn("path_prefixes", decoded)
+
+        roundtrip_manifest, roundtrip_payload = decode_envelope(encode_envelope(payload, manifest))
+        self.assertEqual(roundtrip_payload, payload)
+        self.assertEqual(len(roundtrip_manifest.files), 80)
+
+    def test_manifest_adaptive_encoding_chooses_prefix_for_shared_deep_paths(self) -> None:
+        parts = [
+            PayloadPart(
+                path=f"project/docs/sub/section/file_{index:03d}.txt",
+                data=b"x",
+                mtime=index,
+            )
+            for index in range(80)
+        ]
+        manifest, payload = build_manifest_and_payload(
+            parts, sealed=False, created_at=0.0, signing_seed=TEST_SIGNING_SEED
+        )
+        encoded = encode_manifest(manifest)
+        decoded = cbor2.loads(encoded)
+        self.assertEqual(decoded["path_encoding"], PATH_ENCODING_PREFIX_TABLE)
+        self.assertIn("path_prefixes", decoded)
+        self.assertTrue(decoded["path_prefixes"])
+        self.assertEqual(decoded["path_prefixes"][0], "")
+
+        roundtrip_manifest, roundtrip_payload = decode_envelope(encode_envelope(payload, manifest))
+        self.assertEqual(roundtrip_payload, payload)
+        self.assertEqual(roundtrip_manifest.files[0].path, "project/docs/sub/section/file_000.txt")
+
+    @mock.patch("ethernity.formats.envelope_types.dumps_canonical")
+    def test_manifest_encoding_tie_breaker_prefers_direct(
+        self, dumps_canonical: mock.MagicMock
+    ) -> None:
+        dumps_canonical.side_effect = [b"ab", b"cd"]
+        manifest = EnvelopeManifest(
+            format_version=MANIFEST_VERSION,
+            created_at=1.0,
+            sealed=False,
+            signing_seed=TEST_SIGNING_SEED,
+            files=(
+                ManifestFile(
+                    path="docs/file.txt",
+                    size=1,
+                    sha256=hashlib.sha256(b"x").digest(),
+                    mtime=None,
+                ),
+            ),
+        )
+        encoded = manifest.to_cbor()
+        self.assertEqual(encoded["path_encoding"], PATH_ENCODING_DIRECT)
 
     def test_manifest_encoding_is_deterministic(self) -> None:
         payload = b"hello world"
@@ -264,6 +338,23 @@ class TestEnvelope(unittest.TestCase):
         self.assertEqual(decoded_payload, payload)
         self.assertEqual(
             [file.path for file in decoded_manifest.files],
+            ["dir/alpha.txt", "dir/beta.txt"],
+        )
+
+    def test_manifest_prefix_table_manual_roundtrip(self) -> None:
+        data = _make_manifest_cbor(
+            sealed=True,
+            seed=None,
+            path_encoding=PATH_ENCODING_PREFIX_TABLE,
+            path_prefixes=["", "dir"],
+            files=[
+                _make_manifest_file_entry(prefix_index=1, suffix="alpha.txt", mtime=1),
+                _make_manifest_file_entry(prefix_index=1, suffix="beta.txt", mtime=2),
+            ],
+        )
+        manifest = EnvelopeManifest.from_cbor(data)
+        self.assertEqual(
+            [entry.path for entry in manifest.files],
             ["dir/alpha.txt", "dir/beta.txt"],
         )
 
@@ -416,6 +507,64 @@ class TestEnvelope(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "input_roots"):
             EnvelopeManifest.from_cbor(data)
 
+    def test_manifest_requires_path_encoding(self) -> None:
+        data = _make_manifest_cbor()
+        del data["path_encoding"]
+        with self.assertRaisesRegex(ValueError, "path_encoding"):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_rejects_invalid_path_encoding(self) -> None:
+        data = _make_manifest_cbor(path_encoding="legacy")
+        with self.assertRaisesRegex(ValueError, "path_encoding"):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_prefix_table_requires_path_prefixes(self) -> None:
+        data = _make_manifest_cbor(path_encoding=PATH_ENCODING_PREFIX_TABLE)
+        del data["path_prefixes"]
+        with self.assertRaisesRegex(ValueError, "path_prefixes"):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_rejects_invalid_path_prefixes_shape(self) -> None:
+        data = _make_manifest_cbor(
+            path_encoding=PATH_ENCODING_PREFIX_TABLE,
+            path_prefixes="not-a-list",
+        )
+        with self.assertRaisesRegex(ValueError, "path_prefixes"):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_rejects_invalid_path_prefixes_values(self) -> None:
+        data = _make_manifest_cbor(
+            path_encoding=PATH_ENCODING_PREFIX_TABLE,
+            path_prefixes=["", "dir//name"],
+            files=[_make_manifest_file_entry(prefix_index=1, suffix="payload.bin")],
+        )
+        with self.assertRaisesRegex(ValueError, "path_prefix"):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_rejects_prefix_index_out_of_range(self) -> None:
+        data = _make_manifest_cbor(
+            path_encoding=PATH_ENCODING_PREFIX_TABLE,
+            path_prefixes=[""],
+            files=[_make_manifest_file_entry(prefix_index=1, suffix="payload.bin")],
+        )
+        with self.assertRaisesRegex(ValueError, "prefix_index"):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_rejects_legacy_map_file_entries(self) -> None:
+        data = _make_manifest_cbor(
+            path_encoding=PATH_ENCODING_DIRECT,
+            files=[
+                {
+                    "path": "payload.bin",
+                    "size": 4,
+                    "hash": b"\x00" * 32,
+                    "mtime": None,
+                }
+            ],
+        )
+        with self.assertRaisesRegex(ValueError, "array encoding"):
+            EnvelopeManifest.from_cbor(data)
+
     def test_manifest_rejects_invalid_input_roots_shape(self) -> None:
         data = _make_manifest_cbor(input_roots="root")
         with self.assertRaisesRegex(ValueError, "input_roots"):
@@ -453,7 +602,6 @@ class TestEnvelope(unittest.TestCase):
     def test_manifest_ignores_unknown_keys(self) -> None:
         data = _make_manifest_cbor()
         data["extra"] = 123
-        data["files"][0]["extra"] = "ignored"
         manifest = EnvelopeManifest.from_cbor(data)
         self.assertEqual(manifest.format_version, MANIFEST_VERSION)
         self.assertEqual(manifest.signing_seed, TEST_SIGNING_SEED)
