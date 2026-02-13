@@ -62,13 +62,22 @@ def _make_manifest_cbor(
     created: float = 0.0,
     sealed: bool = False,
     seed: object = TEST_SIGNING_SEED,
+    input_origin: object = "file",
+    input_roots: object | None = None,
     files: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
+    if input_roots is None:
+        if input_origin in {"directory", "mixed"}:
+            input_roots = ["root"]
+        else:
+            input_roots = []
     return {
         "version": version,
         "created": created,
         "sealed": sealed,
         "seed": seed,
+        "input_origin": input_origin,
+        "input_roots": input_roots,
         "files": files if files is not None else [_make_manifest_file_entry()],
     }
 
@@ -108,6 +117,8 @@ class TestEnvelope(unittest.TestCase):
         decoded = cbor2.loads(encoded)
         self.assertIsInstance(decoded, dict)
         self.assertEqual(decoded["version"], MANIFEST_VERSION)
+        self.assertEqual(decoded["input_origin"], "file")
+        self.assertEqual(decoded["input_roots"], [])
         self.assertIn("files", decoded)
 
     def test_manifest_encoding_is_deterministic(self) -> None:
@@ -386,6 +397,57 @@ class TestEnvelope(unittest.TestCase):
     def test_manifest_rejects_invalid_signing_seed(self) -> None:
         data = _make_manifest_cbor(seed="not-bytes")
         with self.assertRaises(ValueError):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_requires_input_origin(self) -> None:
+        data = _make_manifest_cbor()
+        del data["input_origin"]
+        with self.assertRaisesRegex(ValueError, "input_origin"):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_rejects_invalid_input_origin(self) -> None:
+        data = _make_manifest_cbor(input_origin="archive")
+        with self.assertRaisesRegex(ValueError, "input_origin"):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_requires_input_roots(self) -> None:
+        data = _make_manifest_cbor()
+        del data["input_roots"]
+        with self.assertRaisesRegex(ValueError, "input_roots"):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_rejects_invalid_input_roots_shape(self) -> None:
+        data = _make_manifest_cbor(input_roots="root")
+        with self.assertRaisesRegex(ValueError, "input_roots"):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_rejects_invalid_input_root_label(self) -> None:
+        data = _make_manifest_cbor(input_roots=["dir/name"])
+        with self.assertRaisesRegex(ValueError, "input_root"):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_accepts_directory_and_mixed_input_origin(self) -> None:
+        data = _make_manifest_cbor(input_origin="directory", input_roots=["vault"])
+        directory_manifest = EnvelopeManifest.from_cbor(data)
+        self.assertEqual(directory_manifest.input_origin, "directory")
+        self.assertEqual(directory_manifest.input_roots, ("vault",))
+
+        data = _make_manifest_cbor(input_origin="mixed", input_roots=["vault"])
+        mixed_manifest = EnvelopeManifest.from_cbor(data)
+        self.assertEqual(mixed_manifest.input_origin, "mixed")
+        self.assertEqual(mixed_manifest.input_roots, ("vault",))
+
+    def test_manifest_rejects_file_origin_with_input_roots(self) -> None:
+        data = _make_manifest_cbor(input_origin="file", input_roots=["vault"])
+        with self.assertRaisesRegex(ValueError, "input_roots"):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_rejects_directory_or_mixed_without_input_roots(self) -> None:
+        data = _make_manifest_cbor(input_origin="directory", input_roots=[])
+        with self.assertRaisesRegex(ValueError, "input_roots"):
+            EnvelopeManifest.from_cbor(data)
+        data = _make_manifest_cbor(input_origin="mixed", input_roots=[])
+        with self.assertRaisesRegex(ValueError, "input_roots"):
             EnvelopeManifest.from_cbor(data)
 
     def test_manifest_ignores_unknown_keys(self) -> None:

@@ -44,7 +44,7 @@ from ..io.frames import (
 )
 from ..ui.summary import format_auth_status
 from .prompts import _prompt_shard_inputs, _resolve_recover_output
-from .recover_flow import decrypt_and_extract, write_recovered_outputs
+from .recover_flow import decrypt_and_extract, decrypt_manifest_and_extract, write_recovered_outputs
 from .recover_input import (
     collect_fallback_frames,
     collect_payload_frames,
@@ -283,11 +283,16 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                         console.print("Recovery cancelled.")
                         return 1
 
-            extracted = decrypt_and_extract(plan, quiet=quiet, debug=debug)
+            manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
 
             with wizard_stage("Output"):
                 output_path = _resolve_recover_output(
-                    extracted, args.output, interactive=True, doc_id=plan.doc_id
+                    extracted,
+                    args.output,
+                    interactive=True,
+                    doc_id=plan.doc_id,
+                    input_origin=manifest.input_origin,
+                    input_roots=manifest.input_roots,
                 )
                 if not assume_yes and not prompt_yes_no(
                     "Proceed with writing files",

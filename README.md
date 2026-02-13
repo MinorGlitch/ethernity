@@ -552,6 +552,7 @@ Rows follow the onboarding sequence: install/run, verification, then recovery.
 | Verification | `cosign verify-blob` fails | Verify the exact archive with the matching `.sigstore.json` bundle from the same tag. |
 | Verification | expecting `.sig`/`.pem` but release has only `.sigstore.json` | This is valid for bundle-first signing; use `cosign verify-blob --bundle ...`. |
 | Recovery Input | parser rejects mixed payload text | Split by document set and recover one mode/source at a time. |
+| Recovery Input | `manifest input_origin/input_roots is required` | This release intentionally hard-breaks older manifests. Recover with a pre-break build or recreate the backup with this release. |
 | Recovery Input | `No such option` | Use `ethernity <command> --help` and current flags (for example `--qr-chunk-size`). |
 | Recovery Validation | recovered output seems wrong | Compare hashes/bytes against a trusted source and retry with fresh inputs. |
 

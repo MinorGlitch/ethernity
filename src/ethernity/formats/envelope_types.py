@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from ..core.bounds import MAX_MANIFEST_FILES
 from ..core.validation import (
     normalize_manifest_path,
+    normalize_path,
     require_bytes,
     require_dict,
     require_keys,
@@ -61,6 +62,8 @@ class EnvelopeManifest:
     sealed: bool
     signing_seed: bytes | None
     files: tuple[ManifestFile, ...]
+    input_origin: str = "file"
+    input_roots: tuple[str, ...] = ()
 
     def to_cbor(self) -> dict[str, object]:
         if not self.files:
@@ -78,6 +81,10 @@ class EnvelopeManifest:
             if self.signing_seed is None:
                 raise ValueError("unsealed manifests must include seed")
             require_length(self.signing_seed, SIGNING_SEED_LEN, label="seed")
+        if self.input_origin not in {"file", "directory", "mixed"}:
+            raise ValueError("manifest input_origin must be one of: file, directory, mixed")
+        normalized_roots = tuple(_normalize_root_label(root) for root in self.input_roots)
+        _validate_input_origin_roots(self.input_origin, normalized_roots)
 
         seen_paths: set[str] = set()
         for entry in self.files:
@@ -100,6 +107,8 @@ class EnvelopeManifest:
             "created": self.created_at,
             "sealed": self.sealed,
             "seed": self.signing_seed,
+            "input_origin": self.input_origin,
+            "input_roots": list(normalized_roots),
             "files": files,
         }
 
@@ -109,6 +118,8 @@ class EnvelopeManifest:
             "created_at": self.created_at,
             "sealed": self.sealed,
             "signing_seed": self.signing_seed,
+            "input_origin": self.input_origin,
+            "input_roots": list(self.input_roots),
             "files": [file.to_dict() for file in self.files],
         }
 
@@ -117,13 +128,15 @@ class EnvelopeManifest:
         validated = require_dict(data, label="manifest")
         require_keys(
             validated,
-            ("version", "created", "sealed", "seed", "files"),
+            ("version", "created", "sealed", "seed", "input_origin", "input_roots", "files"),
             label="manifest",
         )
         format_version = validated["version"]
         created_at = validated["created"]
         sealed = validated["sealed"]
         signing_seed = validated["seed"]
+        input_origin = validated["input_origin"]
+        input_roots = validated["input_roots"]
         files_raw = validated["files"]
         if not isinstance(format_version, int):
             raise ValueError("manifest version must be an int")
@@ -133,6 +146,16 @@ class EnvelopeManifest:
             raise ValueError("manifest created must be a number")
         if not isinstance(sealed, bool):
             raise ValueError("manifest sealed must be a boolean")
+        if not isinstance(input_origin, str):
+            raise ValueError("manifest input_origin must be a string")
+        if input_origin not in {"file", "directory", "mixed"}:
+            raise ValueError("manifest input_origin must be one of: file, directory, mixed")
+        if not isinstance(input_roots, (list, tuple)):
+            raise ValueError("manifest input_roots must be a list")
+        normalized_roots: list[str] = []
+        for root in input_roots:
+            normalized_roots.append(_normalize_root_label(root))
+        _validate_input_origin_roots(input_origin, tuple(normalized_roots))
         if sealed:
             if signing_seed is not None:
                 raise ValueError("manifest seed must be null for sealed manifests")
@@ -188,6 +211,8 @@ class EnvelopeManifest:
             created_at=float(created_at),
             sealed=sealed,
             signing_seed=seed_bytes,
+            input_origin=input_origin,
+            input_roots=tuple(normalized_roots),
             files=tuple(files),
         )
 
@@ -206,3 +231,22 @@ def _coerce_sha256(value: object) -> bytes | None:
             return raw
         return None
     return None
+
+
+def _normalize_root_label(value: object) -> str:
+    root = normalize_path(value, label="manifest input_root")
+    root = root.strip()
+    if not root:
+        raise ValueError("manifest input_root must be a non-empty string")
+    if "/" in root or "\\" in root:
+        raise ValueError("manifest input_root must be a leaf label without path separators")
+    return root
+
+
+def _validate_input_origin_roots(input_origin: str, input_roots: tuple[str, ...]) -> None:
+    if input_origin == "file":
+        if input_roots:
+            raise ValueError("manifest input_roots must be empty when input_origin is file")
+        return
+    if not input_roots:
+        raise ValueError("manifest input_roots must be non-empty for directory or mixed input")

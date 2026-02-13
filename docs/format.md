@@ -88,6 +88,8 @@ Constants:
   "created": created_at,    // canonical encoder output: int unix epoch seconds
   "sealed": sealed,         // bool
   "seed": signing_seed,     // bytes or null (Ed25519 seed, 32 bytes)
+  "input_origin": origin,   // string: "file", "directory", or "mixed"
+  "input_roots": roots,     // list[str], directory source leaf labels
   "files": files            // list[file_entry]
 }
 ```
@@ -110,11 +112,18 @@ Manifest requirements (map keys):
 - `seed`:
   - if `sealed` is true, `seed` MUST be null
   - if `sealed` is false, `seed` MUST be 32 bytes
+- `input_origin`: string in `{"file", "directory", "mixed"}`
+- `input_roots`: list of non-empty UTF-8 strings, each a leaf label (no `/` or `\`)
+- cross-field consistency:
+  - if `input_origin` is `"file"`, `input_roots` MUST be empty
+  - if `input_origin` is `"directory"` or `"mixed"`, `input_roots` MUST be non-empty
 - `files`: list of entries, MUST contain at least one file entry
 - The canonical CBOR byte length of the manifest MUST be ≤ `MAX_MANIFEST_CBOR_BYTES` (Section 17).
 - The number of file entries MUST be ≤ `MAX_MANIFEST_FILES` (Section 17).
 - Decoders MUST ignore unknown top-level manifest keys.
 - Encoders SHOULD NOT emit unknown top-level manifest keys for `MANIFEST_VERSION = 1`.
+- Decoders in this implementation require both `input_origin` and `input_roots` to be present.
+  Manifests that omit either key are unsupported by this build even if other v1 fields are valid.
 
 File list requirements:
 - Encoders MUST reject empty `files` lists at creation time.
@@ -441,7 +450,8 @@ Current version values (Version 1):
 ### 12.1) v1.1 Clarification and Compatibility Notes
 
 This specification revision is a v1.1 clarification pass only. It does not change the v1 wire
-format, binary framing, or payload layouts.
+format, binary framing, or payload layouts. However, this implementation requires the manifest
+`input_origin` and `input_roots` keys and rejects legacy manifests that omit either key.
 
 Compatibility and extensibility guidance:
 - Manifest/auth/shard payloads are CBOR maps. Decoders ignore unknown keys for forward

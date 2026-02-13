@@ -18,11 +18,24 @@ from __future__ import annotations
 
 from ...crypto import decrypt_bytes
 from ...formats.envelope_codec import decode_envelope, extract_payloads
-from ...formats.envelope_types import ManifestFile
+from ...formats.envelope_types import EnvelopeManifest, ManifestFile
 from ..api import print_completion_panel, status
 from ..io.outputs import _write_recovered_outputs
 from ..ui.summary import format_auth_status, print_recover_summary
 from .recover_plan import RecoveryPlan
+
+
+def decrypt_manifest_and_extract(
+    plan: RecoveryPlan,
+    *,
+    quiet: bool,
+    debug: bool = False,
+) -> tuple[EnvelopeManifest, list[tuple[ManifestFile, bytes]]]:
+    with status("Decrypting and unpacking payload...", quiet=quiet):
+        plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
+        manifest, payload = decode_envelope(plaintext)
+        extracted = extract_payloads(manifest, payload)
+    return manifest, extracted
 
 
 def decrypt_and_extract(
@@ -31,10 +44,7 @@ def decrypt_and_extract(
     quiet: bool,
     debug: bool = False,
 ) -> list[tuple[ManifestFile, bytes]]:
-    with status("Decrypting and unpacking payload...", quiet=quiet):
-        plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
-        manifest, payload = decode_envelope(plaintext)
-        extracted = extract_payloads(manifest, payload)
+    _manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
     return extracted
 
 

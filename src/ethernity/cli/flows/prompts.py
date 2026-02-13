@@ -48,12 +48,17 @@ def _resolve_recover_output(
     *,
     interactive: bool,
     doc_id: bytes | None,
+    input_origin: str,
+    input_roots: Sequence[str],
 ) -> str | None:
     if output_path or not interactive:
         return output_path
     if not entries:
         return output_path
-    if len(entries) == 1:
+    single_entry = len(entries) == 1
+    if single_entry and input_origin in {"directory", "mixed"}:
+        return _prompt_output_directory(doc_id, input_origin=input_origin, input_roots=input_roots)
+    if single_entry:
         choice = prompt_choice(
             "Recovered file output",
             {"file": "Save to a file", "stdout": "Print to stdout"},
@@ -85,7 +90,40 @@ def _resolve_recover_output(
         )
         return path or default_name
 
-    default_dir = f"recovered-{doc_id.hex()}" if doc_id else "recovered-output"
+    return _prompt_output_directory(doc_id, input_origin=input_origin, input_roots=input_roots)
+
+
+def _infer_recovered_filename(entry: object) -> str:
+    default_name = "recovered.bin"
+    entry_path = getattr(entry, "path", None)
+    if entry_path is None:
+        return default_name
+    candidate = Path(str(entry_path)).name.strip()
+    return candidate or default_name
+
+
+def _prompt_output_directory(
+    doc_id: bytes | None,
+    *,
+    input_origin: str,
+    input_roots: Sequence[str],
+) -> str:
+    default_dir = _infer_recovered_directory(
+        doc_id,
+        input_origin=input_origin,
+        input_roots=input_roots,
+    )
+    destination = prompt_choice(
+        "Output directory destination",
+        {
+            "inferred": f"Use inferred directory ({default_dir})",
+            "custom": "Choose custom directory path",
+        },
+        default="inferred",
+        help_text="The inferred directory comes from the decrypted envelope metadata.",
+    )
+    if destination == "inferred":
+        return default_dir
     help_text = f"Leave blank to use {default_dir}. A directory will be created if needed."
     directory = prompt_optional_path_with_picker(
         "Output directory",
@@ -97,13 +135,20 @@ def _resolve_recover_output(
     return directory or default_dir
 
 
-def _infer_recovered_filename(entry: object) -> str:
-    default_name = "recovered.bin"
-    entry_path = getattr(entry, "path", None)
-    if entry_path is None:
-        return default_name
-    candidate = Path(str(entry_path)).name.strip()
-    return candidate or default_name
+def _infer_recovered_directory(
+    doc_id: bytes | None,
+    *,
+    input_origin: str,
+    input_roots: Sequence[str],
+) -> str:
+    fallback = f"recovered-{doc_id.hex()}" if doc_id else "recovered-output"
+    if input_origin == "mixed":
+        return fallback
+    if input_origin == "directory" and len(input_roots) == 1:
+        candidate = input_roots[0].strip()
+        if candidate:
+            return candidate
+    return fallback
 
 
 def _format_shard_input_error(exc: Exception) -> str:

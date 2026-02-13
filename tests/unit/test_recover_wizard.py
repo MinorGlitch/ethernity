@@ -427,7 +427,7 @@ class TestRunRecoverWizard(unittest.TestCase):
 
     @mock.patch("ethernity.cli.flows.recover_wizard.write_recovered_outputs")
     @mock.patch("ethernity.cli.flows.recover_wizard._resolve_recover_output", return_value="out")
-    @mock.patch("ethernity.cli.flows.recover_wizard.decrypt_and_extract")
+    @mock.patch("ethernity.cli.flows.recover_wizard.decrypt_manifest_and_extract")
     @mock.patch("ethernity.cli.flows.recover_wizard.prompt_yes_no", side_effect=[True, False])
     @mock.patch(
         "ethernity.cli.flows.recover_wizard._build_recovery_review_rows", return_value=[("A", "B")]
@@ -459,7 +459,7 @@ class TestRunRecoverWizard(unittest.TestCase):
         build_recovery_plan: mock.MagicMock,
         _build_recovery_review_rows: mock.MagicMock,
         _prompt_yes_no: mock.MagicMock,
-        decrypt_and_extract: mock.MagicMock,
+        decrypt_manifest_and_extract: mock.MagicMock,
         _resolve_recover_output: mock.MagicMock,
         write_recovered_outputs: mock.MagicMock,
     ) -> None:
@@ -474,7 +474,10 @@ class TestRunRecoverWizard(unittest.TestCase):
             auth_frames=(),
             doc_id=main.doc_id,
         )
-        decrypt_and_extract.return_value = [(SimpleNamespace(path="a.txt"), b"x")]
+        decrypt_manifest_and_extract.return_value = (
+            SimpleNamespace(input_origin="file", input_roots=()),
+            [(SimpleNamespace(path="a.txt"), b"x")],
+        )
 
         result = wizard.run_recover_wizard(
             RecoverArgs(quiet=False, assume_yes=False), show_header=False
@@ -485,7 +488,7 @@ class TestRunRecoverWizard(unittest.TestCase):
 
     @mock.patch("ethernity.cli.flows.recover_wizard.write_recovered_outputs")
     @mock.patch("ethernity.cli.flows.recover_wizard._resolve_recover_output", return_value="out")
-    @mock.patch("ethernity.cli.flows.recover_wizard.decrypt_and_extract")
+    @mock.patch("ethernity.cli.flows.recover_wizard.decrypt_manifest_and_extract")
     @mock.patch("ethernity.cli.flows.recover_wizard.prompt_yes_no", side_effect=[True, True])
     @mock.patch(
         "ethernity.cli.flows.recover_wizard._build_recovery_review_rows", return_value=[("A", "B")]
@@ -522,7 +525,7 @@ class TestRunRecoverWizard(unittest.TestCase):
         build_recovery_plan: mock.MagicMock,
         _build_recovery_review_rows: mock.MagicMock,
         _prompt_yes_no: mock.MagicMock,
-        decrypt_and_extract: mock.MagicMock,
+        decrypt_manifest_and_extract: mock.MagicMock,
         _resolve_recover_output: mock.MagicMock,
         write_recovered_outputs: mock.MagicMock,
     ) -> None:
@@ -539,7 +542,10 @@ class TestRunRecoverWizard(unittest.TestCase):
         )
         build_recovery_plan.return_value = plan
         extracted = [(SimpleNamespace(path="a.txt"), b"x")]
-        decrypt_and_extract.return_value = extracted
+        decrypt_manifest_and_extract.return_value = (
+            SimpleNamespace(input_origin="mixed", input_roots=("vault",)),
+            extracted,
+        )
 
         result = wizard.run_recover_wizard(
             RecoverArgs(quiet=False, assume_yes=False), show_header=False
@@ -547,6 +553,14 @@ class TestRunRecoverWizard(unittest.TestCase):
 
         self.assertEqual(result, 0)
         ui_screen_mode.assert_called_once_with(quiet=False)
+        _resolve_recover_output.assert_called_once_with(
+            extracted,
+            None,
+            interactive=True,
+            doc_id=main.doc_id,
+            input_origin="mixed",
+            input_roots=("vault",),
+        )
         write_recovered_outputs.assert_called_once_with(
             extracted,
             output_path="out",
