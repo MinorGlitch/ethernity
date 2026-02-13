@@ -85,7 +85,7 @@ Constants:
 ```
 {
   "version": version,       // int, MUST equal MANIFEST_VERSION (1)
-  "created": created_at,    // float or int (unix epoch seconds)
+  "created": created_at,    // canonical encoder output: int unix epoch seconds
   "sealed": sealed,         // bool
   "seed": signing_seed,     // bytes or null (Ed25519 seed, 32 bytes)
   "files": files            // list[file_entry]
@@ -104,7 +104,8 @@ File entry (CBOR map):
 
 Manifest requirements (map keys):
 - `version`: int == MANIFEST_VERSION (1)
-- `created`: int or float
+- `created`: encoders SHOULD emit integer Unix epoch seconds as canonical output
+- `created`: decoders MAY accept integer or float values for compatibility with legacy payloads
 - `sealed`: bool
 - `seed`:
   - if `sealed` is true, `seed` MUST be null
@@ -258,7 +259,7 @@ Version 1 defines two decoder operation modes:
 - Authenticated mode (default):
   - Decoders MUST enforce signature verification requirements in Sections 8 and 9.
   - Missing/invalid required authentication material MUST be treated as fatal.
-- Rescue mode (explicit operator override):
+- Rescue mode (explicit operator override only):
   - Decoders MAY continue recovery when AUTH is missing, malformed, or fails signature verification.
   - Decoders MAY continue recovery when shard signatures fail verification, but only if all
     non-signature shard validation and consistency checks still pass.
@@ -305,6 +306,7 @@ Verification requirements:
 - In authenticated mode, decoders MUST verify `sig` as an Ed25519 signature over
   `AUTH_DOMAIN + canonical_cbor(signed_auth_payload)`.
 - In authenticated mode, decoders MUST reject AUTH payloads with invalid signatures.
+- Signature verification bypass is permitted only in rescue mode (Section 7.1).
 - In rescue mode, decoders MAY ignore missing/invalid AUTH payloads and continue unauthenticated.
 
 ## 9) Shard Payload (FrameType.KEY_DOCUMENT data)
@@ -368,6 +370,7 @@ Verification requirements:
 - In authenticated mode, decoders MUST verify `sig` as an Ed25519 signature over
   `SHARD_DOMAIN + canonical_cbor(signed_shard_payload)`.
 - In authenticated mode, decoders MUST reject shard payloads with invalid signatures.
+- Signature verification bypass is permitted only in rescue mode (Section 7.1).
 - In rescue mode, decoders MAY proceed without shard signature verification, but MUST still enforce
   shard structural/binding/consistency requirements before using shards for reconstruction.
 - In a shard reconstruction set, all shard payloads MUST share the same
@@ -435,6 +438,21 @@ Current version values (Version 1):
 - AUTH_VERSION = `1`
 - SHARD_VERSION = `1`
 
+### 12.1) v1.1 Clarification and Compatibility Notes
+
+This specification revision is a v1.1 clarification pass only. It does not change the v1 wire
+format, binary framing, or payload layouts.
+
+Compatibility and extensibility guidance:
+- Manifest/auth/shard payloads are CBOR maps. Decoders ignore unknown keys for forward
+  compatibility; encoders should avoid emitting undefined keys in v1 payloads.
+- Frame types are closed for v1. Decoders reject frame-type values outside the defined set in
+  Section 6.
+- QR payload encoding remains fixed to base64 without padding in v1. Runtime/profile negotiation of
+  alternate encodings is not permitted.
+- Parsing remains fail-closed: malformed canonical encodings or invalid structural/binding content
+  must be rejected.
+
 ## 13) Encryption
 
 Ciphertext MUST use the age encryption format (https://age-encryption.org/v1).
@@ -497,7 +515,14 @@ passphrase string:
 
 Reassembled shares produce the original passphrase string, ready for use.
 
-### 14.4) Reference
+### 14.4) Non-BIP-39 Interoperability Guidance
+
+For passphrases that are not BIP-39 mnemonics:
+- Producers SHOULD use a consistent Unicode normalization form (NFC is RECOMMENDED).
+- Operators SHOULD treat passphrase entry as exact string material (no implicit trimming,
+  case-folding, or rewriting).
+
+### 14.5) Reference
 
 BIP-39 specification: https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki
 

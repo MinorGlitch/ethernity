@@ -57,7 +57,8 @@ should be decoded directly from their frame `data` bytes.
 
 Some CLI flows expose an explicit unsigned-recovery override (for example, `--rescue-mode`, with
 `--skip-auth-check` as a legacy alias). This corresponds to rescue mode in `docs/format.md`
-(Section 7.1), where recovery may continue if AUTH is missing/invalid and results are treated as
+(Section 7.1), where signature verification bypass is allowed only under explicit operator
+override. Structural, binding, and consistency checks still apply, and results are treated as
 unauthenticated.
 
 ## Recovery Input Auto-Parsing Contract
@@ -130,6 +131,10 @@ Example (visual string: "cafe"):
 Different operating systems use different forms (for example, macOS commonly uses NFD). Normalizing
 to NFC ensures consistent matching across platforms.
 
+NFC normalization does not solve case-folding differences on case-insensitive filesystems.
+Operationally, avoid case-only path distinctions (for example, `Secrets.txt` vs `secrets.txt`) when
+you expect cross-platform recovery or extraction.
+
 ## Age Implementation Notes
 
 Implementations should use a compliant age implementation rather than implementing age directly.
@@ -152,6 +157,15 @@ CBOR payload evolution guidance:
 
 Backward compatibility guidance:
 - Pre-release encodings that used CBOR lists/arrays are not supported by current decoders.
+
+## Conformance Guidance (Non-normative)
+
+A practical decoder validation order for consistent fail-closed behavior:
+1. Validate envelope/frame structure and resource bounds.
+2. Validate canonical encodings (uvarint and canonical CBOR).
+3. Validate binding and signature-related checks (`doc_id`/`doc_hash`, AUTH/shard signatures).
+4. Apply recovery-mode policy (authenticated vs explicit rescue/unsigned override) and label output
+   accordingly.
 
 ## Varint and CBOR Integer Encoding
 
