@@ -188,7 +188,7 @@ def _print_pre_encryption_debug(
     console.print()
 
     console.print("[bold]Payload (hex):[/bold]")
-    console.print(_hexdump(payload, max_bytes=debug_max_bytes))
+    console.print(_hexdump(payload, max_bytes=debug_max_bytes), markup=False)
     console.print()
 
     console.print("[bold]Manifest JSON:[/bold]")
@@ -198,11 +198,14 @@ def _print_pre_encryption_debug(
     if manifest_display is None:
         console.print("(unable to decode manifest JSON)")
     else:
-        console.print(json.dumps(manifest_display, indent=2, sort_keys=True))
+        console.print(
+            json.dumps(manifest_display, indent=2, sort_keys=True),
+            markup=False,
+        )
     console.print()
 
     console.print("[bold]Envelope (hex):[/bold]")
-    console.print(_hexdump(envelope, max_bytes=debug_max_bytes))
+    console.print(_hexdump(envelope, max_bytes=debug_max_bytes), markup=False)
     console.print()
 
     console.print("[bold]Payload z-base-32:[/bold]")

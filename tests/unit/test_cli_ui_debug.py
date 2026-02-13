@@ -162,6 +162,11 @@ class TestPrintPreEncryptionDebug(unittest.TestCase):
         self.assertIn("Payload summary:", rendered)
         self.assertIn("Signing keys:", rendered)
         self.assertIn("Payload z-base-32:", rendered)
+        literal_calls = [
+            call for call in console_print.call_args_list if call.kwargs.get("markup") is False
+        ]
+        self.assertGreaterEqual(len(literal_calls), 2)
+        self.assertTrue(any("00000000" in str(call.args[0]) for call in literal_calls if call.args))
 
     @mock.patch("ethernity.cli.ui.debug._decode_manifest_raw", return_value=None)
     @mock.patch("ethernity.cli.ui.debug.console.print")
