@@ -20,7 +20,6 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ...core.validation import normalize_path
-from ..api import console_err
 
 
 def _ensure_directory(path: str | Path, *, exist_ok: bool) -> Path:
@@ -57,8 +56,6 @@ def _write_output(path: str | None, data: bytes, *, quiet: bool) -> None:
     if path:
         with open(path, "wb") as handle:
             handle.write(data)
-        if not quiet:
-            console_err.print(f"[dim]- wrote {path}[/dim]")
     else:
         sys.stdout.buffer.write(data)
 
