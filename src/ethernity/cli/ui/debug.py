@@ -16,8 +16,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Sequence
 
 import cbor2
 
@@ -28,11 +31,27 @@ from ...formats.envelope_types import EnvelopeManifest
 from ..api import console
 from ..core.types import InputFile
 
+if TYPE_CHECKING:
+    from ...formats.envelope_types import ManifestFile
+
+
+@dataclass(frozen=True)
+class DebugRenderOptions:
+    max_bytes: int | None
+    reveal_secrets: bool
+
 
 def _normalize_debug_max_bytes(value: int | None) -> int | None:
     if value is None or value <= 0:
         return None
     return value
+
+
+def _resolve_render_options(*, max_bytes: int | None, reveal_secrets: bool) -> DebugRenderOptions:
+    return DebugRenderOptions(
+        max_bytes=_normalize_debug_max_bytes(max_bytes),
+        reveal_secrets=reveal_secrets,
+    )
 
 
 def _format_grouped_lines(
@@ -133,91 +152,20 @@ def _hexdump(data: bytes, *, max_bytes: int | None) -> str:
     return "\n".join(lines)
 
 
-def _print_pre_encryption_debug(
-    *,
-    payload: bytes,
-    input_files: list[InputFile],
-    base_dir: Path | None,
-    manifest: bytes | EnvelopeManifest,
-    envelope: bytes,
-    plan: DocumentPlan,
-    passphrase: str | None,
-    signing_seed: bytes | None = None,
-    signing_pub: bytes | None = None,
-    signing_seed_stored: bool | None = None,
-    debug_max_bytes: int | None,
-) -> None:
-    manifest_model_display: object | None = None
-    if isinstance(manifest, EnvelopeManifest):
-        manifest_bytes = encode_manifest(manifest)
-        manifest_model_display = _json_safe(manifest.to_dict())
-    else:
-        manifest_bytes = manifest
+def _format_masked_text_secret(secret: str) -> str:
+    raw = secret.encode("utf-8", "strict")
+    digest = hashlib.blake2b(raw, digest_size=8).hexdigest()
+    return (
+        f"<masked chars={len(secret)} bytes={len(raw)} blake2b8={digest}; "
+        "use --debug-reveal-secrets to reveal>"
+    )
 
-    console.print("[bold]Payload summary:[/bold]")
-    console.print(f"- input file count: {len(input_files)}")
-    console.print(f"- payload bytes: {len(payload)}")
-    if base_dir:
-        console.print(f"- base dir: {base_dir}")
-    console.print(f"- envelope bytes: {len(envelope)}")
-    console.print(f"- sealed: {plan.sealed}")
-    if passphrase:
-        console.print(f"- passphrase: {passphrase}")
-    if plan.sharding:
-        console.print(f"- sharding: {plan.sharding.threshold} of {plan.sharding.shares}")
-    if signing_seed is not None or signing_pub is not None:
-        console.print()
-        console.print("[bold]Signing keys:[/bold]")
-        if signing_pub is not None:
-            console.print("Signing public key (hex):")
-            for line in _format_hex_lines(signing_pub, line_length=80):
-                console.print(line)
-        if signing_seed is not None:
-            if signing_seed_stored is True:
-                label = "Signing seed (stored in envelope)"
-            elif signing_seed_stored is False:
-                label = "Signing seed (not stored in envelope)"
-            else:
-                label = "Signing seed"
-            console.print(f"{label} (hex):")
-            for line in _format_hex_lines(signing_seed, line_length=80):
-                console.print(line)
-        elif signing_seed_stored is not None:
-            stored_label = "yes" if signing_seed_stored else "no"
-            console.print(f"Signing seed stored in envelope: {stored_label}")
-    console.print()
 
-    console.print("[bold]Payload (hex):[/bold]")
-    console.print(_hexdump(payload, max_bytes=debug_max_bytes), markup=False)
-    console.print()
-
-    manifest_raw = _decode_manifest_raw(manifest_bytes)
-    if manifest_model_display is not None:
-        console.print("[bold]Manifest model JSON:[/bold]")
-        console.print(
-            json.dumps(manifest_model_display, indent=2, sort_keys=True),
-            markup=False,
-        )
-        console.print()
-
-    console.print("[bold]Manifest CBOR map JSON:[/bold]")
-    if manifest_raw is None:
-        console.print("(unable to decode manifest CBOR map)")
-    else:
-        console.print(
-            json.dumps(manifest_raw, indent=2, sort_keys=True),
-            markup=False,
-        )
-    console.print()
-
-    console.print("[bold]Envelope (hex):[/bold]")
-    console.print(_hexdump(envelope, max_bytes=debug_max_bytes), markup=False)
-    console.print()
-
-    console.print("[bold]Payload z-base-32:[/bold]")
-    for line in _format_zbase32_lines(payload, line_length=80, max_bytes=debug_max_bytes):
-        console.print(line)
-    console.print()
+def _format_masked_bytes_secret(secret: bytes) -> str:
+    digest = hashlib.blake2b(secret, digest_size=8).hexdigest()
+    return (
+        f"<masked bytes={len(secret)} blake2b8={digest}; " "use --debug-reveal-secrets to reveal>"
+    )
 
 
 def _json_safe(value: object) -> object:
@@ -242,3 +190,199 @@ def _decode_manifest_raw(data: bytes) -> object | None:
     except (UnicodeDecodeError, json.JSONDecodeError):
         return None
     return _json_safe(decoded)
+
+
+def _print_manifest_section(manifest_bytes: bytes) -> None:
+    manifest_raw = _decode_manifest_raw(manifest_bytes)
+    console.print("[bold]Manifest CBOR map JSON:[/bold]")
+    if manifest_raw is None:
+        console.print("(unable to decode manifest CBOR map)")
+    else:
+        console.print(
+            json.dumps(manifest_raw, indent=2, sort_keys=True),
+            markup=False,
+        )
+    console.print()
+
+
+def _entry_path(entry: object) -> str:
+    path = getattr(entry, "path", "payload.bin")
+    return str(path)
+
+
+def _entry_size(entry: object, data: bytes) -> int:
+    size = getattr(entry, "size", None)
+    if isinstance(size, int) and size >= 0:
+        return size
+    return len(data)
+
+
+def print_backup_debug(
+    *,
+    payload: bytes,
+    input_files: list[InputFile],
+    base_dir: Path | None,
+    manifest: bytes | EnvelopeManifest,
+    envelope: bytes,
+    plan: DocumentPlan,
+    passphrase: str | None,
+    signing_seed: bytes | None = None,
+    signing_pub: bytes | None = None,
+    signing_seed_stored: bool | None = None,
+    debug_max_bytes: int | None,
+    reveal_secrets: bool = False,
+) -> None:
+    options = _resolve_render_options(max_bytes=debug_max_bytes, reveal_secrets=reveal_secrets)
+    if isinstance(manifest, EnvelopeManifest):
+        manifest_bytes = encode_manifest(manifest)
+    else:
+        manifest_bytes = manifest
+
+    console.print("[bold]Debug Summary:[/bold]")
+    console.print("- mode: backup", markup=False)
+    console.print(f"- input file count: {len(input_files)}", markup=False)
+    console.print(f"- payload bytes: {len(payload)}", markup=False)
+    console.print(f"- envelope bytes: {len(envelope)}", markup=False)
+    console.print(f"- sealed: {plan.sealed}", markup=False)
+    if base_dir:
+        console.print(f"- base dir: {base_dir}", markup=False)
+    if passphrase is not None:
+        passphrase_display = (
+            passphrase if options.reveal_secrets else _format_masked_text_secret(passphrase)
+        )
+        console.print(f"- passphrase: {passphrase_display}", markup=False)
+    if plan.sharding:
+        console.print(
+            f"- sharding: {plan.sharding.threshold} of {plan.sharding.shares}",
+            markup=False,
+        )
+    if signing_seed_stored is not None:
+        stored_label = "yes" if signing_seed_stored else "no"
+        console.print(f"- signing seed stored in envelope: {stored_label}", markup=False)
+    console.print()
+
+    if signing_seed is not None or signing_pub is not None:
+        console.print("[bold]Signing Material:[/bold]")
+        if signing_pub is not None:
+            console.print("Signing public key (hex):", markup=False)
+            for line in _format_hex_lines(signing_pub, line_length=80):
+                console.print(line, markup=False)
+        if signing_seed is not None:
+            if options.reveal_secrets:
+                console.print("Signing private key (hex, revealed):", markup=False)
+                for line in _format_hex_lines(signing_seed, line_length=80):
+                    console.print(line, markup=False)
+            else:
+                console.print(
+                    f"Signing private key: {_format_masked_bytes_secret(signing_seed)}",
+                    markup=False,
+                )
+        console.print()
+
+    _print_manifest_section(manifest_bytes)
+
+    console.print("[bold]Payload Preview (hex):[/bold]")
+    console.print(_hexdump(payload, max_bytes=options.max_bytes), markup=False)
+    console.print()
+
+    console.print("[bold]Envelope Preview (hex):[/bold]")
+    console.print(_hexdump(envelope, max_bytes=options.max_bytes), markup=False)
+    console.print()
+
+    console.print("[bold]Payload Preview (z-base-32):[/bold]")
+    for line in _format_zbase32_lines(payload, line_length=80, max_bytes=options.max_bytes):
+        console.print(line, markup=False)
+    console.print()
+
+
+def _print_pre_encryption_debug(
+    *,
+    payload: bytes,
+    input_files: list[InputFile],
+    base_dir: Path | None,
+    manifest: bytes | EnvelopeManifest,
+    envelope: bytes,
+    plan: DocumentPlan,
+    passphrase: str | None,
+    signing_seed: bytes | None = None,
+    signing_pub: bytes | None = None,
+    signing_seed_stored: bool | None = None,
+    debug_max_bytes: int | None,
+) -> None:
+    """Compatibility wrapper for old call sites."""
+    print_backup_debug(
+        payload=payload,
+        input_files=input_files,
+        base_dir=base_dir,
+        manifest=manifest,
+        envelope=envelope,
+        plan=plan,
+        passphrase=passphrase,
+        signing_seed=signing_seed,
+        signing_pub=signing_pub,
+        signing_seed_stored=signing_seed_stored,
+        debug_max_bytes=debug_max_bytes,
+        reveal_secrets=False,
+    )
+
+
+def print_recover_debug(
+    *,
+    manifest: EnvelopeManifest,
+    extracted: Sequence[tuple[ManifestFile | object, bytes]],
+    ciphertext: bytes,
+    passphrase: str | None,
+    auth_status: str,
+    allow_unsigned: bool,
+    output_path: str | None,
+    debug_max_bytes: int | None,
+    reveal_secrets: bool = False,
+) -> None:
+    options = _resolve_render_options(max_bytes=debug_max_bytes, reveal_secrets=reveal_secrets)
+    manifest_bytes = encode_manifest(manifest)
+
+    console.print("[bold]Debug Summary:[/bold]")
+    console.print("- mode: recover", markup=False)
+    console.print(f"- ciphertext bytes: {len(ciphertext)}", markup=False)
+    console.print(f"- extracted files: {len(extracted)}", markup=False)
+    console.print(f"- auth status: {auth_status}", markup=False)
+    console.print(f"- rescue mode: {'enabled' if allow_unsigned else 'disabled'}", markup=False)
+    console.print(f"- output target: {output_path or 'stdout'}", markup=False)
+    if passphrase is not None:
+        passphrase_display = (
+            passphrase if options.reveal_secrets else _format_masked_text_secret(passphrase)
+        )
+        console.print(f"- passphrase: {passphrase_display}", markup=False)
+    console.print()
+
+    _print_manifest_section(manifest_bytes)
+
+    console.print("[bold]Recovered Entries:[/bold]")
+    if not extracted:
+        console.print("(no entries)", markup=False)
+    else:
+        for entry, data in extracted:
+            console.print(
+                f"- {_entry_path(entry)} ({_entry_size(entry, data)} bytes)",
+                markup=False,
+            )
+    console.print()
+
+    console.print("[bold]Recovered Payload Preview (hex):[/bold]")
+    if not extracted:
+        console.print("(no entries)", markup=False)
+    else:
+        preview_count = min(3, len(extracted))
+        for index, (entry, data) in enumerate(extracted[:preview_count], start=1):
+            console.print(f"entry {index}: {_entry_path(entry)}", markup=False)
+            console.print(_hexdump(data, max_bytes=options.max_bytes), markup=False)
+            if index < preview_count:
+                console.print()
+        if len(extracted) > preview_count:
+            remaining = len(extracted) - preview_count
+            console.print(f"... omitted previews for {remaining} more entries", markup=False)
+    console.print()
+
+    console.print("[bold]Ciphertext Preview (hex):[/bold]")
+    console.print(_hexdump(ciphertext, max_bytes=options.max_bytes), markup=False)
+    console.print()

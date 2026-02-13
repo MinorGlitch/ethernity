@@ -798,6 +798,7 @@ class TestCliBackup(unittest.TestCase):
             config=config,
             debug=False,
             debug_max_bytes=0,
+            debug_reveal_secrets=False,
             quiet=False,
         )
         summary_mock.assert_called_once_with(result, plan, "manual-pass", quiet=False)

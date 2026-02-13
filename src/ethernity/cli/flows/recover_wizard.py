@@ -42,6 +42,7 @@ from ..io.frames import (
     _frames_from_scan,
     _frames_from_shard_inputs,
 )
+from ..ui.debug import print_recover_debug
 from ..ui.summary import format_auth_status
 from .prompts import _prompt_shard_inputs, _resolve_recover_output
 from .recover_flow import decrypt_manifest_and_extract, write_recovered_outputs
@@ -221,7 +222,13 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
         plan = plan_from_args(args)
         if plan.allow_unsigned:
             _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
-        return write_plan_outputs(plan, quiet=quiet, debug=debug)
+        return write_plan_outputs(
+            plan,
+            quiet=quiet,
+            debug=debug,
+            debug_max_bytes=args.debug_max_bytes,
+            debug_reveal_secrets=args.debug_reveal_secrets,
+        )
 
     with ui_screen_mode(quiet=quiet):
         if show_header and not quiet:
@@ -284,6 +291,18 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                         return 1
 
             manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
+            if debug:
+                print_recover_debug(
+                    manifest=manifest,
+                    extracted=extracted,
+                    ciphertext=plan.ciphertext,
+                    passphrase=plan.passphrase,
+                    auth_status=plan.auth_status,
+                    allow_unsigned=plan.allow_unsigned,
+                    output_path=args.output,
+                    debug_max_bytes=args.debug_max_bytes,
+                    reveal_secrets=args.debug_reveal_secrets,
+                )
 
             with wizard_stage("Output"):
                 output_path = _resolve_recover_output(
@@ -368,8 +387,27 @@ def _load_shard_frames(
     return shard_frames
 
 
-def write_plan_outputs(plan, *, quiet: bool, debug: bool = False) -> int:
+def write_plan_outputs(
+    plan,
+    *,
+    quiet: bool,
+    debug: bool = False,
+    debug_max_bytes: int = 0,
+    debug_reveal_secrets: bool = False,
+) -> int:
     manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
+    if debug:
+        print_recover_debug(
+            manifest=manifest,
+            extracted=extracted,
+            ciphertext=plan.ciphertext,
+            passphrase=plan.passphrase,
+            auth_status=plan.auth_status,
+            allow_unsigned=plan.allow_unsigned,
+            output_path=plan.output_path,
+            debug_max_bytes=debug_max_bytes,
+            reveal_secrets=debug_reveal_secrets,
+        )
     single_entry_output_is_directory = (
         plan.output_path is not None
         and len(extracted) == 1

@@ -371,10 +371,19 @@ def prompt_home_action(*, quiet: bool) -> str:
     )
 
 
-def empty_recover_args(*, config: str | None, paper: str | None, quiet: bool) -> RecoverArgs:
+def empty_recover_args(
+    *,
+    config: str | None,
+    paper: str | None,
+    quiet: bool,
+    debug_max_bytes: int = 0,
+    debug_reveal_secrets: bool = False,
+) -> RecoverArgs:
     return RecoverArgs(
         config=config,
         paper=paper,
+        debug_max_bytes=debug_max_bytes,
+        debug_reveal_secrets=debug_reveal_secrets,
         quiet=quiet,
     )
 

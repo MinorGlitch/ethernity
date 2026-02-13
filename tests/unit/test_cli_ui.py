@@ -387,9 +387,17 @@ class TestUIHelpers(unittest.TestCase):
         self.assertGreater(print_mock.call_count, 0)
 
     def test_empty_recover_args(self) -> None:
-        args = ui_module.empty_recover_args(config="cfg.toml", paper="A4", quiet=True)
+        args = ui_module.empty_recover_args(
+            config="cfg.toml",
+            paper="A4",
+            quiet=True,
+            debug_max_bytes=512,
+            debug_reveal_secrets=True,
+        )
         self.assertEqual(args.config, "cfg.toml")
         self.assertEqual(args.paper, "A4")
+        self.assertEqual(args.debug_max_bytes, 512)
+        self.assertTrue(args.debug_reveal_secrets)
         self.assertTrue(args.quiet)
 
 

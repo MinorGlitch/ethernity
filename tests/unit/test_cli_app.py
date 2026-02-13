@@ -61,6 +61,7 @@ class TestCliApp(unittest.TestCase):
                 design=None,
                 debug=False,
                 debug_max_bytes=1024,
+                debug_reveal_secrets=False,
                 quiet=False,
                 no_color=False,
                 no_animations=False,
@@ -84,6 +85,7 @@ class TestCliApp(unittest.TestCase):
                 design=None,
                 debug=False,
                 debug_max_bytes=1024,
+                debug_reveal_secrets=False,
                 quiet=False,
                 no_color=False,
                 no_animations=False,
@@ -110,6 +112,7 @@ class TestCliApp(unittest.TestCase):
                 design=None,
                 debug=False,
                 debug_max_bytes=1024,
+                debug_reveal_secrets=False,
                 quiet=False,
                 no_color=False,
                 no_animations=False,
@@ -146,6 +149,7 @@ class TestCliApp(unittest.TestCase):
             design=None,
             debug=True,
             debug_max_bytes=1024,
+            debug_reveal_secrets=True,
             quiet=False,
             no_color=False,
             no_animations=False,
@@ -155,6 +159,13 @@ class TestCliApp(unittest.TestCase):
         ui_screen_mode.assert_called_once_with(quiet=False)
         run_recover_wizard.assert_called_once()
         self.assertTrue(run_recover_wizard.call_args.kwargs["debug"])
+        _empty_recover_args.assert_called_once_with(
+            config="cfg",
+            paper="A4",
+            quiet=False,
+            debug_max_bytes=1024,
+            debug_reveal_secrets=True,
+        )
 
     @mock.patch("ethernity.cli.app.run_wizard", return_value=0)
     @mock.patch("ethernity.cli.app._run_cli", side_effect=lambda func, debug: func())
@@ -181,6 +192,7 @@ class TestCliApp(unittest.TestCase):
             design="forge",
             debug=False,
             debug_max_bytes=1024,
+            debug_reveal_secrets=True,
             quiet=False,
             no_color=False,
             no_animations=False,
@@ -190,6 +202,7 @@ class TestCliApp(unittest.TestCase):
         ui_screen_mode.assert_called_once_with(quiet=False)
         run_wizard.assert_called_once()
         self.assertEqual(run_wizard.call_args.kwargs["args"].design, "forge")
+        self.assertTrue(run_wizard.call_args.kwargs["debug_reveal_secrets"])
 
     @mock.patch("ethernity.cli.app._run_kit_render", return_value=None)
     @mock.patch("ethernity.cli.app._run_cli", side_effect=lambda func, debug: func())
@@ -216,6 +229,7 @@ class TestCliApp(unittest.TestCase):
             design="forge",
             debug=False,
             debug_max_bytes=1024,
+            debug_reveal_secrets=False,
             quiet=False,
             no_color=False,
             no_animations=False,
