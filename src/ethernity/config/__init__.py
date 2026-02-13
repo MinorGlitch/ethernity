@@ -29,10 +29,24 @@ from .installer import (
     resolve_template_design_path,
     user_config_needs_init,
 )
-from .loader import AppConfig, apply_template_design, build_qr_config, load_app_config
+from .loader import (
+    AppConfig,
+    BackupDefaults,
+    CliDefaults,
+    DebugDefaults,
+    RecoverDefaults,
+    RuntimeDefaults,
+    UiDefaults,
+    apply_template_design,
+    build_qr_config,
+    load_app_config,
+    load_cli_defaults,
+)
 
 __all__ = [
     "AppConfig",
+    "BackupDefaults",
+    "CliDefaults",
     "DEFAULT_KIT_TEMPLATE_PATH",
     "DEFAULT_PAPER_SIZE",
     "DEFAULT_RECOVERY_TEMPLATE_PATH",
@@ -40,11 +54,16 @@ __all__ = [
     "DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH",
     "DEFAULT_TEMPLATE_PATH",
     "DEFAULT_TEMPLATE_STYLE",
+    "DebugDefaults",
+    "RecoverDefaults",
+    "RuntimeDefaults",
+    "UiDefaults",
     "apply_template_design",
     "build_qr_config",
     "init_user_config",
     "list_template_designs",
     "load_app_config",
+    "load_cli_defaults",
     "resolve_config_path",
     "resolve_template_design_path",
     "user_config_needs_init",

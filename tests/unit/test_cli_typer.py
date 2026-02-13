@@ -20,6 +20,7 @@ from unittest import mock
 from typer.testing import CliRunner
 
 from ethernity.cli import app
+from ethernity.config.installer import DEFAULT_CONFIG_PATH
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
@@ -82,7 +83,16 @@ class TestCliTyper(unittest.TestCase):
 
     def test_kit_custom_bundle_missing_file_returns_actionable_error(self) -> None:
         with mock.patch("ethernity.cli.app.run_startup", return_value=False):
-            result = self.runner.invoke(app, ["kit", "--bundle", "/no/such/bundle.html"])
+            result = self.runner.invoke(
+                app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "kit",
+                    "--bundle",
+                    "/no/such/bundle.html",
+                ],
+            )
         self.assertEqual(result.exit_code, 2)
         self.assertIn("bundle file not found", result.output)
         self.assertIn("--bundle", result.output)

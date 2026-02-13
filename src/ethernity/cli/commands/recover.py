@@ -22,6 +22,7 @@ from pathlib import Path
 
 import typer
 
+from ...config import RecoverDefaults
 from ..core.common import _ctx_value, _paper_callback, _resolve_config_and_paper, _run_cli
 from ..core.types import RecoverArgs
 from ..flows.recover import _should_use_wizard_for_recover, run_recover_command, run_recover_wizard
@@ -158,6 +159,10 @@ def recover(
     config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
     quiet_value = quiet or bool(_ctx_value(ctx, "quiet"))
     debug_value = bool(_ctx_value(ctx, "debug"))
+    defaults = _ctx_value(ctx, "recover_defaults")
+    if not isinstance(defaults, RecoverDefaults):
+        defaults = RecoverDefaults()
+    output_value = output if output is not None else defaults.output
 
     if not fallback_file and not payloads_file and not (scan or []) and not sys.stdin.isatty():
         fallback_file = "-"
@@ -178,7 +183,7 @@ def recover(
         shard_payloads_file=list(shard_payloads_file or []),
         auth_fallback_file=auth_fallback_file,
         auth_payloads_file=auth_payloads_file,
-        output=output,
+        output=output_value,
         allow_unsigned=allow_unsigned,
         assume_yes=assume_yes,
         quiet=quiet_value,

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Literal, Sequence
 
 from ..encoding.framing import Frame
 from ..qr.codec import QrConfig
@@ -48,6 +48,7 @@ class RenderInputs:
     render_qr: bool = True
     render_fallback: bool = True
     key_lines: Sequence[str] | None = None
+    render_jobs: int | Literal["auto"] | None = None
 
 
 @dataclass(frozen=True)
