@@ -23,7 +23,7 @@ import string
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, Callable, Literal, cast
 
 from fpdf import FPDF
 
@@ -371,7 +371,14 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     qr_kind = _qr_kind(qr_config)
     resources = dict(_build_static_template_resources())
     if inputs.render_qr:
-        resources.update(_build_qr_resources(qr_payloads, config=qr_config, kind=qr_kind))
+        resources.update(
+            _build_qr_resources(
+                qr_payloads,
+                config=qr_config,
+                kind=qr_kind,
+                render_jobs=inputs.render_jobs,
+            )
+        )
     qr_url_for_index = functools.partial(_qr_url_for_index, kind=qr_kind)
 
     pages = build_pages(
@@ -455,13 +462,14 @@ def _build_qr_resources(
     *,
     config: QrConfig,
     kind: str,
+    render_jobs: int | Literal["auto"] | None = None,
 ) -> dict[str, tuple[str, bytes]]:
     content_type = _qr_content_type(kind)
     qr_kwargs = dict(_qr_kwargs(config))
     qr_kwargs["kind"] = kind
     qr_worker = functools.partial(qr_bytes, **qr_kwargs)
 
-    images = _render_qr_images(qr_payloads, qr_worker)
+    images = _render_qr_images(qr_payloads, qr_worker, render_jobs=render_jobs)
     return {
         _qr_url_for_index(index, kind=kind): (content_type, image)
         for index, image in enumerate(images)
@@ -471,11 +479,13 @@ def _build_qr_resources(
 def _render_qr_images(
     qr_payloads: list[bytes | str],
     qr_worker: Callable[[bytes | str], bytes],
+    *,
+    render_jobs: int | Literal["auto"] | None,
 ) -> list[bytes]:
     if not qr_payloads:
         return []
 
-    workers = _resolve_qr_workers(len(qr_payloads))
+    workers = _resolve_qr_workers(len(qr_payloads), configured=render_jobs)
     if workers <= 1:
         return [qr_worker(payload) for payload in qr_payloads]
 
@@ -483,7 +493,11 @@ def _render_qr_images(
         return list(executor.map(qr_worker, qr_payloads))
 
 
-def _resolve_qr_workers(task_count: int) -> int:
+def _resolve_qr_workers(
+    task_count: int,
+    *,
+    configured: int | Literal["auto"] | None = None,
+) -> int:
     raw = os.environ.get(_RENDER_JOBS_ENV, "").strip().lower()
     explicit = False
     requested: int | None = None
@@ -492,8 +506,13 @@ def _resolve_qr_workers(task_count: int) -> int:
             parsed = int(raw)
         except ValueError:
             raise ValueError(f"{_RENDER_JOBS_ENV} must be a positive integer or 'auto'") from None
-        if parsed > 0:
-            requested = parsed
+        if parsed <= 0:
+            raise ValueError(f"{_RENDER_JOBS_ENV} must be a positive integer or 'auto'")
+        requested = parsed
+        explicit = True
+    elif configured is not None:
+        if configured != "auto":
+            requested = configured
             explicit = True
 
     cpu = os.process_cpu_count() or 1

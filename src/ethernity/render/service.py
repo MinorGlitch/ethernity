@@ -175,4 +175,5 @@ class RenderService:
             render_fallback=render_fallback,
             key_lines=key_lines,
             fallback_sections=fallback_sections,
+            render_jobs=self.config.cli_defaults.runtime.render_jobs,
         )

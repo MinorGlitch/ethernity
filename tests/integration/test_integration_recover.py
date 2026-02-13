@@ -24,6 +24,7 @@ from PIL import Image  # noqa: F401
 
 from ethernity.cli import run_recover_command
 from ethernity.cli.core.types import RecoverArgs
+from ethernity.config.installer import DEFAULT_CONFIG_PATH
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
 from ethernity.crypto.signing import generate_signing_keypair
@@ -81,6 +82,7 @@ class TestIntegrationRecover(unittest.TestCase):
                 allow_unsigned=True,
                 assume_yes=True,
                 quiet=True,
+                config=str(DEFAULT_CONFIG_PATH),
             )
             with suppress_output():
                 run_recover_command(args)
@@ -128,6 +130,7 @@ class TestIntegrationRecover(unittest.TestCase):
                 allow_unsigned=True,
                 assume_yes=True,
                 quiet=True,
+                config=str(DEFAULT_CONFIG_PATH),
             )
             with suppress_output():
                 run_recover_command(args)
@@ -169,6 +172,7 @@ class TestIntegrationRecover(unittest.TestCase):
                 allow_unsigned=True,
                 assume_yes=True,
                 quiet=True,
+                config=str(DEFAULT_CONFIG_PATH),
             )
             with suppress_output():
                 run_recover_command(args)
@@ -217,6 +221,7 @@ class TestIntegrationRecover(unittest.TestCase):
                 allow_unsigned=True,
                 assume_yes=True,
                 quiet=True,
+                config=str(DEFAULT_CONFIG_PATH),
             )
             with suppress_output():
                 run_recover_command(args)
@@ -295,6 +300,7 @@ class TestIntegrationRecover(unittest.TestCase):
                 allow_unsigned=False,
                 assume_yes=True,
                 quiet=True,
+                config=str(DEFAULT_CONFIG_PATH),
             )
             with suppress_output():
                 run_recover_command(args)
