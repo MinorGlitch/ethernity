@@ -44,7 +44,7 @@ from ..io.frames import (
 )
 from ..ui.summary import format_auth_status
 from .prompts import _prompt_shard_inputs, _resolve_recover_output
-from .recover_flow import decrypt_and_extract, decrypt_manifest_and_extract, write_recovered_outputs
+from .recover_flow import decrypt_manifest_and_extract, write_recovered_outputs
 from .recover_input import (
     collect_fallback_frames,
     collect_payload_frames,
@@ -302,12 +302,18 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                     console.print("Recovery cancelled.")
                     return 1
 
+            single_entry_output_is_directory = (
+                output_path is not None
+                and len(extracted) == 1
+                and manifest.input_origin in {"directory", "mixed"}
+            )
             write_recovered_outputs(
                 extracted,
                 output_path=output_path,
                 auth_status=plan.auth_status,
                 allow_unsigned=plan.allow_unsigned,
                 quiet=quiet,
+                single_entry_output_is_directory=single_entry_output_is_directory,
             )
             return 0
 
@@ -363,12 +369,18 @@ def _load_shard_frames(
 
 
 def write_plan_outputs(plan, *, quiet: bool, debug: bool = False) -> int:
-    extracted = decrypt_and_extract(plan, quiet=quiet, debug=debug)
+    manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
+    single_entry_output_is_directory = (
+        plan.output_path is not None
+        and len(extracted) == 1
+        and manifest.input_origin in {"directory", "mixed"}
+    )
     write_recovered_outputs(
         extracted,
         output_path=plan.output_path,
         auth_status=plan.auth_status,
         allow_unsigned=plan.allow_unsigned,
         quiet=quiet,
+        single_entry_output_is_directory=single_entry_output_is_directory,
     )
     return 0

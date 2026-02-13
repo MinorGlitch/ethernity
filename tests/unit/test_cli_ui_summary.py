@@ -94,7 +94,11 @@ class TestUISummary(unittest.TestCase):
         self.assertIn(("Recovered", "1 file"), rows)
         self.assertIn(("Output", "stdout"), rows)
         self.assertIn(("Auth verification", "verified"), rows)
-        build_recovered_tree.assert_called_once_with(entries, None)
+        build_recovered_tree.assert_called_once_with(
+            entries,
+            None,
+            single_entry_output_is_directory=False,
+        )
         print_err.assert_called_once_with("SUMMARY_PANEL")
 
     @mock.patch("ethernity.cli.ui.summary.panel")
@@ -128,6 +132,36 @@ class TestUISummary(unittest.TestCase):
         self.assertEqual(print_err.call_count, 2)
         self.assertEqual(print_err.mock_calls[0], mock.call("SUMMARY_PANEL"))
         self.assertEqual(print_err.mock_calls[1], mock.call("TREE_PANEL"))
+
+    @mock.patch("ethernity.cli.ui.summary.panel")
+    @mock.patch("ethernity.cli.ui.summary.build_kv_table")
+    @mock.patch("ethernity.cli.ui.summary.build_recovered_tree")
+    def test_print_recover_summary_single_entry_directory_mode(
+        self,
+        build_recovered_tree: mock.MagicMock,
+        build_kv_table: mock.MagicMock,
+        panel: mock.MagicMock,
+    ) -> None:
+        entries = [(SimpleNamespace(path="vault/a.txt"), b"x")]
+        build_recovered_tree.return_value = "TREE"
+        build_kv_table.return_value = "TABLE"
+        panel.side_effect = ["SUMMARY_PANEL", "TREE_PANEL"]
+
+        with mock.patch("ethernity.cli.ui.summary.console_err.print") as print_err:
+            summary_module.print_recover_summary(
+                entries,
+                output_path="vault",
+                auth_status=None,
+                quiet=False,
+                single_entry_output_is_directory=True,
+            )
+
+        build_recovered_tree.assert_called_once_with(
+            entries,
+            "vault",
+            single_entry_output_is_directory=True,
+        )
+        self.assertEqual(print_err.call_count, 2)
 
     def test_print_recover_summary_quiet_noop(self) -> None:
         with mock.patch("ethernity.cli.ui.summary.console_err.print") as print_err:

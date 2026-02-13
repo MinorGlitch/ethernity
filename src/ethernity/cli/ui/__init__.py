@@ -334,10 +334,12 @@ def build_outputs_tree(
 def build_recovered_tree(
     entries: Sequence[tuple[object, bytes]],
     output_path: str | None,
+    *,
+    single_entry_output_is_directory: bool = False,
 ) -> Tree | None:
     if not output_path:
         return None
-    if len(entries) == 1:
+    if len(entries) == 1 and not single_entry_output_is_directory:
         tree = Tree("Output file", guide_style="muted")
         tree.add(output_path)
         return tree

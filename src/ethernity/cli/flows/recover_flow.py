@@ -55,10 +55,22 @@ def write_recovered_outputs(
     auth_status: str,
     allow_unsigned: bool,
     quiet: bool,
+    single_entry_output_is_directory: bool = False,
 ) -> None:
-    _write_recovered_outputs(output_path, extracted, quiet=quiet)
+    _write_recovered_outputs(
+        output_path,
+        extracted,
+        quiet=quiet,
+        single_entry_output_is_directory=single_entry_output_is_directory,
+    )
     auth_label = format_auth_status(auth_status, allow_unsigned=allow_unsigned)
-    print_recover_summary(extracted, output_path, auth_status=auth_label, quiet=quiet)
+    print_recover_summary(
+        extracted,
+        output_path,
+        auth_status=auth_label,
+        quiet=quiet,
+        single_entry_output_is_directory=single_entry_output_is_directory,
+    )
     if not quiet:
         actions = [f"Saved to {output_path}" if output_path else "Wrote recovered data to stdout."]
         actions.append("Verify recovered files match your originals.")
@@ -70,12 +82,18 @@ def write_recovered_outputs(
 
 
 def run_recover_plan(plan: RecoveryPlan, *, quiet: bool, debug: bool = False) -> int:
-    extracted = decrypt_and_extract(plan, quiet=quiet, debug=debug)
+    manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
+    single_entry_output_is_directory = (
+        plan.output_path is not None
+        and len(extracted) == 1
+        and manifest.input_origin in {"directory", "mixed"}
+    )
     write_recovered_outputs(
         extracted,
         output_path=plan.output_path,
         auth_status=plan.auth_status,
         allow_unsigned=plan.allow_unsigned,
         quiet=quiet,
+        single_entry_output_is_directory=single_entry_output_is_directory,
     )
     return 0

@@ -68,11 +68,12 @@ def _write_recovered_outputs(
     entries: Sequence[tuple[object, bytes]],
     *,
     quiet: bool,
+    single_entry_output_is_directory: bool = False,
 ) -> None:
     if not entries:
         raise ValueError("no payloads to write")
     if output_path:
-        if len(entries) == 1:
+        if len(entries) == 1 and not single_entry_output_is_directory:
             _write_output(output_path, entries[0][1], quiet=quiet)
             return
         base_dir = _ensure_directory(output_path, exist_ok=True)

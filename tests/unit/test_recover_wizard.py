@@ -567,31 +567,36 @@ class TestRunRecoverWizard(unittest.TestCase):
             auth_status="verified",
             allow_unsigned=False,
             quiet=False,
+            single_entry_output_is_directory=True,
         )
 
 
 class TestWritePlanOutputs(unittest.TestCase):
     @mock.patch("ethernity.cli.flows.recover_wizard.write_recovered_outputs")
-    @mock.patch("ethernity.cli.flows.recover_wizard.decrypt_and_extract")
+    @mock.patch("ethernity.cli.flows.recover_wizard.decrypt_manifest_and_extract")
     def test_write_plan_outputs_success(
         self,
-        decrypt_and_extract: mock.MagicMock,
+        decrypt_manifest_and_extract: mock.MagicMock,
         write_recovered_outputs: mock.MagicMock,
     ) -> None:
         plan = SimpleNamespace(output_path="out", auth_status="verified", allow_unsigned=False)
         extracted = [(SimpleNamespace(path="x"), b"y")]
-        decrypt_and_extract.return_value = extracted
+        decrypt_manifest_and_extract.return_value = (
+            SimpleNamespace(input_origin="directory"),
+            extracted,
+        )
 
         result = wizard.write_plan_outputs(plan, quiet=True, debug=True)
 
         self.assertEqual(result, 0)
-        decrypt_and_extract.assert_called_once_with(plan, quiet=True, debug=True)
+        decrypt_manifest_and_extract.assert_called_once_with(plan, quiet=True, debug=True)
         write_recovered_outputs.assert_called_once_with(
             extracted,
             output_path="out",
             auth_status="verified",
             allow_unsigned=False,
             quiet=True,
+            single_entry_output_is_directory=True,
         )
 
 
