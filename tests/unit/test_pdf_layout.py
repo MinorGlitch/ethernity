@@ -663,10 +663,10 @@ class TestPdfLayout(unittest.TestCase):
         )
         self.assertEqual(
             rest_layout.fallback_lines_per_page,
-            max(1, raw_text_only_capacity - 2),
+            max(1, raw_text_only_capacity - 2) + 7,
         )
 
-    def test_sentinel_recovery_lines_use_wider_grouping(self) -> None:
+    def test_sentinel_recovery_lines_use_wider_grouping_on_continuation_pages(self) -> None:
         frame = Frame(
             version=1,
             frame_type=FrameType.MAIN_DOCUMENT,
@@ -695,7 +695,7 @@ class TestPdfLayout(unittest.TestCase):
         )
         spec = document_spec("recovery", "A4", inputs.context)
         pdf = FPDF(unit="mm", format="A4")
-        layout, _ = compute_layout(
+        first_layout, _ = compute_layout(
             inputs,
             spec,
             pdf,
@@ -703,9 +703,20 @@ class TestPdfLayout(unittest.TestCase):
             include_keys=False,
             include_instructions=True,
         )
+        rest_layout, _ = compute_layout(
+            inputs,
+            spec,
+            pdf,
+            key_lines=[],
+            include_keys=False,
+            include_instructions=False,
+        )
 
-        # 12 groups x 4 chars + 11 separators = 59 chars.
-        self.assertGreaterEqual(layout.line_length, 59)
+        # First page remains conservative to avoid overflow in the split-pane layout.
+        self.assertGreaterEqual(first_layout.line_length, 64)
+        self.assertLess(first_layout.line_length, rest_layout.line_length)
+        # Continuation pages use a wider text lane.
+        self.assertGreaterEqual(rest_layout.line_length, 74)
 
     def test_sentinel_recovery_first_page_capacity_adds_bonus_rows(self) -> None:
         frame = Frame(
@@ -774,7 +785,7 @@ class TestPdfLayout(unittest.TestCase):
 
         self.assertEqual(
             sentinel_layout.fallback_lines_per_page,
-            forge_layout.fallback_lines_per_page + 10,
+            forge_layout.fallback_lines_per_page + 9,
         )
 
     def test_sentinel_recovery_first_page_capacity_adds_more_rows_for_light_metadata(self) -> None:

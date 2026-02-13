@@ -166,8 +166,10 @@ def document_spec(
         instructions = replace(
             instructions,
             lines=(
-                "Scan all QR codes in any order.",
-                "Use the Recovery Document for text fallback if needed.",
+                "Collect all segment labels for this document set.",
+                "Scan QR segments in any order.",
+                "Confirm each segment is captured exactly once before recovery.",
+                "Use the Recovery Document only if QR scanning is unavailable.",
             ),
         )
     elif normalized == DOC_TYPE_RECOVERY:

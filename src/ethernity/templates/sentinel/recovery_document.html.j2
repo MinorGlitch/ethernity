@@ -123,48 +123,26 @@
               </div>
             </div>
             <div class="pt-2 border-t border-dashed border-border-light">
-              <p class="text-[10px] text-text-secondary-light uppercase font-bold mb-1">Offline Precheck</p>
+              <p class="text-[10px] text-text-secondary-light uppercase font-bold mb-1">Recovery Workspace Check</p>
               <div class="space-y-1 text-[10px] text-gray-600 leading-relaxed">
-                <p>[ ] Wi-Fi / Ethernet / Bluetooth disabled.</p>
-                <p>[ ] No camera or phone in workspace.</p>
-                <p>[ ] USB drives disconnected.</p>
-                <p>[ ] Recovery sheet separated from QR pages.</p>
-              </div>
-            </div>
-            <div class="pt-2 border-t border-dashed border-border-light">
-              <p class="text-[10px] text-text-secondary-light uppercase font-bold mb-1">Accountability</p>
-              <div class="space-y-2">
-                <div>
-                  <label class="block text-[10px] uppercase font-bold text-text-secondary-light mb-1">Operator ID / Initials</label>
-                  <div class="border border-border-light rounded p-2 bg-white font-mono">________________ / ____</div>
-                </div>
-                <div>
-                  <label class="block text-[10px] uppercase font-bold text-text-secondary-light mb-1">Witness ID / Initials</label>
-                  <div class="border border-border-light rounded p-2 bg-white font-mono">________________ / ____</div>
-                </div>
-                <div>
-                  <label class="block text-[10px] uppercase font-bold text-text-secondary-light mb-1">Incident / Ticket</label>
-                  <div class="border border-border-light rounded p-2 bg-white font-mono">________________________</div>
-                </div>
-                <div class="grid grid-cols-2 gap-2">
-                  <div>
-                    <label class="block text-[10px] uppercase font-bold text-text-secondary-light mb-1">Start UTC</label>
-                    <div class="border border-border-light rounded p-2 bg-white font-mono">__________</div>
-                  </div>
-                  <div>
-                    <label class="block text-[10px] uppercase font-bold text-text-secondary-light mb-1">End UTC</label>
-                    <div class="border border-border-light rounded p-2 bg-white font-mono">__________</div>
-                  </div>
-                </div>
+                <p>[ ] Network radios off (Wi-Fi / Ethernet / Bluetooth).</p>
+                <p>[ ] No phone or camera in the recovery area.</p>
+                <p>[ ] Only required recovery artifacts are on the desk.</p>
+                <p>[ ] Recovery sheet kept separate from QR packet.</p>
               </div>
             </div>
           </div>
           <div class="mt-auto p-3 border-t border-border-light bg-white/60">
-            <p class="text-[10px] uppercase font-bold tracking-wider text-text-secondary-light mb-2">Attestation</p>
-            <p class="text-[10px] text-gray-600 mb-1">Isolation verified by:</p>
-            <div class="border border-border-light rounded p-2 bg-white font-mono mb-2">________________________</div>
-            <p class="text-[10px] text-gray-600 mb-1">Verification time (UTC):</p>
-            <div class="border border-border-light rounded p-2 bg-white font-mono">________________ UTC</div>
+            <p class="text-[10px] uppercase font-bold tracking-wider text-text-secondary-light mb-2">Recovery Completion Check</p>
+            <div class="space-y-1 text-[10px] text-gray-600 leading-relaxed mb-2">
+              <p>[ ] Restored output opened and format looks correct.</p>
+              <p>[ ] Hash / byte comparison matches trusted source.</p>
+              <p>[ ] Temporary recovery copies removed per policy.</p>
+            </div>
+            <p class="text-[10px] text-gray-600 mb-1">Verified output SHA-256:</p>
+            <div class="border border-border-light rounded px-2 py-1.5 bg-white h-[34px] flex items-end">
+              <span class="block w-full border-b border-black"></span>
+            </div>
           </div>
         </aside>
 

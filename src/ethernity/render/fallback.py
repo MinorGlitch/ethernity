@@ -32,7 +32,7 @@ class FallbackConsumerState:
     """Mutable state for consuming fallback blocks across pages."""
 
     section_idx: int = 0
-    line_idx: int = 0
+    token_idx: int = 0
     line_numbers: list[int] = field(default_factory=list)
 
     def current_line_number(self, section_idx: int) -> int:
@@ -53,7 +53,8 @@ class FallbackSectionData:
     """Data for a fallback section."""
 
     title: str
-    lines: tuple[str, ...]
+    tokens: tuple[str, ...]
+    group_size: int
 
 
 @dataclass
@@ -106,17 +107,14 @@ def build_fallback_sections_data(
     if not (inputs.render_fallback and inputs.fallback_sections):
         return None
     group_size = int(spec.fallback.group_size)
-    line_length = int(layout.line_length)
     sections: list[FallbackSectionData] = []
     for section in inputs.fallback_sections:
         title = fallback_section_title(section.label)
-        lines = format_zbase32_lines(
+        tokens = _tokenize_encoded_payload(
             encode_zbase32(encode_frame(section.frame)),
             group_size=group_size,
-            line_length=line_length,
-            line_count=None,
         )
-        sections.append(FallbackSectionData(title=title, lines=tuple(lines)))
+        sections.append(FallbackSectionData(title=title, tokens=tokens, group_size=group_size))
     state = FallbackConsumerState()
     return sections, state
 
@@ -134,10 +132,10 @@ def fallback_sections_remaining(
     if state.section_idx >= len(sections):
         return False
     current_section = sections[state.section_idx]
-    if state.line_idx < len(current_section.lines):
+    if state.token_idx < len(current_section.tokens):
         return True
     for section in sections[state.section_idx + 1 :]:
-        if section.lines:
+        if section.tokens:
             return True
     return False
 
@@ -146,6 +144,7 @@ def consume_fallback_blocks(
     sections: list[FallbackSectionData],
     state: FallbackConsumerState,
     lines_capacity: int,
+    line_length: int,
 ) -> list[FallbackBlock]:
     blocks: list[FallbackBlock] = []
     lines_left = lines_capacity
@@ -164,21 +163,21 @@ def consume_fallback_blocks(
         section = sections[state.section_idx]
 
         # Skip empty sections
-        if not section.lines:
+        if not section.tokens:
             state.section_idx += 1
-            state.line_idx = 0
+            state.token_idx = 0
             first_block = False
             continue
 
-        remaining = len(section.lines) - state.line_idx
+        remaining = len(section.tokens) - state.token_idx
         if remaining <= 0:
             state.section_idx += 1
-            state.line_idx = 0
+            state.token_idx = 0
             first_block = False
             continue
 
         # Check if we need to show title (only at start of section)
-        show_title = state.line_idx == 0
+        show_title = state.token_idx == 0
         title_lines = 1 if show_title else 0
 
         # Need room for at least title + 1 line
@@ -186,15 +185,14 @@ def consume_fallback_blocks(
             break
 
         lines_left -= title_lines
-        chunk_size = min(lines_left, remaining)
-        if chunk_size <= 0:
+        chunk, next_token_idx = _consume_section_lines(
+            section,
+            start_token_idx=state.token_idx,
+            line_length=line_length,
+            max_lines=lines_left,
+        )
+        if not chunk:
             break
-
-        # Extract chunk of lines
-        start = state.line_idx
-        end = start + chunk_size
-        chunk = list(section.lines[start:end])
-        state.line_idx = end
 
         line_offset = state.current_line_number(state.section_idx)
         blocks.append(
@@ -207,16 +205,59 @@ def consume_fallback_blocks(
             )
         )
 
-        state.advance_line_number(state.section_idx, chunk_size)
-        lines_left -= chunk_size
+        state.advance_line_number(state.section_idx, len(chunk))
+        state.token_idx = next_token_idx
+        lines_left -= len(chunk)
         first_block = False
 
         # Move to next section if current is exhausted
-        if state.line_idx >= len(section.lines):
+        if state.token_idx >= len(section.tokens):
             state.section_idx += 1
-            state.line_idx = 0
+            state.token_idx = 0
 
     return blocks
+
+
+def _tokenize_encoded_payload(encoded: str, *, group_size: int) -> tuple[str, ...]:
+    if group_size <= 0:
+        raise ValueError("group_size must be positive")
+    if not encoded:
+        return ()
+    return tuple(encoded[idx : idx + group_size] for idx in range(0, len(encoded), group_size))
+
+
+def _consume_section_lines(
+    section: FallbackSectionData,
+    *,
+    start_token_idx: int,
+    line_length: int,
+    max_lines: int,
+) -> tuple[list[str], int]:
+    if line_length <= 0 or max_lines <= 0 or start_token_idx >= len(section.tokens):
+        return [], start_token_idx
+
+    lines: list[str] = []
+    token_idx = start_token_idx
+    while token_idx < len(section.tokens) and len(lines) < max_lines:
+        parts: list[str] = []
+        line_chars = 0
+        while token_idx < len(section.tokens):
+            token = section.tokens[token_idx]
+            candidate_chars = line_chars + (len(token) if not parts else len(token) + 1)
+            if parts and candidate_chars > line_length:
+                break
+            if not parts and len(token) > line_length:
+                break
+            parts.append(token)
+            line_chars = candidate_chars
+            token_idx += 1
+
+        if not parts:
+            # Defensive fallback; should never happen with valid group_size/line_length.
+            parts.append(section.tokens[token_idx])
+            token_idx += 1
+        lines.append(" ".join(parts))
+    return lines, token_idx
 
 
 def position_fallback_blocks(

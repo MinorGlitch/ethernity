@@ -67,7 +67,6 @@
           <th class="px-3 py-2">Component ID</th>
           <th class="px-3 py-2">Designated Custodian</th>
           <th class="px-3 py-2">Storage Location</th>
-          <th class="px-3 py-2 text-center">Status</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-border-light">
@@ -82,17 +81,12 @@
             </td>
             <td class="px-3 py-3"><div class="h-6 border-b border-dashed border-border-light"></div></td>
             <td class="px-3 py-3"><div class="h-6 border-b border-dashed border-border-light"></div></td>
-            <td class="px-3 py-3 text-center">
-              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 border border-green-200">
-                {{ row.status if row.status is defined else 'Generated' }}
-              </span>
-            </td>
           </tr>
           {% endif %}
         {% endfor %}
         {% if not ns_table.has_rows %}
         <tr>
-          <td colspan="4" class="px-3 py-3 text-sm text-text-secondary-light">No inventory entries.</td>
+          <td colspan="3" class="px-3 py-3 text-sm text-text-secondary-light">No inventory entries.</td>
         </tr>
         {% endif %}
       </tbody>
@@ -125,8 +119,7 @@
     {% endif %}
     {% set ns_rows.items = ns_rows.items + [{
       'component_id': 'KIT-PAGE-' ~ ('%02d' % index_page.page_num),
-      'detail': detail,
-      'status': 'Generated'
+      'detail': detail
     }] %}
   {% endfor %}
   {% set row_source = ns_rows.items %}
@@ -196,37 +189,24 @@
           <span class="material-symbols-outlined">history_edu</span>
           Chain of Custody
         </h2>
-        <div class="rounded-lg border border-border-light overflow-hidden flex-1 flex flex-col">
-          <table class="w-full text-left text-sm">
-            <thead class="bg-gray-50 text-xs uppercase font-bold text-text-secondary-light border-b border-border-light">
-              <tr>
-                <th class="px-4 py-3 w-36">Date</th>
-                <th class="px-4 py-3 w-44">Person</th>
-                <th class="px-4 py-3">Action / Notes</th>
-                <th class="px-4 py-3 w-40 text-right">Signature</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-border-light">
-              <tr class="h-16">
-                <td class="px-4 border-r border-dashed border-border-light font-mono text-xs"></td>
-                <td class="px-4 border-r border-dashed border-border-light"></td>
-                <td class="px-4 border-r border-dashed border-border-light"></td>
-                <td class="px-4"></td>
-              </tr>
-              <tr class="h-16">
-                <td class="px-4 border-r border-dashed border-border-light font-mono text-xs"></td>
-                <td class="px-4 border-r border-dashed border-border-light"></td>
-                <td class="px-4 border-r border-dashed border-border-light"></td>
-                <td class="px-4"></td>
-              </tr>
-              <tr class="h-16">
-                <td class="px-4 border-r border-dashed border-border-light font-mono text-xs"></td>
-                <td class="px-4 border-r border-dashed border-border-light"></td>
-                <td class="px-4 border-r border-dashed border-border-light"></td>
-                <td class="px-4"></td>
-              </tr>
-            </tbody>
-          </table>
+        {% set custody_row_count = 7 %}
+        <div class="rounded-lg border border-border-light overflow-hidden flex-1 min-h-0 flex flex-col">
+          <div class="bg-gray-50 text-xs uppercase font-bold text-text-secondary-light border-b border-border-light grid grid-cols-[140px_170px_1fr_170px]">
+            <div class="px-4 py-3">Date</div>
+            <div class="px-4 py-3">Person</div>
+            <div class="px-4 py-3">Action / Notes</div>
+            <div class="px-4 py-3 text-right">Signature</div>
+          </div>
+          <div class="flex-1 min-h-0 flex flex-col">
+            {% for _ in range(custody_row_count) %}
+            <div class="grid grid-cols-[140px_170px_1fr_170px] border-t border-border-light flex-1">
+              <div class="px-4 border-r border-dashed border-border-light font-mono text-xs"></div>
+              <div class="px-4 border-r border-dashed border-border-light"></div>
+              <div class="px-4 border-r border-dashed border-border-light"></div>
+              <div class="px-4"></div>
+            </div>
+            {% endfor %}
+          </div>
         </div>
       </section>
     </div>
