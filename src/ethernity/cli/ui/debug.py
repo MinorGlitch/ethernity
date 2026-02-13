@@ -179,9 +179,7 @@ def _format_masked_text_secret(secret: str) -> str:
 
 def _format_masked_bytes_secret(secret: bytes) -> str:
     digest = hashlib.blake2b(secret, digest_size=8).hexdigest()
-    return (
-        f"<masked bytes={len(secret)} blake2b8={digest}; " "use --debug-reveal-secrets to reveal>"
-    )
+    return f"<masked bytes={len(secret)} blake2b8={digest}; use --debug-reveal-secrets to reveal>"
 
 
 def _json_safe(value: object) -> object:
