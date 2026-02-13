@@ -60,6 +60,7 @@ def print_recover_summary(
     *,
     auth_status: str | None,
     quiet: bool,
+    single_entry_output_is_directory: bool = False,
 ) -> None:
     if quiet:
         return
@@ -73,7 +74,11 @@ def print_recover_summary(
     if auth_status:
         rows.append(("Auth verification", auth_status))
     console_err.print(panel("Recovery summary", build_kv_table(rows)))
-    tree = build_recovered_tree(entries, output_path)
+    tree = build_recovered_tree(
+        entries,
+        output_path,
+        single_entry_output_is_directory=single_entry_output_is_directory,
+    )
     if tree is not None:
         console_err.print(panel("Recovered files", tree))
 

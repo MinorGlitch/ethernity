@@ -42,9 +42,10 @@ from ..io.frames import (
     _frames_from_scan,
     _frames_from_shard_inputs,
 )
+from ..ui.debug import print_recover_debug
 from ..ui.summary import format_auth_status
 from .prompts import _prompt_shard_inputs, _resolve_recover_output
-from .recover_flow import decrypt_and_extract, write_recovered_outputs
+from .recover_flow import decrypt_manifest_and_extract, write_recovered_outputs
 from .recover_input import (
     collect_fallback_frames,
     collect_payload_frames,
@@ -221,7 +222,13 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
         plan = plan_from_args(args)
         if plan.allow_unsigned:
             _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
-        return write_plan_outputs(plan, quiet=quiet, debug=debug)
+        return write_plan_outputs(
+            plan,
+            quiet=quiet,
+            debug=debug,
+            debug_max_bytes=args.debug_max_bytes,
+            debug_reveal_secrets=args.debug_reveal_secrets,
+        )
 
     with ui_screen_mode(quiet=quiet):
         if show_header and not quiet:
@@ -283,11 +290,28 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                         console.print("Recovery cancelled.")
                         return 1
 
-            extracted = decrypt_and_extract(plan, quiet=quiet, debug=debug)
+            manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
+            if debug:
+                print_recover_debug(
+                    manifest=manifest,
+                    extracted=extracted,
+                    ciphertext=plan.ciphertext,
+                    passphrase=plan.passphrase,
+                    auth_status=plan.auth_status,
+                    allow_unsigned=plan.allow_unsigned,
+                    output_path=args.output,
+                    debug_max_bytes=args.debug_max_bytes,
+                    reveal_secrets=args.debug_reveal_secrets,
+                )
 
             with wizard_stage("Output"):
                 output_path = _resolve_recover_output(
-                    extracted, args.output, interactive=True, doc_id=plan.doc_id
+                    extracted,
+                    args.output,
+                    interactive=True,
+                    doc_id=plan.doc_id,
+                    input_origin=manifest.input_origin,
+                    input_roots=manifest.input_roots,
                 )
                 if not assume_yes and not prompt_yes_no(
                     "Proceed with writing files",
@@ -297,12 +321,18 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                     console.print("Recovery cancelled.")
                     return 1
 
+            single_entry_output_is_directory = (
+                output_path is not None
+                and len(extracted) == 1
+                and manifest.input_origin in {"directory", "mixed"}
+            )
             write_recovered_outputs(
                 extracted,
                 output_path=output_path,
                 auth_status=plan.auth_status,
                 allow_unsigned=plan.allow_unsigned,
                 quiet=quiet,
+                single_entry_output_is_directory=single_entry_output_is_directory,
             )
             return 0
 
@@ -357,13 +387,38 @@ def _load_shard_frames(
     return shard_frames
 
 
-def write_plan_outputs(plan, *, quiet: bool, debug: bool = False) -> int:
-    extracted = decrypt_and_extract(plan, quiet=quiet, debug=debug)
+def write_plan_outputs(
+    plan,
+    *,
+    quiet: bool,
+    debug: bool = False,
+    debug_max_bytes: int = 0,
+    debug_reveal_secrets: bool = False,
+) -> int:
+    manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
+    if debug:
+        print_recover_debug(
+            manifest=manifest,
+            extracted=extracted,
+            ciphertext=plan.ciphertext,
+            passphrase=plan.passphrase,
+            auth_status=plan.auth_status,
+            allow_unsigned=plan.allow_unsigned,
+            output_path=plan.output_path,
+            debug_max_bytes=debug_max_bytes,
+            reveal_secrets=debug_reveal_secrets,
+        )
+    single_entry_output_is_directory = (
+        plan.output_path is not None
+        and len(extracted) == 1
+        and manifest.input_origin in {"directory", "mixed"}
+    )
     write_recovered_outputs(
         extracted,
         output_path=plan.output_path,
         auth_status=plan.auth_status,
         allow_unsigned=plan.allow_unsigned,
         quiet=quiet,
+        single_entry_output_is_directory=single_entry_output_is_directory,
     )
     return 0

@@ -156,7 +156,7 @@ CBOR payload evolution guidance:
 - Encoders should avoid emitting keys not defined in the format specification for a given version.
 
 Backward compatibility guidance:
-- Pre-release encodings that used CBOR lists/arrays are not supported by current decoders.
+- Legacy manifest file-entry encodings that used CBOR maps are not supported by current decoders.
 
 ## Conformance Guidance (Non-normative)
 

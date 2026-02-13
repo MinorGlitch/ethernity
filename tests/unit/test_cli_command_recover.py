@@ -116,7 +116,12 @@ class TestRecoverCommand(unittest.TestCase):
         _run_cli: mock.MagicMock,
         run_recover_command: mock.MagicMock,
     ) -> None:
-        ctx = self._ctx(quiet=False, debug=True)
+        ctx = self._ctx(
+            quiet=False,
+            debug=True,
+            debug_max_bytes=512,
+            debug_reveal_secrets=True,
+        )
         self._call_recover(
             ctx,
             shard_fallback_file=["manual.txt"],
@@ -126,6 +131,8 @@ class TestRecoverCommand(unittest.TestCase):
         args = run_recover_command.call_args.args[0]
         self.assertEqual(args.shard_fallback_file, ["manual.txt", "dir1.txt"])
         self.assertTrue(args.allow_unsigned)
+        self.assertEqual(args.debug_max_bytes, 512)
+        self.assertTrue(args.debug_reveal_secrets)
         self.assertEqual(run_recover_command.call_args.kwargs["debug"], True)
 
     @mock.patch("ethernity.cli.commands.recover.run_recover_command", return_value=0)
@@ -202,7 +209,11 @@ class TestRecoverFlow(unittest.TestCase):
         self.assertEqual(result, 0)
         warn.assert_called_once()
         run_recover_plan.assert_called_once_with(
-            plan_from_args.return_value, quiet=False, debug=True
+            plan_from_args.return_value,
+            quiet=False,
+            debug=True,
+            debug_max_bytes=0,
+            debug_reveal_secrets=False,
         )
 
         warn.reset_mock()
@@ -211,7 +222,11 @@ class TestRecoverFlow(unittest.TestCase):
         recover_flow.run_recover_command(args, debug=False)
         warn.assert_not_called()
         run_recover_plan.assert_called_once_with(
-            plan_from_args.return_value, quiet=False, debug=False
+            plan_from_args.return_value,
+            quiet=False,
+            debug=False,
+            debug_max_bytes=0,
+            debug_reveal_secrets=False,
         )
 
     @mock.patch("ethernity.cli.flows.recover._run_recover_wizard", return_value=3)

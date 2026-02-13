@@ -19,7 +19,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.io.inputs import _load_input_files
+from ethernity.cli.io.inputs import _directory_root_label, _load_input_files
 
 
 class _FakeProgress:
@@ -43,6 +43,22 @@ class _FakeProgress:
 
 
 class TestInputFiles(unittest.TestCase):
+    def test_directory_root_label_accepts_filesystem_root(self) -> None:
+        root_anchor = Path.cwd().anchor or "/"
+        label = _directory_root_label(Path(root_anchor))
+        self.assertTrue(label)
+        self.assertNotIn("/", label)
+        self.assertNotIn("\\", label)
+
+    def test_directory_root_label_windows_drive_fallback(self) -> None:
+        path = mock.MagicMock()
+        path.expanduser.return_value = path
+        resolved = mock.MagicMock()
+        resolved.name = ""
+        resolved.anchor = "C:\\"
+        path.resolve.return_value = resolved
+        self.assertEqual(_directory_root_label(path), "drive-c")
+
     def test_directory_recursion_and_relative_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir) / "root"
@@ -51,9 +67,13 @@ class TestInputFiles(unittest.TestCase):
             (root / "a.txt").write_bytes(b"A")
             (nested / "b.txt").write_bytes(b"B")
 
-            entries, base = _load_input_files([], [str(root)], None, allow_stdin=False)
+            entries, base, input_origin, input_roots = _load_input_files(
+                [], [str(root)], None, allow_stdin=False
+            )
 
             self.assertEqual(base, root.resolve())
+            self.assertEqual(input_origin, "directory")
+            self.assertEqual(input_roots, ["root"])
             rels = [entry.relative_path for entry in entries]
             self.assertEqual(rels, ["a.txt", "nested/b.txt"])
 
@@ -151,7 +171,7 @@ class TestInputFiles(unittest.TestCase):
                 (root / f"file-{idx}.txt").write_text(f"payload-{idx}", encoding="utf-8")
 
             progress = _FakeProgress()
-            entries, _ = _load_input_files(
+            entries, _, input_origin, input_roots = _load_input_files(
                 [],
                 [str(root)],
                 None,
@@ -160,11 +180,65 @@ class TestInputFiles(unittest.TestCase):
             )
 
         self.assertEqual(len(entries), 11)
+        self.assertEqual(input_origin, "directory")
+        self.assertEqual(input_roots, ["root"])
         update_events = [event for event in progress.events if event[0] == "update"]
         self.assertTrue(update_events)
         descriptions = [payload[1].get("description", "") for _, payload in update_events]
         self.assertTrue(any("Scanning input files..." in desc for desc in descriptions))
         self.assertTrue(any("Reading input files..." in desc for desc in descriptions))
+
+    def test_file_only_origin(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "file.txt"
+            file_path.write_text("x", encoding="utf-8")
+            _entries, _base, input_origin, input_roots = _load_input_files(
+                [str(file_path)],
+                [],
+                None,
+                allow_stdin=False,
+            )
+        self.assertEqual(input_origin, "file")
+        self.assertEqual(input_roots, [])
+
+    def test_mixed_origin_file_and_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            single = root / "single.txt"
+            single.write_text("single", encoding="utf-8")
+            folder = root / "folder"
+            folder.mkdir()
+            (folder / "nested.txt").write_text("nested", encoding="utf-8")
+
+            _entries, _base, input_origin, input_roots = _load_input_files(
+                [str(single)],
+                [str(folder)],
+                None,
+                allow_stdin=False,
+            )
+
+        self.assertEqual(input_origin, "mixed")
+        self.assertEqual(input_roots, ["folder"])
+
+    def test_directory_roots_preserve_duplicates_and_order(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            first = root / "a" / "data"
+            second = root / "b" / "data"
+            first.mkdir(parents=True)
+            second.mkdir(parents=True)
+            (first / "one.txt").write_text("one", encoding="utf-8")
+            (second / "two.txt").write_text("two", encoding="utf-8")
+
+            _entries, _base, input_origin, input_roots = _load_input_files(
+                [],
+                [str(first), str(second)],
+                None,
+                allow_stdin=False,
+            )
+
+        self.assertEqual(input_origin, "directory")
+        self.assertEqual(input_roots, ["data", "data"])
 
 
 if __name__ == "__main__":

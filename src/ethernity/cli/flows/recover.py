@@ -29,7 +29,13 @@ def run_recover_command(args: RecoverArgs, *, debug: bool = False) -> int:
     plan = plan_from_args(args)
     if plan.allow_unsigned:
         _warn("Authentication check skipped - ensure you trust the source", quiet=args.quiet)
-    return run_recover_plan(plan, quiet=args.quiet, debug=debug)
+    return run_recover_plan(
+        plan,
+        quiet=args.quiet,
+        debug=debug,
+        debug_max_bytes=args.debug_max_bytes,
+        debug_reveal_secrets=args.debug_reveal_secrets,
+    )
 
 
 def run_recover_wizard(args: RecoverArgs, *, debug: bool = False) -> int:
