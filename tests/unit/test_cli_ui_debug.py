@@ -113,8 +113,8 @@ class TestUIDebugHelpers(unittest.TestCase):
         self.assertIsNone(debug_module._decode_manifest_raw(b"\x81"))
 
 
-class TestPrintPreEncryptionDebug(unittest.TestCase):
-    def _manifest(self) -> EnvelopeManifest:
+class TestDebugRenderers(unittest.TestCase):
+    def _manifest_direct(self) -> EnvelopeManifest:
         entry = ManifestFile(
             path="doc.txt",
             size=3,
@@ -127,13 +127,35 @@ class TestPrintPreEncryptionDebug(unittest.TestCase):
             sealed=False,
             signing_seed=b"\x22" * 32,
             files=(entry,),
+            input_origin="file",
+            input_roots=(),
+        )
+
+    def _manifest_prefix_table(self) -> EnvelopeManifest:
+        files = tuple(
+            ManifestFile(
+                path=f"very/long/common/prefix/segment/for/testing/{index:03d}.txt",
+                size=3,
+                sha256=hashlib.sha256(f"f{index}".encode("utf-8")).digest(),
+                mtime=123 + index,
+            )
+            for index in range(8)
+        )
+        return EnvelopeManifest(
+            format_version=1,
+            created_at=1.0,
+            sealed=False,
+            signing_seed=b"\x11" * 32,
+            files=files,
+            input_origin="directory",
+            input_roots=("testing",),
         )
 
     def _input_file(self) -> InputFile:
         return InputFile(source_path=None, relative_path="doc.txt", data=b"abc", mtime=123)
 
     @mock.patch("ethernity.cli.ui.debug.console.print")
-    def test_print_pre_encryption_debug_with_manifest_object(
+    def test_print_backup_debug_masks_secrets_by_default(
         self,
         console_print: mock.MagicMock,
     ) -> None:
@@ -143,11 +165,11 @@ class TestPrintPreEncryptionDebug(unittest.TestCase):
             sharding=ShardingConfig(threshold=2, shares=3),
             signing_seed_sharding=None,
         )
-        debug_module._print_pre_encryption_debug(
+        debug_module.print_backup_debug(
             payload=b"payload-bytes",
             input_files=[self._input_file()],
             base_dir=None,
-            manifest=self._manifest(),
+            manifest=self._manifest_prefix_table(),
             envelope=b"envelope-bytes",
             plan=plan,
             passphrase="secret words",
@@ -155,31 +177,66 @@ class TestPrintPreEncryptionDebug(unittest.TestCase):
             signing_pub=b"\x44" * 32,
             signing_seed_stored=True,
             debug_max_bytes=32,
+            reveal_secrets=False,
         )
         rendered = "\n".join(
             str(call.args[0]) for call in console_print.call_args_list if call.args
         )
-        self.assertIn("Payload summary:", rendered)
-        self.assertIn("Signing keys:", rendered)
-        self.assertIn("Payload z-base-32:", rendered)
-        self.assertIn("Manifest model JSON:", rendered)
-        self.assertIn("Manifest CBOR map JSON:", rendered)
-        self.assertIn('"path_encoding"', rendered)
+        self.assertIn("[bold]Debug Summary:[/bold]", rendered)
+        self.assertIn("- mode: backup", rendered)
+        self.assertIn("- signing seed stored in envelope: yes", rendered)
+        self.assertIn("- passphrase: <masked chars=", rendered)
+        self.assertIn("Signing private key: <masked bytes=", rendered)
+        self.assertNotIn("secret words", rendered)
+        self.assertNotIn("33333333", rendered)
+        self.assertIn("[bold]Manifest CBOR map JSON:[/bold]", rendered)
+        self.assertIn('"path_encoding": "prefix_table"', rendered)
+        self.assertIn('"path_prefixes"', rendered)
+        self.assertIn("[bold]Payload Preview (hex):[/bold]", rendered)
+        self.assertIn("[bold]Envelope Preview (hex):[/bold]", rendered)
         literal_calls = [
             call for call in console_print.call_args_list if call.kwargs.get("markup") is False
         ]
-        self.assertGreaterEqual(len(literal_calls), 2)
+        self.assertGreaterEqual(len(literal_calls), 3)
         self.assertTrue(any("00000000" in str(call.args[0]) for call in literal_calls if call.args))
+
+    @mock.patch("ethernity.cli.ui.debug.console.print")
+    def test_print_backup_debug_reveals_secrets_when_requested(
+        self,
+        console_print: mock.MagicMock,
+    ) -> None:
+        plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
+        debug_module.print_backup_debug(
+            payload=b"payload-bytes",
+            input_files=[self._input_file()],
+            base_dir=None,
+            manifest=self._manifest_direct(),
+            envelope=b"envelope-bytes",
+            plan=plan,
+            passphrase="reveal me",
+            signing_seed=b"\x33" * 32,
+            signing_pub=b"\x44" * 32,
+            signing_seed_stored=True,
+            debug_max_bytes=32,
+            reveal_secrets=True,
+        )
+        rendered = "\n".join(
+            str(call.args[0]) for call in console_print.call_args_list if call.args
+        )
+        self.assertIn("- passphrase: reveal me", rendered)
+        self.assertIn("Signing private key (hex, revealed):", rendered)
+        self.assertNotIn("<masked chars=", rendered)
+        self.assertIn('"path_encoding": "direct"', rendered)
 
     @mock.patch("ethernity.cli.ui.debug._decode_manifest_raw", return_value=None)
     @mock.patch("ethernity.cli.ui.debug.console.print")
-    def test_print_pre_encryption_debug_with_bytes_manifest_decode_failure(
+    def test_print_backup_debug_decode_failure_message(
         self,
         console_print: mock.MagicMock,
         _decode_manifest_raw: mock.MagicMock,
     ) -> None:
         plan = DocumentPlan(version=1, sealed=True, sharding=None, signing_seed_sharding=None)
-        debug_module._print_pre_encryption_debug(
+        debug_module.print_backup_debug(
             payload=b"abc",
             input_files=[self._input_file()],
             base_dir=None,
@@ -191,12 +248,73 @@ class TestPrintPreEncryptionDebug(unittest.TestCase):
             signing_pub=b"\x55" * 32,
             signing_seed_stored=False,
             debug_max_bytes=8,
+            reveal_secrets=False,
         )
         rendered = "\n".join(
             str(call.args[0]) for call in console_print.call_args_list if call.args
         )
         self.assertIn("(unable to decode manifest CBOR map)", rendered)
-        self.assertIn("Signing seed stored in envelope: no", rendered)
+        self.assertIn("- signing seed stored in envelope: no", rendered)
+
+    @mock.patch("ethernity.cli.ui.debug.console.print")
+    def test_print_recover_debug_masks_passphrase_and_shows_entries(
+        self,
+        console_print: mock.MagicMock,
+    ) -> None:
+        manifest = self._manifest_prefix_table()
+        extracted = [
+            (manifest.files[0], b"abc"),
+            (manifest.files[1], b"def"),
+        ]
+        debug_module.print_recover_debug(
+            manifest=manifest,
+            extracted=extracted,
+            ciphertext=b"\xaa\xbb\xcc",
+            passphrase="recover secret",
+            auth_status="verified",
+            allow_unsigned=False,
+            output_path="restored-output",
+            debug_max_bytes=16,
+            reveal_secrets=False,
+        )
+        rendered = "\n".join(
+            str(call.args[0]) for call in console_print.call_args_list if call.args
+        )
+        self.assertIn("- mode: recover", rendered)
+        self.assertIn("- auth status: verified", rendered)
+        self.assertIn("- rescue mode: disabled", rendered)
+        self.assertIn("- output target: restored-output", rendered)
+        self.assertIn("- passphrase: <masked chars=", rendered)
+        self.assertNotIn("recover secret", rendered)
+        self.assertIn("[bold]Recovered Entries:[/bold]", rendered)
+        self.assertIn("very/long/common/prefix/segment/for/testing/000.txt (3 bytes)", rendered)
+        self.assertIn("[bold]Manifest CBOR map JSON:[/bold]", rendered)
+        self.assertIn('"path_encoding": "prefix_table"', rendered)
+
+    @mock.patch("ethernity.cli.ui.debug.console.print")
+    def test_print_recover_debug_reveals_passphrase_and_handles_no_entries(
+        self,
+        console_print: mock.MagicMock,
+    ) -> None:
+        manifest = self._manifest_direct()
+        debug_module.print_recover_debug(
+            manifest=manifest,
+            extracted=[],
+            ciphertext=b"\xaa",
+            passphrase="open sesame",
+            auth_status="unsigned",
+            allow_unsigned=True,
+            output_path=None,
+            debug_max_bytes=8,
+            reveal_secrets=True,
+        )
+        rendered = "\n".join(
+            str(call.args[0]) for call in console_print.call_args_list if call.args
+        )
+        self.assertIn("- output target: stdout", rendered)
+        self.assertIn("- rescue mode: enabled", rendered)
+        self.assertIn("- passphrase: open sesame", rendered)
+        self.assertIn("(no entries)", rendered)
 
 
 if __name__ == "__main__":

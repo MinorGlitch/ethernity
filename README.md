@@ -466,7 +466,19 @@ flowchart TD
 | `--paper` | override paper size | `ethernity --paper Letter backup ...` |
 | `--design` | select template design | `ethernity --design forge backup ...` |
 | `--quiet` | suppress non-error output | `ethernity --quiet recover ...` |
-| `--debug` | show expanded debug output | `ethernity --debug backup ...` |
+| `--debug` | show expanded debug output (secrets masked by default) | `ethernity --debug backup ...` |
+| `--debug-max-bytes` | cap debug preview size (`0` disables cap) | `ethernity --debug --debug-max-bytes 4096 backup ...` |
+| `--debug-reveal-secrets` | reveal full passphrase/private key material in debug output | `ethernity --debug --debug-reveal-secrets backup ...` |
+
+Use `--debug-reveal-secrets` only in controlled environments and never in shared terminals/log collectors.
+
+```sh
+# Safe debug (masked secrets)
+ethernity --debug backup --input ./secret.txt --output-dir ./backup-out
+
+# Full secret reveal (opt-in, high risk)
+ethernity --debug --debug-reveal-secrets backup --input ./secret.txt --output-dir ./backup-out
+```
 
 ### Help Surfaces
 

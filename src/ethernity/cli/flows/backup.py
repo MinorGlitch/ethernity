@@ -413,6 +413,7 @@ def run_wizard(
     *,
     debug_override: bool | None = None,
     debug_max_bytes: int = DEBUG_MAX_BYTES_DEFAULT,
+    debug_reveal_secrets: bool = False,
     config_path: str | None = None,
     paper_size: str | None = None,
     quiet: bool = False,
@@ -494,6 +495,7 @@ def run_wizard(
                 config=config,
                 debug=debug,
                 debug_max_bytes=debug_max_bytes,
+                debug_reveal_secrets=debug_reveal_secrets,
                 quiet=quiet,
             )
             print_backup_summary(result, plan, passphrase, quiet=quiet)
@@ -530,6 +532,7 @@ def run_backup_command(args: BackupArgs) -> int:
     quiet = args.quiet
     debug = args.debug
     debug_max_bytes = args.debug_max_bytes
+    debug_reveal_secrets = args.debug_reveal_secrets
     output_dir = args.output_dir
     status_quiet = quiet or debug
     with progress(quiet=status_quiet) as progress_bar:
@@ -552,6 +555,7 @@ def run_backup_command(args: BackupArgs) -> int:
         config=config,
         debug=debug,
         debug_max_bytes=debug_max_bytes,
+        debug_reveal_secrets=debug_reveal_secrets,
         quiet=quiet,
     )
     print_backup_summary(result, plan, passphrase, quiet=quiet)
@@ -572,6 +576,7 @@ def run_backup(
     config: AppConfig,
     debug: bool = False,
     debug_max_bytes: int | None = None,
+    debug_reveal_secrets: bool = False,
     quiet: bool = False,
 ) -> BackupResult:
     return _run_backup(
@@ -586,5 +591,6 @@ def run_backup(
         config=config,
         debug=debug,
         debug_max_bytes=debug_max_bytes,
+        debug_reveal_secrets=debug_reveal_secrets,
         quiet=quiet,
     )

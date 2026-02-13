@@ -79,6 +79,12 @@ def cli(
         help=f"Limit debug dump size (default: {DEBUG_MAX_BYTES_DEFAULT}, 0 = no limit).",
         rich_help_panel="Debug",
     ),
+    debug_reveal_secrets: bool = typer.Option(
+        False,
+        "--debug-reveal-secrets",
+        help="Reveal full passphrase and private key material in debug output.",
+        rich_help_panel="Debug",
+    ),
     quiet: bool = typer.Option(
         False,
         "--quiet",
@@ -135,6 +141,7 @@ def cli(
             "design": design,
             "debug": debug,
             "debug_max_bytes": debug_max_bytes,
+            "debug_reveal_secrets": debug_reveal_secrets,
             "quiet": quiet,
             "no_color": no_color,
             "no_animations": no_animations,
@@ -151,7 +158,13 @@ def cli(
         with ui_screen_mode(quiet=quiet):
             action = prompt_home_action(quiet=quiet)
         if action == "recover":
-            args = empty_recover_args(config=config_value, paper=paper_value, quiet=quiet)
+            args = empty_recover_args(
+                config=config_value,
+                paper=paper_value,
+                quiet=quiet,
+                debug_max_bytes=debug_max_bytes,
+                debug_reveal_secrets=debug_reveal_secrets,
+            )
             _run_cli(lambda: run_recover_wizard(args, debug=debug), debug=debug)
         elif action == "kit":
             _run_cli(
@@ -172,6 +185,7 @@ def cli(
                 lambda: run_wizard(
                     debug_override=debug if debug else None,
                     debug_max_bytes=debug_max_bytes,
+                    debug_reveal_secrets=debug_reveal_secrets,
                     config_path=config_value,
                     paper_size=paper_value,
                     quiet=quiet,
