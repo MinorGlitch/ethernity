@@ -162,6 +162,9 @@ class TestPrintPreEncryptionDebug(unittest.TestCase):
         self.assertIn("Payload summary:", rendered)
         self.assertIn("Signing keys:", rendered)
         self.assertIn("Payload z-base-32:", rendered)
+        self.assertIn("Manifest model JSON:", rendered)
+        self.assertIn("Manifest CBOR map JSON:", rendered)
+        self.assertIn('"path_encoding"', rendered)
         literal_calls = [
             call for call in console_print.call_args_list if call.kwargs.get("markup") is False
         ]
@@ -192,7 +195,7 @@ class TestPrintPreEncryptionDebug(unittest.TestCase):
         rendered = "\n".join(
             str(call.args[0]) for call in console_print.call_args_list if call.args
         )
-        self.assertIn("(unable to decode manifest JSON)", rendered)
+        self.assertIn("(unable to decode manifest CBOR map)", rendered)
         self.assertIn("Signing seed stored in envelope: no", rendered)
 
 

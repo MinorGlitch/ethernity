@@ -230,7 +230,19 @@ def _relative_path(path: Path, base_dir: Path | None) -> str:
 
 
 def _directory_root_label(path: Path) -> str:
-    label = path.expanduser().resolve().name.strip()
-    if not label:
-        raise ValueError(f"input directory path has no leaf name: {path}")
-    return label
+    resolved = path.expanduser().resolve()
+    label = resolved.name.strip()
+    if label:
+        return label
+
+    anchor = resolved.anchor.rstrip("/\\").strip()
+    if anchor.endswith(":"):
+        drive = anchor[:-1].strip().lower()
+        if drive:
+            return f"drive-{drive}"
+    if anchor:
+        compact_anchor = anchor.replace("\\", "-").replace("/", "-").replace(":", "")
+        compact_anchor = compact_anchor.strip("-").lower()
+        if compact_anchor:
+            return f"root-{compact_anchor}"
+    return "root"

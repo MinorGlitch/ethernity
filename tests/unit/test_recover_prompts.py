@@ -260,6 +260,50 @@ class TestResolveRecoverOutput(unittest.TestCase):
 
     @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
     @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    def test_single_entry_directory_origin_rejects_parent_dot_segment_root(
+        self,
+        mock_prompt_choice: mock.MagicMock,
+        mock_prompt_optional_path_with_picker: mock.MagicMock,
+    ) -> None:
+        mock_prompt_choice.return_value = "inferred"
+
+        resolved = _resolve_recover_output(
+            [(_ManifestEntry("vault/report.txt"), b"payload")],
+            None,
+            interactive=True,
+            doc_id=b"\x6a" * 16,
+            input_origin="directory",
+            input_roots=("..",),
+        )
+
+        self.assertEqual(resolved, "recovered-" + ("6a" * 16))
+        mock_prompt_choice.assert_called_once()
+        mock_prompt_optional_path_with_picker.assert_not_called()
+
+    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    def test_single_entry_directory_origin_rejects_current_dot_segment_root(
+        self,
+        mock_prompt_choice: mock.MagicMock,
+        mock_prompt_optional_path_with_picker: mock.MagicMock,
+    ) -> None:
+        mock_prompt_choice.return_value = "inferred"
+
+        resolved = _resolve_recover_output(
+            [(_ManifestEntry("vault/report.txt"), b"payload")],
+            None,
+            interactive=True,
+            doc_id=b"\x6b" * 16,
+            input_origin="directory",
+            input_roots=(".",),
+        )
+
+        self.assertEqual(resolved, "recovered-" + ("6b" * 16))
+        mock_prompt_choice.assert_called_once()
+        mock_prompt_optional_path_with_picker.assert_not_called()
+
+    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
     def test_single_entry_mixed_origin_uses_directory_prompt(
         self,
         mock_prompt_choice: mock.MagicMock,

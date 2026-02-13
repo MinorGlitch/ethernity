@@ -19,7 +19,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.io.inputs import _load_input_files
+from ethernity.cli.io.inputs import _directory_root_label, _load_input_files
 
 
 class _FakeProgress:
@@ -43,6 +43,22 @@ class _FakeProgress:
 
 
 class TestInputFiles(unittest.TestCase):
+    def test_directory_root_label_accepts_filesystem_root(self) -> None:
+        root_anchor = Path.cwd().anchor or "/"
+        label = _directory_root_label(Path(root_anchor))
+        self.assertTrue(label)
+        self.assertNotIn("/", label)
+        self.assertNotIn("\\", label)
+
+    def test_directory_root_label_windows_drive_fallback(self) -> None:
+        path = mock.MagicMock()
+        path.expanduser.return_value = path
+        resolved = mock.MagicMock()
+        resolved.name = ""
+        resolved.anchor = "C:\\"
+        path.resolve.return_value = resolved
+        self.assertEqual(_directory_root_label(path), "drive-c")
+
     def test_directory_recursion_and_relative_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir) / "root"

@@ -147,12 +147,12 @@ def _print_pre_encryption_debug(
     signing_seed_stored: bool | None = None,
     debug_max_bytes: int | None,
 ) -> None:
+    manifest_model_display: object | None = None
     if isinstance(manifest, EnvelopeManifest):
         manifest_bytes = encode_manifest(manifest)
-        manifest_display: object | None = _json_safe(manifest.to_dict())
+        manifest_model_display = _json_safe(manifest.to_dict())
     else:
         manifest_bytes = manifest
-        manifest_display = None
 
     console.print("[bold]Payload summary:[/bold]")
     console.print(f"- input file count: {len(input_files)}")
@@ -191,15 +191,21 @@ def _print_pre_encryption_debug(
     console.print(_hexdump(payload, max_bytes=debug_max_bytes), markup=False)
     console.print()
 
-    console.print("[bold]Manifest JSON:[/bold]")
     manifest_raw = _decode_manifest_raw(manifest_bytes)
-    if manifest_display is None:
-        manifest_display = manifest_raw
-    if manifest_display is None:
-        console.print("(unable to decode manifest JSON)")
+    if manifest_model_display is not None:
+        console.print("[bold]Manifest model JSON:[/bold]")
+        console.print(
+            json.dumps(manifest_model_display, indent=2, sort_keys=True),
+            markup=False,
+        )
+        console.print()
+
+    console.print("[bold]Manifest CBOR map JSON:[/bold]")
+    if manifest_raw is None:
+        console.print("(unable to decode manifest CBOR map)")
     else:
         console.print(
-            json.dumps(manifest_display, indent=2, sort_keys=True),
+            json.dumps(manifest_raw, indent=2, sort_keys=True),
             markup=False,
         )
     console.print()
