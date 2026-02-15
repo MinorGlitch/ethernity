@@ -228,7 +228,7 @@ jobs:
           python-version: "3.13"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@8d55fbecc275b1c35dbe060458839f8d30439ccf # v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -288,7 +288,7 @@ jobs:
           python-version: "3.13"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@8d55fbecc275b1c35dbe060458839f8d30439ccf # v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -435,7 +435,7 @@ jobs:
           done
 
       - name: Publish release
-        uses: softprops/action-gh-release@738f0c76948a84ff818b6e43c8b515cb27dbc559 # v2.0.0
+        uses: softprops/action-gh-release@a6c7483a42ee9d5daced968f6c217562cd680f7f # v2.0.0
         with:
           tag_name: ${{ needs.precheck.outputs.tag }}
           prerelease: ${{ needs.precheck.outputs.prerelease == 'true' }}
