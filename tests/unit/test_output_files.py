@@ -16,6 +16,8 @@
 from __future__ import annotations
 
 import io
+import os
+import stat
 import tempfile
 import types
 import unittest
@@ -52,6 +54,29 @@ class TestOutputFiles(unittest.TestCase):
             path = Path(tmpdir) / "out.bin"
             _write_output(str(path), b"payload", quiet=True)
             self.assertEqual(path.read_bytes(), b"payload")
+
+    def test_permissions_hardened_on_posix(self) -> None:
+        if os.name != "posix":
+            self.skipTest("POSIX-only permission assertion")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "secure"
+            _ensure_output_dir(str(out_dir), "deadbeef")
+            out_file = out_dir / "payload.bin"
+            _write_output(str(out_file), b"payload", quiet=True)
+
+            dir_mode = stat.S_IMODE(out_dir.stat().st_mode)
+            file_mode = stat.S_IMODE(out_file.stat().st_mode)
+            self.assertEqual(dir_mode, 0o700)
+            self.assertEqual(file_mode, 0o600)
+
+    def test_permission_hardening_failures_are_silent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "secure"
+            out_file = out_dir / "payload.bin"
+            with mock.patch("ethernity.cli.io.outputs.os.name", "posix"):
+                with mock.patch("pathlib.Path.chmod", side_effect=OSError("denied")):
+                    _ensure_output_dir(str(out_dir), "deadbeef")
+                    _write_output(str(out_file), b"payload", quiet=True)
 
     def test_write_output_writes_stdout_when_path_is_none(self) -> None:
         fake_stdout = types.SimpleNamespace(buffer=io.BytesIO())
