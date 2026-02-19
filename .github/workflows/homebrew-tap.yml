@@ -1,0 +1,105 @@
+name: Update Homebrew Tap
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish to tap (e.g. v0.2.1)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homebrew-tap-${{ github.workflow }}-${{ github.ref }}-${{ inputs.release_tag || github.event.release.tag_name || 'none' }}
+  cancel-in-progress: true
+
+jobs:
+  update-tap:
+    if: github.event_name == 'workflow_dispatch' || (github.event.release.prerelease == false && github.event.release.draft == false)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Resolve release tag
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${{ inputs.release_tag }}"
+          else
+            tag="${{ github.event.release.tag_name }}"
+          fi
+          if [[ -z "${tag}" ]]; then
+            echo "release tag is required" >&2
+            exit 1
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Generate formula from release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/generate_homebrew_formula.py \
+            --repo "${GITHUB_REPOSITORY}" \
+            --tag "${{ steps.meta.outputs.tag }}" \
+            --output "${RUNNER_TEMP}/ethernity.rb"
+
+      - name: Resolve tap settings
+        id: tap
+        shell: bash
+        run: |
+          set -euo pipefail
+          tap_repo="${{ vars.HOMEBREW_TAP_REPO }}"
+          if [[ -z "${tap_repo}" ]]; then
+            tap_repo="MinorGlitch/homebrew-tap"
+          fi
+          echo "tap_repo=${tap_repo}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify tap token is configured
+        shell: bash
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${TAP_TOKEN}" ]]; then
+            echo "missing required secret: HOMEBREW_TAP_TOKEN" >&2
+            exit 1
+          fi
+
+      - name: Checkout tap repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: ${{ steps.tap.outputs.tap_repo }}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Update formula file
+        id: update
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tap/Formula
+          cp "${RUNNER_TEMP}/ethernity.rb" tap/Formula/ethernity.rb
+          if git -C tap diff --quiet -- Formula/ethernity.rb; then
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "changed=true" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Commit and push formula update
+        if: steps.update.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C tap config user.name "github-actions[bot]"
+          git -C tap config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C tap add Formula/ethernity.rb
+          git -C tap commit -m "ethernity ${{ steps.meta.outputs.tag }}"
+          git -C tap push
