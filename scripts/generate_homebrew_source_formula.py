@@ -112,12 +112,26 @@ def _choose_artifact_for_block(
     wheel: dict[str, object] | None
     if "none-any.whl" in current_url:
         wheel = _choose_wheel(package, r"none-any\.whl$")
+    elif "macosx" in current_url and "universal2" in current_url:
+        wheel = _choose_wheel(package, r"macosx.*universal2|universal2.*macosx")
+        if wheel is None:
+            wheel = _choose_wheel(package, r"macosx")
+    elif "macosx" in current_url and "arm64" in current_url:
+        wheel = _choose_wheel(package, r"macosx.*arm64|arm64.*macosx")
+        if wheel is None:
+            wheel = _choose_wheel(package, r"macosx.*universal2|universal2.*macosx")
+    elif "macosx" in current_url and "x86_64" in current_url:
+        wheel = _choose_wheel(package, r"macosx.*x86_64|x86_64.*macosx")
+        if wheel is None:
+            wheel = _choose_wheel(package, r"macosx.*universal2|universal2.*macosx")
+    elif "macosx" in current_url:
+        wheel = _choose_wheel(package, r"macosx.*universal2|universal2.*macosx")
+        if wheel is None:
+            wheel = _choose_wheel(package, r"macosx")
     elif "manylinux" in current_url and ("aarch64" in current_url or "arm64" in current_url):
         wheel = _choose_wheel(package, r"manylinux.*aarch64|aarch64.*manylinux")
     elif "manylinux" in current_url and "x86_64" in current_url:
         wheel = _choose_wheel(package, r"manylinux.*x86_64|x86_64.*manylinux")
-    elif "macosx" in current_url:
-        wheel = _choose_wheel(package, r"macosx")
     elif "aarch64" in current_url or "arm64" in current_url:
         wheel = _choose_wheel(package, r"aarch64|arm64")
     elif "x86_64" in current_url:
