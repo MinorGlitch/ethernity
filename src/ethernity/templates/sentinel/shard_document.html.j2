@@ -62,19 +62,19 @@
 {% for page in pages %}
   <section class="print-sheet border border-border-light flex flex-col">
     {% set sentinel_top_strip_text = 'Passphrase Shard // Store Separately // Threshold Protected' %}
+    {% set sentinel_header_title = copy.title %}
+    {% set sentinel_header_subtitle = copy.subtitle %}
     {% set sentinel_header_classification = 'Threshold Protected' %}
-    {% set sentinel_footer_guidance = 'Single shard cannot recover the secret' %}
+    {% set sentinel_footer_guidance = copy.footer_guidance %}
     {% include 'partials/sentinel_shell_header.j2' %}
 
     <div class="relative z-10 flex-1 min-h-0 flex flex-col p-[15mm] pt-4">
       <section class="bg-gray-100 border-l-4 border-primary p-4 mb-6 flex items-start gap-3">
         <span class="material-symbols-outlined text-primary">warning</span>
         <div>
-          <h3 class="font-black text-sm uppercase tracking-[0.12em] mb-1">Critical Security Notice</h3>
+          <h3 class="font-black text-sm uppercase tracking-[0.12em] mb-1">{{ copy.warning_title }}</h3>
           <p class="text-xs leading-relaxed text-gray-700">
-            This document contains shard {{ shard_index }} of {{ shard_total }}. Possession of this shard alone is insufficient for recovery.
-            Recovery requires {{ shard_threshold if shard_threshold is defined else shard_total }}/{{ shard_total }} shards.
-            Store separately from other shards to prevent unauthorized reassembly.
+            {{ copy.warning_body }}
           </p>
         </div>
       </section>
@@ -110,7 +110,7 @@
           <div class="relative z-10">
             <div class="flex items-center gap-2 mb-2">
               <span class="material-symbols-outlined text-sm">keyboard</span>
-              <h3 class="text-xs font-bold uppercase tracking-widest">Manual Transcription</h3>
+              <h3 class="text-xs font-bold uppercase tracking-widest">{{ copy.manual_transcription_label }}</h3>
             </div>
             {% for block in page.fallback_blocks %}
               {% if block.title %}

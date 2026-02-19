@@ -141,11 +141,11 @@
 {% for page_rows in row_chunks %}
   <section class="print-sheet flex flex-col p-[15mm] border border-gray-100">
     {% set forge_page_label = 'Page ' ~ loop.index ~ ' / ' ~ total_pages %}
-    {% set forge_header_title = 'Recovery Kit Master Index' %}
-    {% set forge_header_subtitle = doc.subtitle %}
+    {% set forge_header_title = copy.title %}
+    {% set forge_header_subtitle = copy.subtitle %}
     {% set forge_header_kicker = 'The Forge // Secure Offline Storage' %}
     {% set forge_header_classification = 'Authorized Personnel Only' %}
-    {% set forge_header_guidance = 'Inventory record only; keep separate' %}
+    {% set forge_header_guidance = copy.header_guidance %}
     {% set forge_header_ref = doc_id %}
     {% set forge_header_icon = 'inventory_2' %}
     {% include 'partials/forge_shell_header.j2' %}
@@ -165,9 +165,9 @@
       <div class="flex gap-3">
         <span class="material-symbols-outlined text-primary text-xl">warning</span>
         <div>
-          <h3 class="font-bold text-gray-900 text-sm uppercase mb-1">Critical Security Warning</h3>
+          <h3 class="font-bold text-gray-900 text-sm uppercase mb-1">{{ copy.warning_title }}</h3>
           <p class="text-sm text-gray-700 leading-relaxed">
-            This document is an inventory index. Keep it separate from shard and recovery documents.
+            {{ copy.warning_body }}
           </p>
         </div>
       </div>
@@ -176,7 +176,7 @@
     <div class="mb-6">
       <h2 class="text-lg font-bold text-gray-900 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4 flex items-center gap-2">
         <span class="material-symbols-outlined text-lg">inventory_2</span>
-        Master Inventory Log
+        {{ copy.hardware_inventory_label }}
       </h2>
       {{ inventory_table(page_rows) }}
     </div>
@@ -184,7 +184,7 @@
     <div class="mb-8">
       <h2 class="text-lg font-bold text-gray-900 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4 flex items-center gap-2">
         <span class="material-symbols-outlined text-lg">verified_user</span>
-        Security Verification Checklist
+        {{ copy.chain_of_custody_label }}
       </h2>
       <div class="grid grid-cols-2 gap-x-6 gap-y-3">
         {% for line in instructions.lines %}
@@ -229,7 +229,7 @@
 
     {% set forge_footer_left = forge_copy.generator_label %}
     {% set forge_footer_center = forge_page_label %}
-    {% set forge_footer_right = 'Inventory record only; keep separate' %}
+    {% set forge_footer_right = copy.footer_guidance %}
     {% include 'partials/forge_shell_footer.j2' %}
   </section>
 {% endfor %}

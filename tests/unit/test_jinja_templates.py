@@ -17,6 +17,7 @@ import base64
 import unittest
 from pathlib import Path
 
+from ethernity.render.copy_catalog import build_copy_bundle
 from ethernity.render.templating import render_template
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -87,6 +88,10 @@ def _base_document_context() -> dict[str, object]:
             "signing_pub_lines": [],
         },
     }
+
+
+def _inject_copy(context: dict[str, object], *, template_name: str) -> None:
+    context["copy"] = build_copy_bundle(template_name=template_name, context=context)
 
 
 class TestJinjaTemplates(unittest.TestCase):
@@ -185,6 +190,7 @@ class TestJinjaTemplates(unittest.TestCase):
             }
         else:
             raise AssertionError(f"unexpected sentinel template: {template_name}")
+        _inject_copy(context, template_name=template_name)
         return render_template(template_path, context)
 
     def _render_monograph_template(self, template_name: str) -> str:
@@ -274,6 +280,7 @@ class TestJinjaTemplates(unittest.TestCase):
             }
         else:
             raise AssertionError(f"unexpected monograph template: {template_name}")
+        _inject_copy(context, template_name=template_name)
         return render_template(template_path, context)
 
     def _render_forge_template(self, template_name: str) -> str:
@@ -368,6 +375,7 @@ class TestJinjaTemplates(unittest.TestCase):
             }
         else:
             raise AssertionError(f"unexpected forge template: {template_name}")
+        _inject_copy(context, template_name=template_name)
         return render_template(template_path, context)
 
     def test_document_templates_render(self) -> None:
@@ -433,6 +441,7 @@ class TestJinjaTemplates(unittest.TestCase):
                     "scan_hint": None,
                 }
 
+            _inject_copy(context, template_name=template_path.name)
             rendered = render_template(template_path, context)
             self.assertIn("<!doctype html>", rendered.lower(), str(template_path))
 
@@ -477,8 +486,9 @@ class TestJinjaTemplates(unittest.TestCase):
         ]
 
         main_template = _ETHERNITY_ROOT / "templates" / "forge" / "main_document.html.j2"
+        _inject_copy(context, template_name=main_template.name)
         main_rendered = render_template(main_template, context)
-        self.assertIn("PART 13", main_rendered)
+        self.assertIn("SEGMENT 13", main_rendered)
 
         kit_context = _base_document_context()
         kit_context["doc"] = {"title": "Recovery Kit", "subtitle": "Offline HTML bundle"}
@@ -503,6 +513,7 @@ class TestJinjaTemplates(unittest.TestCase):
         ]
 
         kit_template = _ETHERNITY_ROOT / "templates" / "forge" / "kit_document.html.j2"
+        _inject_copy(kit_context, template_name=kit_template.name)
         kit_rendered = render_template(kit_template, kit_context)
         self.assertIn("KIT 07", kit_rendered)
 
@@ -555,6 +566,7 @@ class TestJinjaTemplates(unittest.TestCase):
                 else:
                     context["pages"] = [_page_with_qr(page_num=1, page_label="Page 1 / 1")]
                     context["doc"] = {"title": "Main Document", "subtitle": _MAIN_SUBTITLE}
+                _inject_copy(context, template_name=template_path.name)
                 rendered = render_template(template_path, context)
                 self.assertIn(
                     "https://ethernity.local/assets/material-symbols-outlined.ttf",
@@ -638,6 +650,7 @@ class TestJinjaTemplates(unittest.TestCase):
                         "scan_hint": "Start at the top-left and follow each row.",
                     }
 
+                _inject_copy(context, template_name=template_path.name)
                 rendered = render_template(template_path, context)
                 for icon in expected_icons:
                     self.assertIn(icon, rendered)
@@ -664,6 +677,7 @@ class TestJinjaTemplates(unittest.TestCase):
             },
         ]
 
+        _inject_copy(context, template_name=template_path.name)
         rendered = render_template(template_path, context)
         self.assertIn("height: 297.0mm;", rendered)
         self.assertIn("overflow: hidden;", rendered)
@@ -686,6 +700,7 @@ class TestJinjaTemplates(unittest.TestCase):
             for idx in range(1, 28)
         ]
 
+        _inject_copy(context, template_name=template_path.name)
         rendered = render_template(template_path, context)
         self.assertIn("COMP-01", rendered)
         self.assertIn("COMP-27", rendered)
@@ -735,6 +750,7 @@ class TestJinjaTemplates(unittest.TestCase):
             for idx in range(1, 18)
         ]
 
+        _inject_copy(context, template_name=template_path.name)
         rendered = render_template(template_path, context)
         self.assertGreater(rendered.count("forge-shell-footer"), 1)
         self.assertNotIn("CONTINUED", rendered)
@@ -798,6 +814,7 @@ class TestJinjaTemplates(unittest.TestCase):
             for idx in range(1, 21)
         ]
 
+        _inject_copy(context, template_name=template_path.name)
         rendered = render_template(template_path, context)
         self.assertIn("Page 3 / 3", rendered)
         self.assertNotIn("Page 5 / 5", rendered)
@@ -871,10 +888,11 @@ class TestJinjaTemplates(unittest.TestCase):
             },
         ]
 
+        _inject_copy(context, template_name=template_path.name)
         rendered = render_template(template_path, context)
-        self.assertIn("Section IX", rendered)
-        self.assertIn("Section XIV", rendered)
-        self.assertNotIn("Section 14", rendered)
+        self.assertIn("Segment IX", rendered)
+        self.assertIn("Segment XIV", rendered)
+        self.assertNotIn("Segment 14", rendered)
         self.assertNotIn("Custody Continuation", rendered)
 
     def test_monograph_main_shell_header_precedes_directives_panel(self) -> None:
@@ -882,7 +900,7 @@ class TestJinjaTemplates(unittest.TestCase):
             encoding="utf-8"
         )
         header_pos = source.find("{% include 'partials/monograph_shell_header.j2' %}")
-        directives_pos = source.find("Directives")
+        directives_pos = source.find("copy.directives_label")
         self.assertGreaterEqual(header_pos, 0)
         self.assertGreaterEqual(directives_pos, 0)
         self.assertLess(header_pos, directives_pos)
@@ -914,6 +932,7 @@ class TestJinjaTemplates(unittest.TestCase):
             }
         ]
 
+        _inject_copy(context, template_name=template_path.name)
         rendered = render_template(template_path, context)
         self.assertIn("main-13", rendered)
         self.assertIn("main-18", rendered)
@@ -958,6 +977,51 @@ class TestJinjaTemplates(unittest.TestCase):
                 self.assertIn("monograph_tailwind_setup.j2", source)
                 self.assertNotIn("cdn.tailwindcss.com", source)
                 self.assertNotIn("fonts.googleapis.com", source)
+
+    def test_cross_theme_doc_titles_and_subtitles_are_unified(self) -> None:
+        expectations = {
+            "main_document.html.j2": ("Main Document", "Passphrase-protected payload"),
+            "recovery_document.html.j2": ("Recovery Document", "Keys + Text Fallback"),
+            "kit_document.html.j2": ("Recovery Kit", "Offline HTML bundle"),
+            "shard_document.html.j2": ("Shard Document", "Shard 1 of 3"),
+            "signing_key_shard_document.html.j2": ("Signing Key Shard", "Signing key shard 1 of 3"),
+            "kit_index_document.html.j2": ("Recovery Kit Index", "Inventory + Custody Log"),
+        }
+        renderers = (
+            self._render_forge_template,
+            self._render_sentinel_template,
+            self._render_monograph_template,
+        )
+        for template_name, (title, subtitle) in expectations.items():
+            for render in renderers:
+                with self.subTest(template=template_name, renderer=render.__name__):
+                    rendered = render(template_name)
+                    self.assertIn(title, rendered)
+                    self.assertIn(subtitle, rendered)
+
+    def test_main_templates_do_not_include_scan_in_order_wording(self) -> None:
+        renderers = (
+            self._render_forge_template,
+            self._render_sentinel_template,
+            self._render_monograph_template,
+        )
+        for render in renderers:
+            with self.subTest(renderer=render.__name__):
+                rendered = render("main_document.html.j2")
+                self.assertNotIn("Scan In Order", rendered)
+                self.assertNotIn("scan in order", rendered)
+
+    def test_kit_index_templates_use_canonical_section_labels(self) -> None:
+        renderers = (
+            self._render_forge_template,
+            self._render_sentinel_template,
+            self._render_monograph_template,
+        )
+        for render in renderers:
+            with self.subTest(renderer=render.__name__):
+                rendered = render("kit_index_document.html.j2")
+                self.assertIn("Hardware Inventory", rendered)
+                self.assertIn("Chain of Custody", rendered)
 
 
 if __name__ == "__main__":

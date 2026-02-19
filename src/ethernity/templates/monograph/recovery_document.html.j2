@@ -100,10 +100,10 @@
     {% if page.page_num == 1 %}
       <div class="h-[2.2mm] w-full bg-gradient-to-r from-primary to-primary/40"></div>
       <div class="flex-1 p-[14mm] pb-[12mm] flex flex-col gap-5">
-        {% set monograph_header_title = 'Recovery Document' %}
-        {% set monograph_header_subtitle = doc.subtitle %}
+        {% set monograph_header_title = copy.title %}
+        {% set monograph_header_subtitle = copy.subtitle %}
         {% set monograph_header_classification = 'Manual Entry Only' %}
-        {% set monograph_header_guidance = 'Transcribe exactly; keep separate from QR pages' %}
+        {% set monograph_header_guidance = copy.header_guidance %}
         {% set monograph_header_ref = doc_id[:3] ~ '-' ~ doc_id[3:7] ~ '-' ~ doc_id[7:10] %}
         {% set monograph_header_icon = 'qr_code_2' %}
         {% include 'partials/monograph_shell_header.j2' %}
@@ -150,10 +150,10 @@
           <section class="col-span-8 flex flex-col gap-4 min-h-0">
             <div class="flex items-center gap-2 border-b border-primary/20 pb-2">
               <span class="material-symbols-outlined text-primary text-[15px]">text_fields</span>
-              <h2 class="font-serif text-[14px] italic font-bold">Manual Transcription Sequence</h2>
+              <h2 class="font-serif text-[14px] italic font-bold">{{ copy.transcription_sequence_label }}</h2>
             </div>
             <p class="text-[9px] italic leading-relaxed text-ink-light border-l-2 border-primary/20 pl-2">
-              Primary recovery phrase. Write clearly in the numbered slots below. Order matters.
+              {{ copy.transcription_helper }}
             </p>
 
             {% set ns_visible_main = namespace(rows=main_rows) %}
@@ -204,7 +204,7 @@
         </div>
 
         {% set monograph_footer_left = 'Monograph Offline Archive' %}
-        {% set monograph_footer_right = 'Transcribe exactly; keep separate from QR pages' %}
+        {% set monograph_footer_right = copy.footer_guidance %}
         {% include 'partials/monograph_shell_footer.j2' %}
       </div>
     {% else %}
@@ -213,10 +213,10 @@
       {% set right_rows = ns_entries.rows[half:] %}
 
       <div class="flex-1 p-[14mm] pb-[12mm] flex flex-col gap-5">
-        {% set monograph_header_title = 'Recovery Document' %}
-        {% set monograph_header_subtitle = doc.subtitle %}
+        {% set monograph_header_title = copy.title %}
+        {% set monograph_header_subtitle = copy.subtitle %}
         {% set monograph_header_classification = 'Manual Entry Only' %}
-        {% set monograph_header_guidance = 'Transcribe exactly; keep separate from QR pages' %}
+        {% set monograph_header_guidance = copy.header_guidance %}
         {% set monograph_header_ref = doc_id[:3] ~ '-' ~ doc_id[3:7] ~ '-' ~ doc_id[7:10] %}
         {% set monograph_header_icon = 'text_fields' %}
         {% include 'partials/monograph_shell_header.j2' %}
@@ -224,10 +224,9 @@
         <div>
           <div class="flex items-start justify-between gap-4">
             <div class="max-w-[68%]">
-              <h2 class="text-[19px] font-black tracking-tight">Manual Transcription Sequence</h2>
+              <h2 class="text-[19px] font-black tracking-tight">{{ copy.transcription_sequence_label }}</h2>
               <p class="mt-2 text-[9px] leading-relaxed text-ink-light">
-                Keep row order intact and copy each line exactly.
-                Keep this page separate from QR pages.
+                {{ copy.continuation_hint }}
               </p>
             </div>
             <div class="border border-line-subtle bg-background-light px-3 py-2">
@@ -314,7 +313,7 @@
           </div>
         </section>
         {% set monograph_footer_left = 'Monograph Offline Archive' %}
-        {% set monograph_footer_right = 'Transcribe exactly; keep separate from QR pages' %}
+        {% set monograph_footer_right = copy.footer_guidance %}
         {% include 'partials/monograph_shell_footer.j2' %}
       </div>
     {% endif %}

@@ -64,15 +64,10 @@
 <body class="bg-background-light font-display min-h-screen text-ink-dark">
 {% for page in pages %}
   <section class="print-sheet border border-line-subtle flex flex-col">
-    {% if page.page_num == 1 %}
-      {% set monograph_shard_guidance = 'Shard ' ~ ('%02d' % shard_index) ~ ' of ' ~ shard_total %}
-    {% else %}
-      {% set monograph_shard_guidance = 'Continuation Page ' ~ page.page_num %}
-    {% endif %}
-    {% set monograph_header_title = 'Shard Identifier' %}
-    {% set monograph_header_subtitle = 'Offline Archive Record' %}
+    {% set monograph_header_title = copy.title %}
+    {% set monograph_header_subtitle = copy.subtitle %}
     {% set monograph_header_classification = 'Confidential' %}
-    {% set monograph_header_guidance = monograph_shard_guidance %}
+    {% set monograph_header_guidance = copy.header_guidance %}
     {% set monograph_header_ref = doc_id[:4] ~ '-' ~ doc_id[4:8] %}
     {% set monograph_header_icon = 'lock' %}
     {% set monograph_shell_header_inset = 'px-[12mm] pt-[10mm] pb-[7mm] mb-0' %}
@@ -108,7 +103,7 @@
           </div>
 
           <div class="mt-4 border border-[#ece7f7] bg-[#fbfaff] p-2 min-h-[44mm]">
-            <p class="text-[8px] font-black uppercase tracking-[0.14em] text-ink-light mb-1">Manual Transcription</p>
+            <p class="text-[8px] font-black uppercase tracking-[0.14em] text-ink-light mb-1">{{ copy.manual_transcription_label }}</p>
             {% if page.fallback_blocks %}
               {% for block in page.fallback_blocks %}
                 {% if block.title %}
@@ -153,10 +148,7 @@
           </div>
         </div>
 
-        <p class="mt-6 text-[8px] leading-relaxed text-[#8880a9] italic font-serif">
-          This page contains one shard only. Do not store it with other shards.
-          Record handoff events in the kit index whenever custody changes.
-        </p>
+        <p class="mt-6 text-[8px] leading-relaxed text-[#8880a9] italic font-serif">{{ copy.warning_body }}</p>
 
         <div class="mt-auto pt-4 border-t border-line-subtle">
           <div class="flex items-center justify-between mb-2">
@@ -172,7 +164,7 @@
     </div>
 
     {% set monograph_footer_left = 'Monograph Offline Archive' %}
-    {% set monograph_footer_right = 'Single shard cannot recover the secret' %}
+    {% set monograph_footer_right = copy.footer_guidance %}
     {% set monograph_shell_footer_inset = 'px-[12mm] py-2 mt-0 bg-[#f9f8fc]' %}
     {% include 'partials/monograph_shell_footer.j2' %}
   </section>

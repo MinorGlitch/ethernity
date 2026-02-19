@@ -82,10 +82,10 @@
       </div>
     </div>
     {% set monograph_page_label = loop.index ~ ' / ' ~ total_pages %}
-    {% set monograph_header_title = 'Kit Index' %}
-    {% set monograph_header_subtitle = 'Secure Archive Inventory' %}
+    {% set monograph_header_title = copy.title %}
+    {% set monograph_header_subtitle = copy.subtitle %}
     {% set monograph_header_classification = 'Authorized Personnel Only' %}
-    {% set monograph_header_guidance = 'Inventory and custody transfer log' %}
+    {% set monograph_header_guidance = copy.header_guidance %}
     {% set monograph_header_ref = 'ARCH-' ~ (doc_id[:4] | upper) ~ '-X' %}
     {% set monograph_header_icon = 'folder_open' %}
     {% set monograph_shell_header_inset = 'px-[12mm] pt-[10mm]' %}
@@ -94,7 +94,7 @@
     <div class="grid grid-cols-[35%_1fr] gap-5 px-[12mm] py-[8mm] flex-1 min-h-0">
       <section class="flex flex-col min-h-0">
         <div class="flex items-center justify-between border-b border-[#ecebf3] pb-2 mb-2">
-          <h2 class="text-[9px] font-black uppercase tracking-[0.14em]">Kit Contents</h2>
+          <h2 class="text-[9px] font-black uppercase tracking-[0.14em]">{{ copy.hardware_inventory_label }}</h2>
           <span class="material-symbols-outlined text-[#94a3b8] text-[14px]">inventory_2</span>
         </div>
 
@@ -132,7 +132,7 @@
 
       <section class="flex flex-col min-h-0">
         <div class="flex items-center justify-between mb-2">
-          <h2 class="text-[9px] font-black uppercase tracking-[0.14em]">Custody & Audit Log</h2>
+          <h2 class="text-[9px] font-black uppercase tracking-[0.14em]">{{ copy.chain_of_custody_label }}</h2>
           <span class="text-[8px] font-semibold text-primary">Write Entry</span>
         </div>
 
@@ -189,7 +189,7 @@
     </div>
 
     {% set monograph_footer_left = 'Monograph Offline Archive' %}
-    {% set monograph_footer_right = 'Inventory Record' %}
+    {% set monograph_footer_right = copy.footer_guidance %}
     {% set monograph_shell_footer_inset = 'px-[12mm] py-[3mm] mt-0 bg-[#f8f9fd]' %}
     {% include 'partials/monograph_shell_footer.j2' %}
   </section>

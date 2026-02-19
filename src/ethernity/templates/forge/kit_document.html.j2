@@ -63,11 +63,11 @@
 {% for page in pages %}
   <section class="print-sheet flex flex-col p-[15mm] border border-gray-100">
     {% if page.instructions_full_page %}
-    {% set forge_header_title = doc.title %}
-    {% set forge_header_subtitle = doc.subtitle %}
+    {% set forge_header_title = copy.title %}
+    {% set forge_header_subtitle = copy.subtitle %}
     {% set forge_header_kicker = 'The Forge // Secure Offline Storage' %}
     {% set forge_header_classification = 'Offline Processing Required' %}
-    {% set forge_header_guidance = 'Scan left-to-right, top-to-bottom' %}
+    {% set forge_header_guidance = copy.header_guidance %}
     {% set forge_header_ref = doc_id %}
     {% set forge_header_icon = 'token' %}
     {% include 'partials/forge_shell_header.j2' %}
@@ -76,9 +76,9 @@
       <div class="flex gap-3">
         <span class="material-symbols-outlined text-primary text-xl">warning</span>
         <div>
-          <h3 class="font-bold text-gray-900 text-sm uppercase mb-1">Critical Security Warning</h3>
+          <h3 class="font-bold text-gray-900 text-sm uppercase mb-1">{{ copy.warning_title }}</h3>
           <p class="text-sm text-gray-700 leading-relaxed">
-            This document acts as a table of contents and inventory log. Keep this document separate from your seed phrases or key shards.
+            {{ copy.warning_body }}
           </p>
           <p class="mt-2 text-xs text-gray-600 inline-flex items-center gap-1">
             <span class="material-symbols-outlined text-sm">qr_code_2</span>
@@ -91,7 +91,7 @@
     <div class="mb-10">
       <h2 class="text-lg font-bold text-gray-900 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4 flex items-center gap-2">
         <span class="material-symbols-outlined text-lg">verified_user</span>
-        Security Verification Checklist
+        {{ copy.checklist_label }}
       </h2>
       <div class="grid grid-cols-1 gap-y-4">
         {% for line in instructions.lines %}
@@ -113,11 +113,11 @@
       </div>
     </div>
     {% else %}
-    {% set forge_header_title = doc.title %}
-    {% set forge_header_subtitle = doc.subtitle %}
+    {% set forge_header_title = copy.title %}
+    {% set forge_header_subtitle = copy.subtitle %}
     {% set forge_header_kicker = 'The Forge // Secure Offline Storage' %}
     {% set forge_header_classification = 'Offline Processing Required' %}
-    {% set forge_header_guidance = 'Scan left-to-right, top-to-bottom' %}
+    {% set forge_header_guidance = copy.header_guidance %}
     {% set forge_header_ref = doc_id %}
     {% set forge_header_icon = 'token' %}
     {% include 'partials/forge_shell_header.j2' %}
@@ -126,7 +126,7 @@
       <div class="flex items-start gap-3">
         <span class="material-symbols-outlined text-primary text-xl">warning</span>
         <p class="text-sm text-gray-700 leading-relaxed">
-          Scan every QR tile in this page before moving to the next page.
+          {{ copy.continuation_hint }}
           <span class="inline-flex items-center gap-1 ml-1">
             <span class="material-symbols-outlined text-sm">qr_code_2</span>
             Keep scans offline.
@@ -178,7 +178,7 @@
     </section>
 
     {% set forge_footer_left = forge_copy.generator_label %}
-    {% set forge_footer_right = 'Scan left-to-right, top-to-bottom' %}
+    {% set forge_footer_right = copy.footer_guidance %}
     {% include 'partials/forge_shell_footer.j2' %}
   </section>
 {% endfor %}

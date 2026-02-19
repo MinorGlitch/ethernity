@@ -79,10 +79,10 @@
     </div>
 
     <div class="relative z-10 h-full flex flex-col p-[12mm]">
-      {% set monograph_header_title = 'Signing Key Shard' %}
-      {% set monograph_header_subtitle = 'Security Archival Systems' %}
+      {% set monograph_header_title = copy.title %}
+      {% set monograph_header_subtitle = copy.subtitle %}
       {% set monograph_header_classification = 'Sensitive' %}
-      {% set monograph_header_guidance = 'Restricted access and offline handling only' %}
+      {% set monograph_header_guidance = copy.header_guidance %}
       {% set monograph_header_ref = doc_id[:4] ~ '-' ~ doc_id[4:8] ~ '-' ~ doc_id[8:12] %}
       {% set monograph_header_icon = 'verified_user' %}
       {% include 'partials/monograph_shell_header.j2' %}
@@ -104,11 +104,10 @@
         <div class="bg-white/80 border-l-2 border-brass p-3">
           <h2 class="text-[9px] font-black uppercase tracking-[0.12em] text-brass mb-1 flex items-center gap-1.5">
             <span class="material-symbols-outlined text-[12px]">info</span>
-            Recovery Instructions
+            {{ copy.warning_title }}
           </h2>
           <p class="text-[8.5px] leading-relaxed italic font-serif text-[#3f4551]">
-            This document contains a partial signing key shard. This shard alone cannot reconstruct the full private key.
-            Store in a climate-controlled, fire-resistant environment. Do not photocopy or digitally scan after verification.
+            {{ copy.warning_body }}
           </p>
         </div>
 
@@ -178,7 +177,7 @@
         </div>
       </section>
       {% set monograph_footer_left = 'Monograph Offline Archive' %}
-      {% set monograph_footer_right = 'Restricted Access' %}
+      {% set monograph_footer_right = copy.footer_guidance %}
       {% include 'partials/monograph_shell_footer.j2' %}
     </div>
   </section>

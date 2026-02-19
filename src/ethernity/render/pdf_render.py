@@ -29,6 +29,7 @@ from fpdf import FPDF
 
 from ..encoding.framing import encode_frame
 from ..qr.codec import QrConfig, qr_bytes
+from .copy_catalog import build_copy_bundle
 from .doc_types import DOC_TYPE_KIT, DOC_TYPE_MAIN, DOC_TYPE_RECOVERY
 from .fallback import FallbackConsumerState, FallbackSectionData, build_fallback_sections_data
 from .html_to_pdf import render_html_to_pdf
@@ -435,6 +436,8 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
         context["forge_copy"] = asdict(_forge_copy_payload())
     if created_dt is not None:
         context["created_date"] = created_dt.date().isoformat()
+    template_name = Path(inputs.template_path).name
+    context["copy"] = build_copy_bundle(template_name=template_name, context=context)
 
     html = render_template(inputs.template_path, context)
     render_html_to_pdf(html, inputs.output_path, resources=resources)

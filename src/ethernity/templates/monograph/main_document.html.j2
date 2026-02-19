@@ -95,10 +95,10 @@
 {% for page in pages %}
   {% set dense_mode = (page.qr_items | length) > 3 %}
   <section class="print-sheet border border-[#e5e5e5] flex flex-col">
-    {% set monograph_header_title = 'Main Security Record' %}
-    {% set monograph_header_subtitle = doc.subtitle %}
+    {% set monograph_header_title = copy.title %}
+    {% set monograph_header_subtitle = copy.subtitle %}
     {% set monograph_header_classification = 'Do Not Scan Online' %}
-    {% set monograph_header_guidance = 'Use with matching recovery document' %}
+    {% set monograph_header_guidance = copy.header_guidance %}
     {% set monograph_header_ref = doc_id[:3] ~ '-' ~ doc_id[3:5] ~ '-' ~ doc_id[5:7] %}
     {% set monograph_header_icon = 'verified_user' %}
     {% set monograph_shell_header_inset = 'px-[11mm] pt-[10mm] pb-[7mm] mb-0' %}
@@ -107,21 +107,19 @@
     <div class="flex flex-1 min-h-0">
       <aside class="w-[32%] border-r border-[#e5e5e5] bg-[#fbf9f4] p-[11mm] pt-[8mm] text-[10px] leading-relaxed text-ink-light flex flex-col gap-8">
         <div>
-          <p class="uppercase tracking-[0.16em] text-[9px] font-black text-primary mb-2">Directives</p>
+          <p class="uppercase tracking-[0.16em] text-[9px] font-black text-primary mb-2">{{ copy.directives_label }}</p>
           <p>
-            This document contains encrypted backup payload fragments.
-            Keep this printout air-gapped and physically secured.
+            {{ copy.security_notice_body }}
           </p>
         </div>
         <div>
-          <p class="uppercase tracking-[0.16em] text-[9px] font-black text-primary mb-2">Security Notice</p>
+          <p class="uppercase tracking-[0.16em] text-[9px] font-black text-primary mb-2">{{ copy.security_notice_label }}</p>
           <p>
-            Continuation sheet for encrypted backup fragments.
-            Scan every QR tile in order and validate sequence labels.
+            {{ copy.continuation_hint }}
           </p>
         </div>
         <div class="mt-auto opacity-70 font-mono text-[9px]">
-          <p>Use with matching recovery document.</p>
+          <p>{{ copy.footer_guidance }}</p>
         </div>
       </aside>
 
@@ -138,7 +136,7 @@
               {% set section_number = slot.index if slot.index is defined else loop.index %}
               <article class="border border-[#e4dff2] bg-white p-1.5 flex flex-col gap-1.5">
                 <h2 class="text-[9px] font-black uppercase tracking-wide text-primary border-b border-[#ece7f7] pb-0.5">
-                  Section {{ roman_numeral(section_number) }}
+                  {{ copy.segment_prefix }} {{ roman_numeral(section_number) }}
                 </h2>
                 <div class="mx-auto w-full max-w-[48mm] aspect-square border border-[#ddd6ef] bg-white p-1">
                   <img class="w-full h-full object-contain qr-render" src="{{ slot.data_uri }}" alt="QR section {{ slot.index }}">
@@ -152,7 +150,7 @@
               {% set section_number = slot.index if slot.index is defined else loop.index %}
               <article class="relative pl-4 border-l border-primary/30">
                 <h2 class="text-[11px] font-black tracking-wide uppercase text-primary border-b border-[#e5e0f2] pb-1 mb-2">
-                  Section {{ roman_numeral(section_number) }}
+                  {{ copy.segment_prefix }} {{ roman_numeral(section_number) }}
                 </h2>
                 <div class="mx-auto w-full max-w-[50mm] aspect-square border border-[#ddd6ef] bg-white p-1.5 shadow-sm">
                   <img class="w-full h-full object-contain qr-render" src="{{ slot.data_uri }}" alt="QR section {{ slot.index }}">
@@ -170,7 +168,7 @@
       </div>
     </div>
     {% set monograph_footer_left = 'Monograph Offline Archive' %}
-    {% set monograph_footer_right = 'Use with matching recovery document' %}
+    {% set monograph_footer_right = copy.footer_guidance %}
     {% set monograph_shell_footer_inset = 'px-[11mm] py-2 mt-0' %}
     {% include 'partials/monograph_shell_footer.j2' %}
   </section>
