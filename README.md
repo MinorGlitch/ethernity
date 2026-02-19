@@ -46,6 +46,7 @@ Start here: [Quick Start](#quick-start)
 - [Release Artifacts](#release-artifacts)
 - [Development Quickstart](#development-quickstart)
 - [Contributing](#contributing)
+- [Credits](#credits)
 - [License](#license)
 
 ## What Is Ethernity?
@@ -60,16 +61,6 @@ This is designed for high-friction, low-dependency recovery scenarios where phys
 
 Ethernity is opinionated around verifiability:
 formats are documented, payload structures are explicit, and release artifacts include provenance material.
-
-### Built With
-
-| Area | Primary Components |
-| --- | --- |
-| CLI and UX | Typer, Rich, Questionary |
-| Crypto | age (pyrage), Shamir sharing, Ed25519 signing |
-| Rendering | fpdf2, Jinja2, Playwright |
-| Encoding | CBOR, QR framing, z-base-32 fallback blocks |
-| Packaging | PyInstaller onedir releases + Sigstore bundles |
 
 ## Status (Experimental)
 
@@ -650,6 +641,24 @@ Use [`CONTRIBUTING.md`](CONTRIBUTING.md) for workflow policy, expectations, and 
 
 Contributions are welcome. Prefer focused PRs with tests/docs updates when behavior changes.
 Before opening a PR, read [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md), and [`AGENTS.md`](AGENTS.md).
+
+## Credits
+
+Ethernity was heavily inspired by [Paperback](https://github.com/cyphar/paperback) by cyphar.
+Also worth checking out:
+
+- [Rememory](https://github.com/eljojo/rememory) by eljojo
+
+Core open-source building blocks include:
+
+- [age](https://github.com/FiloSottile/age)
+- Typer, Rich, and Questionary
+- fpdf2, Jinja2, and Playwright
+
+Standards and verification ecosystem acknowledgements:
+
+- [BIP-39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) mnemonic standard
+- [Sigstore](https://www.sigstore.dev/) and [Cosign](https://github.com/sigstore/cosign) for artifact verification workflows
 
 ## License
 
