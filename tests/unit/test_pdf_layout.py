@@ -241,6 +241,28 @@ class TestPdfLayout(unittest.TestCase):
             )
         )
 
+    def test_main_qr_grid_overrides_normalize_doc_type(self) -> None:
+        context = {"paper_size": "A4"}
+        spec = document_spec("main", "A4", context)
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "monograph"
+            / "main_document.html.j2"
+        )
+        style = load_template_style(template_path)
+
+        updated = _apply_main_qr_grid_overrides(
+            spec=spec,
+            doc_type=" Main ",
+            capabilities=style.capabilities,
+        )
+
+        self.assertEqual(updated.qr_grid.qr_size_mm, 43.0)
+        self.assertEqual(updated.qr_grid.max_cols, 4)
+
     def test_recovery_text_layout_smoke_across_styles(self) -> None:
         frame = Frame(
             version=1,

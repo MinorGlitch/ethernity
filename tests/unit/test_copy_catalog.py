@@ -45,6 +45,12 @@ class TestCopyCatalog(unittest.TestCase):
         self.assertEqual(copy["subtitle"], "Signing key shard 4 of 7")
         self.assertEqual(copy["key_material_label"], "Key Material Payload")
 
+    def test_kit_index_bundle_contains_expected_copy(self) -> None:
+        copy = build_copy_bundle(template_name="kit_index_document.html.j2", context={})
+        self.assertEqual(copy["title"], "Recovery Kit Index")
+        self.assertEqual(copy["subtitle"], "Inventory + Custody Log")
+        self.assertEqual(copy["chain_of_custody_label"], "Chain of Custody")
+
     def test_unknown_template_returns_empty_bundle(self) -> None:
         copy = build_copy_bundle(template_name="unknown_template.html.j2", context={})
         self.assertEqual(copy, {})

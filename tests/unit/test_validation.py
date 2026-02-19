@@ -38,9 +38,9 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(require_list((1, 2), 1, label="items"), (1, 2))
 
     def test_require_list_rejects_non_list_or_too_short(self) -> None:
-        with self.assertRaisesRegex(ValueError, "items must be a list"):
+        with self.assertRaisesRegex(ValueError, "items must be a list or tuple"):
             require_list("bad", 1, label="items")
-        with self.assertRaisesRegex(ValueError, "items must be a list"):
+        with self.assertRaisesRegex(ValueError, "items must be a list or tuple"):
             require_list([], 1, label="items")
 
     def test_require_dict_accepts_and_rejects(self) -> None:
