@@ -258,6 +258,19 @@ def _print_text_section(title: str, text: str, *, mode: RenderMode) -> None:
     console.print()
 
 
+def _print_reveal_secrets_warning(*, mode: RenderMode) -> None:
+    _print_text_section(
+        "WARNING: Secret Material Revealed",
+        (
+            "Debug output includes full passphrase and private key material.\n"
+            "Terminal scrollback, logs, screen recordings, and shared sessions can capture "
+            "this data.\n"
+            "Use --debug-reveal-secrets only in a controlled local environment."
+        ),
+        mode=mode,
+    )
+
+
 def _print_manifest_section(manifest_bytes: bytes, *, mode: RenderMode) -> None:
     manifest_raw = _decode_manifest_raw(manifest_bytes)
     if manifest_raw is None:
@@ -346,6 +359,8 @@ def print_backup_debug(
     )
 
     _print_header("Backup", "Pre-encryption diagnostics", mode=mode)
+    if options.reveal_secrets:
+        _print_reveal_secrets_warning(mode=mode)
 
     summary_rows: list[tuple[str, str]] = [
         ("Mode", "backup"),
@@ -463,6 +478,8 @@ def print_recover_debug(
     manifest_bytes = encode_manifest(manifest)
 
     _print_header("Recover", "Post-decryption diagnostics", mode=mode)
+    if options.reveal_secrets:
+        _print_reveal_secrets_warning(mode=mode)
 
     summary_rows = [
         ("Mode", "recover"),

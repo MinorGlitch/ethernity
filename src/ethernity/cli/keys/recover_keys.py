@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import hmac
+
 from ...crypto.sharding import SHARD_VERSION, ShardPayload, decode_shard_payload, recover_passphrase
 from ...crypto.signing import decode_auth_payload, verify_auth, verify_shard
 from ...encoding.framing import Frame, FrameType
@@ -62,7 +64,7 @@ def _resolve_auth_payload(
             _warn(f"invalid auth payload; verification skipped: {exc}", quiet=quiet)
             return None, "invalid"
         raise
-    if payload.doc_hash != doc_hash:
+    if not hmac.compare_digest(payload.doc_hash, doc_hash):
         if allow_unsigned:
             _warn("auth doc_hash mismatch; verification skipped", quiet=quiet)
             return None, "ignored"
@@ -96,11 +98,11 @@ def _passphrase_from_shard_frames(
         payload = decode_shard_payload(frame.data)
         if doc_hash is None:
             doc_hash = payload.doc_hash
-        elif payload.doc_hash != doc_hash:
+        elif not hmac.compare_digest(payload.doc_hash, doc_hash):
             raise ValueError("shard doc_hash does not match")
         if sign_pub is None:
             sign_pub = payload.sign_pub
-        elif payload.sign_pub != sign_pub:
+        elif not hmac.compare_digest(payload.sign_pub, sign_pub):
             raise ValueError("shard signing key does not match")
         if not allow_unsigned and not verify_shard(
             doc_hash,
