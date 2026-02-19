@@ -8,6 +8,7 @@ class Ethernity < Formula
   license "GPL-3.0-or-later"
 
   depends_on "pkgconf" => :build
+  depends_on "rust" => :build
   depends_on "certifi"
   depends_on "libxml2"
   depends_on "libxslt"
@@ -95,30 +96,23 @@ class Ethernity < Formula
       sha256 "99104771abc4eafee48f47dac2369e0015516dc1ce8c409807d2dd440828b9a4"
     end
 
-    resource "pyrage" do
-      url "https://files.pythonhosted.org/packages/f7/6e/3095678ee12f0401e1de17f4d6993783b20a4b807daf69e23b170724e5f4/pyrage-1.3.0-cp39-abi3-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl"
-      sha256 "907901ada8d63d674cc9005889150846c7349ef587ee8bf5e9278b79c54b4679"
-    end
   elsif Hardware::CPU.arm?
     resource "playwright" do
       url "https://files.pythonhosted.org/packages/83/d7/b72eb59dfbea0013a7f9731878df8c670f5f35318cedb010c8a30292c118/playwright-1.57.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
       sha256 "38a1bae6c0a07839cdeaddbc0756b3b2b85e476c07945f64ece08f1f956a86f1"
     end
 
-    resource "pyrage" do
-      url "https://files.pythonhosted.org/packages/3b/e7/f515fbc972a5d83e9fa82d1c23a16f733f4dd6c2c6ae33d9054ca04a8d92/pyrage-1.3.0-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
-      sha256 "ea452cb9c9c47083a96b309467dea5614d12530e1de4b6585f10aa04d3d19d1c"
-    end
   else
     resource "playwright" do
       url "https://files.pythonhosted.org/packages/56/61/3a803cb5ae0321715bfd5247ea871d25b32c8f372aeb70550a90c5f586df/playwright-1.57.0-py3-none-manylinux1_x86_64.whl"
       sha256 "284ed5a706b7c389a06caa431b2f0ba9ac4130113c3a779767dda758c2497bb1"
     end
 
-    resource "pyrage" do
-      url "https://files.pythonhosted.org/packages/38/f3/e91bf604fd40c42c60e8f95075cddb0b85d0bdf452f736b533b1bad550e0/pyrage-1.3.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
-      sha256 "ab066b22925c5a0ec5fead2e21e4586b21d5da730055c7e46caa978bd99de936"
-    end
+  end
+
+  resource "pyrage" do
+    url "https://files.pythonhosted.org/packages/ee/e8/918161376594d69b294e920bd6444f1d9997e6e6dd2aca18e15f1ef72463/pyrage-1.3.0.tar.gz"
+    sha256 "b283a2e3d688cbf68c707f57d93fdab3304ff57c7e2e6b710c0b4bc9096ad9da"
   end
 
   resource "pyee" do
@@ -176,13 +170,36 @@ class Ethernity < Formula
     sha256 "4d478375d31bc5395a3c55c40ccdf3354688364cd61c4f6adacaa9215d0b3605"
   end
 
-  resource "zxing-cpp" do
-    url "https://files.pythonhosted.org/packages/d9/f2/b781bf6119abe665069777e3c0f154752cf924fe8a55fca027243abbc555/zxing_cpp-2.3.0.tar.gz"
-    sha256 "3babedb67a4c15c9de2c2b4c42d70af83a6c85780c1b2d9803ac64c6ae69f14e"
+  if OS.mac?
+    resource "zxing-cpp" do
+      url "https://files.pythonhosted.org/packages/3d/46/ef7c69bea44a7c64d4a740679dd18c59616d610fb468c057d8bfbda5f063/zxing_cpp-2.3.0-cp313-cp313-macosx_10_13_universal2.whl"
+      sha256 "3da0fbf0d93ef85663def561e8f7880447970710ea6b1768dfc05550a9ee3e00"
+    end
+  elsif Hardware::CPU.intel?
+    resource "zxing-cpp" do
+      url "https://files.pythonhosted.org/packages/ce/5e/5784ad14f8514e4321f3a828dccc00ebcf70202f6ef967174d26bcb65568/zxing_cpp-2.3.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+      sha256 "7ba641ca5a0f19b97d7bc6a0212e61dab267a2b1a52a84946d02bdcd859ec318"
+    end
+  else
+    resource "zxing-cpp" do
+      url "https://files.pythonhosted.org/packages/d9/f2/b781bf6119abe665069777e3c0f154752cf924fe8a55fca027243abbc555/zxing_cpp-2.3.0.tar.gz"
+      sha256 "3babedb67a4c15c9de2c2b4c42d70af83a6c85780c1b2d9803ac64c6ae69f14e"
+    end
   end
 
   def install
-    virtualenv_install_with_resources
+    venv = virtualenv_create(libexec, "python3.13")
+    wheel_resources, source_resources = resources.partition do |resource|
+      resource.downloader.basename.to_s.end_with?(".whl")
+    end
+    venv.pip_install source_resources
+    wheel_resources.each do |wheel_resource|
+      wheel_resource.stage do
+        wheel_file = Pathname.pwd/wheel_resource.downloader.basename
+        venv.pip_install wheel_file
+      end
+    end
+    venv.pip_install_and_link buildpath
   end
 
   test do
