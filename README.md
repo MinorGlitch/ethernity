@@ -352,15 +352,20 @@ flowchart TD
     D --> G{"Sharding enabled?"}
     G -->|Yes| H["Split passphrase into shard payloads"]
     H --> I["Render shard documents"]
-    G -->|No| J["Skip shard documents"]
-    E --> K["Write backup output directory"]
-    F --> K
-    I --> K
-    J --> K
-    K --> L{"Kit index template available?"}
-    L -->|Yes| M["Render recovery_kit_index.pdf"]
-    L -->|No| N["Finish backup outputs"]
-    M --> N
+    I --> J{"Signing key mode?"}
+    J -->|Embedded| K["Keep signing key in main document"]
+    J -->|Sharded| L["Split signing key into shard payloads"]
+    L --> M["Render signing-key shard documents"]
+    G -->|No| N["Skip shard documents"]
+    E --> O["Write backup output directory"]
+    F --> O
+    K --> O
+    M --> O
+    N --> O
+    O --> P{"Kit index template available?"}
+    P -->|Yes| Q["Render recovery_kit_index.pdf"]
+    P -->|No| R["Finish backup outputs"]
+    Q --> R
 ```
 
 ### Recovery Input Data Flow
