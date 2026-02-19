@@ -31,30 +31,20 @@
 
 Start here: [Quick Start](#quick-start)
 
-- [Status (Experimental)](#status-experimental)
 - [What Is Ethernity?](#what-is-ethernity)
-- [Document Previews](#document-previews)
+- [Status (Experimental)](#status-experimental)
 - [Who It's For / Not For](#who-its-for--not-for)
+- [Document Previews](#document-previews)
 - [Quick Start](#quick-start)
+- [Troubleshooting (Quick Fixes)](#troubleshooting-quick-fixes)
 - [Workflow Playbooks](#workflow-playbooks)
+- [Security at a Glance](#security-at-a-glance)
 - [How Recovery Inputs Work](#how-recovery-inputs-work)
 - [Command Cheatsheet](#command-cheatsheet)
-- [Security at a Glance](#security-at-a-glance)
 - [Release Artifacts](#release-artifacts)
-- [Troubleshooting (Quick Fixes)](#troubleshooting-quick-fixes)
 - [Development Quickstart](#development-quickstart)
 - [Contributing](#contributing)
 - [License](#license)
-
-## Status (Experimental)
-
-Ethernity is still experimental and under active development.
-
-The document format, CLI behavior, and operational workflows can still change between releases.
-Backward compatibility is not guaranteed across pre-stable versions.
-
-Do not rely on Ethernity as your only backup system.
-Run regular recovery drills and keep at least one independent backup path.
 
 ## What Is Ethernity?
 
@@ -79,6 +69,28 @@ formats are documented, payload structures are explicit, and release artifacts i
 | Encoding | CBOR, QR framing, z-base-32 fallback blocks |
 | Packaging | PyInstaller onedir releases + Sigstore bundles |
 
+## Status (Experimental)
+
+- Ethernity is under active development and behavior may change across pre-stable releases.
+- Backward compatibility is not guaranteed until a stable release line is established.
+- Do not use Ethernity as your only backup path; run recovery drills and keep an independent backup.
+
+## Who It's For / Not For
+
+Ethernity is a good fit if you need:
+
+- offline-capable secret recovery workflows
+- printable artifacts for long-term or distributed physical custody
+- threshold-shared recovery for multi-party control
+- auditable data handling steps instead of black-box cloud backup behavior
+
+Ethernity is usually not a good fit if you need:
+
+- always-on background synchronization
+- turnkey, no-maintenance backup infrastructure
+- guaranteed backward compatibility across rapidly evolving pre-stable versions
+- centralized managed recovery operated by a third-party service
+
 ## Document Previews
 
 Rendered examples from the Sentinel design on A4 paper.
@@ -100,23 +112,9 @@ Classic template previews (Maritime):
   <img src="images/readme/maritime_fallback_preview.png" alt="Maritime fallback document preview (first page)" width="24%">
 </p>
 
-## Who It's For / Not For
-
-Ethernity is a good fit if you need:
-
-- offline-capable secret recovery workflows
-- printable artifacts for long-term or distributed physical custody
-- threshold-shared recovery for multi-party control
-- auditable data handling steps instead of black-box cloud backup behavior
-
-Ethernity is usually not a good fit if you need:
-
-- always-on background synchronization
-- turnkey, no-maintenance backup infrastructure
-- guaranteed backward compatibility across rapidly evolving pre-stable versions
-- centralized managed recovery operated by a third-party service
-
 ## Quick Start
+
+Fastest path: install, run one backup, run one recovery, then confirm outputs match.
 
 ### Prerequisites
 
@@ -127,7 +125,7 @@ Ethernity is usually not a good fit if you need:
 
 ### 1) Install from Release Artifacts (Recommended)
 
-Release binaries are the fastest onboarding path. Download the archive matching your OS and CPU.
+Download the archive matching your OS and CPU.
 
 Artifact naming:
 
@@ -171,8 +169,6 @@ For full verification and provenance guidance, use
 [`docs/release_artifacts.md`](docs/release_artifacts.md).
 
 ### 2) Install via pipx or pip
-
-When `ethernity` is available on PyPI, `pipx` and `pip` are valid install paths.
 
 `pipx` is recommended when you want isolated CLI installation:
 
@@ -247,6 +243,72 @@ cmp ./vault-export.json ./vault-export.recovered.json
 ```
 
 Expected result: `cmp` exits with status `0` and recovered JSON is byte-identical.
+
+## Troubleshooting (Quick Fixes)
+
+Use this section for common onboarding blockers.
+Rows follow the onboarding sequence: install/run, verification, then recovery.
+
+| Stage | Symptom | Quick fix |
+| --- | --- | --- |
+| Install/Run | Binary fails with wrong architecture | Download the artifact matching your OS and CPU (`x64` or `arm64`). |
+| Install/Run | `playwright` errors during backup/render | Re-run the command and allow startup to install Chromium; unset `ETHERNITY_SKIP_PLAYWRIGHT_INSTALL` if set. |
+| macOS Launch | `library load disallowed by system policy` | Verify the archive first, then apply local unblock steps. See `macOS Local Unblock` below. |
+| Verification | `cosign verify-blob` fails | Verify the exact archive with the matching `.sigstore.json` bundle from the same tag. |
+| Verification | expecting `.sig`/`.pem` but release has only `.sigstore.json` | This is valid for bundle-first signing; use `cosign verify-blob --bundle ...`. |
+| Recovery Input | parser rejects mixed payload text | Split by document set and recover one mode/source at a time. |
+| Recovery Input | `manifest input_origin is required`, `manifest input_roots is required`, `manifest path_encoding is required`, or `manifest file entry must use array encoding` | Manifest schema mismatch; recreate the backup with the current release. |
+| Recovery Input | `No such option` | Use `ethernity <command> --help` and current flags (for example `--qr-chunk-size`). |
+| Recovery Validation | recovered output seems wrong | Compare hashes/bytes against a trusted source and retry with fresh inputs. |
+
+### macOS Local Unblock
+
+Symptom:
+
+- running `./ethernity` fails with `library load disallowed by system policy`.
+
+Only after `cosign verify-blob --bundle ...` succeeds:
+
+```sh
+cd ~/Downloads
+DIR="ethernity-vX.Y.Z-macos-arm64"
+
+xattr -dr com.apple.quarantine "${DIR}"
+codesign --force --deep --sign - "${DIR}/ethernity"
+"${DIR}/ethernity" --help
+```
+
+Apply this only to a trusted archive you have already verified.
+
+### Provenance Bundle Confusion
+
+Symptom:
+
+- expecting `.sig`/`.pem` files, but release includes only `.sigstore.json`.
+
+Fix:
+
+- bundle-first signing is expected
+- `.sigstore.json` is the primary verification artifact
+- `.sig`/`.pem` are optional detached files
+- verify with:
+
+```sh
+cosign verify-blob --bundle "ethernity-vX.Y.Z-linux-x64.tar.gz.sigstore.json" "ethernity-vX.Y.Z-linux-x64.tar.gz"
+```
+
+### Payload and Fallback Input Mistakes
+
+Symptom:
+
+- recovery errors mentioning invalid line format, unexpected frame type, or mixed documents.
+
+Fix:
+
+- keep one document id per recovery attempt
+- avoid copying wrapped text that inserts extra whitespace
+- retry with exact exported lines or fallback source file
+- add shard/auth inputs only from the same backup set
 
 ## Workflow Playbooks
 
@@ -337,6 +399,33 @@ Operator checklist:
 - [ ] Preserve original fallback source before manual cleanup
 - [ ] Keep fallback/shard inputs grouped by document id
 - [ ] Verify output hash and rerun with a fresh copy on parser errors
+
+## Security at a Glance
+
+Ethernity helps protect against:
+
+- data loss in low-connectivity or offline-only scenarios
+- accidental corruption through frame-level validation and integrity checks
+- single-holder compromise when threshold sharding is used correctly
+
+Ethernity does not protect against:
+
+- compromised endpoints at backup or recovery time
+- weak, reused, or leaked passphrases
+- policy failures in shard custody distribution
+- operational mistakes that skip recovery drills
+
+Hard warning:
+
+- do not treat generated artifacts as magically safe by default
+- security outcome depends on custody controls, passphrase quality, and tested runbooks
+
+Read full policy and reporting guidance in [`SECURITY.md`](SECURITY.md).
+
+For format-level guarantees and bounds, use:
+
+- [`docs/format.md`](docs/format.md)
+- [`docs/format_notes.md`](docs/format_notes.md)
 
 ## How Recovery Inputs Work
 
@@ -497,33 +586,6 @@ Safety policy:
 - risky recovery bypass controls remain explicit CLI-only decisions
 - config defaults intentionally do not support `--rescue-mode` or `--yes`
 
-## Security at a Glance
-
-Ethernity helps protect against:
-
-- data loss in low-connectivity or offline-only scenarios
-- accidental corruption through frame-level validation and integrity checks
-- single-holder compromise when threshold sharding is used correctly
-
-Ethernity does not protect against:
-
-- compromised endpoints at backup or recovery time
-- weak, reused, or leaked passphrases
-- policy failures in shard custody distribution
-- operational mistakes that skip recovery drills
-
-Hard warning:
-
-- do not treat generated artifacts as magically safe by default
-- security outcome depends on custody controls, passphrase quality, and tested runbooks
-
-Read full policy and reporting guidance in [`SECURITY.md`](SECURITY.md).
-
-For format-level guarantees and bounds, use:
-
-- [`docs/format.md`](docs/format.md)
-- [`docs/format_notes.md`](docs/format_notes.md)
-
 ## Release Artifacts
 
 Release archive naming:
@@ -557,72 +619,6 @@ cosign verify-blob --bundle "${BASE}.sigstore.json" "${BASE}"
 
 Use the full release verification guide for complete steps and troubleshooting:
 [`docs/release_artifacts.md`](docs/release_artifacts.md).
-
-## Troubleshooting (Quick Fixes)
-
-Use this section for common onboarding blockers.
-Rows follow the onboarding sequence: install/run, verification, then recovery.
-
-| Stage | Symptom | Quick fix |
-| --- | --- | --- |
-| Install/Run | Binary fails with wrong architecture | Download the artifact matching your OS and CPU (`x64` or `arm64`). |
-| Install/Run | `playwright` errors during backup/render | Re-run the command and allow startup to install Chromium; unset `ETHERNITY_SKIP_PLAYWRIGHT_INSTALL` if set. |
-| macOS Launch | `library load disallowed by system policy` | Verify the archive first, then apply local unblock steps. See `macOS Local Unblock` below. |
-| Verification | `cosign verify-blob` fails | Verify the exact archive with the matching `.sigstore.json` bundle from the same tag. |
-| Verification | expecting `.sig`/`.pem` but release has only `.sigstore.json` | This is valid for bundle-first signing; use `cosign verify-blob --bundle ...`. |
-| Recovery Input | parser rejects mixed payload text | Split by document set and recover one mode/source at a time. |
-| Recovery Input | `manifest input_origin is required`, `manifest input_roots is required`, `manifest path_encoding is required`, or `manifest file entry must use array encoding` | Manifest schema mismatch; recreate the backup with the current release. |
-| Recovery Input | `No such option` | Use `ethernity <command> --help` and current flags (for example `--qr-chunk-size`). |
-| Recovery Validation | recovered output seems wrong | Compare hashes/bytes against a trusted source and retry with fresh inputs. |
-
-### macOS Local Unblock
-
-Symptom:
-
-- running `./ethernity` fails with `library load disallowed by system policy`.
-
-Only after `cosign verify-blob --bundle ...` succeeds:
-
-```sh
-cd ~/Downloads
-DIR="ethernity-vX.Y.Z-macos-arm64"
-
-xattr -dr com.apple.quarantine "${DIR}"
-codesign --force --deep --sign - "${DIR}/ethernity"
-"${DIR}/ethernity" --help
-```
-
-Apply this only to a trusted archive you have already verified.
-
-### Provenance Bundle Confusion
-
-Symptom:
-
-- expecting `.sig`/`.pem` files, but release includes only `.sigstore.json`.
-
-Fix:
-
-- bundle-first signing is expected
-- `.sigstore.json` is the primary verification artifact
-- `.sig`/`.pem` are optional detached files
-- verify with:
-
-```sh
-cosign verify-blob --bundle "ethernity-vX.Y.Z-linux-x64.tar.gz.sigstore.json" "ethernity-vX.Y.Z-linux-x64.tar.gz"
-```
-
-### Payload and Fallback Input Mistakes
-
-Symptom:
-
-- recovery errors mentioning invalid line format, unexpected frame type, or mixed documents.
-
-Fix:
-
-- keep one document id per recovery attempt
-- avoid copying wrapped text that inserts extra whitespace
-- retry with exact exported lines or fallback source file
-- add shard/auth inputs only from the same backup set
 
 ## Development Quickstart
 
