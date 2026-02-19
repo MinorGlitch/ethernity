@@ -36,6 +36,8 @@ Start here: [Quick Start](#quick-start)
 - [Who It's For / Not For](#who-its-for--not-for)
 - [Document Previews](#document-previews)
 - [Quick Start](#quick-start)
+- [First Backup](#first-backup)
+- [First Recovery](#first-recovery)
 - [Troubleshooting (Quick Fixes)](#troubleshooting-quick-fixes)
 - [Workflow Playbooks](#workflow-playbooks)
 - [Security at a Glance](#security-at-a-glance)
@@ -193,7 +195,7 @@ uv sync --extra dev --extra build
 uv run ethernity --help
 ```
 
-### 4) First Backup
+### First Backup
 
 Create a backup:
 
@@ -210,7 +212,7 @@ Common outputs:
 | `shard_*.pdf` (optional) | threshold shard artifacts when sharding enabled |
 | `signing_key_shard_*.pdf` (optional) | separate signing-key shard artifacts |
 
-### 5) First Recovery
+### First Recovery
 
 Recover from scans:
 
@@ -220,7 +222,7 @@ ethernity recover --scan ./backup-demo --output ./restored.bin
 
 For fallback-text and shard-driven recovery paths, use playbooks C and D below.
 
-### 6) Generate Recovery Kit
+### Generate Recovery Kit
 
 ```sh
 ethernity kit --output ./recovery_kit_qr.pdf
