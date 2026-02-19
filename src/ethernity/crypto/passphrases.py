@@ -35,8 +35,6 @@ def looks_like_bip39_mnemonic(passphrase: str) -> bool:
     words = passphrase.strip().split()
     if len(words) not in MNEMONIC_WORD_COUNTS:
         return False
-    if not words:
-        return False
     mnemonic = Mnemonic("english")
     wordset = set(mnemonic.wordlist)
     return all(word in wordset for word in words)

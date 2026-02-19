@@ -183,6 +183,30 @@ class TestResolveAuthPayload(unittest.TestCase):
                     quiet=True,
                 )
 
+    @mock.patch("ethernity.cli.keys.recover_keys.hmac.compare_digest", return_value=False)
+    def test_doc_hash_mismatch_uses_compare_digest(
+        self,
+        compare_digest: mock.MagicMock,
+    ) -> None:
+        frame = self._auth_frame(doc_id=b"\x10" * DOC_ID_LEN)
+        payload_obj = SimpleNamespace(
+            doc_hash=b"\x99" * 32, sign_pub=b"p" * 32, signature=b"s" * 64
+        )
+        expected = b"\x20" * 32
+        with mock.patch(
+            "ethernity.cli.keys.recover_keys.decode_auth_payload", return_value=payload_obj
+        ):
+            with self.assertRaisesRegex(ValueError, "doc_hash does not match"):
+                _resolve_auth_payload(
+                    [frame],
+                    doc_id=b"\x10" * DOC_ID_LEN,
+                    doc_hash=expected,
+                    allow_unsigned=False,
+                    require_auth=True,
+                    quiet=True,
+                )
+        compare_digest.assert_called_once_with(payload_obj.doc_hash, expected)
+
     def test_invalid_signature_can_be_ignored_in_allow_unsigned_mode(self) -> None:
         frame = self._auth_frame(doc_id=b"\x10" * DOC_ID_LEN)
         payload_obj = SimpleNamespace(

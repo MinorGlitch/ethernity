@@ -139,6 +139,39 @@ class TestInputFiles(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "duplicate relative path 'data.txt'"):
                     _load_input_files([str(file_path), "-"], [], None, allow_stdin=True)
 
+    def test_input_file_rejected_when_projected_size_exceeds_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "big.bin"
+            file_path.write_bytes(b"abcde")
+            with mock.patch("ethernity.cli.io.inputs.MAX_CIPHERTEXT_BYTES", 4):
+                with self.assertRaisesRegex(ValueError, "MAX_CIPHERTEXT_BYTES"):
+                    _load_input_files([str(file_path)], [], None, allow_stdin=False)
+
+    def test_input_files_rejected_when_cumulative_size_exceeds_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = Path(tmpdir) / "one.bin"
+            second = Path(tmpdir) / "two.bin"
+            first.write_bytes(b"abc")
+            second.write_bytes(b"def")
+            with mock.patch("ethernity.cli.io.inputs.MAX_CIPHERTEXT_BYTES", 5):
+                with self.assertRaisesRegex(ValueError, "MAX_CIPHERTEXT_BYTES"):
+                    _load_input_files([str(first), str(second)], [], None, allow_stdin=False)
+
+    def test_input_files_accept_exact_cumulative_size_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = Path(tmpdir) / "one.bin"
+            second = Path(tmpdir) / "two.bin"
+            first.write_bytes(b"abc")
+            second.write_bytes(b"de")
+            with mock.patch("ethernity.cli.io.inputs.MAX_CIPHERTEXT_BYTES", 5):
+                entries, _, _, _ = _load_input_files(
+                    [str(first), str(second)],
+                    [],
+                    None,
+                    allow_stdin=False,
+                )
+        self.assertEqual(sum(len(entry.data) for entry in entries), 5)
+
     def test_commonpath_error_reports_different_roots(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             left = Path(tmpdir) / "left.txt"

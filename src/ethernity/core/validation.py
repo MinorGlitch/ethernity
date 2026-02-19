@@ -28,7 +28,7 @@ T = TypeVar("T")
 def require_list(value: object, min_length: int, *, label: str) -> list[Any] | tuple[Any, ...]:
     """Validate that value is a list/tuple with at least min_length elements."""
     if not isinstance(value, (list, tuple)) or len(value) < min_length:
-        raise ValueError(f"{label} must be a list")
+        raise ValueError(f"{label} must be a list or tuple")
     return value
 
 

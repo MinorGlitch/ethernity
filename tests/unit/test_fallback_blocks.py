@@ -147,6 +147,19 @@ class TestConsumeFallbackBlocks(unittest.TestCase):
         blocks = consume_fallback_blocks(sections, state, lines_capacity=10, line_length=1)
         self.assertEqual(len(blocks), 1)
         self.assertEqual(blocks[0].title, "Content")
+        self.assertEqual(blocks[0].gap_lines, 0)
+
+    def test_multiple_leading_empty_sections_no_initial_gap(self) -> None:
+        sections = [
+            FallbackSectionData(title="Empty 1", tokens=(), group_size=1),
+            FallbackSectionData(title="Empty 2", tokens=(), group_size=1),
+            FallbackSectionData(title="Content", tokens=("a", "b"), group_size=1),
+        ]
+        state = FallbackConsumerState()
+        blocks = consume_fallback_blocks(sections, state, lines_capacity=10, line_length=1)
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0].title, "Content")
+        self.assertEqual(blocks[0].gap_lines, 0)
 
     def test_line_offset_tracking(self) -> None:
         sections = [FallbackSectionData(title="Test", tokens=("a", "b", "c", "d"), group_size=1)]

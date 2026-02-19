@@ -21,7 +21,7 @@ import mimetypes
 from functools import lru_cache
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader, StrictUndefined
+from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
 _TEMPLATES_ROOT = Path(__file__).parent.parent / "templates"
 _PACKAGED_SHARED_DIR = _TEMPLATES_ROOT / "_shared"
@@ -90,11 +90,11 @@ def _get_env(template_dir: Path) -> Environment:
 
     env = Environment(
         loader=FileSystemLoader(loader_paths),
-        autoescape=False,
+        autoescape=select_autoescape(enabled_extensions=("html", "j2"), default_for_string=False),
         trim_blocks=True,
         lstrip_blocks=True,
         undefined=StrictUndefined,
-        auto_reload=True,
+        auto_reload=False,
     )
     env.globals["asset_data_uri"] = lambda rel_path: _asset_data_uri_for_path(
         _resolve_asset_path(str(rel_path), search_paths)

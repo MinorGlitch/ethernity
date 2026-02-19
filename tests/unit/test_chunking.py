@@ -335,6 +335,18 @@ class TestChunking(unittest.TestCase):
             reassemble_payload([])
         self.assertIn("no frames", str(ctx.exception).lower())
 
+    def test_reassemble_invalid_expected_doc_id_raises(self) -> None:
+        payload = b"ABCD"
+        frames = chunk_payload(
+            payload,
+            doc_id=b"\x98" * DOC_ID_LEN,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            chunk_size=2,
+        )
+        with self.assertRaises(ValueError) as ctx:
+            reassemble_payload(frames, expected_doc_id=b"")
+        self.assertIn("doc_id must be", str(ctx.exception))
+
     def test_reassemble_duplicate_index_raises(self) -> None:
         """Test reassembly with duplicate indices raises ValueError."""
         doc_id = b"\xff" * DOC_ID_LEN

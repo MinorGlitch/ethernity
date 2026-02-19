@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
@@ -92,16 +91,6 @@ def clear_screen(*, context: UIContext | None = None) -> None:
         context.console.clear()
     except (OSError, ValueError):
         pass
-    if os.name == "nt":
-        try:
-            os.system("cls")
-        except OSError:
-            pass
-    elif context.console.is_terminal is False:
-        try:
-            os.system("clear")
-        except OSError:
-            pass
 
 
 def configure_ui(

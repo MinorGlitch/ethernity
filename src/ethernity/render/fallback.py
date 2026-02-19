@@ -176,14 +176,12 @@ def consume_fallback_blocks(
         if not section.tokens:
             state.section_idx += 1
             state.token_idx = 0
-            first_block = False
             continue
 
         remaining = len(section.tokens) - state.token_idx
         if remaining <= 0:
             state.section_idx += 1
             state.token_idx = 0
-            first_block = False
             continue
         if stop_after_current_section and locked_section_idx is None:
             locked_section_idx = state.section_idx
