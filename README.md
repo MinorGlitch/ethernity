@@ -91,10 +91,13 @@ These are first-page previews of the generated PDFs.
   <img src="images/readme/sentinel_fallback_preview.png" alt="Sentinel fallback document preview (first page)" width="24%">
 </p>
 
-Classic template preview (Maritime):
+Classic template previews (Maritime):
 
 <p align="center">
-  <img src="images/readme/maritime_main_preview.png" alt="Maritime main document preview (first page)" width="42%">
+  <img src="images/readme/maritime_main_preview.png" alt="Maritime main document preview (first page)" width="24%">
+  <img src="images/readme/maritime_shard_preview.png" alt="Maritime shard document preview (first page)" width="24%">
+  <img src="images/readme/maritime_kit_preview.png" alt="Maritime recovery kit preview (first page)" width="24%">
+  <img src="images/readme/maritime_fallback_preview.png" alt="Maritime fallback document preview (first page)" width="24%">
 </p>
 
 ## Who It's For / Not For
