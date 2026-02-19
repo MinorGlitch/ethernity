@@ -340,6 +340,29 @@ Operator checklist:
 
 ## How Recovery Inputs Work
 
+### Backup Data Flow
+
+```mermaid
+flowchart TD
+    A["Input files / directories"] --> B["Build payload set and metadata"]
+    B --> C["Encrypt payload (age + passphrase)"]
+    C --> D["Chunk ciphertext into frames"]
+    D --> E["Render main QR document"]
+    C --> F["Render recovery fallback document"]
+    D --> G{"Sharding enabled?"}
+    G -->|Yes| H["Split passphrase into shard payloads"]
+    H --> I["Render shard documents"]
+    G -->|No| J["Skip shard documents"]
+    E --> K["Write backup output directory"]
+    F --> K
+    I --> K
+    J --> K
+    K --> L{"Kit index template available?"}
+    L -->|Yes| M["Render recovery_kit_index.pdf"]
+    L -->|No| N["Finish backup outputs"]
+    M --> N
+```
+
 ### Recovery Input Data Flow
 
 ```mermaid
