@@ -81,7 +81,10 @@ def reassemble_payload(
     if not frames:
         raise ValueError("no frames provided")
 
-    doc_id = expected_doc_id or frames[0].doc_id
+    if expected_doc_id is not None:
+        doc_id = expected_doc_id
+    else:
+        doc_id = frames[0].doc_id
     frame_type = expected_frame_type if expected_frame_type is not None else frames[0].frame_type
     if int(frame_type) != int(FrameType.MAIN_DOCUMENT):
         raise ValueError("reassembly is only defined for MAIN_DOCUMENT frames")

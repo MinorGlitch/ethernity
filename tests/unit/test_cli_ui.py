@@ -158,27 +158,20 @@ class TestUIHelpers(unittest.TestCase):
         self.assertIs(ui_module._resolve_context(context), context)
         self.assertIs(ui_module._resolve_context(None), ui_module.DEFAULT_CONTEXT)
 
-    @mock.patch("ethernity.cli.ui.os.system")
-    def test_clear_screen_uses_cls_on_windows(self, os_system: mock.MagicMock) -> None:
+    def test_clear_screen_uses_console_clear_on_windows(self) -> None:
         context = SimpleNamespace(console=mock.MagicMock(is_terminal=True))
-        with mock.patch("ethernity.cli.ui.os.name", "nt"):
-            ui_module.clear_screen(context=context)
+        ui_module.clear_screen(context=context)
         context.console.clear.assert_called_once()
-        os_system.assert_called_once_with("cls")
 
-    @mock.patch("ethernity.cli.ui.os.system")
-    def test_clear_screen_uses_clear_when_non_terminal(self, os_system: mock.MagicMock) -> None:
+    def test_clear_screen_uses_console_clear_when_non_terminal(self) -> None:
         context = SimpleNamespace(console=mock.MagicMock(is_terminal=False))
-        with mock.patch("ethernity.cli.ui.os.name", "posix"):
-            ui_module.clear_screen(context=context)
-        os_system.assert_called_once_with("clear")
+        ui_module.clear_screen(context=context)
+        context.console.clear.assert_called_once()
 
-    @mock.patch("ethernity.cli.ui.os.system", side_effect=OSError("blocked"))
-    def test_clear_screen_ignores_clear_errors(self, _os_system: mock.MagicMock) -> None:
+    def test_clear_screen_ignores_clear_errors(self) -> None:
         context = SimpleNamespace(console=mock.MagicMock(is_terminal=False))
         context.console.clear.side_effect = OSError("no tty")
-        with mock.patch("ethernity.cli.ui.os.name", "posix"):
-            ui_module.clear_screen(context=context)
+        ui_module.clear_screen(context=context)
 
     def test_configure_ui_toggles_flags(self) -> None:
         context = self._context(force_terminal=True)

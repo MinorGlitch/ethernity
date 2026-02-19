@@ -16,15 +16,35 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 from pathlib import Path
 
 from ...core.validation import normalize_path
 
 
+def _harden_dir_permissions(path: Path) -> None:
+    if os.name != "posix":
+        return
+    try:
+        path.chmod(0o700)
+    except OSError:
+        return
+
+
+def _harden_file_permissions(path: Path) -> None:
+    if os.name != "posix":
+        return
+    try:
+        path.chmod(0o600)
+    except OSError:
+        return
+
+
 def _ensure_directory(path: str | Path, *, exist_ok: bool) -> Path:
     directory = Path(path)
-    directory.mkdir(parents=True, exist_ok=exist_ok)
+    directory.mkdir(parents=True, exist_ok=exist_ok, mode=0o700)
+    _harden_dir_permissions(directory)
     return directory
 
 
@@ -46,7 +66,8 @@ def _safe_join(base: Path, relative: str) -> Path:
     if rel.is_absolute() or ".." in rel.parts:
         raise ValueError(f"unsafe output path: {relative}")
     path = base / rel
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _harden_dir_permissions(path.parent)
     return path
 
 
@@ -56,6 +77,7 @@ def _write_output(path: str | None, data: bytes, *, quiet: bool) -> None:
     if path:
         with open(path, "wb") as handle:
             handle.write(data)
+        _harden_file_permissions(Path(path))
     else:
         sys.stdout.buffer.write(data)
 

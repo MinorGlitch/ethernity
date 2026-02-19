@@ -66,6 +66,20 @@ class TestConfigCommand(unittest.TestCase):
         self.assertEqual(launch.call_count, 2)
         print_mock.assert_called_once()
 
+    @mock.patch("ethernity.cli.commands.config.typer.launch")
+    @mock.patch("ethernity.cli.commands.config._resolve_editor_command", return_value=None)
+    def test_open_in_editor_does_not_expand_environment_variables(
+        self,
+        _resolve_editor_command: mock.MagicMock,
+        launch: mock.MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "$NOT_EXPANDED.toml"
+            path.write_text("value = 1\n", encoding="utf-8")
+            config_module._open_in_editor(path, editor=None, quiet=True)
+
+        launch.assert_called_once_with(str(path))
+
     @mock.patch("ethernity.cli.commands.config.subprocess.run")
     @mock.patch(
         "ethernity.cli.commands.config._resolve_editor_command",
