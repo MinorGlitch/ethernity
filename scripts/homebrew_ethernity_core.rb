@@ -8,18 +8,15 @@ class Ethernity < Formula
   license "GPL-3.0-or-later"
 
   depends_on "pkgconf" => :build
+  depends_on "certifi"
   depends_on "libxml2"
   depends_on "libxslt"
+  depends_on "pillow"
   depends_on "python@3.13"
 
   resource "cbor2" do
     url "https://files.pythonhosted.org/packages/d9/8e/8b4fdde28e42ffcd741a37f4ffa9fb59cd4fe01625b544dfcfd9ccb54f01/cbor2-5.8.0.tar.gz"
     sha256 "b19c35fcae9688ac01ef75bad5db27300c2537eb4ee00ed07e05d8456a0d4931"
-  end
-
-  resource "certifi" do
-    url "https://files.pythonhosted.org/packages/e0/2d/a891ca51311197f6ad14a7ef42e2399f36cf2f9bd44752b3dc4eab60fdc5/certifi-2026.1.4.tar.gz"
-    sha256 "ac726dd470482006e014ad384921ed6438c457018f4b3d204aea4281258b2120"
   end
 
   resource "click" do
@@ -75,11 +72,6 @@ class Ethernity < Formula
   resource "mnemonic" do
     url "https://files.pythonhosted.org/packages/ff/77/e6232ed59fbd7b90208bb8d4f89ed5aabcf30a524bc2fb8f0dafbe8e7df9/mnemonic-0.21.tar.gz"
     sha256 "1fe496356820984f45559b1540c80ff10de448368929b9c60a2b55744cc88acf"
-  end
-
-  resource "pillow" do
-    url "https://files.pythonhosted.org/packages/d0/02/d52c733a2452ef1ffcc123b68e6606d07276b0e358db70eabad7e40042b7/pillow-12.1.0.tar.gz"
-    sha256 "5c5ae0a06e9ea030ab786b0251b32c7e4ce10e58d983c0d5c56029455180b5b9"
   end
 
   resource "platformdirs" do
