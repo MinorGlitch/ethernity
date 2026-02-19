@@ -6,8 +6,8 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Release tag to publish to tap (e.g. v0.2.1)"
-        required: true
+        description: "Optional tag to publish to tap (defaults to latest release tag)"
+        required: false
         type: string
 
 permissions:
@@ -33,6 +33,9 @@ jobs:
           set -euo pipefail
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             tag="${{ inputs.release_tag }}"
+            if [[ -z "${tag}" ]]; then
+              tag="$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest" | jq -r '.tag_name')"
+            fi
           else
             tag="${{ github.event.release.tag_name }}"
           fi
@@ -42,13 +45,14 @@ jobs:
           fi
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
 
-      - name: Generate formula from release assets
+      - name: Generate source formula from release tag
         shell: bash
         run: |
           set -euo pipefail
-          python3 scripts/generate_homebrew_formula.py \
+          python3 scripts/generate_homebrew_source_formula.py \
             --repo "${GITHUB_REPOSITORY}" \
             --tag "${{ steps.meta.outputs.tag }}" \
+            --template "scripts/homebrew_ethernity_core.rb" \
             --output "${RUNNER_TEMP}/ethernity.rb"
 
       - name: Resolve tap settings
@@ -58,7 +62,7 @@ jobs:
           set -euo pipefail
           tap_repo="${{ vars.HOMEBREW_TAP_REPO }}"
           if [[ -z "${tap_repo}" ]]; then
-            tap_repo="MinorGlitch/homebrew-tap"
+            tap_repo="MinorGlitch/ethernity"
           fi
           echo "tap_repo=${tap_repo}" >> "${GITHUB_OUTPUT}"
 
