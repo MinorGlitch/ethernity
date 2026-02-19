@@ -93,7 +93,8 @@ def _apply_main_qr_grid_overrides(
     doc_type: str,
     capabilities: TemplateCapabilities,
 ) -> DocumentSpec:
-    if doc_type != DOC_TYPE_MAIN:
+    normalized_doc_type = doc_type.strip().lower()
+    if normalized_doc_type != DOC_TYPE_MAIN:
         return spec
 
     qr_grid = spec.qr_grid

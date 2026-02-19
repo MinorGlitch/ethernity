@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from .utils import int_value as _int_value
+
 _TEMPLATE_COPY_BUILDERS: dict[str, str] = {
     "main_document.html.j2": "main_document",
     "recovery_document.html.j2": "recovery_document",
@@ -42,7 +44,9 @@ def build_copy_bundle(*, template_name: str, context: Mapping[str, object]) -> d
         return _shard_document_copy(context=context)
     if doc_key == "signing_key_shard_document":
         return _signing_key_shard_document_copy(context=context)
-    return _kit_index_document_copy()
+    if doc_key == "kit_index_document":
+        return _kit_index_document_copy()
+    return {}
 
 
 def _main_document_copy() -> dict[str, object]:
@@ -169,16 +173,3 @@ def _kit_index_document_copy() -> dict[str, object]:
         "hardware_inventory_label": "Hardware Inventory",
         "chain_of_custody_label": "Chain of Custody",
     }
-
-
-def _int_value(raw: object, *, default: int) -> int:
-    if isinstance(raw, int):
-        return raw
-    if isinstance(raw, str):
-        text = raw.strip()
-        if text:
-            try:
-                return int(text)
-            except ValueError:
-                return default
-    return default
