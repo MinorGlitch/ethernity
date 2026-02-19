@@ -17,6 +17,7 @@ import unittest
 from pathlib import Path
 
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
+from ethernity.render.fallback import FallbackConsumerState, FallbackSectionData
 from ethernity.render.pages import build_pages
 from ethernity.render.spec import (
     DocumentSpec,
@@ -496,6 +497,56 @@ class TestBuildPages(unittest.TestCase):
         self.assertEqual(page_two.qr_grid.rows, 0)
         self.assertTrue(page_two.fallback_blocks)
         self.assertEqual(page_two.fallback_blocks[0].y_mm, 0.0)
+
+    def test_forge_recovery_starts_main_section_on_second_page(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\xcd" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "forge"
+            / "recovery_document.html.j2"
+        )
+        inputs = RenderInputs(
+            frames=frames,
+            template_path=template_path,
+            output_path="out.pdf",
+            context={},
+            doc_type="recovery",
+            render_qr=False,
+            render_fallback=True,
+        )
+
+        sections = [
+            FallbackSectionData(title="AUTH FRAME", tokens=("a", "b", "c", "d"), group_size=1),
+            FallbackSectionData(title="MAIN FRAME", tokens=("e", "f", "g", "h"), group_size=1),
+        ]
+        pages = build_pages(
+            inputs=inputs,
+            spec=_spec(),
+            layout=_layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=10),
+            layout_rest=_layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=10),
+            fallback_lines=["L1"],
+            qr_image_builder=lambda idx: f"qr:{idx}",
+            fallback_sections_data=sections,
+            fallback_state=FallbackConsumerState(),
+        )
+
+        self.assertGreaterEqual(len(pages), 2)
+        first_page_titles = [block.title for block in pages[0].fallback_blocks if block.title]
+        second_page_titles = [block.title for block in pages[1].fallback_blocks if block.title]
+        self.assertEqual(first_page_titles, ["AUTH FRAME"])
+        self.assertEqual(second_page_titles, ["MAIN FRAME"])
 
 
 if __name__ == "__main__":

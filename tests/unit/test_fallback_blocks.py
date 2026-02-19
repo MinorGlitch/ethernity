@@ -180,6 +180,34 @@ class TestConsumeFallbackBlocks(unittest.TestCase):
         )
         self.assertEqual(continuation_blocks[0].lines, ["e f g", "h i j"])
 
+    def test_stop_after_current_section_stops_before_next_section(self) -> None:
+        sections = [
+            FallbackSectionData(title="AUTH FRAME", tokens=("a", "b", "c", "d"), group_size=1),
+            FallbackSectionData(title="MAIN FRAME", tokens=("e", "f", "g", "h"), group_size=1),
+        ]
+        state = FallbackConsumerState()
+
+        first_page_blocks = consume_fallback_blocks(
+            sections,
+            state,
+            lines_capacity=10,
+            line_length=3,
+            stop_after_current_section=True,
+        )
+        self.assertEqual(len(first_page_blocks), 1)
+        self.assertEqual(first_page_blocks[0].title, "AUTH FRAME")
+        self.assertEqual(state.section_idx, 1)
+        self.assertEqual(state.token_idx, 0)
+
+        second_page_blocks = consume_fallback_blocks(
+            sections,
+            state,
+            lines_capacity=10,
+            line_length=3,
+        )
+        self.assertEqual(len(second_page_blocks), 1)
+        self.assertEqual(second_page_blocks[0].title, "MAIN FRAME")
+
 
 if __name__ == "__main__":
     unittest.main()

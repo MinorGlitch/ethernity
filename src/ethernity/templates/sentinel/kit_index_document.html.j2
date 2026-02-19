@@ -143,11 +143,11 @@
 {% for page_rows in row_chunks %}
   <section class="print-sheet border border-border-light flex flex-col">
     {% set sentinel_top_strip_text = 'Custody Log // Offline Record // Authorized Personnel Only' %}
-    {% set sentinel_header_title = 'Recovery Kit Index & Log' %}
-    {% set sentinel_header_subtitle = 'Track all components and record every custody transfer.' %}
+    {% set sentinel_header_title = copy.title %}
+    {% set sentinel_header_subtitle = copy.subtitle %}
     {% set sentinel_header_classification = 'Authorized Personnel Only' %}
     {% set sentinel_page_label = 'Page %d / %d' % (loop.index, total_pages) %}
-    {% set sentinel_footer_guidance = 'Inventory record only; store separately from shard/recovery docs' %}
+    {% set sentinel_footer_guidance = copy.footer_guidance %}
     {% include 'partials/sentinel_shell_header.j2' %}
 
     <div class="grid grid-cols-3 gap-px bg-border-light border-b border-border-light">
@@ -170,8 +170,8 @@
         <div class="flex items-start gap-3">
           <span class="material-symbols-outlined text-primary text-2xl">warning</span>
           <div>
-            <h3 class="font-bold text-sm uppercase">Critical Security Warning</h3>
-            <p class="text-sm text-gray-700">This document is an inventory index only. Keep it separate from all shard and recovery documents.</p>
+            <h3 class="font-bold text-sm uppercase">{{ copy.warning_title }}</h3>
+            <p class="text-sm text-gray-700">{{ copy.warning_body }}</p>
           </div>
         </div>
       </div>
@@ -179,7 +179,7 @@
       <section>
         <h2 class="text-lg font-bold uppercase tracking-tight mb-3 flex items-center gap-2">
           <span class="material-symbols-outlined">inventory_2</span>
-          Hardware Inventory
+          {{ copy.hardware_inventory_label }}
         </h2>
         {{ inventory_table(page_rows) }}
       </section>
@@ -187,7 +187,7 @@
       <section class="flex-1 flex flex-col">
         <h2 class="text-lg font-bold uppercase tracking-tight mb-3 flex items-center gap-2">
           <span class="material-symbols-outlined">history_edu</span>
-          Chain of Custody
+          {{ copy.chain_of_custody_label }}
         </h2>
         {% set custody_row_count = 7 %}
         <div class="rounded-lg border border-border-light overflow-hidden flex-1 min-h-0 flex flex-col">

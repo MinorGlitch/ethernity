@@ -71,10 +71,10 @@
   {% if page.instructions_full_page %}
   <section class="print-sheet border border-[#ebe8f1] bg-paper-texture flex flex-col px-[16mm] py-[14mm]">
     <div class="absolute inset-[4mm] border border-ink-dark/6 pointer-events-none"></div>
-    {% set monograph_header_title = doc.title %}
-    {% set monograph_header_subtitle = doc.subtitle %}
+    {% set monograph_header_title = copy.title %}
+    {% set monograph_header_subtitle = copy.subtitle %}
     {% set monograph_header_classification = 'Offline Processing Required' %}
-    {% set monograph_header_guidance = 'Scan left-to-right, top-to-bottom in offline recovery flow' %}
+    {% set monograph_header_guidance = copy.header_guidance %}
     {% set monograph_header_ref = doc_id[:4] ~ '-' ~ doc_id[4:8] %}
     {% set monograph_header_icon = 'menu_book' %}
     {% include 'partials/monograph_shell_header.j2' %}
@@ -85,13 +85,13 @@
       </div>
       <p class="uppercase tracking-[0.24em] text-[9px] font-semibold text-ink-dark/55">Offline Processing Required</p>
       <div class="w-10 h-px bg-ink-dark/20 my-3 mx-auto"></div>
-      <h1 class="font-serif text-[30px] leading-[1.08] font-bold tracking-tight">{{ doc.title }}</h1>
-      <p class="font-serif italic text-[12px] text-ink-light mt-1">{{ doc.subtitle }}</p>
+      <h1 class="font-serif text-[30px] leading-[1.08] font-bold tracking-tight">{{ copy.title }}</h1>
+      <p class="font-serif italic text-[12px] text-ink-light mt-1">{{ copy.subtitle }}</p>
     </section>
 
     <section class="max-w-[152mm] mx-auto w-full">
       <p class="font-serif text-[11px] leading-relaxed text-center text-ink-dark/85 mb-4">
-        This page contains the canonical offline procedure for rebuilding the recovery kit bundle.
+        {{ copy.warning_body }}
       </p>
       <div class="space-y-2">
         {% for line in instructions.lines %}
@@ -113,11 +113,11 @@
 
     <section class="mt-auto pt-4 text-center">
       <div class="w-[48mm] h-px bg-ink-dark/10 mx-auto mb-3"></div>
-      <p class="text-[8px] uppercase tracking-[0.18em] text-ink-dark/40 font-medium">Scan Left-To-Right, Top-To-Bottom</p>
+      <p class="text-[8px] uppercase tracking-[0.18em] text-ink-dark/40 font-medium">{{ copy.footer_guidance }}</p>
       <p class="text-[8px] font-mono uppercase tracking-[0.14em] text-ink-light mt-1">{{ page.page_label }}</p>
     </section>
     {% set monograph_footer_left = 'Monograph Offline Archive' %}
-    {% set monograph_footer_right = 'Scan left-to-right, top-to-bottom in offline recovery flow' %}
+    {% set monograph_footer_right = copy.footer_guidance %}
     {% include 'partials/monograph_shell_footer.j2' %}
   </section>
 
@@ -126,18 +126,17 @@
     <div class="absolute inset-[4mm] border border-ink-dark/5 pointer-events-none"></div>
 
     {% if page.page_num == 1 %}
-    {% set monograph_header_title = doc.title %}
-    {% set monograph_header_subtitle = doc.subtitle %}
+    {% set monograph_header_title = copy.title %}
+    {% set monograph_header_subtitle = copy.subtitle %}
     {% set monograph_header_classification = 'Offline Processing Required' %}
-    {% set monograph_header_guidance = 'Scan left-to-right, top-to-bottom in offline recovery flow' %}
+    {% set monograph_header_guidance = copy.header_guidance %}
     {% set monograph_header_ref = doc_id[:4] ~ '-' ~ doc_id[4:8] %}
     {% set monograph_header_icon = 'lock' %}
     {% include 'partials/monograph_shell_header.j2' %}
 
     <section class="mt-5 text-center max-w-[148mm] mx-auto">
       <p class="font-serif text-[11px] leading-relaxed text-ink-dark/86">
-        This packet stores the QR chunks required to rebuild the offline recovery kit.
-        Scan every chunk in order and verify sequence labels before reconstruction.
+        {{ copy.continuation_hint }}
       </p>
       <div class="mt-4">
         <p class="text-[8px] uppercase tracking-[0.14em] text-ink-dark/40 font-black">Custodian Name</p>
@@ -173,10 +172,10 @@
       {% endif %}
     </section>
     {% else %}
-    {% set monograph_header_title = doc.title %}
-    {% set monograph_header_subtitle = doc.subtitle %}
+    {% set monograph_header_title = copy.title %}
+    {% set monograph_header_subtitle = copy.subtitle %}
     {% set monograph_header_classification = 'Offline Processing Required' %}
-    {% set monograph_header_guidance = 'Scan left-to-right, top-to-bottom in offline recovery flow' %}
+    {% set monograph_header_guidance = copy.header_guidance %}
     {% set monograph_header_ref = doc_id[:4] ~ '-' ~ doc_id[4:8] %}
     {% set monograph_header_icon = 'qr_code_2' %}
     {% include 'partials/monograph_shell_header.j2' %}
@@ -205,7 +204,7 @@
     {% endif %}
 
     {% set monograph_footer_left = 'Monograph Offline Archive' %}
-    {% set monograph_footer_right = 'Scan left-to-right, top-to-bottom in offline recovery flow' %}
+    {% set monograph_footer_right = copy.footer_guidance %}
     {% include 'partials/monograph_shell_footer.j2' %}
   </section>
   {% endif %}

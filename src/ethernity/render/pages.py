@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 
-from .doc_types import DOC_TYPE_KIT
+from .doc_types import DOC_TYPE_KIT, DOC_TYPE_RECOVERY
 from .fallback import (
     FallbackBlock,
     FallbackConsumerState,
@@ -253,11 +253,17 @@ def _build_fallback_blocks(
 
     page_fallback_blocks: list[FallbackBlock] = []
     if fallback_sections_data and fallback_state:
+        restrict_recovery_first_page_to_first_section = (
+            page_idx <= 0
+            and inputs.doc_type.strip().lower() == DOC_TYPE_RECOVERY
+            and capabilities.inject_forge_copy
+        )
         page_fallback_blocks = consume_fallback_blocks(
             fallback_sections_data,
             fallback_state,
             lines_capacity,
             line_length=page_layout.line_length,
+            stop_after_current_section=restrict_recovery_first_page_to_first_section,
         )
     else:
         if page_idx <= 0:
@@ -336,7 +342,17 @@ def build_pages(
     )
     kit_instructions_page = inputs.doc_type == DOC_TYPE_KIT
     pages: list[PageModel] = []
-    for page_idx in range(total_pages):
+    page_idx = 0
+    while True:
+        has_remaining_section_fallback = (
+            inputs.render_fallback
+            and fallback_sections_data is not None
+            and fallback_state is not None
+            and fallback_sections_remaining(fallback_sections_data, fallback_state)
+        )
+        if page_idx >= total_pages and not has_remaining_section_fallback:
+            break
+
         page_num = page_idx + 1
         page_label = f"Page {page_num} / {total_pages}"
         page_layout = layout_rest if layout_rest and page_idx > 0 else layout
@@ -409,6 +425,7 @@ def build_pages(
                 fallback_line_capacity=fallback_line_capacity,
             )
         )
+        page_idx += 1
 
     if kit_instructions_page:
         instruction_layout = layout_rest or layout

@@ -145,12 +145,22 @@ def consume_fallback_blocks(
     state: FallbackConsumerState,
     lines_capacity: int,
     line_length: int,
+    *,
+    stop_after_current_section: bool = False,
 ) -> list[FallbackBlock]:
     blocks: list[FallbackBlock] = []
     lines_left = lines_capacity
     first_block = True
+    locked_section_idx: int | None = None
 
     while lines_left > 0 and state.section_idx < len(sections):
+        if (
+            stop_after_current_section
+            and locked_section_idx is not None
+            and state.section_idx != locked_section_idx
+        ):
+            break
+
         # Add gap between sections (not before first)
         if not first_block:
             if lines_left <= 1:
@@ -175,6 +185,8 @@ def consume_fallback_blocks(
             state.token_idx = 0
             first_block = False
             continue
+        if stop_after_current_section and locked_section_idx is None:
+            locked_section_idx = state.section_idx
 
         # Check if we need to show title (only at start of section)
         show_title = state.token_idx == 0

@@ -67,9 +67,10 @@
 {% for page in pages %}
   <section class="print-sheet border border-border-light flex flex-col">
     {% set sentinel_top_strip_text = 'Recovery Kit Media // Offline Processing Only // Do Not Scan Online' %}
+    {% set sentinel_header_title = copy.title %}
     {% set sentinel_header_classification = 'Offline Processing Required' %}
-    {% set sentinel_header_subtitle = 'Offline HTML bundle' %}
-    {% set sentinel_footer_guidance = 'Scan left-to-right, top-to-bottom in offline recovery flow' %}
+    {% set sentinel_header_subtitle = copy.subtitle %}
+    {% set sentinel_footer_guidance = copy.footer_guidance %}
     {% include 'partials/sentinel_shell_header.j2' %}
 
     {% if not page.instructions_full_page %}
@@ -81,9 +82,9 @@
       <div class="bg-amber-50 border-l-4 border-primary p-4 rounded-r mb-2 flex items-start gap-3">
         <span class="material-symbols-outlined text-primary shrink-0">warning</span>
         <div>
-          <h3 class="font-bold text-sm uppercase">Critical Safety Warning</h3>
+          <h3 class="font-bold text-sm uppercase">{{ copy.warning_title }}</h3>
           <p class="text-sm text-gray-700 mt-1">
-            Disconnect all network cables and disable Wi-Fi before recovery. Do not photograph any printed shard page.
+            {{ copy.warning_body }}
           </p>
         </div>
       </div>
@@ -114,7 +115,7 @@
       {% else %}
       <div class="mb-2 flex items-center gap-3 p-3 bg-primary/10 border border-primary/30 rounded text-[#8a5d07]">
         <span class="material-symbols-outlined">warning</span>
-        <span class="text-xs font-bold uppercase tracking-wide">Scan every QR code left to right, top to bottom before continuing.</span>
+        <span class="text-xs font-bold uppercase tracking-wide">{{ copy.continuation_hint }}</span>
       </div>
 
       {% if page.qr_items %}

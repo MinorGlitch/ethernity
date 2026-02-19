@@ -65,12 +65,12 @@
 </head>
 <body class="bg-background-light font-display text-slate-900 min-h-screen flex flex-col overflow-x-hidden">
 {% for page in pages %}
-  <section class="print-sheet flex flex-col p-[15mm]">
-    {% set forge_header_title = doc.title %}
-    {% set forge_header_subtitle = doc.subtitle %}
+  <section class="print-sheet flex flex-col" style="padding: 15mm 15mm 10mm;">
+    {% set forge_header_title = copy.title %}
+    {% set forge_header_subtitle = copy.subtitle %}
     {% set forge_header_kicker = 'The Forge // Secure Offline Storage' %}
     {% set forge_header_classification = 'Manual Entry Only' %}
-    {% set forge_header_guidance = 'Transcribe exactly; keep separate from QR pages' %}
+    {% set forge_header_guidance = copy.header_guidance %}
     {% set forge_header_ref = doc_id %}
     {% set forge_header_icon = 'shield_lock' %}
     {% include 'partials/forge_shell_header.j2' %}
@@ -79,9 +79,9 @@
       <div class="bg-slate-100 border border-slate-300 p-3 flex gap-3 items-start">
         <span class="material-symbols-outlined text-xl mt-0.5">warning</span>
         <div>
-          <h3 class="text-xs font-bold uppercase tracking-wider mb-1">Security Warning</h3>
+          <h3 class="text-xs font-bold uppercase tracking-wider mb-1">{{ copy.warning_title }}</h3>
           <p class="text-xs leading-relaxed text-slate-800">
-            Store this document in a secure, fireproof location. Do not photograph, scan, or upload this sheet to any cloud service.
+            {{ copy.warning_body }}
           </p>
         </div>
       </div>
@@ -160,7 +160,7 @@
     {% endif %}
 
     {% set forge_footer_left = forge_copy.generator_label %}
-    {% set forge_footer_right = 'Transcribe exactly; keep separate from QR pages' %}
+    {% set forge_footer_right = copy.footer_guidance %}
     {% include 'partials/forge_shell_footer.j2' %}
   </section>
 {% endfor %}

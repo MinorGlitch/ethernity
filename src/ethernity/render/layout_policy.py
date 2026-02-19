@@ -46,6 +46,9 @@ _RECOVERY_META_BASELINE_LINES = 3
 _RECOVERY_META_SECTION_OVERHEAD_MM = 12.0
 _RECOVERY_META_EXTRA_LINE_MM = 8.0
 _RECOVERY_CONTINUATION_ROW_PENALTY_LINES = 2
+_RECOVERY_FORGE_CONTINUATION_EXTRA_PENALTY_LINES = 5
+_RECOVERY_FORGE_FIRST_PAGE_BONUS_LINES = 1
+_RECOVERY_FORGE_CONTINUATION_BONUS_LINES = 5
 _RECOVERY_WIDE_CONTINUATION_BONUS_LINES = 7
 _RECOVERY_WIDE_FIRST_PAGE_BONUS_LINES = 7
 _RECOVERY_LIGHT_META_FIRST_PAGE_BONUS_LINES = 10
@@ -266,8 +269,15 @@ def adjust_page_fallback_capacity(
                 if recovery_has_quorum is False:
                     zone_lines += _RECOVERY_NO_QUORUM_FIRST_PAGE_BONUS_LINES
             zone_lines += _recovery_first_page_light_meta_bonus_lines(recovery_meta_lines_extra)
+            if capabilities.inject_forge_copy:
+                zone_lines += _RECOVERY_FORGE_FIRST_PAGE_BONUS_LINES
             return min(lines_capacity, zone_lines)
-        continuation_lines = max(1, lines_capacity - _RECOVERY_CONTINUATION_ROW_PENALTY_LINES)
+        continuation_penalty = _RECOVERY_CONTINUATION_ROW_PENALTY_LINES
+        if capabilities.inject_forge_copy:
+            continuation_penalty += _RECOVERY_FORGE_CONTINUATION_EXTRA_PENALTY_LINES
+        continuation_lines = max(1, lines_capacity - continuation_penalty)
+        if capabilities.inject_forge_copy:
+            continuation_lines += _RECOVERY_FORGE_CONTINUATION_BONUS_LINES
         if capabilities.wide_recovery_fallback_lines:
             continuation_lines += _RECOVERY_WIDE_CONTINUATION_BONUS_LINES
         return continuation_lines
