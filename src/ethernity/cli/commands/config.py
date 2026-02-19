@@ -81,7 +81,7 @@ def config(
 
 
 def _open_in_editor(path: Path, *, editor: str | None, quiet: bool) -> None:
-    resolved = Path(os.path.expandvars(str(path))).expanduser()
+    resolved = path.expanduser()
     if not resolved.exists():
         raise FileNotFoundError(f"config file not found: {resolved}")
 

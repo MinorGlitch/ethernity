@@ -85,7 +85,10 @@ def cli(
     debug_reveal_secrets: bool = typer.Option(
         False,
         "--debug-reveal-secrets",
-        help="Reveal full passphrase and private key material in debug output.",
+        help=(
+            "Reveal full passphrase and private key material in debug output. "
+            "Use only in a controlled local terminal; logs and screen capture can expose secrets."
+        ),
         rich_help_panel="Debug",
     ),
     quiet: bool = typer.Option(

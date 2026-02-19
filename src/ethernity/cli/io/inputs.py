@@ -25,6 +25,7 @@ from typing import Literal
 
 from rich.progress import Progress, TaskID
 
+from ...core.bounds import MAX_CIPHERTEXT_BYTES
 from ...core.validation import normalize_path
 from ..core.types import InputFile
 
@@ -119,6 +120,7 @@ def _load_input_files(
     base = _resolve_base_dir(paths, base_dir)
     entries: list[InputFile] = []
     seen: dict[str, Path] = {}
+    total_input_bytes = 0
     total = len(paths)
     read_task_id = progress.add_task("Reading input files...", total=total) if progress else None
     if progress is not None and read_task_id is not None:
@@ -133,8 +135,21 @@ def _load_input_files(
         rel = _relative_path(abs_path, base)
         if rel in seen:
             raise ValueError(f"duplicate relative path '{rel}' from {seen[rel]} and {abs_path}")
+        stat = abs_path.stat()
+        projected_bytes = total_input_bytes + stat.st_size
+        if projected_bytes > MAX_CIPHERTEXT_BYTES:
+            raise ValueError(
+                f"input payload exceeds MAX_CIPHERTEXT_BYTES ({MAX_CIPHERTEXT_BYTES}): "
+                f"{projected_bytes} bytes"
+            )
         data = abs_path.read_bytes()
-        mtime = int(abs_path.stat().st_mtime)
+        projected_bytes = total_input_bytes + len(data)
+        if projected_bytes > MAX_CIPHERTEXT_BYTES:
+            raise ValueError(
+                f"input payload exceeds MAX_CIPHERTEXT_BYTES ({MAX_CIPHERTEXT_BYTES}): "
+                f"{projected_bytes} bytes"
+            )
+        mtime = int(stat.st_mtime)
         entries.append(
             InputFile(
                 source_path=abs_path,
@@ -143,6 +158,7 @@ def _load_input_files(
                 mtime=mtime,
             )
         )
+        total_input_bytes = projected_bytes
         seen[rel] = abs_path
         read += 1
         if progress is not None and read_task_id is not None:
@@ -162,6 +178,12 @@ def _load_input_files(
         if not data:
             raise ValueError(
                 "stdin input is empty; provide data with --input - or use --input/--input-dir"
+            )
+        projected_bytes = total_input_bytes + len(data)
+        if projected_bytes > MAX_CIPHERTEXT_BYTES:
+            raise ValueError(
+                f"input payload exceeds MAX_CIPHERTEXT_BYTES ({MAX_CIPHERTEXT_BYTES}): "
+                f"{projected_bytes} bytes"
             )
         entries.append(
             InputFile(
