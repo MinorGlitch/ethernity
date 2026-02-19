@@ -135,12 +135,20 @@ jobs:
   build-bottles:
     if: needs.update-tap.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.build_bottles)
     needs: update-tap
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-13, macos-14]
+        include:
+          - runner: macos-13
+            id: macos-13
+          - runner: macos-14
+            id: macos-14
+          - runner: ubuntu-24.04
+            id: ubuntu-24.04
+          - runner: ubuntu-24.04-arm
+            id: ubuntu-24.04-arm
     steps:
       - name: Checkout tap repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -149,6 +157,16 @@ jobs:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: tap
 
+      - name: Configure Homebrew (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "/home/linuxbrew/.linuxbrew/bin" >> "${GITHUB_PATH}"
+          echo "/home/linuxbrew/.linuxbrew/sbin" >> "${GITHUB_PATH}"
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew --version
+
       - name: Build bottle
         shell: bash
         env:
@@ -156,18 +174,22 @@ jobs:
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
         run: |
           set -euo pipefail
-          brew uninstall --ignore-dependencies ethernity || true
-          brew install --build-bottle "${GITHUB_WORKSPACE}/tap/Formula/ethernity.rb"
+          tap_name="${{ needs.update-tap.outputs.tap_repo }}"
+          formula_ref="${tap_name}/ethernity"
+          brew untap "${tap_name}" || true
+          brew tap "${tap_name}" "file://${GITHUB_WORKSPACE}/tap"
+          brew uninstall --ignore-dependencies "${formula_ref}" || true
+          brew install --build-bottle "${formula_ref}"
           out_dir="${RUNNER_TEMP}/bottles"
           mkdir -p "${out_dir}"
           cd "${out_dir}"
-          brew bottle --json --no-rebuild ethernity
+          brew bottle --json --no-rebuild "${formula_ref}"
           ls -1 ethernity--*.bottle.*
 
       - name: Upload bottle artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: bottles-${{ matrix.os }}
+          name: bottles-${{ matrix.id }}
           path: |
             ${{ runner.temp }}/bottles/ethernity--*.bottle.tar.gz
             ${{ runner.temp }}/bottles/ethernity--*.bottle.json
