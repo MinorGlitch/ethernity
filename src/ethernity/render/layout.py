@@ -95,7 +95,7 @@ def _calculate_content_positions(
         pdf.set_font(keys_font, size=keys_size)
         max_text_width = text_block_width(keys_cfg, usable_w)
         wrapped_key_lines = wrap_lines_to_width(pdf, key_lines, max_text_width)
-    if include_keys:
+    if include_keys and wrapped_key_lines:
         keys_height = lines_height(keys_cfg, wrapped_key_lines)
     else:
         wrapped_key_lines = list(key_lines)

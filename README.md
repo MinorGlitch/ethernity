@@ -33,6 +33,7 @@ Start here: [Quick Start](#quick-start)
 
 - [Status (Experimental)](#status-experimental)
 - [What Is Ethernity?](#what-is-ethernity)
+- [Document Previews](#document-previews)
 - [Who It's For / Not For](#who-its-for--not-for)
 - [Quick Start](#quick-start)
 - [Workflow Playbooks](#workflow-playbooks)
@@ -77,6 +78,18 @@ formats are documented, payload structures are explicit, and release artifacts i
 | Rendering | fpdf2, Jinja2, Playwright |
 | Encoding | CBOR, QR framing, z-base-32 fallback blocks |
 | Packaging | PyInstaller onedir releases + Sigstore bundles |
+
+## Document Previews
+
+Rendered examples from the Sentinel design on A4 paper.
+These are first-page previews of the generated PDFs.
+
+<p align="center">
+  <img src="images/readme/sentinel_main_preview.png" alt="Sentinel main document preview (first page)" width="24%">
+  <img src="images/readme/sentinel_shard_preview.png" alt="Sentinel shard document preview (first page)" width="24%">
+  <img src="images/readme/sentinel_kit_preview.png" alt="Sentinel recovery kit preview (first page)" width="24%">
+  <img src="images/readme/sentinel_fallback_preview.png" alt="Sentinel fallback document preview (first page)" width="24%">
+</p>
 
 ## Who It's For / Not For
 
