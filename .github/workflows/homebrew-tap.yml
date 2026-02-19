@@ -12,6 +12,11 @@ on:
         description: "Optional tag to publish to tap (defaults to latest release tag)"
         required: false
         type: string
+      build_bottles:
+        description: "Build and publish Homebrew bottles"
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -25,6 +30,10 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event.release.prerelease == false && github.event.release.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      tap_repo: ${{ steps.tap.outputs.tap_repo }}
+      bottle_release_tag: ${{ steps.meta.outputs.bottle_release_tag }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -49,6 +58,7 @@ jobs:
             exit 1
           fi
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "bottle_release_tag=ethernity-${tag}" >> "${GITHUB_OUTPUT}"
 
       - name: Download uv.lock for selected tag
         shell: bash
@@ -120,4 +130,132 @@ jobs:
           git -C tap config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -C tap add Formula/ethernity.rb
           git -C tap commit -m "ethernity ${{ steps.meta.outputs.tag }}"
+          git -C tap push
+
+  build-bottles:
+    if: needs.update-tap.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.build_bottles)
+    needs: update-tap
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-13, macos-14]
+    steps:
+      - name: Checkout tap repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: ${{ needs.update-tap.outputs.tap_repo }}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Build bottle
+        shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          set -euo pipefail
+          brew uninstall --ignore-dependencies ethernity || true
+          brew install --build-bottle "${GITHUB_WORKSPACE}/tap/Formula/ethernity.rb"
+          out_dir="${RUNNER_TEMP}/bottles"
+          mkdir -p "${out_dir}"
+          cd "${out_dir}"
+          brew bottle --json --no-rebuild ethernity
+          ls -1 ethernity--*.bottle.*
+
+      - name: Upload bottle artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bottles-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/bottles/ethernity--*.bottle.tar.gz
+            ${{ runner.temp }}/bottles/ethernity--*.bottle.json
+          if-no-files-found: error
+
+  publish-bottles:
+    if: needs.update-tap.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.build_bottles)
+    needs: [update-tap, build-bottles]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Download bottle artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/bottles
+
+      - name: Checkout tap repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: ${{ needs.update-tap.outputs.tap_repo }}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Create tap release if missing
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          tap_repo="${{ needs.update-tap.outputs.tap_repo }}"
+          bottle_release_tag="${{ needs.update-tap.outputs.bottle_release_tag }}"
+          if gh release view "${bottle_release_tag}" --repo "${tap_repo}" >/dev/null 2>&1; then
+            echo "Release ${bottle_release_tag} already exists in ${tap_repo}"
+          else
+            gh release create "${bottle_release_tag}" \
+              --repo "${tap_repo}" \
+              --title "Ethernity bottles ${{ needs.update-tap.outputs.tag }}" \
+              --target master \
+              --notes "Automated Homebrew bottle assets for ${{ needs.update-tap.outputs.tag }}."
+          fi
+
+      - name: Upload bottle assets to tap release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          tap_repo="${{ needs.update-tap.outputs.tap_repo }}"
+          bottle_release_tag="${{ needs.update-tap.outputs.bottle_release_tag }}"
+          mapfile -t bottle_files < <(find "${RUNNER_TEMP}/bottles" -type f -name 'ethernity--*.bottle.tar.gz' | sort)
+          if [[ "${#bottle_files[@]}" -eq 0 ]]; then
+            echo "no bottle tarballs found" >&2
+            exit 1
+          fi
+          gh release upload "${bottle_release_tag}" "${bottle_files[@]}" --repo "${tap_repo}" --clobber
+
+      - name: Update bottle block in formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t bottle_files < <(find "${RUNNER_TEMP}/bottles" -type f -name 'ethernity--*.bottle.tar.gz' | sort)
+          if [[ "${#bottle_files[@]}" -eq 0 ]]; then
+            echo "no bottle tarballs found for formula update" >&2
+            exit 1
+          fi
+          bottle_args=()
+          for bottle_file in "${bottle_files[@]}"; do
+            bottle_args+=(--bottle-file "${bottle_file}")
+          done
+          python3 scripts/update_homebrew_bottle_block.py \
+            --formula "tap/Formula/ethernity.rb" \
+            --tap-repo "${{ needs.update-tap.outputs.tap_repo }}" \
+            --release-tag "${{ needs.update-tap.outputs.bottle_release_tag }}" \
+            "${bottle_args[@]}"
+
+      - name: Commit and push bottle block update
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git -C tap diff --quiet -- Formula/ethernity.rb; then
+            echo "No bottle block changes to commit."
+            exit 0
+          fi
+          git -C tap config user.name "github-actions[bot]"
+          git -C tap config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C tap add Formula/ethernity.rb
+          git -C tap commit -m "ethernity ${{ needs.update-tap.outputs.tag }} bottles"
           git -C tap push

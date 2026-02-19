@@ -48,6 +48,8 @@ The workflow updates the tap formula when:
 
 It resolves the target tag, loads `uv.lock` from that tag, and writes a source-based
 `Formula/ethernity.rb` pinned to that tag tarball.
+It also builds bottles for macOS runners and updates the formula `bottle do` block with
+checksums for the produced bottle artifacts.
 
 Required repository secret:
 
@@ -63,7 +65,12 @@ Manual backfill:
 # Run "Update Homebrew Tap" workflow_dispatch with:
 # - release_tag=v0.2.1 to target a specific tag
 # - release_tag omitted to use latest stable release tag
+# - build_bottles=false to skip bottle build/publish for this run
 ```
+
+Bottle assets are published to releases in the tap repository under tag
+`ethernity-<release_tag>` (for example `ethernity-v0.2.1`).
+Platforms without a published bottle continue to install from source.
 
 ## Local Tap Test
 
