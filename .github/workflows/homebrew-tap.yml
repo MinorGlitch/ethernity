@@ -3,6 +3,9 @@ name: Update Homebrew Tap
 on:
   release:
     types: [published]
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       release_tag:
@@ -19,7 +22,7 @@ concurrency:
 
 jobs:
   update-tap:
-    if: github.event_name == 'workflow_dispatch' || (github.event.release.prerelease == false && github.event.release.draft == false)
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event.release.prerelease == false && github.event.release.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -36,6 +39,8 @@ jobs:
             if [[ -z "${tag}" ]]; then
               tag="$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest" | jq -r '.tag_name')"
             fi
+          elif [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            tag="${GITHUB_REF_NAME}"
           else
             tag="${{ github.event.release.tag_name }}"
           fi
@@ -45,6 +50,14 @@ jobs:
           fi
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
 
+      - name: Download uv.lock for selected tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${{ steps.meta.outputs.tag }}/uv.lock" \
+            -o "${RUNNER_TEMP}/uv.lock"
+
       - name: Generate source formula from release tag
         shell: bash
         run: |
@@ -52,7 +65,8 @@ jobs:
           python3 scripts/generate_homebrew_source_formula.py \
             --repo "${GITHUB_REPOSITORY}" \
             --tag "${{ steps.meta.outputs.tag }}" \
-            --template "scripts/homebrew_ethernity_core.rb" \
+            --template "scripts/homebrew_ethernity_tap.rb" \
+            --lock "${RUNNER_TEMP}/uv.lock" \
             --output "${RUNNER_TEMP}/ethernity.rb"
 
       - name: Resolve tap settings
