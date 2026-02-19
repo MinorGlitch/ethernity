@@ -197,14 +197,14 @@ class Ethernity < Formula
 
   def install
     venv = virtualenv_create(libexec, "python3.13")
-    wheel_resources, source_resources = resources.partition do |resource|
-      resource.url.to_s.end_with?(".whl")
-    end
-    venv.pip_install source_resources
-    wheel_resources.each do |wheel_resource|
-      wheel_resource.stage do
-        wheel_file = Pathname.pwd/Pathname.new(wheel_resource.url.to_s).basename
-        venv.pip_install wheel_file
+    resources.each do |resource|
+      resource.stage do
+        wheel_file = Dir["*.whl"].first
+        if wheel_file.nil?
+          venv.pip_install Pathname.pwd
+        else
+          venv.pip_install Pathname.pwd/wheel_file
+        end
       end
     end
     venv.pip_install_and_link buildpath
