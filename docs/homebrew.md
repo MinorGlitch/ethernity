@@ -21,7 +21,7 @@ Automatic tap updates are wired in:
 
 Publish flow:
 
-1. Create/update a tap repo (default: `MinorGlitch/ethernity`).
+1. Create/update a tap repo (default: `MinorGlitch/homebrew-ethernity`).
 2. Place the formula at `Formula/ethernity.rb` in the tap repo.
 3. Commit and push the tap repo.
 
@@ -31,6 +31,9 @@ User install flow:
 brew tap MinorGlitch/ethernity
 brew install ethernity
 ```
+
+Note: Homebrew tap shorthand `MinorGlitch/ethernity` maps to GitHub repo
+`MinorGlitch/homebrew-ethernity`.
 
 If the tap is already added and no other formula with the same name conflicts, plain
 `brew install ethernity` works.
@@ -46,7 +49,7 @@ Required repository secret:
 
 Optional repository variable:
 
-- `HOMEBREW_TAP_REPO`: tap slug (defaults to `MinorGlitch/ethernity`).
+- `HOMEBREW_TAP_REPO`: tap slug (defaults to `MinorGlitch/homebrew-ethernity`).
 
 Manual backfill:
 
