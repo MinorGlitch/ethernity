@@ -48,8 +48,8 @@ The workflow updates the tap formula when:
 
 It resolves the target tag, loads `uv.lock` from that tag, and writes a source-based
 `Formula/ethernity.rb` pinned to that tag tarball.
-It also builds bottles for macOS runners and updates the formula `bottle do` block with
-checksums for the produced bottle artifacts.
+It also builds bottles for macOS and Linux runners (`arm64` and `x86_64`) and updates
+the formula `bottle do` block with checksums for the produced bottle artifacts.
 
 Required repository secret:
 
