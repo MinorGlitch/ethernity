@@ -6,7 +6,7 @@ This project can be distributed via Homebrew on both macOS and Linux.
 
 Use the source formula template at:
 
-- `scripts/homebrew_ethernity_core.rb`
+- `scripts/homebrew_ethernity_tap.rb`
 
 It is wired for:
 
@@ -40,8 +40,14 @@ If the tap is already added and no other formula with the same name conflicts, p
 
 ### Automation setup
 
-The workflow updates the tap formula whenever a non-draft, non-prerelease GitHub release is published.
-It resolves the release tag and writes a source-based `Formula/ethernity.rb` pinned to that tag tarball.
+The workflow updates the tap formula when:
+
+- a non-draft, non-prerelease GitHub release is published
+- a `v*` git tag is pushed
+- `workflow_dispatch` is run manually
+
+It resolves the target tag, loads `uv.lock` from that tag, and writes a source-based
+`Formula/ethernity.rb` pinned to that tag tarball.
 
 Required repository secret:
 
@@ -59,32 +65,17 @@ Manual backfill:
 # - release_tag omitted to use latest stable release tag
 ```
 
-## Homebrew Core Path (`brew install ethernity` without tap)
+## Local Tap Test
 
-To land in Homebrew core, maintain a source-build formula in
-`homebrew-core/Formula/e/ethernity.rb` and open a PR to Homebrew/homebrew-core.
+A local source-build tap test template is available at:
 
-Core expectations:
-
-- Build from source (not release binaries).
-- Pass `brew audit --new --strict --online ethernity`.
-- Pass `brew test ethernity` on macOS and Linux CI.
-- Keep dependency/resource blocks reproducible and pinned.
-
-Given Ethernity's Python + Playwright stack, the tap formula above is the fastest reliable
-cross-platform route today. Core is still possible, but needs a dedicated source-formula pass.
-
-## Local Core Candidate
-
-A local source-build candidate formula is available at:
-
-- `scripts/homebrew_ethernity_core.rb`
+- `scripts/homebrew_ethernity_tap.rb`
 
 Try it locally:
 
 ```bash
 brew tap-new <you>/local-ethernity-test --no-git
-cp scripts/homebrew_ethernity_core.rb "$(brew --repo <you>/local-ethernity-test)/Formula/ethernity.rb"
+cp scripts/homebrew_ethernity_tap.rb "$(brew --repo <you>/local-ethernity-test)/Formula/ethernity.rb"
 brew install --build-from-source <you>/local-ethernity-test/ethernity
 brew test ethernity
 brew untap <you>/local-ethernity-test
