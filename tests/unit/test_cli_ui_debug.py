@@ -253,6 +253,8 @@ class TestDebugRenderers(unittest.TestCase):
             reveal_secrets=True,
         )
         rendered = self._rendered_text(console_print)
+        self.assertIn("WARNING: Secret Material Revealed", rendered)
+        self.assertIn("Debug output includes full passphrase and private key material.", rendered)
         self.assertIn("- Passphrase: reveal me", rendered)
         self.assertIn("- Signing private key: revealed in hex block below", rendered)
         self.assertIn("Signing Private Key (hex, revealed):", rendered)

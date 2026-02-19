@@ -14,6 +14,7 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 import base64
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -95,6 +96,15 @@ def _inject_copy(context: dict[str, object], *, template_name: str) -> None:
 
 
 class TestJinjaTemplates(unittest.TestCase):
+    def test_render_template_autoescapes_html_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            template_path = Path(tmpdir) / "escape.html.j2"
+            template_path.write_text("<p>{{ value }}</p>", encoding="utf-8")
+            rendered = render_template(template_path, {"value": "<script>alert(1)</script>"})
+
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", rendered)
+        self.assertNotIn("<script>alert(1)</script>", rendered)
+
     def _render_sentinel_template(self, template_name: str) -> str:
         template_path = _ETHERNITY_ROOT / "templates" / "sentinel" / template_name
         context = _base_document_context()
