@@ -376,6 +376,57 @@ class TestTemplateStyle(unittest.TestCase):
             ):
                 load_template_style(template_dir / "main_document.html.j2")
 
+    def test_style_rejects_negative_recovery_continuation_footer_reserve(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            template_dir = Path(temp_dir)
+            (template_dir / "style.json").write_text(
+                """{
+  "name": "custom",
+  "header": {
+    "meta_row_gap_mm": 1.2,
+    "stack_gap_mm": 1.0,
+    "divider_thickness_mm": 0.5
+  },
+  "content_offset": {
+    "divider_gap_extra_mm": 0.0,
+    "doc_types": []
+  },
+  "capabilities": {
+    "advanced_fallback_layout": true,
+    "fallback_layout": {
+      "recovery": {
+        "line_height_floor_mm": 5.8,
+        "first_page_footer_reserve_mm": 76.0,
+        "continuation_footer_reserve_mm": -1.0,
+        "meta_baseline_lines": 3,
+        "meta_extra_line_mm": 8.0,
+        "meta_section_overhead_mm": 12.0,
+        "first_page_text_width_bonus_mm": 58.0,
+        "continuation_text_width_bonus_mm": 150.0
+      },
+      "shard": {
+        "line_height_floor_mm": 4.8,
+        "first_page_payload_zone_height_mm": 48.0,
+        "continuation_payload_zone_height_mm": 52.8
+      },
+      "signing_key_shard": {
+        "line_height_floor_mm": 4.2,
+        "first_page_payload_zone_height_mm": 71.4,
+        "continuation_payload_zone_height_mm": 46.2
+      }
+    }
+  }
+}
+""",
+                encoding="utf-8",
+            )
+            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
+            with self.assertRaisesRegex(
+                ValueError,
+                "missing or invalid 'continuation_footer_reserve_mm' non-negative number",
+            ):
+                load_template_style(template_dir / "main_document.html.j2")
+
 
 if __name__ == "__main__":
     unittest.main()
