@@ -19,11 +19,8 @@ classifiers = [
 ]
 dependencies = [
     "cbor2",
-    "certifi",
-    "mnemonic",
     "typer>=0.12.3",
     "rich>=13.7.0",
-    "shellingham>=1.5.4",
     "questionary>=2.0.0",
     "platformdirs>=4.2.0",
     "fpdf2",
@@ -76,6 +73,7 @@ ethernity = [
     "storage/*.png",
     "config/*.toml",
     "kit/*.html",
+    "crypto/bip39_wordlist.txt",
     "py.typed",
 ]
 

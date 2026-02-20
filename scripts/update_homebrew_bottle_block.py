@@ -22,7 +22,7 @@ import re
 from pathlib import Path
 
 _BOTTLE_BLOCK_PATTERN = re.compile(r"(?ms)^  bottle do\n.*?^  end\n")
-_BOTTLE_TAG_PATTERN = re.compile(r"^ethernity--.+\.(?P<tag>[^.]+)\.bottle\.tar\.gz$")
+_BOTTLE_TAG_PATTERN = re.compile(r"^ethernity-.+\.(?P<tag>[^.]+)\.bottle\.tar\.gz$")
 
 
 def _sha256_for_file(path: Path) -> str:
