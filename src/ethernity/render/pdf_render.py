@@ -78,7 +78,7 @@ def _forge_copy_payload(*, ethernity_version: str) -> ForgeCopy:
         doc_id_label="DOC ID",
         generated_utc_label="GENERATED (UTC)",
         version="v2.1",
-        generator_label=f"Ethernity v{ethernity_version}",
+        generator_label=_generator_label(ethernity_version),
         protocol_label="Ethernity Forge Security Protocols",
         backup_system_label="The Forge Secure Backup System",
     )
@@ -88,7 +88,14 @@ def _ethernity_version() -> str:
     try:
         return importlib.metadata.version("ethernity")
     except importlib.metadata.PackageNotFoundError:
-        return "0.0.0"
+        return ""
+
+
+def _generator_label(ethernity_version: str) -> str:
+    normalized = ethernity_version.strip()
+    if normalized:
+        return f"Ethernity v{normalized}"
+    return "Ethernity"
 
 
 def _uses_uniform_main_qr_capacity(*, doc_type: str, capabilities: TemplateCapabilities) -> bool:
