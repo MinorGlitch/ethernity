@@ -21,9 +21,16 @@
 {% else %}
   {% set _sentinel_page_label = '' %}
 {% endif %}
+{% if sentinel_product_label is defined %}
+  {% set _sentinel_product_label = sentinel_product_label %}
+{% elif ethernity_version is defined and ethernity_version %}
+  {% set _sentinel_product_label = 'Ethernity v' ~ ethernity_version %}
+{% else %}
+  {% set _sentinel_product_label = 'Ethernity' %}
+{% endif %}
 {% set _sentinel_footer_guidance = sentinel_footer_guidance if sentinel_footer_guidance is defined else '' %}
 <footer class="sentinel-shell-footer mt-auto shrink-0 border-t-2 border-black pt-3 pb-2 px-[15mm] flex items-center gap-3 text-[9px] font-mono uppercase text-gray-500 tracking-[0.1em]">
-  <span class="min-w-0 flex-1 break-words">Sentinel Offline Archive</span>
+  <span class="min-w-0 flex-1 break-words">{{ _sentinel_product_label }}</span>
   <span class="min-w-0 px-2 text-center break-words">{{ _sentinel_page_label }}</span>
   <span class="text-right min-w-0 flex-1 break-words">{{ _sentinel_footer_guidance }}</span>
 </footer>

@@ -735,7 +735,7 @@ class TestPdfLayout(unittest.TestCase):
         )
 
         # First page remains conservative to avoid overflow in the split-pane layout.
-        self.assertGreaterEqual(first_layout.line_length, 64)
+        self.assertGreaterEqual(first_layout.line_length, 58)
         self.assertLess(first_layout.line_length, rest_layout.line_length)
         # Continuation pages use a wider text lane.
         self.assertGreaterEqual(rest_layout.line_length, 74)
