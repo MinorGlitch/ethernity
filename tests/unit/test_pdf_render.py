@@ -23,6 +23,7 @@ from playwright.sync_api import sync_playwright
 
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
 from ethernity.render import RenderInputs, pdf_render as pdf_render_module, render_frames_to_pdf
+from ethernity.render.recovery_meta import build_recovery_meta
 from tests.test_support import ensure_playwright_browsers
 
 
@@ -315,6 +316,88 @@ class TestPdfRender(unittest.TestCase):
             self.assertIn("pages", payload)
             self.assertEqual(payload["style_name"], "ledger")
             self.assertEqual(payload["template_path"], str(template_path))
+
+    def test_recovery_render_requires_structured_recovery_metadata(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x42" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "ledger"
+            / "recovery_document.html.j2"
+        )
+        inputs = RenderInputs(
+            frames=[frame],
+            template_path=template_path,
+            output_path="out.pdf",
+            context={"paper_size": "A4"},
+            doc_type="recovery",
+            render_qr=False,
+            render_fallback=False,
+            key_lines=["Passphrase:", "alpha beta"],
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "recovery metadata is required for recovery document rendering",
+        ):
+            render_frames_to_pdf(inputs)
+
+    def test_recovery_render_uses_structured_metadata_not_key_line_parsing(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x43" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "ledger"
+            / "recovery_document.html.j2"
+        )
+        recovery_meta = build_recovery_meta(
+            passphrase=None,
+            quorum_threshold=2,
+            quorum_shares=3,
+            signing_pub=bytes.fromhex(
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            ),
+        )
+        inputs = RenderInputs(
+            frames=[frame],
+            template_path=template_path,
+            output_path="out.pdf",
+            context={"paper_size": "A4"},
+            doc_type="recovery",
+            render_qr=False,
+            render_fallback=False,
+            key_lines=["this line should not affect recovery metadata"],
+            recovery_meta=recovery_meta,
+        )
+        with mock.patch("ethernity.render.pdf_render.render_html_to_pdf"):
+            with mock.patch(
+                "ethernity.render.pdf_render.render_template",
+                return_value="<html></html>",
+            ) as render_template_mock:
+                render_frames_to_pdf(inputs)
+
+        rendered_context = render_template_mock.call_args[0][1]
+        self.assertEqual(rendered_context["recovery"]["quorum_value"], "2 of 3")
+        self.assertIsNone(rendered_context["recovery"]["passphrase"])
+        self.assertTrue(rendered_context["recovery"]["signing_pub_lines"])
 
     @mock.patch.dict("os.environ", {}, clear=True)
     @mock.patch("ethernity.render.pdf_render.os.process_cpu_count", return_value=8)

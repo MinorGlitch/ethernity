@@ -38,6 +38,7 @@ from ...formats import envelope_codec as envelope_codec_module
 from ...formats.envelope_types import PayloadPart
 from ...qr.capacity import choose_frame_chunk_size
 from ...render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
+from ...render.recovery_meta import build_recovery_meta
 from ...render.service import RenderService
 from ...render.types import RenderInputs
 from ..api import progress, status
@@ -562,6 +563,12 @@ def run_backup(
         ]
     else:
         key_lines = ["Passphrase:", passphrase_final]
+    recovery_meta = build_recovery_meta(
+        passphrase=None if plan_sharding is not None else passphrase_final,
+        quorum_threshold=plan_sharding.threshold if plan_sharding is not None else None,
+        quorum_shares=plan_sharding.shares if plan_sharding is not None else None,
+        signing_pub=sign_pub,
+    )
 
     # Create document identifiers and auth frame
     doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
@@ -659,6 +666,7 @@ def run_backup(
         frames,
         recovery_path,
         key_lines=key_lines,
+        recovery_meta=recovery_meta,
         fallback_sections=fallback_sections,
         layout_debug_json_path=_layout_debug_json_path(layout_debug_dir, "recovery_document"),
     )

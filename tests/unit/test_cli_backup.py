@@ -41,6 +41,7 @@ from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
 from ethernity.core.models import DocumentPlan, ShardingConfig, SigningSeedMode
 from ethernity.encoding.framing import Frame
 from ethernity.formats import envelope_codec as envelope_codec_module
+from ethernity.render.recovery_meta import RecoveryMeta
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "src" / "ethernity" / "config" / "config.toml"
@@ -303,6 +304,11 @@ class TestCliBackup(unittest.TestCase):
             self.assertEqual(len(calls), 2)
             self.assertFalse(calls[0].render_fallback)
             self.assertFalse(calls[1].render_qr)
+            self.assertIsInstance(calls[1].recovery_meta, RecoveryMeta)
+            assert calls[1].recovery_meta is not None
+            self.assertEqual(calls[1].recovery_meta.passphrase, "auto-pass")
+            self.assertEqual(calls[1].recovery_meta.quorum_value, None)
+            self.assertTrue(calls[1].recovery_meta.signing_pub_lines)
             self.assertIsNone(result.kit_index_path)
 
     def test_run_backup_renders_kit_index_when_template_exists(self) -> None:

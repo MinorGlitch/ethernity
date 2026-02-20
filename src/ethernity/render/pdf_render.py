@@ -36,7 +36,7 @@ from .fallback import FallbackConsumerState, FallbackSectionData, build_fallback
 from .html_to_pdf import render_html_to_pdf
 from .layout import compute_layout
 from .pages import build_pages
-from .recovery_meta import RecoveryMeta, parse_recovery_key_lines, recovery_meta_lines_extra
+from .recovery_meta import recovery_meta_lines_extra
 from .spec import DocumentSpec, document_spec
 from .template_model import DocModel, InstructionsModel, RecoveryModel, TemplateContext
 from .template_style import TemplateCapabilities, load_template_style
@@ -73,14 +73,6 @@ def _forge_copy_payload(*, ethernity_version: str) -> ForgeCopy:
         protocol_label="Ethernity Forge Security Protocols",
         backup_system_label="The Forge Secure Backup System",
     )
-
-
-def _parse_recovery_key_lines(key_lines: list[str]) -> RecoveryMeta:
-    return parse_recovery_key_lines(key_lines)
-
-
-def _recovery_meta_lines_extra(meta: RecoveryMeta) -> int:
-    return recovery_meta_lines_extra(meta)
 
 
 def _ethernity_version() -> str:
@@ -276,7 +268,9 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
 
     recovery_meta = None
     if normalized_doc_type == DOC_TYPE_RECOVERY:
-        recovery_meta = parse_recovery_key_lines(key_lines)
+        if inputs.recovery_meta is None:
+            raise ValueError("recovery metadata is required for recovery document rendering")
+        recovery_meta = inputs.recovery_meta
         spec = replace(
             spec,
             header=replace(
@@ -302,8 +296,6 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
         include_instructions=include_instructions,
     )
     key_lines = list(layout.key_lines)
-    if normalized_doc_type == DOC_TYPE_RECOVERY:
-        recovery_meta = parse_recovery_key_lines(key_lines)
     spec = spec.with_key_lines(key_lines)
     layout_spec = _layout_spec(spec, doc_id=str(doc_id), page_label="Page 1 / 1")
 
