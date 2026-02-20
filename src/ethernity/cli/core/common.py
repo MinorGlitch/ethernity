@@ -16,13 +16,13 @@
 
 from __future__ import annotations
 
-import importlib.metadata
 from collections.abc import Callable
 from typing import Any
 
 import typer
 from rich.traceback import install as install_rich_traceback
 
+from ...version import get_ethernity_version
 from ..api import console_err
 
 
@@ -71,7 +71,4 @@ def _paper_callback(value: str | None) -> str | None:
 
 
 def _get_version() -> str:
-    try:
-        return importlib.metadata.version("ethernity")
-    except importlib.metadata.PackageNotFoundError:
-        return "0.0.0"
+    return get_ethernity_version() or "unknown"

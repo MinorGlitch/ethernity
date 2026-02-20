@@ -13,7 +13,6 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-import importlib.metadata
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -109,16 +108,13 @@ class TestCliCoreCommon(unittest.TestCase):
         with self.assertRaises(typer.BadParameter):
             common_module._paper_callback("A3")
 
-    @mock.patch("ethernity.cli.core.common.importlib.metadata.version", return_value="1.2.3")
+    @mock.patch("ethernity.cli.core.common.get_ethernity_version", return_value="1.2.3")
     def test_get_version_success(self, _version: mock.MagicMock) -> None:
         self.assertEqual(common_module._get_version(), "1.2.3")
 
-    @mock.patch(
-        "ethernity.cli.core.common.importlib.metadata.version",
-        side_effect=importlib.metadata.PackageNotFoundError,
-    )
+    @mock.patch("ethernity.cli.core.common.get_ethernity_version", return_value="")
     def test_get_version_fallback(self, _version: mock.MagicMock) -> None:
-        self.assertEqual(common_module._get_version(), "0.0.0")
+        self.assertEqual(common_module._get_version(), "unknown")
 
 
 if __name__ == "__main__":
