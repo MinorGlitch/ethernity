@@ -302,7 +302,7 @@ def _parse_recovery_fallback_layout(
     first_page_footer_reserve_mm = _require_non_negative_number(
         raw, "first_page_footer_reserve_mm", path=path
     )
-    continuation_footer_reserve_mm = _require_number(
+    continuation_footer_reserve_mm = _require_non_negative_number(
         raw,
         "continuation_footer_reserve_mm",
         path=path,

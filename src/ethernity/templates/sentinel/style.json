@@ -17,7 +17,7 @@
       "recovery": {
         "line_height_floor_mm": 5.8,
         "first_page_footer_reserve_mm": 35.4,
-        "continuation_footer_reserve_mm": -29.0,
+        "continuation_footer_reserve_mm": 0.0,
         "meta_baseline_lines": 3,
         "meta_extra_line_mm": 8.0,
         "meta_section_overhead_mm": 12.0,

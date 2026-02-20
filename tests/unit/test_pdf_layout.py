@@ -689,10 +689,7 @@ class TestPdfLayout(unittest.TestCase):
             rest_layout.margin,
             rest_layout.line_height,
         )
-        self.assertEqual(
-            rest_layout.fallback_lines_per_page,
-            max(1, raw_text_only_capacity - 2) + 7,
-        )
+        self.assertEqual(rest_layout.fallback_lines_per_page, raw_text_only_capacity)
 
     def test_sentinel_recovery_lines_use_wider_grouping_on_continuation_pages(self) -> None:
         frame = Frame(
