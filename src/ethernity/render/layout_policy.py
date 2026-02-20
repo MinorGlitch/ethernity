@@ -26,6 +26,7 @@ from .doc_types import (
 from .spec import DocumentSpec
 from .template_style import (
     RecoveryFallbackLayout,
+    ShardFallbackLayout,
     TemplateCapabilities,
     load_template_style,
 )
@@ -132,10 +133,10 @@ def adjust_layout_fallback_capacity(
 
     normalized_doc_type = _normalized_doc_type(doc_type)
     if normalized_doc_type == DOC_TYPE_RECOVERY:
-        profile = capabilities.fallback_layout.recovery
-        effective_line_height = max(line_height, profile.line_height_floor_mm)
+        recovery_profile = capabilities.fallback_layout.recovery
+        effective_line_height = max(line_height, recovery_profile.line_height_floor_mm)
         reserve_mm = _recovery_footer_reserve_mm(
-            profile=profile,
+            profile=recovery_profile,
             meta_lines_extra=recovery_meta_lines_extra,
             include_recovery_metadata_footer=include_recovery_metadata_footer,
         )
@@ -144,23 +145,25 @@ def adjust_layout_fallback_capacity(
         return effective_line_height, effective_lines
 
     if normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD:
-        profile = capabilities.fallback_layout.signing_key_shard
-        effective_line_height = max(line_height, profile.line_height_floor_mm)
+        signing_key_shard_profile: ShardFallbackLayout = (
+            capabilities.fallback_layout.signing_key_shard
+        )
+        effective_line_height = max(line_height, signing_key_shard_profile.line_height_floor_mm)
         zone_mm = (
-            profile.first_page_payload_zone_height_mm
+            signing_key_shard_profile.first_page_payload_zone_height_mm
             if include_instructions
-            else profile.continuation_payload_zone_height_mm
+            else signing_key_shard_profile.continuation_payload_zone_height_mm
         )
         effective_lines = max(1, int(zone_mm // max(effective_line_height, 0.1)))
         return effective_line_height, effective_lines
 
     if normalized_doc_type == DOC_TYPE_SHARD:
-        profile = capabilities.fallback_layout.shard
-        effective_line_height = max(line_height, profile.line_height_floor_mm)
+        shard_profile: ShardFallbackLayout = capabilities.fallback_layout.shard
+        effective_line_height = max(line_height, shard_profile.line_height_floor_mm)
         zone_mm = (
-            profile.first_page_payload_zone_height_mm
+            shard_profile.first_page_payload_zone_height_mm
             if include_instructions
-            else profile.continuation_payload_zone_height_mm
+            else shard_profile.continuation_payload_zone_height_mm
         )
         effective_lines = max(1, int(zone_mm // max(effective_line_height, 0.1)))
         return effective_line_height, effective_lines
@@ -182,32 +185,38 @@ def adjust_page_fallback_capacity(
 
     normalized_doc_type = _normalized_doc_type(doc_type)
     if normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD:
-        profile = capabilities.fallback_layout.signing_key_shard
-        line_height = max(page_layout.line_height, profile.line_height_floor_mm, 0.1)
+        signing_key_shard_profile: ShardFallbackLayout = (
+            capabilities.fallback_layout.signing_key_shard
+        )
+        line_height = max(
+            page_layout.line_height,
+            signing_key_shard_profile.line_height_floor_mm,
+            0.1,
+        )
         zone_mm = (
-            profile.first_page_payload_zone_height_mm
+            signing_key_shard_profile.first_page_payload_zone_height_mm
             if page_idx <= 0
-            else profile.continuation_payload_zone_height_mm
+            else signing_key_shard_profile.continuation_payload_zone_height_mm
         )
         zone_lines = max(1, int(zone_mm // line_height))
         return min(lines_capacity, zone_lines)
 
     if normalized_doc_type == DOC_TYPE_SHARD:
-        profile = capabilities.fallback_layout.shard
-        line_height = max(page_layout.line_height, profile.line_height_floor_mm, 0.1)
+        shard_profile: ShardFallbackLayout = capabilities.fallback_layout.shard
+        line_height = max(page_layout.line_height, shard_profile.line_height_floor_mm, 0.1)
         zone_mm = (
-            profile.first_page_payload_zone_height_mm
+            shard_profile.first_page_payload_zone_height_mm
             if page_idx <= 0
-            else profile.continuation_payload_zone_height_mm
+            else shard_profile.continuation_payload_zone_height_mm
         )
         zone_lines = max(1, int(zone_mm // line_height))
         return min(lines_capacity, zone_lines)
 
     if normalized_doc_type == DOC_TYPE_RECOVERY:
-        profile = capabilities.fallback_layout.recovery
-        line_height = max(page_layout.line_height, profile.line_height_floor_mm, 0.1)
+        recovery_profile = capabilities.fallback_layout.recovery
+        line_height = max(page_layout.line_height, recovery_profile.line_height_floor_mm, 0.1)
         reserve_mm = _recovery_footer_reserve_mm(
-            profile=profile,
+            profile=recovery_profile,
             meta_lines_extra=recovery_meta_lines_extra,
             include_recovery_metadata_footer=page_idx <= 0,
         )

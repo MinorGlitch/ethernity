@@ -23,7 +23,7 @@ import os
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Literal, cast
+from typing import Any, Callable, Literal, Sequence, cast
 
 from fpdf import FPDF
 
@@ -175,7 +175,7 @@ def _write_layout_debug_json(
     style_name: str,
     layout: object,
     layout_rest: object | None,
-    pages: list[object],
+    pages: Sequence[object],
 ) -> None:
     debug_path = inputs.layout_debug_json_path
     if debug_path is None:
