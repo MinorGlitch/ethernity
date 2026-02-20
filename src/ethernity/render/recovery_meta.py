@@ -89,45 +89,31 @@ def normalize_signing_pub_lines(lines: Sequence[str]) -> tuple[str, ...]:
     return wrap_grouped_tokens(tokens, line_length=_SIGNING_PUB_LINE_LENGTH)
 
 
-def parse_recovery_key_lines(key_lines: Sequence[str]) -> RecoveryMeta:
-    passphrase_label = "Passphrase:"
-    quorum_prefix = "Recover with "
-    quorum_suffix = " shard documents."
-    signing_pub_label = "Signing public key (hex):"
-    passphrase: str | None = None
-    quorum_value: str | None = None
-    pub_lines_raw: list[str] = []
-    collecting_pub = False
-    expecting_passphrase = False
+def build_recovery_meta(
+    *,
+    passphrase: str | None,
+    quorum_threshold: int | None,
+    quorum_shares: int | None,
+    signing_pub: bytes | None,
+) -> RecoveryMeta:
+    if (quorum_threshold is None) != (quorum_shares is None):
+        raise ValueError("quorum_threshold and quorum_shares must be provided together")
+    if quorum_threshold is not None and quorum_threshold <= 0:
+        raise ValueError("quorum_threshold must be positive")
+    if quorum_shares is not None and quorum_shares <= 0:
+        raise ValueError("quorum_shares must be positive")
 
-    for line in key_lines:
-        if expecting_passphrase:
-            passphrase = line.strip() or None
-            expecting_passphrase = False
-            continue
-
-        if line == passphrase_label:
-            expecting_passphrase = True
-            continue
-        if line == signing_pub_label:
-            collecting_pub = True
-            continue
-        if collecting_pub and line.startswith("Signing private key"):
-            collecting_pub = False
-            continue
-        if line.startswith(quorum_prefix) and line.endswith(quorum_suffix):
-            quorum_value = line.removeprefix(quorum_prefix).removesuffix(quorum_suffix).strip()
-            continue
-        if collecting_pub:
-            pub_lines_raw.append(line)
-
-    pub_lines = normalize_signing_pub_lines(pub_lines_raw)
-
+    quorum_value = (
+        None
+        if quorum_threshold is None or quorum_shares is None
+        else f"{quorum_threshold} of {quorum_shares}"
+    )
+    signing_pub_lines = normalize_signing_pub_lines((signing_pub.hex(),)) if signing_pub else ()
     return RecoveryMeta(
         passphrase=passphrase,
         passphrase_lines=wrap_passphrase(passphrase) if passphrase else (),
         quorum_value=quorum_value,
-        signing_pub_lines=pub_lines,
+        signing_pub_lines=signing_pub_lines,
     )
 
 
@@ -145,6 +131,6 @@ def recovery_meta_lines_extra(meta: RecoveryMeta) -> int:
 
 __all__ = [
     "RecoveryMeta",
-    "parse_recovery_key_lines",
+    "build_recovery_meta",
     "recovery_meta_lines_extra",
 ]

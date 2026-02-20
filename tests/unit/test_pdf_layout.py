@@ -28,10 +28,9 @@ from ethernity.render.geometry import (
 from ethernity.render.layout import compute_layout
 from ethernity.render.pdf_render import (
     _apply_main_qr_grid_overrides,
-    _parse_recovery_key_lines,
-    _recovery_meta_lines_extra,
     _uses_uniform_main_qr_capacity,
 )
+from ethernity.render.recovery_meta import build_recovery_meta, recovery_meta_lines_extra
 from ethernity.render.spec import (
     DocumentSpec,
     FallbackSpec,
@@ -308,13 +307,20 @@ class TestPdfLayout(unittest.TestCase):
                     fallback_payload=b"recovery payload",
                 )
                 spec = document_spec("recovery", "A4", context)
-                recovery_meta = _parse_recovery_key_lines(key_lines)
+                recovery_meta = build_recovery_meta(
+                    passphrase="alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu",
+                    quorum_threshold=3,
+                    quorum_shares=5,
+                    signing_pub=bytes.fromhex(
+                        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    ),
+                )
                 style = load_template_style(template_path)
                 spec = replace(
                     spec,
                     header=replace(
                         spec.header,
-                        meta_lines_extra=_recovery_meta_lines_extra(recovery_meta),
+                        meta_lines_extra=recovery_meta_lines_extra(recovery_meta),
                         meta_row_gap_mm=float(style.header.meta_row_gap_mm),
                         stack_gap_mm=float(style.header.stack_gap_mm),
                         divider_thickness_mm=float(style.header.divider_thickness_mm),
@@ -911,12 +917,19 @@ class TestPdfLayout(unittest.TestCase):
             "Signing public key (hex):",
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         ]
-        meta_without_quorum = _parse_recovery_key_lines(key_lines_without_quorum)
+        meta_without_quorum = build_recovery_meta(
+            passphrase="alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu",
+            quorum_threshold=None,
+            quorum_shares=None,
+            signing_pub=bytes.fromhex(
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            ),
+        )
         spec_without_quorum = replace(
             spec_base,
             header=replace(
                 spec_base.header,
-                meta_lines_extra=_recovery_meta_lines_extra(meta_without_quorum),
+                meta_lines_extra=recovery_meta_lines_extra(meta_without_quorum),
             ),
         )
         layout_without_quorum, _ = compute_layout(
@@ -932,12 +945,19 @@ class TestPdfLayout(unittest.TestCase):
             *key_lines_without_quorum,
             "Recover with 2 of 3 shard documents.",
         ]
-        meta_with_quorum = _parse_recovery_key_lines(key_lines_with_quorum)
+        meta_with_quorum = build_recovery_meta(
+            passphrase="alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu",
+            quorum_threshold=2,
+            quorum_shares=3,
+            signing_pub=bytes.fromhex(
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            ),
+        )
         spec_with_quorum = replace(
             spec_base,
             header=replace(
                 spec_base.header,
-                meta_lines_extra=_recovery_meta_lines_extra(meta_with_quorum),
+                meta_lines_extra=recovery_meta_lines_extra(meta_with_quorum),
             ),
         )
         layout_with_quorum, _ = compute_layout(

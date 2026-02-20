@@ -30,6 +30,7 @@ from .doc_types import (
     DOC_TYPE_RECOVERY,
     DOC_TYPE_SHARD,
 )
+from .recovery_meta import RecoveryMeta
 from .types import FallbackSection, RenderInputs
 
 
@@ -88,6 +89,7 @@ class RenderService:
         output_path: str | Path,
         *,
         key_lines: Sequence[str],
+        recovery_meta: RecoveryMeta,
         fallback_sections: Sequence[FallbackSection] | None = None,
         context: dict[str, object] | None = None,
         layout_debug_json_path: str | Path | None = None,
@@ -99,6 +101,7 @@ class RenderService:
             context=context,
             render_qr=False,
             key_lines=key_lines,
+            recovery_meta=recovery_meta,
             fallback_sections=fallback_sections,
             doc_type=DOC_TYPE_RECOVERY,
             layout_debug_json_path=layout_debug_json_path,
@@ -167,6 +170,7 @@ class RenderService:
         render_qr: bool = True,
         render_fallback: bool = True,
         key_lines: Sequence[str] | None = None,
+        recovery_meta: RecoveryMeta | None = None,
         fallback_sections: Sequence[FallbackSection] | None = None,
         doc_type: str,
         layout_debug_json_path: str | Path | None = None,
@@ -183,6 +187,7 @@ class RenderService:
             render_qr=render_qr,
             render_fallback=render_fallback,
             key_lines=key_lines,
+            recovery_meta=recovery_meta,
             fallback_sections=fallback_sections,
             render_jobs=self.config.cli_defaults.runtime.render_jobs,
             layout_debug_json_path=layout_debug_json_path,
