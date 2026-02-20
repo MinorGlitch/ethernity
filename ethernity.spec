@@ -1,12 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
 hiddenimports = (
     collect_submodules("playwright")
     + collect_submodules("questionary")
     + collect_submodules("prompt_toolkit")
 )
-datas = collect_data_files("ethernity") + collect_data_files("playwright")
+datas = collect_data_files("ethernity") + collect_data_files("playwright") + copy_metadata("ethernity")
 
 
 a = Analysis(

@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import functools
-import importlib.metadata
 import os
 import string
 from dataclasses import asdict, dataclass, replace
@@ -30,6 +29,7 @@ from fpdf import FPDF
 
 from ..encoding.framing import encode_frame
 from ..qr.codec import QrConfig, qr_bytes
+from ..version import get_ethernity_version
 from .copy_catalog import build_copy_bundle
 from .doc_types import DOC_TYPE_KIT, DOC_TYPE_MAIN, DOC_TYPE_RECOVERY
 from .fallback import FallbackConsumerState, FallbackSectionData, build_fallback_sections_data
@@ -85,10 +85,7 @@ def _forge_copy_payload(*, ethernity_version: str) -> ForgeCopy:
 
 
 def _ethernity_version() -> str:
-    try:
-        return importlib.metadata.version("ethernity")
-    except importlib.metadata.PackageNotFoundError:
-        return ""
+    return get_ethernity_version()
 
 
 def _generator_label(ethernity_version: str) -> str:
