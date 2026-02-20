@@ -260,8 +260,8 @@ class TestPdfRender(unittest.TestCase):
                     return_value="<html></html>",
                 ) as render_template_mock:
                     with mock.patch(
-                        "ethernity.render.pdf_render.importlib.metadata.version",
-                        side_effect=pdf_render_module.importlib.metadata.PackageNotFoundError,
+                        "ethernity.render.pdf_render.get_ethernity_version",
+                        return_value="",
                     ):
                         render_frames_to_pdf(inputs)
 
