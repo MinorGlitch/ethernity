@@ -8,9 +8,6 @@ class Ethernity < Formula
   license "GPL-3.0-or-later"
 
   depends_on "pkgconf" => :build
-  depends_on "certifi"
-  depends_on "libxml2"
-  depends_on "libxslt"
   depends_on "pillow"
   depends_on "python@3.13"
 
@@ -49,9 +46,21 @@ class Ethernity < Formula
     sha256 "85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67"
   end
 
-  resource "lxml" do
-    url "https://files.pythonhosted.org/packages/aa/88/262177de60548e5a2bfc46ad28232c9e9cbde697bd94132aeb80364675cb/lxml-6.0.2.tar.gz"
-    sha256 "cd79f3367bd74b317dda655dc8fcfa304d9eb6e4fb06b7168c5cf27f96e0cd62"
+  if OS.mac?
+    resource "lxml" do
+      url "https://files.pythonhosted.org/packages/53/fd/4e8f0540608977aea078bf6d79f128e0e2c2bba8af1acf775c30baa70460/lxml-6.0.2-cp313-cp313-macosx_10_13_universal2.whl"
+      sha256 "9b33d21594afab46f37ae58dfadd06636f154923c4e8a4d754b0127554eb2e77"
+    end
+  elsif Hardware::CPU.arm?
+    resource "lxml" do
+      url "https://files.pythonhosted.org/packages/25/2e/4efa677fa6b322013035d38016f6ae859d06cac67437ca7dc708a6af7028/lxml-6.0.2-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.whl"
+      sha256 "1941354d92699fb5ffe6ed7b32f9649e43c2feb4b97205f75866f7d21aa91452"
+    end
+  else
+    resource "lxml" do
+      url "https://files.pythonhosted.org/packages/ce/0f/526e78a6d38d109fdbaa5049c62e1d32fdd70c75fb61c4eadf3045d3d124/lxml-6.0.2-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl"
+      sha256 "bb2f6ca0ae2d983ded09357b84af659c954722bbf04dea98030064996d156048"
+    end
   end
 
   resource "markdown-it-py" do
@@ -67,11 +76,6 @@ class Ethernity < Formula
   resource "mdurl" do
     url "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl"
     sha256 "84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8"
-  end
-
-  resource "mnemonic" do
-    url "https://files.pythonhosted.org/packages/57/48/5abb16ce7f9d97b728e6b97c704ceaa614362e0847651f379ed0511942a0/mnemonic-0.21-py3-none-any.whl"
-    sha256 "72dc9de16ec5ef47287237b9b6943da11647a03fe7cf1f139fc3d7c4a7439288"
   end
 
   resource "platformdirs" do
@@ -156,11 +160,6 @@ class Ethernity < Formula
   resource "segno" do
     url "https://files.pythonhosted.org/packages/d6/02/12c73fd423eb9577b97fc1924966b929eff7074ae6b2e15dd3d30cb9e4ae/segno-1.6.6-py3-none-any.whl"
     sha256 "28c7d081ed0cf935e0411293a465efd4d500704072cdb039778a2ab8736190c7"
-  end
-
-  resource "shellingham" do
-    url "https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl"
-    sha256 "7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686"
   end
 
   resource "typer" do
