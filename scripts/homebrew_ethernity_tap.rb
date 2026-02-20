@@ -195,22 +195,11 @@ class Ethernity < Formula
   end
 
   def install
-    venv = virtualenv_create(libexec, "python3.13")
-    resources.each do |resource|
-      resource.stage do
-        wheel_file = Dir["*.whl"].first
-        if wheel_file.nil?
-          venv.pip_install Pathname.pwd
-        else
-          venv.pip_install Pathname.pwd/wheel_file
-        end
-      end
-    end
-    venv.pip_install_and_link buildpath
+    virtualenv_install_with_resources
   end
 
   test do
-    env "ETHERNITY_SKIP_PLAYWRIGHT_INSTALL", "1"
+    ENV["ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"] = "1"
     assert_match "Usage", shell_output("#{bin}/ethernity --help")
   end
 end
