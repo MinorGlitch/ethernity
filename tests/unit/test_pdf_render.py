@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,6 +23,7 @@ from playwright.sync_api import sync_playwright
 
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
 from ethernity.render import RenderInputs, pdf_render as pdf_render_module, render_frames_to_pdf
+from ethernity.render.recovery_meta import build_recovery_meta
 from tests.test_support import ensure_playwright_browsers
 
 
@@ -196,10 +198,206 @@ class TestPdfRender(unittest.TestCase):
 
         rendered_context = render_template_mock.call_args[0][1]
         self.assertIn("forge_copy", rendered_context)
+        ethernity_version = rendered_context["ethernity_version"]
+        expected_generator_label = (
+            f"Ethernity v{ethernity_version}" if ethernity_version else "Ethernity"
+        )
         self.assertEqual(
             rendered_context["forge_copy"]["generator_label"],
-            f"Ethernity v{rendered_context['ethernity_version']}",
+            expected_generator_label,
         )
+
+    def test_render_frames_to_pdf_does_not_emit_fake_version_without_metadata(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\x55" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        context = {"paper_size": "A4"}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            template_dir = Path(tmpdir) / "forge_copy_clone"
+            template_dir.mkdir(parents=True, exist_ok=True)
+            template_path = template_dir / "main_document.html.j2"
+            template_path.write_text("{{ forge_copy.generator_label }}", encoding="utf-8")
+            (template_dir / "style.json").write_text(
+                """{
+  "name": "forge-copy-clone",
+  "header": {
+    "meta_row_gap_mm": 1.2,
+    "stack_gap_mm": 1.2,
+    "divider_thickness_mm": 0.5
+  },
+  "content_offset": {
+    "divider_gap_extra_mm": 0.0,
+    "doc_types": []
+  },
+  "capabilities": {
+    "inject_forge_copy": true
+  }
+}
+""",
+                encoding="utf-8",
+            )
+            output_path = Path(tmpdir) / "out.pdf"
+            inputs = RenderInputs(
+                frames=frames,
+                template_path=template_path,
+                output_path=output_path,
+                context=context,
+                doc_type="main",
+                render_qr=False,
+                render_fallback=False,
+            )
+            with mock.patch("ethernity.render.pdf_render.render_html_to_pdf"):
+                with mock.patch(
+                    "ethernity.render.pdf_render.render_template",
+                    return_value="<html></html>",
+                ) as render_template_mock:
+                    with mock.patch(
+                        "ethernity.render.pdf_render.importlib.metadata.version",
+                        side_effect=pdf_render_module.importlib.metadata.PackageNotFoundError,
+                    ):
+                        render_frames_to_pdf(inputs)
+
+        rendered_context = render_template_mock.call_args[0][1]
+        self.assertEqual(rendered_context["ethernity_version"], "")
+        self.assertEqual(rendered_context["forge_copy"]["generator_label"], "Ethernity")
+
+    def test_render_frames_to_pdf_writes_layout_debug_json_sidecar(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\x99" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "ledger"
+            / "main_document.html.j2"
+        )
+        context = {"paper_size": "A4"}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "out.pdf"
+            debug_path = Path(tmpdir) / "debug" / "layout.json"
+            inputs = RenderInputs(
+                frames=frames,
+                template_path=template_path,
+                output_path=output_path,
+                context=context,
+                doc_type="main",
+                render_qr=False,
+                render_fallback=False,
+                layout_debug_json_path=debug_path,
+            )
+            with mock.patch("ethernity.render.pdf_render.render_html_to_pdf"):
+                with mock.patch(
+                    "ethernity.render.pdf_render.render_template",
+                    return_value="<html></html>",
+                ):
+                    render_frames_to_pdf(inputs)
+
+            payload = json.loads(debug_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["doc_type"], "main")
+            self.assertIn("layout_first", payload)
+            self.assertIn("pages", payload)
+            self.assertEqual(payload["style_name"], "ledger")
+            self.assertEqual(payload["template_path"], str(template_path))
+
+    def test_recovery_render_requires_structured_recovery_metadata(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x42" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "ledger"
+            / "recovery_document.html.j2"
+        )
+        inputs = RenderInputs(
+            frames=[frame],
+            template_path=template_path,
+            output_path="out.pdf",
+            context={"paper_size": "A4"},
+            doc_type="recovery",
+            render_qr=False,
+            render_fallback=False,
+            key_lines=["Passphrase:", "alpha beta"],
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "recovery metadata is required for recovery document rendering",
+        ):
+            render_frames_to_pdf(inputs)
+
+    def test_recovery_render_uses_structured_metadata_not_key_line_parsing(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x43" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "ledger"
+            / "recovery_document.html.j2"
+        )
+        recovery_meta = build_recovery_meta(
+            passphrase=None,
+            quorum_threshold=2,
+            quorum_shares=3,
+            signing_pub=bytes.fromhex(
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            ),
+        )
+        inputs = RenderInputs(
+            frames=[frame],
+            template_path=template_path,
+            output_path="out.pdf",
+            context={"paper_size": "A4"},
+            doc_type="recovery",
+            render_qr=False,
+            render_fallback=False,
+            key_lines=["this line should not affect recovery metadata"],
+            recovery_meta=recovery_meta,
+        )
+        with mock.patch("ethernity.render.pdf_render.render_html_to_pdf"):
+            with mock.patch(
+                "ethernity.render.pdf_render.render_template",
+                return_value="<html></html>",
+            ) as render_template_mock:
+                render_frames_to_pdf(inputs)
+
+        rendered_context = render_template_mock.call_args[0][1]
+        self.assertEqual(rendered_context["recovery"]["quorum_value"], "2 of 3")
+        self.assertIsNone(rendered_context["recovery"]["passphrase"])
+        self.assertTrue(rendered_context["recovery"]["signing_pub_lines"])
 
     @mock.patch.dict("os.environ", {}, clear=True)
     @mock.patch("ethernity.render.pdf_render.os.process_cpu_count", return_value=8)
