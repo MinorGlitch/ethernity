@@ -126,9 +126,7 @@ def adjust_layout_fallback_capacity(
     include_recovery_metadata_footer: bool,
     recovery_meta_lines_extra: int,
     include_instructions: bool,
-    recovery_has_quorum: bool | None = None,
 ) -> tuple[float, int]:
-    del recovery_has_quorum
     if not capabilities.advanced_fallback_layout or capabilities.fallback_layout is None:
         return line_height, fallback_lines_per_page_val
 
@@ -178,9 +176,7 @@ def adjust_page_fallback_capacity(
     lines_capacity: int,
     page_idx: int,
     recovery_meta_lines_extra: int,
-    recovery_has_quorum: bool | None = None,
 ) -> int:
-    del recovery_has_quorum
     if not capabilities.advanced_fallback_layout or capabilities.fallback_layout is None:
         return lines_capacity
 

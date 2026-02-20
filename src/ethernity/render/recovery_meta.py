@@ -131,19 +131,6 @@ def parse_recovery_key_lines(key_lines: Sequence[str]) -> RecoveryMeta:
     )
 
 
-def recovery_has_shard_quorum(key_lines: Sequence[str]) -> bool | None:
-    if not isinstance(key_lines, (list, tuple)):
-        return None
-    for line in key_lines:
-        if not isinstance(line, str):
-            continue
-        if line.startswith("Recover with ") and line.endswith(" shard documents."):
-            return True
-    if any(isinstance(line, str) for line in key_lines):
-        return None
-    return None
-
-
 def recovery_meta_lines_extra(meta: RecoveryMeta) -> int:
     signing_lines = 0
     if meta.signing_pub_lines:
@@ -159,6 +146,5 @@ def recovery_meta_lines_extra(meta: RecoveryMeta) -> int:
 __all__ = [
     "RecoveryMeta",
     "parse_recovery_key_lines",
-    "recovery_has_shard_quorum",
     "recovery_meta_lines_extra",
 ]

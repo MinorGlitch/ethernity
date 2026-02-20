@@ -35,7 +35,6 @@ from .layout_policy import (
     resolve_layout_capabilities,
     should_repeat_primary_qr_on_shard_continuation,
 )
-from .recovery_meta import recovery_has_shard_quorum
 from .spec import DocumentSpec
 from .template_model import (
     FallbackBlockModel,
@@ -249,11 +248,16 @@ def _build_fallback_blocks(
         lines_capacity=lines_capacity,
         page_idx=page_idx,
         recovery_meta_lines_extra=recovery_meta_lines_extra,
-        recovery_has_quorum=recovery_has_shard_quorum(inputs.key_lines or ()),
     )
 
     page_fallback_blocks: list[FallbackBlock] = []
     if fallback_sections_data and fallback_state:
+        if lines_capacity <= 0:
+            raise ValueError(
+                "fallback capacity exhausted before consuming section data: "
+                f"page={page_idx + 1}, doc_type={inputs.doc_type!r}, "
+                f"line_height_mm={line_height:.3f}, available_height_mm={available_height:.3f}"
+            )
         restrict_recovery_first_page_to_first_section = (
             page_idx <= 0
             and inputs.doc_type.strip().lower() == DOC_TYPE_RECOVERY

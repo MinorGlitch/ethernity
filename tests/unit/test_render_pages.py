@@ -14,6 +14,7 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
@@ -547,6 +548,58 @@ class TestBuildPages(unittest.TestCase):
         second_page_titles = [block.title for block in pages[1].fallback_blocks if block.title]
         self.assertEqual(first_page_titles, ["AUTH FRAME"])
         self.assertEqual(second_page_titles, ["MAIN FRAME"])
+
+    def test_forge_recovery_raises_when_section_fallback_cannot_fit_any_rows(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\xde" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "forge"
+            / "recovery_document.html.j2"
+        )
+        inputs = RenderInputs(
+            frames=frames,
+            template_path=template_path,
+            output_path="out.pdf",
+            context={},
+            doc_type="recovery",
+            render_qr=False,
+            render_fallback=True,
+        )
+        sections = [
+            FallbackSectionData(title="AUTH FRAME", tokens=("a", "b", "c", "d"), group_size=1),
+        ]
+        layout = replace(
+            _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=10),
+            content_start_y=100.0,
+            line_height=2.0,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "fallback capacity exhausted before consuming section data",
+        ):
+            build_pages(
+                inputs=inputs,
+                spec=_spec(),
+                layout=layout,
+                layout_rest=layout,
+                fallback_lines=["L1"],
+                qr_image_builder=lambda idx: f"qr:{idx}",
+                fallback_sections_data=sections,
+                fallback_state=FallbackConsumerState(),
+            )
 
 
 if __name__ == "__main__":
