@@ -207,6 +207,15 @@ jobs:
         with:
           path: ${{ runner.temp }}/bottles
 
+      - name: Rename bottles to single-dash convention
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' src; do
+            dst="$(dirname "${src}")/ethernity-${src##*ethernity--}"
+            mv "${src}" "${dst}"
+          done < <(find "${RUNNER_TEMP}/bottles" -type f -name 'ethernity--*.bottle.tar.gz' -print0)
+
       - name: Checkout tap repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -240,7 +249,7 @@ jobs:
           set -euo pipefail
           tap_repo="${{ needs.update-tap.outputs.tap_repo }}"
           bottle_release_tag="${{ needs.update-tap.outputs.bottle_release_tag }}"
-          mapfile -t bottle_files < <(find "${RUNNER_TEMP}/bottles" -type f -name 'ethernity--*.bottle.tar.gz' | sort)
+          mapfile -t bottle_files < <(find "${RUNNER_TEMP}/bottles" -type f -name 'ethernity-*.bottle.tar.gz' | sort)
           if [[ "${#bottle_files[@]}" -eq 0 ]]; then
             echo "no bottle tarballs found" >&2
             exit 1
@@ -251,7 +260,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t bottle_files < <(find "${RUNNER_TEMP}/bottles" -type f -name 'ethernity--*.bottle.tar.gz' | sort)
+          mapfile -t bottle_files < <(find "${RUNNER_TEMP}/bottles" -type f -name 'ethernity-*.bottle.tar.gz' | sort)
           if [[ "${#bottle_files[@]}" -eq 0 ]]; then
             echo "no bottle tarballs found for formula update" >&2
             exit 1
