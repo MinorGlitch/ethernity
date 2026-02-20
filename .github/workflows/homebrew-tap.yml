@@ -86,7 +86,7 @@ jobs:
           set -euo pipefail
           tap_repo="${{ vars.HOMEBREW_TAP_REPO }}"
           if [[ -z "${tap_repo}" ]]; then
-            tap_repo="MinorGlitch/homebrew-ethernity"
+            tap_repo="minorglitch/homebrew-tap"
           fi
           echo "tap_repo=${tap_repo}" >> "${GITHUB_OUTPUT}"
 
