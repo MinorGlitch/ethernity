@@ -47,6 +47,7 @@ Start here: [Quick Start](#quick-start)
 - [Development Quickstart](#development-quickstart)
 - [Contributing](#contributing)
 - [Credits](#credits)
+- [Star History](#star-history)
 - [License](#license)
 
 ## What Is Ethernity?
@@ -659,6 +660,10 @@ Standards and verification ecosystem acknowledgements:
 
 - [BIP-39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) mnemonic standard
 - [Sigstore](https://www.sigstore.dev/) and [Cosign](https://github.com/sigstore/cosign) for artifact verification workflows
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=MinorGlitch/ethernity&type=Date)](https://star-history.com/#MinorGlitch/ethernity&Date)
 
 ## License
 
