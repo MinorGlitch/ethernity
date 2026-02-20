@@ -49,6 +49,7 @@ class RenderInputs:
     render_fallback: bool = True
     key_lines: Sequence[str] | None = None
     render_jobs: int | Literal["auto"] | None = None
+    layout_debug_json_path: str | Path | None = None
 
 
 @dataclass(frozen=True)

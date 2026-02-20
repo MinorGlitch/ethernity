@@ -59,13 +59,11 @@ conventions and a glob-based, working-tree inventory contract for contributors a
   - `inject_forge_copy`
   - `repeat_primary_qr_on_shard_continuation`
   - `advanced_fallback_layout`
-  - `wide_recovery_fallback_lines`
   - `extra_main_first_page_qr_slot`
   - `uniform_main_qr_capacity`
   - `main_qr_grid_size_mm`
   - `main_qr_grid_max_cols`
-  - `shard_first_page_bonus_lines`
-  - `signing_key_shard_first_page_bonus_lines`
+  - `fallback_layout` (requires `recovery`, `shard`, `signing_key_shard` geometry profiles)
 - HTML-to-PDF conversion is isolated in `src/ethernity/render/html_to_pdf.py`.
 - DOCX envelope rendering is isolated in `src/ethernity/render/docx_render.py`.
 - Storage envelope template path/size helpers are in `src/ethernity/render/storage_paths.py`.

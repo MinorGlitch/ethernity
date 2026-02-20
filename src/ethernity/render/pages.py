@@ -35,6 +35,7 @@ from .layout_policy import (
     resolve_layout_capabilities,
     should_repeat_primary_qr_on_shard_continuation,
 )
+from .recovery_meta import recovery_has_shard_quorum
 from .spec import DocumentSpec
 from .template_model import (
     FallbackBlockModel,
@@ -248,7 +249,7 @@ def _build_fallback_blocks(
         lines_capacity=lines_capacity,
         page_idx=page_idx,
         recovery_meta_lines_extra=recovery_meta_lines_extra,
-        recovery_has_quorum=_recovery_has_shard_quorum(inputs.key_lines or ()),
+        recovery_has_quorum=recovery_has_shard_quorum(inputs.key_lines or ()),
     )
 
     page_fallback_blocks: list[FallbackBlock] = []
@@ -300,19 +301,6 @@ def _build_fallback_blocks(
         ),
         lines_capacity,
     )
-
-
-def _recovery_has_shard_quorum(key_lines: tuple[str, ...] | list[str] | object) -> bool | None:
-    if not isinstance(key_lines, (list, tuple)):
-        return None
-    prefix = "Recover with "
-    suffix = " shard documents."
-    for line in key_lines:
-        if isinstance(line, str) and line.startswith(prefix) and line.endswith(suffix):
-            return True
-    if any(isinstance(line, str) for line in key_lines):
-        return False
-    return None
 
 
 def build_pages(
@@ -423,6 +411,7 @@ def build_pages(
                 sequence=qr_sequence,
                 fallback_blocks=page_fallback_blocks,
                 fallback_line_capacity=fallback_line_capacity,
+                fallback_row_height_mm=page_layout.line_height,
             )
         )
         page_idx += 1
@@ -448,6 +437,7 @@ def build_pages(
                 sequence=None,
                 fallback_blocks=(),
                 fallback_line_capacity=0,
+                fallback_row_height_mm=None,
             )
         )
 
@@ -470,6 +460,7 @@ def build_pages(
                 sequence=page.sequence,
                 fallback_blocks=page.fallback_blocks,
                 fallback_line_capacity=page.fallback_line_capacity,
+                fallback_row_height_mm=page.fallback_row_height_mm,
             )
             for idx, page in enumerate(pages)
         ]

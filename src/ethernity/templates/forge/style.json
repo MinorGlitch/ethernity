@@ -12,6 +12,28 @@
   "capabilities": {
     "inject_forge_copy": true,
     "repeat_primary_qr_on_shard_continuation": true,
-    "advanced_fallback_layout": true
+    "advanced_fallback_layout": true,
+    "fallback_layout": {
+      "recovery": {
+        "line_height_floor_mm": 5.8,
+        "first_page_footer_reserve_mm": 70.2,
+        "continuation_footer_reserve_mm": 11.6,
+        "meta_baseline_lines": 3,
+        "meta_extra_line_mm": 8.0,
+        "meta_section_overhead_mm": 12.0,
+        "first_page_text_width_bonus_mm": 0.0,
+        "continuation_text_width_bonus_mm": 0.0
+      },
+      "shard": {
+        "line_height_floor_mm": 4.8,
+        "first_page_payload_zone_height_mm": 43.2,
+        "continuation_payload_zone_height_mm": 52.8
+      },
+      "signing_key_shard": {
+        "line_height_floor_mm": 4.2,
+        "first_page_payload_zone_height_mm": 37.8,
+        "continuation_payload_zone_height_mm": 46.2
+      }
+    }
   }
 }

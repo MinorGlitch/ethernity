@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -266,6 +267,54 @@ class TestPdfRender(unittest.TestCase):
         rendered_context = render_template_mock.call_args[0][1]
         self.assertEqual(rendered_context["ethernity_version"], "")
         self.assertEqual(rendered_context["forge_copy"]["generator_label"], "Ethernity")
+
+    def test_render_frames_to_pdf_writes_layout_debug_json_sidecar(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\x99" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "ledger"
+            / "main_document.html.j2"
+        )
+        context = {"paper_size": "A4"}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "out.pdf"
+            debug_path = Path(tmpdir) / "debug" / "layout.json"
+            inputs = RenderInputs(
+                frames=frames,
+                template_path=template_path,
+                output_path=output_path,
+                context=context,
+                doc_type="main",
+                render_qr=False,
+                render_fallback=False,
+                layout_debug_json_path=debug_path,
+            )
+            with mock.patch("ethernity.render.pdf_render.render_html_to_pdf"):
+                with mock.patch(
+                    "ethernity.render.pdf_render.render_template",
+                    return_value="<html></html>",
+                ):
+                    render_frames_to_pdf(inputs)
+
+            payload = json.loads(debug_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["doc_type"], "main")
+            self.assertIn("layout_first", payload)
+            self.assertIn("pages", payload)
+            self.assertEqual(payload["style_name"], "ledger")
+            self.assertEqual(payload["template_path"], str(template_path))
 
     @mock.patch.dict("os.environ", {}, clear=True)
     @mock.patch("ethernity.render.pdf_render.os.process_cpu_count", return_value=8)

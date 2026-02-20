@@ -35,13 +35,11 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertFalse(ledger.capabilities.inject_forge_copy)
         self.assertFalse(ledger.capabilities.repeat_primary_qr_on_shard_continuation)
         self.assertFalse(ledger.capabilities.advanced_fallback_layout)
-        self.assertFalse(ledger.capabilities.wide_recovery_fallback_lines)
         self.assertFalse(ledger.capabilities.extra_main_first_page_qr_slot)
         self.assertFalse(ledger.capabilities.uniform_main_qr_capacity)
         self.assertIsNone(ledger.capabilities.main_qr_grid_size_mm)
         self.assertIsNone(ledger.capabilities.main_qr_grid_max_cols)
-        self.assertEqual(ledger.capabilities.shard_first_page_bonus_lines, 0)
-        self.assertEqual(ledger.capabilities.signing_key_shard_first_page_bonus_lines, 0)
+        self.assertIsNone(ledger.capabilities.fallback_layout)
 
         maritime = load_template_style(_TEMPLATES_ROOT / "maritime" / "main_document.html.j2")
         self.assertEqual(maritime.name, "maritime")
@@ -83,10 +81,21 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertTrue(forge.capabilities.inject_forge_copy)
         self.assertTrue(forge.capabilities.repeat_primary_qr_on_shard_continuation)
         self.assertTrue(forge.capabilities.advanced_fallback_layout)
-        self.assertFalse(forge.capabilities.wide_recovery_fallback_lines)
         self.assertFalse(forge.capabilities.uniform_main_qr_capacity)
-        self.assertEqual(forge.capabilities.shard_first_page_bonus_lines, 0)
-        self.assertEqual(forge.capabilities.signing_key_shard_first_page_bonus_lines, 0)
+        self.assertIsNotNone(forge.capabilities.fallback_layout)
+        if forge.capabilities.fallback_layout is not None:
+            self.assertAlmostEqual(
+                forge.capabilities.fallback_layout.recovery.line_height_floor_mm,
+                5.8,
+            )
+            self.assertAlmostEqual(
+                forge.capabilities.fallback_layout.shard.first_page_payload_zone_height_mm,
+                43.2,
+            )
+            self.assertAlmostEqual(
+                forge.capabilities.fallback_layout.signing_key_shard.first_page_payload_zone_height_mm,
+                37.8,
+            )
 
         sentinel = load_template_style(_TEMPLATES_ROOT / "sentinel" / "main_document.html.j2")
         self.assertEqual(sentinel.name, "sentinel")
@@ -98,11 +107,22 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertFalse(sentinel.capabilities.inject_forge_copy)
         self.assertTrue(sentinel.capabilities.repeat_primary_qr_on_shard_continuation)
         self.assertTrue(sentinel.capabilities.advanced_fallback_layout)
-        self.assertTrue(sentinel.capabilities.wide_recovery_fallback_lines)
         self.assertTrue(sentinel.capabilities.extra_main_first_page_qr_slot)
         self.assertFalse(sentinel.capabilities.uniform_main_qr_capacity)
-        self.assertEqual(sentinel.capabilities.shard_first_page_bonus_lines, 1)
-        self.assertEqual(sentinel.capabilities.signing_key_shard_first_page_bonus_lines, 8)
+        self.assertIsNotNone(sentinel.capabilities.fallback_layout)
+        if sentinel.capabilities.fallback_layout is not None:
+            self.assertAlmostEqual(
+                sentinel.capabilities.fallback_layout.recovery.first_page_text_width_bonus_mm,
+                58.0,
+            )
+            self.assertAlmostEqual(
+                sentinel.capabilities.fallback_layout.recovery.continuation_text_width_bonus_mm,
+                150.0,
+            )
+            self.assertAlmostEqual(
+                sentinel.capabilities.fallback_layout.shard.first_page_payload_zone_height_mm,
+                48.0,
+            )
 
         monograph = load_template_style(_TEMPLATES_ROOT / "monograph" / "main_document.html.j2")
         self.assertEqual(monograph.name, "monograph")
@@ -114,13 +134,20 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertFalse(monograph.capabilities.inject_forge_copy)
         self.assertTrue(monograph.capabilities.repeat_primary_qr_on_shard_continuation)
         self.assertTrue(monograph.capabilities.advanced_fallback_layout)
-        self.assertFalse(monograph.capabilities.wide_recovery_fallback_lines)
         self.assertFalse(monograph.capabilities.extra_main_first_page_qr_slot)
         self.assertTrue(monograph.capabilities.uniform_main_qr_capacity)
         self.assertAlmostEqual(monograph.capabilities.main_qr_grid_size_mm or 0.0, 43.0)
         self.assertEqual(monograph.capabilities.main_qr_grid_max_cols, 4)
-        self.assertEqual(monograph.capabilities.shard_first_page_bonus_lines, 1)
-        self.assertEqual(monograph.capabilities.signing_key_shard_first_page_bonus_lines, 8)
+        self.assertIsNotNone(monograph.capabilities.fallback_layout)
+        if monograph.capabilities.fallback_layout is not None:
+            self.assertAlmostEqual(
+                monograph.capabilities.fallback_layout.recovery.first_page_footer_reserve_mm,
+                76.0,
+            )
+            self.assertAlmostEqual(
+                monograph.capabilities.fallback_layout.shard.first_page_payload_zone_height_mm,
+                48.0,
+            )
 
     def test_style_defaults_capabilities_when_missing(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -146,13 +173,11 @@ class TestTemplateStyle(unittest.TestCase):
             self.assertFalse(style.capabilities.inject_forge_copy)
             self.assertFalse(style.capabilities.repeat_primary_qr_on_shard_continuation)
             self.assertFalse(style.capabilities.advanced_fallback_layout)
-            self.assertFalse(style.capabilities.wide_recovery_fallback_lines)
             self.assertFalse(style.capabilities.extra_main_first_page_qr_slot)
             self.assertFalse(style.capabilities.uniform_main_qr_capacity)
             self.assertIsNone(style.capabilities.main_qr_grid_size_mm)
             self.assertIsNone(style.capabilities.main_qr_grid_max_cols)
-            self.assertEqual(style.capabilities.shard_first_page_bonus_lines, 0)
-            self.assertEqual(style.capabilities.signing_key_shard_first_page_bonus_lines, 0)
+            self.assertIsNone(style.capabilities.fallback_layout)
 
     def test_sentinel_style_defaults_extra_first_page_slot_when_omitted(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -172,7 +197,28 @@ class TestTemplateStyle(unittest.TestCase):
   "capabilities": {
     "repeat_primary_qr_on_shard_continuation": true,
     "advanced_fallback_layout": true,
-    "wide_recovery_fallback_lines": true
+    "fallback_layout": {
+      "recovery": {
+        "line_height_floor_mm": 5.8,
+        "first_page_footer_reserve_mm": 76.0,
+        "continuation_footer_reserve_mm": 11.6,
+        "meta_baseline_lines": 3,
+        "meta_extra_line_mm": 8.0,
+        "meta_section_overhead_mm": 12.0,
+        "first_page_text_width_bonus_mm": 58.0,
+        "continuation_text_width_bonus_mm": 150.0
+      },
+      "shard": {
+        "line_height_floor_mm": 4.8,
+        "first_page_payload_zone_height_mm": 48.0,
+        "continuation_payload_zone_height_mm": 52.8
+      },
+      "signing_key_shard": {
+        "line_height_floor_mm": 4.2,
+        "first_page_payload_zone_height_mm": 71.4,
+        "continuation_payload_zone_height_mm": 46.2
+      }
+    }
   }
 }
 """,
@@ -183,13 +229,11 @@ class TestTemplateStyle(unittest.TestCase):
             self.assertFalse(style.capabilities.inject_forge_copy)
             self.assertTrue(style.capabilities.repeat_primary_qr_on_shard_continuation)
             self.assertTrue(style.capabilities.advanced_fallback_layout)
-            self.assertTrue(style.capabilities.wide_recovery_fallback_lines)
             self.assertTrue(style.capabilities.extra_main_first_page_qr_slot)
             self.assertFalse(style.capabilities.uniform_main_qr_capacity)
             self.assertIsNone(style.capabilities.main_qr_grid_size_mm)
             self.assertIsNone(style.capabilities.main_qr_grid_max_cols)
-            self.assertEqual(style.capabilities.shard_first_page_bonus_lines, 0)
-            self.assertEqual(style.capabilities.signing_key_shard_first_page_bonus_lines, 0)
+            self.assertIsNotNone(style.capabilities.fallback_layout)
 
     def test_style_rejects_unknown_top_level_keys(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -273,7 +317,7 @@ class TestTemplateStyle(unittest.TestCase):
             ):
                 load_template_style(template_dir / "main_document.html.j2")
 
-    def test_style_rejects_invalid_shard_bonus_capability_values(self) -> None:
+    def test_style_rejects_legacy_bonus_capability_keys_with_migration_hint(self) -> None:
         with TemporaryDirectory() as temp_dir:
             template_dir = Path(temp_dir)
             (template_dir / "style.json").write_text(
@@ -289,7 +333,7 @@ class TestTemplateStyle(unittest.TestCase):
     "doc_types": []
   },
   "capabilities": {
-    "shard_first_page_bonus_lines": -1
+    "shard_first_page_bonus_lines": 1
   }
 }
 """,
@@ -298,7 +342,7 @@ class TestTemplateStyle(unittest.TestCase):
             (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
             with self.assertRaisesRegex(
                 ValueError,
-                "missing or invalid 'shard_first_page_bonus_lines' non-negative integer",
+                "legacy capability keys removed: shard_first_page_bonus_lines",
             ):
                 load_template_style(template_dir / "main_document.html.j2")
 

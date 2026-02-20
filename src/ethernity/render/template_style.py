@@ -38,17 +38,41 @@ class ContentOffsetStyle:
 
 
 @dataclass(frozen=True)
+class RecoveryFallbackLayout:
+    line_height_floor_mm: float
+    first_page_footer_reserve_mm: float
+    continuation_footer_reserve_mm: float
+    meta_baseline_lines: int
+    meta_extra_line_mm: float
+    meta_section_overhead_mm: float
+    first_page_text_width_bonus_mm: float
+    continuation_text_width_bonus_mm: float
+
+
+@dataclass(frozen=True)
+class ShardFallbackLayout:
+    line_height_floor_mm: float
+    first_page_payload_zone_height_mm: float
+    continuation_payload_zone_height_mm: float
+
+
+@dataclass(frozen=True)
+class FallbackLayoutProfile:
+    recovery: RecoveryFallbackLayout
+    shard: ShardFallbackLayout
+    signing_key_shard: ShardFallbackLayout
+
+
+@dataclass(frozen=True)
 class TemplateCapabilities:
     inject_forge_copy: bool = False
     repeat_primary_qr_on_shard_continuation: bool = False
     advanced_fallback_layout: bool = False
-    wide_recovery_fallback_lines: bool = False
     extra_main_first_page_qr_slot: bool = False
     uniform_main_qr_capacity: bool = False
     main_qr_grid_size_mm: float | None = None
     main_qr_grid_max_cols: int | None = None
-    shard_first_page_bonus_lines: int = 0
-    signing_key_shard_first_page_bonus_lines: int = 0
+    fallback_layout: FallbackLayoutProfile | None = None
 
 
 @dataclass(frozen=True)
@@ -146,6 +170,7 @@ def _parse_capabilities(value: object, *, style_name: str, path: Path) -> Templa
         )
     if not isinstance(value, dict):
         raise ValueError(f"invalid 'capabilities' object in {path}")
+    _reject_legacy_capability_keys(value, path=path)
     _reject_unknown_keys(
         value,
         allowed_keys=frozenset(
@@ -153,19 +178,36 @@ def _parse_capabilities(value: object, *, style_name: str, path: Path) -> Templa
                 "inject_forge_copy",
                 "repeat_primary_qr_on_shard_continuation",
                 "advanced_fallback_layout",
-                "wide_recovery_fallback_lines",
                 "extra_main_first_page_qr_slot",
                 "uniform_main_qr_capacity",
                 "main_qr_grid_size_mm",
                 "main_qr_grid_max_cols",
-                "shard_first_page_bonus_lines",
-                "signing_key_shard_first_page_bonus_lines",
+                "fallback_layout",
             }
         ),
         section="capabilities",
         path=path,
     )
     normalized_style_name = style_name.strip().lower()
+    advanced_fallback_layout = _optional_bool(
+        value,
+        "advanced_fallback_layout",
+        default=False,
+        path=path,
+    )
+    fallback_layout = _optional_fallback_layout_profile(
+        value,
+        "fallback_layout",
+        default=None,
+        path=path,
+    )
+    if advanced_fallback_layout and fallback_layout is None:
+        raise ValueError(
+            "missing required 'fallback_layout' object when "
+            "'advanced_fallback_layout' is enabled in "
+            f"{path}"
+        )
+
     return TemplateCapabilities(
         inject_forge_copy=_optional_bool(
             value,
@@ -179,18 +221,7 @@ def _parse_capabilities(value: object, *, style_name: str, path: Path) -> Templa
             default=False,
             path=path,
         ),
-        advanced_fallback_layout=_optional_bool(
-            value,
-            "advanced_fallback_layout",
-            default=False,
-            path=path,
-        ),
-        wide_recovery_fallback_lines=_optional_bool(
-            value,
-            "wide_recovery_fallback_lines",
-            default=False,
-            path=path,
-        ),
+        advanced_fallback_layout=advanced_fallback_layout,
         extra_main_first_page_qr_slot=_optional_bool(
             value,
             "extra_main_first_page_qr_slot",
@@ -215,18 +246,141 @@ def _parse_capabilities(value: object, *, style_name: str, path: Path) -> Templa
             default=None,
             path=path,
         ),
-        shard_first_page_bonus_lines=_optional_non_negative_int(
-            value,
-            "shard_first_page_bonus_lines",
-            default=0,
+        fallback_layout=fallback_layout,
+    )
+
+
+def _optional_fallback_layout_profile(
+    data: dict[str, object],
+    key: str,
+    *,
+    default: FallbackLayoutProfile | None,
+    path: Path,
+) -> FallbackLayoutProfile | None:
+    if key not in data:
+        return default
+    raw = data.get(key)
+    if not isinstance(raw, dict):
+        raise ValueError(f"missing or invalid '{key}' object in {path}")
+    _reject_unknown_keys(
+        raw,
+        allowed_keys=frozenset({"recovery", "shard", "signing_key_shard"}),
+        section="fallback_layout",
+        path=path,
+    )
+    return FallbackLayoutProfile(
+        recovery=_parse_recovery_fallback_layout(raw, path=path),
+        shard=_parse_shard_fallback_layout(raw, key="shard", path=path),
+        signing_key_shard=_parse_shard_fallback_layout(raw, key="signing_key_shard", path=path),
+    )
+
+
+def _parse_recovery_fallback_layout(
+    data: dict[str, object],
+    *,
+    path: Path,
+) -> RecoveryFallbackLayout:
+    raw = _require_dict(data, "recovery", path=path)
+    _reject_unknown_keys(
+        raw,
+        allowed_keys=frozenset(
+            {
+                "line_height_floor_mm",
+                "first_page_footer_reserve_mm",
+                "continuation_footer_reserve_mm",
+                "meta_baseline_lines",
+                "meta_extra_line_mm",
+                "meta_section_overhead_mm",
+                "first_page_text_width_bonus_mm",
+                "continuation_text_width_bonus_mm",
+            }
+        ),
+        section="fallback_layout.recovery",
+        path=path,
+    )
+    line_height_floor_mm = _require_positive_number(raw, "line_height_floor_mm", path=path)
+    first_page_footer_reserve_mm = _require_non_negative_number(
+        raw, "first_page_footer_reserve_mm", path=path
+    )
+    continuation_footer_reserve_mm = _require_number(
+        raw,
+        "continuation_footer_reserve_mm",
+        path=path,
+    )
+    meta_baseline_lines = _require_non_negative_int(raw, "meta_baseline_lines", path=path)
+    meta_extra_line_mm = _require_non_negative_number(raw, "meta_extra_line_mm", path=path)
+    meta_section_overhead_mm = _require_non_negative_number(
+        raw, "meta_section_overhead_mm", path=path
+    )
+    first_page_text_width_bonus_mm = _require_number(
+        raw,
+        "first_page_text_width_bonus_mm",
+        path=path,
+    )
+    continuation_text_width_bonus_mm = _require_number(
+        raw,
+        "continuation_text_width_bonus_mm",
+        path=path,
+    )
+    return RecoveryFallbackLayout(
+        line_height_floor_mm=line_height_floor_mm,
+        first_page_footer_reserve_mm=first_page_footer_reserve_mm,
+        continuation_footer_reserve_mm=continuation_footer_reserve_mm,
+        meta_baseline_lines=meta_baseline_lines,
+        meta_extra_line_mm=meta_extra_line_mm,
+        meta_section_overhead_mm=meta_section_overhead_mm,
+        first_page_text_width_bonus_mm=first_page_text_width_bonus_mm,
+        continuation_text_width_bonus_mm=continuation_text_width_bonus_mm,
+    )
+
+
+def _parse_shard_fallback_layout(
+    data: dict[str, object],
+    *,
+    key: str,
+    path: Path,
+) -> ShardFallbackLayout:
+    raw = _require_dict(data, key, path=path)
+    _reject_unknown_keys(
+        raw,
+        allowed_keys=frozenset(
+            {
+                "line_height_floor_mm",
+                "first_page_payload_zone_height_mm",
+                "continuation_payload_zone_height_mm",
+            }
+        ),
+        section=f"fallback_layout.{key}",
+        path=path,
+    )
+    return ShardFallbackLayout(
+        line_height_floor_mm=_require_positive_number(raw, "line_height_floor_mm", path=path),
+        first_page_payload_zone_height_mm=_require_non_negative_number(
+            raw,
+            "first_page_payload_zone_height_mm",
             path=path,
         ),
-        signing_key_shard_first_page_bonus_lines=_optional_non_negative_int(
-            value,
-            "signing_key_shard_first_page_bonus_lines",
-            default=0,
+        continuation_payload_zone_height_mm=_require_non_negative_number(
+            raw,
+            "continuation_payload_zone_height_mm",
             path=path,
         ),
+    )
+
+
+def _reject_legacy_capability_keys(data: dict[str, object], *, path: Path) -> None:
+    removed_keys = (
+        "wide_recovery_fallback_lines",
+        "shard_first_page_bonus_lines",
+        "signing_key_shard_first_page_bonus_lines",
+    )
+    present = [key for key in removed_keys if key in data]
+    if not present:
+        return
+    present_text = ", ".join(sorted(present))
+    raise ValueError(
+        "legacy capability keys removed: "
+        f"{present_text}; use 'capabilities.fallback_layout.*' in {path}"
     )
 
 
@@ -249,6 +403,27 @@ def _require_number(data: dict[str, object], key: str, *, path: Path) -> float:
     if isinstance(value, (int, float)):
         return float(value)
     raise ValueError(f"missing or invalid '{key}' number in {path}")
+
+
+def _require_positive_number(data: dict[str, object], key: str, *, path: Path) -> float:
+    value = data.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+        raise ValueError(f"missing or invalid '{key}' positive number in {path}")
+    return float(value)
+
+
+def _require_non_negative_number(data: dict[str, object], key: str, *, path: Path) -> float:
+    value = data.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+        raise ValueError(f"missing or invalid '{key}' non-negative number in {path}")
+    return float(value)
+
+
+def _require_non_negative_int(data: dict[str, object], key: str, *, path: Path) -> int:
+    value = data.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"missing or invalid '{key}' non-negative integer in {path}")
+    return value
 
 
 def _require_list_of_str(data: dict[str, object], key: str, *, path: Path) -> list[str]:
@@ -276,21 +451,6 @@ def _optional_bool(
     if isinstance(value, bool):
         return value
     raise ValueError(f"missing or invalid '{key}' boolean in {path}")
-
-
-def _optional_non_negative_int(
-    data: dict[str, object],
-    key: str,
-    *,
-    default: int,
-    path: Path,
-) -> int:
-    if key not in data:
-        return default
-    value = data.get(key)
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        raise ValueError(f"missing or invalid '{key}' non-negative integer in {path}")
-    return value
 
 
 def _optional_positive_int(
@@ -338,6 +498,9 @@ def _reject_unknown_keys(
 
 __all__ = [
     "DEFAULT_TEMPLATE_STYLE",
+    "FallbackLayoutProfile",
+    "RecoveryFallbackLayout",
+    "ShardFallbackLayout",
     "TemplateCapabilities",
     "TemplateStyle",
     "load_template_style",

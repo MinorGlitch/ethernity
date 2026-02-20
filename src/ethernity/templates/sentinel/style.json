@@ -12,9 +12,28 @@
   "capabilities": {
     "repeat_primary_qr_on_shard_continuation": true,
     "advanced_fallback_layout": true,
-    "wide_recovery_fallback_lines": true,
     "extra_main_first_page_qr_slot": true,
-    "shard_first_page_bonus_lines": 1,
-    "signing_key_shard_first_page_bonus_lines": 8
+    "fallback_layout": {
+      "recovery": {
+        "line_height_floor_mm": 5.8,
+        "first_page_footer_reserve_mm": 35.4,
+        "continuation_footer_reserve_mm": -29.0,
+        "meta_baseline_lines": 3,
+        "meta_extra_line_mm": 8.0,
+        "meta_section_overhead_mm": 12.0,
+        "first_page_text_width_bonus_mm": 58.0,
+        "continuation_text_width_bonus_mm": 150.0
+      },
+      "shard": {
+        "line_height_floor_mm": 4.8,
+        "first_page_payload_zone_height_mm": 48.0,
+        "continuation_payload_zone_height_mm": 52.8
+      },
+      "signing_key_shard": {
+        "line_height_floor_mm": 4.2,
+        "first_page_payload_zone_height_mm": 71.4,
+        "continuation_payload_zone_height_mm": 46.2
+      }
+    }
   }
 }
