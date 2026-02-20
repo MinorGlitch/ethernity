@@ -102,6 +102,7 @@ class PageModel:
     qr_outline: QrOutlineModel | None = None
     sequence: QrSequenceModel | None = None
     fallback_line_capacity: int = 0
+    fallback_row_height_mm: float | None = None
 
 
 @dataclass(frozen=True)
@@ -211,6 +212,7 @@ class TemplateContext:
                 for block in page.fallback_blocks
             ],
             "fallback_line_capacity": page.fallback_line_capacity,
+            "fallback_row_height_mm": page.fallback_row_height_mm,
         }
 
 

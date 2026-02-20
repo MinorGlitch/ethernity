@@ -68,6 +68,15 @@ def backup(
         help="Where to write PDFs (default: backup-<doc_id>).",
         rich_help_panel="Outputs",
     ),
+    layout_debug_dir: str | None = typer.Option(
+        None,
+        "--layout-debug-dir",
+        help=(
+            "Write per-document layout diagnostics JSON files to this directory "
+            "(for pagination/capacity debugging)."
+        ),
+        rich_help_panel="Advanced",
+    ),
     qr_chunk_size: int | None = typer.Option(
         None,
         "--qr-chunk-size",
@@ -213,6 +222,7 @@ def backup(
         input_dir=[str(path) for path in (input_dir or [])],
         base_dir=base_dir_value,
         output_dir=output_dir_value,
+        layout_debug_dir=layout_debug_dir,
         qr_chunk_size=qr_chunk_size,
         passphrase=passphrase,
         passphrase_generate=passphrase_generate,

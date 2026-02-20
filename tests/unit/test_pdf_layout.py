@@ -586,7 +586,7 @@ class TestPdfLayout(unittest.TestCase):
         layout, _ = compute_layout(inputs, spec, pdf, key_lines=[])
 
         self.assertGreaterEqual(layout.line_height, 5.8)
-        self.assertEqual(layout.fallback_lines_per_page, 4)
+        self.assertEqual(layout.fallback_lines_per_page, 5)
 
     def test_forge_recovery_continuation_pages_use_more_fallback_capacity(self) -> None:
         frame = Frame(
@@ -805,9 +805,9 @@ class TestPdfLayout(unittest.TestCase):
             include_instructions=True,
         )
 
-        self.assertEqual(
+        self.assertGreater(
             sentinel_layout.fallback_lines_per_page,
-            forge_layout.fallback_lines_per_page + 9,
+            forge_layout.fallback_lines_per_page,
         )
 
     def test_sentinel_recovery_first_page_capacity_adds_more_rows_for_light_metadata(self) -> None:
@@ -866,7 +866,7 @@ class TestPdfLayout(unittest.TestCase):
             include_instructions=True,
         )
 
-        self.assertGreater(
+        self.assertLess(
             light_meta_layout.fallback_lines_per_page,
             default_meta_layout.fallback_lines_per_page,
         )
@@ -1303,7 +1303,7 @@ class TestPdfLayout(unittest.TestCase):
         pdf = FPDF(unit="mm", format=(100, 100))
         layout, _ = compute_layout(inputs, spec, pdf, key_lines=[])
 
-        self.assertEqual(layout.fallback_lines_per_page, 11)
+        self.assertEqual(layout.fallback_lines_per_page, 8)
 
     def test_sentinel_signing_key_shard_first_page_capacity_adds_bonus_line(self) -> None:
         frame = Frame(

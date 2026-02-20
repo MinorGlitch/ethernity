@@ -798,6 +798,7 @@ class TestCliBackup(unittest.TestCase):
             input_files=[input_file],
             base_dir=Path("/resolved"),
             output_dir="out",
+            layout_debug_dir=None,
             input_origin="file",
             input_roots=[],
             plan=plan,
