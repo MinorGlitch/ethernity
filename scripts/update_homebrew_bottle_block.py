@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -43,7 +44,28 @@ def _extract_bottle_tag(path: Path) -> str:
     return match.group("tag")
 
 
-def _build_bottle_block(tap_repo: str, release_tag: str, bottle_files: list[Path]) -> str:
+def _read_cellar_from_json(json_files: list[Path]) -> str:
+    for json_file in json_files:
+        data = json.loads(json_file.read_text(encoding="utf-8"))
+        for formula_data in data.values():
+            bottle = formula_data.get("bottle", {})
+            cellar = bottle.get("cellar", "")
+            if cellar:
+                return cellar
+    return ":any_skip_relocation"
+
+
+def _format_cellar(cellar: str) -> str:
+    if cellar in ("any", "any_skip_relocation"):
+        return f":{cellar}"
+    if cellar.startswith(":"):
+        return cellar
+    return f'"{cellar}"'
+
+
+def _build_bottle_block(
+    tap_repo: str, release_tag: str, bottle_files: list[Path], json_files: list[Path]
+) -> str:
     if not bottle_files:
         raise ValueError("at least one bottle file is required")
 
@@ -52,12 +74,14 @@ def _build_bottle_block(tap_repo: str, release_tag: str, bottle_files: list[Path
         tag = _extract_bottle_tag(bottle_file)
         entries[tag] = _sha256_for_file(bottle_file)
 
+    cellar = _format_cellar(_read_cellar_from_json(json_files))
+
     lines = [
         "  bottle do",
         f'    root_url "https://github.com/{tap_repo}/releases/download/{release_tag}"',
     ]
     for tag in sorted(entries):
-        lines.append(f'    sha256 cellar: :any_skip_relocation, {tag}: "{entries[tag]}"')
+        lines.append(f'    sha256 cellar: {cellar}, {tag}: "{entries[tag]}"')
     lines.append("  end")
     return "\n".join(lines) + "\n"
 
@@ -87,6 +111,12 @@ def _parse_args() -> argparse.Namespace:
         default=[],
         help="Path to ethernity bottle tarball (repeat for multiple files).",
     )
+    parser.add_argument(
+        "--bottle-json",
+        action="append",
+        default=[],
+        help="Path to bottle JSON from brew bottle --json (repeat for multiple files).",
+    )
     return parser.parse_args()
 
 
@@ -94,7 +124,8 @@ def main() -> int:
     args = _parse_args()
     formula_path = Path(args.formula)
     bottle_files = [Path(value) for value in args.bottle_file]
-    bottle_block = _build_bottle_block(args.tap_repo, args.release_tag, bottle_files)
+    json_files = [Path(value) for value in args.bottle_json]
+    bottle_block = _build_bottle_block(args.tap_repo, args.release_tag, bottle_files, json_files)
     formula = formula_path.read_text(encoding="utf-8")
     updated = _insert_or_replace_bottle_block(formula, bottle_block)
     formula_path.write_text(updated, encoding="utf-8")

@@ -270,6 +270,10 @@ jobs:
           for bottle_file in "${bottle_files[@]}"; do
             bottle_args+=(--bottle-file "${bottle_file}")
           done
+          mapfile -t json_files < <(find "${RUNNER_TEMP}/bottles" -type f -name 'ethernity--*.bottle.json' | sort)
+          for json_file in "${json_files[@]}"; do
+            bottle_args+=(--bottle-json "${json_file}")
+          done
           python3 scripts/update_homebrew_bottle_block.py \
             --formula "tap/Formula/ethernity.rb" \
             --tap-repo "${{ needs.update-tap.outputs.tap_repo }}" \
