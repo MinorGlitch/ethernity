@@ -46,7 +46,6 @@ from .layout_policy import (
     resolve_layout_capabilities,
     should_force_max_rows,
 )
-from .recovery_meta import recovery_has_shard_quorum
 from .spec import DocumentSpec
 from .template_style import TemplateCapabilities
 from .text import (
@@ -368,11 +367,6 @@ def compute_layout(
         ),
         recovery_meta_lines_extra=int(spec.header.meta_lines_extra),
         include_instructions=include_instructions,
-        recovery_has_quorum=(
-            recovery_has_shard_quorum(key_lines)
-            if inputs.doc_type.strip().lower() == DOC_TYPE_RECOVERY
-            else None
-        ),
     )
 
     # Calculate total pages
