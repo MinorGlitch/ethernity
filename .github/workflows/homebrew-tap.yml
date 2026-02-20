@@ -147,8 +147,6 @@ jobs:
             id: macos-14
           - runner: ubuntu-24.04
             id: ubuntu-24.04
-          - runner: ubuntu-24.04-arm
-            id: ubuntu-24.04-arm
     steps:
       - name: Checkout tap repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
