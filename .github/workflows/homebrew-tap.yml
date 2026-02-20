@@ -115,7 +115,8 @@ jobs:
           set -euo pipefail
           mkdir -p tap/Formula
           cp "${RUNNER_TEMP}/ethernity.rb" tap/Formula/ethernity.rb
-          if git -C tap diff --quiet -- Formula/ethernity.rb; then
+          git -C tap add Formula/ethernity.rb
+          if git -C tap diff --staged --quiet -- Formula/ethernity.rb; then
             echo "changed=false" >> "${GITHUB_OUTPUT}"
           else
             echo "changed=true" >> "${GITHUB_OUTPUT}"
@@ -128,7 +129,6 @@ jobs:
           set -euo pipefail
           git -C tap config user.name "github-actions[bot]"
           git -C tap config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C tap add Formula/ethernity.rb
           git -C tap commit -m "ethernity ${{ steps.meta.outputs.tag }}"
           git -C tap push
 
@@ -170,6 +170,7 @@ jobs:
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
+          HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           tap_name="${{ needs.update-tap.outputs.tap_repo }}"
