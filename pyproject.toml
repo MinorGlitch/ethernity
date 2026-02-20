@@ -1,6 +1,6 @@
 [project]
 name = "ethernity"
-version = "0.1.0"
+version = "0.2.2"
 description = "Secure, offline-recoverable backup system with QR-based recovery documents"
 readme = "README.md"
 license = "GPL-3.0-or-later"
