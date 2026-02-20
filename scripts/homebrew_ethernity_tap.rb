@@ -195,7 +195,20 @@ class Ethernity < Formula
   end
 
   def install
-    virtualenv_install_with_resources
+    venv = virtualenv_create(libexec, "python3.13")
+
+    resources.each do |resource|
+      if resource.url&.end_with?(".whl")
+        resource.fetch
+        venv.pip_install resource.cached_download
+      else
+        resource.stage do
+          venv.pip_install Pathname.pwd
+        end
+      end
+    end
+
+    venv.pip_install_and_link buildpath
   end
 
   test do
