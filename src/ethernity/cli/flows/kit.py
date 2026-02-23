@@ -38,7 +38,7 @@ _MAX_QR_PROBE_BYTES = 4000
 _BUNDLE_PAYLOAD_RE = re.compile(r'const p=("([^"\\]|\\.)*");')
 _KIT_CHUNK_ARRAY = "_k"
 _BASE91_ALPHABET = (
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789" '!#$%&()*+,./:;<=>?@[]^_`{|}~"'
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~"'
 )
 
 
