@@ -26,6 +26,17 @@ export function decodeCbor(bytes) {
   return result.value;
 }
 
+export function decodeCanonicalCbor(bytes, label) {
+  const decoded = decodeCbor(bytes);
+  const encoded = encodeCbor(decoded);
+  if (!bytesEqual(encoded, bytes)) {
+    throw new Error(
+      `${label} must use canonical CBOR encoding (indefinite-length items are not allowed)`
+    );
+  }
+  return decoded;
+}
+
 export function encodeCbor(value) {
   const chunks = [];
   encodeCborItem(value, chunks);
@@ -73,6 +84,14 @@ function encodeCborItem(value, chunks) {
       } else {
         chunks.push(encodeMajorLength(1, -1 - value));
       }
+      return;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      const floatBytes = new Uint8Array(9);
+      floatBytes[0] = 0xfb;
+      const view = new DataView(floatBytes.buffer, floatBytes.byteOffset + 1, 8);
+      view.setFloat64(0, value);
+      chunks.push(floatBytes);
       return;
     }
     if (value === null) {
@@ -148,6 +167,18 @@ function concatChunks(chunks) {
       offset += chunk.length;
     }
     return out;
+  }
+
+function bytesEqual(left, right) {
+    if (left.length !== right.length) {
+      return false;
+    }
+    for (let idx = 0; idx < left.length; idx += 1) {
+      if (left[idx] !== right[idx]) {
+        return false;
+      }
+    }
+    return true;
   }
 
 function decodeCborItem(bytes, offset) {

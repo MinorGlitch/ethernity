@@ -146,26 +146,33 @@ Scrypt parameters (work factor, salt, etc.) are defined by the age scrypt recipi
 
 ## Versioning Notes
 
-If a future release requires backward compatibility for a changed payload format, versions should be
-bumped and older versions kept decodable.
+Stable v1 profile baseline (normative requirements are in `docs/format.md`):
+- Stable v1 decoders require manifest keys `input_origin`, `input_roots`, and `path_encoding`.
+- Stable v1 decoders require array-based manifest `files` entries.
+- Legacy manifest file-entry encodings that used CBOR maps are out-of-profile and are rejected by
+  stable v1 decoders.
+
+Migration guidance:
+- Systems with legacy map-style manifest artifacts should migrate those artifacts to stable v1 array
+  file-entry form before expecting strict stable v1 decoder acceptance.
+- Binary framing/version constants remain Version 1; migration is a profile/baseline alignment, not
+  a framing-constant change.
 
 CBOR payload evolution guidance:
 - These payloads are CBOR maps. New optional fields should be added as new map keys.
 - Decoders ignore unknown keys (as defined normatively in `docs/format.md`) to allow forward
   compatibility.
+- Unknown keys are extension data only and are not trust-authoritative.
 - Encoders should avoid emitting keys not defined in the format specification for a given version.
-
-Backward compatibility guidance:
-- Legacy manifest file-entry encodings that used CBOR maps are not supported by current decoders.
 
 ## Conformance Guidance (Non-normative)
 
-A practical decoder validation order for consistent fail-closed behavior:
-1. Validate envelope/frame structure and resource bounds.
-2. Validate canonical encodings (uvarint and canonical CBOR).
-3. Validate binding and signature-related checks (`doc_id`/`doc_hash`, AUTH/shard signatures).
-4. Apply recovery-mode policy (authenticated vs explicit rescue/unsigned override) and label output
-   accordingly.
+The normative conformance requirements, including required decoder validation order and minimum
+must-pass/must-reject scenarios, are defined in `docs/format.md` (Section 18).
+
+Operational recommendation:
+1. Use the Section 18 checklist as release gating for decoder compatibility claims.
+2. Keep implementation-specific test harness details outside the normative spec.
 
 ## Varint and CBOR Integer Encoding
 

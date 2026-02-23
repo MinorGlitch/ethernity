@@ -60,6 +60,8 @@ Rules:
 - MAGIC MUST equal `0x41 0x59`.
 - VERSION MUST equal `1`.
 - MANIFEST_LEN and PAYLOAD_LEN MUST match the remaining byte boundaries.
+- Decoders MUST reject envelopes where VERSION, MANIFEST_LEN, or PAYLOAD_LEN use non-canonical
+  uvarint encoding.
 - MANIFEST_BYTES MUST be a CBOR-encoded manifest (Section 3).
 
 Encoders MUST encrypt the complete envelope as a single age message (Section 13) and then split the
@@ -129,9 +131,12 @@ Manifest requirements (map keys):
 - The canonical CBOR byte length of the manifest MUST be ≤ `MAX_MANIFEST_CBOR_BYTES` (Section 17).
 - The number of file entries MUST be ≤ `MAX_MANIFEST_FILES` (Section 17).
 - Decoders MUST ignore unknown top-level manifest keys.
+- Unknown top-level manifest keys are extension data only and MUST NOT affect signature verification
+  decisions, key reconstruction eligibility, or authenticated/rescue trust labeling.
 - Encoders SHOULD NOT emit unknown top-level manifest keys for `MANIFEST_VERSION = 1`.
-- Decoders in this implementation require `input_origin`, `input_roots`, and `path_encoding`.
-  This build also requires array-based `files` entries and rejects legacy map-style file entries.
+- Stable v1 profile decoders MUST require `input_origin`, `input_roots`, and `path_encoding`.
+- Stable v1 profile decoders MUST require array-based `files` entries and MUST reject legacy
+  map-style file-entry manifests.
 
 File list requirements:
 - Encoders MUST reject empty `files` lists at creation time.
@@ -140,14 +145,14 @@ File list requirements:
 File entry requirements (direct mode):
 - `path`: non-empty string
 - `size`: non-negative int
-- `hash`: 32 raw bytes (SHA-256 of file contents, not hex)
+- `sha256`: 32 raw bytes (SHA-256 of file contents, not hex)
 - `mtime`: int or null
 
 File entry requirements (prefix-table mode):
 - `prefix_index`: int in `[0, len(path_prefixes)-1]`
 - `suffix`: non-empty string
 - `size`: non-negative int
-- `hash`: 32 raw bytes (SHA-256 of file contents, not hex)
+- `sha256`: 32 raw bytes (SHA-256 of file contents, not hex)
 - `mtime`: int or null
 - reconstructed path is `suffix` when `path_prefixes[prefix_index] == ""`,
   otherwise `path_prefixes[prefix_index] + "/" + suffix`.
@@ -157,11 +162,15 @@ CBOR encoding requirements:
 - Indefinite-length CBOR items MUST NOT be used.
 - Decoders MUST reject manifests that are not canonical CBOR (including any indefinite-length
   item).
+- Decoders MUST validate canonical CBOR for MANIFEST_BYTES at the envelope decode boundary before
+  applying manifest semantic validation.
 
 Ordering:
-- Encoders MUST sort file entries by `path` in ascending Unicode code point order before manifest
-  creation.
-- Payload concatenation MUST follow this same sorted order.
+- Encoders MUST compute each file entry ordering key as
+  `normalize_path(reconstructed_path(entry))` (Section 16).
+- Encoders MUST sort file entries by ordering key in ascending Unicode code point order before
+  manifest creation.
+- Payload concatenation MUST follow this same ordering key order.
 
 ### 3.1) Sealing
 
@@ -183,10 +192,13 @@ Path rules:
 - Paths MUST NOT contain empty segments (for example `a//b` or a trailing `/`).
 - Paths MUST NOT contain `.` or `..` segments.
 - Path UTF-8 byte length MUST be ≤ `MAX_PATH_BYTES` (Section 17).
+- `reconstructed_path(entry)` (direct or prefix-table reconstruction) MUST be the path basis for
+  ordering and payload concatenation (Sections 3 and 5).
 
 ## 5) Payload
 
-Payload bytes MUST be the concatenation of file contents in manifest order.
+Payload bytes MUST be the concatenation of file contents in ascending
+`normalize_path(reconstructed_path(entry))` order as defined in Section 3.
 Decoders MUST verify each entry's SHA-256 against its corresponding payload slice.
 
 ## 6) Frame Format (QR + Fallback)
@@ -236,6 +248,8 @@ INDEX/TOTAL semantics:
 - INDEX is 0-based and MUST satisfy 0 ≤ INDEX < TOTAL.
 - TOTAL MUST be ≥ 1.
 - For `FRAME_TYPE=MAIN_DOCUMENT`, TOTAL MUST be ≤ `MAX_MAIN_FRAME_TOTAL` (Section 17).
+- Decoders MUST reject frames where VERSION, INDEX, TOTAL, or DATA_LEN use non-canonical uvarint
+  encoding.
 
 Frame reassembly:
 - For `FRAME_TYPE=MAIN_DOCUMENT`, frames MAY be provided out of order; decoders MUST accept
@@ -315,6 +329,8 @@ Requirements:
 - `pub`: 32 bytes (Ed25519 public key)
 - `sig`: 64 bytes Ed25519 signature
 - Decoders MUST ignore unknown auth payload keys.
+- Unknown auth payload keys are extension data only and MUST NOT affect signature verification
+  decisions, key reconstruction eligibility, or authenticated/rescue trust labeling.
 - Encoders SHOULD NOT emit unknown auth payload keys for `AUTH_VERSION = 1`.
 
 CBOR encoding requirements:
@@ -322,6 +338,8 @@ CBOR encoding requirements:
 - Indefinite-length CBOR items MUST NOT be used.
 - Decoders MUST reject auth payloads that are not canonical CBOR (including any indefinite-length
   item).
+- Decoders MUST validate canonical CBOR for AUTH payload DATA at frame decode boundary before
+  signature verification or semantic validation.
 
 Signature domain:
 - Let `signed_auth_payload` be a CBOR map containing exactly `version`, `hash`, and `pub`.
@@ -366,6 +384,8 @@ Requirements:
 - `pub`: 32 bytes
 - `sig`: 64 bytes
 - Decoders MUST ignore unknown shard payload keys.
+- Unknown shard payload keys are extension data only and MUST NOT affect signature verification
+  decisions, key reconstruction eligibility, or authenticated/rescue trust labeling.
 - Encoders SHOULD NOT emit unknown shard payload keys for `SHARD_VERSION = 1`.
 
 Validation rules:
@@ -384,6 +404,8 @@ CBOR encoding requirements:
 - Indefinite-length CBOR items MUST NOT be used.
 - Decoders MUST reject shard payloads that are not canonical CBOR (including any indefinite-length
   item).
+- Decoders MUST validate canonical CBOR for KEY_DOCUMENT payload DATA at frame decode boundary
+  before signature verification or semantic validation.
 
 Signature domain:
 - Let `signed_shard_payload` be a CBOR map containing exactly:
@@ -439,14 +461,20 @@ Encoding:
 - Encoders MAY insert arbitrary whitespace and dashes (`-`) for readability.
 
 Decoding:
-- Remove whitespace and dashes (`-`), decode z-base-32 to raw frame bytes.
-- Decoders MUST treat z-base-32 letters case-insensitively.
-- For each fallback section, decoders MUST reject more than `MAX_FALLBACK_LINES` filtered lines
-  (Section 17).
-- For each fallback section, decoders MUST reject more than
-  `MAX_FALLBACK_NORMALIZED_CHARS` normalized z-base-32 characters (Section 17).
 - Recovery text sources (files/stdin) MUST be rejected if byte length exceeds
   `MAX_RECOVERY_TEXT_BYTES` (Section 17).
+- For each fallback section, decoders MUST apply the following deterministic filtering algorithm:
+  1. Split section text into lines using `\n`, `\r\n`, or `\r`.
+  2. For each line, remove all Unicode whitespace code points and ASCII dashes (`-`).
+  3. If the resulting string is empty, discard it.
+  4. The remaining string MUST consist only of z-base-32 alphabet characters
+     (`ybndrfg8ejkmcpqxot1uwisza345h769`) when compared case-insensitively.
+  5. Normalize the remaining string to lowercase ASCII and append it to the filtered-line list.
+- `MAX_FALLBACK_LINES` counts the number of filtered lines after Step 5.
+- `MAX_FALLBACK_NORMALIZED_CHARS` counts the sum of lengths of all filtered lines after Step 5.
+- Decoders MUST reject any fallback section that exceeds either bound.
+- Decoders MUST decode each filtered line list by concatenating filtered lines in order and applying
+  z-base-32 decoding.
 
 ## 12) Version Markers
 
@@ -464,22 +492,23 @@ Current version values (Version 1):
 - AUTH_VERSION = `1`
 - SHARD_VERSION = `1`
 
-### 12.1) v1.1 Clarification and Compatibility Notes
+### 12.1) Stable v1 Profile Compatibility Contract
 
-This specification revision is a v1.1 clarification pass only. It does not change the v1 wire
-format, binary framing, or payload layouts. However, this implementation requires the manifest
-`input_origin`, `input_roots`, and `path_encoding` keys, requires array-based `files` entries,
-and rejects legacy map-style file-entry manifests.
+This document defines the stable v1 profile baseline.
 
-Compatibility and extensibility guidance:
-- Manifest/auth/shard payloads are CBOR maps. Decoders ignore unknown keys for forward
-  compatibility; encoders should avoid emitting undefined keys in v1 payloads.
-- Frame types are closed for v1. Decoders reject frame-type values outside the defined set in
-  Section 6.
-- QR payload encoding remains fixed to base64 without padding in v1. Runtime/profile negotiation of
-  alternate encodings is not permitted.
-- Parsing remains fail-closed: malformed canonical encodings or invalid structural/binding content
-  must be rejected.
+Stable v1 profile requirements:
+- Envelope/frame magic constants, frame types, and version constants remain unchanged from Version 1.
+- Stable v1 decoders MUST require manifest keys `input_origin`, `input_roots`, and `path_encoding`.
+- Stable v1 decoders MUST require array-based `files` entries and MUST reject legacy map-style
+  file-entry manifests as out-of-profile.
+- Manifest/auth/shard unknown-key handling is extension-only as defined in Sections 3, 8, and 9.
+- Frame types are closed for v1; decoders MUST reject frame types outside Section 6.
+- QR payload encoding is fixed to unpadded base64 in v1; runtime/profile negotiation of alternate
+  QR payload encodings is not permitted.
+- Parsing is fail-closed: malformed canonical encodings or invalid structural/binding content MUST
+  be rejected.
+
+Non-normative migration guidance is provided in `docs/format_notes.md`.
 
 ## 13) Encryption
 
@@ -575,6 +604,10 @@ Input:
 Process:
 - Secret is chunked into 16-byte blocks
 - Shamir applied independently to each block
+- For each block polynomial, coefficients (except the secret constant term) MUST be generated with
+  a cryptographically secure random number generator and sampled uniformly over GF(2^128).
+- Encoders MUST NOT derive Shamir coefficients from predictable or deterministic non-cryptographic
+  sources (for example timestamps, counters, or process IDs).
 - Padding: if the final block is shorter than 16 bytes, it is right-padded with zero bytes (0x00)
   to exactly 16 bytes.
 - The original unpadded secret length is stored in the shard payload field `length`.
@@ -642,6 +675,13 @@ Requirements:
 
 Let `normalize_path(path)` return Unicode NFC normalization of `path`.
 
+Let `reconstructed_path(entry)` be:
+- direct mode: the entry `path`
+- prefix-table mode: `suffix` when `path_prefixes[prefix_index] == ""`, otherwise
+  `path_prefixes[prefix_index] + "/" + suffix`
+
+Let `ordering_path(entry)` be `normalize_path(reconstructed_path(entry))`.
+
 ### 16.3) Reference
 
 Unicode Normalization Forms: https://unicode.org/reports/tr15/
@@ -666,3 +706,47 @@ Constants:
 - `MAX_FALLBACK_NORMALIZED_CHARS = 2_000_000`
 - `MAX_FALLBACK_LINES = 50_000`
 - `MAX_RECOVERY_TEXT_BYTES = 10_485_760`
+
+## 18) Normative Conformance Appendix
+
+This appendix is normative. Conforming stable v1 implementations MUST satisfy all requirements in
+this section.
+
+### 18.1) Required Decoder Validation Order
+
+Decoders MUST apply validation in this order:
+1. Parse framing/envelope boundaries and reject non-canonical uvarints at each decode boundary.
+2. Enforce resource bounds (Section 17) before unbounded allocation or reconstruction.
+3. Decode CBOR payloads and reject non-canonical CBOR at manifest/auth/shard boundaries.
+4. Apply structural validation for manifest/auth/shard fields and cross-field constraints.
+5. Apply binding and consistency checks (`doc_id`/`doc_hash`, shard set consistency, payload hash
+   checks).
+6. Apply signature-policy checks according to authenticated or rescue mode.
+7. Emit trust labeling that reflects the applied mode and verification outcome.
+
+### 18.2) Minimum Must-Pass Positive Scenarios
+
+A conforming decoder MUST accept at least these scenarios:
+1. A stable v1 envelope with required manifest keys, array-based file entries, canonical CBOR,
+   canonical uvarints, and payload ordering by `ordering_path(entry)`.
+2. A valid AUTH frame with canonical CBOR, valid `DOC_ID` binding, and a valid signature in
+   authenticated mode.
+3. A valid shard reconstruction set with canonical CBOR payloads, consistent set fields, sufficient
+   threshold, and valid signatures in authenticated mode.
+4. A valid QR payload using unpadded base64 (with optional whitespace only) that decodes to a valid
+   frame.
+
+### 18.3) Minimum Must-Reject Negative Scenarios
+
+A conforming decoder MUST reject at least these scenarios:
+1. Manifests that use legacy map-style file entries.
+2. Envelope or frame headers containing non-canonical uvarints.
+3. Manifest, AUTH, or shard CBOR payloads that are non-canonical or use indefinite-length items.
+4. Inputs where unknown manifest/auth/shard keys are used to alter signature verification decisions,
+   key reconstruction eligibility, or authenticated/rescue trust labeling.
+5. Fallback sections whose filtering/counting outcome is nondeterministic or that exceed
+   `MAX_FALLBACK_LINES` or `MAX_FALLBACK_NORMALIZED_CHARS` under Section 11 algorithm.
+6. AUTH or shard payloads whose `hash` does not bind to recovered ciphertext `doc_hash`, or whose
+   frame `DOC_ID` does not match derived `doc_id`.
+7. QR payload text that contains `=` after whitespace removal or otherwise violates unpadded-base64
+   strictness in Section 10.

@@ -1,0 +1,52 @@
+{
+  "artifact_hashes": {
+    "main_payloads.txt": "5f5b3c3d6a1147bfdc21877c98732e9cc10700bb354908cce39e56a94908dad7",
+    "qr_document.pdf": "b57bd38d411e7c7edf49a62fe4f0aca245fe3a7022f4556292784fa4d13b81e3",
+    "recovery_document.pdf": "898f3d9c3170771b7f2872aa9e8beb1bb87de30d2e0747740e28e1390db78f04",
+    "recovery_kit_index.pdf": "17224de16ebd2cb92abe662ed04609dd40b819a502e7aa8c19b72026381325ea",
+    "shard-7c923a429065abeb-1-of-3.pdf": "4eb9006e25f14a23117947e93968c4e7723ca92471f793863b07e75445eb6168",
+    "shard-7c923a429065abeb-2-of-3.pdf": "a3f1ec161e1fa6b32d0489b8f7eb49950f77897e6a4b9fd66c07575ce4759b28",
+    "shard-7c923a429065abeb-3-of-3.pdf": "cc826f7111eb90aa87ecb56293d5d41f2c6b1151eab6b5fb43d72b7b799c38be",
+    "shard_payloads_threshold.txt": "72484e53ca370b45dfc0cf014d02d2e3f100ea2ecc1a501011cbdfa3eee062f3"
+  },
+  "expected_file_sha256": {
+    "alpha.txt": "2f4b5a7d0ed3a982cf012f6af9d58168314e999c0eb3793f598978174928e20f",
+    "nested/beta.json": "d54870a31ef24b66d447ffa2b5297527046741283cfd6053ba165c51c87d6c1f",
+    "nested/raw.bin": "01d1b8d1d3dd3575d6970f5f74759c78403b7684bfe8ab4426bfe5b42945cf1c"
+  },
+  "expected_relative_paths": [
+    "alpha.txt",
+    "nested/beta.json",
+    "nested/raw.bin"
+  ],
+  "expected_shard_pdfs": 3,
+  "expected_signing_key_shard_pdfs": 0,
+  "manifest_projection": {
+    "files": [
+      {
+        "path": "alpha.txt",
+        "sha256": "2f4b5a7d0ed3a982cf012f6af9d58168314e999c0eb3793f598978174928e20f",
+        "size": 66
+      },
+      {
+        "path": "nested/beta.json",
+        "sha256": "d54870a31ef24b66d447ffa2b5297527046741283cfd6053ba165c51c87d6c1f",
+        "size": 55
+      },
+      {
+        "path": "nested/raw.bin",
+        "sha256": "01d1b8d1d3dd3575d6970f5f74759c78403b7684bfe8ab4426bfe5b42945cf1c",
+        "size": 47
+      }
+    ],
+    "input_origin": "directory",
+    "input_roots": [
+      "directory_payload"
+    ],
+    "sealed": false,
+    "version": 1
+  },
+  "passphrase": "stable-v1-baseline-passphrase",
+  "scenario_id": "sharded_embedded",
+  "shard_payload_count": 2
+}

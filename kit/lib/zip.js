@@ -16,6 +16,7 @@
  */
 
 import { crc32 } from "./crc32.js";
+import { validateManifestPath } from "./path_validation.js";
 
 const textEncoder = new TextEncoder();
 
@@ -24,7 +25,11 @@ export function makeZip(files) {
   const central = [];
   let offset = 0;
   for (const file of files) {
-    const nameBytes = textEncoder.encode(file.path);
+    if (!file || !(file.data instanceof Uint8Array)) {
+      throw new Error("ZIP entry data must be bytes");
+    }
+    const safePath = validateManifestPath(file.path, "ZIP entry path");
+    const nameBytes = textEncoder.encode(safePath);
     const crc = crc32(file.data);
     const localHeader = new Uint8Array(30);
     writeU32(localHeader, 0, 0x04034b50);

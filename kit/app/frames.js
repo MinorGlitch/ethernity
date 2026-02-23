@@ -25,7 +25,7 @@ import {
   hexToBytes,
 } from "../lib/encoding.js";
 import { crc32 } from "../lib/crc32.js";
-import { decodeCbor } from "../lib/cbor.js";
+import { decodeCanonicalCbor } from "../lib/cbor.js";
 import { blake2b256 } from "../lib/blake2b.js";
 import {
   FRAME_MAGIC,
@@ -38,6 +38,12 @@ import {
   SHARD_VERSION,
   SHARD_KEY_PASSPHRASE,
   SHARD_KEY_SIGNING_SEED,
+  MAX_AUTH_CBOR_BYTES,
+  MAX_CIPHERTEXT_BYTES,
+  MAX_MAIN_FRAME_DATA_BYTES,
+  MAX_MAIN_FRAME_TOTAL,
+  MAX_RECOVERY_TEXT_BYTES,
+  MAX_SHARD_CBOR_BYTES,
 } from "./constants.js";
 import { bumpError } from "./state/initial.js";
 
@@ -93,8 +99,42 @@ function decodeFrame(payload) {
   const lenRes = readUvarint(payload, idx);
   const dataLen = lenRes.value;
   idx = lenRes.offset;
+  if (!Number.isInteger(dataLen) || dataLen < 0) {
+    throw new Error("data length must be non-negative");
+  }
   if (idx + dataLen + 4 !== payload.length) {
     throw new Error("frame length mismatch");
+  }
+  if (frameType === FRAME_TYPE_MAIN) {
+    if (total > MAX_MAIN_FRAME_TOTAL) {
+      throw new Error(
+        `MAIN_DOCUMENT total exceeds MAX_MAIN_FRAME_TOTAL (${MAX_MAIN_FRAME_TOTAL}): ${total}`
+      );
+    }
+    if (dataLen > MAX_MAIN_FRAME_DATA_BYTES) {
+      throw new Error(
+        "MAIN_DOCUMENT data exceeds " +
+          `MAX_MAIN_FRAME_DATA_BYTES (${MAX_MAIN_FRAME_DATA_BYTES}): ${dataLen} bytes`
+      );
+    }
+  } else if (frameType === FRAME_TYPE_AUTH) {
+    if (total !== 1 || index !== 0) {
+      throw new Error("AUTH payload must be a single-frame payload (index=0,total=1)");
+    }
+    if (dataLen > MAX_AUTH_CBOR_BYTES) {
+      throw new Error(
+        `AUTH data exceeds MAX_AUTH_CBOR_BYTES (${MAX_AUTH_CBOR_BYTES}): ${dataLen} bytes`
+      );
+    }
+  } else if (frameType === FRAME_TYPE_KEY) {
+    if (total !== 1 || index !== 0) {
+      throw new Error("KEY_DOCUMENT payload must be a single-frame payload (index=0,total=1)");
+    }
+    if (dataLen > MAX_SHARD_CBOR_BYTES) {
+      throw new Error(
+        `KEY_DOCUMENT data exceeds MAX_SHARD_CBOR_BYTES (${MAX_SHARD_CBOR_BYTES}): ${dataLen} bytes`
+      );
+    }
   }
   const data = payload.slice(idx, idx + dataLen);
   idx += dataLen;
@@ -112,7 +152,7 @@ function decodeFrame(payload) {
 }
 
 function decodeShardPayload(bytes) {
-  const decoded = decodeCbor(bytes);
+  const decoded = decodeCanonicalCbor(bytes, "shard payload");
   if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded)) {
     throw new Error("shard payload must be a map");
   }
@@ -170,6 +210,17 @@ function decodeShardPayload(bytes) {
   if (!(share instanceof Uint8Array) || !share.length) {
     throw new Error("shard share must be bytes");
   }
+  if (share.length % 16 !== 0) {
+    throw new Error("shard share length must be a multiple of block size");
+  }
+  if (secretLen > share.length) {
+    throw new Error("shard secret length must be <= shard share length");
+  }
+  const blockCount = Math.ceil(secretLen / 16);
+  const expectedShareLen = blockCount * 16;
+  if (share.length !== expectedShareLen) {
+    throw new Error("shard share length does not match secret length");
+  }
   if (!(docHash instanceof Uint8Array) || docHash.length !== 32) {
     throw new Error("shard doc_hash must be 32 bytes");
   }
@@ -194,7 +245,7 @@ function decodeShardPayload(bytes) {
 }
 
 function decodeAuthPayload(bytes) {
-  const decoded = decodeCbor(bytes);
+  const decoded = decodeCanonicalCbor(bytes, "auth payload");
   if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded)) {
     throw new Error("auth payload must be a map");
   }
@@ -444,6 +495,7 @@ function allLinesLookLikeFallback(lines) {
 }
 
 export function parseAutoPayload(state, text) {
+  enforceRecoveryTextLimit(text);
   const lines = nonEmptyLines(text);
   if (!lines.length) {
     throw new Error("no input lines found");
@@ -524,6 +576,7 @@ function parseShardPayloadLines(state, text) {
 }
 
 export function parseAutoShard(state, text) {
+  enforceRecoveryTextLimit(text);
   const lines = nonEmptyLines(text);
   if (!lines.length) {
     throw new Error("no input lines found");
@@ -551,6 +604,11 @@ export function reassembleCiphertext(state) {
     chunks.push(frame.data);
   }
   const totalLen = chunks.reduce((sum, arr) => sum + arr.length, 0);
+  if (totalLen > MAX_CIPHERTEXT_BYTES) {
+    throw new Error(
+      `reassembled payload exceeds MAX_CIPHERTEXT_BYTES (${MAX_CIPHERTEXT_BYTES}): ${totalLen} bytes`
+    );
+  }
   const out = new Uint8Array(totalLen);
   let offset = 0;
   for (const chunk of chunks) {
@@ -582,5 +640,14 @@ export function syncCollectedCiphertext(state) {
     } catch (err) {
       // leave ciphertext unset if reassembly fails
     }
+  }
+}
+
+function enforceRecoveryTextLimit(text) {
+  const textBytes = new TextEncoder().encode(text).length;
+  if (textBytes > MAX_RECOVERY_TEXT_BYTES) {
+    throw new Error(
+      `recovery text exceeds MAX_RECOVERY_TEXT_BYTES (${MAX_RECOVERY_TEXT_BYTES}): ${textBytes} bytes`
+    );
   }
 }
