@@ -193,7 +193,10 @@ def document_spec(
             instructions,
             lines=(
                 "Scan every QR code left to right, top to bottom.",
-                "Paste the decoded chunks together in order (no separators).",
+                (
+                    "QR #1 is the shell. Paste it first, then paste every remaining QR in "
+                    "order (no separators)."
+                ),
                 "Save the result as recovery_kit.bundle.html.",
                 "Open that file in a browser (offline) to run the kit.",
             ),

@@ -350,3 +350,25 @@ test("autoRecoverShardSecret enforces gating and supports both secret types", ()
   assert.equal(autoRecoverShardSecret(signingState), true);
   assert.equal(signingState.recoveredShardSecret, bytesToHex(seed));
 });
+
+test("autoRecoverShardSecret reports ciphertext reassembly failures as shardStatus errors", () => {
+  const state = createInitialState();
+  state.total = 2;
+  state.mainFrames.set(0, { data: new Uint8Array(MAX_CIPHERTEXT_BYTES) });
+  state.mainFrames.set(1, { data: Uint8Array.of(1) });
+  state.shardThreshold = 1;
+  state.shardDocHashHex = "00".repeat(32);
+  state.shardFrames.set(1, {
+    keyType: SHARD_KEY_PASSPHRASE,
+    threshold: 1,
+    shareCount: 1,
+    shareIndex: 1,
+    secretLen: 1,
+    share: new Uint8Array(16),
+  });
+
+  assert.equal(autoRecoverShardSecret(state), false);
+  assert.equal(state.shardStatus.type, "error");
+  assert.match(state.shardStatus.lines.join("\n"), /Shard recovery blocked:/);
+  assert.match(state.shardStatus.lines.join("\n"), /MAX_CIPHERTEXT_BYTES/);
+});

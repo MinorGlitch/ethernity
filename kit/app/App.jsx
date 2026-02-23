@@ -15,7 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { useEffect, useReducer, useRef, useState } from "preact/hooks";
+import { useEffect, useReducer, useRef } from "microact/hooks";
 
 import {
   addPayloads,
@@ -31,8 +31,10 @@ import {
   resetAll,
   updateField,
 } from "./actions.js";
-import { StatusStrip } from "./components/StatusStrip.jsx";
-import { StepNav } from "./components/StepNav.jsx";
+import { DecryptSection } from "./components/DecryptSection.jsx";
+import { FrameCollector } from "./components/FrameCollector.jsx";
+import { RecoveredFiles } from "./components/RecoveredFiles.jsx";
+import { ShardCollector } from "./components/ShardCollector.jsx";
 import { StepShell } from "./components/StepShell.jsx";
 import { reducer, initialState } from "./state/reducer.js";
 import {
@@ -42,13 +44,10 @@ import {
   selectRecoveredLabel,
   selectShardDiagnostics,
   selectShardInputs,
-  selectStatusItemsForStep,
 } from "./state/selectors.js";
-import { STEPS } from "./steps.jsx";
 
 export function App() {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
-  const [stepIndex, setStepIndex] = useState(0);
   const stateRef = useRef(state);
 
   useEffect(() => {
@@ -63,32 +62,6 @@ export function App() {
   const outputSummary = selectOutputSummary(state);
   const actionState = selectActionState(state);
   const recoveredLabel = selectRecoveredLabel(state);
-
-  const frameStep = state.total && state.mainFrames.size === state.total
-    ? { label: "Ready", tone: "ok" }
-    : state.mainFrames.size
-      ? { label: "Collecting", tone: "progress" }
-      : { label: "Needs input", tone: "idle" };
-  const shardStep = state.recoveredShardSecret
-    ? { label: "Complete", tone: "ok" }
-    : state.shardThreshold && state.shardFrames.size >= state.shardThreshold
-      ? { label: "Ready", tone: "progress" }
-      : state.shardFrames.size
-        ? { label: "Collecting", tone: "progress" }
-        : { label: "Needs input", tone: "idle" };
-  const decryptStep = state.extractedFiles.length
-    ? { label: "Complete", tone: "ok" }
-    : state.decryptedEnvelope
-      ? { label: "Decrypted", tone: "progress" }
-      : actionState.canDecryptCiphertext
-        ? { label: "Ready", tone: "progress" }
-        : { label: "Needs input", tone: "idle" };
-  const stepStates = STEPS.map((step) => {
-    if (step.id === "frames") return frameStep;
-    if (step.id === "shards") return shardStep;
-    if (step.id === "decrypt") return decryptStep;
-    return { label: "Pending", tone: "idle" };
-  });
 
   const handlePayloadChange = (event) =>
     updateField(dispatch, getState, "payloadText", event.currentTarget.value);
@@ -108,90 +81,81 @@ export function App() {
   const handleClearOutput = () => clearOutput(dispatch, getState);
   const handleDownloadZip = () => downloadZip(dispatch, getState);
   const handleDownloadFile = (index) => downloadExtract(dispatch, getState, index);
-  const handlePrev = () => setStepIndex((current) => Math.max(0, current - 1));
-  const handleNext = () => setStepIndex((current) => Math.min(STEPS.length - 1, current + 1));
-  const handleJump = (value) => setStepIndex(() => Math.min(STEPS.length - 1, Math.max(0, value)));
-
-  const stepContext = {
-    state,
-    frameDiagnostics,
-    shardDiagnostics,
-    shardInputs,
-    outputSummary,
-    actionState,
-    recoveredLabel,
-    onPayloadChange: handlePayloadChange,
-    onShardPayloadChange: handleShardPayloadChange,
-    onPassphraseChange: handlePassphraseChange,
-    onAddPayloads: handleAddPayloads,
-    onAddShardPayloads: handleAddShardPayloads,
-    onReset: handleReset,
-    onDownloadCipher: handleDownloadCipher,
-    onCopyResult: handleCopyResult,
-    onDecrypt: handleDecrypt,
-    onExtract: handleExtract,
-    onDownloadEnvelope: handleDownloadEnvelope,
-    onClearOutput: handleClearOutput,
-    onDownloadZip: handleDownloadZip,
-    onDownloadFile: handleDownloadFile,
-  };
-  const currentStep = STEPS[stepIndex] ?? STEPS[0];
-  const statusItems = selectStatusItemsForStep(state, currentStep.id);
-
   return (
     <main class="shell">
       <header class="app-header">
         <div class="app-title-block">
-          <div class="app-kicker">Ethernity</div>
           <h1 class="app-title">Recovery Kit</h1>
-          <p class="app-subtitle">Offline emergency recovery console for decryption and extraction.</p>
+          <p class="app-subtitle">Offline recovery tool for decryption and extraction.</p>
         </div>
-        <div class="app-badge">Offline</div>
       </header>
-      <section class="welcome-banner">
-        <div class="welcome-content">
-          <strong>How to recover your files:</strong>
-          <ol class="welcome-steps">
-            <li><span class="welcome-num">1</span> Paste backup data from your recovery document or scanned QR codes</li>
-            <li><span class="welcome-num">2</span> If needed, combine your recovery shares to reconstruct the passphrase</li>
-            <li><span class="welcome-num">3</span> Enter your passphrase to unlock and download your files</li>
-          </ol>
-        </div>
-      </section>
-      <div class="app-layout">
-        <aside class="panel rail">
-          <StepNav
-            steps={STEPS}
-            stepIndex={stepIndex}
-            stepStates={stepStates}
-            onPrev={handlePrev}
-            onNext={handleNext}
-            onJump={handleJump}
+      <section class="workspace">
+        <StepShell
+          title="Enter backup data"
+          summary="Paste backup text or scanned QR payloads. Include AUTH if available."
+        >
+          <FrameCollector
+            payloadText={state.payloadText}
+            frameStatus={state.frameStatus}
+            frameDiagnostics={frameDiagnostics}
+            onPayloadChange={handlePayloadChange}
+            onAddPayloads={handleAddPayloads}
+            isComplete={Boolean(state.total && state.mainFrames.size === state.total)}
+            onReset={handleReset}
+            onDownloadCipher={handleDownloadCipher}
+            canDownloadCipher={actionState.canDownloadCipher}
           />
-        </aside>
-        <section class="workspace">
-          <StatusStrip items={statusItems} />
-          <StepShell
-            step={currentStep}
-            stepIndex={stepIndex}
-            total={STEPS.length}
+        </StepShell>
+        <StepShell
+          title="Combine recovery shares"
+          summary="Paste shard documents to reconstruct a split passphrase, or skip if you have it."
+        >
+          <ShardCollector
+            shardPayloadText={state.shardPayloadText}
+            shardStatus={state.shardStatus}
+            shardDiagnostics={shardDiagnostics}
+            recoveredLabel={recoveredLabel}
+            recoveredSecret={state.recoveredShardSecret}
+            shardDocHash={shardInputs.docHashHex}
+            shardDocId={shardInputs.docIdHex}
+            shardSignPub={shardInputs.signPubHex}
+            onShardPayloadChange={handleShardPayloadChange}
+            onAddShardPayloads={handleAddShardPayloads}
+            isComplete={Boolean(state.recoveredShardSecret)}
+            onCopyResult={handleCopyResult}
+            canCopyResult={actionState.canCopyResult}
+          />
+        </StepShell>
+        <StepShell
+          title="Unlock & download"
+          summary="Enter your passphrase to unlock and download recovered files."
+        >
+          <DecryptSection
+            passphrase={state.agePassphrase}
+            decryptStatus={state.decryptStatus}
+            onPassphraseChange={handlePassphraseChange}
+            onDecrypt={handleDecrypt}
+            canDecrypt={actionState.canDecryptCiphertext}
+            isComplete={actionState.hasOutput || Boolean(state.decryptedEnvelope)}
+            isDecrypting={state.isDecrypting}
+            onExtract={handleExtract}
+            onDownloadEnvelope={handleDownloadEnvelope}
+            canExtract={actionState.canExtractEnvelope}
+            canDownloadEnvelope={actionState.canDownloadEnvelope}
           >
-            {currentStep.render(stepContext)}
-          </StepShell>
-        </section>
-      </div>
-      <footer class="app-footer">
-        <div class="footer-col">
-          <span class="footer-label">Recovery Kit</span>
-          <span class="footer-sep">•</span>
-          <span>Age passphrase only</span>
-        </div>
-        <div class="footer-col">
-          <span>Runs locally</span>
-          <span class="footer-sep">•</span>
-          <span>No network calls</span>
-        </div>
-      </footer>
+            <RecoveredFiles
+              extractStatus={state.extractStatus}
+              outputSubtitle={outputSummary.subtitle}
+              files={state.extractedFiles}
+              onClearOutput={handleClearOutput}
+              onDownloadZip={handleDownloadZip}
+              onDownloadFile={handleDownloadFile}
+              hasOutput={actionState.hasOutput}
+              recoveryComplete={state.recoveryComplete}
+            />
+          </DecryptSection>
+        </StepShell>
+      </section>
     </main>
   );
 }

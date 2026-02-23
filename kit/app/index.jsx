@@ -15,7 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { render } from "preact";
+import { render } from "microact";
 
 import { App } from "./App.jsx";
 

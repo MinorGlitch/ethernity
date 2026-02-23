@@ -22,6 +22,13 @@ import { scrypt } from "@noble/hashes/scrypt.js";
 import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
 
 const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+const LABEL_SCRYPT = textEncoder.encode("age-encryption.org/v1/scrypt");
+const LABEL_HEADER = textEncoder.encode("header");
+const LABEL_PAYLOAD = textEncoder.encode("payload");
+const CHUNK_SIZE = 64 * 1024;
+const TAG_SIZE = 16;
+const STREAM_BLOCK_BYTES = CHUNK_SIZE + TAG_SIZE;
 
 function decodeBase64NoPad(text) {
   const cleaned = text.trim();
@@ -43,49 +50,13 @@ function decodeBase64NoPad(text) {
   return bytes;
 }
 
-class LineReader {
-  constructor(stream) {
-    this.reader = stream.getReader();
-    this.transcript = [];
-    this.buf = new Uint8Array(0);
-  }
-
-  async readLine() {
-    const line = [];
-    while (true) {
-      const idx = this.buf.indexOf(10);
-      if (idx >= 0) {
-        line.push(this.buf.subarray(0, idx));
-        this.transcript.push(this.buf.subarray(0, idx + 1));
-        this.buf = this.buf.subarray(idx + 1);
-        return asciiString(flatten(line));
-      }
-      if (this.buf.length > 0) {
-        line.push(this.buf);
-        this.transcript.push(this.buf);
-      }
-      const next = await this.reader.read();
-      if (next.done) {
-        this.buf = flatten(line);
-        return null;
-      }
-      this.buf = next.value;
-    }
-  }
-
-  close() {
-    this.reader.releaseLock();
-    return { rest: this.buf, transcript: flatten(this.transcript) };
-  }
-}
-
 function asciiString(bytes) {
   bytes.forEach((byte) => {
     if (byte < 32 || byte > 126) {
       throw new Error("invalid non-ASCII byte in header");
     }
   });
-  return new TextDecoder().decode(bytes);
+  return textDecoder.decode(bytes);
 }
 
 function flatten(chunks) {
@@ -99,74 +70,45 @@ function flatten(chunks) {
   return out;
 }
 
-function prepend(stream, ...prefixes) {
-  return stream.pipeThrough(
-    new TransformStream({
-      start(controller) {
-        for (const prefix of prefixes) {
-          controller.enqueue(prefix);
-        }
-      },
-    })
-  );
-}
-
-function stream(bytes) {
-  return new ReadableStream({
-    start(controller) {
-      controller.enqueue(bytes);
-      controller.close();
-    },
-  });
-}
-
-async function read(streamValue, count) {
-  const reader = streamValue.getReader();
-  const chunks = [];
-  let readBytes = 0;
-  while (readBytes < count) {
-    const { done, value } = await reader.read();
-    if (done) {
-      throw new Error(`stream ended before reading ${count} bytes`);
-    }
-    chunks.push(value);
-    readBytes += value.length;
+function readAsciiLine(bytes, offset) {
+  if (offset >= bytes.length) {
+    return null;
   }
-  reader.releaseLock();
-  const buf = flatten(chunks);
-  const data = buf.subarray(0, count);
-  const rest = prepend(streamValue, buf.subarray(count));
-  return { data, rest };
+  const lf = bytes.indexOf(10, offset);
+  if (lf < 0) {
+    return null;
+  }
+  return {
+    text: asciiString(bytes.subarray(offset, lf)),
+    lineStart: offset,
+    nextOffset: lf + 1,
+  };
 }
 
-async function readAll(streamValue) {
-  if (!(streamValue instanceof ReadableStream)) {
-    throw new Error("readAll expects a ReadableStream<Uint8Array>");
+function parseHeaderScrypt(fileBytes) {
+  let offset = 0;
+  const versionLine = readAsciiLine(fileBytes, offset);
+  if (versionLine?.text !== "age-encryption.org/v1") {
+    throw new Error(`invalid version ${versionLine?.text ?? "line"}`);
   }
-  return new Uint8Array(await new Response(streamValue).arrayBuffer());
-}
-
-async function parseHeaderScrypt(headerStream) {
-  const hdr = new LineReader(headerStream);
-  const versionLine = await hdr.readLine();
-  if (versionLine !== "age-encryption.org/v1") {
-    throw new Error(`invalid version ${versionLine ?? "line"}`);
-  }
-  const argsLine = await hdr.readLine();
+  offset = versionLine.nextOffset;
+  const argsLine = readAsciiLine(fileBytes, offset);
   if (argsLine === null) {
     throw new Error("invalid stanza");
   }
-  const args = argsLine.split(" ");
+  offset = argsLine.nextOffset;
+  const args = argsLine.text.split(" ");
   if (args.length !== 4 || args[0] !== "->" || args[1] !== "scrypt") {
     throw new Error("unsupported recipient");
   }
   const bodyLines = [];
   for (;;) {
-    const nextLine = await hdr.readLine();
+    const nextLine = readAsciiLine(fileBytes, offset);
     if (nextLine === null) {
       throw new Error("invalid stanza");
     }
-    const line = decodeBase64NoPad(nextLine);
+    offset = nextLine.nextOffset;
+    const line = decodeBase64NoPad(nextLine.text);
     if (line.length > 48) {
       throw new Error("invalid stanza");
     }
@@ -176,20 +118,19 @@ async function parseHeaderScrypt(headerStream) {
     }
   }
   const body = flatten(bodyLines);
-  const next = await hdr.readLine();
-  if (!next || !next.startsWith("--- ")) {
+  const macLine = readAsciiLine(fileBytes, offset);
+  if (!macLine || !macLine.text.startsWith("--- ")) {
     throw new Error("invalid header");
   }
-  const mac = decodeBase64NoPad(next.slice(4));
-  const { rest, transcript } = hdr.close();
-  const headerNoMac = transcript.slice(0, transcript.length - 1 - next.length + 3);
+  const mac = decodeBase64NoPad(macLine.text.slice(4));
+  const headerNoMac = fileBytes.subarray(0, macLine.lineStart + 3);
   return {
     saltText: args[2],
     logNText: args[3],
     body,
     headerNoMac,
     mac,
-    rest: prepend(headerStream, rest),
+    payloadOffset: macLine.nextOffset,
   };
 }
 
@@ -217,10 +158,9 @@ function unwrapScrypt(passphrase, saltText, logNText, body) {
   if (logN > 20) {
     throw new Error("scrypt work factor is too high");
   }
-  const label = "age-encryption.org/v1/scrypt";
-  const labelAndSalt = new Uint8Array(label.length + 16);
-  labelAndSalt.set(textEncoder.encode(label));
-  labelAndSalt.set(salt, label.length);
+  const labelAndSalt = new Uint8Array(LABEL_SCRYPT.length + 16);
+  labelAndSalt.set(LABEL_SCRYPT);
+  labelAndSalt.set(salt, LABEL_SCRYPT.length);
   const key = scrypt(passphrase, labelAndSalt, { N: 2 ** logN, r: 8, p: 1, dkLen: 32 });
   return decryptFileKey(body, key);
 }
@@ -236,7 +176,7 @@ function compareBytes(a, b) {
   return acc === 0;
 }
 
-function decryptSTREAM(key) {
+function decryptPayloadBytes(key, payloadBytes) {
   const streamNonce = new Uint8Array(12);
   const incNonce = () => {
     for (let i = streamNonce.length - 2; i >= 0; i -= 1) {
@@ -245,56 +185,44 @@ function decryptSTREAM(key) {
     }
   };
   let firstChunk = true;
-  const chunkSize = 64 * 1024;
-  const overhead = 16;
-  const buffer = new Uint8Array(chunkSize + overhead);
-  let used = 0;
-  return new TransformStream({
-    transform(chunk, controller) {
-      while (chunk.length > 0) {
-        if (used === buffer.length) {
-          const decryptedChunk = chacha20poly1305(key, streamNonce).decrypt(buffer);
-          controller.enqueue(decryptedChunk);
-          incNonce();
-          used = 0;
-          firstChunk = false;
-        }
-        const n = Math.min(buffer.length - used, chunk.length);
-        buffer.set(chunk.subarray(0, n), used);
-        used += n;
-        chunk = chunk.subarray(n);
-      }
-    },
-    flush(controller) {
-      streamNonce[11] = 1;
-      const decryptedChunk = chacha20poly1305(key, streamNonce).decrypt(
-        buffer.subarray(0, used)
-      );
-      if (!firstChunk && decryptedChunk.length === 0) {
-        throw new Error("final chunk is empty");
-      }
-      controller.enqueue(decryptedChunk);
-    },
-  });
+  let offset = 0;
+  const out = [];
+  while (payloadBytes.length - offset > STREAM_BLOCK_BYTES) {
+    const decryptedChunk = chacha20poly1305(key, streamNonce).decrypt(
+      payloadBytes.subarray(offset, offset + STREAM_BLOCK_BYTES)
+    );
+    out.push(decryptedChunk);
+    incNonce();
+    firstChunk = false;
+    offset += STREAM_BLOCK_BYTES;
+  }
+  streamNonce[11] = 1;
+  const decryptedChunk = chacha20poly1305(key, streamNonce).decrypt(payloadBytes.subarray(offset));
+  if (!firstChunk && decryptedChunk.length === 0) {
+    throw new Error("final chunk is empty");
+  }
+  out.push(decryptedChunk);
+  return flatten(out);
 }
 
 export async function decryptAgePassphrase(fileBytes, passphrase) {
-  const fileStream = fileBytes instanceof ReadableStream ? fileBytes : stream(fileBytes);
-  const header = await parseHeaderScrypt(fileStream);
+  const bytes =
+    fileBytes instanceof Uint8Array ? fileBytes : new Uint8Array(fileBytes.buffer ?? fileBytes);
+  const header = parseHeaderScrypt(bytes);
   const fileKey = unwrapScrypt(passphrase, header.saltText, header.logNText, header.body);
   if (fileKey === null) {
     throw new Error("invalid passphrase");
   }
-  const labelHeader = textEncoder.encode("header");
-  const hmacKey = hkdf(sha256, fileKey, undefined, labelHeader, 32);
+  const hmacKey = hkdf(sha256, fileKey, undefined, LABEL_HEADER, 32);
   const mac = hmac(sha256, hmacKey, header.headerNoMac);
   if (!compareBytes(header.mac, mac)) {
     throw new Error("invalid header HMAC");
   }
-  const { data: nonce, rest: payload } = await read(header.rest, 16);
-  const labelPayload = textEncoder.encode("payload");
-  const streamKey = hkdf(sha256, fileKey, nonce, labelPayload, 32);
-  const decrypter = decryptSTREAM(streamKey);
-  const out = payload.pipeThrough(decrypter);
-  return await readAll(out);
+  const nonce = bytes.subarray(header.payloadOffset, header.payloadOffset + 16);
+  if (nonce.length !== 16) {
+    throw new Error("stream ended before reading 16 bytes");
+  }
+  const streamKey = hkdf(sha256, fileKey, nonce, LABEL_PAYLOAD, 32);
+  const payload = bytes.subarray(header.payloadOffset + 16);
+  return decryptPayloadBytes(streamKey, payload);
 }

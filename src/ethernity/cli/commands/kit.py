@@ -62,7 +62,10 @@ def _run_kit_render(
     if not quiet_value:
         actions = [
             f"Saved to {result.output_path}",
-            f"QR codes: {result.chunk_count} ({result.chunk_size} bytes each)",
+            (
+                f"QR codes: {result.chunk_count} "
+                f"(QR #1 shell + payload QRs up to {result.chunk_size} bytes)"
+            ),
             "Print this document and store it with your recovery materials.",
         ]
         print_completion_panel("Recovery kit ready", actions, quiet=quiet_value)
@@ -86,8 +89,9 @@ def kit(
         None,
         "--qr-chunk-size",
         help=(
-            "Data per QR code in bytes. Lower values create more codes but are easier "
-            "to scan (default: %s)." % DEFAULT_KIT_CHUNK_SIZE
+            "Payload bytes per QR chunk (QR #2+ only; the first shell QR is fixed). "
+            "Lower values create more codes but are easier to scan (default: %s)."
+            % DEFAULT_KIT_CHUNK_SIZE
         ),
     ),
     config: str | None = typer.Option(
