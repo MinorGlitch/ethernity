@@ -28,9 +28,18 @@ from ethernity.formats.envelope_types import PayloadPart
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT_PATH = _PROJECT_ROOT / "kit" / "scripts" / "run_extract_envelope.mjs"
+_KIT_HASHES_PACKAGE = _PROJECT_ROOT / "kit" / "node_modules" / "@noble" / "hashes" / "package.json"
 
 
 class TestKitInterop(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        if not _KIT_HASHES_PACKAGE.exists():
+            raise RuntimeError(
+                "kit node dependencies are missing; run 'cd kit && npm ci' before "
+                "running tests/unit/test_kit_interop.py"
+            )
+
     @unittest.skipIf(shutil.which("node") is None, "node runtime is required")
     def test_python_envelope_extracts_in_kit_direct_mode(self) -> None:
         parts = (

@@ -135,6 +135,9 @@ NFC normalization does not solve case-folding differences on case-insensitive fi
 Operationally, avoid case-only path distinctions (for example, `Secrets.txt` vs `secrets.txt`) when
 you expect cross-platform recovery or extraction.
 
+Stable v1 also rejects drive-letter-prefixed paths (for example, `C:notes.txt`) to avoid
+cross-platform ambiguity and extractor-specific drive semantics.
+
 ## Age Implementation Notes
 
 Implementations should use a compliant age implementation rather than implementing age directly.
