@@ -35,6 +35,14 @@ function dispatchState(dispatch, state) {
   dispatch({ type: "REPLACE", state });
 }
 
+function setLineStatus(state, key, line, type = "") {
+  setStatus(state, key, [line], type);
+}
+
+function setErrorStatus(state, key, err) {
+  setLineStatus(state, key, String(err), "error");
+}
+
 function parseTextWithErrors(state, text, parseFn, errorKey) {
   let added = 0;
   try {
@@ -57,7 +65,7 @@ function clearDecryptedEnvelope(state) {
 
 function applyExtractResult(state, result) {
   state.extractedFiles = result.files;
-  setStatus(state, "extractStatus", [`${result.files.length} file(s) ready to download.`], "ok");
+  setLineStatus(state, "extractStatus", `${result.files.length} file(s) ready.`, "ok");
 }
 
 export function updateField(dispatch, getState, key, value) {
@@ -92,7 +100,7 @@ export async function addPayloads(dispatch, getState) {
   setStatus(base, "frameStatus", [
     `Added ${added} frame(s).`,
     base.total
-      ? "Ready to download when all frames are collected."
+      ? "Collect all frames to download."
       : "Waiting for more frames.",
   ]);
   dispatchState(dispatch, base);
@@ -170,13 +178,13 @@ export async function copyRecoveredSecret(dispatch, getState) {
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(text);
-      statusLines = ["Result copied to clipboard."];
+      statusLines = ["Copied to clipboard."];
     } else {
-      statusLines = ["Select and copy the result manually."];
+      statusLines = ["Copy manually."];
       statusType = "warn";
     }
   } catch (err) {
-    statusLines = ["Select and copy the result manually."];
+    statusLines = ["Copy manually."];
     statusType = "warn";
   }
   const next = cloneState(getState());
@@ -193,9 +201,9 @@ export function downloadCipher(dispatch, getState) {
     const ciphertext = reassembleCiphertext(next);
     next.ciphertext = ciphertext;
     downloadBytes(ciphertext, "ciphertext.age");
-    setStatus(next, "frameStatus", ["Ciphertext downloaded as ciphertext.age"], "ok");
+    setLineStatus(next, "frameStatus", "Downloaded ciphertext.age", "ok");
   } catch (err) {
-    setStatus(next, "frameStatus", [String(err)], "error");
+    setErrorStatus(next, "frameStatus", err);
   }
   dispatchState(dispatch, next);
 }
@@ -203,14 +211,14 @@ export function downloadCipher(dispatch, getState) {
 export async function decryptCiphertext(dispatch, getState) {
   const base = cloneState(getState());
   if (!base.agePassphrase.trim()) {
-    setStatus(base, "decryptStatus", ["Passphrase is required."], "warn");
+    setLineStatus(base, "decryptStatus", "Passphrase required.", "warn");
     dispatchState(dispatch, base);
     return;
   }
   clearRecoveredOutput(base);
   clearDecryptedEnvelope(base);
   base.isDecrypting = true;
-  setStatus(base, "decryptStatus", ["Unlocking your backup... This may take a moment."]);
+  setLineStatus(base, "decryptStatus", "Unlocking backup...");
   dispatchState(dispatch, base);
 
   const next = cloneState(base);
@@ -233,7 +241,7 @@ export async function decryptCiphertext(dispatch, getState) {
     next.isDecrypting = false;
     next.recoveryComplete = true;
     setStatus(next, "decryptStatus", [
-      `Recovery successful!`,
+      "Recovery complete.",
       `${result.files.length} file(s) recovered (${formatBytes(plaintext.length)}).`,
     ], "ok");
     next.agePassphrase = "";
@@ -241,11 +249,11 @@ export async function decryptCiphertext(dispatch, getState) {
     next.isDecrypting = false;
     const errorMsg = String(err);
     const friendlyError = errorMsg.includes("password")
-      ? "Incorrect passphrase. Please check and try again."
+      ? "Incorrect passphrase."
       : errorMsg.includes("decrypt")
-        ? "Could not unlock the backup. Check your passphrase."
+        ? "Could not unlock backup. Check passphrase."
         : errorMsg;
-    setStatus(next, "decryptStatus", [friendlyError], "error");
+    setLineStatus(next, "decryptStatus", friendlyError, "error");
   }
   dispatchState(dispatch, next);
 }
@@ -263,14 +271,14 @@ export function extractEnvelope(dispatch, getState) {
     if (!base.decryptedEnvelope) {
       throw new Error("No decrypted envelope available yet.");
     }
-    setStatus(base, "extractStatus", ["Extracting files..."]);
+    setLineStatus(base, "extractStatus", "Extracting files...");
     dispatchState(dispatch, base);
     const next = cloneState(base);
     const result = extractFiles(next.decryptedEnvelope);
     applyExtractResult(next, result);
     dispatchState(dispatch, next);
   } catch (err) {
-    setStatus(base, "extractStatus", [String(err)], "error");
+    setErrorStatus(base, "extractStatus", err);
     dispatchState(dispatch, base);
   }
 }
@@ -295,11 +303,9 @@ export function downloadZip(dispatch, getState) {
   try {
     const zipBlob = makeZip(next.extractedFiles);
     downloadBlob(zipBlob, "recovered_files.zip");
-    setStatus(next, "extractStatus", [
-      `Downloaded ${next.extractedFiles.length} file(s) as ZIP.`,
-    ], "ok");
+    setLineStatus(next, "extractStatus", `Downloaded ${next.extractedFiles.length} file(s) as ZIP.`, "ok");
   } catch (err) {
-    setStatus(next, "extractStatus", [String(err)], "error");
+    setErrorStatus(next, "extractStatus", err);
   }
   dispatchState(dispatch, next);
 }

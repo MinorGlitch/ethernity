@@ -15,10 +15,11 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { useState } from "preact/hooks";
+import { useState } from "microact/hooks";
 
 import { DiagnosticsList, Field, StatusBlock } from "./common.jsx";
 import { CollectorStep } from "./CollectorStep.jsx";
+import { QrScannerPanel } from "./QrScannerPanel.jsx";
 
 export function ShardCollector({
   shardPayloadText,
@@ -41,7 +42,7 @@ export function ShardCollector({
     const text = event.clipboardData?.getData("text/plain") ?? "";
     const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     if (lines.length) {
-      setPasteHint(`Pasted ${lines.length} line(s). Click Add shard frames.`);
+      setPasteHint(`Pasted ${lines.length} line(s). Click Add.`);
     }
   };
   const handleShardChange = (event) => {
@@ -52,6 +53,20 @@ export function ShardCollector({
     setPasteHint("");
     onAddShardPayloads();
   };
+  const handleScanText = (rawText) => {
+    const lines = String(rawText ?? "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (!lines.length) {
+      setPasteHint("Scanned QR was empty.");
+      return;
+    }
+    const prefix = shardPayloadText && !shardPayloadText.endsWith("\n") ? "\n" : "";
+    const nextValue = `${shardPayloadText ?? ""}${prefix}${lines.join("\n")}`;
+    onShardPayloadChange({ currentTarget: { value: nextValue } });
+    setPasteHint(`Scanned ${lines.length} line(s). Click Add.`);
+  };
   const input = {
     title: "Recovery shares",
     body: (
@@ -60,13 +75,14 @@ export function ShardCollector({
           id="shard-payload-text"
           label="Share text"
           value={shardPayloadText}
-          placeholder="Paste the text from your shard documents here..."
+          placeholder="Paste shard text..."
           onInput={handleShardChange}
           onPaste={handlePaste}
           as="textarea"
         />
+        <QrScannerPanel onScanText={handleScanText} />
         {pasteHint ? <div class="hint">{pasteHint}</div> : null}
-        <div class="hint">Skip this step if you have the full passphrase written down.</div>
+        <div class="hint">Skip if you already have the full passphrase.</div>
       </>
     ),
     actions: [{ label: "Add shares", onClick: handleAddShards }],
@@ -77,13 +93,14 @@ export function ShardCollector({
     body: (
       <>
         <StatusBlock status={shardStatus} />
+        <DiagnosticsList items={shardDiagnostics} compact />
         <details class="details" open={showDetails}>
-          <summary>Validation details</summary>
+          <summary>All details</summary>
           <Field
             id="shard-doc-hash"
             label="Doc hash (hex)"
             value={shardDocHash}
-            placeholder="32-byte doc hash..."
+            placeholder="32-byte hash..."
             readOnly
             className="code"
           />
@@ -91,7 +108,7 @@ export function ShardCollector({
             id="shard-doc-id"
             label="Doc ID (hex)"
             value={shardDocId}
-            placeholder="16-byte doc id..."
+            placeholder="16-byte id..."
             readOnly
             className="code"
           />
@@ -99,7 +116,7 @@ export function ShardCollector({
             id="shard-sign-pub"
             label="Signing public key (hex)"
             value={shardSignPub}
-            placeholder="32-byte signing public key..."
+            placeholder="32-byte pubkey..."
             readOnly
             className="code"
           />
@@ -109,20 +126,20 @@ export function ShardCollector({
     ),
   };
   const output = {
-    title: "Recovered passphrase",
+    title: "Recovered secret",
     body: (
       <Field
         id="recovered-secret"
         label={recoveredLabel}
         value={recoveredSecret}
-        placeholder="Your passphrase will appear here once shares are combined..."
+        placeholder="Recovered secret appears here..."
         readOnly
         as="textarea"
       />
     ),
     actions: [
       {
-        label: "Copy passphrase",
+        label: "Copy secret",
         className: "secondary",
         onClick: onCopyResult,
         disabled: !canCopyResult,

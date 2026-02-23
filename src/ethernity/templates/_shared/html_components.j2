@@ -91,7 +91,7 @@
 
 {% macro instructions_kit(with_scan_hint=true) %}
 <div>Scan every QR code left to right, top to bottom.</div>
-<div>Paste the decoded chunks together in order (no separators).</div>
+<div>QR #1 is the shell. Paste it first, then paste every remaining QR in order (no separators).</div>
 <div>Save the result as recovery_kit.bundle.html.</div>
 <div>Open that file in a browser (offline) to run the kit.</div>
 {% if with_scan_hint %}<div class="scan-hint">Start at the top-left and follow each row.</div>{% endif %}

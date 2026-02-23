@@ -15,40 +15,30 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-export function StepNav({ steps, stepIndex, stepStates, onPrev, onNext, onJump }) {
+export function StepNav({ steps, stepIndex, onPrev, onNext, onJump }) {
   const total = steps.length;
   const canPrev = stepIndex > 0;
   const canNext = stepIndex < total - 1;
-  const states = stepStates ?? [];
+  const current = steps[stepIndex] ?? steps[0];
 
   return (
     <nav class="step-nav" aria-label="Recovery steps">
-      <div class="step-nav-header">
-        <div class="label">Recovery steps</div>
+      <div class="step-nav-top">
+        <div class="label">Step {stepIndex + 1} / {total}</div>
+        <div class="step-nav-title">{current?.title ?? "Recovery step"}</div>
       </div>
-      <div class="step-list">
-        {steps.map((step, index) => {
-          const active = index === stepIndex;
-          const state = states[index] ?? { label: "Pending", tone: "idle" };
-          const className = active ? "step-item active" : "step-item";
-          const stateClass = `step-state ${state.tone || "idle"}`;
-          return (
-            <button
-              key={step.id ?? index}
-              class={className}
-              type="button"
-              aria-current={active ? "step" : undefined}
-              onClick={() => onJump(index)}
-            >
-              <span class="step-index">{index + 1}</span>
-              <span class="step-meta">
-                <span class="step-name">{step.title}</span>
-                <span class={stateClass}>{state.label}</span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      <label class="label" htmlFor="step-jump">Go to step</label>
+      <select
+        id="step-jump"
+        value={String(stepIndex)}
+        onChange={(event) => onJump(Number(event.currentTarget.value))}
+      >
+        {steps.map((step, index) => (
+          <option key={step.id ?? index} value={String(index)}>
+            {index + 1}. {step.title}
+          </option>
+        ))}
+      </select>
       <div class="step-nav-actions">
         <button class="ghost" disabled={!canPrev} onClick={onPrev} type="button">
           Previous

@@ -17,6 +17,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import re
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
@@ -33,6 +35,11 @@ DEFAULT_KIT_BUNDLE_NAME = "recovery_kit.bundle.html"
 DEFAULT_KIT_OUTPUT = "recovery_kit_qr.pdf"
 DEFAULT_KIT_CHUNK_SIZE = 1200
 _MAX_QR_PROBE_BYTES = 4000
+_BUNDLE_PAYLOAD_RE = re.compile(r'const p=("([^"\\]|\\.)*");')
+_KIT_CHUNK_ARRAY = "_k"
+_BASE91_ALPHABET = (
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789" '!#$%&()*+,./:;<=>?@[]^_`{|}~"'
+)
 
 
 @dataclass(frozen=True)
@@ -57,29 +64,29 @@ def render_kit_qr_document(
     config = load_app_config(config_path, paper_size=paper_size)
     config = apply_template_design(config, design)
     bundle_bytes = _load_kit_bundle(bundle_path)
-    doc_id = hashlib.blake2b(bundle_bytes, digest_size=DOC_ID_LEN).digest()
     qr_config = config.qr_config
 
     if chunk_size is None:
-        max_size = _max_qr_payload_bytes(bundle_bytes, qr_config)
+        max_size = _max_qr_payload_bytes(b"x" * _MAX_QR_PROBE_BYTES, qr_config)
         chunk_size = min(DEFAULT_KIT_CHUNK_SIZE, max_size)
     else:
-        _validate_qr_payload_bytes(chunk_size, bundle_bytes, qr_config)
+        _validate_qr_payload_bytes(chunk_size, b"x" * max(chunk_size, 1), qr_config)
 
     if chunk_size <= 0:
         raise ValueError("chunk_size must be positive")
 
-    chunks = _split_bytes(bundle_bytes, chunk_size)
+    qr_payloads = _build_kit_qr_payloads(bundle_bytes, chunk_size, qr_config)
+    doc_id = hashlib.blake2b(b"".join(qr_payloads), digest_size=DOC_ID_LEN).digest()
     frames = [
         Frame(
             version=VERSION,
             frame_type=FrameType.MAIN_DOCUMENT,
             doc_id=doc_id,
             index=index,
-            total=len(chunks),
+            total=len(qr_payloads),
             data=b"",
         )
-        for index in range(len(chunks))
+        for index in range(len(qr_payloads))
     ]
 
     output = Path(output_path) if output_path else Path(DEFAULT_KIT_OUTPUT)
@@ -87,7 +94,7 @@ def render_kit_qr_document(
     inputs = render_service.kit_inputs(
         frames,
         output,
-        qr_payloads=chunks,
+        qr_payloads=qr_payloads,
         context=render_service.base_context(),
     )
 
@@ -96,7 +103,7 @@ def render_kit_qr_document(
 
     return KitResult(
         output_path=output,
-        chunk_count=len(chunks),
+        chunk_count=len(qr_payloads),
         chunk_size=chunk_size,
         bytes_total=len(bundle_bytes),
         doc_id_hex=doc_id.hex(),
@@ -134,6 +141,107 @@ def _load_kit_bundle(bundle_path: str | Path | None) -> bytes:
 
 def _split_bytes(data: bytes, chunk_size: int) -> list[bytes]:
     return [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]
+
+
+def _extract_kit_bundle_loader_payload(bundle_bytes: bytes) -> str:
+    try:
+        bundle_text = bundle_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("recovery kit bundle is not valid UTF-8 HTML") from exc
+    match = _BUNDLE_PAYLOAD_RE.search(bundle_text)
+    if match is None:
+        raise ValueError(
+            "unsupported recovery kit bundle format: embedded loader payload was not found"
+        )
+    payload = json.loads(match.group(1))
+    if not isinstance(payload, str):
+        raise ValueError("unsupported recovery kit bundle format: loader payload is not a string")
+    return payload
+
+
+def _kit_chunk_script(chunk: str) -> bytes:
+    # Prevent accidental </script> termination when a base91 chunk contains '<'.
+    literal = json.dumps(chunk).replace("<", "\\u003c")
+    return (
+        f"<script>(globalThis.{_KIT_CHUNK_ARRAY}||(globalThis.{_KIT_CHUNK_ARRAY}=[])).push("
+        f"{literal})</script>"
+    ).encode("ascii")
+
+
+def _split_kit_payload_chunks(payload: str, chunk_payload_size: int) -> list[bytes]:
+    if chunk_payload_size <= 0:
+        raise ValueError("chunk_size must be positive")
+    if not payload:
+        return []
+    chunks: list[bytes] = []
+    offset = 0
+    while offset < len(payload):
+        remaining = payload[offset:]
+        low = 1
+        high = len(remaining)
+        best = 0
+        while low <= high:
+            mid = (low + high) // 2
+            candidate = _kit_chunk_script(remaining[:mid])
+            if len(candidate) <= chunk_payload_size:
+                best = mid
+                low = mid + 1
+            else:
+                high = mid - 1
+        if best <= 0:
+            raise ValueError(
+                "chunk_size is too small for the recovery kit payload wrapper; "
+                "increase --qr-chunk-size."
+            )
+        part = remaining[:best]
+        chunks.append(_kit_chunk_script(part))
+        offset += best
+    return chunks
+
+
+def _kit_shell_payload(*, chunk_count: int) -> bytes:
+    alphabet_json = json.dumps(_BASE91_ALPHABET)
+    script = (
+        "(function(){"
+        f"globalThis.{_KIT_CHUNK_ARRAY}=globalThis.{_KIT_CHUNK_ARRAY}||[];"
+        "const m=t=>{if(document.body)document.body.textContent=t;else document.write(t)};"
+        "addEventListener('load',async()=>{"
+        f"const n={chunk_count};const k=globalThis.{_KIT_CHUNK_ARRAY};"
+        "if(!Array.isArray(k)||k.length!==n){"
+        "m(`Missing chunks ${Array.isArray(k)?k.length:0}/${n}`);return}"
+        "for(let i=0;i<n;i++){"
+        "if(typeof k[i]!=='string'){m(`Missing chunk ${i+1}/${n}`);return}}"
+        "const p=k.join('');"
+        "if(!('DecompressionStream'in window)){"
+        "m('Browser lacks gzip support');return}"
+        f"const a={alphabet_json};"
+        "const d=t=>{let b=0,n=0,v=-1,o=[];"
+        "for(let i=0;i<t.length;i++){const c=a.indexOf(t[i]);if(c===-1)continue;"
+        "if(v<0){v=c;continue}v+=c*91;b|=v<<n;n+=(v&8191)>88?13:14;while(n>7){o.push(b&255);b>>=8;n-=8}v=-1}"
+        "if(v>=0)o.push((b|v<<n)&255);return new Uint8Array(o)};"
+        "const b=d(p);const ds=new DecompressionStream('gzip');"
+        "const s=new Blob([b]).stream().pipeThrough(ds);const t=await new Response(s).text();"
+        "document.open();document.write(t);document.close()"
+        "});})();"
+    )
+    return (
+        '<!doctype html><meta charset="utf-8"><meta name="viewport" '
+        'content="width=device-width,initial-scale=1"><title>Ethernity Recovery Kit</title>'
+        f"<script>{script}</script>"
+    ).encode("ascii")
+
+
+def _build_kit_qr_payloads(bundle_bytes: bytes, chunk_size: int, config: QrConfig) -> list[bytes]:
+    payload = _extract_kit_bundle_loader_payload(bundle_bytes)
+    payload_chunks = _split_kit_payload_chunks(payload, chunk_size)
+    shell = _kit_shell_payload(chunk_count=len(payload_chunks))
+    if not _fits_qr_payload(shell, config):
+        raise ValueError(
+            "QR settings cannot encode the recovery kit shell QR. "
+            "Increase QR version / lower error level. "
+            "--qr-chunk-size only affects payload QRs after the first shell QR."
+        )
+    return [shell, *payload_chunks]
 
 
 def _validate_qr_payload_bytes(size: int, data: bytes, config: QrConfig) -> None:

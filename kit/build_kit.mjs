@@ -15,7 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -296,11 +296,122 @@ function minifyClassNames(html, js) {
 
 function canonicalizeGzipHeader(gzBytes) {
   if (gzBytes.length < 10) return gzBytes;
-  // RFC 1952 OS byte is informational; normalize for deterministic cross-OS output.
+  // RFC 1952 mtime + OS bytes are informational; normalize for deterministic output.
   if (gzBytes[0] === 0x1f && gzBytes[1] === 0x8b) {
+    gzBytes[4] = 0x00;
+    gzBytes[5] = 0x00;
+    gzBytes[6] = 0x00;
+    gzBytes[7] = 0x00;
     gzBytes[9] = 0xff;
   }
   return gzBytes;
+}
+
+async function gzipWithLibdeflate(rawBundle, tmpBase) {
+  const inputPath = `${tmpBase}.libdeflate-input.html`;
+  await writeFile(inputPath, rawBundle, "utf8");
+  const levelRaw = process.env.ETHERNITY_KIT_LIBDEFLATE_LEVEL ?? "12";
+  const level = Number.parseInt(levelRaw, 10);
+  if (!Number.isInteger(level) || level < 1 || level > 12) {
+    throw new Error(`invalid ETHERNITY_KIT_LIBDEFLATE_LEVEL: ${levelRaw}`);
+  }
+  const result = spawnSync(
+    "libdeflate-gzip",
+    [`-${level}`, "-c", inputPath],
+    { stdio: ["ignore", "pipe", "pipe"] }
+  );
+  if (result.error && result.error.code === "ENOENT") {
+    return null;
+  }
+  if (result.status !== 0) {
+    const details = [result.stdout, result.stderr]
+      .map((part) => (part ? Buffer.from(part).toString("utf8") : ""))
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+    throw new Error(`libdeflate-gzip failed${details ? `: ${details}` : ""}`);
+  }
+  return canonicalizeGzipHeader(new Uint8Array(result.stdout));
+}
+
+async function gzipBundlePayload(rawBundle, tmpBase) {
+  // Default to zlib for deterministic cross-environment bundle output unless CI/tooling
+  // is explicitly standardized on libdeflate-gzip.
+  const requested = (process.env.ETHERNITY_KIT_GZIP_COMPRESSOR ?? "zlib").toLowerCase();
+  if (!new Set(["auto", "libdeflate", "zlib"]).has(requested)) {
+    throw new Error(
+      "ETHERNITY_KIT_GZIP_COMPRESSOR must be one of: auto, libdeflate, zlib"
+    );
+  }
+
+  if (requested !== "zlib") {
+    const libdeflateBytes = await gzipWithLibdeflate(rawBundle, tmpBase);
+    if (libdeflateBytes) {
+      return { bytes: libdeflateBytes, method: "libdeflate" };
+    }
+    if (requested === "libdeflate") {
+      throw new Error(
+        "libdeflate compressor requested but 'libdeflate-gzip' CLI was not found in PATH"
+      );
+    }
+  }
+
+  return {
+    bytes: canonicalizeGzipHeader(
+      gzipSync(Buffer.from(rawBundle, "utf8"), { level: 9, mtime: 0 })
+    ),
+    method: "zlib",
+  };
+}
+
+async function secondPassAdvdef(gzBytes, tmpBase) {
+  const inputPath = `${tmpBase}.advdef-input.gz`;
+  await writeFile(inputPath, gzBytes);
+  const levelRaw = process.env.ETHERNITY_KIT_ADVDEF_LEVEL ?? "4";
+  const level = Number.parseInt(levelRaw, 10);
+  if (!Number.isInteger(level) || level < 1 || level > 4) {
+    throw new Error(`invalid ETHERNITY_KIT_ADVDEF_LEVEL: ${levelRaw}`);
+  }
+  const result = spawnSync("advdef", ["-z", `-${level}`, "-q", inputPath], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.error && result.error.code === "ENOENT") {
+    return null;
+  }
+  if (result.status !== 0) {
+    const details = [result.stdout, result.stderr]
+      .map((part) => (part ? Buffer.from(part).toString("utf8") : ""))
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+    throw new Error(`advdef failed${details ? `: ${details}` : ""}`);
+  }
+  try {
+    return canonicalizeGzipHeader(new Uint8Array(await readFile(inputPath)));
+  } finally {
+    await unlink(inputPath).catch(() => {});
+  }
+}
+
+async function maybeRunGzipSecondPass(gzBytes, tmpBase) {
+  const requested = (process.env.ETHERNITY_KIT_GZIP_SECOND_PASS ?? "none").toLowerCase();
+  if (!new Set(["none", "auto", "advdef"]).has(requested)) {
+    throw new Error(
+      "ETHERNITY_KIT_GZIP_SECOND_PASS must be one of: none, auto, advdef"
+    );
+  }
+  if (requested === "none") {
+    return { bytes: gzBytes, methodSuffix: "" };
+  }
+
+  const advdefBytes = await secondPassAdvdef(gzBytes, tmpBase);
+  if (advdefBytes) {
+    return { bytes: advdefBytes, methodSuffix: "+advdef" };
+  }
+  if (requested === "advdef") {
+    throw new Error("advdef second pass requested but 'advdef' CLI was not found in PATH");
+  }
+  return { bytes: gzBytes, methodSuffix: "" };
 }
 
 async function ensureTrailingNewline(path) {
@@ -331,6 +442,9 @@ const scriptTagRe = /<script\b[^>]*>[\s\S]*?<\/script>/g;
 const tmpBase = resolve(tmpdir(), `ethernity-kit-${Date.now()}`);
 const tmpOut = `${tmpBase}.min.js`;
 const entryPoint = resolve(kitDir, "app", "index.jsx");
+const microactIndexPath = resolve(kitDir, "lib", "microact", "index.js");
+const microactHooksPath = resolve(kitDir, "lib", "microact", "hooks.js");
+const microactJsxRuntimePath = resolve(kitDir, "lib", "microact", "jsx-runtime.js");
 
 const esbuildArgs = [
   entryPoint,
@@ -338,12 +452,16 @@ const esbuildArgs = [
   "--format=iife",
   "--platform=browser",
   "--jsx=automatic",
-  "--jsx-import-source=preact",
+  "--jsx-import-source=microact",
   "--target=es2020",
   "--minify",
   "--tree-shaking=true",
   "--legal-comments=none",
   "--define:process.env.NODE_ENV=\"production\"",
+  `--alias:microact=${microactIndexPath}`,
+  `--alias:microact/hooks=${microactHooksPath}`,
+  `--alias:microact/jsx-runtime=${microactJsxRuntimePath}`,
+  `--alias:microact/jsx-dev-runtime=${microactJsxRuntimePath}`,
   `--outfile=${tmpOut}`,
 ];
 const result = spawnSync("npx", ["--no-install", "esbuild", ...esbuildArgs], {
@@ -383,8 +501,11 @@ if (htmlResult.status !== 0) {
 }
 
 const rawBundle = await readFile(rawOutputPath, "utf8");
-const gzPayload = canonicalizeGzipHeader(
-  gzipSync(Buffer.from(rawBundle, "utf8"), { level: 9, mtime: 0 })
+const gzipResult = await gzipBundlePayload(rawBundle, tmpBase);
+const secondPassResult = await maybeRunGzipSecondPass(gzipResult.bytes, tmpBase);
+const gzPayload = secondPassResult.bytes;
+console.log(
+  `Gzip compressor: ${gzipResult.method}${secondPassResult.methodSuffix} (${gzPayload.length} bytes)`
 );
 const gzBase91 = base91Encode(gzPayload);
 const gzBase91Safe = gzBase91.replaceAll("</", "<\\/");

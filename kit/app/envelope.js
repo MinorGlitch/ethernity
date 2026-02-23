@@ -46,7 +46,7 @@ function decodeEnvelope(bytes) {
   idx = manifestLenRes.offset;
   if (manifestLen > MAX_MANIFEST_CBOR_BYTES) {
     throw new Error(
-      `manifest exceeds MAX_MANIFEST_CBOR_BYTES (${MAX_MANIFEST_CBOR_BYTES}): ${manifestLen} bytes`
+      `manifest exceeds MAX_MANIFEST_CBOR_BYTES (${MAX_MANIFEST_CBOR_BYTES}): ${manifestLen}`
     );
   }
 
@@ -146,7 +146,7 @@ function parseManifest(manifest) {
   }
   if (files.length > MAX_MANIFEST_FILES) {
     throw new Error(
-      `manifest files exceed MAX_MANIFEST_FILES (${MAX_MANIFEST_FILES}): ${files.length} entries`
+      `manifest files exceed MAX_MANIFEST_FILES (${MAX_MANIFEST_FILES}): ${files.length}`
     );
   }
 
@@ -222,16 +222,20 @@ function validatePathPrefixes(value) {
   return prefixes;
 }
 
-function parseDirectEntry(entry) {
+function requireArrayEntry(entry, size) {
   if (entry !== null && typeof entry === "object" && !Array.isArray(entry)) {
     throw new Error("manifest file entry must use array encoding");
   }
   if (!Array.isArray(entry)) {
     throw new Error("manifest file entry must be an array");
   }
-  if (entry.length !== 4) {
-    throw new Error("manifest file entry must contain exactly 4 values");
+  if (entry.length !== size) {
+    throw new Error(`manifest file entry must contain exactly ${size} values`);
   }
+}
+
+function parseDirectEntry(entry) {
+  requireArrayEntry(entry, 4);
   return buildManifestEntry({
     path: entry[0],
     size: entry[1],
@@ -241,15 +245,7 @@ function parseDirectEntry(entry) {
 }
 
 function parsePrefixEntry(entry, pathPrefixes) {
-  if (entry !== null && typeof entry === "object" && !Array.isArray(entry)) {
-    throw new Error("manifest file entry must use array encoding");
-  }
-  if (!Array.isArray(entry)) {
-    throw new Error("manifest file entry must be an array");
-  }
-  if (entry.length !== 5) {
-    throw new Error("manifest file entry must contain exactly 5 values");
-  }
+  requireArrayEntry(entry, 5);
   const prefixIndex = entry[0];
   const suffix = entry[1];
   if (!Number.isInteger(prefixIndex)) {

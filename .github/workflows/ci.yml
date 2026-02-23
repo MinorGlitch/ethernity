@@ -69,6 +69,7 @@ jobs:
       - name: Install kit dependencies
         working-directory: kit
         run: npm ci
+
       - name: Run unit tests
         run: uv run pytest tests/unit -v
       - name: Run integration tests
@@ -157,8 +158,15 @@ jobs:
           ETHERNITY_SKIP_PLAYWRIGHT_INSTALL: "1"
         run: uv run pytest tests/unit/test_kit_vectors.py tests/unit/test_kit_interop.py -v
 
+      - name: Install libdeflate tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdeflate-tools
+
       - name: Verify kit builds successfully
         working-directory: kit
+        env:
+          ETHERNITY_KIT_GZIP_COMPRESSOR: libdeflate
         run: node build_kit.mjs
 
       - name: Verify build output

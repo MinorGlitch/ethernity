@@ -69,6 +69,18 @@ test("CBOR codec roundtrips canonical values and rejects malformed payloads", ()
   assert.equal(decoded.arr[1], -2);
   assert.deepEqual(Array.from(decoded.arr[3]), [1, 2, 3]);
 
+  assert.equal(decodeCbor(Uint8Array.of(0xf9, 0x3e, 0x00)), 1.5);
+  assert.equal(decodeCanonicalCbor(Uint8Array.of(0xf9, 0x3e, 0x00), "probe"), 1.5);
+
+  const f32Value = Math.fround(1.1);
+  const f32Bytes = new Uint8Array(5);
+  f32Bytes[0] = 0xfa;
+  new DataView(f32Bytes.buffer, f32Bytes.byteOffset + 1, 4).setFloat32(0, f32Value);
+  assert.equal(decodeCanonicalCbor(f32Bytes, "probe"), f32Value);
+
+  const nonCanonicalFloat32 = Uint8Array.of(0xfa, 0x3f, 0xc0, 0x00, 0x00); // 1.5 encoded as float32
+  assert.throws(() => decodeCanonicalCbor(nonCanonicalFloat32, "probe"), /canonical CBOR/);
+
   assert.throws(() => decodeCanonicalCbor(Uint8Array.of(0x18, 0x01), "probe"), /canonical CBOR/);
   assert.throws(() => decodeCbor(Uint8Array.of(0x5f)), /indefinite CBOR lengths not supported/);
   assert.throws(() => decodeCbor(Uint8Array.of(0xf8, 0x00)), /unsupported CBOR simple value/);
