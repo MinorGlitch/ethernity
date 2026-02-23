@@ -186,9 +186,18 @@ class TestStableV1FrozenBaseline(unittest.TestCase):
         return normalized
 
     def _manifest_projection(self, payload_lines: list[str], passphrase: str) -> dict[str, object]:
-        frames = [
-            decode_frame(decode_qr_payload(line.strip())) for line in payload_lines if line.strip()
-        ]
+        frames = []
+        for line in payload_lines:
+            cleaned = line.strip()
+            if not cleaned:
+                continue
+            try:
+                frame = decode_frame(decode_qr_payload(cleaned))
+            except ValueError:
+                # PDF image scanning may produce occasional non-protocol
+                # false positives; ignore them.
+                continue
+            frames.append(frame)
         main_frames = [frame for frame in frames if frame.frame_type == FrameType.MAIN_DOCUMENT]
         ciphertext = reassemble_payload(main_frames, expected_frame_type=FrameType.MAIN_DOCUMENT)
         plaintext = decrypt_bytes(ciphertext, passphrase=passphrase)
