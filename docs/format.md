@@ -189,6 +189,7 @@ Path rules:
 - Paths MUST satisfy the normalization requirements in Section 16.
 - Paths that differ only by Unicode normalization are considered identical; duplicates MUST be rejected.
 - Paths MUST be relative (no leading `/`).
+- Paths MUST NOT start with a drive-letter prefix (`A:` through `Z:` or `a:` through `z:`).
 - Paths MUST NOT contain empty segments (for example `a//b` or a trailing `/`).
 - Paths MUST NOT contain `.` or `..` segments.
 - Path UTF-8 byte length MUST be ≤ `MAX_PATH_BYTES` (Section 17).
@@ -668,6 +669,7 @@ Requirements:
 - Paths MUST be normalized to NFC before storage in manifest
 - Paths MUST be normalized to NFC before any comparison operation
 - Paths that are not valid UTF-8 MUST be rejected
+- Paths MUST NOT start with a drive-letter prefix (`A:` through `Z:` or `a:` through `z:`)
 - Paths MUST NOT contain empty segments
 - Paths MUST NOT contain `.` or `..` segments
 
@@ -750,3 +752,4 @@ A conforming decoder MUST reject at least these scenarios:
    frame `DOC_ID` does not match derived `doc_id`.
 7. QR payload text that contains `=` after whitespace removal or otherwise violates unpadded-base64
    strictness in Section 10.
+8. Manifest paths that start with a drive-letter prefix (`A:` through `Z:` or `a:` through `z:`).

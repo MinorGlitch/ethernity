@@ -98,6 +98,11 @@ class TestValidation(unittest.TestCase):
             normalize_manifest_path(r"dir\file.txt", label="manifest file path")
         self.assertIn("POSIX separators", str(ctx.exception))
 
+    def test_normalize_manifest_path_rejects_drive_letter_prefix(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            normalize_manifest_path("C:notes.txt", label="manifest file path")
+        self.assertIn("drive-letter prefix", str(ctx.exception))
+
     def test_normalize_manifest_path_accepts_relative_posix(self) -> None:
         self.assertEqual(
             normalize_manifest_path("dir/sub/file.txt", label="manifest file path"),

@@ -64,6 +64,8 @@ def normalize_manifest_path(path: object, *, label: str = "path") -> str:
         raise ValueError(f"{label} must be a non-empty string")
     if normalized.startswith("/"):
         raise ValueError(f"{label} must be relative (no leading '/')")
+    if len(normalized) >= 2 and normalized[1] == ":" and normalized[0].isalpha():
+        raise ValueError(f"{label} must not start with a drive-letter prefix")
     if "\\" in normalized:
         raise ValueError(f"{label} must use POSIX separators ('/')")
     segments = normalized.split("/")
