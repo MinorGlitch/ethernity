@@ -383,7 +383,9 @@ if (htmlResult.status !== 0) {
 }
 
 const rawBundle = await readFile(rawOutputPath, "utf8");
-const gzPayload = canonicalizeGzipHeader(gzipSync(Buffer.from(rawBundle, "utf8"), { level: 9 }));
+const gzPayload = canonicalizeGzipHeader(
+  gzipSync(Buffer.from(rawBundle, "utf8"), { level: 9, mtime: 0 })
+);
 const gzBase91 = base91Encode(gzPayload);
 const gzBase91Safe = gzBase91.replaceAll("</", "<\\/");
 const loaderHtml = `<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Ethernity Recovery Kit</title><script>(async()=>{const p=${JSON.stringify(gzBase91Safe)};if(!(\"DecompressionStream\"in window))return;const a=${JSON.stringify(BASE91_ALPHABET)};const d=t=>{let b=0,n=0,v=-1,o=[];for(let i=0;i<t.length;i++){const c=a.indexOf(t[i]);if(c===-1)continue;if(v<0){v=c;continue}v+=c*91;b|=v<<n;n+=(v&8191)>88?13:14;while(n>7){o.push(b&255);b>>=8;n-=8}v=-1}if(v>=0)o.push((b|v<<n)&255);return new Uint8Array(o)};const b=d(p);const ds=new DecompressionStream(\"gzip\");const s=new Blob([b]).stream().pipeThrough(ds);const t=await new Response(s).text();document.open();document.write(t);document.close();})();</script>`;
