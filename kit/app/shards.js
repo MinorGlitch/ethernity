@@ -18,12 +18,39 @@
 import { bytesToHex } from "../lib/encoding.js";
 import { recoverSecretFromShards } from "../lib/shamir.js";
 import { SHARD_KEY_PASSPHRASE, SHARD_KEY_SIGNING_SEED, textDecoder } from "./constants.js";
+import { ensureCiphertextAndHash } from "./frames.js";
 import { setStatus } from "./state/initial.js";
 
 export function autoRecoverShardSecret(state, statusPrefix = []) {
   if (!state.shardThreshold || state.shardFrames.size < state.shardThreshold) {
     return false;
   }
+  if (!state.shardDocHashHex) {
+    const lines = statusPrefix.length
+      ? [...statusPrefix, "Shard recovery blocked: shard payload hash is missing."]
+      : ["Shard recovery blocked: shard payload hash is missing."];
+    setStatus(state, "shardStatus", lines, "error");
+    return false;
+  }
+
+  const cipherHash = ensureCiphertextAndHash(state);
+  if (!cipherHash) {
+    const lines = statusPrefix.length
+      ? [...statusPrefix, "Shard recovery blocked: collect main frames to derive ciphertext hash."]
+      : ["Shard recovery blocked: collect main frames to derive ciphertext hash."];
+    setStatus(state, "shardStatus", lines, "warn");
+    return false;
+  }
+
+  const cipherHashHex = bytesToHex(cipherHash);
+  if (cipherHashHex !== state.shardDocHashHex) {
+    const lines = statusPrefix.length
+      ? [...statusPrefix, "Shard recovery blocked: shard hash does not match collected ciphertext."]
+      : ["Shard recovery blocked: shard hash does not match collected ciphertext."];
+    setStatus(state, "shardStatus", lines, "error");
+    return false;
+  }
+
   try {
     const shares = Array.from(state.shardFrames.values());
     const secretBytes = recoverSecretFromShards(shares);

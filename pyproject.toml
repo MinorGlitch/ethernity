@@ -1,13 +1,13 @@
 [project]
 name = "ethernity"
-version = "0.2.2"
+version = "1.0.0"
 description = "Secure, offline-recoverable backup system with QR-based recovery documents"
 readme = "README.md"
 license = "GPL-3.0-or-later"
 requires-python = ">=3.13"
 keywords = ["backup", "recovery", "qr-code", "encryption", "offline", "paper-backup"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
     "Operating System :: OS Independent",

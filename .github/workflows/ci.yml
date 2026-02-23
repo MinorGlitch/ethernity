@@ -127,6 +127,18 @@ jobs:
         working-directory: kit
         run: npm ci
 
+      - name: Run kit tests
+        working-directory: kit
+        run: npm test
+
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+
+      - name: Run kit interoperability tests
+        env:
+          ETHERNITY_SKIP_PLAYWRIGHT_INSTALL: "1"
+        run: uv run pytest tests/unit/test_kit_vectors.py tests/unit/test_kit_interop.py -v
+
       - name: Verify kit builds successfully
         working-directory: kit
         run: node build_kit.mjs

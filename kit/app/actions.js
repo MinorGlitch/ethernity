@@ -146,8 +146,14 @@ export async function addShardPayloads(dispatch, getState) {
   }
 
   const combinedLines = [...statusLines, ...signatureLines];
+  const previousShardStatus = next.shardStatus;
   const recovered = autoRecoverShardSecret(next, combinedLines);
-  if (!recovered) {
+  const shardStatusOverridden =
+    next.shardStatus !== previousShardStatus &&
+    (next.shardStatus.lines.length !== previousShardStatus.lines.length ||
+      next.shardStatus.lines.some((line, index) => line !== previousShardStatus.lines[index]) ||
+      next.shardStatus.type !== previousShardStatus.type);
+  if (!recovered && !shardStatusOverridden) {
     setStatus(next, "shardStatus", combinedLines, signatureType);
   }
   dispatchState(dispatch, next);

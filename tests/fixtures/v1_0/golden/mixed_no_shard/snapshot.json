@@ -1,0 +1,55 @@
+{
+  "artifact_hashes": {
+    "main_payloads.txt": "4a1f82904717160e07da74b3d80da3b1905d08683f44709ece24da6edc861ba6",
+    "qr_document.pdf": "343871a636cba57a1b8f24c3f0023ccad5ea30d7a1c3b483c179e790b9a4d06a",
+    "recovery_document.pdf": "14cebfb29f9d6d8050045a4c288e6a5ec65f079d3118b7ad0d6405383a54172e",
+    "recovery_kit_index.pdf": "2d7d5a23355adc8b29946be508a050d250a8719503e96ccbd86b94e301e40c34"
+  },
+  "expected_file_sha256": {
+    "directory_payload/alpha.txt": "2f4b5a7d0ed3a982cf012f6af9d58168314e999c0eb3793f598978174928e20f",
+    "directory_payload/nested/beta.json": "d54870a31ef24b66d447ffa2b5297527046741283cfd6053ba165c51c87d6c1f",
+    "directory_payload/nested/raw.bin": "01d1b8d1d3dd3575d6970f5f74759c78403b7684bfe8ab4426bfe5b42945cf1c",
+    "mixed_input.txt": "91030acd66ddfda36583b62880c2e2868ed8dfd49f3c0521fce010415f6e9250"
+  },
+  "expected_relative_paths": [
+    "mixed_input.txt",
+    "directory_payload/alpha.txt",
+    "directory_payload/nested/beta.json",
+    "directory_payload/nested/raw.bin"
+  ],
+  "expected_shard_pdfs": 0,
+  "expected_signing_key_shard_pdfs": 0,
+  "manifest_projection": {
+    "files": [
+      {
+        "path": "directory_payload/alpha.txt",
+        "sha256": "2f4b5a7d0ed3a982cf012f6af9d58168314e999c0eb3793f598978174928e20f",
+        "size": 66
+      },
+      {
+        "path": "directory_payload/nested/beta.json",
+        "sha256": "d54870a31ef24b66d447ffa2b5297527046741283cfd6053ba165c51c87d6c1f",
+        "size": 55
+      },
+      {
+        "path": "directory_payload/nested/raw.bin",
+        "sha256": "01d1b8d1d3dd3575d6970f5f74759c78403b7684bfe8ab4426bfe5b42945cf1c",
+        "size": 47
+      },
+      {
+        "path": "mixed_input.txt",
+        "sha256": "91030acd66ddfda36583b62880c2e2868ed8dfd49f3c0521fce010415f6e9250",
+        "size": 104
+      }
+    ],
+    "input_origin": "mixed",
+    "input_roots": [
+      "directory_payload"
+    ],
+    "sealed": false,
+    "version": 1
+  },
+  "passphrase": "stable-v1-baseline-passphrase",
+  "scenario_id": "mixed_no_shard",
+  "shard_payload_count": 0
+}
