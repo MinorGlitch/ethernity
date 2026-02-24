@@ -102,6 +102,7 @@ class PageModel:
     qr_outline: QrOutlineModel | None = None
     sequence: QrSequenceModel | None = None
     fallback_line_capacity: int = 0
+    fallback_row_height_mm: float | None = None
 
 
 @dataclass(frozen=True)
@@ -136,28 +137,41 @@ class TemplateContext:
             "usable_width_mm": self.usable_width_mm,
             "doc_id": self.doc_id,
             "created_timestamp_utc": self.created_timestamp_utc,
-            "doc": {
-                "title": self.doc.title,
-                "subtitle": self.doc.subtitle,
-            },
-            "instructions": {
-                "label": self.instructions.label,
-                "lines": list(self.instructions.lines),
-                "scan_hint": self.instructions.scan_hint,
-            },
+            "doc": self._serialize_doc(self.doc),
+            "instructions": self._serialize_instructions(self.instructions),
             "fallback": {"width_mm": self.fallback_width_mm},
-            "pages": [self._page_to_dict(page) for page in self.pages],
+            "pages": [self._serialize_page(page) for page in self.pages],
         }
         if self.recovery is not None:
-            payload["recovery"] = {
-                "passphrase": self.recovery.passphrase,
-                "passphrase_lines": list(self.recovery.passphrase_lines),
-                "quorum_value": self.recovery.quorum_value,
-                "signing_pub_lines": list(self.recovery.signing_pub_lines),
-            }
+            payload["recovery"] = self._serialize_recovery(self.recovery)
         return payload
 
-    def _page_to_dict(self, page: PageModel) -> dict[str, object]:
+    @staticmethod
+    def _serialize_doc(doc: DocModel) -> dict[str, object]:
+        return {
+            "title": doc.title,
+            "subtitle": doc.subtitle,
+        }
+
+    @staticmethod
+    def _serialize_instructions(instructions: InstructionsModel) -> dict[str, object]:
+        return {
+            "label": instructions.label,
+            "lines": list(instructions.lines),
+            "scan_hint": instructions.scan_hint,
+        }
+
+    @staticmethod
+    def _serialize_recovery(recovery: RecoveryModel) -> dict[str, object]:
+        return {
+            "passphrase": recovery.passphrase,
+            "passphrase_lines": list(recovery.passphrase_lines),
+            "quorum_value": recovery.quorum_value,
+            "signing_pub_lines": list(recovery.signing_pub_lines),
+        }
+
+    @staticmethod
+    def _serialize_page(page: PageModel) -> dict[str, object]:
         return {
             "page_num": page.page_num,
             "page_label": page.page_label,
@@ -165,52 +179,69 @@ class TemplateContext:
             "instructions_y_mm": page.instructions_y_mm,
             "show_instructions": page.show_instructions,
             "instructions_full_page": page.instructions_full_page,
-            "qr_items": [
-                {"index": slot.index, "data_uri": slot.data_uri} for slot in page.qr_items
-            ],
-            "qr_grid": None
-            if page.qr_grid is None
-            else {
-                "size_mm": page.qr_grid.size_mm,
-                "gap_x_mm": page.qr_grid.gap_x_mm,
-                "gap_y_mm": page.qr_grid.gap_y_mm,
-                "cols": page.qr_grid.cols,
-                "rows": page.qr_grid.rows,
-                "count": page.qr_grid.count,
-                "x_mm": page.qr_grid.x_mm,
-                "y_mm": page.qr_grid.y_mm,
-            },
-            "qr_outline": None
-            if page.qr_outline is None
-            else {
-                "x_mm": page.qr_outline.x_mm,
-                "y_mm": page.qr_outline.y_mm,
-                "width_mm": page.qr_outline.width_mm,
-                "height_mm": page.qr_outline.height_mm,
-            },
-            "sequence": None
-            if page.sequence is None
-            else {
-                "lines": [
-                    {"x1": line.x1, "y1": line.y1, "x2": line.x2, "y2": line.y2}
-                    for line in page.sequence.lines
-                ],
-                "labels": [
-                    {"x": label.x, "y": label.y, "text": label.text}
-                    for label in page.sequence.labels
-                ],
-            },
+            "qr_items": [TemplateContext._serialize_qr_item(slot) for slot in page.qr_items],
+            "qr_grid": TemplateContext._serialize_qr_grid(page.qr_grid),
+            "qr_outline": TemplateContext._serialize_qr_outline(page.qr_outline),
+            "sequence": TemplateContext._serialize_sequence(page.sequence),
             "fallback_blocks": [
-                {
-                    "title": block.title,
-                    "lines": list(block.lines),
-                    "line_offset": block.line_offset,
-                    "y_mm": block.y_mm,
-                    "height_mm": block.height_mm,
-                }
-                for block in page.fallback_blocks
+                TemplateContext._serialize_fallback_block(block) for block in page.fallback_blocks
             ],
             "fallback_line_capacity": page.fallback_line_capacity,
+            "fallback_row_height_mm": page.fallback_row_height_mm,
+        }
+
+    @staticmethod
+    def _serialize_qr_item(item: QrItemModel) -> dict[str, object]:
+        return {"index": item.index, "data_uri": item.data_uri}
+
+    @staticmethod
+    def _serialize_qr_grid(grid: QrGridModel | None) -> dict[str, object] | None:
+        if grid is None:
+            return None
+        return {
+            "size_mm": grid.size_mm,
+            "gap_x_mm": grid.gap_x_mm,
+            "gap_y_mm": grid.gap_y_mm,
+            "cols": grid.cols,
+            "rows": grid.rows,
+            "count": grid.count,
+            "x_mm": grid.x_mm,
+            "y_mm": grid.y_mm,
+        }
+
+    @staticmethod
+    def _serialize_qr_outline(outline: QrOutlineModel | None) -> dict[str, object] | None:
+        if outline is None:
+            return None
+        return {
+            "x_mm": outline.x_mm,
+            "y_mm": outline.y_mm,
+            "width_mm": outline.width_mm,
+            "height_mm": outline.height_mm,
+        }
+
+    @staticmethod
+    def _serialize_sequence(sequence: QrSequenceModel | None) -> dict[str, object] | None:
+        if sequence is None:
+            return None
+        return {
+            "lines": [
+                {"x1": line.x1, "y1": line.y1, "x2": line.x2, "y2": line.y2}
+                for line in sequence.lines
+            ],
+            "labels": [
+                {"x": label.x, "y": label.y, "text": label.text} for label in sequence.labels
+            ],
+        }
+
+    @staticmethod
+    def _serialize_fallback_block(block: FallbackBlockModel) -> dict[str, object]:
+        return {
+            "title": block.title,
+            "lines": list(block.lines),
+            "line_offset": block.line_offset,
+            "y_mm": block.y_mm,
+            "height_mm": block.height_mm,
         }
 
 

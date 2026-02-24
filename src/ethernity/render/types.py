@@ -27,6 +27,7 @@ from ..qr.codec import QrConfig
 
 if TYPE_CHECKING:
     from .fallback import FallbackConsumerState, FallbackSectionData
+    from .recovery_meta import RecoveryMeta
     from .spec import DocumentSpec
 
 
@@ -54,7 +55,9 @@ class RenderInputs:
     render_qr: bool = True
     render_fallback: bool = True
     key_lines: Sequence[str] | None = None
+    recovery_meta: "RecoveryMeta | None" = None
     render_jobs: int | Literal["auto"] | None = None
+    layout_debug_json_path: str | Path | None = None
 
 
 @dataclass(frozen=True)

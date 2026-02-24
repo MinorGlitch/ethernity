@@ -20,12 +20,12 @@ from __future__ import annotations
 
 import concurrent.futures
 import functools
+import json
 import os
-import string
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Literal, cast
+from typing import Any, Callable, Literal, Sequence, cast
 
 from fpdf import FPDF
 
@@ -38,6 +38,7 @@ from .fallback import FallbackConsumerState, FallbackSectionData, build_fallback
 from .html_to_pdf import render_html_to_pdf
 from .layout import compute_layout
 from .pages import build_pages
+from .recovery_meta import recovery_meta_lines_extra
 from .spec import DocumentSpec, document_spec
 from .template_model import DocModel, InstructionsModel, RecoveryModel, TemplateContext
 from .template_style import TemplateCapabilities, load_template_style
@@ -51,20 +52,8 @@ _RENDER_JOBS_ENV = "ETHERNITY_RENDER_JOBS"
 _DEFAULT_QR_WORKERS_CAP = 8
 _MIN_QR_TASKS_PER_WORKER = 4
 _CONTEXT_PASSTHROUGH_KEYS = ("inventory_rows",)
-_SIGNING_PUB_GROUP_SIZE = 4
-_SIGNING_PUB_LINE_LENGTH = 40
 _PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 _TEMPLATE_ASSETS_DIR = _PACKAGE_ROOT / "templates" / "_shared" / "assets"
-
-
-@dataclass(frozen=True)
-class RecoveryMeta:
-    """Structured recovery metadata derived for recovery document rendering."""
-
-    passphrase: str | None = None
-    passphrase_lines: tuple[str, ...] = ()
-    quorum_value: str | None = None
-    signing_pub_lines: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -138,129 +127,6 @@ def _apply_main_qr_grid_overrides(
     return replace(spec, qr_grid=qr_grid)
 
 
-def _wrap_passphrase(passphrase: str, *, words_per_line: int = 6) -> tuple[str, ...]:
-    """Wrap a mnemonic passphrase into display lines."""
-
-    words = passphrase.split()
-    if not words:
-        return ()
-    return tuple(
-        " ".join(words[idx : idx + words_per_line]) for idx in range(0, len(words), words_per_line)
-    )
-
-
-def _split_signing_pub_tokens(lines: list[str]) -> list[str]:
-    """Normalize signing public key display lines into grouped hex tokens."""
-
-    tokens: list[str] = []
-    hex_chars = set(string.hexdigits)
-    for raw_line in lines:
-        line = raw_line.strip()
-        if not line:
-            continue
-
-        parts = line.split()
-        if len(parts) == 1:
-            compact = parts[0]
-            if len(compact) > _SIGNING_PUB_GROUP_SIZE and all(ch in hex_chars for ch in compact):
-                parts = [
-                    compact[idx : idx + _SIGNING_PUB_GROUP_SIZE]
-                    for idx in range(0, len(compact), _SIGNING_PUB_GROUP_SIZE)
-                ]
-        tokens.extend(part for part in parts if part)
-    return tokens
-
-
-def _wrap_grouped_tokens(tokens: list[str], *, line_length: int) -> tuple[str, ...]:
-    """Wrap grouped tokens into fixed-width display lines."""
-
-    if not tokens:
-        return ()
-
-    wrapped: list[str] = []
-    current: list[str] = []
-    current_len = 0
-    for token in tokens:
-        token_len = len(token)
-        next_len = token_len if not current else current_len + 1 + token_len
-        if current and next_len > line_length:
-            wrapped.append(" ".join(current))
-            current = [token]
-            current_len = token_len
-            continue
-        current.append(token)
-        current_len = next_len
-
-    if current:
-        wrapped.append(" ".join(current))
-    return tuple(wrapped)
-
-
-def _normalize_signing_pub_lines(lines: list[str]) -> tuple[str, ...]:
-    """Normalize signing public key text lines for recovery document display."""
-
-    tokens = _split_signing_pub_tokens(lines)
-    return _wrap_grouped_tokens(tokens, line_length=_SIGNING_PUB_LINE_LENGTH)
-
-
-def _recovery_meta_lines_extra(meta: RecoveryMeta) -> int:
-    """Estimate extra recovery metadata rows reserved in the header/footer layout."""
-
-    signing_lines = 0
-    if meta.signing_pub_lines:
-        signing_lines = max(2, len(meta.signing_pub_lines) + 1)
-
-    passphrase_lines = 0
-    if meta.passphrase:
-        passphrase_lines = max(1, len(meta.passphrase_lines))
-
-    return int(meta.quorum_value is not None) + signing_lines + passphrase_lines
-
-
-def _parse_recovery_key_lines(key_lines: list[str]) -> RecoveryMeta:
-    """Extract structured recovery metadata from recovery key display lines."""
-
-    passphrase_label = "Passphrase:"
-    quorum_prefix = "Recover with "
-    quorum_suffix = " shard documents."
-    signing_pub_label = "Signing public key (hex):"
-    passphrase: str | None = None
-    quorum_value: str | None = None
-    pub_lines_raw: list[str] = []
-    collecting_pub = False
-    expecting_passphrase = False
-
-    for line in key_lines:
-        if expecting_passphrase:
-            passphrase = line.strip() or None
-            expecting_passphrase = False
-            continue
-
-        if line == passphrase_label:
-            expecting_passphrase = True
-            continue
-        if line == signing_pub_label:
-            collecting_pub = True
-            continue
-        if collecting_pub and line.startswith("Signing private key"):
-            collecting_pub = False
-            continue
-        if line.startswith(quorum_prefix) and line.endswith(quorum_suffix):
-            quorum_value = line.removeprefix(quorum_prefix).removesuffix(quorum_suffix).strip()
-            continue
-        if collecting_pub:
-            pub_lines_raw.append(line)
-
-    pub_lines = _normalize_signing_pub_lines(pub_lines_raw)
-
-    return RecoveryMeta(
-        passphrase=passphrase,
-        passphrase_lines=_wrap_passphrase(passphrase) if passphrase else (),
-        quorum_value=quorum_value,
-        signing_pub_lines=pub_lines,
-    )
-
-
 def _resolve_created_timestamp(base_context: dict[str, object]) -> tuple[str, datetime | None]:
     """Normalize created timestamp fields for template context and display."""
 
@@ -306,6 +172,76 @@ def _page_size_css(spec: DocumentSpec) -> str:
     if spec.page.width_mm and spec.page.height_mm:
         return f"{float(spec.page.width_mm)}mm {float(spec.page.height_mm)}mm"
     return str(spec.page.size)
+
+
+def _fallback_rows_used(page: object) -> int:
+    blocks = getattr(page, "fallback_blocks", ())
+    if not blocks:
+        return 0
+    used_rows = max(0, len(blocks) - 1)
+    for block in blocks:
+        title = getattr(block, "title", None)
+        lines = getattr(block, "lines", ())
+        if title:
+            used_rows += 1
+        used_rows += len(lines)
+    return used_rows
+
+
+def _write_layout_debug_json(
+    *,
+    output_path: str | Path,
+    inputs: RenderInputs,
+    style_name: str,
+    layout: object,
+    layout_rest: object | None,
+    pages: Sequence[object],
+) -> None:
+    debug_path = inputs.layout_debug_json_path
+    if debug_path is None:
+        return
+    resolved = Path(debug_path).expanduser()
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "doc_type": inputs.doc_type,
+        "template_path": str(inputs.template_path),
+        "style_name": style_name,
+        "output_path": str(output_path),
+        "layout_first": {
+            "line_height_mm": getattr(layout, "line_height", None),
+            "fallback_lines_per_page": getattr(layout, "fallback_lines_per_page", None),
+            "content_start_y_mm": getattr(layout, "content_start_y", None),
+            "margin_mm": getattr(layout, "margin", None),
+            "page_height_mm": getattr(layout, "page_h", None),
+            "qr_cols": getattr(layout, "cols", None),
+            "qr_rows": getattr(layout, "rows", None),
+            "qr_per_page": getattr(layout, "per_page", None),
+        },
+        "layout_rest": (
+            None
+            if layout_rest is None
+            else {
+                "line_height_mm": getattr(layout_rest, "line_height", None),
+                "fallback_lines_per_page": getattr(layout_rest, "fallback_lines_per_page", None),
+                "content_start_y_mm": getattr(layout_rest, "content_start_y", None),
+                "qr_cols": getattr(layout_rest, "cols", None),
+                "qr_rows": getattr(layout_rest, "rows", None),
+                "qr_per_page": getattr(layout_rest, "per_page", None),
+            }
+        ),
+        "pages": [
+            {
+                "page_num": getattr(page, "page_num", None),
+                "fallback_line_capacity": getattr(page, "fallback_line_capacity", None),
+                "fallback_row_height_mm": getattr(page, "fallback_row_height_mm", None),
+                "fallback_rows_used": _fallback_rows_used(page),
+                "fallback_block_count": len(getattr(page, "fallback_blocks", ())),
+                "qr_count": len(getattr(page, "qr_items", ())),
+            }
+            for page in pages
+        ],
+    }
+    resolved.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def render_frames_to_pdf(inputs: RenderInputs) -> None:
@@ -354,12 +290,14 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
 
     recovery_meta = None
     if normalized_doc_type == DOC_TYPE_RECOVERY:
-        recovery_meta = _parse_recovery_key_lines(key_lines)
+        if inputs.recovery_meta is None:
+            raise ValueError("recovery metadata is required for recovery document rendering")
+        recovery_meta = inputs.recovery_meta
         spec = replace(
             spec,
             header=replace(
                 spec.header,
-                meta_lines_extra=_recovery_meta_lines_extra(recovery_meta),
+                meta_lines_extra=recovery_meta_lines_extra(recovery_meta),
             ),
         )
 
@@ -380,8 +318,6 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
         include_instructions=include_instructions,
     )
     key_lines = list(layout.key_lines)
-    if normalized_doc_type == DOC_TYPE_RECOVERY:
-        recovery_meta = _parse_recovery_key_lines(key_lines)
     spec = spec.with_key_lines(key_lines)
     layout_spec = _layout_spec(spec, doc_id=str(doc_id), page_label="Page 1 / 1")
 
@@ -492,6 +428,14 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
 
     html = render_template(inputs.template_path, context)
     render_html_to_pdf(html, inputs.output_path, resources=resources)
+    _write_layout_debug_json(
+        output_path=inputs.output_path,
+        inputs=inputs,
+        style_name=style.name,
+        layout=layout,
+        layout_rest=layout_rest,
+        pages=pages,
+    )
 
 
 def _qr_kind(config: QrConfig) -> str:
