@@ -200,7 +200,10 @@ class Ethernity < Formula
     resources.each do |resource|
       if resource.url&.end_with?(".whl")
         resource.fetch
-        venv.pip_install resource.cached_download
+        wheel_name = File.basename(resource.url)
+        wheel_path = buildpath/wheel_name
+        cp resource.cached_download, wheel_path
+        venv.pip_install wheel_path
       else
         resource.stage do
           venv.pip_install Pathname.pwd
