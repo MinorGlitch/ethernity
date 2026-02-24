@@ -5,11 +5,13 @@ import test from "node:test";
 
 import { sha256 } from "@noble/hashes/sha2.js";
 
+import { addPayloads, addShardPayloads } from "../app/actions_collect.js";
 import { extractFiles } from "../app/envelope.js";
 import { ensureCiphertextAndHash } from "../app/frames_cipher.js";
 import { parseAutoPayload, parseAutoShard } from "../app/frames_parse.js";
 import { autoRecoverShardSecret } from "../app/shards.js";
 import { createInitialState } from "../app/state/initial.js";
+import { initialState, reducer } from "../app/state/reducer.js";
 import { decryptAgePassphrase } from "../lib/age_scrypt.js";
 import { bytesToHex } from "../lib/encoding.js";
 import { ensureAtob } from "./test_helpers.mjs";
@@ -69,4 +71,36 @@ test("frozen v1.0 fixtures restore end-to-end in the kit", async () => {
   for (const scenario of index.scenarios) {
     await restoreScenario(path.join(FIXTURES_ROOT, scenario.path));
   }
+});
+
+test("shard-first then main frames triggers recovery without re-pasting shards", async () => {
+  const snapshot = readJson(path.join(FIXTURES_ROOT, "sharded_embedded", "snapshot.json"));
+  const mainPayloadText = fs.readFileSync(
+    path.join(FIXTURES_ROOT, "sharded_embedded", "main_payloads.txt"),
+    "utf8"
+  );
+  const shardPayloadText = fs.readFileSync(
+    path.join(FIXTURES_ROOT, "sharded_embedded", "shard_payloads_threshold.txt"),
+    "utf8"
+  );
+
+  let state = initialState();
+  const dispatch = (action) => {
+    state = reducer(state, action);
+  };
+  const getState = () => state;
+
+  state.shardPayloadText = shardPayloadText;
+  await addShardPayloads(dispatch, getState);
+  assert.equal(state.recoveredShardSecret, "");
+  assert.equal(
+    state.shardStatus.lines.includes("Shard recovery blocked: collect main frames to derive ciphertext hash."),
+    true
+  );
+
+  state.payloadText = mainPayloadText;
+  await addPayloads(dispatch, getState);
+  assert.equal(state.recoveredShardSecret, snapshot.passphrase);
+  assert.equal(state.agePassphrase, snapshot.passphrase);
+  assert.equal(state.shardStatus.type, "ok");
 });
