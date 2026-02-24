@@ -87,6 +87,35 @@ def require_length(value: bytes, length: int, *, label: str, prefix: str = "") -
         raise ValueError(f"{prefix}{label} must be {length} bytes")
 
 
+def require_int(value: object, *, label: str) -> int:
+    """Validate that value is an int."""
+    if not isinstance(value, int):
+        raise ValueError(f"{label} must be an int")
+    return value
+
+
+def require_bool(value: object, *, label: str) -> bool:
+    """Validate that value is a boolean."""
+    if not isinstance(value, bool):
+        raise ValueError(f"{label} must be a boolean")
+    return value
+
+
+def require_str(value: object, *, label: str) -> str:
+    """Validate that value is a string."""
+    if not isinstance(value, str):
+        raise ValueError(f"{label} must be a string")
+    return value
+
+
+def require_non_empty_str(value: object, *, label: str) -> str:
+    """Validate that value is a non-empty string."""
+    text = require_str(value, label=label)
+    if not text:
+        raise ValueError(f"{label} must be a non-empty string")
+    return text
+
+
 def require_bytes(
     value: object,
     length: int,

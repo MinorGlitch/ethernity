@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Load and validate per-design render style metadata from `style.json`."""
+
 from __future__ import annotations
 
 import json
@@ -26,6 +28,8 @@ from .doc_types import DOC_TYPES
 
 @dataclass(frozen=True)
 class HeaderStyle:
+    """Header spacing/thickness overrides loaded from template style."""
+
     meta_row_gap_mm: float
     stack_gap_mm: float
     divider_thickness_mm: float
@@ -33,12 +37,16 @@ class HeaderStyle:
 
 @dataclass(frozen=True)
 class ContentOffsetStyle:
+    """Content offset overrides scoped to document types."""
+
     divider_gap_extra_mm: float
     doc_types: frozenset[str]
 
 
 @dataclass(frozen=True)
 class TemplateCapabilities:
+    """Boolean and numeric feature toggles for template behavior."""
+
     inject_forge_copy: bool = False
     repeat_primary_qr_on_shard_continuation: bool = False
     advanced_fallback_layout: bool = False
@@ -53,6 +61,8 @@ class TemplateCapabilities:
 
 @dataclass(frozen=True)
 class TemplateStyle:
+    """Parsed template style bundle for a design directory."""
+
     name: str
     header: HeaderStyle
     content_offset: ContentOffsetStyle
@@ -68,12 +78,16 @@ DEFAULT_TEMPLATE_STYLE = TemplateStyle(
 
 
 def load_template_style(template_path: str | Path) -> TemplateStyle:
+    """Load the style for the directory that owns a template file."""
+
     template_dir = Path(template_path).parent.resolve()
     return _load_style_for_dir(template_dir)
 
 
 @lru_cache(maxsize=32)
 def _load_style_for_dir(template_dir: Path) -> TemplateStyle:
+    """Load and validate `style.json` for a template directory."""
+
     style_path = template_dir / "style.json"
     if not style_path.is_file():
         return DEFAULT_TEMPLATE_STYLE
@@ -140,6 +154,8 @@ def _load_style_for_dir(template_dir: Path) -> TemplateStyle:
 
 
 def _parse_capabilities(value: object, *, style_name: str, path: Path) -> TemplateCapabilities:
+    """Parse the `capabilities` section from a template style file."""
+
     if value is None:
         return TemplateCapabilities(
             extra_main_first_page_qr_slot=style_name.strip().lower() == "sentinel"
@@ -231,6 +247,8 @@ def _parse_capabilities(value: object, *, style_name: str, path: Path) -> Templa
 
 
 def _require_dict(data: dict[str, object], key: str, *, path: Path) -> dict[str, object]:
+    """Require a JSON object field."""
+
     value = data.get(key)
     if isinstance(value, dict):
         return value
@@ -238,6 +256,8 @@ def _require_dict(data: dict[str, object], key: str, *, path: Path) -> dict[str,
 
 
 def _require_str(data: dict[str, object], key: str, *, path: Path) -> str:
+    """Require a non-empty string field."""
+
     value = data.get(key)
     if isinstance(value, str) and value.strip():
         return value
@@ -245,6 +265,8 @@ def _require_str(data: dict[str, object], key: str, *, path: Path) -> str:
 
 
 def _require_number(data: dict[str, object], key: str, *, path: Path) -> float:
+    """Require a numeric field and normalize to float."""
+
     value = data.get(key)
     if isinstance(value, (int, float)):
         return float(value)
@@ -252,6 +274,8 @@ def _require_number(data: dict[str, object], key: str, *, path: Path) -> float:
 
 
 def _require_list_of_str(data: dict[str, object], key: str, *, path: Path) -> list[str]:
+    """Require a list of strings (or return an empty list when omitted)."""
+
     value = data.get(key)
     if value is None:
         return []
@@ -270,6 +294,8 @@ def _optional_bool(
     default: bool,
     path: Path,
 ) -> bool:
+    """Read an optional boolean capability with validation."""
+
     if key not in data:
         return default
     value = data.get(key)
@@ -285,6 +311,8 @@ def _optional_non_negative_int(
     default: int,
     path: Path,
 ) -> int:
+    """Read an optional non-negative integer capability."""
+
     if key not in data:
         return default
     value = data.get(key)
@@ -300,6 +328,8 @@ def _optional_positive_int(
     default: int | None,
     path: Path,
 ) -> int | None:
+    """Read an optional positive integer capability."""
+
     if key not in data:
         return default
     value = data.get(key)
@@ -315,6 +345,8 @@ def _optional_positive_number(
     default: float | None,
     path: Path,
 ) -> float | None:
+    """Read an optional positive numeric capability."""
+
     if key not in data:
         return default
     value = data.get(key)
@@ -330,6 +362,8 @@ def _reject_unknown_keys(
     section: str,
     path: Path,
 ) -> None:
+    """Reject unknown keys in a style section."""
+
     unknown = sorted(key for key in data if key not in allowed_keys)
     if unknown:
         unknown_text = ", ".join(unknown)

@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Template capability-driven layout adjustments for fallback and QR placement."""
+
 from __future__ import annotations
 
 from .doc_types import (
@@ -62,14 +64,20 @@ _SHARD_LINE_HEIGHT_FLOOR_MM = 4.8
 
 
 def _shard_first_page_penalty_lines(capabilities: TemplateCapabilities) -> int:
+    """Return the first-page shard fallback penalty after capability bonuses."""
+
     return max(0, _SHARD_FIRST_PAGE_PENALTY_LINES - capabilities.shard_first_page_bonus_lines)
 
 
 def _signing_key_shard_first_page_bonus_lines(capabilities: TemplateCapabilities) -> int:
+    """Return extra first-page lines granted to signing-key shard templates."""
+
     return max(0, capabilities.signing_key_shard_first_page_bonus_lines)
 
 
 def resolve_layout_capabilities(inputs: RenderInputs) -> TemplateCapabilities:
+    """Load template capabilities for a render input template path."""
+
     return load_template_style(inputs.template_path).capabilities
 
 
@@ -82,6 +90,8 @@ def fallback_text_width_override_mm(
     margin: float,
     include_instructions: bool,
 ) -> float | None:
+    """Return a fallback text width override for advanced template layouts."""
+
     if not capabilities.advanced_fallback_layout:
         return None
 
@@ -114,6 +124,8 @@ def fallback_text_width_override_mm(
 
 
 def should_force_max_rows(*, capabilities: TemplateCapabilities) -> bool:
+    """Return whether raw QR geometry row limits should be forced."""
+
     # Card-heavy templates can overflow if rows are forced from raw QR geometry.
     return not capabilities.advanced_fallback_layout
 
@@ -126,6 +138,8 @@ def max_rows_override_for_template(
     include_instructions: bool,
     content_start_y: float,
 ) -> int | None:
+    """Adjust max QR rows for document/template combinations."""
+
     if not capabilities.advanced_fallback_layout or max_rows is None:
         return max_rows
 
@@ -157,6 +171,8 @@ def adjust_layout_fallback_capacity(
     include_instructions: bool,
     recovery_has_quorum: bool | None = None,
 ) -> tuple[float, int]:
+    """Adjust layout-time fallback line height and capacity for special templates."""
+
     if not capabilities.advanced_fallback_layout:
         return line_height, fallback_lines_per_page_val
 
@@ -228,6 +244,8 @@ def adjust_page_fallback_capacity(
     recovery_meta_lines_extra: int,
     recovery_has_quorum: bool | None = None,
 ) -> int:
+    """Adjust per-page fallback capacity during page building."""
+
     if not capabilities.advanced_fallback_layout:
         return lines_capacity
 
@@ -290,6 +308,8 @@ def should_repeat_primary_qr_on_shard_continuation(
     capabilities: TemplateCapabilities,
     doc_type: str,
 ) -> bool:
+    """Return whether shard continuation pages should repeat the primary QR."""
+
     if not capabilities.repeat_primary_qr_on_shard_continuation:
         return False
     normalized_doc_type = _normalized_doc_type(doc_type)
@@ -302,6 +322,8 @@ def extra_main_first_page_qr_slots(
     doc_type: str,
     page_idx: int,
 ) -> int:
+    """Return extra QR slots on the first main-document page for capable templates."""
+
     if not capabilities.extra_main_first_page_qr_slot:
         return 0
     if page_idx != 0:
@@ -313,6 +335,8 @@ def extra_main_first_page_qr_slots(
 
 
 def recovery_metadata_footer_reserve_mm(meta_lines_extra: int) -> float:
+    """Estimate reserved footer height for recovery metadata blocks."""
+
     extra_lines = max(0, int(meta_lines_extra) - _RECOVERY_META_BASELINE_LINES)
     section_overhead_mm = _RECOVERY_META_SECTION_OVERHEAD_MM if extra_lines > 0 else 0.0
     return (
@@ -323,10 +347,14 @@ def recovery_metadata_footer_reserve_mm(meta_lines_extra: int) -> float:
 
 
 def _normalized_doc_type(doc_type: str) -> str:
+    """Normalize document type strings for capability comparisons."""
+
     return doc_type.strip().lower()
 
 
 def _recovery_first_page_light_meta_bonus_lines(meta_lines_extra: int) -> int:
+    """Return bonus fallback lines for recovery docs with minimal metadata."""
+
     # Passphrase-only recoveries have far less footer metadata than shard-backed
     # recoveries, so they can safely fit additional fallback lines on page 1.
     normalized = max(0, int(meta_lines_extra))

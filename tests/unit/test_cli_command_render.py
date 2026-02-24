@@ -23,12 +23,13 @@ from unittest import mock
 import typer
 
 from ethernity.cli.commands import render as render_module
+from ethernity.cli.core.types import CliContextState
 from ethernity.render.storage_paths import DEFAULT_LOGO_PATH
 
 
 class TestRenderCommand(unittest.TestCase):
     def _ctx(self, **values: object) -> object:
-        return mock.Mock(obj=dict(values))
+        return mock.Mock(obj=CliContextState(**values))
 
     def test_data_uri_for_path_with_known_and_unknown_mime(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

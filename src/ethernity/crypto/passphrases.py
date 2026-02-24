@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""BIP-39-style mnemonic passphrase generation and validation helpers."""
+
 from __future__ import annotations
 
 import hashlib
@@ -25,6 +27,8 @@ MNEMONIC_WORD_COUNTS = (12, 15, 18, 21, 24)
 
 
 def _load_wordlist() -> list[str]:
+    """Load the packaged BIP-39 wordlist."""
+
     ref = importlib.resources.files("ethernity.crypto") / "bip39_wordlist.txt"
     return ref.read_text(encoding="utf-8").splitlines()
 
@@ -33,6 +37,8 @@ _WORDLIST: list[str] = _load_wordlist()
 
 
 def generate_passphrase(*, words: int = DEFAULT_PASSPHRASE_WORDS) -> str:
+    """Generate a mnemonic passphrase with a valid BIP-39 checksum."""
+
     if words not in MNEMONIC_WORD_COUNTS:
         allowed = ", ".join(str(count) for count in MNEMONIC_WORD_COUNTS)
         raise ValueError(f"passphrase words must be one of {allowed}")
@@ -48,6 +54,8 @@ def generate_passphrase(*, words: int = DEFAULT_PASSPHRASE_WORDS) -> str:
 
 
 def looks_like_bip39_mnemonic(passphrase: str) -> bool:
+    """Return whether text resembles a supported BIP-39 mnemonic."""
+
     words = passphrase.strip().split()
     if len(words) not in MNEMONIC_WORD_COUNTS:
         return False
@@ -56,6 +64,8 @@ def looks_like_bip39_mnemonic(passphrase: str) -> bool:
 
 
 def validate_mnemonic_checksum_if_bip39(passphrase: str) -> None:
+    """Validate checksum when input looks like BIP-39, otherwise no-op."""
+
     if not looks_like_bip39_mnemonic(passphrase):
         return
     words_list = passphrase.strip().split()

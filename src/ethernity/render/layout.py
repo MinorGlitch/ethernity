@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Compute page layout geometry and fallback capacities for rendered documents."""
+
 from __future__ import annotations
 
 import math
@@ -194,6 +196,8 @@ def _build_fallback_lines(
 
 
 def _recovery_has_shard_quorum(key_lines: Sequence[str]) -> bool:
+    """Infer whether recovery key lines indicate a shard quorum message."""
+
     prefix = "Recover with "
     suffix = " shard documents."
     for line in key_lines:

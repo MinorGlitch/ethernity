@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Interactive recovery wizard orchestration."""
+
 from __future__ import annotations
 
 import sys
@@ -206,6 +208,8 @@ def _build_recovery_review_rows(
 
 
 def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: bool = True) -> int:
+    """Run the guided recovery workflow, falling back to non-interactive mode when needed."""
+
     quiet = args.quiet
     allow_unsigned = args.allow_unsigned
     assume_yes = args.assume_yes
@@ -395,6 +399,8 @@ def write_plan_outputs(
     debug_max_bytes: int = 0,
     debug_reveal_secrets: bool = False,
 ) -> int:
+    """Decrypt and write outputs for an already reviewed recovery plan."""
+
     manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
     if debug:
         print_recover_debug(

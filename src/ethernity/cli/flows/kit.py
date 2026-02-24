@@ -30,6 +30,7 @@ from ...qr.codec import QrConfig, make_qr
 from ...render import render_frames_to_pdf
 from ...render.service import RenderService
 from ..api import status
+from ..core.paths import expanduser_cli_path
 
 DEFAULT_KIT_BUNDLE_NAME = "recovery_kit.bundle.html"
 DEFAULT_KIT_OUTPUT = "recovery_kit_qr.pdf"
@@ -70,7 +71,8 @@ def render_kit_qr_document(
         max_size = _max_qr_payload_bytes(b"x" * _MAX_QR_PROBE_BYTES, qr_config)
         chunk_size = min(DEFAULT_KIT_CHUNK_SIZE, max_size)
     else:
-        _validate_qr_payload_bytes(chunk_size, b"x" * max(chunk_size, 1), qr_config)
+        probe_size = min(max(chunk_size, 1), _MAX_QR_PROBE_BYTES)
+        _validate_qr_payload_bytes(chunk_size, b"x" * probe_size, qr_config)
 
     if chunk_size <= 0:
         raise ValueError("chunk_size must be positive")
@@ -89,7 +91,7 @@ def render_kit_qr_document(
         for index in range(len(qr_payloads))
     ]
 
-    output = Path(output_path) if output_path else Path(DEFAULT_KIT_OUTPUT)
+    output = Path(expanduser_cli_path(output_path, preserve_stdin=False) or DEFAULT_KIT_OUTPUT)
     render_service = RenderService(config)
     inputs = render_service.kit_inputs(
         frames,
@@ -113,7 +115,7 @@ def render_kit_qr_document(
 def _load_kit_bundle(bundle_path: str | Path | None) -> bytes:
     """Load the recovery kit bundle from the specified path or default locations."""
     if bundle_path:
-        path = Path(bundle_path)
+        path = Path(expanduser_cli_path(bundle_path, preserve_stdin=False) or "")
         try:
             return path.read_bytes()
         except FileNotFoundError as exc:

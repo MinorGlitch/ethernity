@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Shared dataclasses for render inputs, layouts, and page-building state."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -30,12 +32,16 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class FallbackSection:
+    """A labeled frame included in fallback text sections."""
+
     label: str | None
     frame: Frame
 
 
 @dataclass(frozen=True)
 class RenderInputs:
+    """Inputs consumed by the render pipeline for a single output document."""
+
     frames: Sequence[Frame]
     template_path: str | Path
     output_path: str | Path
@@ -53,6 +59,8 @@ class RenderInputs:
 
 @dataclass(frozen=True)
 class Layout:
+    """Computed page layout values used to build rendered pages."""
+
     page_w: float
     page_h: float
     margin: float

@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""QR payload text encoding/decoding helpers (unpadded base64)."""
+
 from __future__ import annotations
 
 import base64

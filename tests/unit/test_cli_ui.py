@@ -22,6 +22,7 @@ from unittest import mock
 from rich.console import Console
 
 from ethernity.cli import ui as ui_module
+from ethernity.cli.ui import renderables as ui_renderables, runtime as ui_runtime
 from ethernity.cli.ui.state import (
     THEME,
     UIContext,
@@ -136,7 +137,7 @@ class TestStatusOutput(unittest.TestCase):
             console_err=Console(file=io.StringIO(), force_terminal=False, theme=THEME, stderr=True),
             animations_enabled=True,
         )
-        with mock.patch("ethernity.cli.ui.isatty", return_value=False):
+        with mock.patch("ethernity.cli.ui.runtime.isatty", return_value=False):
             with ui_module.status("Preparing payload...", quiet=False, context=context) as live:
                 self.assertIsNone(live)
         output = out.getvalue()
@@ -155,23 +156,23 @@ class TestUIHelpers(unittest.TestCase):
 
     def test_resolve_context_fallbacks(self) -> None:
         context = self._context()
-        self.assertIs(ui_module._resolve_context(context), context)
-        self.assertIs(ui_module._resolve_context(None), ui_module.DEFAULT_CONTEXT)
+        self.assertIs(ui_runtime._resolve_context(context), context)
+        self.assertIs(ui_runtime._resolve_context(None), ui_runtime.DEFAULT_CONTEXT)
 
     def test_clear_screen_uses_console_clear_on_windows(self) -> None:
         context = SimpleNamespace(console=mock.MagicMock(is_terminal=True))
-        ui_module.clear_screen(context=context)
+        ui_runtime.clear_screen(context=context)
         context.console.clear.assert_called_once()
 
     def test_clear_screen_uses_console_clear_when_non_terminal(self) -> None:
         context = SimpleNamespace(console=mock.MagicMock(is_terminal=False))
-        ui_module.clear_screen(context=context)
+        ui_runtime.clear_screen(context=context)
         context.console.clear.assert_called_once()
 
     def test_clear_screen_ignores_clear_errors(self) -> None:
         context = SimpleNamespace(console=mock.MagicMock(is_terminal=False))
         context.console.clear.side_effect = OSError("no tty")
-        ui_module.clear_screen(context=context)
+        ui_runtime.clear_screen(context=context)
 
     def test_configure_ui_toggles_flags(self) -> None:
         context = self._context(force_terminal=True)
@@ -192,7 +193,7 @@ class TestUIHelpers(unittest.TestCase):
             self.assertIs(context.wizard_state, state)
         self.assertIs(context.wizard_state, previous)
 
-    @mock.patch("ethernity.cli.ui.clear_screen")
+    @mock.patch("ethernity.cli.ui.runtime.clear_screen")
     def test_ui_screen_mode_sets_and_restores_state(
         self,
         clear_screen: mock.MagicMock,
@@ -210,7 +211,7 @@ class TestUIHelpers(unittest.TestCase):
         self.assertEqual(context.stage_prompt_count, 4)
         clear_screen.assert_called_once_with(context=context)
 
-    @mock.patch("ethernity.cli.ui.clear_screen")
+    @mock.patch("ethernity.cli.ui.runtime.clear_screen")
     def test_ui_screen_mode_quiet_skips_clear(
         self,
         clear_screen: mock.MagicMock,
@@ -227,7 +228,7 @@ class TestUIHelpers(unittest.TestCase):
         self.assertEqual(context.stage_prompt_count, 2)
         clear_screen.assert_not_called()
 
-    @mock.patch("ethernity.cli.ui.clear_screen")
+    @mock.patch("ethernity.cli.ui.runtime.clear_screen")
     def test_wizard_stage_step_progression_and_help_text(
         self,
         clear_screen: mock.MagicMock,
@@ -254,7 +255,7 @@ class TestUIHelpers(unittest.TestCase):
         with ui_module.progress(quiet=True) as prog:
             self.assertIsNone(prog)
 
-    @mock.patch("ethernity.cli.ui.isatty", return_value=True)
+    @mock.patch("ethernity.cli.ui.runtime.isatty", return_value=True)
     def test_progress_animated_uses_full_columns(self, _isatty: mock.MagicMock) -> None:
         context = self._context(force_terminal=True)
         context.animations_enabled = True
@@ -262,7 +263,7 @@ class TestUIHelpers(unittest.TestCase):
             self.assertIsNotNone(prog)
             self.assertEqual(len(prog.columns), 5)
 
-    @mock.patch("ethernity.cli.ui.isatty", return_value=True)
+    @mock.patch("ethernity.cli.ui.runtime.isatty", return_value=True)
     def test_progress_nonanimated_uses_single_text_column(self, _isatty: mock.MagicMock) -> None:
         context = self._context(force_terminal=True)
         context.animations_enabled = False
@@ -274,7 +275,7 @@ class TestUIHelpers(unittest.TestCase):
         with ui_module.status("Reading...", quiet=True) as live:
             self.assertIsNone(live)
 
-    @mock.patch("ethernity.cli.ui.isatty", return_value=True)
+    @mock.patch("ethernity.cli.ui.runtime.isatty", return_value=True)
     def test_status_animated_handles_flush_errors(self, _isatty: mock.MagicMock) -> None:
         context = self._context(force_terminal=True)
         context.animations_enabled = True
@@ -284,12 +285,12 @@ class TestUIHelpers(unittest.TestCase):
         live_cm = mock.MagicMock()
         live_cm.__enter__.return_value = live
         live_cm.__exit__.return_value = False
-        with mock.patch("ethernity.cli.ui.Live", return_value=live_cm):
+        with mock.patch("ethernity.cli.ui.runtime.Live", return_value=live_cm):
             with ui_module.status("Preparing...", quiet=False, context=context) as status_live:
                 self.assertIs(status_live, live)
         live.update.assert_called_once()
 
-    @mock.patch("ethernity.cli.ui.isatty", return_value=True)
+    @mock.patch("ethernity.cli.ui.runtime.isatty", return_value=True)
     def test_status_animated_screen_mode_is_transient(self, _isatty: mock.MagicMock) -> None:
         context = self._context(force_terminal=True)
         context.animations_enabled = True
@@ -299,7 +300,7 @@ class TestUIHelpers(unittest.TestCase):
         live_cm = mock.MagicMock()
         live_cm.__enter__.return_value = live
         live_cm.__exit__.return_value = False
-        with mock.patch("ethernity.cli.ui.Live", return_value=live_cm) as live_ctor:
+        with mock.patch("ethernity.cli.ui.runtime.Live", return_value=live_cm) as live_ctor:
             with ui_module.status("Preparing...", quiet=False, context=context) as status_live:
                 self.assertIs(status_live, live)
         self.assertTrue(live_ctor.call_args.kwargs["transient"])
@@ -319,8 +320,8 @@ class TestUIHelpers(unittest.TestCase):
         self.assertEqual(pnl.title, "Title")
 
     def test_print_completion_panel_respects_quiet_and_use_err(self) -> None:
-        with mock.patch("ethernity.cli.ui.console.print") as out_print:
-            with mock.patch("ethernity.cli.ui.console_err.print") as err_print:
+        with mock.patch.object(ui_renderables.console, "print") as out_print:
+            with mock.patch.object(ui_renderables.console_err, "print") as err_print:
                 ui_module.print_completion_panel("Done", ["one"], quiet=True)
                 ui_module.print_completion_panel("Done", ["one"], quiet=False, use_err=True)
         out_print.assert_not_called()
@@ -365,12 +366,12 @@ class TestUIHelpers(unittest.TestCase):
         Console(file=out, force_terminal=False, theme=THEME).print(single_dir)
         self.assertIn("a.txt", out.getvalue())
 
-    @mock.patch("ethernity.cli.ui.prompt_choice", return_value="backup")
+    @mock.patch("ethernity.cli.ui.home.prompt_choice", return_value="backup")
     def test_prompt_home_action_quiet_and_non_quiet_paths(
         self,
         prompt_choice: mock.MagicMock,
     ) -> None:
-        with mock.patch("ethernity.cli.ui.console.print") as print_mock:
+        with mock.patch("ethernity.cli.ui.home.console.print") as print_mock:
             action_quiet = ui_module.prompt_home_action(quiet=True)
             action_verbose = ui_module.prompt_home_action(quiet=False)
         self.assertEqual(action_quiet, "backup")

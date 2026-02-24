@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Document layout/spec defaults for the render pipeline."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
@@ -33,6 +35,8 @@ Color = str | tuple[int, int, int] | tuple[int, int, int, int]
 
 @dataclass(frozen=True)
 class PageSpec:
+    """Page geometry and top-level spacing defaults."""
+
     size: str = "A4"
     margin_mm: float = 14.0
     header_height_mm: float = 16.0
@@ -44,6 +48,8 @@ class PageSpec:
 
 @dataclass(frozen=True)
 class HeaderSpec:
+    """Header text and metadata layout settings."""
+
     title: str = ""
     subtitle: str = ""
     doc_id_label: str = "Document ID:"
@@ -62,6 +68,8 @@ class HeaderSpec:
 
 @dataclass(frozen=True)
 class TextBlockSpec:
+    """Settings for instruction/key text blocks."""
+
     label: str | None = None
     lines: tuple[str, ...] = ()
     font_family: str = "Helvetica"
@@ -78,6 +86,8 @@ class TextBlockSpec:
 
 @dataclass(frozen=True)
 class FallbackSpec:
+    """Formatting settings for fallback encoded text blocks."""
+
     font_family: str = "Courier"
     font_size: float = 10.0
     line_height_mm: float = 4.2
@@ -91,6 +101,8 @@ class FallbackSpec:
 
 @dataclass(frozen=True)
 class QrGridSpec:
+    """QR grid geometry defaults."""
+
     qr_size_mm: float = 58.0
     gap_mm: float = 3.0
     max_cols: int | None = 3
@@ -101,6 +113,8 @@ class QrGridSpec:
 
 @dataclass(frozen=True)
 class QrSequenceSpec:
+    """Sequence connector styling for QR progression overlays."""
+
     enabled: bool = False
     font_size: float = 12.0
     line_thickness_mm: float = 0.7
@@ -109,6 +123,8 @@ class QrSequenceSpec:
 
 @dataclass(frozen=True)
 class DocumentSpec:
+    """Resolved render specification for a document type and paper size."""
+
     page: PageSpec
     header: HeaderSpec
     instructions: TextBlockSpec
@@ -118,9 +134,13 @@ class DocumentSpec:
     fallback: FallbackSpec
 
     def with_header(self, *, doc_id: str, page_label: str) -> "DocumentSpec":
+        """Return a copy with header metadata labels filled in."""
+
         return replace(self, header=replace(self.header, doc_id=doc_id, page_label=page_label))
 
     def with_key_lines(self, lines: Sequence[str]) -> "DocumentSpec":
+        """Return a copy with rendered key lines stored in the spec."""
+
         return replace(self, keys=replace(self.keys, lines=tuple(lines)))
 
 
@@ -129,6 +149,8 @@ def document_spec(
     paper_size: str,
     context: dict[str, object],
 ) -> DocumentSpec:
+    """Build the default document spec for a document type and paper size."""
+
     normalized = doc_type.strip().lower()
     if normalized not in DOC_TYPES:
         raise ValueError(f"unsupported doc type: {doc_type}")

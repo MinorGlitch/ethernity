@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Interactive and non-interactive backup command orchestration."""
+
 from __future__ import annotations
 
 import os
@@ -66,6 +68,8 @@ _KIT_INDEX_TEMPLATE_MARKER = "kit_index_inventory_artifacts_v3"
 
 
 def _format_backup_input_error(exc: Exception) -> str:
+    """Rewrite input-loading errors into user-facing guidance."""
+
     message = str(exc)
     lowered = message.lower()
     if "input file not found" in lowered or "input dir not found" in lowered:
@@ -197,6 +201,8 @@ def _prompt_layout(
 
 
 def _resolve_design_name(design: str | None, designs: dict[str, Path]) -> str | None:
+    """Resolve a user-provided design name with case-insensitive matching."""
+
     if not design:
         return None
     if design in designs:
@@ -209,6 +215,8 @@ def _resolve_design_name(design: str | None, designs: dict[str, Path]) -> str | 
 
 
 def _prompt_design(args: BackupArgs | None) -> str | None:
+    """Prompt for a template design, honoring valid CLI-provided values."""
+
     designs = list_template_designs()
     if not designs:
         return None
@@ -277,6 +285,8 @@ def _prompt_inputs(
 
 
 def _apply_qr_chunk_size_override(config: AppConfig, qr_chunk_size: int | None) -> AppConfig:
+    """Override the configured preferred QR chunk size when requested."""
+
     if qr_chunk_size is None:
         return config
     return replace(config, qr_chunk_size=qr_chunk_size)
@@ -369,6 +379,8 @@ def _build_review_rows(
 
 
 def _resolve_kit_index_template_path(config: AppConfig) -> Path:
+    """Return the kit index template path candidate for the active design."""
+
     kit_template_path = config.kit_template_path
     candidate = kit_template_path.with_name("kit_index_document.html.j2")
     if candidate.is_file() and _is_compatible_kit_index_template(candidate):
@@ -380,6 +392,8 @@ def _resolve_kit_index_template_path(config: AppConfig) -> Path:
 
 
 def _is_compatible_kit_index_template(path: Path) -> bool:
+    """Return whether a kit index template has the expected marker."""
+
     try:
         content = path.read_text(encoding="utf-8")
     except OSError:
@@ -419,6 +433,8 @@ def run_wizard(
     quiet: bool = False,
     args: BackupArgs | None = None,
 ) -> int:
+    """Run the guided backup wizard and execute the resulting backup."""
+
     with ui_screen_mode(quiet=quiet):
         with wizard_flow(name="Backup", total_steps=5, quiet=quiet):
             if not quiet:
@@ -504,6 +520,8 @@ def run_wizard(
 
 
 def _should_use_wizard_for_backup(args: BackupArgs) -> bool:
+    """Return whether backup should default to the interactive wizard."""
+
     if args.input or args.input_dir:
         return False
     if not os.isatty(0) or not os.isatty(1):
@@ -512,6 +530,8 @@ def _should_use_wizard_for_backup(args: BackupArgs) -> bool:
 
 
 def run_backup_command(args: BackupArgs) -> int:
+    """Execute the non-interactive backup command path."""
+
     config = load_app_config(args.config, paper_size=args.paper)
     config = apply_template_design(config, args.design)
     config = _apply_qr_chunk_size_override(config, args.qr_chunk_size)
@@ -579,6 +599,8 @@ def run_backup(
     debug_reveal_secrets: bool = False,
     quiet: bool = False,
 ) -> BackupResult:
+    """Run the backup flow with preloaded inputs and resolved config."""
+
     return _run_backup(
         input_files=input_files,
         base_dir=base_dir,

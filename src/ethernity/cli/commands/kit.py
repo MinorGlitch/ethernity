@@ -18,11 +18,12 @@ from __future__ import annotations
 
 import functools
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
 from ..api import print_completion_panel
-from ..core.common import _ctx_value, _paper_callback, _resolve_config_and_paper, _run_cli
+from ..core.common import _ctx_state, _paper_callback, _resolve_config_and_paper, _run_cli
 from ..flows.kit import DEFAULT_KIT_CHUNK_SIZE, render_kit_qr_document
 
 _KIT_HELP = (
@@ -73,59 +74,74 @@ def _run_kit_render(
 
 def kit(
     ctx: typer.Context,
-    output: Path | None = typer.Option(
-        None,
-        "--output",
-        "-o",
-        help="Output PDF path (default: recovery_kit_qr.pdf).",
-    ),
-    bundle: Path | None = typer.Option(
-        None,
-        "--bundle",
-        "-b",
-        help="Custom recovery kit HTML bundle to use instead of the built-in one.",
-    ),
-    qr_chunk_size: int | None = typer.Option(
-        None,
-        "--qr-chunk-size",
-        help=(
-            "Payload bytes per QR chunk (QR #2+ only; the first shell QR is fixed). "
-            "Lower values create more codes but are easier to scan (default: %s)."
-            % DEFAULT_KIT_CHUNK_SIZE
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output PDF path (default: recovery_kit_qr.pdf).",
         ),
-    ),
-    config: str | None = typer.Option(
-        None,
-        "--config",
-        "-c",
-        help="Use a custom TOML configuration file.",
-        rich_help_panel="Config",
-    ),
-    paper: str | None = typer.Option(
-        None,
-        "--paper",
-        "-p",
-        help="Paper size override: A4 (default) or Letter.",
-        callback=_paper_callback,
-        rich_help_panel="Config",
-    ),
-    design: str | None = typer.Option(
-        None,
-        "--design",
-        help="Template design folder (auto-discovered under templates/).",
-        rich_help_panel="Config",
-    ),
-    quiet: bool = typer.Option(
-        False,
-        "--quiet",
-        "-q",
-        help="Suppress progress output.",
-        rich_help_panel="Behavior",
-    ),
+    ] = None,
+    bundle: Annotated[
+        Path | None,
+        typer.Option(
+            "--bundle",
+            "-b",
+            help="Custom recovery kit HTML bundle to use instead of the built-in one.",
+        ),
+    ] = None,
+    qr_chunk_size: Annotated[
+        int | None,
+        typer.Option(
+            "--qr-chunk-size",
+            help=(
+                "Payload bytes per QR chunk (QR #2+ only; the first shell QR is fixed). "
+                "Lower values create more codes but are easier to scan (default: %s)."
+                % DEFAULT_KIT_CHUNK_SIZE
+            ),
+        ),
+    ] = None,
+    config: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            "-c",
+            help="Use a custom TOML configuration file.",
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    paper: Annotated[
+        str | None,
+        typer.Option(
+            "--paper",
+            "-p",
+            help="Paper size override: A4 (default) or Letter.",
+            callback=_paper_callback,
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    design: Annotated[
+        str | None,
+        typer.Option(
+            "--design",
+            help="Template design folder (auto-discovered under templates/).",
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    quiet: Annotated[
+        bool,
+        typer.Option(
+            "--quiet",
+            "-q",
+            help="Suppress progress output.",
+            rich_help_panel="Behavior",
+        ),
+    ] = False,
 ) -> None:
+    state = _ctx_state(ctx)
     config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
-    design_value = design or _ctx_value(ctx, "design")
-    quiet_value = quiet or bool(_ctx_value(ctx, "quiet"))
+    design_value = design or (state.design if state is not None else None)
+    quiet_value = quiet or (state.quiet if state is not None else False)
     _run_cli(
         functools.partial(
             _run_kit_render,
@@ -137,5 +153,5 @@ def kit(
             qr_chunk_size=qr_chunk_size,
             quiet_value=quiet_value,
         ),
-        debug=bool(_ctx_value(ctx, "debug")),
+        debug=state.debug if state is not None else False,
     )
