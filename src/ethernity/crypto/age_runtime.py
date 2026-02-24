@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""AGE encryption/decryption wrappers with normalized error handling."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -26,6 +28,8 @@ from .passphrases import DEFAULT_PASSPHRASE_WORDS, generate_passphrase
 
 @dataclass
 class AgeError(RuntimeError):
+    """Backend-specific AGE runtime failure."""
+
     backend: str
     detail: str
 
@@ -35,11 +39,15 @@ class AgeError(RuntimeError):
 
 
 def _wrap_pyrage_error(exc: Exception) -> AgeError:
+    """Normalize pyrage exceptions into `AgeError`."""
+
     detail = str(exc).strip() or exc.__class__.__name__
     return AgeError(backend="pyrage", detail=detail)
 
 
 def _encrypt_with_pyrage(data: bytes, passphrase: str) -> bytes:
+    """Encrypt bytes with pyrage passphrase mode."""
+
     try:
         return pyrage_passphrase.encrypt(data, passphrase)
     except (ValueError, TypeError, RuntimeError, OSError) as exc:
@@ -48,6 +56,8 @@ def _encrypt_with_pyrage(data: bytes, passphrase: str) -> bytes:
 
 
 def _decrypt_with_pyrage(data: bytes, passphrase: str) -> bytes:
+    """Decrypt bytes with pyrage passphrase mode."""
+
     try:
         return pyrage_passphrase.decrypt(data, passphrase)
     except (ValueError, TypeError, RuntimeError, OSError, pyrage.DecryptError) as exc:
@@ -61,6 +71,8 @@ def encrypt_bytes_with_passphrase(
     passphrase: str | None = None,
     passphrase_words: int | None = None,
 ) -> tuple[bytes, str | None]:
+    """Encrypt bytes, generating a passphrase when one is not provided."""
+
     if passphrase is None:
         words = DEFAULT_PASSPHRASE_WORDS if passphrase_words is None else passphrase_words
         passphrase = generate_passphrase(words=words)
@@ -74,6 +86,8 @@ def decrypt_bytes(
     passphrase: str,
     debug: bool = False,
 ) -> bytes:
+    """Decrypt bytes and hide backend details unless debug mode is enabled."""
+
     try:
         return _decrypt_with_pyrage(data, passphrase)
     except AgeError:

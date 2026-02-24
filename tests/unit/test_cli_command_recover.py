@@ -22,14 +22,14 @@ from unittest import mock
 import typer
 
 from ethernity.cli.commands import recover as recover_command
-from ethernity.cli.core.types import RecoverArgs
+from ethernity.cli.core.types import CliContextState, RecoverArgs
 from ethernity.cli.flows import recover as recover_flow
 from ethernity.config import RecoverDefaults
 
 
 class TestRecoverCommand(unittest.TestCase):
     def _ctx(self, **values: object) -> object:
-        return mock.Mock(obj=dict(values))
+        return mock.Mock(obj=CliContextState(**values))
 
     def _call_recover(self, ctx: object, **overrides: object) -> None:
         options = {

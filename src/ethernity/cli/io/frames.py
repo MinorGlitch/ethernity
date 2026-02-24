@@ -14,16 +14,19 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Read and classify recovery frames from text, payload, and scan inputs."""
+
 from __future__ import annotations
 
-import os
 import sys
+from pathlib import Path
 
 from ...core.bounds import MAX_QR_PAYLOAD_CHARS, MAX_RECOVERY_TEXT_BYTES
 from ...encoding.framing import Frame, FrameType, decode_frame
 from ...encoding.qr_payloads import decode_qr_payload
 from ...qr.scan import QrScanError, scan_qr_payloads
 from ..core.log import _warn
+from ..core.paths import expanduser_cli_path, expanduser_cli_paths
 from ..core.text import format_qr_input_error
 from .fallback_parser import (
     contains_fallback_markers as _contains_fallback_markers,
@@ -34,6 +37,8 @@ from .fallback_parser import (
 
 
 def format_recovery_input_error(exc: Exception) -> str:
+    """Format recovery input errors with actionable user hints."""
+
     message = str(exc)
     return format_qr_input_error(
         message,
@@ -49,7 +54,10 @@ def format_recovery_input_error(exc: Exception) -> str:
 
 
 def _read_text_lines(path: str) -> list[str]:
-    if path == "-":
+    """Read recovery text input from a file or stdin with size limits."""
+
+    normalized_path = expanduser_cli_path(path)
+    if normalized_path == "-":
         text = sys.stdin.read()
         text_bytes = len(text.encode("utf-8"))
         if text_bytes > MAX_RECOVERY_TEXT_BYTES:
@@ -58,8 +66,9 @@ def _read_text_lines(path: str) -> list[str]:
                 f"MAX_RECOVERY_TEXT_BYTES ({MAX_RECOVERY_TEXT_BYTES}): {text_bytes} bytes"
             )
     else:
+        file_path = Path(normalized_path)
         try:
-            file_bytes = os.path.getsize(path)
+            file_bytes = file_path.stat().st_size
         except OSError:
             file_bytes = None
         if file_bytes is not None and file_bytes > MAX_RECOVERY_TEXT_BYTES:
@@ -68,17 +77,17 @@ def _read_text_lines(path: str) -> list[str]:
                 f"MAX_RECOVERY_TEXT_BYTES ({MAX_RECOVERY_TEXT_BYTES}): {file_bytes} bytes"
             )
         try:
-            with open(path, "r", encoding="utf-8") as handle:
+            with file_path.open("r", encoding="utf-8") as handle:
                 text = handle.read()
         except UnicodeDecodeError as exc:
             raise ValueError(
-                f"file is not UTF-8 text: {path}. "
+                f"file is not UTF-8 text: {file_path}. "
                 "If this is a PDF or image, scan it for QR payloads instead."
             ) from exc
         except FileNotFoundError as exc:
-            raise ValueError(f"file not found: {path}") from exc
+            raise ValueError(f"file not found: {file_path}") from exc
         except OSError as exc:
-            raise ValueError(f"unable to read file: {path}") from exc
+            raise ValueError(f"unable to read file: {file_path}") from exc
         text_bytes = len(text.encode("utf-8"))
         if text_bytes > MAX_RECOVERY_TEXT_BYTES:
             raise ValueError(
@@ -89,6 +98,8 @@ def _read_text_lines(path: str) -> list[str]:
 
 
 def _frame_from_fallback(path: str) -> Frame:
+    """Decode a single fallback file into one frame."""
+
     lines = _read_text_lines(path)
     return _frame_from_fallback_lines(lines, label="fallback")
 
@@ -126,6 +137,8 @@ def _frames_from_fallback_lines(
     allow_invalid_auth: bool,
     quiet: bool,
 ) -> list[Frame]:
+    """Decode fallback lines into MAIN and optional AUTH frames."""
+
     if not _contains_fallback_markers(lines):
         return [_frame_from_fallback_lines(lines, label="fallback")]
 
@@ -146,15 +159,21 @@ def _frames_from_fallback_lines(
 
 
 def _frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bool) -> list[Frame]:
+    """Read fallback text from a path and decode frames."""
+
     lines = _read_text_lines(path)
     return _frames_from_fallback_lines(lines, allow_invalid_auth=allow_invalid_auth, quiet=quiet)
 
 
 def _non_empty_lines(lines: list[str]) -> list[str]:
+    """Return stripped non-empty lines."""
+
     return [line.strip() for line in lines if line.strip()]
 
 
 def _all_payload_lines_decode(lines: list[str]) -> bool:
+    """Return whether every non-empty line decodes as a QR payload frame."""
+
     non_empty = _non_empty_lines(lines)
     if not non_empty:
         return False
@@ -167,6 +186,8 @@ def _all_payload_lines_decode(lines: list[str]) -> bool:
 
 
 def _all_lines_match_fallback_text(lines: list[str]) -> bool:
+    """Return whether all non-empty lines look like fallback text content."""
+
     non_empty = _non_empty_lines(lines)
     if not non_empty:
         return False
@@ -175,6 +196,8 @@ def _all_lines_match_fallback_text(lines: list[str]) -> bool:
 
 
 def _detect_recovery_input_mode(lines: list[str]) -> str:
+    """Classify recovery input lines as payload list or fallback text."""
+
     if _contains_fallback_markers(lines):
         return "fallback_marked"
     if _all_payload_lines_decode(lines):
@@ -193,6 +216,8 @@ def _auth_frames_from_fallback_lines(
     allow_invalid_auth: bool,
     quiet: bool,
 ) -> list[Frame]:
+    """Decode only the AUTH fallback section from recovery text."""
+
     frame = _parse_fallback_section(
         lines,
         "auth",
@@ -207,6 +232,8 @@ def _auth_frames_from_fallback_lines(
 
 
 def _auth_frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bool) -> list[Frame]:
+    """Read and decode AUTH fallback frames from a file."""
+
     lines = _read_text_lines(path)
     return _auth_frames_from_fallback_lines(
         lines,
@@ -216,6 +243,8 @@ def _auth_frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bo
 
 
 def _frame_from_fallback_lines(lines: list[str], *, label: str) -> Frame:
+    """Decode one fallback frame from lines and warn about skipped text."""
+
     frame, skipped = _parse_fallback_frame(lines, label=label)
     if skipped:
         _warn(f"skipped {skipped} non-fallback lines ({label})", quiet=False)
@@ -228,6 +257,8 @@ def _frames_from_payload_lines(
     label: str = "QR payloads",
     source: str = "input",
 ) -> list[Frame]:
+    """Decode one QR payload per non-empty line."""
+
     frames: list[Frame] = []
     for idx, line in enumerate(lines, start=1):
         payload_text = line.strip()
@@ -243,11 +274,15 @@ def _frames_from_payload_lines(
 
 
 def _frames_from_payloads(path: str, *, label: str = "QR payloads") -> list[Frame]:
+    """Read and decode QR payload lines from a text file."""
+
     lines = _read_text_lines(path)
     return _frames_from_payload_lines(lines, label=label, source=path)
 
 
 def _auth_frames_from_payloads(path: str) -> list[Frame]:
+    """Read and validate AUTH-only payload files."""
+
     frames = _frames_from_payloads(path, label="auth QR payloads")
     for frame in frames:
         if frame.frame_type != FrameType.AUTH:
@@ -259,6 +294,8 @@ def _frames_from_shard_inputs(
     fallback_files: list[str],
     frame_files: list[str],
 ) -> list[Frame]:
+    """Load shard frames from fallback files and payload files."""
+
     frames: list[Frame] = []
     for path in fallback_files:
         frames.append(_frame_from_fallback(path))
@@ -268,8 +305,10 @@ def _frames_from_shard_inputs(
 
 
 def _frames_from_scan(paths: list[str]) -> list[Frame]:
+    """Scan PDFs/images for QR payloads and decode valid frames."""
+
     try:
-        payloads = scan_qr_payloads(paths)
+        payloads = scan_qr_payloads(expanduser_cli_paths(paths))
     except QrScanError as exc:
         raise ValueError(f"scan failed: {exc}") from exc
     if not payloads:
@@ -291,6 +330,8 @@ def _frames_from_scan(paths: list[str]) -> list[Frame]:
 
 
 def _dedupe_frames(frames: list[Frame]) -> list[Frame]:
+    """Deduplicate frames by type/index/doc_id, rejecting conflicts."""
+
     seen: dict[tuple[int, int, bytes], Frame] = {}
     deduped: list[Frame] = []
     for frame in frames:
@@ -306,6 +347,8 @@ def _dedupe_frames(frames: list[Frame]) -> list[Frame]:
 
 
 def _dedupe_auth_frames(frames: list[Frame]) -> list[Frame]:
+    """Deduplicate and validate AUTH frames."""
+
     if not frames:
         return []
     deduped = _dedupe_frames(frames)
@@ -316,6 +359,8 @@ def _dedupe_auth_frames(frames: list[Frame]) -> list[Frame]:
 
 
 def _split_main_and_auth_frames(frames: list[Frame]) -> tuple[list[Frame], list[Frame]]:
+    """Split decoded frames into MAIN and AUTH lists."""
+
     main_frames: list[Frame] = []
     auth_frames: list[Frame] = []
     for frame in frames:
@@ -333,6 +378,8 @@ def _split_main_and_auth_frames(frames: list[Frame]) -> tuple[list[Frame], list[
 
 
 def _decode_payload(text: bytes | str) -> bytes:
+    """Decode QR payload text with ASCII and size validation."""
+
     if isinstance(text, bytes):
         try:
             decoded_text = text.decode("ascii")
@@ -350,5 +397,7 @@ def _decode_payload(text: bytes | str) -> bytes:
 
 
 def _frame_from_payload_text(payload_text: bytes | str) -> Frame:
+    """Decode a QR payload text/blob into a frame."""
+
     payload = _decode_payload(payload_text)
     return decode_frame(payload)

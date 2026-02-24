@@ -24,11 +24,18 @@ from rich.traceback import install as install_rich_traceback
 
 from ...version import get_ethernity_version
 from ..api import console_err
+from .types import CliContextState
+
+
+def _enable_rich_debug_traceback() -> None:
+    """Install Rich tracebacks with locals for debug-mode CLI execution."""
+
+    install_rich_traceback(show_locals=True)
 
 
 def _run_cli(func: Callable[[], Any], *, debug: bool) -> None:
     if debug:
-        install_rich_traceback(show_locals=True)
+        _enable_rich_debug_traceback()
     try:
         result = func()
     except KeyboardInterrupt:
@@ -45,10 +52,13 @@ def _run_cli(func: Callable[[], Any], *, debug: bool) -> None:
         raise typer.Exit(code=result)
 
 
-def _ctx_value(ctx: typer.Context, key: str) -> Any:
-    if ctx.obj is None:
-        return None
-    return ctx.obj.get(key)
+def _ctx_state(ctx: typer.Context) -> CliContextState | None:
+    """Return the typed CLI context state when available."""
+
+    obj = ctx.obj
+    if isinstance(obj, CliContextState):
+        return obj
+    return None
 
 
 def _resolve_config_and_paper(
@@ -56,8 +66,9 @@ def _resolve_config_and_paper(
     config: str | None,
     paper: str | None,
 ) -> tuple[str | None, str | None]:
-    config_value = config or _ctx_value(ctx, "config")
-    paper_value = paper or _ctx_value(ctx, "paper")
+    state = _ctx_state(ctx)
+    config_value = config or (state.config if state is not None else None)
+    paper_value = paper or (state.paper if state is not None else None)
     return config_value, paper_value
 
 

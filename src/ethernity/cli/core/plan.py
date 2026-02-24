@@ -16,8 +16,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from ...crypto import MNEMONIC_WORD_COUNTS
 from .types import BackupArgs
 
@@ -61,10 +59,6 @@ def _validate_backup_args(args: BackupArgs) -> None:
             raise ValueError("shard count must be >= shard threshold")
         if args.shard_count > MAX_SHARDS:
             raise ValueError(f"shard count must be <= {MAX_SHARDS}")
-    if args.base_dir and not Path(args.base_dir).exists():
-        raise ValueError("base dir not found")
-    if args.base_dir and not Path(args.base_dir).is_dir():
-        raise ValueError("base dir is not a directory")
     if args.passphrase_words is not None:
         _validate_passphrase_words(args.passphrase_words)
 

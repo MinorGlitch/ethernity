@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Build page-level render models from layout geometry and fallback state."""
+
 from __future__ import annotations
 
 import math
@@ -197,6 +199,8 @@ def _frame_start_index(
     layout_rest: Layout | None,
     first_page_qr_slots_extra: int = 0,
 ) -> int:
+    """Return the first frame index rendered on a page."""
+
     if page_idx <= 0:
         return 0
     first_page_count = layout.per_page + max(0, int(first_page_qr_slots_extra))
@@ -303,6 +307,8 @@ def _build_fallback_blocks(
 
 
 def _recovery_has_shard_quorum(key_lines: tuple[str, ...] | list[str] | object) -> bool | None:
+    """Infer whether recovery key lines indicate shard-based recovery."""
+
     if not isinstance(key_lines, (list, tuple)):
         return None
     prefix = "Recover with "
@@ -478,6 +484,8 @@ def build_pages(
 
 
 def _page_has_content(page: PageModel) -> bool:
+    """Return whether a page model contains visible content."""
+
     if page.qr_items:
         return True
     if page.fallback_blocks:
@@ -492,6 +500,8 @@ def _sequence_geometry(
     qr_size: float,
     label_offset: float,
 ) -> QrSequenceModel | None:
+    """Build QR sequence connector lines and labels from slot geometry."""
+
     if not slots:
         return None
 

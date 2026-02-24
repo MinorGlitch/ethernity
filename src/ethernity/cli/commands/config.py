@@ -20,12 +20,13 @@ import os
 import shlex
 import subprocess
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
 from ...config import resolve_config_path
 from ..api import console
-from ..core.common import _ctx_value, _run_cli
+from ..core.common import _ctx_state, _run_cli
 
 _CONFIG_HELP = (
     "Open the active TOML config in an editor.\n\n"
@@ -45,30 +46,37 @@ def register(app: typer.Typer) -> None:
 
 def config(
     ctx: typer.Context,
-    config: str | None = typer.Option(
-        None,
-        "--config",
-        "-c",
-        help="Open this config file (overrides the default).",
-        rich_help_panel="Config",
-    ),
-    editor: str | None = typer.Option(
-        None,
-        "--editor",
-        "-e",
-        help="Editor command (defaults to $VISUAL/$EDITOR; use 'default' for system opener).",
-        rich_help_panel="Behavior",
-    ),
-    print_path: bool = typer.Option(
-        False,
-        "--print-path",
-        help="Print the resolved config path and exit.",
-        rich_help_panel="Behavior",
-    ),
+    config: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            "-c",
+            help="Open this config file (overrides the default).",
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    editor: Annotated[
+        str | None,
+        typer.Option(
+            "--editor",
+            "-e",
+            help="Editor command (defaults to $VISUAL/$EDITOR; use 'default' for system opener).",
+            rich_help_panel="Behavior",
+        ),
+    ] = None,
+    print_path: Annotated[
+        bool,
+        typer.Option(
+            "--print-path",
+            help="Print the resolved config path and exit.",
+            rich_help_panel="Behavior",
+        ),
+    ] = False,
 ) -> None:
-    config_value = config or _ctx_value(ctx, "config")
-    quiet_value = bool(_ctx_value(ctx, "quiet"))
-    debug_value = bool(_ctx_value(ctx, "debug"))
+    state = _ctx_state(ctx)
+    config_value = config or (state.config if state is not None else None)
+    quiet_value = state.quiet if state is not None else False
+    debug_value = state.debug if state is not None else False
 
     def _run() -> None:
         path = resolve_config_path(config_value)

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import sys
+from typing import Annotated
 
 import typer
 
@@ -33,7 +34,7 @@ from .api import (
 )
 from .commands.kit import _run_kit_render
 from .core.common import _get_version, _paper_callback, _resolve_config_and_paper, _run_cli
-from .core.types import BackupArgs
+from .core.types import BackupArgs, CliContextState
 from .flows.backup import run_wizard
 from .flows.recover import run_recover_wizard
 from .startup import run_startup
@@ -50,80 +51,103 @@ def _version_callback(value: bool) -> None:
 @app.callback(invoke_without_command=True)
 def cli(
     ctx: typer.Context,
-    config: str | None = typer.Option(
-        None,
-        "--config",
-        help="Use this TOML config file.",
-        rich_help_panel="Global",
-    ),
-    paper: str | None = typer.Option(
-        None,
-        "--paper",
-        help="Paper size override (A4/Letter).",
-        callback=_paper_callback,
-        rich_help_panel="Global",
-    ),
-    design: str | None = typer.Option(
-        None,
-        "--design",
-        help="Template design folder (auto-discovered under templates/).",
-        rich_help_panel="Global",
-    ),
-    debug: bool = typer.Option(
-        False,
-        "--debug",
-        help="Show plaintext debug details.",
-        rich_help_panel="Debug",
-    ),
-    debug_max_bytes: int | None = typer.Option(
-        None,
-        "--debug-max-bytes",
-        help=f"Limit debug dump size (default: {DEBUG_MAX_BYTES_DEFAULT}, 0 = no limit).",
-        show_default=str(DEBUG_MAX_BYTES_DEFAULT),
-        rich_help_panel="Debug",
-    ),
-    debug_reveal_secrets: bool = typer.Option(
-        False,
-        "--debug-reveal-secrets",
-        help=(
-            "Reveal full passphrase and private key material in debug output. "
-            "Use only in a controlled local terminal; logs and screen capture can expose secrets."
+    config: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            help="Use this TOML config file.",
+            rich_help_panel="Global",
         ),
-        rich_help_panel="Debug",
-    ),
-    quiet: bool = typer.Option(
-        False,
-        "--quiet",
-        help="Hide non-error output.",
-        rich_help_panel="Global",
-    ),
-    no_color: bool = typer.Option(
-        False,
-        "--no-color",
-        help="Disable colored output.",
-        rich_help_panel="Accessibility",
-    ),
-    no_animations: bool = typer.Option(
-        False,
-        "--no-animations",
-        help="Reduce motion by disabling spinners and animated updates.",
-        rich_help_panel="Accessibility",
-    ),
-    init_config: bool = typer.Option(
-        False,
-        "--init-config",
-        help="Copy defaults to the user config directory and exit.",
-        is_eager=True,
-        rich_help_panel="Config",
-    ),
-    version: bool = typer.Option(
-        False,
-        "--version",
-        help="Show version and exit.",
-        callback=_version_callback,
-        is_eager=True,
-        rich_help_panel="Info",
-    ),
+    ] = None,
+    paper: Annotated[
+        str | None,
+        typer.Option(
+            "--paper",
+            help="Paper size override (A4/Letter).",
+            callback=_paper_callback,
+            rich_help_panel="Global",
+        ),
+    ] = None,
+    design: Annotated[
+        str | None,
+        typer.Option(
+            "--design",
+            help="Template design folder (auto-discovered under templates/).",
+            rich_help_panel="Global",
+        ),
+    ] = None,
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            help="Show plaintext debug details.",
+            rich_help_panel="Debug",
+        ),
+    ] = False,
+    debug_max_bytes: Annotated[
+        int | None,
+        typer.Option(
+            "--debug-max-bytes",
+            help=f"Limit debug dump size (default: {DEBUG_MAX_BYTES_DEFAULT}, 0 = no limit).",
+            show_default=str(DEBUG_MAX_BYTES_DEFAULT),
+            rich_help_panel="Debug",
+        ),
+    ] = None,
+    debug_reveal_secrets: Annotated[
+        bool,
+        typer.Option(
+            "--debug-reveal-secrets",
+            help=(
+                "Reveal full passphrase and private key material in debug output. "
+                "Use only in a controlled local terminal; logs and screen capture "
+                "can expose secrets."
+            ),
+            rich_help_panel="Debug",
+        ),
+    ] = False,
+    quiet: Annotated[
+        bool,
+        typer.Option(
+            "--quiet",
+            help="Hide non-error output.",
+            rich_help_panel="Global",
+        ),
+    ] = False,
+    no_color: Annotated[
+        bool,
+        typer.Option(
+            "--no-color",
+            help="Disable colored output.",
+            rich_help_panel="Accessibility",
+        ),
+    ] = False,
+    no_animations: Annotated[
+        bool,
+        typer.Option(
+            "--no-animations",
+            help="Reduce motion by disabling spinners and animated updates.",
+            rich_help_panel="Accessibility",
+        ),
+    ] = False,
+    init_config: Annotated[
+        bool,
+        typer.Option(
+            "--init-config",
+            help="Copy defaults to the user config directory and exit.",
+            is_eager=True,
+            rich_help_panel="Config",
+        ),
+    ] = False,
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            help="Show version and exit.",
+            callback=_version_callback,
+            is_eager=True,
+            rich_help_panel="Info",
+        ),
+    ] = False,
 ) -> None:
     _ = version
     try:
@@ -156,22 +180,19 @@ def cli(
 
     configure_ui(no_color=effective_no_color, no_animations=effective_no_animations)
 
-    ctx.ensure_object(dict)
-    ctx.obj.update(
-        {
-            "config": config,
-            "paper": paper,
-            "design": design,
-            "debug": debug,
-            "debug_max_bytes": effective_debug_max_bytes,
-            "debug_reveal_secrets": debug_reveal_secrets,
-            "quiet": effective_quiet,
-            "no_color": effective_no_color,
-            "no_animations": effective_no_animations,
-            "backup_defaults": cli_defaults.backup,
-            "recover_defaults": cli_defaults.recover,
-            "runtime_defaults": cli_defaults.runtime,
-        }
+    ctx.obj = CliContextState(
+        config=config,
+        paper=paper,
+        design=design,
+        debug=debug,
+        debug_max_bytes=effective_debug_max_bytes,
+        debug_reveal_secrets=debug_reveal_secrets,
+        quiet=effective_quiet,
+        no_color=effective_no_color,
+        no_animations=effective_no_animations,
+        backup_defaults=cli_defaults.backup,
+        recover_defaults=cli_defaults.recover,
+        runtime_defaults=cli_defaults.runtime,
     )
     if ctx.invoked_subcommand is None:
         if not sys.stdin.isatty():

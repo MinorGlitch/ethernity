@@ -55,6 +55,15 @@ class TestOutputFiles(unittest.TestCase):
             _write_output(str(path), b"payload", quiet=True)
             self.assertEqual(path.read_bytes(), b"payload")
 
+    def test_write_output_expands_user_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir) / "home"
+            home.mkdir()
+            path = home / "out.bin"
+            with mock.patch.dict("os.environ", {"HOME": str(home)}, clear=False):
+                _write_output("~/out.bin", b"payload", quiet=True)
+            self.assertEqual(path.read_bytes(), b"payload")
+
     def test_permissions_hardened_on_posix(self) -> None:
         if os.name != "posix":
             self.skipTest("POSIX-only permission assertion")
@@ -137,6 +146,15 @@ class TestOutputFiles(unittest.TestCase):
             ]
             with self.assertRaisesRegex(ValueError, "unsafe output path"):
                 _write_recovered_outputs(str(out_dir), entries, quiet=True)
+
+    def test_ensure_output_dir_expands_user_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir) / "home"
+            home.mkdir()
+            with mock.patch.dict("os.environ", {"HOME": str(home)}, clear=False):
+                out_dir = _ensure_output_dir("~/vault", "deadbeef")
+            self.assertEqual(out_dir, str(home / "vault"))
+            self.assertTrue((home / "vault").is_dir())
 
 
 if __name__ == "__main__":

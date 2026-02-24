@@ -99,6 +99,15 @@ class TestKitFlowHelpers(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "unable to read bundle file"):
                     kit_module._load_kit_bundle(str(bundle_path))
 
+    def test_load_kit_bundle_custom_expands_user_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            bundle_path = home / "bundle.html"
+            bundle_path.write_bytes(b"bundle")
+            with mock.patch.dict("os.environ", {"HOME": str(home)}, clear=False):
+                self.assertEqual(kit_module._load_kit_bundle("~/bundle.html"), b"bundle")
+
     def test_load_kit_bundle_package_and_dev_fallback(self) -> None:
         fake_package = mock.Mock()
         fake_join = mock.Mock()
@@ -213,6 +222,92 @@ class TestRenderKitDocument(unittest.TestCase):
         self.assertEqual(result.chunk_count, 2)
         self.assertEqual(result.chunk_size, 256)
         validate_qr_payload_bytes.assert_called_once_with(256, b"x" * 256, config.qr_config)
+        render_frames_to_pdf.assert_called_once_with("inputs")
+
+    @mock.patch("ethernity.cli.flows.kit.render_frames_to_pdf")
+    @mock.patch("ethernity.cli.flows.kit.RenderService")
+    @mock.patch("ethernity.cli.flows.kit.status", return_value=contextlib.nullcontext(None))
+    @mock.patch("ethernity.cli.flows.kit._build_kit_qr_payloads", return_value=[b"shell", b"chunk"])
+    @mock.patch("ethernity.cli.flows.kit._validate_qr_payload_bytes")
+    @mock.patch("ethernity.cli.flows.kit._load_kit_bundle", return_value=b"bundle-bytes")
+    @mock.patch("ethernity.cli.flows.kit.apply_template_design")
+    @mock.patch("ethernity.cli.flows.kit.load_app_config")
+    def test_render_kit_qr_document_expands_output_path(
+        self,
+        load_app_config: mock.MagicMock,
+        apply_template_design: mock.MagicMock,
+        _load_kit_bundle: mock.MagicMock,
+        _validate_qr_payload_bytes: mock.MagicMock,
+        _build_kit_qr_payloads: mock.MagicMock,
+        _status: mock.MagicMock,
+        render_service_cls: mock.MagicMock,
+        _render_frames_to_pdf: mock.MagicMock,
+    ) -> None:
+        config = SimpleNamespace(qr_config=QrConfig())
+        load_app_config.return_value = config
+        apply_template_design.return_value = config
+        render_service = mock.Mock()
+        render_service.base_context.return_value = {}
+        render_service.kit_inputs.return_value = "inputs"
+        render_service_cls.return_value = render_service
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            with mock.patch.dict("os.environ", {"HOME": str(home)}, clear=False):
+                result = kit_module.render_kit_qr_document(
+                    bundle_path=None,
+                    output_path="~/kit.pdf",
+                    config_path=None,
+                    paper_size=None,
+                    design=None,
+                    chunk_size=256,
+                    quiet=True,
+                )
+        self.assertEqual(result.output_path, home / "kit.pdf")
+
+    @mock.patch("ethernity.cli.flows.kit.render_frames_to_pdf")
+    @mock.patch("ethernity.cli.flows.kit.RenderService")
+    @mock.patch("ethernity.cli.flows.kit.status", return_value=contextlib.nullcontext(None))
+    @mock.patch("ethernity.cli.flows.kit._build_kit_qr_payloads", return_value=[b"shell", b"chunk"])
+    @mock.patch("ethernity.cli.flows.kit._validate_qr_payload_bytes")
+    @mock.patch("ethernity.cli.flows.kit._load_kit_bundle", return_value=b"bundle-bytes")
+    @mock.patch("ethernity.cli.flows.kit.apply_template_design")
+    @mock.patch("ethernity.cli.flows.kit.load_app_config")
+    def test_render_kit_qr_document_explicit_chunk_size_uses_bounded_probe(
+        self,
+        load_app_config: mock.MagicMock,
+        apply_template_design: mock.MagicMock,
+        _load_kit_bundle: mock.MagicMock,
+        validate_qr_payload_bytes: mock.MagicMock,
+        _build_kit_qr_payloads: mock.MagicMock,
+        _status: mock.MagicMock,
+        render_service_cls: mock.MagicMock,
+        render_frames_to_pdf: mock.MagicMock,
+    ) -> None:
+        config = SimpleNamespace(qr_config=QrConfig())
+        load_app_config.return_value = config
+        apply_template_design.return_value = config
+        render_service = mock.Mock()
+        render_service.base_context.return_value = {}
+        render_service.kit_inputs.return_value = "inputs"
+        render_service_cls.return_value = render_service
+
+        huge = kit_module._MAX_QR_PROBE_BYTES * 100
+        kit_module.render_kit_qr_document(
+            bundle_path=None,
+            output_path=None,
+            config_path=None,
+            paper_size=None,
+            design=None,
+            chunk_size=huge,
+            quiet=True,
+        )
+
+        validate_qr_payload_bytes.assert_called_once_with(
+            huge,
+            b"x" * kit_module._MAX_QR_PROBE_BYTES,
+            config.qr_config,
+        )
         render_frames_to_pdf.assert_called_once_with("inputs")
 
 

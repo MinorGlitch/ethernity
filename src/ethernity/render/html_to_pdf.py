@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Render HTML templates to PDF using a shared Playwright Chromium instance."""
+
 from __future__ import annotations
 
 import atexit
@@ -27,6 +29,8 @@ _BROWSER: Browser | None = None
 
 
 def _shutdown_playwright() -> None:
+    """Close cached Playwright browser resources at process shutdown."""
+
     global _BROWSER, _PLAYWRIGHT
     browser = _BROWSER
     playwright = _PLAYWRIGHT
@@ -39,6 +43,8 @@ def _shutdown_playwright() -> None:
 
 
 def _get_browser() -> Browser:
+    """Return a cached Chromium browser instance for PDF rendering."""
+
     global _BROWSER, _PLAYWRIGHT
     if _BROWSER is not None:
         return _BROWSER
@@ -54,6 +60,8 @@ def render_html_to_pdf(
     *,
     resources: Mapping[str, tuple[str, bytes]] | None = None,
 ) -> None:
+    """Render HTML to PDF, optionally serving in-memory resources via route hooks."""
+
     output_path = Path(output_path)
     browser = _get_browser()
     page = browser.new_page()
@@ -76,6 +84,8 @@ def render_html_to_pdf(
 
 
 def _route_resource(route, request, resources: Mapping[str, tuple[str, bytes]]) -> None:
+    """Serve an in-memory resource for a Playwright request or return 404."""
+
     entry = resources.get(request.url)
     if entry is None:
         route.fulfill(status=404, body=b"")

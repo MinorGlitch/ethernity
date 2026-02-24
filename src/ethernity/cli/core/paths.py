@@ -14,12 +14,27 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Shared CLI path normalization helpers."""
+
 from __future__ import annotations
 
-from ..ui.runtime import console_err
+from pathlib import Path
 
 
-def _warn(message: str, *, quiet: bool) -> None:
-    if quiet:
-        return
-    console_err.print(f"[yellow]Warning:[/yellow] {message}")
+def expanduser_cli_path(path: str | Path | None, *, preserve_stdin: bool = True) -> str | None:
+    """Normalize a user-provided CLI path while preserving stdin sentinels when requested."""
+
+    if path is None:
+        return None
+    text = str(path)
+    if preserve_stdin and text == "-":
+        return text
+    return str(Path(text).expanduser())
+
+
+def expanduser_cli_paths(paths: list[str] | tuple[str, ...] | None) -> list[str]:
+    """Normalize a sequence of user-provided CLI paths."""
+
+    if not paths:
+        return []
+    return [expanduser_cli_path(path) or str(path) for path in paths]

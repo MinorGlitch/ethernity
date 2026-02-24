@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Manifest dataclasses and encoding helpers for envelope payload metadata."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -22,11 +24,16 @@ from ..core.bounds import MAX_MANIFEST_FILES
 from ..core.validation import (
     normalize_manifest_path,
     normalize_path,
+    require_bool,
     require_bytes,
     require_dict,
+    require_int,
     require_keys,
     require_length,
     require_list,
+    require_non_empty_str,
+    require_non_negative_int,
+    require_str,
 )
 from ..encoding.cbor import dumps_canonical
 
@@ -38,6 +45,8 @@ PATH_ENCODING_PREFIX_TABLE = "prefix_table"
 
 @dataclass(frozen=True)
 class ManifestFile:
+    """One file entry stored in the envelope manifest."""
+
     path: str
     size: int
     sha256: bytes
@@ -51,6 +60,8 @@ class ManifestFile:
         )
 
     def to_dict(self) -> dict[str, object]:
+        """Return a debug-friendly dictionary form of the manifest entry."""
+
         return {
             "path": self.path,
             "size": self.size,
@@ -61,6 +72,8 @@ class ManifestFile:
 
 @dataclass(frozen=True)
 class EnvelopeManifest:
+    """Envelope manifest metadata and file list."""
+
     format_version: int
     created_at: float
     sealed: bool
@@ -70,6 +83,8 @@ class EnvelopeManifest:
     input_roots: tuple[str, ...] = ()
 
     def to_cbor(self) -> dict[str, object]:
+        """Build the canonical manifest CBOR map, selecting the shortest path encoding."""
+
         if not self.files:
             raise ValueError("manifest files are required")
         if len(self.files) > MAX_MANIFEST_FILES:
@@ -122,6 +137,8 @@ class EnvelopeManifest:
         return direct_manifest
 
     def to_dict(self) -> dict[str, object]:
+        """Return a debug-friendly dictionary form of the manifest."""
+
         return {
             "format_version": self.format_version,
             "created_at": self.created_at,
@@ -134,6 +151,8 @@ class EnvelopeManifest:
 
     @classmethod
     def from_cbor(cls, data: object) -> "EnvelopeManifest":
+        """Decode and validate a manifest object from parsed CBOR."""
+
         validated = require_dict(data, label="manifest")
         require_keys(
             validated,
@@ -157,22 +176,18 @@ class EnvelopeManifest:
         input_roots = validated["input_roots"]
         path_encoding = validated["path_encoding"]
         files_raw = validated["files"]
-        if not isinstance(format_version, int):
-            raise ValueError("manifest version must be an int")
+        format_version = require_int(format_version, label="manifest version")
         if format_version != MANIFEST_VERSION:
             raise ValueError(f"unsupported manifest version: {format_version}")
         if not isinstance(created_at, (int, float)):
             raise ValueError("manifest created must be a number")
-        if not isinstance(sealed, bool):
-            raise ValueError("manifest sealed must be a boolean")
-        if not isinstance(input_origin, str):
-            raise ValueError("manifest input_origin must be a string")
+        sealed = require_bool(sealed, label="manifest sealed")
+        input_origin = require_str(input_origin, label="manifest input_origin")
         if input_origin not in {"file", "directory", "mixed"}:
             raise ValueError("manifest input_origin must be one of: file, directory, mixed")
         if not isinstance(input_roots, (list, tuple)):
             raise ValueError("manifest input_roots must be a list")
-        if not isinstance(path_encoding, str):
-            raise ValueError("manifest path_encoding must be a string")
+        path_encoding = require_str(path_encoding, label="manifest path_encoding")
         if path_encoding not in {PATH_ENCODING_DIRECT, PATH_ENCODING_PREFIX_TABLE}:
             raise ValueError("manifest path_encoding must be one of: direct, prefix_table")
         normalized_roots: list[str] = []
@@ -223,12 +238,16 @@ class EnvelopeManifest:
 
 @dataclass(frozen=True)
 class PayloadPart:
+    """Input payload part used to build an envelope manifest and payload bytes."""
+
     path: str
     data: bytes
     mtime: int | None
 
 
 def _coerce_sha256(value: object) -> bytes | None:
+    """Return a valid 32-byte hash or `None` for invalid values."""
+
     if isinstance(value, (bytes, bytearray)):
         raw = bytes(value)
         if len(raw) == 32:
@@ -238,6 +257,8 @@ def _coerce_sha256(value: object) -> bytes | None:
 
 
 def _build_prefix_table(paths: list[str]) -> tuple[str, ...]:
+    """Build a shared-prefix table for prefix-table path encoding."""
+
     counts: dict[str, int] = {}
     for path in paths:
         parts = path.split("/")
@@ -253,6 +274,8 @@ def _build_prefix_table(paths: list[str]) -> tuple[str, ...]:
 
 
 def _select_prefix(path: str, sorted_prefixes_desc: list[str]) -> str:
+    """Select the longest matching shared prefix for a path."""
+
     for prefix in sorted_prefixes_desc:
         if path.startswith(f"{prefix}/"):
             return prefix
@@ -260,12 +283,16 @@ def _select_prefix(path: str, sorted_prefixes_desc: list[str]) -> str:
 
 
 def _strip_prefix(path: str, prefix: str) -> str:
+    """Strip a selected prefix from a path for prefix-table encoding."""
+
     if not prefix:
         return path
     return path[len(prefix) + 1 :]
 
 
 def _encode_direct_files(files: tuple[ManifestFile, ...]) -> list[list[object]]:
+    """Encode manifest files using direct path entries."""
+
     encoded: list[list[object]] = []
     for entry in files:
         encoded.append([entry.path, entry.size, entry.sha256, entry.mtime])
@@ -276,6 +303,8 @@ def _encode_prefix_files(
     files: tuple[ManifestFile, ...],
     path_prefixes: tuple[str, ...],
 ) -> list[list[object]]:
+    """Encode manifest files using prefix-table path entries."""
+
     prefix_index = {prefix: idx for idx, prefix in enumerate(path_prefixes)}
     sorted_prefixes_desc = sorted(path_prefixes[1:], key=len, reverse=True)
     encoded: list[list[object]] = []
@@ -295,6 +324,8 @@ def _encode_prefix_files(
 
 
 def _decode_direct_files(files_raw: list[object]) -> list[ManifestFile]:
+    """Decode direct-encoding file entries."""
+
     files: list[ManifestFile] = []
     for entry in files_raw:
         files.append(_decode_direct_file_entry(entry))
@@ -305,6 +336,8 @@ def _decode_prefix_files(
     files_raw: list[object],
     path_prefixes: tuple[str, ...],
 ) -> list[ManifestFile]:
+    """Decode prefix-table file entries."""
+
     files: list[ManifestFile] = []
     for entry in files_raw:
         files.append(_decode_prefix_file_entry(entry, path_prefixes))
@@ -312,6 +345,8 @@ def _decode_prefix_files(
 
 
 def _decode_direct_file_entry(entry: object) -> ManifestFile:
+    """Decode and validate one direct-encoding manifest file entry."""
+
     if isinstance(entry, dict):
         raise ValueError("manifest file entry must use array encoding")
     values = require_list(entry, 4, label="manifest file entry")
@@ -323,6 +358,8 @@ def _decode_direct_file_entry(entry: object) -> ManifestFile:
 
 
 def _decode_prefix_file_entry(entry: object, path_prefixes: tuple[str, ...]) -> ManifestFile:
+    """Decode and validate one prefix-table manifest file entry."""
+
     if isinstance(entry, dict):
         raise ValueError("manifest file entry must use array encoding")
     values = require_list(entry, 5, label="manifest file entry")
@@ -331,12 +368,10 @@ def _decode_prefix_file_entry(entry: object, path_prefixes: tuple[str, ...]) -> 
     size = values[2]
     sha256 = values[3]
     mtime = values[4]
-    if not isinstance(prefix_index, int):
-        raise ValueError("manifest file prefix_index must be an int")
+    prefix_index = require_int(prefix_index, label="manifest file prefix_index")
     if prefix_index < 0 or prefix_index >= len(path_prefixes):
         raise ValueError("manifest file prefix_index out of range")
-    if not isinstance(suffix, str) or not suffix:
-        raise ValueError("manifest file suffix must be a non-empty string")
+    suffix = require_non_empty_str(suffix, label="manifest file suffix")
     prefix = path_prefixes[prefix_index]
     path = f"{prefix}/{suffix}" if prefix else suffix
     return _build_manifest_file(path=path, size=size, sha256=sha256, mtime=mtime)
@@ -349,15 +384,15 @@ def _build_manifest_file(
     sha256: object,
     mtime: object,
 ) -> ManifestFile:
-    if not isinstance(path, str) or not path:
-        raise ValueError("manifest file path must be a non-empty string")
-    if not isinstance(size, int) or size < 0:
-        raise ValueError("manifest file size must be a non-negative int")
+    """Validate manifest file fields and build a `ManifestFile`."""
+
+    path = require_non_empty_str(path, label="manifest file path")
+    size = require_non_negative_int(size, label="manifest file size")
     sha_bytes = _coerce_sha256(sha256)
     if sha_bytes is None:
         raise ValueError("manifest file hash must be 32 raw bytes")
-    if mtime is not None and not isinstance(mtime, int):
-        raise ValueError("manifest file mtime must be an int")
+    if mtime is not None:
+        mtime = require_int(mtime, label="manifest file mtime")
     return ManifestFile(
         path=path,
         size=size,
@@ -367,14 +402,15 @@ def _build_manifest_file(
 
 
 def _validate_path_prefixes(value: object) -> tuple[str, ...]:
+    """Validate and normalize manifest path prefix table values."""
+
     raw_prefixes = require_list(value, 1, label="manifest path_prefixes")
     if raw_prefixes[0] != "":
         raise ValueError("manifest path_prefixes must start with empty string")
     normalized_prefixes: list[str] = []
     seen_prefixes: set[str] = set()
     for index, prefix in enumerate(raw_prefixes):
-        if not isinstance(prefix, str):
-            raise ValueError("manifest path_prefixes values must be strings")
+        prefix = require_str(prefix, label="manifest path_prefixes values")
         if index == 0:
             normalized = ""
         else:
@@ -387,6 +423,8 @@ def _validate_path_prefixes(value: object) -> tuple[str, ...]:
 
 
 def _normalize_root_label(value: object) -> str:
+    """Normalize and validate a manifest input root label."""
+
     root = normalize_path(value, label="manifest input_root")
     root = root.strip()
     if not root:
@@ -397,6 +435,8 @@ def _normalize_root_label(value: object) -> str:
 
 
 def _validate_input_origin_roots(input_origin: str, input_roots: tuple[str, ...]) -> None:
+    """Validate `input_origin` and `input_roots` combinations."""
+
     if input_origin == "file":
         if input_roots:
             raise ValueError("manifest input_roots must be empty when input_origin is file")

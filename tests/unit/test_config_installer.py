@@ -22,6 +22,7 @@ from pathlib import Path
 from unittest import mock
 
 from ethernity.config import installer
+from ethernity.core import app_paths
 
 
 def _create_design(root: Path, name: str) -> Path:
@@ -36,32 +37,51 @@ class TestConfigInstaller(unittest.TestCase):
     def test_user_config_dir_precedence(self) -> None:
         with mock.patch.dict(
             os.environ,
-            {installer.XDG_CONFIG_ENV: "/tmp/xdg"},
+            {app_paths.XDG_CONFIG_ENV: "/tmp/xdg"},
             clear=False,
         ):
-            with mock.patch.object(installer.sys, "platform", "linux"):
-                self.assertEqual(installer._user_config_dir(), Path("/tmp/xdg/ethernity"))
+            with mock.patch.object(app_paths.sys, "platform", "linux"):
+                self.assertEqual(app_paths.user_config_dir_path(), Path("/tmp/xdg/ethernity"))
 
         with mock.patch.dict(os.environ, {}, clear=False):
-            os.environ.pop(installer.XDG_CONFIG_ENV, None)
-            with mock.patch.object(installer.sys, "platform", "darwin"):
-                with mock.patch.object(installer.Path, "home", return_value=Path("/Users/example")):
+            os.environ.pop(app_paths.XDG_CONFIG_ENV, None)
+            with mock.patch.object(app_paths.sys, "platform", "darwin"):
+                with mock.patch.object(app_paths.Path, "home", return_value=Path("/Users/example")):
                     self.assertEqual(
-                        installer._user_config_dir(),
+                        app_paths.user_config_dir_path(),
                         Path("/Users/example/.config/ethernity"),
                     )
 
         with mock.patch.dict(os.environ, {}, clear=False):
-            os.environ.pop(installer.XDG_CONFIG_ENV, None)
-            with mock.patch.object(installer.sys, "platform", "linux"):
+            os.environ.pop(app_paths.XDG_CONFIG_ENV, None)
+            with mock.patch.object(app_paths.sys, "platform", "linux"):
                 with mock.patch.object(
-                    installer, "user_config_dir", return_value="/opt/config/ethernity"
+                    app_paths,
+                    "user_config_dir",
+                    return_value="/opt/config/ethernity",
                 ):
-                    self.assertEqual(installer._user_config_dir(), Path("/opt/config/ethernity"))
+                    self.assertEqual(
+                        app_paths.user_config_dir_path(),
+                        Path("/opt/config/ethernity"),
+                    )
 
     def test_build_paths_contains_expected_required_files(self) -> None:
-        with mock.patch.object(installer, "_user_config_dir", return_value=Path("/tmp/usercfg")):
-            paths = installer._build_paths()
+        user_cfg = Path("/tmp/usercfg")
+        with mock.patch.object(installer, "user_config_dir_path", return_value=user_cfg):
+            with mock.patch.object(
+                installer, "user_templates_root_path", return_value=user_cfg / "templates"
+            ):
+                with mock.patch.object(
+                    installer,
+                    "user_templates_design_path",
+                    side_effect=lambda design: user_cfg / "templates" / design,
+                ):
+                    with mock.patch.object(
+                        installer,
+                        "user_config_file_path",
+                        return_value=user_cfg / "config.toml",
+                    ):
+                        paths = installer._build_paths()
 
         self.assertEqual(paths.user_config_dir, Path("/tmp/usercfg"))
         self.assertEqual(paths.user_templates_root, Path("/tmp/usercfg/templates"))
@@ -76,24 +96,27 @@ class TestConfigInstaller(unittest.TestCase):
             package_root = Path(tmpdir) / "package"
             user_cfg = Path(tmpdir) / "usercfg"
             with mock.patch.object(installer, "PACKAGE_ROOT", package_root):
-                with mock.patch.object(installer, "_user_config_dir", return_value=user_cfg):
-                    self.assertEqual(installer.list_template_designs(), {})
+                with mock.patch.object(installer, "user_config_dir_path", return_value=user_cfg):
+                    with mock.patch.object(
+                        installer, "user_templates_root_path", return_value=user_cfg / "templates"
+                    ):
+                        self.assertEqual(installer.list_template_designs(), {})
 
-                    templates_root = package_root / "templates"
-                    templates_root.mkdir(parents=True, exist_ok=True)
+                        templates_root = package_root / "templates"
+                        templates_root.mkdir(parents=True, exist_ok=True)
 
-                    _create_design(templates_root, "ledger")
-                    _create_design(templates_root, "maritime")
-                    _create_design(templates_root, "archive_dossier")
-                    _create_design(templates_root, "maritime_ledger")
-                    _create_design(templates_root, "midnight_archive")
-                    _create_design(templates_root, ".hidden")
-                    (templates_root / "file.txt").write_text("x", encoding="utf-8")
-                    (templates_root / "invalid").mkdir(parents=True, exist_ok=True)
-                    (templates_root / "_shared").mkdir(parents=True, exist_ok=True)
+                        _create_design(templates_root, "ledger")
+                        _create_design(templates_root, "maritime")
+                        _create_design(templates_root, "archive_dossier")
+                        _create_design(templates_root, "maritime_ledger")
+                        _create_design(templates_root, "midnight_archive")
+                        _create_design(templates_root, ".hidden")
+                        (templates_root / "file.txt").write_text("x", encoding="utf-8")
+                        (templates_root / "invalid").mkdir(parents=True, exist_ok=True)
+                        (templates_root / "_shared").mkdir(parents=True, exist_ok=True)
 
-                    user_ledger = _create_design(user_cfg / "templates", "ledger")
-                    result = installer.list_template_designs()
+                        user_ledger = _create_design(user_cfg / "templates", "ledger")
+                        result = installer.list_template_designs()
 
         self.assertEqual(set(result.keys()), {"ledger", "maritime"})
         self.assertEqual(result["ledger"], user_ledger)
@@ -154,6 +177,11 @@ class TestConfigInstaller(unittest.TestCase):
     def test_resolve_config_path_paths(self) -> None:
         explicit = installer.resolve_config_path("custom.toml")
         self.assertEqual(explicit, Path("custom.toml"))
+        with mock.patch.dict(os.environ, {"HOME": "/tmp/home"}, clear=False):
+            self.assertEqual(
+                installer.resolve_config_path("~/custom.toml"),
+                Path("/tmp/home/custom.toml"),
+            )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Render envelope templates as simple DOCX documents."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -110,6 +112,8 @@ def render_envelope_c6_docx(
     border_size_eighth_pt: int = 8,
     logo_width_mm: float = _DEFAULT_LOGO_WIDTH_MM,
 ) -> Path:
+    """Render a C6 envelope DOCX wrapper."""
+
     return render_envelope_docx(
         output_path,
         kind="c6",
@@ -130,29 +134,11 @@ def render_envelope_c5_docx(
     border_size_eighth_pt: int = 8,
     logo_width_mm: float = _DEFAULT_LOGO_WIDTH_MM,
 ) -> Path:
+    """Render a C5 envelope DOCX wrapper."""
+
     return render_envelope_docx(
         output_path,
         kind="c5",
-        logo_path=logo_path,
-        orientation=orientation,
-        border_inset_mm=border_inset_mm,
-        border_size_eighth_pt=border_size_eighth_pt,
-        logo_width_mm=logo_width_mm,
-    )
-
-
-def render_envelope_c4_docx(
-    output_path: str | Path,
-    *,
-    logo_path: str | Path | None = None,
-    orientation: EnvelopeOrientation = "portrait",
-    border_inset_mm: float = 7.0,
-    border_size_eighth_pt: int = 8,
-    logo_width_mm: float = _DEFAULT_LOGO_WIDTH_MM,
-) -> Path:
-    return render_envelope_docx(
-        output_path,
-        kind="c4",
         logo_path=logo_path,
         orientation=orientation,
         border_inset_mm=border_inset_mm,
@@ -170,6 +156,8 @@ def render_envelope_dl_docx(
     border_size_eighth_pt: int = 8,
     logo_width_mm: float = _DEFAULT_LOGO_WIDTH_MM,
 ) -> Path:
+    """Render a DL envelope DOCX wrapper."""
+
     return render_envelope_docx(
         output_path,
         kind="dl",
@@ -182,6 +170,8 @@ def render_envelope_dl_docx(
 
 
 def _remove_leading_empty_paragraph(doc: object) -> None:
+    """Remove the default empty paragraph inserted by python-docx."""
+
     paragraphs = getattr(doc, "paragraphs", [])
     if not paragraphs:
         return
@@ -199,6 +189,8 @@ def _remove_leading_empty_paragraph(doc: object) -> None:
 
 
 def _set_table_border(table: object, *, border_size_eighth_pt: int) -> None:
+    """Apply an outer border and disable inner borders on a DOCX table."""
+
     tbl = getattr(table, "_tbl", None)
     if tbl is None:
         return
@@ -224,6 +216,8 @@ def _set_table_border(table: object, *, border_size_eighth_pt: int) -> None:
 
 
 def _set_cell_margins_zero(cell: object) -> None:
+    """Set table-cell margins to zero via OOXML properties."""
+
     tc = getattr(cell, "_tc", None)
     if tc is None:
         return
@@ -241,7 +235,6 @@ def _set_cell_margins_zero(cell: object) -> None:
 
 __all__ = [
     "EnvelopeOrientation",
-    "render_envelope_c4_docx",
     "render_envelope_c5_docx",
     "render_envelope_c6_docx",
     "render_envelope_dl_docx",
