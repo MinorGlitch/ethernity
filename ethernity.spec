@@ -6,7 +6,7 @@ hiddenimports = (
     + collect_submodules("questionary")
     + collect_submodules("prompt_toolkit")
 )
-datas = collect_data_files("ethernity") + collect_data_files("playwright") + copy_metadata("ethernity")
+datas = collect_data_files("ethernity") + collect_data_files("playwright") + copy_metadata("ethernity-paper")
 
 
 a = Analysis(

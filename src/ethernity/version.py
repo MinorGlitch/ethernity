@@ -21,7 +21,7 @@ import tomllib
 from functools import lru_cache
 from pathlib import Path
 
-_PACKAGE_NAME = "ethernity"
+_PACKAGE_NAME = "ethernity-paper"
 _PYPROJECT_PATH = Path(__file__).resolve().parents[2] / "pyproject.toml"
 
 
