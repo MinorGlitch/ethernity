@@ -32,6 +32,15 @@ from ethernity.cli.io.outputs import (
 )
 
 
+def _home_env(home: Path) -> dict[str, str]:
+    env = {"HOME": str(home), "USERPROFILE": str(home)}
+    drive, tail = os.path.splitdrive(str(home))
+    if drive:
+        env["HOMEDRIVE"] = drive
+        env["HOMEPATH"] = tail or "\\"
+    return env
+
+
 class TestOutputFiles(unittest.TestCase):
     def test_ensure_output_dir_rejects_existing_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -60,7 +69,7 @@ class TestOutputFiles(unittest.TestCase):
             home = Path(tmpdir) / "home"
             home.mkdir()
             path = home / "out.bin"
-            with mock.patch.dict("os.environ", {"HOME": str(home)}, clear=False):
+            with mock.patch.dict("os.environ", _home_env(home), clear=False):
                 _write_output("~/out.bin", b"payload", quiet=True)
             self.assertEqual(path.read_bytes(), b"payload")
 
@@ -151,7 +160,7 @@ class TestOutputFiles(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
-            with mock.patch.dict("os.environ", {"HOME": str(home)}, clear=False):
+            with mock.patch.dict("os.environ", _home_env(home), clear=False):
                 out_dir = _ensure_output_dir("~/vault", "deadbeef")
             self.assertEqual(out_dir, str(home / "vault"))
             self.assertTrue((home / "vault").is_dir())
