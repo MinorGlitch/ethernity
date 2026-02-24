@@ -15,25 +15,23 @@
 
 import unittest
 
-from ethernity.render.pdf_render import (
+from ethernity.render.recovery_meta import (
     RecoveryMeta,
-    _parse_recovery_key_lines,
-    _recovery_meta_lines_extra,
+    build_recovery_meta,
+    recovery_meta_lines_extra,
 )
 
 
 class TestPdfRecoveryMeta(unittest.TestCase):
-    def test_parse_recovery_key_lines_wraps_signing_pub_lines(self) -> None:
-        key_lines = [
-            "Passphrase:",
-            "alpha beta gamma delta epsilon zeta eta theta iota",
-            "Recover with 3 of 5 shard documents.",
-            "Signing public key (hex):",
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            "Signing private key stored in separate shard documents.",
-        ]
-
-        meta = _parse_recovery_key_lines(key_lines)
+    def test_build_recovery_meta_wraps_signing_pub_lines(self) -> None:
+        meta = build_recovery_meta(
+            passphrase="alpha beta gamma delta epsilon zeta eta theta iota",
+            quorum_threshold=3,
+            quorum_shares=5,
+            signing_pub=bytes.fromhex(
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            ),
+        )
 
         self.assertEqual(meta.quorum_value, "3 of 5")
         self.assertEqual(len(meta.signing_pub_lines), 2)
@@ -48,7 +46,7 @@ class TestPdfRecoveryMeta(unittest.TestCase):
             signing_pub_lines=("abcd ef01",),
         )
 
-        self.assertEqual(_recovery_meta_lines_extra(meta), 3)
+        self.assertEqual(recovery_meta_lines_extra(meta), 3)
 
     def test_recovery_meta_lines_extra_adds_signing_label_row(self) -> None:
         meta = RecoveryMeta(
@@ -58,7 +56,7 @@ class TestPdfRecoveryMeta(unittest.TestCase):
             signing_pub_lines=("line one", "line two"),
         )
 
-        self.assertEqual(_recovery_meta_lines_extra(meta), 4)
+        self.assertEqual(recovery_meta_lines_extra(meta), 4)
 
     def test_recovery_meta_lines_extra_counts_passphrase_when_unwrapped(self) -> None:
         meta = RecoveryMeta(
@@ -68,7 +66,19 @@ class TestPdfRecoveryMeta(unittest.TestCase):
             signing_pub_lines=(),
         )
 
-        self.assertEqual(_recovery_meta_lines_extra(meta), 1)
+        self.assertEqual(recovery_meta_lines_extra(meta), 1)
+
+    def test_build_recovery_meta_requires_complete_quorum_pair(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "quorum_threshold and quorum_shares must be provided together",
+        ):
+            build_recovery_meta(
+                passphrase=None,
+                quorum_threshold=2,
+                quorum_shares=None,
+                signing_pub=None,
+            )
 
 
 if __name__ == "__main__":

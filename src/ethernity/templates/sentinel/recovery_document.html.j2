@@ -157,50 +157,33 @@
             <div class="h-full border border-gray-200 rounded bg-white overflow-hidden flex flex-col">
               {% if page.fallback_blocks %}
                 <div class="shrink-0">
+                {% set row_height_mm = page.fallback_row_height_mm if page.fallback_row_height_mm is defined and page.fallback_row_height_mm else 5.8 %}
                 {% set ns = namespace(used_rows=0) %}
                 {% for block in page.fallback_blocks %}
                   {% if loop.index0 > 0 %}
-                  <div class="h-[22px] border-b border-gray-200"></div>
+                  <div class="border-b border-gray-200" style="height: {{ '%.2f'|format(row_height_mm) }}mm"></div>
                   {% set ns.used_rows = ns.used_rows + 1 %}
                   {% endif %}
                   {% if block.title %}
-                  <div class="grid grid-cols-[34px_1fr] gap-2 px-2 h-[22px] items-center border-b border-gray-200 bg-[#faf8f4]">
+                  <div class="grid grid-cols-[34px_1fr] gap-2 px-2 items-center border-b border-gray-200 bg-[#faf8f4]" style="height: {{ '%.2f'|format(row_height_mm) }}mm">
                     <div></div>
                     <div class="text-[9px] uppercase font-black tracking-widest text-text-secondary-light">{{ block.title }}</div>
                   </div>
                   {% set ns.used_rows = ns.used_rows + 1 %}
                   {% endif %}
                   {% for line in block.lines %}
-                  <div class="grid grid-cols-[34px_1fr] gap-2 px-2 h-[22px] items-center border-b border-gray-200 text-[9px] font-mono leading-none">
+                  <div class="grid grid-cols-[34px_1fr] gap-2 px-2 items-center border-b border-gray-200 text-[9px] font-mono leading-none" style="height: {{ '%.2f'|format(row_height_mm) }}mm">
                     <span class="text-right pr-1 text-text-secondary-light">{{ '%02d' % (block.line_offset + loop.index) }}.</span>
                     <span class="tracking-normal whitespace-nowrap">{{ line }}</span>
                   </div>
                   {% set ns.used_rows = ns.used_rows + 1 %}
                   {% endfor %}
                 {% endfor %}
-                {% set has_quorum = recovery.quorum_value if recovery is defined else false %}
-                {% set has_passphrase = (recovery.passphrase_lines or recovery.passphrase) if recovery is defined else false %}
-                {% set has_signing_pub = recovery.signing_pub_lines if recovery is defined else false %}
-                {% set capacity_bonus_rows = 0 %}
-                {% if not has_quorum %}
-                  {% set capacity_bonus_rows = capacity_bonus_rows + 2 %}
-                {% endif %}
-                {% if not has_passphrase %}
-                  {% set capacity_bonus_rows = capacity_bonus_rows + 3 %}
-                {% endif %}
-                {% if not has_signing_pub %}
-                  {% set capacity_bonus_rows = capacity_bonus_rows + 3 %}
-                {% endif %}
-                {% set base_capacity_rows = page.fallback_line_capacity if page.fallback_line_capacity is defined else ns.used_rows %}
-                {% set capacity_rows = base_capacity_rows + capacity_bonus_rows %}
-                {% set visual_trim_rows = 4 %}
-                {% if capacity_rows > ns.used_rows %}
-                  {% set capacity_rows = [ns.used_rows, capacity_rows - visual_trim_rows] | max %}
-                {% endif %}
+                {% set capacity_rows = page.fallback_line_capacity if page.fallback_line_capacity is defined else ns.used_rows %}
                 {% set filler_rows = capacity_rows - ns.used_rows %}
                 {% if filler_rows > 0 %}
                   {% for _ in range(filler_rows) %}
-                  <div class="grid grid-cols-[34px_1fr] gap-2 px-2 h-[22px] items-center border-b border-gray-200">
+                  <div class="grid grid-cols-[34px_1fr] gap-2 px-2 items-center border-b border-gray-200" style="height: {{ '%.2f'|format(row_height_mm) }}mm">
                     <span></span>
                     <span></span>
                   </div>
@@ -262,11 +245,12 @@
         </div>
         <div class="flex-1 p-1.5 overflow-hidden">
           {% if page.fallback_blocks %}
+          {% set row_height_mm = page.fallback_row_height_mm if page.fallback_row_height_mm is defined and page.fallback_row_height_mm else 5.8 %}
           {% set ns = namespace(used_rows=0) %}
           <div class="grid gap-0">
             {% for block in page.fallback_blocks %}
               {% if loop.index0 > 0 %}
-              <div class="grid grid-cols-[30px_1fr_44px] gap-2 items-center h-[19px]">
+              <div class="grid grid-cols-[30px_1fr_44px] gap-2 items-center" style="height: {{ '%.2f'|format(row_height_mm) }}mm">
                 <div></div>
                 <div class="border-b border-gray-200"></div>
                 <div></div>
@@ -274,7 +258,7 @@
               {% set ns.used_rows = ns.used_rows + 1 %}
               {% endif %}
               {% if block.title %}
-              <div class="grid grid-cols-[30px_1fr_44px] gap-2 items-center h-[19px]">
+              <div class="grid grid-cols-[30px_1fr_44px] gap-2 items-center" style="height: {{ '%.2f'|format(row_height_mm) }}mm">
                 <div></div>
                 <div class="text-[8.5px] font-black uppercase tracking-widest text-text-secondary-light">{{ block.title }}</div>
                 <div></div>
@@ -282,10 +266,10 @@
               {% set ns.used_rows = ns.used_rows + 1 %}
               {% endif %}
               {% for line in block.lines %}
-              <div class="grid grid-cols-[30px_1fr_44px] gap-2 items-center h-[19px]">
+              <div class="grid grid-cols-[30px_1fr_44px] gap-2 items-center" style="height: {{ '%.2f'|format(row_height_mm) }}mm">
                 <div class="font-mono text-[11px] font-bold text-text-secondary-light text-right pr-1">{{ '%02d' % (block.line_offset + loop.index) }}</div>
-                <div class="h-[19px] border border-border-light bg-transparent px-2 flex items-center font-mono text-[9px] leading-none tracking-tight whitespace-nowrap">{{ line }}</div>
-                <div class="h-[19px] border border-dashed border-border-light bg-[#faf8f4] flex items-center justify-center">
+                <div class="border border-border-light bg-transparent px-2 flex items-center font-mono text-[9px] leading-none tracking-tight whitespace-nowrap" style="height: {{ '%.2f'|format(row_height_mm) }}mm">{{ line }}</div>
+                <div class="border border-dashed border-border-light bg-[#faf8f4] flex items-center justify-center" style="height: {{ '%.2f'|format(row_height_mm) }}mm">
                   <span class="material-symbols-outlined text-gray-400 text-[14px]">check_circle</span>
                 </div>
               </div>
@@ -296,10 +280,10 @@
             {% set filler_rows = capacity_rows - ns.used_rows %}
             {% if filler_rows > 0 %}
               {% for _ in range(filler_rows) %}
-              <div class="grid grid-cols-[30px_1fr_44px] gap-2 items-center h-[19px]">
+              <div class="grid grid-cols-[30px_1fr_44px] gap-2 items-center" style="height: {{ '%.2f'|format(row_height_mm) }}mm">
                 <div></div>
-                <div class="h-[19px] border border-border-light bg-transparent"></div>
-                <div class="h-[19px] border border-dashed border-border-light bg-[#faf8f4]"></div>
+                <div class="border border-border-light bg-transparent" style="height: {{ '%.2f'|format(row_height_mm) }}mm"></div>
+                <div class="border border-dashed border-border-light bg-[#faf8f4]" style="height: {{ '%.2f'|format(row_height_mm) }}mm"></div>
               </div>
               {% endfor %}
             {% endif %}

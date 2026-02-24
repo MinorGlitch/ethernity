@@ -51,6 +51,7 @@ class BackupArgs:
     input_dir: list[str] | None = None
     base_dir: str | None = None
     output_dir: str | None = None
+    layout_debug_dir: str | None = None
     qr_chunk_size: int | None = None
     passphrase: str | None = None
     passphrase_generate: bool = False
