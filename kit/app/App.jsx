@@ -15,7 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { useEffect, useReducer, useRef } from "microact/hooks";
+import { useEffect, useReducer, useRef, useState } from "microact/hooks";
 
 import {
   addPayloads,
@@ -43,11 +43,33 @@ import {
 
 export function App() {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
+  const [isOnline, setIsOnline] = useState(() => {
+    if (typeof navigator === "undefined") return false;
+    return Boolean(navigator.onLine);
+  });
+  const [onlineOverrideStep, setOnlineOverrideStep] = useState(0);
   const stateRef = useRef(state);
 
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sync = () => setIsOnline(Boolean(navigator.onLine));
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
+    return () => {
+      window.removeEventListener("online", sync);
+      window.removeEventListener("offline", sync);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isOnline && onlineOverrideStep !== 0) {
+      setOnlineOverrideStep(0);
+    }
+  }, [isOnline, onlineOverrideStep]);
 
   const getState = () => stateRef.current;
 
@@ -76,6 +98,72 @@ export function App() {
   const handleClearOutput = () => clearOutput(dispatch, getState);
   const handleDownloadZip = () => downloadZip(dispatch, getState);
   const handleDownloadFile = (index) => downloadExtract(dispatch, getState, index);
+  const onlineOverrideActive = isOnline && onlineOverrideStep >= 3;
+
+  if (isOnline && !onlineOverrideActive) {
+    return (
+      <main class="shell shell--blocked">
+        <section class="offline-guard-screen">
+          <div class="offline-guard-card">
+            <div class="offline-guard-kicker">Recovery Kit Locked</div>
+            <h1 class="offline-guard-title">Disconnect from the Internet</h1>
+            <p class="offline-guard-subtitle">
+              This recovery tool is intended for offline use only.
+            </p>
+            <div class="status warn offline-guard-status">
+              This device appears to be online. Disconnect all network connections before using the
+              recovery kit.
+              {"\n"}
+              {"\n"}
+              After disconnecting, keep this page open and wait for the warning to clear.
+            </div>
+            <div class="offline-guard-note">
+              The page will unlock automatically when the browser reports offline status.
+            </div>
+            <div class="offline-guard-actions">
+              {onlineOverrideStep === 0 ? (
+                <button type="button" class="secondary" onClick={() => setOnlineOverrideStep(1)}>
+                  Emergency override
+                </button>
+              ) : null}
+              {onlineOverrideStep === 1 ? (
+                <div class="offline-guard-confirm">
+                  <div class="offline-guard-confirm-text">
+                    Proceeding while online increases the risk of exposing recovery secrets.
+                  </div>
+                  <div class="row">
+                    <button type="button" class="ghost" onClick={() => setOnlineOverrideStep(0)}>
+                      Cancel
+                    </button>
+                    <button type="button" class="secondary" onClick={() => setOnlineOverrideStep(2)}>
+                      I understand the risk
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {onlineOverrideStep === 2 ? (
+                <div class="offline-guard-confirm">
+                  <div class="offline-guard-confirm-text">
+                    Confirm you want to unlock the recovery kit while this browser reports an active
+                    network connection.
+                  </div>
+                  <div class="row">
+                    <button type="button" class="ghost" onClick={() => setOnlineOverrideStep(0)}>
+                      Cancel
+                    </button>
+                    <button type="button" onClick={() => setOnlineOverrideStep(3)}>
+                      Continue while online
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main class="shell">
       <header class="app-header">
@@ -84,6 +172,20 @@ export function App() {
           <p class="app-subtitle">Offline recovery tool for decryption and extraction.</p>
         </div>
       </header>
+      {onlineOverrideActive ? (
+        <section class="panel online-override-banner">
+          <div class="row row-between">
+            <div>
+              <div class="offline-guard-kicker">Danger: Online Override Active</div>
+              <div class="sub">
+                Browser reports an active network connection. You are recovering at your own risk
+                while online, and any secrets entered here may be exposed. Disconnect immediately to
+                return to safer offline mode.
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
       <section class="workspace">
         <StepShell
           title="Enter backup data"
