@@ -337,6 +337,43 @@ light = [255, 255, 255, 128]
         self.assertEqual(config.qr_config.dark, (0, 0, 0, 255))
         self.assertEqual(config.qr_config.light, (255, 255, 255, 128))
 
+    def test_load_app_config_rejects_invalid_qr_bool_values(self) -> None:
+        for field, value in (("micro", '"maybe"'), ("micro", "2"), ("boost_error", '"maybe"')):
+            with self.subTest(field=field, value=value):
+                toml = f"""
+[qr]
+{field} = {value}
+"""
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    path = Path(tmpdir) / "config.toml"
+                    path.write_text(toml, encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, rf"qr\.{field} must be a boolean"):
+                        load_app_config(path=path)
+
+    def test_load_app_config_rejects_malformed_qr_section_type(self) -> None:
+        toml = """
+qr = 7
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "qr must be a table"):
+                load_app_config(path=path)
+
+    def test_load_app_config_rejects_malformed_qr_color_tuple(self) -> None:
+        toml = """
+[qr]
+dark = [1, 2]
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            with self.assertRaisesRegex(
+                ValueError,
+                "qr.dark must be a color string or RGB/RGBA tuple",
+            ):
+                load_app_config(path=path)
+
     def test_load_app_config_parses_cli_defaults_sections(self) -> None:
         toml = """
 [defaults.backup]
@@ -455,6 +492,19 @@ no_color = "maybe"
             path.write_text(toml, encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "ui.no_color must be a boolean"):
                 load_cli_defaults(path=path)
+
+    def test_load_cli_defaults_rejects_malformed_section_types(self) -> None:
+        cases = (
+            ("runtime = 3", "runtime must be a table"),
+            ("defaults = 3", "defaults must be a table"),
+        )
+        for toml, expected_error in cases:
+            with self.subTest(toml=toml):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    path = Path(tmpdir) / "config.toml"
+                    path.write_text(toml, encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, expected_error):
+                        load_cli_defaults(path=path)
 
 
 if __name__ == "__main__":
