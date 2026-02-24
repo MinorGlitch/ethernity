@@ -17,6 +17,7 @@
 
 export function createBaseState() {
   return {
+    revision: 0,
     mainFrames: new Map(),
     docIdHex: null,
     total: null,

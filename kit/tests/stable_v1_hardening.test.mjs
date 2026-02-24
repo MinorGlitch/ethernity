@@ -14,7 +14,7 @@ import {
   FRAME_VERSION,
   SHARD_KEY_PASSPHRASE,
 } from "../app/constants.js";
-import { parseAutoPayload, parseAutoShard } from "../app/frames.js";
+import { parseAutoPayload, parseAutoShard } from "../app/frames_parse.js";
 import { autoRecoverShardSecret } from "../app/shards.js";
 import { createInitialState } from "../app/state/initial.js";
 import { encodeCbor } from "../lib/cbor.js";

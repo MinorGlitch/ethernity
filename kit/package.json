@@ -1,6 +1,7 @@
 {
   "name": "kit",
   "version": "1.0.0",
+  "type": "module",
   "main": "app/index.jsx",
   "directories": {
     "lib": "lib"

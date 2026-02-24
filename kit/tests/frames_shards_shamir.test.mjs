@@ -12,13 +12,15 @@ import {
   SHARD_KEY_SIGNING_SEED,
 } from "../app/constants.js";
 import {
-  ensureCiphertextAndHash,
-  listMissing,
   parseAutoPayload,
   parseAutoShard,
+} from "../app/frames_parse.js";
+import { listMissing } from "../app/frame_list.js";
+import {
+  ensureCiphertextAndHash,
   reassembleCiphertext,
   syncCollectedCiphertext,
-} from "../app/frames.js";
+} from "../app/frames_cipher.js";
 import { autoRecoverShardSecret } from "../app/shards.js";
 import { createInitialState } from "../app/state/initial.js";
 import { encodeCbor } from "../lib/cbor.js";

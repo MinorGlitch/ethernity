@@ -15,7 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { formatBytes } from "../state/selectors.js";
+import { formatBytes } from "../format.js";
 
 export function Card({ title, children, className }) {
   const classes = className ? `card ${className}` : "card";

@@ -9,6 +9,7 @@ import {
   resetState,
   setStatus,
 } from "../app/state/initial.js";
+import { reducer } from "../app/state/reducer.js";
 import { decodeCanonicalCbor, decodeCbor, encodeCbor } from "../lib/cbor.js";
 import {
   bytesEqual,
@@ -127,4 +128,61 @@ test("state helpers clone and reset mutable fields safely", () => {
   assert.equal(state.shardFrames.size, 0);
   assert.equal(state.errors, 0);
   assert.equal(state.frameStatus.lines[0], "State cleared.");
+});
+
+test("reducer rejects stale state commits and bumps revision on reset", () => {
+  let state = createInitialState();
+  assert.equal(state.revision, 0);
+
+  state = reducer(state, {
+    type: "MUTATE_STATE",
+    baseRevision: state.revision,
+    mutate(next) {
+      next.payloadText = "a";
+    },
+  });
+  assert.equal(state.payloadText, "a");
+  assert.equal(state.revision, 1);
+
+  const unchanged = reducer(state, {
+    type: "MUTATE_STATE",
+    baseRevision: 0,
+    mutate(next) {
+      next.payloadText = "stale";
+    },
+  });
+  assert.equal(unchanged, state);
+  assert.equal(unchanged.payloadText, "a");
+  assert.equal(unchanged.revision, 1);
+
+  state = reducer(state, {
+    type: "MUTATE_STATE",
+    baseRevision: state.revision,
+    mutate(next) {
+      next.payloadText = "b";
+    },
+  });
+  assert.equal(state.payloadText, "b");
+  assert.equal(state.revision, 2);
+
+  state = reducer(state, { type: "RESET" });
+  assert.equal(state.revision, 3);
+  assert.equal(state.payloadText, "");
+  assert.equal(state.frameStatus.lines[0], "State cleared.");
+
+  const patched = reducer(state, {
+    type: "PATCH_STATE",
+    baseRevision: state.revision,
+    patch: { payloadText: "patch" },
+  });
+  assert.equal(patched.payloadText, "patch");
+  assert.equal(patched.revision, 4);
+
+  const stalePatched = reducer(patched, {
+    type: "PATCH_STATE",
+    baseRevision: state.revision,
+    patch: { payloadText: "stale-patch" },
+  });
+  assert.equal(stalePatched, patched);
+  assert.equal(stalePatched.payloadText, "patch");
 });
