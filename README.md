@@ -185,14 +185,14 @@ For full verification and provenance guidance, use
 `pipx` is recommended when you want isolated CLI installation:
 
 ```sh
-pipx install ethernity
+pipx install ethernity-paper
 ethernity --help
 ```
 
 `pip` is acceptable inside an existing Python environment:
 
 ```sh
-pip install ethernity
+pip install ethernity-paper
 ethernity --help
 ```
 
