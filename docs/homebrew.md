@@ -8,6 +8,10 @@ Use the source formula template at:
 
 - `scripts/homebrew_ethernity_tap.rb`
 
+This repository's supported Homebrew path is the tap/source-formula route. The
+template is a generator input and is rewritten from the selected release tag and
+`uv.lock` during the tap update workflow.
+
 It is wired for:
 
 - macOS x64
