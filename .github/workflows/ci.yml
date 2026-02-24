@@ -2,7 +2,25 @@ name: CI
 
 on:
   push:
+    paths:
+      - "src/**"
+      - "kit/**"
+      - "tests/**"
+      - "scripts/**"
+      - ".github/workflows/ci.yml"
+      - ".github/actions/**"
+      - "pyproject.toml"
+      - "uv.lock"
   pull_request:
+    paths:
+      - "src/**"
+      - "kit/**"
+      - "tests/**"
+      - "scripts/**"
+      - ".github/workflows/ci.yml"
+      - ".github/actions/**"
+      - "pyproject.toml"
+      - "uv.lock"
 
 permissions:
   contents: read
