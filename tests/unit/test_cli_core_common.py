@@ -20,6 +20,7 @@ from unittest import mock
 import typer
 
 from ethernity.cli.core import common as common_module
+from ethernity.cli.core.types import CliContextState
 
 
 class TestCliCoreCommon(unittest.TestCase):
@@ -84,14 +85,17 @@ class TestCliCoreCommon(unittest.TestCase):
         common_module._run_cli(lambda: None, debug=True)
         install_rich_traceback.assert_called_once_with(show_locals=True)
 
-    def test_ctx_value(self) -> None:
-        ctx_with_obj = SimpleNamespace(obj={"quiet": True})
+    def test_ctx_state(self) -> None:
+        ctx_with_obj = SimpleNamespace(obj=CliContextState(quiet=True))
         ctx_without_obj = SimpleNamespace(obj=None)
-        self.assertTrue(common_module._ctx_value(ctx_with_obj, "quiet"))
-        self.assertIsNone(common_module._ctx_value(ctx_without_obj, "quiet"))
+        state = common_module._ctx_state(ctx_with_obj)
+        self.assertIsNotNone(state)
+        assert state is not None
+        self.assertTrue(state.quiet)
+        self.assertIsNone(common_module._ctx_state(ctx_without_obj))
 
     def test_resolve_config_and_paper_precedence(self) -> None:
-        ctx = SimpleNamespace(obj={"config": "ctx.toml", "paper": "A4"})
+        ctx = SimpleNamespace(obj=CliContextState(config="ctx.toml", paper="A4"))
         self.assertEqual(
             common_module._resolve_config_and_paper(ctx, None, None),
             ("ctx.toml", "A4"),
