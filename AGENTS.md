@@ -84,8 +84,8 @@ conventions and a glob-based, working-tree inventory contract for contributors a
 ### Kit and Assets
 
 - Browser kit app source is under `kit/app/` and `kit/lib/`.
-- Built kit outputs live in `kit/dist/` and are copied into `src/ethernity/kit/` by
-  `kit/build_kit.mjs`.
+- Built kit outputs (lean + scanner variants) live in `kit/dist/` and are copied into
+  `src/ethernity/kit/` by `kit/build_kit.mjs`.
 - Local Material Symbols font asset:
   `src/ethernity/templates/_shared/assets/material-symbols-outlined.ttf`.
 
@@ -175,7 +175,7 @@ These paths are high-signal anchors that should remain present and accurate:
 - Render command help: `uv run ethernity render --help`
 - Envelope PDF render: `uv run ethernity render envelope-c6 --format pdf -o envelope_c6.pdf`
 - Envelope DOCX render: `uv run ethernity render envelope-c6 --format docx -o envelope_c6.docx`
-- Kit bundle rebuild: `cd kit && npm ci && node build_kit.mjs`
+- Kit bundle rebuild (requires `libdeflate-gzip`): `cd kit && npm ci && node build_kit.mjs`
 - PyInstaller local build (bash): `scripts/build_pyinstaller.sh`
 - PyInstaller local build (PowerShell): `scripts/build_pyinstaller.ps1`
 - Nuitka local build (bash): `scripts/build_nuitka.sh` with `--standalone`

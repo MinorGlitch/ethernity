@@ -68,7 +68,6 @@ formats are documented, payload structures are explicit, and release artifacts i
 - Ethernity stable v1 starts at `v1.0.0`.
 - Stable v1 backups and recovery artifacts follow the baseline in `docs/format.md` and are expected
   to remain compatible within the stable v1 release line.
-- Legacy pre-stable manifest variants are out of profile for stable v1 decoders.
 - Do not use Ethernity as your only backup path; run recovery drills and keep an independent backup.
 
 ## Who It's For / Not For
@@ -84,7 +83,6 @@ Ethernity is usually not a good fit if you need:
 
 - always-on background synchronization
 - turnkey, no-maintenance backup infrastructure
-- compatibility with pre-stable legacy variants outside the stable v1 profile
 - centralized managed recovery operated by a third-party service
 
 ## Document Previews
@@ -132,7 +130,8 @@ ethernity-{tag}-{os}-{arch}.{zip|tar.gz}
 Download and verify on Linux/macOS:
 
 ```sh
-TAG="vX.Y.Z"
+TAG="$(curl -fsSL https://api.github.com/repos/MinorGlitch/ethernity/releases/latest \
+  | sed -n 's/.*\"tag_name\": *\"\\([^\"]*\\)\".*/\\1/p' | head -n 1)"
 OS_ARCH="linux-x64"
 BASE="ethernity-${TAG}-${OS_ARCH}.tar.gz"
 
@@ -148,7 +147,7 @@ tar -xzf "${BASE}"
 Windows PowerShell equivalent:
 
 ```powershell
-$Tag = "vX.Y.Z"
+$Tag = (Invoke-RestMethod "https://api.github.com/repos/MinorGlitch/ethernity/releases/latest").tag_name
 $OsArch = "windows-x64"
 $Base = "ethernity-$Tag-$OsArch.zip"
 
@@ -162,7 +161,7 @@ Expand-Archive -Path $Base -DestinationPath .
 ```
 
 For full verification and provenance guidance, use
-[`docs/release_artifacts.md`](docs/release_artifacts.md).
+[Wiki: Release Artifacts](https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts).
 
 ### 2) Install via pipx or pip
 
@@ -222,7 +221,7 @@ For fallback-text and shard-driven recovery paths, use playbooks C and D below.
 ethernity kit --output ./recovery_kit_qr.pdf
 ```
 
-### Minimal End-to-End Happy Path
+### Quick End-to-End Verification
 
 ```sh
 # 1) Create sample input
@@ -242,159 +241,20 @@ Expected result: `cmp` exits with status `0` and recovered JSON is byte-identica
 
 ## Troubleshooting (Quick Fixes)
 
-Use this section for common onboarding blockers.
-Rows follow the onboarding sequence: install/run, verification, then recovery.
+Use the wiki troubleshooting guide for onboarding and recovery issues:
+- [Wiki: Troubleshooting](https://github.com/MinorGlitch/ethernity/wiki/Troubleshooting)
 
-| Stage | Symptom | Quick fix |
-| --- | --- | --- |
-| Install/Run | Binary fails with wrong architecture | Download the artifact matching your OS and CPU (`x64` or `arm64`). |
-| Install/Run | `playwright` errors during backup/render | Re-run the command and allow startup to install Chromium; unset `ETHERNITY_SKIP_PLAYWRIGHT_INSTALL` if set. |
-| macOS Launch | `library load disallowed by system policy` | Verify the archive first, then apply local unblock steps. See `macOS Local Unblock` below. |
-| Verification | `cosign verify-blob` fails | Verify the exact archive with the matching `.sigstore.json` bundle from the same tag. |
-| Verification | expecting `.sig`/`.pem` but release has only `.sigstore.json` | This is valid for bundle-first signing; use `cosign verify-blob --bundle ...`. |
-| Recovery Input | parser rejects mixed payload text | Split by document set and recover one mode/source at a time. |
-| Recovery Input | `manifest input_origin is required`, `manifest input_roots is required`, `manifest path_encoding is required`, or `manifest file entry must use array encoding` | Manifest schema mismatch; recreate the backup with the current release. |
-| Recovery Input | `No such option` | Use `ethernity <command> --help` and current flags (for example `--qr-chunk-size`). |
-| Recovery Validation | recovered output seems wrong | Compare hashes/bytes against a trusted source and retry with fresh inputs. |
-
-### macOS Local Unblock
-
-Symptom:
-
-- running `./ethernity` fails with `library load disallowed by system policy`.
-
-Only after `cosign verify-blob --bundle ...` succeeds:
-
-```sh
-cd ~/Downloads
-DIR="ethernity-vX.Y.Z-macos-arm64"
-
-xattr -dr com.apple.quarantine "${DIR}"
-codesign --force --deep --sign - "${DIR}/ethernity"
-"${DIR}/ethernity" --help
-```
-
-Apply this only to a trusted archive you have already verified.
-
-### Provenance Bundle Confusion
-
-Symptom:
-
-- expecting `.sig`/`.pem` files, but release includes only `.sigstore.json`.
-
-Fix:
-
-- bundle-first signing is expected
-- `.sigstore.json` is the primary verification artifact
-- `.sig`/`.pem` are optional detached files
-- verify with:
-
-```sh
-cosign verify-blob --bundle "ethernity-vX.Y.Z-linux-x64.tar.gz.sigstore.json" "ethernity-vX.Y.Z-linux-x64.tar.gz"
-```
-
-### Payload and Fallback Input Mistakes
-
-Symptom:
-
-- recovery errors mentioning invalid line format, unexpected frame type, or mixed documents.
-
-Fix:
-
-- keep one document id per recovery attempt
-- avoid copying wrapped text that inserts extra whitespace
-- retry with exact exported lines or fallback source file
-- add shard/auth inputs only from the same backup set
+For release verification and artifact provenance details, use:
+- [Wiki: Release Artifacts](https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts)
 
 ## Workflow Playbooks
 
-Use these templates as runbook starters. Keep one playbook per recovery scenario.
+Runbook templates and operator checklists now live in the wiki:
+- [Wiki: Backup Workflow](https://github.com/MinorGlitch/ethernity/wiki/Backup-Workflow)
+- [Wiki: Recovery Workflow](https://github.com/MinorGlitch/ethernity/wiki/Recovery-Workflow)
 
-### Playbook A: Single-File Secret Backup
-
-Use this when you need to protect one high-value file quickly.
-
-```sh
-ethernity backup \
-  --input ./seed-phrase.txt \
-  --output-dir ./ops/single-secret \
-  --paper A4 \
-  --design forge
-```
-
-Operator checklist:
-
-- [ ] Confirm input file is the exact intended payload
-- [ ] Separate custody of QR doc, recovery doc, and passphrase
-- [ ] Run one recovery drill from this exact artifact set
-
-### Playbook B: Directory Backup with Sharding
-
-Use this for multi-file backups where passphrase control should be distributed.
-
-```sh
-ethernity backup \
-  --input-dir ./critical-config \
-  --output-dir ./ops/sharded-config \
-  --shard-threshold 2 \
-  --shard-count 3 \
-  --signing-key-mode sharded \
-  --signing-key-shard-threshold 2 \
-  --signing-key-shard-count 3
-```
-
-Operator checklist:
-
-- [ ] Confirm threshold/count values match policy
-- [ ] Ensure each custodian receives only assigned shard document
-- [ ] Test recovery with the minimum threshold set
-
-### Playbook C: Offline Recovery from Scans
-
-Use this when restoring from camera captures, scanned pages, or exported QR frames.
-
-```sh
-ethernity recover \
-  --scan ./incident/scans \
-  --output ./incident/recovered.tar
-```
-
-If auth material is provided separately:
-
-```sh
-ethernity recover \
-  --scan ./incident/scans \
-  --auth-payloads-file ./incident/auth_payloads.txt \
-  --output ./incident/recovered.tar
-```
-
-Operator checklist:
-
-- [ ] Confirm scan directory contains only intended backup materials
-- [ ] Validate recovered output hash/bytes against a trusted reference
-- [ ] Preserve original scan exports until validation completes
-
-### Playbook D: Fallback-Text-First Recovery
-
-Use this when scans are unavailable or damaged, but fallback blocks are intact.
-
-```sh
-ethernity recover \
-  --fallback-file ./incident/recovery_fallback.txt \
-  --output ./incident/recovered.bin
-```
-
-Interactive stdin path:
-
-```sh
-cat ./incident/recovery_fallback.txt | ethernity recover --fallback-file - --output ./incident/recovered.bin
-```
-
-Operator checklist:
-
-- [ ] Preserve original fallback source before manual cleanup
-- [ ] Keep fallback/shard inputs grouped by document id
-- [ ] Verify output hash and rerun with a fresh copy on parser errors
+Use the README Quick Start above for the shortest install/backup/recovery path, then adopt a wiki
+playbook for your actual operating procedure.
 
 ## Security at a Glance
 
@@ -425,162 +285,20 @@ For format-level guarantees and bounds, use:
 
 ## How Recovery Inputs Work
 
-### Backup Data Flow
-
-```mermaid
-flowchart TD
-    A["Input files / directories"] --> B["Build payload set and metadata"]
-    B --> C["Encrypt payload (age + passphrase)"]
-    C --> D["Chunk ciphertext into frames"]
-    D --> E["Render main QR document"]
-    C --> F["Render recovery fallback document"]
-    D --> G{"Sharding enabled?"}
-    G -->|Yes| H["Split passphrase into shard payloads"]
-    H --> I["Render shard documents"]
-    I --> J{"Signing key mode?"}
-    J -->|Embedded| K["Keep signing key in main document"]
-    J -->|Sharded| L["Split signing key into shard payloads"]
-    L --> M["Render signing-key shard documents"]
-    G -->|No| N["Skip shard documents"]
-    E --> O["Write backup output directory"]
-    F --> O
-    K --> O
-    M --> O
-    N --> O
-    O --> P{"Kit index template available?"}
-    P -->|Yes| Q["Render recovery_kit_index.pdf"]
-    P -->|No| R["Finish backup outputs"]
-    Q --> R
-```
-
-### Recovery Input Data Flow
-
-```mermaid
-flowchart TD
-    A["Input Source"] --> B{"Scan files?"}
-    B -->|Yes| C["Decode QR payload lines"]
-    B -->|No| D{"Payload text lines?"}
-    D -->|Yes| E["Parse frame payloads"]
-    D -->|No| F["Parse fallback markers"]
-    C --> G["Frame validation and dedupe"]
-    E --> G
-    F --> G
-    G --> H{"Shard / auth required?"}
-    H -->|Yes| I["Collect key and auth frames"]
-    H -->|No| J["Reassemble ciphertext"]
-    I --> J
-    J --> K["Decrypt and write output"]
-```
-
-### Input Source Selection Tips
-
-| Situation | Best Input Path |
-| --- | --- |
-| Clean QR scans available | `--scan` |
-| QR lines copied from logs/exports | `--payloads-file` |
-| Scan quality poor but fallback text present | `--fallback-file` |
-| Partial scans plus shard text files | `--scan` + `--shard-fallback-file` |
+Data-flow diagrams, input-mode guidance, and recovery path selection tips now live in the wiki:
+- [Wiki: Backup Workflow](https://github.com/MinorGlitch/ethernity/wiki/Backup-Workflow)
+- [Wiki: Recovery Workflow](https://github.com/MinorGlitch/ethernity/wiki/Recovery-Workflow)
 
 ## Command Cheatsheet
 
-### Core Commands by Task
+Detailed command tables, config examples, and operator defaults moved to:
+- [Wiki: Command Cheatsheet](https://github.com/MinorGlitch/ethernity/wiki/Command-Cheatsheet)
 
-| Task | Command |
-| --- | --- |
-| Show global help | `ethernity --help` |
-| Show backup help | `ethernity backup --help` |
-| Show recover help | `ethernity recover --help` |
-| Create backup | `ethernity backup --input ./file.txt --output-dir ./backup-out` |
-| Recover from scans | `ethernity recover --scan ./scan-dir --output ./restored.bin` |
-| Recover from fallback text | `ethernity recover --fallback-file ./fallback.txt --output ./restored.bin` |
-| Generate recovery kit PDF | `ethernity kit --output ./recovery_kit_qr.pdf` |
-
-### Global Overrides
-
-| Category | Flags | Meaning | Example |
-| --- | --- | --- | --- |
-| Config | `--config` | use custom config file | `ethernity --config ./ops/config.toml backup ...` |
-| Layout | `--paper`, `--design` | override paper/design for this run | `ethernity --paper Letter --design forge backup ...` |
-| Debug | `--debug`, `--debug-max-bytes`, `--debug-reveal-secrets` | inspect internals with masked-by-default secrets | `ethernity --debug --debug-max-bytes 4096 backup ...` |
-| Output | `--quiet` | suppress non-error output | `ethernity --quiet recover ...` |
-
-Use `--debug-reveal-secrets` only in controlled environments and never in shared terminals/log collectors.
-Debug output is richer in interactive terminals and automatically falls back to plain text in redirected logs.
-
-```sh
-# Safe debug (masked secrets)
-ethernity --debug backup --input ./secret.txt --output-dir ./backup-out
-
-# Recover debug (masked secrets)
-ethernity --debug recover --scan ./backup-demo --output ./restored.bin
-```
-
-### Template Config (Design Names)
-
-Template sections in `config.toml` are design-name based.
-Use `name = "<design>"` in each template section.
-
-```toml
-[templates]
-default_name = "sentinel"
-
-[template]
-name = "sentinel"
-
-[recovery_template]
-name = "sentinel"
-
-[shard_template]
-name = "sentinel"
-
-[signing_key_shard_template]
-name = "monograph"
-
-[kit_template]
-name = "sentinel"
-```
-
-### Operator Defaults in Config
-
-Use `config.toml` defaults to reduce repeated flags.
-Resolution order is `CLI > Env > Config > built-in`.
-
-One-way boolean caveat:
-- `quiet`, `no_color`, and `no_animations` are OR-style.
-- CLI can force them on, but there are no inverse flags to force them off in this wave.
-
-Runtime/defaults notes:
-- `debug.max_bytes = 0` means unset and falls back to the CLI default behavior.
-- `ETHERNITY_RENDER_JOBS` overrides `[runtime].render_jobs` when set.
-
-```toml
-[defaults.backup]
-base_dir = ""
-output_dir = ""
-shard_threshold = 0
-shard_count = 0
-signing_key_mode = "" # embedded | sharded
-signing_key_shard_threshold = 0
-signing_key_shard_count = 0
-
-[defaults.recover]
-output = ""
-
-[ui]
-quiet = false
-no_color = false
-no_animations = false
-
-[debug]
-max_bytes = 1024
-
-[runtime]
-render_jobs = "auto" # or positive integer
-```
-
-Safety policy:
-- risky recovery bypass controls remain explicit CLI-only decisions
-- config defaults intentionally do not support `--rescue-mode` or `--yes`
+Quick references:
+- `ethernity --help`
+- `ethernity backup --help`
+- `ethernity recover --help`
+- `ethernity kit --help`
 
 ## Release Artifacts
 
@@ -614,7 +332,7 @@ cosign verify-blob --bundle "${BASE}.sigstore.json" "${BASE}"
 ```
 
 Use the full release verification guide for complete steps and troubleshooting:
-[`docs/release_artifacts.md`](docs/release_artifacts.md).
+[Wiki: Release Artifacts](https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts).
 
 ## Development Quickstart
 
@@ -634,9 +352,14 @@ uv run ruff format --check src tests
 uv run mypy src
 cd kit
 npm ci
+# Requires libdeflate-gzip (for example: apt install libdeflate-tools)
 node build_kit.mjs
 cd ..
 ```
+
+This rebuild emits both recovery kit variants:
+- `src/ethernity/kit/recovery_kit.bundle.html` (lean, default)
+- `src/ethernity/kit/recovery_kit.scanner.bundle.html` (jsQR scanner variant)
 
 Use [`CONTRIBUTING.md`](CONTRIBUTING.md) for workflow policy, expectations, and quality gates.
 

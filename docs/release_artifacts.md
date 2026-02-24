@@ -1,122 +1,23 @@
-# Release Artifacts and Verification
+# Release Artifacts (Anchor)
 
-This document defines the release packaging outputs published via GitHub Releases.
+This file remains the in-repo anchor for release artifact verification guidance.
 
-## Naming Scheme
+Detailed release artifact naming, verification workflows, provenance sidecars, and troubleshooting now
+live in the GitHub Wiki:
 
-All binary archives use:
+- [Wiki: Release Artifacts](https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts)
 
-```text
-ethernity-{tag}-{os}-{arch}.{zip|tar.gz}
-```
+## Stable Release Verification Baseline
 
-Examples:
+For each published release variant, expect:
+- the archive (`.zip` or `.tar.gz`)
+- a CycloneDX SBOM (`*.sbom.cdx.json`)
+- Sigstore bundle files (`*.sigstore.json`) for archive and SBOM
 
-- `ethernity-vX.Y.Z-linux-x64.tar.gz`
-- `ethernity-vX.Y.Z-windows-x64.zip`
+Bundle-first verification remains the canonical verification path.
 
-Archives extract into a versioned root directory:
+## Related In-Repo References
 
-```text
-ethernity-{tag}-{os}-{arch}
-```
-
-## Published Variant Matrix
-
-Current release matrix:
-
-- Linux x64 (`tar.gz`)
-- Linux arm64 (`tar.gz`)
-- macOS x64 (`tar.gz`)
-- macOS arm64 (`tar.gz`)
-- Windows x64 (`zip`)
-
-## Companion Files
-
-Each archive is published with sidecars:
-
-- `*.sbom.cdx.json` - CycloneDX SBOM
-- `*.sigstore.json` - Sigstore bundle for signed artifacts (archive and SBOM)
-- `*.sig` and `*.pem` - optional detached signature/certificate pair (may be absent)
-
-Notes:
-
-- Bundle-first verification is the canonical path.
-- If detached files are present, both `.sig` and `.pem` are expected together.
-
-## Verification Workflow
-
-### 1) Verify Sigstore bundle (recommended)
-
-```sh
-cosign verify-blob \
-  --bundle ethernity-vX.Y.Z-linux-x64.tar.gz.sigstore.json \
-  ethernity-vX.Y.Z-linux-x64.tar.gz
-```
-
-Optional stricter identity constraints:
-
-```sh
-cosign verify-blob \
-  --bundle ethernity-vX.Y.Z-linux-x64.tar.gz.sigstore.json \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp 'https://github.com/.+/.+/.github/workflows/pyinstaller.yml@refs/tags/.+' \
-  ethernity-vX.Y.Z-linux-x64.tar.gz
-```
-
-### 2) Verify detached signature (optional path)
-
-Use this only when both `.sig` and `.pem` exist:
-
-```sh
-cosign verify-blob \
-  --certificate ethernity-vX.Y.Z-linux-x64.tar.gz.pem \
-  --signature ethernity-vX.Y.Z-linux-x64.tar.gz.sig \
-  ethernity-vX.Y.Z-linux-x64.tar.gz
-```
-
-### 3) Inspect SBOM
-
-```sh
-cat ethernity-vX.Y.Z-linux-x64.sbom.cdx.json
-```
-
-## Release Integrity Expectations
-
-A complete archive set for each variant includes:
-
-- archive
-- SBOM
-- bundle files for archive/SBOM
-
-Release publishing is fail-closed: missing required variant artifacts should block publication.
-
-## Troubleshooting
-
-### Missing `.sig`/`.pem`
-
-This can be valid when bundle-first signing is used. Check for `.sigstore.json` files.
-
-### macOS blocks launch with system policy errors
-
-If execution fails with `library load disallowed by system policy`, verify the archive bundle
-first, then apply local unblock steps:
-
-```sh
-cd ~/Downloads
-DIR="ethernity-vX.Y.Z-macos-arm64"
-
-xattr -dr com.apple.quarantine "${DIR}"
-codesign --force --deep --sign - "${DIR}/ethernity"
-"${DIR}/ethernity" --help
-```
-
-Use this only for trusted artifacts that passed Sigstore verification.
-
-### Verification fails with identity constraints
-
-Confirm you are verifying the correct tag artifact and workflow identity pattern.
-
-### Wrong architecture artifact
-
-Select the archive matching your target OS and CPU architecture from the variant matrix.
+- [Format spec](format.md)
+- [Format notes](format_notes.md)
+- [Security policy](../SECURITY.md)
