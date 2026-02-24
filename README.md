@@ -8,7 +8,7 @@
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg?style=for-the-badge)](https://www.python.org/downloads/)
 
 <div align="center">
-  <img src="images/banner.png" alt="Ethernity banner" width="100%">
+  <img src="images/readme_logo.png" alt="Ethernity logo" width="320">
   <h1 align="center">Ethernity</h1>
   <p align="center">
     Secure, offline-recoverable backups with printable QR documents and a browser recovery kit.

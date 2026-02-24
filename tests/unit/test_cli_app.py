@@ -247,6 +247,7 @@ class TestCliApp(unittest.TestCase):
             config_value="cfg",
             paper_value="A4",
             design_value="forge",
+            variant_value="lean",
             qr_chunk_size=None,
             quiet_value=False,
         )

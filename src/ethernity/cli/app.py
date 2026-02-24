@@ -221,6 +221,7 @@ def cli(
                     config_value=config_value,
                     paper_value=paper_value,
                     design_value=design,
+                    variant_value="lean",
                     qr_chunk_size=None,
                     quiet_value=effective_quiet,
                 ),
