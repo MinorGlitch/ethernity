@@ -125,6 +125,15 @@ class TestKitFlowHelpers(unittest.TestCase):
         fake_package.joinpath.return_value = fake_join
         with mock.patch("ethernity.cli.flows.kit.files", return_value=fake_package):
             self.assertEqual(kit_module._load_kit_bundle(None), b"pkg")
+            fake_package.joinpath.assert_called_with(kit_module.DEFAULT_KIT_BUNDLE_NAME)
+
+        fake_package_scanner = mock.Mock()
+        fake_join_scanner = mock.Mock()
+        fake_join_scanner.read_bytes.return_value = b"scanner-pkg"
+        fake_package_scanner.joinpath.return_value = fake_join_scanner
+        with mock.patch("ethernity.cli.flows.kit.files", return_value=fake_package_scanner):
+            self.assertEqual(kit_module._load_kit_bundle(None, variant="scanner"), b"scanner-pkg")
+            fake_package_scanner.joinpath.assert_called_with(kit_module.SCANNER_KIT_BUNDLE_NAME)
 
         with tempfile.TemporaryDirectory() as tmp:
             pkg_root = Path(tmp) / "a" / "b" / "c"
@@ -136,11 +145,26 @@ class TestKitFlowHelpers(unittest.TestCase):
                 with mock.patch("ethernity.cli.flows.kit.PACKAGE_ROOT", pkg_root):
                     self.assertEqual(kit_module._load_kit_bundle(None), b"dev")
 
+            scanner_candidate = (
+                pkg_root.parents[2] / "kit" / "dist" / kit_module.SCANNER_KIT_BUNDLE_NAME
+            )
+            scanner_candidate.write_bytes(b"scanner-dev")
+            with mock.patch("ethernity.cli.flows.kit.files", side_effect=FileNotFoundError):
+                with mock.patch("ethernity.cli.flows.kit.PACKAGE_ROOT", pkg_root):
+                    self.assertEqual(
+                        kit_module._load_kit_bundle(None, variant="scanner"), b"scanner-dev"
+                    )
+            scanner_candidate.unlink()
+
             candidate.unlink()
             with mock.patch("ethernity.cli.flows.kit.files", side_effect=ModuleNotFoundError):
                 with mock.patch("ethernity.cli.flows.kit.PACKAGE_ROOT", pkg_root):
                     with self.assertRaisesRegex(FileNotFoundError, "Recovery kit bundle not found"):
                         kit_module._load_kit_bundle(None)
+
+    def test_load_kit_bundle_rejects_invalid_variant(self) -> None:
+        with self.assertRaisesRegex(ValueError, "variant must be 'lean' or 'scanner'"):
+            kit_module._load_kit_bundle(None, variant="weird")
 
 
 class TestRenderKitDocument(unittest.TestCase):
@@ -180,6 +204,7 @@ class TestRenderKitDocument(unittest.TestCase):
             config_path=None,
             paper_size="A4",
             design="forge",
+            variant="lean",
             chunk_size=None,
             quiet=True,
         )
@@ -224,6 +249,7 @@ class TestRenderKitDocument(unittest.TestCase):
             config_path="cfg.toml",
             paper_size=None,
             design=None,
+            variant="lean",
             chunk_size=256,
             quiet=False,
         )
@@ -270,6 +296,7 @@ class TestRenderKitDocument(unittest.TestCase):
                     config_path=None,
                     paper_size=None,
                     design=None,
+                    variant="lean",
                     chunk_size=256,
                     quiet=True,
                 )
@@ -309,6 +336,7 @@ class TestRenderKitDocument(unittest.TestCase):
             config_path=None,
             paper_size=None,
             design=None,
+            variant="lean",
             chunk_size=huge,
             quiet=True,
         )

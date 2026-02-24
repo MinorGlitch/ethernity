@@ -128,19 +128,24 @@ jobs:
           cache: "npm"
           cache-dependency-path: kit/package-lock.json
 
-      - name: Verify committed bundle exists
+      - name: Verify committed bundles exist
         run: |
-          if [ ! -f src/ethernity/kit/recovery_kit.bundle.html ]; then
-            echo "ERROR: No committed bundle found at src/ethernity/kit/recovery_kit.bundle.html"
-            echo "Run 'cd kit && node build_kit.mjs' and commit the bundle."
-            exit 1
-          fi
-          SIZE=$(stat -c%s src/ethernity/kit/recovery_kit.bundle.html 2>/dev/null || stat -f%z src/ethernity/kit/recovery_kit.bundle.html)
-          echo "Committed bundle size: $SIZE bytes"
-          if [ "$SIZE" -lt 1000 ]; then
-            echo "ERROR: Bundle seems too small, may be corrupted"
-            exit 1
-          fi
+          for BUNDLE in \
+            src/ethernity/kit/recovery_kit.bundle.html \
+            src/ethernity/kit/recovery_kit.scanner.bundle.html
+          do
+            if [ ! -f "$BUNDLE" ]; then
+              echo "ERROR: No committed bundle found at $BUNDLE"
+              echo "Run 'cd kit && node build_kit.mjs' and commit the bundles."
+              exit 1
+            fi
+            SIZE=$(stat -c%s "$BUNDLE" 2>/dev/null || stat -f%z "$BUNDLE")
+            echo "Committed bundle size ($BUNDLE): $SIZE bytes"
+            if [ "$SIZE" -lt 1000 ]; then
+              echo "ERROR: Bundle seems too small, may be corrupted: $BUNDLE"
+              exit 1
+            fi
+          done
 
       - name: Install kit dependencies
         working-directory: kit
@@ -173,7 +178,11 @@ jobs:
         run: |
           echo "Build completed successfully"
           ls -la src/ethernity/kit/recovery_kit.bundle.html
+          ls -la src/ethernity/kit/recovery_kit.scanner.bundle.html
           ls -la kit/dist/
 
-      - name: Verify bundle is up to date
-        run: git diff --exit-code -- src/ethernity/kit/recovery_kit.bundle.html
+      - name: Verify bundles are up to date
+        run: |
+          git diff --exit-code -- \
+            src/ethernity/kit/recovery_kit.bundle.html \
+            src/ethernity/kit/recovery_kit.scanner.bundle.html

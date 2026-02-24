@@ -49,6 +49,7 @@ class TestKitCommand(unittest.TestCase):
             config_value=None,
             paper_value=None,
             design_value=None,
+            variant_value="lean",
             qr_chunk_size=None,
             quiet_value=True,
         )
@@ -60,6 +61,7 @@ class TestKitCommand(unittest.TestCase):
             config_value=None,
             paper_value=None,
             design_value=None,
+            variant_value="lean",
             qr_chunk_size=None,
             quiet_value=False,
         )
@@ -94,6 +96,7 @@ class TestKitCommand(unittest.TestCase):
             config_value="ctx.toml",
             paper_value="LETTER",
             design_value="forge",
+            variant_value="lean",
             qr_chunk_size=512,
             quiet_value=True,
         )

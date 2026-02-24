@@ -2,6 +2,9 @@
   "name": "kit",
   "version": "1.0.0",
   "type": "module",
+  "imports": {
+    "#kit-scanner-runtime": "./app/hooks/useQrScannerRuntime.js"
+  },
   "main": "app/index.jsx",
   "directories": {
     "lib": "lib"
@@ -19,6 +22,7 @@
   },
   "dependencies": {
     "@noble/ciphers": "^2.1.1",
-    "@noble/hashes": "^2.0.1"
+    "@noble/hashes": "^2.0.1",
+    "jsqr": "^1.4.0"
   }
 }

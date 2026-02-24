@@ -197,11 +197,29 @@ h1,h2,h3 { margin: 0; font-weight: 600; }
 }
 .scan-video {
   width: 100%;
-  max-height: 220px;
+  max-height: 340px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #e5ebf3;
-  object-fit: cover;
+  object-fit: contain;
+}
+.scan-preview {
+  position: relative;
+  display: grid;
+}
+.scan-box {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(68%, 280px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(31, 95, 206, 0.95);
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.75),
+    0 0 0 9999px rgba(15, 23, 42, 0.1) inset;
+  pointer-events: none;
 }
 .scan-status { white-space: pre-wrap; }
 textarea,
@@ -328,6 +346,7 @@ thead { color: var(--muted); font-size: 11px; }
   .offline-guard-title { font-size: 22px; }
   .offline-guard-subtitle { font-size: 13px; }
   .offline-guard-confirm { padding: 10px; }
+  .scan-video { max-height: 280px; }
   .diag-row { grid-template-columns: 1fr; }
 }
 
