@@ -20,17 +20,12 @@ import { useEffect, useReducer, useRef } from "microact/hooks";
 import {
   addPayloads,
   addShardPayloads,
-  clearOutput,
   copyRecoveredSecret,
-  decryptCiphertext,
-  downloadCipher,
-  downloadEnvelope,
-  downloadExtract,
-  downloadZip,
-  extractEnvelope,
   resetAll,
   updateField,
-} from "./actions.js";
+} from "./actions_collect.js";
+import { clearOutput, decryptCiphertext, extractEnvelope } from "./actions_recover.js";
+import { downloadCipher, downloadEnvelope, downloadExtract, downloadZip } from "./actions_export.js";
 import { DecryptSection } from "./components/DecryptSection.jsx";
 import { FrameCollector } from "./components/FrameCollector.jsx";
 import { RecoveredFiles } from "./components/RecoveredFiles.jsx";

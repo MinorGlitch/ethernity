@@ -18,7 +18,7 @@
 import { bytesToHex } from "../lib/encoding.js";
 import { recoverSecretFromShards } from "../lib/shamir.js";
 import { SHARD_KEY_PASSPHRASE, SHARD_KEY_SIGNING_SEED, textDecoder } from "./constants.js";
-import { ensureCiphertextAndHash } from "./frames.js";
+import { ensureCiphertextAndHash } from "./frames_cipher.js";
 import { setStatus } from "./state/initial.js";
 
 function setShardStatus(state, statusPrefix, line, type) {

@@ -6,7 +6,8 @@ import test from "node:test";
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import { extractFiles } from "../app/envelope.js";
-import { ensureCiphertextAndHash, parseAutoPayload, parseAutoShard } from "../app/frames.js";
+import { ensureCiphertextAndHash } from "../app/frames_cipher.js";
+import { parseAutoPayload, parseAutoShard } from "../app/frames_parse.js";
 import { autoRecoverShardSecret } from "../app/shards.js";
 import { createInitialState } from "../app/state/initial.js";
 import { decryptAgePassphrase } from "../lib/age_scrypt.js";

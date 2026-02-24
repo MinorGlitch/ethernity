@@ -15,7 +15,8 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { listMissing } from "../frames.js";
+import { formatBytes } from "../format.js";
+import { listMissing } from "../frame_list.js";
 import { SHARD_KEY_PASSPHRASE, SHARD_KEY_SIGNING_SEED } from "../constants.js";
 
 const TONE_IDLE = "idle";
@@ -29,19 +30,6 @@ function diagItem(label, value, tone, detail, code = false) {
 
 function countTone(value, warnTone = TONE_WARN) {
   return value > 0 ? warnTone : TONE_OK;
-}
-
-export function formatBytes(value) {
-  if (!Number.isFinite(value) || value <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let size = value;
-  let unitIdx = 0;
-  while (size >= 1024 && unitIdx < units.length - 1) {
-    size /= 1024;
-    unitIdx += 1;
-  }
-  const precision = size >= 100 || unitIdx === 0 ? 0 : size >= 10 ? 1 : 2;
-  return `${size.toFixed(precision)} ${units[unitIdx]}`;
 }
 
 function describeMissingFrames(state) {

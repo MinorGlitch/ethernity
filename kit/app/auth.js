@@ -18,7 +18,7 @@
 import { concatBytes, bytesToHex } from "../lib/encoding.js";
 import { encodeCbor } from "../lib/cbor.js";
 import { AUTH_DOMAIN, AUTH_VERSION, textEncoder } from "./constants.js";
-import { ensureCiphertextAndHash } from "./frames.js";
+import { ensureCiphertextAndHash } from "./frames_cipher.js";
 
 let authStatusPending = false;
 

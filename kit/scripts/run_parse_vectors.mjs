@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
-import { parseAutoPayload, parseAutoShard } from "../app/frames.js";
+import { parseAutoPayload, parseAutoShard } from "../app/frames_parse.js";
 import { createInitialState } from "../app/state/initial.js";
 
 if (typeof globalThis.atob !== "function") {

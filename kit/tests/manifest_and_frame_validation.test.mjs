@@ -12,7 +12,7 @@ import {
   FRAME_TYPE_MAIN,
   SHARD_KEY_PASSPHRASE,
 } from "../app/constants.js";
-import { parseAutoPayload, parseAutoShard } from "../app/frames.js";
+import { parseAutoPayload, parseAutoShard } from "../app/frames_parse.js";
 import { createInitialState } from "../app/state/initial.js";
 import { encodeCbor } from "../lib/cbor.js";
 import { buildFrame, concatBytes, encodeUvarint, ensureAtob, toUnpaddedBase64 } from "./test_helpers.mjs";
