@@ -228,7 +228,7 @@ jobs:
           python-version: "3.13"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -262,7 +262,7 @@ jobs:
         run: uv run python scripts/package_pyinstaller.py
 
       - name: Upload packaged artifacts
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@47309c993abb98030a35d55ef7ff34b7fa1074b5 # v6
         with:
           name: release-build-${{ matrix.artifact_os }}-${{ matrix.artifact_arch }}
           if-no-files-found: error
@@ -288,7 +288,7 @@ jobs:
           python-version: "3.13"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -346,7 +346,7 @@ jobs:
           done
 
       - name: Upload provenance artifacts
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@47309c993abb98030a35d55ef7ff34b7fa1074b5 # v6
         with:
           name: release-provenance
           if-no-files-found: error
@@ -435,7 +435,7 @@ jobs:
           done
 
       - name: Publish release
-        uses: softprops/action-gh-release@a6c7483a42ee9d5daced968f6c217562cd680f7f # v2.0.0
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           tag_name: ${{ needs.precheck.outputs.tag }}
           prerelease: ${{ needs.precheck.outputs.prerelease == 'true' }}
