@@ -200,17 +200,17 @@ def build_qr_config(cfg: dict[str, object] | None = None) -> QrConfig:
     """Build QR rendering config from a parsed TOML section."""
 
     cfg = cfg or {}
-    boost_error = _parse_optional_bool(cfg.get("boost_error"))
+    boost_error = _parse_optional_bool(cfg.get("boost_error"), field="qr.boost_error")
     return QrConfig(
         error=str(cfg.get("error", "Q")),
         scale=_parse_int(cfg.get("scale"), default=4),
         border=_parse_int(cfg.get("border"), default=4),
         kind=str(cfg.get("kind", "png")),
-        dark=_parse_color(cfg.get("dark")),
-        light=_parse_color(cfg.get("light")),
+        dark=_parse_color(cfg.get("dark"), field="qr.dark"),
+        light=_parse_color(cfg.get("light"), field="qr.light"),
         version=_parse_optional_int(cfg.get("version")),
         mask=_parse_optional_int(cfg.get("mask")),
-        micro=_parse_optional_bool(cfg.get("micro")),
+        micro=_parse_optional_bool(cfg.get("micro"), field="qr.micro"),
         boost_error=True if boost_error is None else boost_error,
     )
 
@@ -370,22 +370,28 @@ def _load_toml(path: Path) -> dict[str, object]:
 
 
 def _get_dict(data: dict[str, object], key: str) -> dict[str, object]:
-    """Return a dict section or an empty dict when absent or malformed."""
+    """Return a dict section or an empty dict when absent."""
 
     value = data.get(key)
+    if value is None:
+        return {}
     if isinstance(value, dict):
         return value
-    return {}
+    raise ValueError(f"{key} must be a table")
 
 
 def _get_nested_dict(data: dict[str, object], *keys: str) -> dict[str, object]:
     """Return a nested dict section or an empty dict when any segment is missing."""
 
     current: dict[str, object] = data
+    path_parts: list[str] = []
     for key in keys:
+        path_parts.append(key)
         value = current.get(key)
-        if not isinstance(value, dict):
+        if value is None:
             return {}
+        if not isinstance(value, dict):
+            raise ValueError(f"{'.'.join(path_parts)} must be a table")
         current = value
     return current
 
@@ -501,7 +507,11 @@ def _parse_int_strict(value: object, *, field: str) -> int:
     raise ValueError(f"{field} must be an integer")
 
 
-def _parse_color(value: object) -> str | tuple[int, int, int] | tuple[int, int, int, int] | None:
+def _parse_color(
+    value: object,
+    *,
+    field: str,
+) -> str | tuple[int, int, int] | tuple[int, int, int, int] | None:
     """Parse QR color values from strings or RGB/RGBA tuples."""
 
     if value is None:
@@ -511,11 +521,16 @@ def _parse_color(value: object) -> str | tuple[int, int, int] | tuple[int, int, 
             return None
         return value
     if isinstance(value, (list, tuple)):
-        if len(value) == 3:
-            return (int(value[0]), int(value[1]), int(value[2]))
-        if len(value) == 4:
-            return (int(value[0]), int(value[1]), int(value[2]), int(value[3]))
-    return None
+        if len(value) not in {3, 4}:
+            raise ValueError(f"{field} must be a color string or RGB/RGBA tuple")
+        channels = tuple(
+            _parse_int_strict(component, field=f"{field}[{index}]")
+            for index, component in enumerate(value)
+        )
+        if len(channels) == 3:
+            return channels
+        return cast(tuple[int, int, int, int], channels)
+    raise ValueError(f"{field} must be a color string or RGB/RGBA tuple")
 
 
 def _parse_int(value: object, *, default: int) -> int:
@@ -540,18 +555,12 @@ def _parse_optional_str(value: object) -> str | None:
     return None
 
 
-def _parse_optional_bool(value: object) -> bool | None:
-    """Parse permissive optional booleans used by legacy-compatible QR config fields."""
+def _parse_optional_bool(value: object, *, field: str) -> bool | None:
+    """Parse an optional boolean value and reject invalid coercions."""
 
     if value is None:
         return None
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return bool(value)
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return None
+    return _parse_bool(value, field=field, default=False)
 
 
 def _parse_number(value: object, *, cast: Callable[[int | float | str], _T], default: _T) -> _T:
