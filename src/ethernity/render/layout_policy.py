@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Template capability-driven layout adjustments for fallback and QR placement."""
+
 from __future__ import annotations
 
 from .doc_types import (
@@ -45,6 +47,8 @@ _SHARD_CARD_PADDING_MM = 8.0
 
 
 def resolve_layout_capabilities(inputs: RenderInputs) -> TemplateCapabilities:
+    """Load template capabilities for a render input template path."""
+
     return load_template_style(inputs.template_path).capabilities
 
 
@@ -86,6 +90,8 @@ def fallback_text_width_override_mm(
 
 
 def should_force_max_rows(*, capabilities: TemplateCapabilities) -> bool:
+    """Return whether raw QR geometry row limits should be forced."""
+
     # Card-heavy templates can overflow if rows are forced from raw QR geometry.
     return not capabilities.advanced_fallback_layout
 
@@ -98,6 +104,8 @@ def max_rows_override_for_template(
     include_instructions: bool,
     content_start_y: float,
 ) -> int | None:
+    """Adjust max QR rows for document/template combinations."""
+
     if not capabilities.advanced_fallback_layout or max_rows is None:
         return max_rows
 
@@ -235,6 +243,8 @@ def should_repeat_primary_qr_on_shard_continuation(
     capabilities: TemplateCapabilities,
     doc_type: str,
 ) -> bool:
+    """Return whether shard continuation pages should repeat the primary QR."""
+
     if not capabilities.repeat_primary_qr_on_shard_continuation:
         return False
     normalized_doc_type = _normalized_doc_type(doc_type)
@@ -247,6 +257,8 @@ def extra_main_first_page_qr_slots(
     doc_type: str,
     page_idx: int,
 ) -> int:
+    """Return extra QR slots on the first main-document page for capable templates."""
+
     if not capabilities.extra_main_first_page_qr_slot:
         return 0
     if page_idx != 0:
@@ -276,6 +288,8 @@ def _recovery_footer_reserve_mm(
 
 
 def _normalized_doc_type(doc_type: str) -> str:
+    """Normalize document type strings for capability comparisons."""
+
     return doc_type.strip().lower()
 
 

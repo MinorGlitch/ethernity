@@ -97,18 +97,13 @@ class TestDocxRender(unittest.TestCase):
                 Path("ok.docx"),
             )
             self.assertEqual(
-                docx_render.render_envelope_c4_docx("c.docx", border_inset_mm=9.0),
-                Path("ok.docx"),
-            )
-            self.assertEqual(
-                docx_render.render_envelope_dl_docx("d.docx", logo_width_mm=55.0),
+                docx_render.render_envelope_dl_docx("c.docx", logo_width_mm=55.0),
                 Path("ok.docx"),
             )
 
         self.assertEqual(render_mock.call_args_list[0].kwargs["kind"], "c6")
         self.assertEqual(render_mock.call_args_list[1].kwargs["kind"], "c5")
-        self.assertEqual(render_mock.call_args_list[2].kwargs["kind"], "c4")
-        self.assertEqual(render_mock.call_args_list[3].kwargs["kind"], "dl")
+        self.assertEqual(render_mock.call_args_list[2].kwargs["kind"], "dl")
 
     def test_remove_leading_empty_paragraph_branches(self) -> None:
         docx_render._remove_leading_empty_paragraph(SimpleNamespace(paragraphs=[]))

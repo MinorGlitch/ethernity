@@ -19,11 +19,13 @@ from __future__ import annotations
 import functools
 import sys
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
 from ...config import RecoverDefaults
-from ..core.common import _ctx_value, _paper_callback, _resolve_config_and_paper, _run_cli
+from ..core.common import _ctx_state, _paper_callback, _resolve_config_and_paper, _run_cli
+from ..core.paths import expanduser_cli_path
 from ..core.types import RecoverArgs
 from ..flows.recover import _should_use_wizard_for_recover, run_recover_command, run_recover_wizard
 
@@ -32,7 +34,7 @@ def _expand_shard_dir(shard_dir: str | None) -> list[str]:
     """Expand shard directory to list of .txt files."""
     if not shard_dir:
         return []
-    path = Path(shard_dir).expanduser()
+    path = Path(expanduser_cli_path(shard_dir, preserve_stdin=False) or "")
     if not path.exists():
         raise typer.BadParameter(f"shard directory not found: {shard_dir}")
     if not path.is_dir():
@@ -57,114 +59,145 @@ def register(app: typer.Typer) -> None:
 
 def recover(
     ctx: typer.Context,
-    fallback_file: str | None = typer.Option(
-        None,
-        "--fallback-file",
-        "-f",
-        help="Main recovery text (fallback, z-base-32, use - for stdin).",
-        rich_help_panel="Inputs",
-    ),
-    payloads_file: str | None = typer.Option(
-        None,
-        "--payloads-file",
-        help="Main QR payloads (one per line).",
-        rich_help_panel="Inputs",
-    ),
-    scan: list[str] | None = typer.Option(
-        None,
-        "--scan",
-        help="Scan path (image/PDF/dir, repeatable).",
-        rich_help_panel="Inputs",
-    ),
-    passphrase: str | None = typer.Option(
-        None,
-        "--passphrase",
-        help="Passphrase to decrypt with.",
-        rich_help_panel="Keys",
-    ),
-    shard_fallback_file: list[str] | None = typer.Option(
-        None,
-        "--shard-fallback-file",
-        help="Shard recovery text file (repeatable).",
-        rich_help_panel="Inputs",
-    ),
-    shard_dir: str | None = typer.Option(
-        None,
-        "--shard-dir",
-        help="Directory containing shard text files (auto-discovers *.txt files).",
-        rich_help_panel="Inputs",
-    ),
-    shard_payloads_file: list[str] | None = typer.Option(
-        None,
-        "--shard-payloads-file",
-        help="Shard QR payload file (repeatable).",
-        rich_help_panel="Inputs",
-    ),
-    auth_fallback_file: str | None = typer.Option(
-        None,
-        "--auth-fallback-file",
-        help="Auth recovery text (fallback, z-base-32, use - for stdin).",
-        rich_help_panel="Inputs",
-    ),
-    auth_payloads_file: str | None = typer.Option(
-        None,
-        "--auth-payloads-file",
-        help="Auth QR payloads (one per line).",
-        rich_help_panel="Inputs",
-    ),
-    output: str | None = typer.Option(
-        None,
-        "--output",
-        "-o",
-        help="Output file/dir (default: stdout).",
-        rich_help_panel="Output",
-    ),
-    allow_unsigned: bool = typer.Option(
-        False,
-        "--rescue-mode",
-        "--skip-auth-check",
-        help=(
-            "Enable rescue mode and continue without authentication verification "
-            "(legacy alias: --skip-auth-check)."
+    fallback_file: Annotated[
+        str | None,
+        typer.Option(
+            "--fallback-file",
+            "-f",
+            help="Main recovery text (fallback, z-base-32, use - for stdin).",
+            rich_help_panel="Inputs",
         ),
-        rich_help_panel="Verification",
-    ),
-    assume_yes: bool = typer.Option(
-        False,
-        "--yes",
-        "-y",
-        help="Skip confirmation prompts and proceed.",
-        rich_help_panel="Behavior",
-    ),
-    config: str | None = typer.Option(
-        None,
-        "--config",
-        help="Use this config file.",
-        rich_help_panel="Config",
-    ),
-    paper: str | None = typer.Option(
-        None,
-        "--paper",
-        help="Paper size override (A4/Letter).",
-        callback=_paper_callback,
-        rich_help_panel="Config",
-    ),
-    quiet: bool = typer.Option(
-        False,
-        "--quiet",
-        help="Hide non-error output.",
-        rich_help_panel="Behavior",
-    ),
+    ] = None,
+    payloads_file: Annotated[
+        str | None,
+        typer.Option(
+            "--payloads-file",
+            help="Main QR payloads (one per line).",
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
+    scan: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--scan",
+            help="Scan path (image/PDF/dir, repeatable).",
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
+    passphrase: Annotated[
+        str | None,
+        typer.Option(
+            "--passphrase",
+            help="Passphrase to decrypt with.",
+            rich_help_panel="Keys",
+        ),
+    ] = None,
+    shard_fallback_file: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--shard-fallback-file",
+            help="Shard recovery text file (repeatable).",
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
+    shard_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--shard-dir",
+            help="Directory containing shard text files (auto-discovers *.txt files).",
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
+    shard_payloads_file: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--shard-payloads-file",
+            help="Shard QR payload file (repeatable).",
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
+    auth_fallback_file: Annotated[
+        str | None,
+        typer.Option(
+            "--auth-fallback-file",
+            help="Auth recovery text (fallback, z-base-32, use - for stdin).",
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
+    auth_payloads_file: Annotated[
+        str | None,
+        typer.Option(
+            "--auth-payloads-file",
+            help="Auth QR payloads (one per line).",
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
+    output: Annotated[
+        str | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output file/dir (default: stdout).",
+            rich_help_panel="Output",
+        ),
+    ] = None,
+    allow_unsigned: Annotated[
+        bool,
+        typer.Option(
+            "--rescue-mode",
+            "--skip-auth-check",
+            help=(
+                "Enable rescue mode and continue without authentication verification "
+                "(legacy alias: --skip-auth-check)."
+            ),
+            rich_help_panel="Verification",
+        ),
+    ] = False,
+    assume_yes: Annotated[
+        bool,
+        typer.Option(
+            "--yes",
+            "-y",
+            help="Skip confirmation prompts and proceed.",
+            rich_help_panel="Behavior",
+        ),
+    ] = False,
+    config: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            help="Use this config file.",
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    paper: Annotated[
+        str | None,
+        typer.Option(
+            "--paper",
+            help="Paper size override (A4/Letter).",
+            callback=_paper_callback,
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    quiet: Annotated[
+        bool,
+        typer.Option(
+            "--quiet",
+            help="Hide non-error output.",
+            rich_help_panel="Behavior",
+        ),
+    ] = False,
 ) -> None:
+    state = _ctx_state(ctx)
     config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
-    quiet_value = quiet or bool(_ctx_value(ctx, "quiet"))
-    debug_value = bool(_ctx_value(ctx, "debug"))
-    defaults = _ctx_value(ctx, "recover_defaults")
+    quiet_value = quiet or (state.quiet if state is not None else False)
+    debug_value = state.debug if state is not None else False
+    defaults = state.recover_defaults if state is not None else None
     if not isinstance(defaults, RecoverDefaults):
         defaults = RecoverDefaults()
     output_value = output if output is not None else defaults.output
-    debug_max_value = int(_ctx_value(ctx, "debug_max_bytes") or 0)
-    debug_reveal_value = bool(_ctx_value(ctx, "debug_reveal_secrets"))
+    debug_max_value = state.debug_max_bytes if state is not None else 0
+    debug_reveal_value = state.debug_reveal_secrets if state is not None else False
 
     if not fallback_file and not payloads_file and not (scan or []) and not sys.stdin.isatty():
         fallback_file = "-"

@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Scan QR payloads from PDFs and images using zxingcpp and Pillow."""
+
 from __future__ import annotations
 
 import functools
@@ -29,11 +31,15 @@ import zxingcpp
 
 
 class QrScanError(RuntimeError):
+    """Raised when scan inputs cannot be read or contain no usable QR codes."""
+
     pass
 
 
 @dataclass(frozen=True)
 class QrDecoder:
+    """Decoder adapter used to scan QR payloads from paths and image bytes."""
+
     name: str
     decode_image_path: Callable[[Path], list[bytes]]
     decode_image_bytes: Callable[[bytes], list[bytes]]
@@ -43,10 +49,14 @@ _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff", ".w
 
 
 def _module(name: str, default: Any) -> Any:
+    """Return an imported module override from `sys.modules` when present."""
+
     return sys.modules.get(name, default)
 
 
 def _decode_image(image, *, zxing_module) -> list[bytes]:
+    """Decode all barcodes in an opened image object."""
+
     results = zxing_module.read_barcodes(image)
     payloads: list[bytes] = []
     for result in results:
@@ -59,16 +69,22 @@ def _decode_image(image, *, zxing_module) -> list[bytes]:
 
 
 def _decode_image_path(path: Path, *, zxing_module, image_module) -> list[bytes]:
+    """Open and decode a QR image from a filesystem path."""
+
     with image_module.open(path) as image:
         return _decode_image(image, zxing_module=zxing_module)
 
 
 def _decode_image_bytes(data: bytes, *, zxing_module, image_module) -> list[bytes]:
+    """Open and decode a QR image from in-memory image bytes."""
+
     with image_module.open(io.BytesIO(data)) as image:
         return _decode_image(image, zxing_module=zxing_module)
 
 
 def scan_qr_payloads(paths: Sequence[str | Path]) -> list[bytes]:
+    """Scan one or more paths and return decoded QR payload bytes."""
+
     decoder = _load_decoder()
     payloads: list[bytes] = []
     for path in _expand_paths(paths):
@@ -86,6 +102,8 @@ def scan_qr_payloads(paths: Sequence[str | Path]) -> list[bytes]:
 
 
 def _load_decoder() -> QrDecoder:
+    """Build the default zxingcpp/Pillow-backed QR decoder adapter."""
+
     zxing_module = _module("zxingcpp", zxingcpp)
     image_module = _module("PIL.Image", pil_image)
 
@@ -105,6 +123,8 @@ def _load_decoder() -> QrDecoder:
 
 
 def _scan_image(path: Path, decoder: QrDecoder) -> list[bytes]:
+    """Decode QR payloads from an image file."""
+
     try:
         return decoder.decode_image_path(path)
     except OSError as exc:
@@ -112,6 +132,8 @@ def _scan_image(path: Path, decoder: QrDecoder) -> list[bytes]:
 
 
 def _scan_pdf(path: Path, decoder: QrDecoder) -> list[bytes]:
+    """Decode QR payloads from all embedded page images in a PDF."""
+
     pypdf_module = _module("pypdf", pypdf)
     try:
         reader = pypdf_module.PdfReader(str(path))
@@ -130,6 +152,8 @@ def _scan_pdf(path: Path, decoder: QrDecoder) -> list[bytes]:
 
 
 def _expand_paths(paths: Sequence[str | Path]) -> Iterable[Path]:
+    """Expand path inputs, recursing into directories for supported scan files."""
+
     for raw in paths:
         path = Path(raw)
         if not path.exists():
@@ -144,6 +168,8 @@ def _expand_paths(paths: Sequence[str | Path]) -> Iterable[Path]:
 
 
 def _iter_scan_files(directory: Path) -> list[Path]:
+    """Collect supported scan files from a directory tree."""
+
     files: list[Path] = []
     for path in sorted(directory.rglob("*")):
         if not path.is_file():

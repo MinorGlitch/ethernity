@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Shamir-based shard payload encoding, decoding, split, and recovery helpers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,7 +23,13 @@ from typing import Any, cast
 
 from Crypto.Protocol.SecretSharing import Shamir
 
-from ..core.validation import require_bytes, require_dict, require_keys, require_length
+from ..core.validation import (
+    require_bytes,
+    require_dict,
+    require_keys,
+    require_length,
+    require_positive_int,
+)
 from ..encoding.cbor import dumps_canonical, loads_canonical
 from .signing import DOC_HASH_LEN, ED25519_PUB_LEN, ED25519_SEED_LEN, ED25519_SIG_LEN, sign_shard
 
@@ -34,6 +42,8 @@ MAX_SHARES = 255
 
 @dataclass(frozen=True)
 class ShardPayload:
+    """Signed shard payload metadata and share bytes."""
+
     share_index: int
     threshold: int
     share_count: int
@@ -54,6 +64,8 @@ def split_passphrase(
     sign_priv: bytes,
     sign_pub: bytes,
 ) -> list[ShardPayload]:
+    """Split a passphrase into signed shard payloads."""
+
     secret = passphrase.encode("utf-8")
     if not secret:
         raise ValueError("passphrase cannot be empty")
@@ -77,6 +89,8 @@ def split_signing_seed(
     sign_priv: bytes,
     sign_pub: bytes,
 ) -> list[ShardPayload]:
+    """Split an Ed25519 signing seed into signed shard payloads."""
+
     if not seed:
         raise ValueError("signing seed cannot be empty")
     return _split_secret(
@@ -91,15 +105,21 @@ def split_signing_seed(
 
 
 def recover_passphrase(shares: list[ShardPayload]) -> str:
+    """Recover a UTF-8 passphrase from shard payloads."""
+
     secret = _recover_secret(shares, key_type=KEY_TYPE_PASSPHRASE)
     return secret.decode("utf-8")
 
 
 def recover_signing_seed(shares: list[ShardPayload]) -> bytes:
+    """Recover an Ed25519 signing seed from shard payloads."""
+
     return _recover_secret(shares, key_type=KEY_TYPE_SIGNING_SEED)
 
 
 def encode_shard_payload(payload: ShardPayload) -> bytes:
+    """Encode a shard payload as canonical CBOR."""
+
     data = {
         "version": SHARD_VERSION,
         "type": payload.key_type,
@@ -116,6 +136,8 @@ def encode_shard_payload(payload: ShardPayload) -> bytes:
 
 
 def decode_shard_payload(data: bytes) -> ShardPayload:
+    """Decode and validate a shard payload from canonical CBOR."""
+
     decoded = require_dict(loads_canonical(data, label="shard payload"), label="shard payload")
     require_keys(
         decoded,
@@ -147,24 +169,20 @@ def decode_shard_payload(data: bytes) -> ShardPayload:
         raise ValueError(f"unsupported shard payload version: {version}")
     if key_type not in (KEY_TYPE_PASSPHRASE, KEY_TYPE_SIGNING_SEED):
         raise ValueError(f"unsupported shard key type: {key_type}")
-    if not isinstance(threshold, int) or threshold <= 0:
-        raise ValueError("shard threshold must be a positive int")
+    threshold = require_positive_int(threshold, label="shard threshold")
     if threshold > MAX_SHARES:
         raise ValueError(f"shard threshold must be <= {MAX_SHARES}")
-    if not isinstance(share_count, int) or share_count <= 0:
-        raise ValueError("shard share_count must be a positive int")
+    share_count = require_positive_int(share_count, label="shard share_count")
     if share_count > MAX_SHARES:
         raise ValueError(f"shard share_count must be <= {MAX_SHARES}")
-    if not isinstance(share_index, int) or share_index <= 0:
-        raise ValueError("shard share_index must be a positive int")
+    share_index = require_positive_int(share_index, label="shard share_index")
     if share_index > MAX_SHARES:
         raise ValueError(f"shard share_index must be <= {MAX_SHARES}")
     if threshold > share_count:
         raise ValueError("shard threshold cannot exceed share_count")
     if share_index > share_count:
         raise ValueError("shard share_index cannot exceed share_count")
-    if not isinstance(secret_len, int) or secret_len <= 0:
-        raise ValueError("shard length must be a positive int")
+    secret_len = require_positive_int(secret_len, label="shard length")
     if not isinstance(share, (bytes, bytearray)) or not share:
         raise ValueError("shard share must be bytes")
     if len(share) % BLOCK_SIZE != 0:
@@ -200,6 +218,8 @@ def _split_secret(
     sign_pub: bytes,
     key_type: str,
 ) -> list[ShardPayload]:
+    """Split a secret into fixed-size Shamir blocks and sign each share."""
+
     if threshold <= 0 or shares <= 0:
         raise ValueError("threshold and shares must be positive")
     if threshold > shares:
@@ -258,6 +278,8 @@ def _split_secret(
 
 
 def _recover_secret(shares: list[ShardPayload], *, key_type: str) -> bytes:
+    """Recover a secret from validated shard payloads of one key type."""
+
     if not shares:
         raise ValueError("no shares provided")
     threshold = shares[0].threshold

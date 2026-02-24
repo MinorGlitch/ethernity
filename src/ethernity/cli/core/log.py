@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from ..ui import console_err
+from ..ui.runtime import console_err
 
 
 def _warn(message: str, *, quiet: bool) -> None:

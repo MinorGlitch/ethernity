@@ -20,7 +20,6 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { gzipSync } from "node:zlib";
 const BASE91_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~\"";
 const STYLE_TAG_RE = /<style\b[^>]*>([\s\S]*?)<\/style>/i;
 const CSS_CLASS_RE = /\.([A-Za-z_-][A-Za-z0-9_-]*)/g;
@@ -296,11 +295,56 @@ function minifyClassNames(html, js) {
 
 function canonicalizeGzipHeader(gzBytes) {
   if (gzBytes.length < 10) return gzBytes;
-  // RFC 1952 OS byte is informational; normalize for deterministic cross-OS output.
+  // RFC 1952 mtime + OS bytes are informational; normalize for deterministic output.
   if (gzBytes[0] === 0x1f && gzBytes[1] === 0x8b) {
+    gzBytes[4] = 0x00;
+    gzBytes[5] = 0x00;
+    gzBytes[6] = 0x00;
+    gzBytes[7] = 0x00;
     gzBytes[9] = 0xff;
   }
   return gzBytes;
+}
+
+async function gzipWithLibdeflate(rawBundle, tmpBase) {
+  const inputPath = `${tmpBase}.libdeflate-input.html`;
+  await writeFile(inputPath, rawBundle, "utf8");
+  const levelRaw = process.env.ETHERNITY_KIT_LIBDEFLATE_LEVEL ?? "12";
+  const level = Number.parseInt(levelRaw, 10);
+  if (!Number.isInteger(level) || level < 1 || level > 12) {
+    throw new Error(`invalid ETHERNITY_KIT_LIBDEFLATE_LEVEL: ${levelRaw}`);
+  }
+  const result = spawnSync(
+    "libdeflate-gzip",
+    [`-${level}`, "-c", inputPath],
+    { stdio: ["ignore", "pipe", "pipe"] }
+  );
+  if (result.error && result.error.code === "ENOENT") {
+    return null;
+  }
+  if (result.status !== 0) {
+    const details = [result.stdout, result.stderr]
+      .map((part) => (part ? Buffer.from(part).toString("utf8") : ""))
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+    throw new Error(`libdeflate-gzip failed${details ? `: ${details}` : ""}`);
+  }
+  return canonicalizeGzipHeader(new Uint8Array(result.stdout));
+}
+
+async function gzipBundlePayload(rawBundle, tmpBase) {
+  const requested = (process.env.ETHERNITY_KIT_GZIP_COMPRESSOR ?? "libdeflate").toLowerCase();
+  if (requested !== "libdeflate") {
+    throw new Error(
+      "ETHERNITY_KIT_GZIP_COMPRESSOR must be 'libdeflate' (other compressors are not supported)"
+    );
+  }
+  const libdeflateBytes = await gzipWithLibdeflate(rawBundle, tmpBase);
+  if (!libdeflateBytes) {
+    throw new Error("libdeflate-gzip CLI was not found in PATH");
+  }
+  return { bytes: libdeflateBytes, method: "libdeflate" };
 }
 
 async function ensureTrailingNewline(path) {
@@ -331,6 +375,9 @@ const scriptTagRe = /<script\b[^>]*>[\s\S]*?<\/script>/g;
 const tmpBase = resolve(tmpdir(), `ethernity-kit-${Date.now()}`);
 const tmpOut = `${tmpBase}.min.js`;
 const entryPoint = resolve(kitDir, "app", "index.jsx");
+const microactIndexPath = resolve(kitDir, "lib", "microact", "index.js");
+const microactHooksPath = resolve(kitDir, "lib", "microact", "hooks.js");
+const microactJsxRuntimePath = resolve(kitDir, "lib", "microact", "jsx-runtime.js");
 
 const esbuildArgs = [
   entryPoint,
@@ -338,12 +385,16 @@ const esbuildArgs = [
   "--format=iife",
   "--platform=browser",
   "--jsx=automatic",
-  "--jsx-import-source=preact",
+  "--jsx-import-source=microact",
   "--target=es2020",
   "--minify",
   "--tree-shaking=true",
   "--legal-comments=none",
   "--define:process.env.NODE_ENV=\"production\"",
+  `--alias:microact=${microactIndexPath}`,
+  `--alias:microact/hooks=${microactHooksPath}`,
+  `--alias:microact/jsx-runtime=${microactJsxRuntimePath}`,
+  `--alias:microact/jsx-dev-runtime=${microactJsxRuntimePath}`,
   `--outfile=${tmpOut}`,
 ];
 const result = spawnSync("npx", ["--no-install", "esbuild", ...esbuildArgs], {
@@ -383,7 +434,9 @@ if (htmlResult.status !== 0) {
 }
 
 const rawBundle = await readFile(rawOutputPath, "utf8");
-const gzPayload = canonicalizeGzipHeader(gzipSync(Buffer.from(rawBundle, "utf8"), { level: 9 }));
+const gzipResult = await gzipBundlePayload(rawBundle, tmpBase);
+const gzPayload = gzipResult.bytes;
+console.log(`Gzip compressor: ${gzipResult.method} (${gzPayload.length} bytes)`);
 const gzBase91 = base91Encode(gzPayload);
 const gzBase91Safe = gzBase91.replaceAll("</", "<\\/");
 const loaderHtml = `<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Ethernity Recovery Kit</title><script>(async()=>{const p=${JSON.stringify(gzBase91Safe)};if(!(\"DecompressionStream\"in window))return;const a=${JSON.stringify(BASE91_ALPHABET)};const d=t=>{let b=0,n=0,v=-1,o=[];for(let i=0;i<t.length;i++){const c=a.indexOf(t[i]);if(c===-1)continue;if(v<0){v=c;continue}v+=c*91;b|=v<<n;n+=(v&8191)>88?13:14;while(n>7){o.push(b&255);b>>=8;n-=8}v=-1}if(v>=0)o.push((b|v<<n)&255);return new Uint8Array(o)};const b=d(p);const ds=new DecompressionStream(\"gzip\");const s=new Blob([b]).stream().pipeThrough(ds);const t=await new Response(s).text();document.open();document.write(t);document.close();})();</script>`;

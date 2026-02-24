@@ -26,6 +26,17 @@ export function decodeCbor(bytes) {
   return result.value;
 }
 
+export function decodeCanonicalCbor(bytes, label) {
+  const decoded = decodeCbor(bytes);
+  const encoded = encodeCbor(decoded);
+  if (!bytesEqual(encoded, bytes)) {
+    throw new Error(
+      `${label} must use canonical CBOR encoding (indefinite-length items are not allowed)`
+    );
+  }
+  return decoded;
+}
+
 export function encodeCbor(value) {
   const chunks = [];
   encodeCborItem(value, chunks);
@@ -67,12 +78,16 @@ function encodeCborItem(value, chunks) {
       }
       return;
     }
-    if (Number.isInteger(value)) {
+    if (Number.isInteger(value) && !Object.is(value, -0)) {
       if (value >= 0) {
         chunks.push(encodeMajorLength(0, value));
       } else {
         chunks.push(encodeMajorLength(1, -1 - value));
       }
+      return;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      chunks.push(encodeCanonicalFloat(value));
       return;
     }
     if (value === null) {
@@ -88,7 +103,7 @@ function encodeCborItem(value, chunks) {
       return;
     }
     throw new Error("unsupported CBOR value");
-  }
+}
 
 function compareBytes(left, right) {
     if (left.length !== right.length) return left.length - right.length;
@@ -97,7 +112,7 @@ function compareBytes(left, right) {
       if (delta !== 0) return delta;
     }
     return 0;
-  }
+}
 
 function encodeMajorLength(major, length) {
     if (!Number.isFinite(length) || length < 0 || Math.floor(length) !== length) {
@@ -137,18 +152,138 @@ function encodeMajorLength(major, length) {
       );
     }
     throw new Error("CBOR length too large");
-  }
+}
 
 function concatChunks(chunks) {
-    const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-    const out = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-      out.set(chunk, offset);
-      offset += chunk.length;
-    }
-    return out;
+  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
   }
+  return out;
+}
+
+function encodeCanonicalFloat(value) {
+  const float16Bits = encodeFloat16Exact(value);
+  if (float16Bits !== null) {
+    return Uint8Array.of(0xf9, (float16Bits >> 8) & 0xff, float16Bits & 0xff);
+  }
+  if (isExactFloat32(value)) {
+    const floatBytes = new Uint8Array(5);
+    floatBytes[0] = 0xfa;
+    const view = new DataView(floatBytes.buffer, floatBytes.byteOffset + 1, 4);
+    view.setFloat32(0, value);
+    return floatBytes;
+  }
+  const floatBytes = new Uint8Array(9);
+  floatBytes[0] = 0xfb;
+  const view = new DataView(floatBytes.buffer, floatBytes.byteOffset + 1, 8);
+  view.setFloat64(0, value);
+  return floatBytes;
+}
+
+function isExactFloat32(value) {
+  const bytes = new Uint8Array(4);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, 4);
+  view.setFloat32(0, value);
+  return Object.is(view.getFloat32(0), value);
+}
+
+function encodeFloat16Exact(value) {
+  const bits = floatToHalfBits(value);
+  if (bits === null) {
+    return null;
+  }
+  return Object.is(decodeHalfFloat(bits), value) ? bits : null;
+}
+
+function floatToHalfBits(value) {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+  const f32Bytes = new Uint8Array(4);
+  const f32View = new DataView(f32Bytes.buffer, f32Bytes.byteOffset, 4);
+  f32View.setFloat32(0, value);
+  const x = f32View.getUint32(0);
+  const sign = (x >>> 16) & 0x8000;
+  let mantissa = x & 0x007fffff;
+  let exp = (x >>> 23) & 0xff;
+
+  if (exp === 0xff) {
+    return null;
+  }
+  if (exp === 0) {
+    return sign;
+  }
+
+  exp = exp - 127 + 15;
+  if (exp >= 0x1f) {
+    return sign | 0x7c00;
+  }
+  if (exp <= 0) {
+    if (exp < -10) {
+      return sign;
+    }
+    mantissa |= 0x00800000;
+    const shift = 14 - exp;
+    let halfMantissa = mantissa >> shift;
+    const roundBit = 1 << (shift - 1);
+    const roundMask = roundBit - 1;
+    const remainder = mantissa & roundMask;
+    const tie = mantissa & roundBit;
+    if (tie && (remainder || (halfMantissa & 1))) {
+      halfMantissa += 1;
+    }
+    return sign | halfMantissa;
+  }
+
+  let halfMantissa = mantissa >> 13;
+  const remainder = mantissa & 0x1fff;
+  if (remainder > 0x1000 || (remainder === 0x1000 && (halfMantissa & 1))) {
+    halfMantissa += 1;
+    if (halfMantissa === 0x400) {
+      halfMantissa = 0;
+      exp += 1;
+      if (exp >= 0x1f) {
+        return sign | 0x7c00;
+      }
+    }
+  }
+  return sign | (exp << 10) | halfMantissa;
+}
+
+function decodeHalfFloat(bits) {
+  const sign = (bits & 0x8000) ? -1 : 1;
+  const exp = (bits >> 10) & 0x1f;
+  const mantissa = bits & 0x03ff;
+  if (exp === 0) {
+    if (mantissa === 0) {
+      return sign < 0 ? -0 : 0;
+    }
+    return sign * (mantissa / 1024) * 2 ** -14;
+  }
+  if (exp === 0x1f) {
+    if (mantissa === 0) {
+      return sign < 0 ? -Infinity : Infinity;
+    }
+    return NaN;
+  }
+  return sign * (1 + mantissa / 1024) * 2 ** (exp - 15);
+}
+
+function bytesEqual(left, right) {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let idx = 0; idx < left.length; idx += 1) {
+    if (left[idx] !== right[idx]) {
+      return false;
+    }
+  }
+  return true;
+}
 
 function decodeCborItem(bytes, offset) {
     if (offset >= bytes.length) throw new Error("CBOR truncated");
@@ -159,6 +294,12 @@ function decodeCborItem(bytes, offset) {
       if (addl === 20) return { value: false, offset };
       if (addl === 21) return { value: true, offset };
       if (addl === 22) return { value: null, offset };
+      if (addl === 25) {
+        if (offset + 2 > bytes.length) throw new Error("CBOR float truncated");
+        const bits = (bytes[offset] << 8) | bytes[offset + 1];
+        const value = decodeHalfFloat(bits);
+        return { value, offset: offset + 2 };
+      }
       if (addl === 26) {
         if (offset + 4 > bytes.length) throw new Error("CBOR float truncated");
         const view = new DataView(bytes.buffer, bytes.byteOffset + offset, 4);
@@ -216,7 +357,7 @@ function decodeCborItem(bytes, offset) {
       default:
         throw new Error("unsupported CBOR type");
     }
-  }
+}
 
 function readCborLength(bytes, offset, addl) {
     if (addl < 24) return { value: addl, offset };
@@ -244,4 +385,4 @@ function readCborLength(bytes, offset, addl) {
       return { value, offset: offset + 8 };
     }
     throw new Error("indefinite CBOR lengths not supported");
-  }
+}

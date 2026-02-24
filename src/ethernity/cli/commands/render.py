@@ -19,7 +19,7 @@ from __future__ import annotations
 import base64
 import mimetypes
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import typer
 
@@ -34,9 +34,9 @@ from ...render.storage_paths import (
 )
 from ...render.templating import render_template
 from ..api import console
-from ..core.common import _ctx_value, _run_cli
+from ..core.common import _ctx_state, _run_cli
 
-RenderTarget = Literal["envelope-c6", "envelope-c5", "envelope-c4", "envelope-dl"]
+RenderTarget = Literal["envelope-c6", "envelope-c5", "envelope-dl"]
 RenderFormat = Literal["pdf", "docx"]
 RenderOrientation = EnvelopeOrientation
 
@@ -51,7 +51,6 @@ _RENDER_HELP = (
 _ENVELOPE_TARGETS: dict[RenderTarget, EnvelopeKind] = {
     "envelope-c6": "c6",
     "envelope-c5": "c5",
-    "envelope-c4": "c4",
     "envelope-dl": "dl",
 }
 
@@ -62,36 +61,47 @@ def register(app: typer.Typer) -> None:
 
 def render(
     ctx: typer.Context,
-    target: RenderTarget = typer.Argument(..., help="What to render (currently: envelope-c6)."),
-    orientation: RenderOrientation = typer.Option(
-        "portrait",
-        "--orientation",
-        help="Page orientation for envelope templates.",
-        rich_help_panel="Outputs",
-    ),
-    format: RenderFormat = typer.Option(
-        "pdf",
-        "--format",
-        "-f",
-        help="Output format.",
-        rich_help_panel="Outputs",
-    ),
-    output: Path | None = typer.Option(
-        None,
-        "--output",
-        "-o",
-        help="Output file path (defaults to <target>.<format>).",
-        rich_help_panel="Outputs",
-    ),
-    logo: Path | None = typer.Option(
-        None,
-        "--logo",
-        help="Override the default logo image.",
-        rich_help_panel="Inputs",
-    ),
+    target: Annotated[
+        RenderTarget, typer.Argument(help="What to render (currently: envelope-c6).")
+    ],
+    orientation: Annotated[
+        RenderOrientation,
+        typer.Option(
+            "--orientation",
+            help="Page orientation for envelope templates.",
+            rich_help_panel="Outputs",
+        ),
+    ] = "portrait",
+    format: Annotated[
+        RenderFormat,
+        typer.Option(
+            "--format",
+            "-f",
+            help="Output format.",
+            rich_help_panel="Outputs",
+        ),
+    ] = "pdf",
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Output file path (defaults to <target>.<format>).",
+            rich_help_panel="Outputs",
+        ),
+    ] = None,
+    logo: Annotated[
+        Path | None,
+        typer.Option(
+            "--logo",
+            help="Override the default logo image.",
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
 ) -> None:
-    quiet_value = bool(_ctx_value(ctx, "quiet"))
-    debug_value = bool(_ctx_value(ctx, "debug"))
+    state = _ctx_state(ctx)
+    quiet_value = state.quiet if state is not None else False
+    debug_value = state.debug if state is not None else False
 
     def _run() -> None:
         output_path = output or Path.cwd() / f"{target}.{format}"

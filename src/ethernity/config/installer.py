@@ -14,15 +14,21 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Resolve and initialize user-facing config and template paths."""
+
 from __future__ import annotations
 
-import os
 import shutil
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from platformdirs import user_config_dir
+from ..core.app_paths import (
+    DEFAULT_CONFIG_FILENAME,
+    user_config_dir_path,
+    user_config_file_path,
+    user_templates_design_path,
+    user_templates_root_path,
+)
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TEMPLATE_PATH = PACKAGE_ROOT / "templates/ledger/main_document.html.j2"
@@ -52,11 +58,12 @@ TEMPLATE_FILENAMES = (
 )
 DEFAULT_PAPER_SIZE = "A4"
 DEFAULT_CONFIG_PATH = PACKAGE_ROOT / "config/config.toml"
-XDG_CONFIG_ENV = "XDG_CONFIG_HOME"
 
 
 @dataclass(frozen=True)
 class ConfigPaths:
+    """Resolved user config and template locations."""
+
     user_config_dir: Path
     user_templates_root: Path
     user_templates_dir: Path
@@ -65,20 +72,13 @@ class ConfigPaths:
     user_required_files: tuple[Path, ...]
 
 
-def _user_config_dir() -> Path:
-    xdg_override = os.environ.get(XDG_CONFIG_ENV)
-    if xdg_override:
-        return Path(xdg_override) / "ethernity"
-    if sys.platform == "darwin":
-        return Path.home() / ".config" / "ethernity"
-    return Path(user_config_dir("ethernity", appauthor=False))
-
-
 def _build_paths() -> ConfigPaths:
-    user_config_dir = _user_config_dir()
-    user_templates_root = user_config_dir / "templates"
-    user_templates_dir = user_templates_root / DEFAULT_TEMPLATE_STYLE
-    user_config_path = user_config_dir / DEFAULT_CONFIG_PATH.name
+    """Construct the derived config/template path set."""
+
+    user_config_dir = user_config_dir_path()
+    user_templates_root = user_templates_root_path()
+    user_templates_dir = user_templates_design_path(DEFAULT_TEMPLATE_STYLE)
+    user_config_path = user_config_file_path(DEFAULT_CONFIG_FILENAME)
     user_template_paths = {
         "main": user_templates_dir / DEFAULT_TEMPLATE_PATH.name,
         "recovery": user_templates_dir / DEFAULT_RECOVERY_TEMPLATE_PATH.name,
@@ -98,6 +98,8 @@ def _build_paths() -> ConfigPaths:
 
 
 def list_template_designs() -> dict[str, Path]:
+    """List supported template designs, preferring valid user overrides."""
+
     package_root = PACKAGE_ROOT / "templates"
     if not package_root.exists():
         return {}
@@ -119,6 +121,8 @@ def list_template_designs() -> dict[str, Path]:
 
 
 def resolve_template_design_path(design: str) -> Path:
+    """Resolve a template design name to a concrete directory path."""
+
     name = design.strip()
     if not name:
         raise ValueError("template design cannot be empty")
@@ -133,10 +137,14 @@ def resolve_template_design_path(design: str) -> Path:
 
 
 def _is_template_design_dir(path: Path) -> bool:
+    """Return whether a directory contains the required template files."""
+
     return all((path / filename).is_file() for filename in TEMPLATE_FILENAMES)
 
 
 def init_user_config() -> Path:
+    """Ensure user config/templates exist and return the user config directory."""
+
     paths = _build_paths()
     if not _ensure_user_config(paths):
         raise OSError(f"unable to create config dir at {paths.user_config_dir}")
@@ -144,6 +152,8 @@ def init_user_config() -> Path:
 
 
 def user_config_needs_init() -> bool:
+    """Return whether any required user config/template files are missing."""
+
     paths = _build_paths()
     return any(not path.exists() for path in paths.user_required_files)
 
@@ -151,7 +161,7 @@ def user_config_needs_init() -> bool:
 def resolve_config_path(path: str | Path | None = None) -> Path:
     """Resolve the TOML config path used by the application."""
     if path:
-        return Path(path)
+        return Path(path).expanduser()
 
     paths = _build_paths()
     if _ensure_user_config(paths) and paths.user_config_path.exists():
@@ -160,6 +170,8 @@ def resolve_config_path(path: str | Path | None = None) -> Path:
 
 
 def _ensure_user_config(paths: ConfigPaths) -> bool:
+    """Create user config and copy default files when missing."""
+
     try:
         paths.user_config_dir.mkdir(parents=True, exist_ok=True)
         paths.user_templates_root.mkdir(parents=True, exist_ok=True)
@@ -171,6 +183,8 @@ def _ensure_user_config(paths: ConfigPaths) -> bool:
 
 
 def _copy_template_designs(paths: ConfigPaths) -> None:
+    """Copy packaged template designs into the user config directory."""
+
     package_root = PACKAGE_ROOT / "templates"
     if not package_root.exists():
         return
@@ -202,6 +216,8 @@ def _copy_template_designs(paths: ConfigPaths) -> None:
 
 
 def _copy_if_missing(source: Path, dest: Path) -> None:
+    """Copy a file only when the destination does not already exist."""
+
     if dest.exists():
         return
     dest.parent.mkdir(parents=True, exist_ok=True)

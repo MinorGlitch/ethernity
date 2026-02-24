@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Recover decrypted manifests and write extracted files."""
+
 from __future__ import annotations
 
 from ...crypto import decrypt_bytes
@@ -32,6 +34,8 @@ def decrypt_manifest_and_extract(
     quiet: bool,
     debug: bool = False,
 ) -> tuple[EnvelopeManifest, list[tuple[ManifestFile, bytes]]]:
+    """Decrypt a recovery plan ciphertext and extract manifest payload entries."""
+
     with status("Decrypting and unpacking payload...", quiet=quiet):
         plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
         manifest, payload = decode_envelope(plaintext)
@@ -45,6 +49,8 @@ def decrypt_and_extract(
     quiet: bool,
     debug: bool = False,
 ) -> list[tuple[ManifestFile, bytes]]:
+    """Decrypt and extract payload entries, discarding the parsed manifest."""
+
     _manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
     return extracted
 
@@ -58,6 +64,8 @@ def write_recovered_outputs(
     quiet: bool,
     single_entry_output_is_directory: bool = False,
 ) -> None:
+    """Write recovered outputs and print the post-recovery summary."""
+
     _write_recovered_outputs(
         output_path,
         extracted,
@@ -90,6 +98,8 @@ def run_recover_plan(
     debug_max_bytes: int = 0,
     debug_reveal_secrets: bool = False,
 ) -> int:
+    """Execute a prepared recovery plan end to end."""
+
     manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
     if debug:
         print_recover_debug(

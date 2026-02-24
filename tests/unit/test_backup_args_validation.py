@@ -50,6 +50,10 @@ class TestBackupArgsValidation(unittest.TestCase):
             _validate_backup_args(args)
         self.assertIn("signing key shard count", str(ctx.exception).lower())
 
+    def test_base_dir_existence_is_not_validated_in_preflight(self) -> None:
+        args = BackupArgs(base_dir="~/definitely-missing")
+        _validate_backup_args(args)
+
 
 if __name__ == "__main__":
     unittest.main()

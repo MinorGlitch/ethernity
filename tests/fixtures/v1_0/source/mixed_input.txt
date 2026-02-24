@@ -1,0 +1,2 @@
+Ethernity v1 baseline fixture: mixed input file.
+Includes punctuation: []{}()<> and ASCII-only content.

@@ -27,6 +27,7 @@ from rich.progress import Progress, TaskID
 
 from ...core.bounds import MAX_CIPHERTEXT_BYTES
 from ...core.validation import normalize_path
+from ..core.paths import expanduser_cli_path
 from ..core.types import InputFile
 
 # Progress reporting intervals
@@ -81,7 +82,7 @@ def _load_input_files(
             stdin_requested = True
             has_file_source = True
             continue
-        path = Path(raw).expanduser()
+        path = Path(expanduser_cli_path(raw, preserve_stdin=False) or "")
         if path.is_dir():
             has_directory_source = True
             input_roots.append(_directory_root_label(path))
@@ -92,7 +93,7 @@ def _load_input_files(
             tracker.tick()
 
     for raw in input_dirs:
-        path = Path(raw).expanduser()
+        path = Path(expanduser_cli_path(raw, preserve_stdin=False) or "")
         if not path.exists():
             raise ValueError(f"input dir not found: {path}")
         if not path.is_dir():
@@ -220,7 +221,7 @@ def _walk_directory(path: Path, *, on_file: Callable[[], None] | None = None) ->
 
 def _resolve_base_dir(paths: list[Path], base_dir: str | None) -> Path | None:
     if base_dir:
-        resolved = Path(base_dir).expanduser().resolve()
+        resolved = Path(expanduser_cli_path(base_dir, preserve_stdin=False) or "").resolve()
         if not resolved.exists():
             raise ValueError(f"base dir not found: {resolved}")
         if not resolved.is_dir():

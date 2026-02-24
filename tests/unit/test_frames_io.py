@@ -82,7 +82,7 @@ class TestFramesIo(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "input.txt"
             path.write_text("ok", encoding="utf-8")
-            with mock.patch("builtins.open", side_effect=OSError("blocked")):
+            with mock.patch("pathlib.Path.open", side_effect=OSError("blocked")):
                 with self.assertRaisesRegex(ValueError, "unable to read file"):
                     _read_text_lines(str(path))
 
@@ -91,7 +91,7 @@ class TestFramesIo(unittest.TestCase):
             path = Path(tmpdir) / "input.txt"
             path.write_text("x" * 12, encoding="utf-8")
             with mock.patch("ethernity.cli.io.frames.MAX_RECOVERY_TEXT_BYTES", 10):
-                with mock.patch("ethernity.cli.io.frames.os.path.getsize", return_value=1):
+                with mock.patch("pathlib.Path.stat", return_value=mock.Mock(st_size=1)):
                     with self.assertRaisesRegex(ValueError, "MAX_RECOVERY_TEXT_BYTES"):
                         _read_text_lines(str(path))
 

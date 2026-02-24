@@ -24,7 +24,6 @@ _PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 STORAGE_ROOT = _PACKAGE_ROOT / "storage"
 ENVELOPE_C6_TEMPLATE_PATH = STORAGE_ROOT / "envelope_c6.html.j2"
 ENVELOPE_C5_TEMPLATE_PATH = STORAGE_ROOT / "envelope_c5.html.j2"
-ENVELOPE_C4_TEMPLATE_PATH = STORAGE_ROOT / "envelope_c4.html.j2"
 ENVELOPE_DL_TEMPLATE_PATH = STORAGE_ROOT / "envelope_dl.html.j2"
 DEFAULT_LOGO_PATH = STORAGE_ROOT / "logo.png"
 
@@ -32,25 +31,21 @@ C6_PORTRAIT_WIDTH_MM = 114.0
 C6_PORTRAIT_HEIGHT_MM = 162.0
 C5_PORTRAIT_WIDTH_MM = 162.0
 C5_PORTRAIT_HEIGHT_MM = 229.0
-C4_PORTRAIT_WIDTH_MM = 229.0
-C4_PORTRAIT_HEIGHT_MM = 324.0
 DL_PORTRAIT_WIDTH_MM = 110.0
 DL_PORTRAIT_HEIGHT_MM = 220.0
 
-EnvelopeKind = Literal["c6", "c5", "c4", "dl"]
+EnvelopeKind = Literal["c6", "c5", "dl"]
 EnvelopeOrientation = Literal["portrait", "landscape"]
 
 _ENVELOPE_PORTRAIT_SIZES_MM: dict[EnvelopeKind, tuple[float, float]] = {
     "c6": (C6_PORTRAIT_WIDTH_MM, C6_PORTRAIT_HEIGHT_MM),
     "c5": (C5_PORTRAIT_WIDTH_MM, C5_PORTRAIT_HEIGHT_MM),
-    "c4": (C4_PORTRAIT_WIDTH_MM, C4_PORTRAIT_HEIGHT_MM),
     "dl": (DL_PORTRAIT_WIDTH_MM, DL_PORTRAIT_HEIGHT_MM),
 }
 
 _ENVELOPE_TEMPLATE_PATHS: dict[EnvelopeKind, Path] = {
     "c6": ENVELOPE_C6_TEMPLATE_PATH,
     "c5": ENVELOPE_C5_TEMPLATE_PATH,
-    "c4": ENVELOPE_C4_TEMPLATE_PATH,
     "dl": ENVELOPE_DL_TEMPLATE_PATH,
 }
 
@@ -74,8 +69,6 @@ def envelope_template_path(kind: EnvelopeKind) -> Path:
 
 
 __all__ = [
-    "C4_PORTRAIT_HEIGHT_MM",
-    "C4_PORTRAIT_WIDTH_MM",
     "C5_PORTRAIT_HEIGHT_MM",
     "C5_PORTRAIT_WIDTH_MM",
     "C6_PORTRAIT_HEIGHT_MM",
@@ -83,7 +76,6 @@ __all__ = [
     "DL_PORTRAIT_HEIGHT_MM",
     "DL_PORTRAIT_WIDTH_MM",
     "DEFAULT_LOGO_PATH",
-    "ENVELOPE_C4_TEMPLATE_PATH",
     "ENVELOPE_C5_TEMPLATE_PATH",
     "ENVELOPE_C6_TEMPLATE_PATH",
     "ENVELOPE_DL_TEMPLATE_PATH",

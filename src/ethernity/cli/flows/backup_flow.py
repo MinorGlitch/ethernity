@@ -14,9 +14,10 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Backup document generation flow for QR, recovery, and shard PDFs."""
+
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from rich.progress import Progress
@@ -72,6 +73,8 @@ def _layout_debug_json_path(layout_debug_dir: str | None, stem: str) -> str | No
 
 
 def _is_compatible_kit_index_template(path: Path) -> bool:
+    """Return whether a kit index template contains the expected compatibility marker."""
+
     try:
         content = path.read_text(encoding="utf-8")
     except OSError:
@@ -80,6 +83,8 @@ def _is_compatible_kit_index_template(path: Path) -> bool:
 
 
 def _resolve_kit_index_template_path(config: AppConfig) -> Path | None:
+    """Resolve an optional compatible recovery-kit index template for the active design."""
+
     kit_template_path = Path(config.kit_template_path)
     candidate = kit_template_path.with_name(_KIT_INDEX_TEMPLATE_NAME)
     package_candidate = (
@@ -105,6 +110,8 @@ def _build_kit_index_inventory_rows(
     shard_payloads: list[ShardPayload],
     signing_key_shard_payloads: list[ShardPayload],
 ) -> list[dict[str, str]]:
+    """Build inventory rows for the optional recovery kit index document."""
+
     rows = [
         {
             "component_id": "QR-DOC-01",
@@ -161,9 +168,9 @@ def _render_shard(
         total=1,
         data=sharding_module.encode_shard_payload(shard),
     )
-    shard_path = os.path.join(
-        output_dir,
-        f"{filename_prefix}-{doc_id.hex()}-{shard.share_index}-of-{shard.share_count}.pdf",
+    shard_path = str(
+        Path(output_dir)
+        / f"{filename_prefix}-{doc_id.hex()}-{shard.share_index}-of-{shard.share_count}.pdf"
     )
     shard_inputs = render_service.shard_inputs(
         shard_frame,
@@ -613,12 +620,14 @@ def run_backup(
     )
     qr_frames = [*frames, auth_frame]
     output_dir = _ensure_output_dir(output_dir, doc_id.hex())
-    qr_path = os.path.join(output_dir, "qr_document.pdf")
-    recovery_path = os.path.join(output_dir, "recovery_document.pdf")
+    output_dir_path = Path(output_dir)
+    qr_path = str(output_dir_path / "qr_document.pdf")
+    recovery_path = str(output_dir_path / "recovery_document.pdf")
     kit_index_template = _resolve_kit_index_template_path(config)
     kit_index_path = None
     if kit_index_template is not None:
-        kit_index_path = os.path.join(output_dir, "recovery_kit_index.pdf")
+        kit_index_path = str(output_dir_path / "recovery_kit_index.pdf")
+    layout_debug_dir = _resolve_layout_debug_dir(layout_debug_dir)
     layout_debug_dir = _resolve_layout_debug_dir(layout_debug_dir)
 
     render_service = RenderService(config)

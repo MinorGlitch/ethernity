@@ -15,7 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { formatBytes } from "../state/selectors.js";
+import { formatBytes } from "../format.js";
 
 export function Card({ title, children, className }) {
   const classes = className ? `card ${className}` : "card";
@@ -86,10 +86,20 @@ export function StatusBlock({ status }) {
   return <div class={className}>{status.lines.join("\n")}</div>;
 }
 
-export function DiagnosticsList({ items }) {
+function isActionableDiagnostic(item) {
+  if (!item) return false;
+  if (item.tone === "error" || item.tone === "warn") return true;
+  const value = typeof item.value === "string" ? item.value.trim() : `${item.value ?? ""}`;
+  return /^-?\d+$/.test(value) && Number(value) !== 0;
+}
+
+export function DiagnosticsList({ items, compact = false }) {
+  if (!items?.length) return null;
+  const rows = compact ? items.filter(isActionableDiagnostic) : items;
+  if (!rows.length) return null;
   return (
     <div class="diag-list">
-      {items.map((item, index) => {
+      {rows.map((item, index) => {
         const rowClass = item.tone ? `diag-row ${item.tone}` : "diag-row";
         const valueClass = item.code ? "diag-value code" : "diag-value";
         return (

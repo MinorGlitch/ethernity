@@ -15,24 +15,21 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { useEffect, useReducer, useRef, useState } from "preact/hooks";
+import { useEffect, useReducer, useRef, useState } from "microact/hooks";
 
 import {
   addPayloads,
   addShardPayloads,
-  clearOutput,
   copyRecoveredSecret,
-  decryptCiphertext,
-  downloadCipher,
-  downloadEnvelope,
-  downloadExtract,
-  downloadZip,
-  extractEnvelope,
   resetAll,
   updateField,
-} from "./actions.js";
-import { StatusStrip } from "./components/StatusStrip.jsx";
-import { StepNav } from "./components/StepNav.jsx";
+} from "./actions_collect.js";
+import { clearOutput, decryptCiphertext, extractEnvelope } from "./actions_recover.js";
+import { downloadCipher, downloadEnvelope, downloadExtract, downloadZip } from "./actions_export.js";
+import { DecryptSection } from "./components/DecryptSection.jsx";
+import { FrameCollector } from "./components/FrameCollector.jsx";
+import { RecoveredFiles } from "./components/RecoveredFiles.jsx";
+import { ShardCollector } from "./components/ShardCollector.jsx";
 import { StepShell } from "./components/StepShell.jsx";
 import { reducer, initialState } from "./state/reducer.js";
 import {
@@ -42,18 +39,37 @@ import {
   selectRecoveredLabel,
   selectShardDiagnostics,
   selectShardInputs,
-  selectStatusItemsForStep,
 } from "./state/selectors.js";
-import { STEPS } from "./steps.jsx";
 
 export function App() {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
-  const [stepIndex, setStepIndex] = useState(0);
+  const [isOnline, setIsOnline] = useState(() => {
+    if (typeof navigator === "undefined") return false;
+    return Boolean(navigator.onLine);
+  });
+  const [onlineOverrideStep, setOnlineOverrideStep] = useState(0);
   const stateRef = useRef(state);
 
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sync = () => setIsOnline(Boolean(navigator.onLine));
+    window.addEventListener("online", sync);
+    window.addEventListener("offline", sync);
+    return () => {
+      window.removeEventListener("online", sync);
+      window.removeEventListener("offline", sync);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isOnline && onlineOverrideStep !== 0) {
+      setOnlineOverrideStep(0);
+    }
+  }, [isOnline, onlineOverrideStep]);
 
   const getState = () => stateRef.current;
 
@@ -63,32 +79,6 @@ export function App() {
   const outputSummary = selectOutputSummary(state);
   const actionState = selectActionState(state);
   const recoveredLabel = selectRecoveredLabel(state);
-
-  const frameStep = state.total && state.mainFrames.size === state.total
-    ? { label: "Ready", tone: "ok" }
-    : state.mainFrames.size
-      ? { label: "Collecting", tone: "progress" }
-      : { label: "Needs input", tone: "idle" };
-  const shardStep = state.recoveredShardSecret
-    ? { label: "Complete", tone: "ok" }
-    : state.shardThreshold && state.shardFrames.size >= state.shardThreshold
-      ? { label: "Ready", tone: "progress" }
-      : state.shardFrames.size
-        ? { label: "Collecting", tone: "progress" }
-        : { label: "Needs input", tone: "idle" };
-  const decryptStep = state.extractedFiles.length
-    ? { label: "Complete", tone: "ok" }
-    : state.decryptedEnvelope
-      ? { label: "Decrypted", tone: "progress" }
-      : actionState.canDecryptCiphertext
-        ? { label: "Ready", tone: "progress" }
-        : { label: "Needs input", tone: "idle" };
-  const stepStates = STEPS.map((step) => {
-    if (step.id === "frames") return frameStep;
-    if (step.id === "shards") return shardStep;
-    if (step.id === "decrypt") return decryptStep;
-    return { label: "Pending", tone: "idle" };
-  });
 
   const handlePayloadChange = (event) =>
     updateField(dispatch, getState, "payloadText", event.currentTarget.value);
@@ -108,90 +98,161 @@ export function App() {
   const handleClearOutput = () => clearOutput(dispatch, getState);
   const handleDownloadZip = () => downloadZip(dispatch, getState);
   const handleDownloadFile = (index) => downloadExtract(dispatch, getState, index);
-  const handlePrev = () => setStepIndex((current) => Math.max(0, current - 1));
-  const handleNext = () => setStepIndex((current) => Math.min(STEPS.length - 1, current + 1));
-  const handleJump = (value) => setStepIndex(() => Math.min(STEPS.length - 1, Math.max(0, value)));
+  const onlineOverrideActive = isOnline && onlineOverrideStep >= 3;
 
-  const stepContext = {
-    state,
-    frameDiagnostics,
-    shardDiagnostics,
-    shardInputs,
-    outputSummary,
-    actionState,
-    recoveredLabel,
-    onPayloadChange: handlePayloadChange,
-    onShardPayloadChange: handleShardPayloadChange,
-    onPassphraseChange: handlePassphraseChange,
-    onAddPayloads: handleAddPayloads,
-    onAddShardPayloads: handleAddShardPayloads,
-    onReset: handleReset,
-    onDownloadCipher: handleDownloadCipher,
-    onCopyResult: handleCopyResult,
-    onDecrypt: handleDecrypt,
-    onExtract: handleExtract,
-    onDownloadEnvelope: handleDownloadEnvelope,
-    onClearOutput: handleClearOutput,
-    onDownloadZip: handleDownloadZip,
-    onDownloadFile: handleDownloadFile,
-  };
-  const currentStep = STEPS[stepIndex] ?? STEPS[0];
-  const statusItems = selectStatusItemsForStep(state, currentStep.id);
+  if (isOnline && !onlineOverrideActive) {
+    return (
+      <main class="shell shell--blocked">
+        <section class="offline-guard-screen">
+          <div class="offline-guard-card">
+            <div class="offline-guard-kicker">Recovery Kit Locked</div>
+            <h1 class="offline-guard-title">Disconnect from the Internet</h1>
+            <p class="offline-guard-subtitle">
+              This recovery tool is intended for offline use only.
+            </p>
+            <div class="status warn offline-guard-status">
+              This device appears to be online. Disconnect all network connections before using the
+              recovery kit.
+              {"\n"}
+              {"\n"}
+              After disconnecting, keep this page open and wait for the warning to clear.
+            </div>
+            <div class="offline-guard-note">
+              The page will unlock automatically when the browser reports offline status.
+            </div>
+            <div class="offline-guard-actions">
+              {onlineOverrideStep === 0 ? (
+                <button type="button" class="secondary" onClick={() => setOnlineOverrideStep(1)}>
+                  Emergency override
+                </button>
+              ) : null}
+              {onlineOverrideStep === 1 ? (
+                <div class="offline-guard-confirm">
+                  <div class="offline-guard-confirm-text">
+                    Proceeding while online increases the risk of exposing recovery secrets.
+                  </div>
+                  <div class="row">
+                    <button type="button" class="ghost" onClick={() => setOnlineOverrideStep(0)}>
+                      Cancel
+                    </button>
+                    <button type="button" class="secondary" onClick={() => setOnlineOverrideStep(2)}>
+                      I understand the risk
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {onlineOverrideStep === 2 ? (
+                <div class="offline-guard-confirm">
+                  <div class="offline-guard-confirm-text">
+                    Confirm you want to unlock the recovery kit while this browser reports an active
+                    network connection.
+                  </div>
+                  <div class="row">
+                    <button type="button" class="ghost" onClick={() => setOnlineOverrideStep(0)}>
+                      Cancel
+                    </button>
+                    <button type="button" onClick={() => setOnlineOverrideStep(3)}>
+                      Continue while online
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main class="shell">
       <header class="app-header">
         <div class="app-title-block">
-          <div class="app-kicker">Ethernity</div>
           <h1 class="app-title">Recovery Kit</h1>
-          <p class="app-subtitle">Offline emergency recovery console for decryption and extraction.</p>
+          <p class="app-subtitle">Offline recovery tool for decryption and extraction.</p>
         </div>
-        <div class="app-badge">Offline</div>
       </header>
-      <section class="welcome-banner">
-        <div class="welcome-content">
-          <strong>How to recover your files:</strong>
-          <ol class="welcome-steps">
-            <li><span class="welcome-num">1</span> Paste backup data from your recovery document or scanned QR codes</li>
-            <li><span class="welcome-num">2</span> If needed, combine your recovery shares to reconstruct the passphrase</li>
-            <li><span class="welcome-num">3</span> Enter your passphrase to unlock and download your files</li>
-          </ol>
-        </div>
-      </section>
-      <div class="app-layout">
-        <aside class="panel rail">
-          <StepNav
-            steps={STEPS}
-            stepIndex={stepIndex}
-            stepStates={stepStates}
-            onPrev={handlePrev}
-            onNext={handleNext}
-            onJump={handleJump}
-          />
-        </aside>
-        <section class="workspace">
-          <StatusStrip items={statusItems} />
-          <StepShell
-            step={currentStep}
-            stepIndex={stepIndex}
-            total={STEPS.length}
-          >
-            {currentStep.render(stepContext)}
-          </StepShell>
+      {onlineOverrideActive ? (
+        <section class="panel online-override-banner">
+          <div class="row row-between">
+            <div>
+              <div class="offline-guard-kicker">Danger: Online Override Active</div>
+              <div class="sub">
+                Browser reports an active network connection. You are recovering at your own risk
+                while online, and any secrets entered here may be exposed. Disconnect immediately to
+                return to safer offline mode.
+              </div>
+            </div>
+          </div>
         </section>
-      </div>
-      <footer class="app-footer">
-        <div class="footer-col">
-          <span class="footer-label">Recovery Kit</span>
-          <span class="footer-sep">•</span>
-          <span>Age passphrase only</span>
-        </div>
-        <div class="footer-col">
-          <span>Runs locally</span>
-          <span class="footer-sep">•</span>
-          <span>No network calls</span>
-        </div>
-      </footer>
+      ) : null}
+      <section class="workspace">
+        <StepShell
+          title="Enter backup data"
+          summary="Paste backup text or scanned QR payloads. Include AUTH if available."
+        >
+          <FrameCollector
+            payloadText={state.payloadText}
+            frameStatus={state.frameStatus}
+            frameDiagnostics={frameDiagnostics}
+            onPayloadChange={handlePayloadChange}
+            onAddPayloads={handleAddPayloads}
+            isComplete={Boolean(state.total && state.mainFrames.size === state.total)}
+            onReset={handleReset}
+            onDownloadCipher={handleDownloadCipher}
+            canDownloadCipher={actionState.canDownloadCipher}
+          />
+        </StepShell>
+        <StepShell
+          title="Combine recovery shares"
+          summary="Paste shard documents to reconstruct a split passphrase, or skip if you have it."
+        >
+          <ShardCollector
+            shardPayloadText={state.shardPayloadText}
+            shardStatus={state.shardStatus}
+            shardDiagnostics={shardDiagnostics}
+            recoveredLabel={recoveredLabel}
+            recoveredSecret={state.recoveredShardSecret}
+            shardDocHash={shardInputs.docHashHex}
+            shardDocId={shardInputs.docIdHex}
+            shardSignPub={shardInputs.signPubHex}
+            onShardPayloadChange={handleShardPayloadChange}
+            onAddShardPayloads={handleAddShardPayloads}
+            isComplete={Boolean(state.recoveredShardSecret)}
+            onCopyResult={handleCopyResult}
+            canCopyResult={actionState.canCopyResult}
+          />
+        </StepShell>
+        <StepShell
+          title="Unlock & download"
+          summary="Enter your passphrase to unlock and download recovered files."
+        >
+          <DecryptSection
+            passphrase={state.agePassphrase}
+            decryptStatus={state.decryptStatus}
+            onPassphraseChange={handlePassphraseChange}
+            onDecrypt={handleDecrypt}
+            canDecrypt={actionState.canDecryptCiphertext}
+            isComplete={actionState.hasOutput || Boolean(state.decryptedEnvelope)}
+            isDecrypting={state.isDecrypting}
+            onExtract={handleExtract}
+            onDownloadEnvelope={handleDownloadEnvelope}
+            canExtract={actionState.canExtractEnvelope}
+            canDownloadEnvelope={actionState.canDownloadEnvelope}
+          >
+            <RecoveredFiles
+              extractStatus={state.extractStatus}
+              outputSubtitle={outputSummary.subtitle}
+              files={state.extractedFiles}
+              onClearOutput={handleClearOutput}
+              onDownloadZip={handleDownloadZip}
+              onDownloadFile={handleDownloadFile}
+              hasOutput={actionState.hasOutput}
+              recoveryComplete={state.recoveryComplete}
+            />
+          </DecryptSection>
+        </StepShell>
+      </section>
     </main>
   );
 }

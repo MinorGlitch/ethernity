@@ -1,0 +1,48 @@
+{
+  "artifact_hashes": {
+    "main_payloads.txt": "31cbe33a9ea4591aa7fe2ceacc08a80eae9b3e925ca4886ee5f51eacf805cef3",
+    "qr_document.pdf": "c5c28921687a988b1bcf76e4e0d2c68e1a2adac46e8ad3d1a87cf8871e6e63ad",
+    "recovery_document.pdf": "ede5396d675ff736bb2b069612187393f9124b77d482f4de574b994599150c01",
+    "recovery_kit_index.pdf": "2bbcc49fd95cc7e405d5f7f30b62caf0c83dd32599c2fd8d60b787aba68594e9"
+  },
+  "expected_file_sha256": {
+    "alpha.txt": "2f4b5a7d0ed3a982cf012f6af9d58168314e999c0eb3793f598978174928e20f",
+    "nested/beta.json": "d54870a31ef24b66d447ffa2b5297527046741283cfd6053ba165c51c87d6c1f",
+    "nested/raw.bin": "01d1b8d1d3dd3575d6970f5f74759c78403b7684bfe8ab4426bfe5b42945cf1c"
+  },
+  "expected_relative_paths": [
+    "alpha.txt",
+    "nested/beta.json",
+    "nested/raw.bin"
+  ],
+  "expected_shard_pdfs": 0,
+  "expected_signing_key_shard_pdfs": 0,
+  "manifest_projection": {
+    "files": [
+      {
+        "path": "alpha.txt",
+        "sha256": "2f4b5a7d0ed3a982cf012f6af9d58168314e999c0eb3793f598978174928e20f",
+        "size": 66
+      },
+      {
+        "path": "nested/beta.json",
+        "sha256": "d54870a31ef24b66d447ffa2b5297527046741283cfd6053ba165c51c87d6c1f",
+        "size": 55
+      },
+      {
+        "path": "nested/raw.bin",
+        "sha256": "01d1b8d1d3dd3575d6970f5f74759c78403b7684bfe8ab4426bfe5b42945cf1c",
+        "size": 47
+      }
+    ],
+    "input_origin": "directory",
+    "input_roots": [
+      "directory_payload"
+    ],
+    "sealed": false,
+    "version": 1
+  },
+  "passphrase": "stable-v1-baseline-passphrase",
+  "scenario_id": "directory_no_shard",
+  "shard_payload_count": 0
+}

@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Build and paginate fallback text blocks for rendered documents."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -71,6 +73,8 @@ class FallbackBlock:
 
 
 def label_line_height_fallback(cfg: FallbackSpec) -> float:
+    """Return the fallback label line height, honoring explicit overrides."""
+
     if cfg.label_line_height_mm is not None:
         return float(cfg.label_line_height_mm)
     label_size = cfg.label_size if cfg.label_size > 0 else cfg.font_size
@@ -83,6 +87,8 @@ def fallback_lines_from_sections(
     group_size: int,
     line_length: int,
 ) -> list[str]:
+    """Encode fallback sections into display lines with labels and separators."""
+
     lines: list[str] = []
     for idx, section in enumerate(sections):
         if section.label:
@@ -104,6 +110,8 @@ def build_fallback_sections_data(
     spec: DocumentSpec,
     layout: Layout,
 ) -> tuple[list[FallbackSectionData], FallbackConsumerState] | None:
+    """Precompute tokenized fallback sections and mutable paging state."""
+
     if not (inputs.render_fallback and inputs.fallback_sections):
         return None
     group_size = int(spec.fallback.group_size)
@@ -120,6 +128,8 @@ def build_fallback_sections_data(
 
 
 def fallback_section_title(label: str | None) -> str:
+    """Normalize a fallback section title for display."""
+
     if isinstance(label, str) and label.strip():
         return label.strip()
     return "Fallback Frame"
@@ -129,6 +139,8 @@ def fallback_sections_remaining(
     sections: list[FallbackSectionData],
     state: FallbackConsumerState,
 ) -> bool:
+    """Return whether unconsumed fallback content remains across sections."""
+
     if state.section_idx >= len(sections):
         return False
     current_section = sections[state.section_idx]
@@ -148,6 +160,8 @@ def consume_fallback_blocks(
     *,
     stop_after_current_section: bool = False,
 ) -> list[FallbackBlock]:
+    """Consume fallback lines into page-sized blocks, updating shared state."""
+
     blocks: list[FallbackBlock] = []
     lines_left = lines_capacity
     first_block = True
@@ -229,6 +243,8 @@ def consume_fallback_blocks(
 
 
 def _tokenize_encoded_payload(encoded: str, *, group_size: int) -> tuple[str, ...]:
+    """Split an encoded payload string into fixed-size groups."""
+
     if group_size <= 0:
         raise ValueError("group_size must be positive")
     if not encoded:
@@ -243,6 +259,8 @@ def _consume_section_lines(
     line_length: int,
     max_lines: int,
 ) -> tuple[list[str], int]:
+    """Consume token groups into wrapped lines for a single section chunk."""
+
     if line_length <= 0 or max_lines <= 0 or start_token_idx >= len(section.tokens):
         return [], start_token_idx
 
@@ -276,6 +294,8 @@ def position_fallback_blocks(
     available_height: float,
     line_height: float,
 ) -> None:
+    """Assign Y positions and heights to fallback blocks within a page region."""
+
     cursor_y = start_y
     remaining = max(0.0, available_height)
 

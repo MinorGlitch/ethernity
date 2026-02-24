@@ -15,7 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { createInitialState } from "./initial.js";
+import { cloneState, createInitialState } from "./initial.js";
 
 export function initialState() {
   return createInitialState();
@@ -26,10 +26,26 @@ export function reducer(state, action) {
     return createInitialState();
   }
   switch (action.type) {
-    case "REPLACE":
-      return action.state;
-    case "RESET":
-      return createInitialState();
+    case "PATCH_STATE": {
+      if (!action.patch || action.baseRevision !== state.revision) {
+        return state;
+      }
+      return { ...state, ...action.patch, revision: state.revision + 1 };
+    }
+    case "MUTATE_STATE": {
+      if (typeof action.mutate !== "function" || action.baseRevision !== state.revision) {
+        return state;
+      }
+      const next = cloneState(state);
+      action.mutate(next);
+      next.revision = state.revision + 1;
+      return next;
+    }
+    case "RESET": {
+      const next = createInitialState();
+      next.revision = state.revision + 1;
+      return next;
+    }
     default:
       return state;
   }

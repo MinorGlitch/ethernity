@@ -90,7 +90,7 @@ class TestCliStartup(unittest.TestCase):
     def test_run_startup_debug_and_auto_init_prints_message(self) -> None:
         with mock.patch.object(startup, "configure_ui"):
             with mock.patch.object(startup, "_ensure_playwright_browsers"):
-                with mock.patch.object(startup, "install_rich_traceback") as traceback_mock:
+                with mock.patch.object(startup, "_enable_rich_debug_traceback") as traceback_mock:
                     with mock.patch.object(startup, "user_config_needs_init", return_value=True):
                         with mock.patch.object(
                             startup, "init_user_config", return_value="/tmp/cfg"
@@ -104,7 +104,7 @@ class TestCliStartup(unittest.TestCase):
                                     init_config=False,
                                 )
         self.assertFalse(result)
-        traceback_mock.assert_called_once_with(show_locals=True)
+        traceback_mock.assert_called_once_with()
         self.assertEqual(print_mock.call_count, 1)
         self.assertIn("Initialized user config", str(print_mock.call_args[0][0]))
 
@@ -112,7 +112,7 @@ class TestCliStartup(unittest.TestCase):
         with mock.patch.dict(
             os.environ, {startup._PLAYWRIGHT_BROWSERS_ENV: "/already"}, clear=False
         ):
-            with mock.patch.object(startup, "user_cache_dir") as cache_mock:
+            with mock.patch.object(startup, "playwright_browsers_cache_dir") as cache_mock:
                 startup._configure_playwright_env()
                 self.assertEqual(os.environ[startup._PLAYWRIGHT_BROWSERS_ENV], "/already")
         cache_mock.assert_not_called()
@@ -120,11 +120,13 @@ class TestCliStartup(unittest.TestCase):
     def test_configure_playwright_env_sets_default_cache_path(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop(startup._PLAYWRIGHT_BROWSERS_ENV, None)
-            with mock.patch.object(startup, "user_cache_dir", return_value="/cache/ms-playwright"):
+            with mock.patch.object(
+                startup, "playwright_browsers_cache_dir", return_value=Path("/cache/ms-playwright")
+            ):
                 startup._configure_playwright_env()
                 self.assertEqual(
-                    os.environ[startup._PLAYWRIGHT_BROWSERS_ENV],
-                    "/cache/ms-playwright",
+                    Path(os.environ[startup._PLAYWRIGHT_BROWSERS_ENV]),
+                    Path("/cache/ms-playwright"),
                 )
 
     def test_playwright_driver_command_platform_variants_and_override(self) -> None:

@@ -20,12 +20,13 @@ from unittest import mock
 import typer
 
 from ethernity.cli.commands import kit as kit_command
+from ethernity.cli.core.types import CliContextState
 from ethernity.cli.flows.kit import KitResult
 
 
 class TestKitCommand(unittest.TestCase):
     def _ctx(self, **values: object) -> object:
-        return mock.Mock(obj=dict(values))
+        return mock.Mock(obj=CliContextState(**values))
 
     @mock.patch("ethernity.cli.commands.kit.print_completion_panel")
     @mock.patch("ethernity.cli.commands.kit.render_kit_qr_document")

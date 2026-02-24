@@ -15,19 +15,27 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { MAX_QR_PAYLOAD_CHARS } from "../app/constants.js";
+
 const ZBASE32_ALPHABET = "ybndrfg8ejkmcpqxot1uwisza345h769";
+const BASE64_ALPHABET = /^[A-Za-z0-9+/]+$/;
+const MAX_UVARINT = (1n << 64n) - 1n;
 
 function isBase64(text) {
-  return /^[A-Za-z0-9+/=_-]+$/.test(text);
+  return BASE64_ALPHABET.test(text);
 }
 
 export function decodePayloadString(text) {
   const cleaned = text.replace(/\s+/g, "");
   if (!cleaned) return null;
+  if (cleaned.length > MAX_QR_PAYLOAD_CHARS) return null;
+  if (cleaned.includes("=") || cleaned.includes("-") || cleaned.includes("_")) {
+    return null;
+  }
+  if (cleaned.length % 4 === 1) return null;
   if (isBase64(cleaned)) {
     try {
-      const normalized = cleaned.replaceAll("-", "+").replaceAll("_", "/");
-      const padded = normalized + "===".slice((normalized.length + 3) % 4);
+      const padded = cleaned + "===".slice((cleaned.length + 3) % 4);
       const binary = atob(padded);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i += 1) {
@@ -81,20 +89,50 @@ export function filterZBase32Lines(text) {
 }
 
 export function readUvarint(bytes, offset) {
-  let value = 0;
-  let shift = 0;
+  let value = 0n;
+  let shift = 0n;
   let idx = offset;
   while (idx < bytes.length) {
     const byte = bytes[idx++];
-    const part = byte & 0x7f;
-    value += part * Math.pow(2, shift);
-    if ((byte & 0x80) === 0) {
-      return { value, offset: idx };
+    const part = BigInt(byte & 0x7f);
+    if (shift === 63n && part > 1n) {
+      throw new Error("varint too large");
     }
-    shift += 7;
-    if (shift > 53) throw new Error("varint too large");
+    value |= part << shift;
+    if (value > MAX_UVARINT) {
+      throw new Error("varint too large");
+    }
+    if ((byte & 0x80) === 0) {
+      const encoded = encodeUvarint(value);
+      const actual = bytes.slice(offset, idx);
+      if (!bytesEqual(encoded, actual)) {
+        throw new Error("non-canonical varint");
+      }
+      if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
+        throw new Error("varint too large");
+      }
+      return { value: Number(value), offset: idx };
+    }
+    shift += 7n;
+    if (shift > 63n) throw new Error("varint too large");
   }
   throw new Error("truncated varint");
+}
+
+function encodeUvarint(value) {
+  let current = value;
+  const out = [];
+  while (true) {
+    const byte = Number(current & 0x7fn);
+    current >>= 7n;
+    if (current) {
+      out.push(byte | 0x80);
+    } else {
+      out.push(byte);
+      break;
+    }
+  }
+  return Uint8Array.from(out);
 }
 
 export function bytesEqual(a, b) {

@@ -32,7 +32,7 @@
 Start here: [Quick Start](#quick-start)
 
 - [What Is Ethernity?](#what-is-ethernity)
-- [Status (Experimental)](#status-experimental)
+- [Status (Stable v1)](#status-stable-v1)
 - [Who It's For / Not For](#who-its-for--not-for)
 - [Document Previews](#document-previews)
 - [Quick Start](#quick-start)
@@ -63,10 +63,12 @@ This is designed for high-friction, low-dependency recovery scenarios where phys
 Ethernity is opinionated around verifiability:
 formats are documented, payload structures are explicit, and release artifacts include provenance material.
 
-## Status (Experimental)
+## Status (Stable v1)
 
-- Ethernity is under active development and behavior may change across pre-stable releases.
-- Backward compatibility is not guaranteed until a stable release line is established.
+- Ethernity stable v1 starts at `v1.0.0`.
+- Stable v1 backups and recovery artifacts follow the baseline in `docs/format.md` and are expected
+  to remain compatible within the stable v1 release line.
+- Legacy pre-stable manifest variants are out of profile for stable v1 decoders.
 - Do not use Ethernity as your only backup path; run recovery drills and keep an independent backup.
 
 ## Who It's For / Not For
@@ -82,7 +84,7 @@ Ethernity is usually not a good fit if you need:
 
 - always-on background synchronization
 - turnkey, no-maintenance backup infrastructure
-- guaranteed backward compatibility across rapidly evolving pre-stable versions
+- compatibility with pre-stable legacy variants outside the stable v1 profile
 - centralized managed recovery operated by a third-party service
 
 ## Document Previews
