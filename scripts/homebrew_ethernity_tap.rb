@@ -3,8 +3,8 @@ class Ethernity < Formula
 
   desc "Secure, offline-recoverable backup system with QR-based recovery documents"
   homepage "https://github.com/MinorGlitch/ethernity"
-  url "https://github.com/MinorGlitch/ethernity/archive/refs/tags/v0.2.1.tar.gz"
-  sha256 "8f5e1848ca6c689287557a383cd787aea1cb440f7de45b7850d14b1c38fb34fb"
+  url "https://github.com/MinorGlitch/ethernity/archive/refs/tags/v0.9.1.tar.gz"
+  sha256 "20386ed7847b01298b43f7cbe653b09f98be77fa0b6a0569c09c0bad54382efc"
   license "GPL-3.0-or-later"
 
   depends_on "pkgconf" => :build
@@ -32,13 +32,13 @@ class Ethernity < Formula
   end
 
   resource "fpdf2" do
-    url "https://files.pythonhosted.org/packages/35/a7/8532d8fffe6d1c388ad4941d678dd0da4d8da80434f2dbf4f35de0fa8029/fpdf2-2.8.5-py3-none-any.whl"
-    sha256 "2356b94e2a5fcbd1fe53ac5cbb83494e9003308860ab180050255ba50961d913"
+    url "https://files.pythonhosted.org/packages/06/93/af9bff8ea01bf0895b4ebf0641da613e4e342112ee82d50642638f763239/fpdf2-2.8.6-py3-none-any.whl"
+    sha256 "464658b896c6b0fcbf883abb316b8f0a52d582eb959d71822ba254d6c790bfdd"
   end
 
   resource "greenlet" do
-    url "https://files.pythonhosted.org/packages/c7/e5/40dbda2736893e3e53d25838e0f19a2b417dfc122b9989c91918db30b5d3/greenlet-3.3.0.tar.gz"
-    sha256 "a82bb225a4e9e4d653dd2fb7b8b2d36e4fb25bc0165422a11e48b88e9e6f78fb"
+    url "https://files.pythonhosted.org/packages/a3/51/1664f6b78fc6ebbd98019a1fd730e83fa78f2db7058f72b1463d3612b8db/greenlet-3.3.2.tar.gz"
+    sha256 "2eaf067fc6d886931c7962e8c6bede15d2f01965560f3359b27c80bde2d151f2"
   end
 
   resource "jinja2" do
@@ -79,8 +79,8 @@ class Ethernity < Formula
   end
 
   resource "platformdirs" do
-    url "https://files.pythonhosted.org/packages/cb/28/3bfe2fa5a7b9c46fe7e13c97bda14c895fb10fa2ebf1d0abb90e0cea7ee1/platformdirs-4.5.1-py3-none-any.whl"
-    sha256 "d03afa3963c806a9bed9d5125c8f4cb2fdaf74a55ab60e5d59b3fde758104d31"
+    url "https://files.pythonhosted.org/packages/48/31/05e764397056194206169869b50cf2fee4dbbbc71b344705b9c0d878d4d8/platformdirs-4.9.2-py3-none-any.whl"
+    sha256 "9170634f126f8efdae22fb58ae8a0eaa86f38365bc57897a6c4f781d1f5875bd"
   end
 
   resource "prompt-toolkit" do
@@ -95,8 +95,8 @@ class Ethernity < Formula
 
   if OS.mac?
     resource "playwright" do
-      url "https://files.pythonhosted.org/packages/60/bd/5563850322a663956c927eefcf1457d12917e8f118c214410e815f2147d1/playwright-1.57.0-py3-none-macosx_11_0_universal2.whl"
-      sha256 "99104771abc4eafee48f47dac2369e0015516dc1ce8c409807d2dd440828b9a4"
+      url "https://files.pythonhosted.org/packages/e1/ee/3ce6209c9c74a650aac9028c621f357a34ea5cd4d950700f8e2c4b7fe2c4/playwright-1.58.0-py3-none-macosx_11_0_universal2.whl"
+      sha256 "185e0132578733d02802dfddfbbc35f42be23a45ff49ccae5081f25952238117"
     end
 
     resource "pyrage" do
@@ -106,8 +106,8 @@ class Ethernity < Formula
 
   elsif Hardware::CPU.arm?
     resource "playwright" do
-      url "https://files.pythonhosted.org/packages/83/d7/b72eb59dfbea0013a7f9731878df8c670f5f35318cedb010c8a30292c118/playwright-1.57.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
-      sha256 "38a1bae6c0a07839cdeaddbc0756b3b2b85e476c07945f64ece08f1f956a86f1"
+      url "https://files.pythonhosted.org/packages/d9/a6/0e66ad04b6d3440dae73efb39540c5685c5fc95b17c8b29340b62abbd952/playwright-1.58.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
+      sha256 "8f9999948f1ab541d98812de25e3a8c410776aa516d948807140aff797b4bffa"
     end
 
     resource "pyrage" do
@@ -117,8 +117,8 @@ class Ethernity < Formula
 
   else
     resource "playwright" do
-      url "https://files.pythonhosted.org/packages/56/61/3a803cb5ae0321715bfd5247ea871d25b32c8f372aeb70550a90c5f586df/playwright-1.57.0-py3-none-manylinux1_x86_64.whl"
-      sha256 "284ed5a706b7c389a06caa431b2f0ba9ac4130113c3a779767dda758c2497bb1"
+      url "https://files.pythonhosted.org/packages/f1/af/009958cbf23fac551a940d34e3206e6c7eed2b8c940d0c3afd1feb0b0589/playwright-1.58.0-py3-none-manylinux1_x86_64.whl"
+      sha256 "c95568ba1eda83812598c1dc9be60b4406dffd60b149bc1536180ad108723d6b"
     end
 
     resource "pyrage" do
@@ -128,8 +128,8 @@ class Ethernity < Formula
   end
 
   resource "pyee" do
-    url "https://files.pythonhosted.org/packages/9b/4d/b9add7c84060d4c1906abe9a7e5359f2a60f7a9a4f67268b2766673427d8/pyee-13.0.0-py3-none-any.whl"
-    sha256 "48195a3cddb3b1515ce0695ed76036b5ccc2ef3a9f963ff9f77aec0139845498"
+    url "https://files.pythonhosted.org/packages/a0/c4/b4d4827c93ef43c01f599ef31453ccc1c132b353284fc6c87d535c233129/pyee-13.0.1-py3-none-any.whl"
+    sha256 "af2f8fede4171ef667dfded53f96e2ed0d6e6bd7ee3bb46437f77e3b57689228"
   end
 
   resource "pygments" do
@@ -138,8 +138,8 @@ class Ethernity < Formula
   end
 
   resource "pypdf" do
-    url "https://files.pythonhosted.org/packages/de/db/f2e7703791a1f32532618b82789ddddb7173b9e22d97e34cc11950d8e330/pypdf-6.5.0-py3-none-any.whl"
-    sha256 "9cef8002aaedeecf648dfd9ff1ce38f20ae8d88e2534fced6630038906440b25"
+    url "https://files.pythonhosted.org/packages/df/df/38b06d6e74646a4281856920a11efb431559bdeb643bf1e192bff5e29082/pypdf-6.7.2-py3-none-any.whl"
+    sha256 "331b63cd66f63138f152a700565b3e0cebdf4ec8bec3b7594b2522418782f1f3"
   end
 
   resource "python-docx" do
@@ -153,8 +153,8 @@ class Ethernity < Formula
   end
 
   resource "rich" do
-    url "https://files.pythonhosted.org/packages/25/7a/b0178788f8dc6cafce37a212c99565fa1fe7872c70c6c9c1e1a372d9d88f/rich-14.2.0-py3-none-any.whl"
-    sha256 "76bc51fe2e57d2b1be1f96c524b890b816e334ab4c1e45888799bfaab0021edd"
+    url "https://files.pythonhosted.org/packages/14/25/b208c5683343959b670dc001595f2f3737e051da617f66c31f7c4fa93abc/rich-14.3.3-py3-none-any.whl"
+    sha256 "793431c1f8619afa7d3b52b2cdec859562b950ea0d4b6b505397612db8d5362d"
   end
 
   resource "segno" do
@@ -163,8 +163,8 @@ class Ethernity < Formula
   end
 
   resource "typer" do
-    url "https://files.pythonhosted.org/packages/e1/e4/5ebc1899d31d2b1601b32d21cfb4bba022ae6fce323d365f0448031b1660/typer-0.21.0-py3-none-any.whl"
-    sha256 "c79c01ca6b30af9fd48284058a7056ba0d3bf5cf10d0ff3d0c5b11b68c258ac6"
+    url "https://files.pythonhosted.org/packages/4a/91/48db081e7a63bb37284f9fbcefda7c44c277b18b0e13fbc36ea2335b71e6/typer-0.24.1-py3-none-any.whl"
+    sha256 "112c1f0ce578bfb4cab9ffdabc68f031416ebcc216536611ba21f04e9aa84c9e"
   end
 
   resource "typing-extensions" do
@@ -173,24 +173,24 @@ class Ethernity < Formula
   end
 
   resource "wcwidth" do
-    url "https://files.pythonhosted.org/packages/af/b5/123f13c975e9f27ab9c0770f514345bd406d0e8d3b7a0723af9d43f710af/wcwidth-0.2.14-py2.py3-none-any.whl"
-    sha256 "a7bb560c8aee30f9957e5f9895805edd20602f2d7f720186dfd906e82b4982e1"
+    url "https://files.pythonhosted.org/packages/68/5a/199c59e0a824a3db2b89c5d2dade7ab5f9624dbf6448dc291b46d5ec94d3/wcwidth-0.6.0-py3-none-any.whl"
+    sha256 "1a3a1e510b553315f8e146c54764f4fb6264ffad731b3d78088cdb1478ffbdad"
   end
 
   if OS.mac?
     resource "zxing-cpp" do
-      url "https://files.pythonhosted.org/packages/3d/46/ef7c69bea44a7c64d4a740679dd18c59616d610fb468c057d8bfbda5f063/zxing_cpp-2.3.0-cp313-cp313-macosx_10_13_universal2.whl"
-      sha256 "3da0fbf0d93ef85663def561e8f7880447970710ea6b1768dfc05550a9ee3e00"
+      url "https://files.pythonhosted.org/packages/a0/c4/c4f276e43c4df74896b7cac2a3e5deabaf743e8256ee6736380d64f7295b/zxing_cpp-3.0.0-cp313-cp313-macosx_10_13_x86_64.whl"
+      sha256 "26ee52319b545a0db5adc19c682d5bd7efa210456daff0293f5cc78311c52d90"
     end
   elsif Hardware::CPU.intel?
     resource "zxing-cpp" do
-      url "https://files.pythonhosted.org/packages/ce/5e/5784ad14f8514e4321f3a828dccc00ebcf70202f6ef967174d26bcb65568/zxing_cpp-2.3.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
-      sha256 "7ba641ca5a0f19b97d7bc6a0212e61dab267a2b1a52a84946d02bdcd859ec318"
+      url "https://files.pythonhosted.org/packages/a3/ac/ae87a5ed87a7623e18a986e4394c3e12a5fa0f4fa55dae3be7f5ca6ef392/zxing_cpp-3.0.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl"
+      sha256 "0a96c8eaf1adff4c5aaf99c74d2b5ce3d542d44c21f964ac3f70eaaefcdc141e"
     end
   else
     resource "zxing-cpp" do
-      url "https://files.pythonhosted.org/packages/d9/f2/b781bf6119abe665069777e3c0f154752cf924fe8a55fca027243abbc555/zxing_cpp-2.3.0.tar.gz"
-      sha256 "3babedb67a4c15c9de2c2b4c42d70af83a6c85780c1b2d9803ac64c6ae69f14e"
+      url "https://files.pythonhosted.org/packages/f1/c6/ac2a12cdc2b1c296804fc6a65bf112b607825ca7f47742a5aca541134711/zxing_cpp-3.0.0.tar.gz"
+      sha256 "703353304de24d947bd68044fac4e062953a7b64029de6941ba8ffeb4476b60d"
     end
   end
 
