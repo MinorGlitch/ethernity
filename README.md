@@ -129,12 +129,12 @@ Artifact naming:
 ethernity-{tag}-{os}-{arch}.{zip|tar.gz}
 ```
 
-Download and verify on Linux/macOS:
+Download and verify on Linux (auto-detect latest release tag):
 
 ```sh
 TAG="$(curl -fsSL https://api.github.com/repos/MinorGlitch/ethernity/releases/latest \
-  | sed -n 's/.*\"tag_name\": *\"\\([^\"]*\\)\".*/\\1/p' | head -n 1)"
-OS_ARCH="linux-x64"
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"tag_name\"])')"
+OS_ARCH="linux-x64" # or linux-arm64
 BASE="ethernity-${TAG}-${OS_ARCH}.tar.gz"
 
 curl -LO "https://github.com/MinorGlitch/ethernity/releases/download/${TAG}/${BASE}"
@@ -146,11 +146,28 @@ tar -xzf "${BASE}"
 ./ethernity-${TAG}-${OS_ARCH}/ethernity --help
 ```
 
-Windows PowerShell equivalent:
+Download and verify on macOS (auto-detect latest release tag):
+
+```sh
+TAG="$(curl -fsSL https://api.github.com/repos/MinorGlitch/ethernity/releases/latest \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"tag_name\"])')"
+OS_ARCH="macos-arm64" # or macos-x64
+BASE="ethernity-${TAG}-${OS_ARCH}.tar.gz"
+
+curl -LO "https://github.com/MinorGlitch/ethernity/releases/download/${TAG}/${BASE}"
+curl -LO "https://github.com/MinorGlitch/ethernity/releases/download/${TAG}/${BASE}.sigstore.json"
+
+cosign verify-blob --bundle "${BASE}.sigstore.json" "${BASE}"
+
+tar -xzf "${BASE}"
+./ethernity-${TAG}-${OS_ARCH}/ethernity --help
+```
+
+Windows PowerShell equivalent (auto-detect latest release tag):
 
 ```powershell
-$Tag = (Invoke-RestMethod "https://api.github.com/repos/MinorGlitch/ethernity/releases/latest").tag_name
-$OsArch = "windows-x64"
+$Tag = "vX.Y.Z"
+$OsArch = "windows-x64" # currently published Windows variant
 $Base = "ethernity-$Tag-$OsArch.zip"
 
 Invoke-WebRequest "https://github.com/MinorGlitch/ethernity/releases/download/$Tag/$Base" -OutFile $Base
