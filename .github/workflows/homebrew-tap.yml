@@ -68,6 +68,28 @@ jobs:
             "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${{ steps.meta.outputs.tag }}/uv.lock" \
             -o "${RUNNER_TEMP}/uv.lock"
 
+      - name: Wait for release to exist (tag push)
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.meta.outputs.tag }}"
+          repo="${GITHUB_REPOSITORY}"
+          attempts=40
+          sleep_seconds=15
+          for attempt in $(seq 1 "${attempts}"); do
+            if gh release view "${tag}" --repo "${repo}" >/dev/null 2>&1; then
+              echo "Release ${tag} is available."
+              exit 0
+            fi
+            echo "Waiting for release ${tag} to appear (${attempt}/${attempts})..."
+            sleep "${sleep_seconds}"
+          done
+          echo "Timed out waiting for release ${tag} to appear in ${repo}." >&2
+          exit 1
+
       - name: Generate source formula from release tag
         shell: bash
         run: |
