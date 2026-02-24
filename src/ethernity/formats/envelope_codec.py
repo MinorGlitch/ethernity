@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Envelope manifest/payload encoding and extraction helpers."""
+
 from __future__ import annotations
 
 import hashlib
@@ -48,6 +50,8 @@ def build_single_file_manifest(
     created_at: float | None = None,
     signing_seed: bytes | None = None,
 ) -> EnvelopeManifest:
+    """Build a manifest for a single payload file-like input."""
+
     path = _normalize_path(input_path)
     mtime = _read_mtime(input_path)
     part = PayloadPart(path=path, data=payload, mtime=mtime)
@@ -71,6 +75,8 @@ def build_manifest_and_payload(
     input_origin: str = "file",
     input_roots: tuple[str, ...] | list[str] = (),
 ) -> tuple[EnvelopeManifest, bytes]:
+    """Build a manifest and concatenated payload bytes from payload parts."""
+
     if not parts:
         raise ValueError("at least one payload part is required")
 
@@ -123,6 +129,8 @@ def build_manifest_and_payload(
 
 
 def encode_manifest(manifest: EnvelopeManifest) -> bytes:
+    """Encode a manifest and enforce manifest CBOR size bounds."""
+
     encoded = dumps_canonical(manifest.to_cbor())
     if len(encoded) > MAX_MANIFEST_CBOR_BYTES:
         raise ValueError(
@@ -133,6 +141,8 @@ def encode_manifest(manifest: EnvelopeManifest) -> bytes:
 
 
 def decode_manifest(data: bytes) -> EnvelopeManifest:
+    """Decode and validate a manifest from canonical CBOR bytes."""
+
     if len(data) > MAX_MANIFEST_CBOR_BYTES:
         raise ValueError(
             f"manifest exceeds MAX_MANIFEST_CBOR_BYTES ({MAX_MANIFEST_CBOR_BYTES}): "
@@ -146,6 +156,8 @@ def decode_manifest(data: bytes) -> EnvelopeManifest:
 
 
 def encode_envelope(payload: bytes, manifest: EnvelopeManifest) -> bytes:
+    """Encode an envelope container with manifest and payload sections."""
+
     manifest_bytes = encode_manifest(manifest)
     parts = [
         MAGIC,
@@ -159,6 +171,8 @@ def encode_envelope(payload: bytes, manifest: EnvelopeManifest) -> bytes:
 
 
 def decode_envelope(data: bytes) -> tuple[EnvelopeManifest, bytes]:
+    """Decode an envelope and return `(manifest, payload)`."""
+
     idx = 0
     if len(data) < len(MAGIC) + 1:
         raise ValueError("envelope too short")
@@ -195,6 +209,8 @@ def extract_payloads(
     manifest: EnvelopeManifest,
     payload: bytes,
 ) -> list[tuple[ManifestFile, bytes]]:
+    """Split payload bytes into manifest entries and verify entry hashes."""
+
     outputs: list[tuple[ManifestFile, bytes]] = []
     offset = 0
     for entry in manifest.files:
@@ -212,12 +228,16 @@ def extract_payloads(
 
 
 def _normalize_path(path: str | None) -> str:
+    """Normalize a single-file input path for manifest use."""
+
     if not path or path == "-":
         return "data.txt"
     return normalize_path(Path(path).name, label="input path")
 
 
 def _read_mtime(path: str | None) -> int | None:
+    """Read integer mtime for a local path, ignoring stat failures."""
+
     if not path or path == "-":
         return None
     try:

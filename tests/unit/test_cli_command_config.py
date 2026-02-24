@@ -22,11 +22,12 @@ from unittest import mock
 import typer
 
 from ethernity.cli.commands import config as config_module
+from ethernity.cli.core.types import CliContextState
 
 
 class TestConfigCommand(unittest.TestCase):
     def _ctx(self, **values: object) -> object:
-        return mock.Mock(obj=dict(values))
+        return mock.Mock(obj=CliContextState(**values))
 
     def test_resolve_editor_command(self) -> None:
         self.assertEqual(config_module._resolve_editor_command("code -w"), ["code", "-w"])

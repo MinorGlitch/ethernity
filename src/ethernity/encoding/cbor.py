@@ -14,16 +14,22 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Canonical CBOR encoding and decoding helpers."""
+
 from __future__ import annotations
 
 import cbor2
 
 
 def dumps_canonical(value: object) -> bytes:
+    """Encode a value using canonical CBOR."""
+
     return cbor2.dumps(value, canonical=True)
 
 
 def loads_canonical(data: bytes, *, label: str) -> object:
+    """Decode CBOR and reject non-canonical encodings."""
+
     try:
         decoded = cbor2.loads(data)
         if dumps_canonical(decoded) != data:

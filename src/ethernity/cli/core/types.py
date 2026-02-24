@@ -16,9 +16,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
+
+from ...config import BackupDefaults, RecoverDefaults, RuntimeDefaults
 
 
 @dataclass(frozen=True)
@@ -89,3 +91,21 @@ class RecoverArgs:
     debug_max_bytes: int = 0
     debug_reveal_secrets: bool = False
     quiet: bool = False
+
+
+@dataclass
+class CliContextState:
+    """Typed shared CLI state stored on `typer.Context.obj`."""
+
+    config: str | None = None
+    paper: str | None = None
+    design: str | None = None
+    debug: bool = False
+    debug_max_bytes: int = 0
+    debug_reveal_secrets: bool = False
+    quiet: bool = False
+    no_color: bool = False
+    no_animations: bool = False
+    backup_defaults: BackupDefaults = field(default_factory=BackupDefaults)
+    recover_defaults: RecoverDefaults = field(default_factory=RecoverDefaults)
+    runtime_defaults: RuntimeDefaults = field(default_factory=RuntimeDefaults)

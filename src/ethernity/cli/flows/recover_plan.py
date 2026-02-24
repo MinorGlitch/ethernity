@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Build validated recovery execution plans from CLI inputs."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -24,6 +26,7 @@ from ...crypto.signing import AuthPayload
 from ...encoding.chunking import reassemble_payload
 from ...encoding.framing import Frame, FrameType
 from ..core.crypto import _doc_id_and_hash_from_ciphertext
+from ..core.paths import expanduser_cli_path, expanduser_cli_paths
 from ..core.types import RecoverArgs
 from ..io.fallback_parser import format_fallback_error
 from ..io.frames import (
@@ -47,6 +50,8 @@ from ..keys.recover_keys import (
 
 @dataclass(frozen=True)
 class RecoveryPlan:
+    """Resolved recovery inputs, verification state, and output preferences."""
+
     ciphertext: bytes
     doc_id: bytes
     doc_hash: bytes
@@ -65,11 +70,15 @@ class RecoveryPlan:
 
 
 def resolve_recover_config(args: RecoverArgs) -> object:
+    """Load recovery-related config to validate config/paper inputs early."""
+
     config = load_app_config(args.config, paper_size=args.paper)
     return config
 
 
 def validate_recover_args(args: RecoverArgs) -> None:
+    """Validate mutually exclusive recovery input flags."""
+
     if args.fallback_file and args.payloads_file:
         raise ValueError("use either --fallback-file or --payloads-file, not both")
     if args.scan and (args.fallback_file or args.payloads_file):
@@ -79,6 +88,8 @@ def validate_recover_args(args: RecoverArgs) -> None:
 
 
 def plan_from_args(args: RecoverArgs) -> RecoveryPlan:
+    """Build a full recovery plan directly from CLI arguments."""
+
     validate_recover_args(args)
     resolve_recover_config(args)
     allow_unsigned = args.allow_unsigned
@@ -108,7 +119,7 @@ def plan_from_args(args: RecoverArgs) -> RecoveryPlan:
         input_detail=input_detail,
         shard_fallback_files=shard_fallback_files,
         shard_payloads_file=shard_payloads_file,
-        output_path=args.output,
+        output_path=expanduser_cli_path(args.output),
         args=args,
         quiet=quiet,
     )
@@ -129,6 +140,8 @@ def build_recovery_plan(
     args: RecoverArgs | None,
     quiet: bool,
 ) -> RecoveryPlan:
+    """Assemble a validated recovery plan from decoded frames and key inputs."""
+
     if not frames:
         hint = "Check the input path and try again."
         if input_label == "Scan":
@@ -191,6 +204,8 @@ def _resolve_passphrase(
     allow_unsigned: bool,
     args: RecoverArgs | None,
 ) -> str:
+    """Resolve the recovery passphrase from direct input, shards, or arg-driven prompts."""
+
     if shard_frames and passphrase:
         raise ValueError("use either shard inputs or passphrase, not both")
     if shard_frames:
@@ -219,9 +234,11 @@ def _frames_from_args(
     allow_unsigned: bool,
     quiet: bool,
 ) -> tuple[list[Frame], str | None, str | None]:
-    fallback_file = args.fallback_file
-    payloads_file = args.payloads_file
-    scan = list(args.scan or [])
+    """Load primary recovery frames from fallback text, payload lists, or scans."""
+
+    fallback_file = expanduser_cli_path(args.fallback_file)
+    payloads_file = expanduser_cli_path(args.payloads_file)
+    scan = expanduser_cli_paths(list(args.scan or []))
 
     if fallback_file:
         input_label = "Recovery text"
@@ -265,8 +282,10 @@ def _extra_auth_frames_from_args(
     allow_unsigned: bool,
     quiet: bool,
 ) -> list[Frame]:
-    auth_fallback_file = args.auth_fallback_file
-    auth_payloads_file = args.auth_payloads_file
+    """Load extra AUTH frames from optional auth-specific inputs."""
+
+    auth_fallback_file = expanduser_cli_path(args.auth_fallback_file)
+    auth_payloads_file = expanduser_cli_path(args.auth_payloads_file)
     if auth_fallback_file and auth_payloads_file:
         raise ValueError("use either --auth-fallback-file or --auth-payloads-file, not both")
     extra_auth_frames: list[Frame] = []
@@ -291,8 +310,10 @@ def _shard_frames_from_args(
     *,
     quiet: bool,
 ) -> tuple[list[Frame], list[str], list[str]]:
-    shard_fallback_files = list(args.shard_fallback_file or [])
-    shard_payloads_file = list(args.shard_payloads_file or [])
+    """Load shard frames from shard fallback and payload inputs."""
+
+    shard_fallback_files = expanduser_cli_paths(list(args.shard_fallback_file or []))
+    shard_payloads_file = expanduser_cli_paths(list(args.shard_payloads_file or []))
     shard_frames: list[Frame] = []
     if shard_fallback_files or shard_payloads_file:
         try:

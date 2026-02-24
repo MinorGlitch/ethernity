@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""z-base-32 encoding helpers for fallback text payloads."""
+
 from __future__ import annotations
 
 from typing import Iterable
@@ -23,11 +25,15 @@ ZBASE32_LOOKUP = {ch: idx for idx, ch in enumerate(ZBASE32_ALPHABET)}
 
 
 def decode_fallback_lines(lines: Iterable[str]) -> bytes:
+    """Decode fallback text lines by concatenating and z-base-32 decoding."""
+
     text = "".join(lines)
     return decode_zbase32(text)
 
 
 def encode_zbase32(data: bytes) -> str:
+    """Encode bytes using z-base-32 without separators."""
+
     if not data:
         return ""
     bits = 0
@@ -52,6 +58,8 @@ def encode_zbase32(data: bytes) -> str:
 
 
 def decode_zbase32(text: str) -> bytes:
+    """Decode z-base-32 text, ignoring whitespace and hyphens."""
+
     bits = 0
     bit_count = 0
     out = bytearray()

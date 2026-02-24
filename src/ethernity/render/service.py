@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Build render inputs and QR payloads for document rendering flows."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -36,15 +38,21 @@ from .types import FallbackSection, RenderInputs
 
 @dataclass(frozen=True)
 class RenderService:
+    """Facade for constructing render inputs from config and frames."""
+
     config: AppConfig
 
     def base_context(self, extra: dict[str, object] | None = None) -> dict[str, object]:
+        """Build a template context base and merge caller-provided fields."""
+
         context: dict[str, object] = {"paper_size": self.config.paper_size}
         if extra:
             context.update(extra)
         return context
 
     def build_qr_payloads(self, frames: Sequence[Frame]) -> list[bytes | str]:
+        """Encode frames into QR payload text and enforce payload length bounds."""
+
         payloads: list[bytes | str] = []
         for frame in frames:
             payload = encode_qr_payload(encode_frame(frame))
@@ -72,6 +80,8 @@ class RenderService:
         context: dict[str, object] | None = None,
         layout_debug_json_path: str | Path | None = None,
     ) -> RenderInputs:
+        """Build render inputs for the main QR document."""
+
         return self._build_inputs(
             frames=frames,
             template_path=self.config.template_path,
@@ -94,6 +104,8 @@ class RenderService:
         context: dict[str, object] | None = None,
         layout_debug_json_path: str | Path | None = None,
     ) -> RenderInputs:
+        """Build render inputs for the recovery document."""
+
         return self._build_inputs(
             frames=frames,
             template_path=self.config.recovery_template_path,
@@ -120,6 +132,8 @@ class RenderService:
         doc_type: str | None = None,
         layout_debug_json_path: str | Path | None = None,
     ) -> RenderInputs:
+        """Build render inputs for a shard or signing-key shard document."""
+
         return self._build_inputs(
             frames=[frame],
             template_path=template_path or self.config.shard_template_path,
@@ -148,6 +162,8 @@ class RenderService:
         template_path: str | Path | None = None,
         layout_debug_json_path: str | Path | None = None,
     ) -> RenderInputs:
+        """Build render inputs for the recovery kit document/index."""
+
         return self._build_inputs(
             frames=frames,
             template_path=template_path or self.config.kit_template_path,
@@ -175,6 +191,8 @@ class RenderService:
         doc_type: str,
         layout_debug_json_path: str | Path | None = None,
     ) -> RenderInputs:
+        """Construct a `RenderInputs` object with config defaults applied."""
+
         resolved_context = self.base_context(context)
         return RenderInputs(
             frames=frames,

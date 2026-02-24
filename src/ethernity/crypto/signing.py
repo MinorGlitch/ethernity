@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Ed25519 signing helpers for auth and shard payloads."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -22,7 +24,15 @@ from typing import Any, cast
 from Crypto.PublicKey import ECC
 from Crypto.Signature import eddsa
 
-from ..core.validation import require_bytes, require_dict, require_keys, require_length
+from ..core.validation import (
+    require_bytes,
+    require_dict,
+    require_keys,
+    require_length,
+    require_non_empty_str,
+    require_non_negative_int,
+    require_positive_int,
+)
 from ..encoding.cbor import dumps_canonical, loads_canonical
 
 AUTH_VERSION = 1
@@ -38,6 +48,8 @@ DOC_HASH_LEN = 32
 
 @dataclass(frozen=True)
 class AuthPayload:
+    """Decoded authentication payload fields."""
+
     version: int
     doc_hash: bytes
     sign_pub: bytes
@@ -45,6 +57,8 @@ class AuthPayload:
 
 
 def generate_signing_keypair() -> tuple[bytes, bytes]:
+    """Generate an Ed25519 seed/public-key pair."""
+
     key = ECC.generate(curve="Ed25519")
     seed = cast(bytes | None, getattr(key, "seed", None))
     if seed is None:
@@ -53,6 +67,8 @@ def generate_signing_keypair() -> tuple[bytes, bytes]:
 
 
 def _encode_auth_signed_payload(doc_hash: bytes, *, sign_pub: bytes) -> bytes:
+    """Encode the canonical auth payload body that is signed and verified."""
+
     require_length(doc_hash, DOC_HASH_LEN, label="doc_hash")
     require_length(sign_pub, ED25519_PUB_LEN, label="sign_pub")
     payload = {
@@ -64,11 +80,15 @@ def _encode_auth_signed_payload(doc_hash: bytes, *, sign_pub: bytes) -> bytes:
 
 
 def sign_auth(doc_hash: bytes, *, sign_pub: bytes, sign_priv: bytes) -> bytes:
+    """Sign an auth payload for a document hash."""
+
     signed = _encode_auth_signed_payload(doc_hash, sign_pub=sign_pub)
     return _sign_message(AUTH_DOMAIN + signed, sign_priv=sign_priv)
 
 
 def verify_auth(doc_hash: bytes, *, sign_pub: bytes, signature: bytes) -> bool:
+    """Verify an auth signature for a document hash."""
+
     try:
         signed = _encode_auth_signed_payload(doc_hash, sign_pub=sign_pub)
     except ValueError:
@@ -89,6 +109,8 @@ def sign_shard(
     sign_pub: bytes,
     sign_priv: bytes,
 ) -> bytes:
+    """Sign a shard payload binding for a document hash and share metadata."""
+
     message = SHARD_DOMAIN + _encode_shard_signed_payload(
         doc_hash,
         shard_version=shard_version,
@@ -116,6 +138,8 @@ def verify_shard(
     sign_pub: bytes,
     signature: bytes,
 ) -> bool:
+    """Verify a shard signature against shard metadata and document hash."""
+
     try:
         signed = _encode_shard_signed_payload(
             doc_hash,
@@ -138,6 +162,8 @@ def verify_shard(
 
 
 def encode_auth_payload(doc_hash: bytes, *, sign_pub: bytes, signature: bytes) -> bytes:
+    """Encode an auth payload as canonical CBOR."""
+
     require_length(doc_hash, DOC_HASH_LEN, label="doc_hash")
     require_length(sign_pub, ED25519_PUB_LEN, label="sign_pub")
     require_length(signature, ED25519_SIG_LEN, label="signature")
@@ -151,6 +177,8 @@ def encode_auth_payload(doc_hash: bytes, *, sign_pub: bytes, signature: bytes) -
 
 
 def decode_auth_payload(data: bytes) -> AuthPayload:
+    """Decode and validate an auth payload from canonical CBOR."""
+
     decoded = require_dict(loads_canonical(data, label="auth payload"), label="auth payload")
     require_keys(decoded, ("version", "hash", "pub", "sig"), label="auth payload")
     version = decoded["version"]
@@ -171,11 +199,15 @@ def decode_auth_payload(data: bytes) -> AuthPayload:
 
 
 def _key_from_seed(seed: bytes) -> ECC.EccKey:
+    """Construct an Ed25519 private key from raw seed bytes."""
+
     require_length(seed, ED25519_SEED_LEN, label="sign_priv")
     return ECC.construct(curve="Ed25519", seed=cast(Any, seed))
 
 
 def _key_from_public_bytes(sign_pub: bytes) -> ECC.EccKey:
+    """Construct an Ed25519 public key from raw public key bytes."""
+
     require_length(sign_pub, ED25519_PUB_LEN, label="sign_pub")
     return ECC.import_key(ED25519_PUB_DER_PREFIX + sign_pub)
 
@@ -192,24 +224,20 @@ def _encode_shard_signed_payload(
     share: bytes,
     sign_pub: bytes,
 ) -> bytes:
+    """Encode the canonical shard payload body that is signed and verified."""
+
     require_length(doc_hash, DOC_HASH_LEN, label="doc_hash")
     require_length(sign_pub, ED25519_PUB_LEN, label="sign_pub")
-    if not isinstance(shard_version, int) or shard_version < 0:
-        raise ValueError("shard_version must be a non-negative int")
-    if not isinstance(key_type, str) or not key_type:
-        raise ValueError("key_type must be a non-empty string")
-    if not isinstance(threshold, int) or threshold <= 0:
-        raise ValueError("threshold must be a positive int")
-    if not isinstance(share_count, int) or share_count <= 0:
-        raise ValueError("share_count must be a positive int")
-    if not isinstance(share_index, int) or share_index <= 0:
-        raise ValueError("share_index must be a positive int")
+    shard_version = require_non_negative_int(shard_version, label="shard_version")
+    key_type = require_non_empty_str(key_type, label="key_type")
+    threshold = require_positive_int(threshold, label="threshold")
+    share_count = require_positive_int(share_count, label="share_count")
+    share_index = require_positive_int(share_index, label="share_index")
     if threshold > share_count:
         raise ValueError("threshold cannot exceed share_count")
     if share_index > share_count:
         raise ValueError("share_index cannot exceed share_count")
-    if not isinstance(secret_len, int) or secret_len <= 0:
-        raise ValueError("secret_len must be a positive int")
+    secret_len = require_positive_int(secret_len, label="secret_len")
     if not share:
         raise ValueError("share cannot be empty")
     payload = {

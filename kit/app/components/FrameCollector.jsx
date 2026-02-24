@@ -15,10 +15,11 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { useState } from "preact/hooks";
+import { useState } from "microact/hooks";
 
 import { DiagnosticsList, Field, StatusBlock } from "./common.jsx";
 import { CollectorStep } from "./CollectorStep.jsx";
+import { QrScannerPanel } from "./QrScannerPanel.jsx";
 
 export function FrameCollector({
   payloadText,
@@ -37,7 +38,7 @@ export function FrameCollector({
     const text = event.clipboardData?.getData("text/plain") ?? "";
     const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     if (lines.length) {
-      setPasteHint(`Pasted ${lines.length} line(s). Click Add frames.`);
+      setPasteHint(`Pasted ${lines.length} line(s). Click Add.`);
     }
   };
   const handlePayloadChange = (event) => {
@@ -48,19 +49,34 @@ export function FrameCollector({
     setPasteHint("");
     onAddPayloads();
   };
+  const handleScanText = (rawText) => {
+    const lines = String(rawText ?? "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (!lines.length) {
+      setPasteHint("Scanned QR was empty.");
+      return;
+    }
+    const prefix = payloadText && !payloadText.endsWith("\n") ? "\n" : "";
+    const nextValue = `${payloadText ?? ""}${prefix}${lines.join("\n")}`;
+    onPayloadChange({ currentTarget: { value: nextValue } });
+    setPasteHint(`Scanned ${lines.length} line(s). Click Add.`);
+  };
   const input = {
     title: "Backup data",
     body: (
       <>
         <Field
           id="payload-text"
-          label="Recovery text"
+          label="Backup text"
           value={payloadText}
-          placeholder="Paste the text from your recovery document here (including the AUTH section if available)..."
+          placeholder="Paste backup text (include AUTH if available)..."
           onInput={handlePayloadChange}
           onPaste={handlePaste}
           as="textarea"
         />
+        <QrScannerPanel onScanText={handleScanText} />
         {pasteHint ? <div class="hint">{pasteHint}</div> : null}
       </>
     ),
@@ -82,8 +98,9 @@ export function FrameCollector({
     body: (
       <>
         <StatusBlock status={frameStatus} />
+        <DiagnosticsList items={frameDiagnostics} compact />
         <details class="details" open={showDetails}>
-          <summary>Validation details</summary>
+          <summary>All details</summary>
           <DiagnosticsList items={frameDiagnostics} />
         </details>
       </>

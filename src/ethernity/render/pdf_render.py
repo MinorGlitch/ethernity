@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Render framed documents to PDF via template HTML and QR image generation."""
+
 from __future__ import annotations
 
 import concurrent.futures
@@ -56,6 +58,8 @@ _TEMPLATE_ASSETS_DIR = _PACKAGE_ROOT / "templates" / "_shared" / "assets"
 
 @dataclass(frozen=True)
 class ForgeCopy:
+    """Template copy bundle fields injected into Forge-style designs."""
+
     doc_id_label: str
     generated_utc_label: str
     version: str
@@ -65,6 +69,8 @@ class ForgeCopy:
 
 
 def _forge_copy_payload(*, ethernity_version: str) -> ForgeCopy:
+    """Build Forge copy labels for template injection."""
+
     return ForgeCopy(
         doc_id_label="DOC ID",
         generated_utc_label="GENERATED (UTC)",
@@ -76,10 +82,14 @@ def _forge_copy_payload(*, ethernity_version: str) -> ForgeCopy:
 
 
 def _ethernity_version() -> str:
+    """Return the packaged Ethernity version string."""
+
     return get_ethernity_version()
 
 
 def _generator_label(ethernity_version: str) -> str:
+    """Build the generator label shown in rendered document metadata."""
+
     normalized = ethernity_version.strip()
     if normalized:
         return f"Ethernity v{normalized}"
@@ -87,6 +97,8 @@ def _generator_label(ethernity_version: str) -> str:
 
 
 def _uses_uniform_main_qr_capacity(*, doc_type: str, capabilities: TemplateCapabilities) -> bool:
+    """Return whether main-document pages should use uniform QR capacity."""
+
     return doc_type.strip().lower() == DOC_TYPE_MAIN and capabilities.uniform_main_qr_capacity
 
 
@@ -96,6 +108,8 @@ def _apply_main_qr_grid_overrides(
     doc_type: str,
     capabilities: TemplateCapabilities,
 ) -> DocumentSpec:
+    """Apply main QR grid capability overrides to a document spec."""
+
     normalized_doc_type = doc_type.strip().lower()
     if normalized_doc_type != DOC_TYPE_MAIN:
         return spec
@@ -114,6 +128,8 @@ def _apply_main_qr_grid_overrides(
 
 
 def _resolve_created_timestamp(base_context: dict[str, object]) -> tuple[str, datetime | None]:
+    """Normalize created timestamp fields for template context and display."""
+
     created_value = base_context.get("created_timestamp_utc")
     if created_value is None:
         created_value = base_context.get("created_date")
@@ -145,10 +161,14 @@ def _resolve_created_timestamp(base_context: dict[str, object]) -> tuple[str, da
 
 
 def _layout_spec(spec: DocumentSpec, doc_id: str, page_label: str) -> DocumentSpec:
+    """Return a spec copy with header doc/page metadata populated."""
+
     return spec.with_header(doc_id=doc_id, page_label=page_label)
 
 
 def _page_size_css(spec: DocumentSpec) -> str:
+    """Build CSS page size text from a document spec."""
+
     if spec.page.width_mm and spec.page.height_mm:
         return f"{float(spec.page.width_mm)}mm {float(spec.page.height_mm)}mm"
     return str(spec.page.size)
@@ -225,6 +245,8 @@ def _write_layout_debug_json(
 
 
 def render_frames_to_pdf(inputs: RenderInputs) -> None:
+    """Render frames to a PDF by building layout, template context, and QR resources."""
+
     if not inputs.frames:
         raise ValueError("frames cannot be empty")
 
@@ -417,15 +439,21 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
 
 
 def _qr_kind(config: QrConfig) -> str:
+    """Normalize QR output kind for resource routing."""
+
     return str(config.kind or "png").strip().lower()
 
 
 def _qr_url_for_index(index: int, *, kind: str) -> str:
+    """Build the synthetic QR resource URL used in rendered HTML."""
+
     return f"{_QR_URL_PREFIX}{index + 1}.{kind}"
 
 
 @functools.lru_cache(maxsize=1)
 def _build_static_template_resources() -> dict[str, tuple[str, bytes]]:
+    """Load static template assets that are served during HTML-to-PDF rendering."""
+
     resources: dict[str, tuple[str, bytes]] = {}
     icon_font = _TEMPLATE_ASSETS_DIR / "material-symbols-outlined.ttf"
     if icon_font.is_file():
@@ -440,6 +468,8 @@ def _build_qr_resources(
     kind: str,
     render_jobs: int | Literal["auto"] | None = None,
 ) -> dict[str, tuple[str, bytes]]:
+    """Render QR payload images and package them as routable template resources."""
+
     content_type = _qr_content_type(kind)
     qr_kwargs = dict(_qr_kwargs(config))
     qr_kwargs["kind"] = kind
@@ -458,6 +488,8 @@ def _render_qr_images(
     *,
     render_jobs: int | Literal["auto"] | None,
 ) -> list[bytes]:
+    """Render QR images sequentially or in a thread pool based on worker settings."""
+
     if not qr_payloads:
         return []
 
@@ -474,6 +506,8 @@ def _resolve_qr_workers(
     *,
     configured: int | Literal["auto"] | None = None,
 ) -> int:
+    """Resolve QR render worker count from config and environment overrides."""
+
     raw = os.environ.get(_RENDER_JOBS_ENV, "").strip().lower()
     explicit = False
     requested: int | None = None
@@ -503,6 +537,8 @@ def _resolve_qr_workers(
 
 
 def _qr_content_type(kind: str) -> str:
+    """Return MIME type for a QR image kind."""
+
     if kind == "png":
         return "image/png"
     if kind == "svg":
@@ -515,6 +551,8 @@ def _qr_content_type(kind: str) -> str:
 
 
 def _qr_kwargs(config: QrConfig) -> dict[str, Any]:
+    """Convert a QR config dataclass into kwargs for `qr_bytes`."""
+
     return vars(config)
 
 

@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Write backup and recovery outputs to disk or stdout safely."""
+
 from __future__ import annotations
 
 import os
@@ -21,9 +23,12 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ...core.validation import normalize_path
+from ..core.paths import expanduser_cli_path
 
 
 def _harden_dir_permissions(path: Path) -> None:
+    """Apply restrictive directory permissions on POSIX systems."""
+
     if os.name != "posix":
         return
     try:
@@ -33,6 +38,8 @@ def _harden_dir_permissions(path: Path) -> None:
 
 
 def _harden_file_permissions(path: Path) -> None:
+    """Apply restrictive file permissions on POSIX systems."""
+
     if os.name != "posix":
         return
     try:
@@ -42,14 +49,18 @@ def _harden_file_permissions(path: Path) -> None:
 
 
 def _ensure_directory(path: str | Path, *, exist_ok: bool) -> Path:
-    directory = Path(path)
+    """Create an output directory and harden its permissions."""
+
+    directory = Path(expanduser_cli_path(path, preserve_stdin=False) or "")
     directory.mkdir(parents=True, exist_ok=exist_ok, mode=0o700)
     _harden_dir_permissions(directory)
     return directory
 
 
 def _ensure_output_dir(output_dir: str | None, doc_id_hex: str) -> str:
-    directory = output_dir or f"backup-{doc_id_hex}"
+    """Create a fresh backup output directory or raise if it already exists."""
+
+    directory = expanduser_cli_path(output_dir, preserve_stdin=False) or f"backup-{doc_id_hex}"
     try:
         _ensure_directory(directory, exist_ok=False)
     except FileExistsError as exc:
@@ -61,6 +72,8 @@ def _ensure_output_dir(output_dir: str | None, doc_id_hex: str) -> str:
 
 
 def _safe_join(base: Path, relative: str) -> Path:
+    """Join a manifest path under a base directory after path normalization checks."""
+
     relative = normalize_path(relative, label="output path")
     rel = Path(relative)
     if rel.is_absolute() or ".." in rel.parts:
@@ -72,12 +85,15 @@ def _safe_join(base: Path, relative: str) -> Path:
 
 
 def _write_output(path: str | None, data: bytes, *, quiet: bool) -> None:
+    """Write bytes to a file path or stdout when no path is provided."""
+
     import sys
 
     if path:
-        with open(path, "wb") as handle:
+        normalized = Path(expanduser_cli_path(path, preserve_stdin=False) or "")
+        with normalized.open("wb") as handle:
             handle.write(data)
-        _harden_file_permissions(Path(path))
+        _harden_file_permissions(normalized)
     else:
         sys.stdout.buffer.write(data)
 
@@ -89,6 +105,8 @@ def _write_recovered_outputs(
     quiet: bool,
     single_entry_output_is_directory: bool = False,
 ) -> None:
+    """Write recovered manifest entries to a file, directory, or stdout."""
+
     if not entries:
         raise ValueError("no payloads to write")
     if output_path:

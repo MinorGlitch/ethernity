@@ -14,12 +14,16 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Canonical unsigned varint encoding and decoding."""
+
 from __future__ import annotations
 
 _MAX_UVARINT = (1 << 64) - 1
 
 
 def encode_uvarint(value: int) -> bytes:
+    """Encode an unsigned integer as a canonical varint."""
+
     if value < 0:
         raise ValueError("value must be non-negative")
     if value > _MAX_UVARINT:
@@ -37,6 +41,8 @@ def encode_uvarint(value: int) -> bytes:
 
 
 def decode_uvarint(data: bytes, start: int) -> tuple[int, int]:
+    """Decode an unsigned varint and reject non-canonical encodings."""
+
     if start < 0:
         raise ValueError("start must be non-negative")
     value = 0

@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Binary framing for QR/fallback document payloads."""
+
 from __future__ import annotations
 
 import zlib
@@ -35,6 +37,8 @@ CRC_LEN = 4
 
 
 class FrameType(IntEnum):
+    """Supported frame type discriminators."""
+
     MAIN_DOCUMENT = 0x44  # "D"
     KEY_DOCUMENT = 0x4B  # "K"
     AUTH = 0x41  # "A"
@@ -42,6 +46,8 @@ class FrameType(IntEnum):
 
 @dataclass(frozen=True)
 class Frame:
+    """Decoded or to-be-encoded frame record."""
+
     version: int
     frame_type: int
     doc_id: bytes
@@ -51,6 +57,8 @@ class Frame:
 
 
 def encode_frame(frame: Frame) -> bytes:
+    """Encode a frame with canonical varints and trailing CRC32."""
+
     _validate_frame(frame)
 
     parts: list[bytes] = [
@@ -69,6 +77,8 @@ def encode_frame(frame: Frame) -> bytes:
 
 
 def decode_frame(payload: bytes) -> Frame:
+    """Decode and validate a frame payload, including CRC and bounds."""
+
     if len(payload) < len(MAGIC) + CRC_LEN:
         raise ValueError("frame too short")
 
@@ -123,6 +133,8 @@ def decode_frame(payload: bytes) -> Frame:
 
 
 def _validate_frame(frame: Frame) -> None:
+    """Validate frame invariants and frame-type-specific bounds."""
+
     if frame.version != VERSION:
         raise ValueError(f"unsupported frame version: {frame.version}")
 

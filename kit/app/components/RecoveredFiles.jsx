@@ -25,8 +25,7 @@ function SuccessBanner({ fileCount }) {
         Recovery Complete
       </h3>
       <p>
-        Successfully recovered {fileCount} file{fileCount !== 1 ? "s" : ""}.
-        Download individual files below or get everything as a ZIP.
+        Recovered {fileCount} file{fileCount !== 1 ? "s" : ""}. Download files or ZIP below.
       </p>
     </div>
   );
@@ -43,8 +42,8 @@ export function RecoveredFiles({
   recoveryComplete,
 }) {
   const actions = [
-    { label: "Clear output", className: "ghost", onClick: onClearOutput, disabled: !hasOutput },
-    { label: "Download all as ZIP", className: "secondary", onClick: onDownloadZip, disabled: !hasOutput },
+    { label: "Clear", className: "ghost", onClick: onClearOutput, disabled: !hasOutput },
+    { label: "Download ZIP", className: "secondary", onClick: onDownloadZip, disabled: !hasOutput },
   ];
   return (
     <Card>

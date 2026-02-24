@@ -64,6 +64,8 @@ def normalize_manifest_path(path: object, *, label: str = "path") -> str:
         raise ValueError(f"{label} must be a non-empty string")
     if normalized.startswith("/"):
         raise ValueError(f"{label} must be relative (no leading '/')")
+    if len(normalized) >= 2 and normalized[1] == ":" and normalized[0].isalpha():
+        raise ValueError(f"{label} must not start with a drive-letter prefix")
     if "\\" in normalized:
         raise ValueError(f"{label} must use POSIX separators ('/')")
     segments = normalized.split("/")
@@ -83,6 +85,35 @@ def require_length(value: bytes, length: int, *, label: str, prefix: str = "") -
     """Validate that bytes value has exact length."""
     if len(value) != length:
         raise ValueError(f"{prefix}{label} must be {length} bytes")
+
+
+def require_int(value: object, *, label: str) -> int:
+    """Validate that value is an int."""
+    if not isinstance(value, int):
+        raise ValueError(f"{label} must be an int")
+    return value
+
+
+def require_bool(value: object, *, label: str) -> bool:
+    """Validate that value is a boolean."""
+    if not isinstance(value, bool):
+        raise ValueError(f"{label} must be a boolean")
+    return value
+
+
+def require_str(value: object, *, label: str) -> str:
+    """Validate that value is a string."""
+    if not isinstance(value, str):
+        raise ValueError(f"{label} must be a string")
+    return value
+
+
+def require_non_empty_str(value: object, *, label: str) -> str:
+    """Validate that value is a non-empty string."""
+    text = require_str(value, label=label)
+    if not text:
+        raise ValueError(f"{label} must be a non-empty string")
+    return text
 
 
 def require_bytes(

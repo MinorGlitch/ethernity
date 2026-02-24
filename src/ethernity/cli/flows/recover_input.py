@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Interactive recovery input collection for fallback text, payloads, and scans."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -104,6 +106,8 @@ def parse_recovery_lines(
     quiet: bool,
     source: str,
 ) -> tuple[list[Frame], str]:
+    """Parse pasted/file recovery lines as fallback text or QR payload lines."""
+
     try:
         mode = _detect_recovery_input_mode(lines)
     except ValueError as exc:
@@ -133,6 +137,8 @@ def prompt_text_or_payloads_stdin(
     allow_unsigned: bool,
     quiet: bool,
 ) -> tuple[list[Frame], str]:
+    """Read stdin-style interactive input and branch into fallback or payload collection."""
+
     first_line = prompt_required(
         "Recovery text or QR payload (first line or block)",
         help_text="Paste recovery text or a QR payload; we'll keep asking until it decodes.",
@@ -175,6 +181,8 @@ def collect_fallback_frames(
     quiet: bool,
     initial_lines: list[str] | None,
 ) -> list[Frame]:
+    """Collect fallback recovery text until it decodes into frames."""
+
     lines = list(initial_lines or [])
     if not quiet:
         console.print(
@@ -225,6 +233,8 @@ def collect_fallback_frames(
 
 @dataclass
 class _PayloadCollectionState:
+    """Track incremental QR payload collection and completion state."""
+
     allow_unsigned: bool
     quiet: bool
     frames: list[Frame] = field(default_factory=list)
@@ -235,6 +245,8 @@ class _PayloadCollectionState:
     expected_doc_id: bytes | None = None
 
     def next_prompt(self) -> str:
+        """Return the next prompt label based on remaining payloads."""
+
         if self.main_total is None:
             return "QR payload"
         remaining_main = max(self.main_total - len(self.main_indices), 0)
@@ -245,6 +257,8 @@ class _PayloadCollectionState:
         return f"QR payload ({remaining_total} remaining)"
 
     def ingest(self, frame: Frame) -> bool:
+        """Validate and store a QR frame, returning whether collection is complete."""
+
         if frame.frame_type not in (FrameType.MAIN_DOCUMENT, FrameType.AUTH):
             console_err.print(
                 "[error]Only MAIN or AUTH QR payloads are accepted here. "
@@ -293,6 +307,8 @@ class _PayloadCollectionState:
         return self._is_complete()
 
     def _is_complete(self) -> bool:
+        """Return whether the required MAIN/AUTH payload set has been collected."""
+
         if self.main_total is None:
             return False
 
@@ -311,6 +327,8 @@ def collect_payload_frames(
     quiet: bool,
     first_frame: Frame | None = None,
 ) -> list[Frame]:
+    """Collect QR payload lines interactively until the required set is complete."""
+
     if not quiet:
         console.print(
             "[subtitle]"

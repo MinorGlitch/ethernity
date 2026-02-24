@@ -27,13 +27,13 @@ from collections.abc import Callable
 from pathlib import Path
 
 import playwright
-from platformdirs import user_cache_dir
 from playwright.sync_api import sync_playwright
 from rich.progress import Progress, TaskID
-from rich.traceback import install as install_rich_traceback
 
 from ..config import init_user_config, user_config_needs_init
+from ..core.app_paths import playwright_browsers_cache_dir
 from .api import configure_ui, console, progress
+from .core.common import _enable_rich_debug_traceback
 
 _PLAYWRIGHT_SKIP_ENV = "ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"
 _PLAYWRIGHT_BROWSERS_ENV = "PLAYWRIGHT_BROWSERS_PATH"
@@ -52,7 +52,7 @@ def run_startup(
 ) -> bool:
     configure_ui(no_color=no_color, no_animations=no_animations)
     if debug:
-        install_rich_traceback(show_locals=True)
+        _enable_rich_debug_traceback()
     _ensure_playwright_browsers(quiet=quiet)
     if init_config:
         config_dir = init_user_config()
@@ -72,8 +72,7 @@ def ensure_playwright_browsers(*, quiet: bool = True) -> None:
 def _configure_playwright_env() -> None:
     if os.environ.get(_PLAYWRIGHT_BROWSERS_ENV):
         return
-    cache_dir = user_cache_dir("ms-playwright", appauthor=False)
-    os.environ[_PLAYWRIGHT_BROWSERS_ENV] = cache_dir
+    os.environ[_PLAYWRIGHT_BROWSERS_ENV] = str(playwright_browsers_cache_dir())
 
 
 def _playwright_chromium_installed() -> bool:

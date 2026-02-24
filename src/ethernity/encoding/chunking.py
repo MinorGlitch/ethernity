@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+"""Chunk and reassemble framed payloads with bounds enforcement."""
+
 from __future__ import annotations
 
 from typing import Iterable, Sequence
@@ -33,6 +35,8 @@ def chunk_payload(
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     version: int = VERSION,
 ) -> list[Frame]:
+    """Split a payload into frames while enforcing frame-type constraints."""
+
     if not payload:
         raise ValueError("payload cannot be empty")
     if len(doc_id) != DOC_ID_LEN:
@@ -78,6 +82,8 @@ def reassemble_payload(
     expected_doc_id: bytes | None = None,
     expected_frame_type: int | None = None,
 ) -> bytes:
+    """Reassemble MAIN_DOCUMENT frames into a single payload with consistency checks."""
+
     if not frames:
         raise ValueError("no frames provided")
 
@@ -130,5 +136,7 @@ def reassemble_payload(
 
 
 def fallback_lines_to_frame(lines: Iterable[str]) -> Frame:
+    """Decode fallback text lines into a single frame."""
+
     data = _decode_fallback_lines(lines)
     return decode_frame(data)

@@ -18,12 +18,51 @@
 import { bytesToHex } from "../lib/encoding.js";
 import { recoverSecretFromShards } from "../lib/shamir.js";
 import { SHARD_KEY_PASSPHRASE, SHARD_KEY_SIGNING_SEED, textDecoder } from "./constants.js";
+import { ensureCiphertextAndHash } from "./frames_cipher.js";
 import { setStatus } from "./state/initial.js";
+
+function setShardStatus(state, statusPrefix, line, type) {
+  const lines = statusPrefix.length ? [...statusPrefix, line] : [line];
+  setStatus(state, "shardStatus", lines, type);
+}
 
 export function autoRecoverShardSecret(state, statusPrefix = []) {
   if (!state.shardThreshold || state.shardFrames.size < state.shardThreshold) {
     return false;
   }
+  if (!state.shardDocHashHex) {
+    setShardStatus(state, statusPrefix, "Shard recovery blocked: shard payload hash is missing.", "error");
+    return false;
+  }
+
+  let cipherHash;
+  try {
+    cipherHash = ensureCiphertextAndHash(state);
+  } catch (err) {
+    setShardStatus(state, statusPrefix, `Shard recovery blocked: ${String(err)}`, "error");
+    return false;
+  }
+  if (!cipherHash) {
+    setShardStatus(
+      state,
+      statusPrefix,
+      "Shard recovery blocked: collect main frames to derive ciphertext hash.",
+      "warn"
+    );
+    return false;
+  }
+
+  const cipherHashHex = bytesToHex(cipherHash);
+  if (cipherHashHex !== state.shardDocHashHex) {
+    setShardStatus(
+      state,
+      statusPrefix,
+      "Shard recovery blocked: shard hash does not match collected ciphertext.",
+      "error"
+    );
+    return false;
+  }
+
   try {
     const shares = Array.from(state.shardFrames.values());
     const secretBytes = recoverSecretFromShards(shares);
@@ -39,13 +78,9 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     } else {
       state.recoveredShardSecret = bytesToHex(secretBytes);
     }
-    const lines = statusPrefix.length
-      ? [...statusPrefix, "Recovered shard secret from shard documents."]
-      : ["Recovered shard secret from shard documents."];
-    setStatus(state, "shardStatus", lines, "ok");
+    setShardStatus(state, statusPrefix, "Recovered shard secret from shard documents.", "ok");
   } catch (err) {
-    const lines = statusPrefix.length ? [...statusPrefix, String(err)] : [String(err)];
-    setStatus(state, "shardStatus", lines, "error");
+    setShardStatus(state, statusPrefix, String(err), "error");
     return false;
   }
   return true;

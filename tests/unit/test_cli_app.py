@@ -21,7 +21,7 @@ from unittest import mock
 
 import typer
 
-from ethernity.cli.core.types import RecoverArgs
+from ethernity.cli.core.types import CliContextState, RecoverArgs
 from ethernity.config import CliDefaults, DebugDefaults, UiDefaults
 
 app_module = importlib.import_module("ethernity.cli.app")
@@ -30,12 +30,7 @@ app_module = importlib.import_module("ethernity.cli.app")
 @dataclass
 class _Ctx:
     invoked_subcommand: str | None = None
-    obj: dict[str, object] | None = None
-
-    def ensure_object(self, _type):
-        if self.obj is None:
-            self.obj = {}
-        return self.obj
+    obj: CliContextState | None = None
 
 
 class TestCliApp(unittest.TestCase):
@@ -286,11 +281,11 @@ class TestCliApp(unittest.TestCase):
             )
 
         self.assertIsNotNone(ctx.obj)
-        ctx_obj = {} if ctx.obj is None else ctx.obj
-        self.assertEqual(ctx_obj["quiet"], True)
-        self.assertEqual(ctx_obj["no_color"], True)
-        self.assertEqual(ctx_obj["no_animations"], True)
-        self.assertEqual(ctx_obj["debug_max_bytes"], 4096)
+        ctx_obj = CliContextState() if ctx.obj is None else ctx.obj
+        self.assertEqual(ctx_obj.quiet, True)
+        self.assertEqual(ctx_obj.no_color, True)
+        self.assertEqual(ctx_obj.no_animations, True)
+        self.assertEqual(ctx_obj.debug_max_bytes, 4096)
         configure_ui.assert_called_once_with(no_color=True, no_animations=True)
 
     @mock.patch("ethernity.cli.app.configure_ui")
@@ -323,11 +318,11 @@ class TestCliApp(unittest.TestCase):
             )
 
         self.assertIsNotNone(ctx.obj)
-        ctx_obj = {} if ctx.obj is None else ctx.obj
-        self.assertEqual(ctx_obj["quiet"], True)
-        self.assertEqual(ctx_obj["no_color"], True)
-        self.assertEqual(ctx_obj["no_animations"], True)
-        self.assertEqual(ctx_obj["debug_max_bytes"], 1234)
+        ctx_obj = CliContextState() if ctx.obj is None else ctx.obj
+        self.assertEqual(ctx_obj.quiet, True)
+        self.assertEqual(ctx_obj.no_color, True)
+        self.assertEqual(ctx_obj.no_animations, True)
+        self.assertEqual(ctx_obj.debug_max_bytes, 1234)
         configure_ui.assert_called_once_with(no_color=True, no_animations=True)
 
     @mock.patch("ethernity.cli.app.configure_ui")
@@ -360,10 +355,10 @@ class TestCliApp(unittest.TestCase):
             )
 
         self.assertIsNotNone(ctx.obj)
-        ctx_obj = {} if ctx.obj is None else ctx.obj
-        self.assertEqual(ctx_obj["quiet"], True)  # from config
-        self.assertEqual(ctx_obj["no_color"], True)  # from config
-        self.assertEqual(ctx_obj["no_animations"], True)  # from CLI flag
+        ctx_obj = CliContextState() if ctx.obj is None else ctx.obj
+        self.assertEqual(ctx_obj.quiet, True)  # from config
+        self.assertEqual(ctx_obj.no_color, True)  # from config
+        self.assertEqual(ctx_obj.no_animations, True)  # from CLI flag
         configure_ui.assert_called_once_with(no_color=True, no_animations=True)
 
     @mock.patch("ethernity.cli.app.app")
