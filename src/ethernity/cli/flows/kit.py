@@ -33,6 +33,7 @@ from ..api import status
 from ..core.paths import expanduser_cli_path
 
 DEFAULT_KIT_BUNDLE_NAME = "recovery_kit.bundle.html"
+SCANNER_KIT_BUNDLE_NAME = "recovery_kit.scanner.bundle.html"
 DEFAULT_KIT_OUTPUT = "recovery_kit_qr.pdf"
 DEFAULT_KIT_CHUNK_SIZE = 1200
 _MAX_QR_PROBE_BYTES = 4000
@@ -59,12 +60,13 @@ def render_kit_qr_document(
     config_path: str | Path | None,
     paper_size: str | None,
     design: str | None,
+    variant: str,
     chunk_size: int | None,
     quiet: bool,
 ) -> KitResult:
     config = load_app_config(config_path, paper_size=paper_size)
     config = apply_template_design(config, design)
-    bundle_bytes = _load_kit_bundle(bundle_path)
+    bundle_bytes = _load_kit_bundle(bundle_path, variant=variant)
     qr_config = config.qr_config
 
     if chunk_size is None:
@@ -112,7 +114,21 @@ def render_kit_qr_document(
     )
 
 
-def _load_kit_bundle(bundle_path: str | Path | None) -> bytes:
+def _normalize_kit_variant(value: str | None) -> str:
+    variant = (value or "lean").strip().lower()
+    if variant not in {"lean", "scanner"}:
+        raise ValueError("variant must be 'lean' or 'scanner'")
+    return variant
+
+
+def _default_kit_bundle_name(variant: str) -> str:
+    normalized = _normalize_kit_variant(variant)
+    if normalized == "scanner":
+        return SCANNER_KIT_BUNDLE_NAME
+    return DEFAULT_KIT_BUNDLE_NAME
+
+
+def _load_kit_bundle(bundle_path: str | Path | None, *, variant: str = "lean") -> bytes:
     """Load the recovery kit bundle from the specified path or default locations."""
     if bundle_path:
         path = Path(expanduser_cli_path(bundle_path, preserve_stdin=False) or "")
@@ -127,12 +143,13 @@ def _load_kit_bundle(bundle_path: str | Path | None) -> bytes:
                 f"unable to read bundle file: {path}. Check --bundle path and permissions."
             ) from exc
     # Primary: load from installed package (src/ethernity/kit/)
+    bundle_name = _default_kit_bundle_name(variant)
     try:
-        return files("ethernity.kit").joinpath(DEFAULT_KIT_BUNDLE_NAME).read_bytes()
+        return files("ethernity.kit").joinpath(bundle_name).read_bytes()
     except (FileNotFoundError, ModuleNotFoundError):
         pass
     # Fallback: development build output (kit/dist/)
-    candidate = PACKAGE_ROOT.parents[2] / "kit" / "dist" / DEFAULT_KIT_BUNDLE_NAME
+    candidate = PACKAGE_ROOT.parents[2] / "kit" / "dist" / bundle_name
     if candidate.exists():
         return candidate.read_bytes()
     raise FileNotFoundError(

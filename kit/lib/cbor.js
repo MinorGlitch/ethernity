@@ -17,6 +17,7 @@
 
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
+const CBOR_FLOAT_BOX = Symbol("cborFloatBox");
 
 export function decodeCbor(bytes) {
   const result = decodeCborItem(bytes, 0);
@@ -27,14 +28,14 @@ export function decodeCbor(bytes) {
 }
 
 export function decodeCanonicalCbor(bytes, label) {
-  const decoded = decodeCbor(bytes);
-  const encoded = encodeCbor(decoded);
+  const typed = decodeCborWithOptions(bytes, { preserveFloatType: true });
+  const encoded = encodeCbor(typed);
   if (!bytesEqual(encoded, bytes)) {
     throw new Error(
       `${label} must use canonical CBOR encoding (indefinite-length items are not allowed)`
     );
   }
-  return decoded;
+  return stripCborFloatBoxes(typed);
 }
 
 export function encodeCbor(value) {
@@ -44,6 +45,10 @@ export function encodeCbor(value) {
 }
 
 function encodeCborItem(value, chunks) {
+    if (isCborFloatBox(value)) {
+      chunks.push(encodeCanonicalFloat(value.value));
+      return;
+    }
     if (value instanceof Uint8Array) {
       chunks.push(encodeMajorLength(2, value.length));
       chunks.push(value);
@@ -103,6 +108,31 @@ function encodeCborItem(value, chunks) {
       return;
     }
     throw new Error("unsupported CBOR value");
+}
+
+function isCborFloatBox(value) {
+  return value !== null && typeof value === "object" && value[CBOR_FLOAT_BOX] === true;
+}
+
+function cborFloatBox(value) {
+  return { [CBOR_FLOAT_BOX]: true, value };
+}
+
+function stripCborFloatBoxes(value) {
+  if (isCborFloatBox(value)) {
+    return value.value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(stripCborFloatBoxes);
+  }
+  if (value instanceof Uint8Array || value === null || typeof value !== "object") {
+    return value;
+  }
+  const out = {};
+  for (const [key, item] of Object.entries(value)) {
+    out[key] = stripCborFloatBoxes(item);
+  }
+  return out;
 }
 
 function compareBytes(left, right) {
@@ -285,7 +315,15 @@ function bytesEqual(left, right) {
   return true;
 }
 
-function decodeCborItem(bytes, offset) {
+function decodeCborWithOptions(bytes, options = {}) {
+  const result = decodeCborItem(bytes, 0, options);
+  if (result.offset !== bytes.length) {
+    throw new Error("extra CBOR data");
+  }
+  return result.value;
+}
+
+function decodeCborItem(bytes, offset, options = {}) {
     if (offset >= bytes.length) throw new Error("CBOR truncated");
     const first = bytes[offset++];
     const major = first >> 5;
@@ -298,19 +336,19 @@ function decodeCborItem(bytes, offset) {
         if (offset + 2 > bytes.length) throw new Error("CBOR float truncated");
         const bits = (bytes[offset] << 8) | bytes[offset + 1];
         const value = decodeHalfFloat(bits);
-        return { value, offset: offset + 2 };
+        return { value: options.preserveFloatType ? cborFloatBox(value) : value, offset: offset + 2 };
       }
       if (addl === 26) {
         if (offset + 4 > bytes.length) throw new Error("CBOR float truncated");
         const view = new DataView(bytes.buffer, bytes.byteOffset + offset, 4);
         const value = view.getFloat32(0);
-        return { value, offset: offset + 4 };
+        return { value: options.preserveFloatType ? cborFloatBox(value) : value, offset: offset + 4 };
       }
       if (addl === 27) {
         if (offset + 8 > bytes.length) throw new Error("CBOR float truncated");
         const view = new DataView(bytes.buffer, bytes.byteOffset + offset, 8);
         const value = view.getFloat64(0);
-        return { value, offset: offset + 8 };
+        return { value: options.preserveFloatType ? cborFloatBox(value) : value, offset: offset + 8 };
       }
       throw new Error("unsupported CBOR simple value");
     }
@@ -337,7 +375,7 @@ function decodeCborItem(bytes, offset) {
       case 4: {
         const arr = [];
         for (let i = 0; i < length; i += 1) {
-          const item = decodeCborItem(bytes, offset);
+          const item = decodeCborItem(bytes, offset, options);
           arr.push(item.value);
           offset = item.offset;
         }
@@ -346,9 +384,9 @@ function decodeCborItem(bytes, offset) {
       case 5: {
         const obj = {};
         for (let i = 0; i < length; i += 1) {
-          const keyItem = decodeCborItem(bytes, offset);
+          const keyItem = decodeCborItem(bytes, offset, options);
           offset = keyItem.offset;
-          const valItem = decodeCborItem(bytes, offset);
+          const valItem = decodeCborItem(bytes, offset, options);
           offset = valItem.offset;
           obj[String(keyItem.value)] = valItem.value;
         }

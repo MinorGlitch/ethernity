@@ -356,109 +356,133 @@ async function ensureTrailingNewline(path) {
 
 const kitDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const inputPath = resolve(kitDir, process.argv[2] ?? "recovery_kit.html");
-const bundleName = process.argv[3] ?? "recovery_kit.bundle.html";
-const rawBundleName = bundleName.replace(/\.html$/, ".raw.html");
-
-// Build outputs go to kit/dist/
 const distDir = resolve(kitDir, "dist");
-const rawOutputPath = resolve(distDir, rawBundleName);
-const outputPath = resolve(distDir, bundleName);
-
-// Canonical location for Python package (src/ethernity/kit/)
-const packagePath = resolve(kitDir, "..", "src", "ethernity", "kit", bundleName);
-
-await mkdir(distDir, { recursive: true });
-
+const packageDir = resolve(kitDir, "..", "src", "ethernity", "kit");
 const html = await readFile(inputPath, "utf8");
 const scriptTagRe = /<script\b[^>]*>[\s\S]*?<\/script>/g;
-
-const tmpBase = resolve(tmpdir(), `ethernity-kit-${Date.now()}`);
-const tmpOut = `${tmpBase}.min.js`;
 const entryPoint = resolve(kitDir, "app", "index.jsx");
 const microactIndexPath = resolve(kitDir, "lib", "microact", "index.js");
 const microactHooksPath = resolve(kitDir, "lib", "microact", "hooks.js");
 const microactJsxRuntimePath = resolve(kitDir, "lib", "microact", "jsx-runtime.js");
+const scannerRuntimeImport = "#kit-scanner-runtime";
+const scannerHookLeanPath = resolve(kitDir, "app", "hooks", "useQrScannerRuntime.js");
+const scannerHookJsqrPath = resolve(kitDir, "app", "hooks", "useQrScannerRuntime_jsqr.js");
 
-const esbuildArgs = [
-  entryPoint,
-  "--bundle",
-  "--format=iife",
-  "--platform=browser",
-  "--jsx=automatic",
-  "--jsx-import-source=microact",
-  "--target=es2020",
-  "--minify",
-  "--tree-shaking=true",
-  "--legal-comments=none",
-  "--define:process.env.NODE_ENV=\"production\"",
-  `--alias:microact=${microactIndexPath}`,
-  `--alias:microact/hooks=${microactHooksPath}`,
-  `--alias:microact/jsx-runtime=${microactJsxRuntimePath}`,
-  `--alias:microact/jsx-dev-runtime=${microactJsxRuntimePath}`,
-  `--outfile=${tmpOut}`,
-];
-const result = spawnSync("npx", ["--no-install", "esbuild", ...esbuildArgs], {
-  stdio: "inherit",
-});
-if (result.status !== 0) {
-  process.exit(result.status ?? 1);
+await mkdir(distDir, { recursive: true });
+await mkdir(packageDir, { recursive: true });
+
+function selectedVariants() {
+  const requested = (process.env.ETHERNITY_KIT_VARIANTS ?? "both").toLowerCase();
+  if (requested === "both") {
+    return [
+      { id: "lean", bundleName: "recovery_kit.bundle.html", scannerMode: "none" },
+      { id: "scanner", bundleName: "recovery_kit.scanner.bundle.html", scannerMode: "jsqr" },
+    ];
+  }
+  if (requested === "lean") {
+    return [{ id: "lean", bundleName: "recovery_kit.bundle.html", scannerMode: "none" }];
+  }
+  if (requested === "scanner") {
+    return [{ id: "scanner", bundleName: "recovery_kit.scanner.bundle.html", scannerMode: "jsqr" }];
+  }
+  throw new Error("ETHERNITY_KIT_VARIANTS must be one of: both, lean, scanner");
 }
 
-const minified = await readFile(tmpOut, "utf8");
-const minifiedClasses = minifyClassNames(html, minified);
-const inlined = minifiedClasses.html
-  .replace(scriptTagRe, "")
-  .replace("</body>", () => `<script>${minifiedClasses.js}</script>\n</body>`);
+async function buildBundleVariant(variant) {
+  const rawBundleName = variant.bundleName.replace(/\.html$/, ".raw.html");
+  const rawOutputPath = resolve(distDir, rawBundleName);
+  const outputPath = resolve(distDir, variant.bundleName);
+  const packagePath = resolve(packageDir, variant.bundleName);
+  const tmpBase = resolve(tmpdir(), `ethernity-kit-${variant.id}-${Date.now()}`);
+  const tmpOut = `${tmpBase}.min.js`;
+  const scannerHookPath = variant.scannerMode === "jsqr" ? scannerHookJsqrPath : scannerHookLeanPath;
 
-const tmpHtml = `${tmpBase}.html`;
-await writeFile(tmpHtml, inlined, "utf8");
+  const esbuildArgs = [
+    entryPoint,
+    "--bundle",
+    "--format=iife",
+    "--platform=browser",
+    "--jsx=automatic",
+    "--jsx-import-source=microact",
+    "--target=es2020",
+    "--minify",
+    "--tree-shaking=true",
+    "--legal-comments=none",
+    "--define:process.env.NODE_ENV=\"production\"",
+    `--alias:microact=${microactIndexPath}`,
+    `--alias:microact/hooks=${microactHooksPath}`,
+    `--alias:microact/jsx-runtime=${microactJsxRuntimePath}`,
+    `--alias:microact/jsx-dev-runtime=${microactJsxRuntimePath}`,
+    `--alias:${scannerRuntimeImport}=${scannerHookPath}`,
+    `--outfile=${tmpOut}`,
+  ];
+  const result = spawnSync("npx", ["--no-install", "esbuild", ...esbuildArgs], {
+    stdio: "inherit",
+  });
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
 
-const htmlMinArgs = [
-  "--collapse-whitespace",
-  "--remove-comments",
-  "--remove-redundant-attributes",
-  "--remove-script-type-attributes",
-  "--remove-style-link-type-attributes",
-  "--use-short-doctype",
-  "--minify-css",
-  "true",
-  "-o",
-  rawOutputPath,
-  tmpHtml,
-];
-const htmlResult = spawnSync("npx", ["--no-install", "html-minifier-terser", ...htmlMinArgs], {
-  stdio: "inherit",
-});
-if (htmlResult.status !== 0) {
-  process.exit(htmlResult.status ?? 1);
+  const minified = await readFile(tmpOut, "utf8");
+  const minifiedClasses = minifyClassNames(html, minified);
+  const inlined = minifiedClasses.html
+    .replace(scriptTagRe, "")
+    .replace("</body>", () => `<script>${minifiedClasses.js}</script>\n</body>`);
+
+  const tmpHtml = `${tmpBase}.html`;
+  await writeFile(tmpHtml, inlined, "utf8");
+
+  const htmlMinArgs = [
+    "--collapse-whitespace",
+    "--remove-comments",
+    "--remove-redundant-attributes",
+    "--remove-script-type-attributes",
+    "--remove-style-link-type-attributes",
+    "--use-short-doctype",
+    "--minify-css",
+    "true",
+    "-o",
+    rawOutputPath,
+    tmpHtml,
+  ];
+  const htmlResult = spawnSync("npx", ["--no-install", "html-minifier-terser", ...htmlMinArgs], {
+    stdio: "inherit",
+  });
+  if (htmlResult.status !== 0) {
+    process.exit(htmlResult.status ?? 1);
+  }
+
+  const rawBundle = await readFile(rawOutputPath, "utf8");
+  const gzipResult = await gzipBundlePayload(rawBundle, tmpBase);
+  const gzPayload = gzipResult.bytes;
+  console.log(`[${variant.id}] Gzip compressor: ${gzipResult.method} (${gzPayload.length} bytes)`);
+  const gzBase91 = base91Encode(gzPayload);
+  const gzBase91Safe = gzBase91.replaceAll("</", "<\\/");
+  const loaderHtml = `<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Ethernity Recovery Kit</title><script>(async()=>{const p=${JSON.stringify(gzBase91Safe)};if(!(\"DecompressionStream\"in window))return;const a=${JSON.stringify(BASE91_ALPHABET)};const d=t=>{let b=0,n=0,v=-1,o=[];for(let i=0;i<t.length;i++){const c=a.indexOf(t[i]);if(c===-1)continue;if(v<0){v=c;continue}v+=c*91;b|=v<<n;n+=(v&8191)>88?13:14;while(n>7){o.push(b&255);b>>=8;n-=8}v=-1}if(v>=0)o.push((b|v<<n)&255);return new Uint8Array(o)};const b=d(p);const ds=new DecompressionStream(\"gzip\");const s=new Blob([b]).stream().pipeThrough(ds);const t=await new Response(s).text();document.open();document.write(t);document.close();})();</script>`;
+
+  const tmpLoader = `${tmpBase}.loader.html`;
+  await writeFile(tmpLoader, loaderHtml, "utf8");
+  const loaderMinArgs = [...htmlMinArgs];
+  loaderMinArgs[loaderMinArgs.length - 2] = outputPath;
+  loaderMinArgs[loaderMinArgs.length - 1] = tmpLoader;
+  const loaderResult = spawnSync(
+    "npx",
+    ["--no-install", "html-minifier-terser", ...loaderMinArgs],
+    { stdio: "inherit" }
+  );
+  if (loaderResult.status !== 0) {
+    process.exit(loaderResult.status ?? 1);
+  }
+
+  await ensureTrailingNewline(rawOutputPath);
+  await ensureTrailingNewline(outputPath);
+  await copyFile(outputPath, packagePath);
+
+  console.log(`[${variant.id}] Wrote ${rawOutputPath}`);
+  console.log(`[${variant.id}] Wrote ${outputPath}`);
+  console.log(`[${variant.id}] Wrote ${packagePath}`);
 }
 
-const rawBundle = await readFile(rawOutputPath, "utf8");
-const gzipResult = await gzipBundlePayload(rawBundle, tmpBase);
-const gzPayload = gzipResult.bytes;
-console.log(`Gzip compressor: ${gzipResult.method} (${gzPayload.length} bytes)`);
-const gzBase91 = base91Encode(gzPayload);
-const gzBase91Safe = gzBase91.replaceAll("</", "<\\/");
-const loaderHtml = `<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Ethernity Recovery Kit</title><script>(async()=>{const p=${JSON.stringify(gzBase91Safe)};if(!(\"DecompressionStream\"in window))return;const a=${JSON.stringify(BASE91_ALPHABET)};const d=t=>{let b=0,n=0,v=-1,o=[];for(let i=0;i<t.length;i++){const c=a.indexOf(t[i]);if(c===-1)continue;if(v<0){v=c;continue}v+=c*91;b|=v<<n;n+=(v&8191)>88?13:14;while(n>7){o.push(b&255);b>>=8;n-=8}v=-1}if(v>=0)o.push((b|v<<n)&255);return new Uint8Array(o)};const b=d(p);const ds=new DecompressionStream(\"gzip\");const s=new Blob([b]).stream().pipeThrough(ds);const t=await new Response(s).text();document.open();document.write(t);document.close();})();</script>`;
-
-const tmpLoader = `${tmpBase}.loader.html`;
-await writeFile(tmpLoader, loaderHtml, "utf8");
-const loaderMinArgs = [...htmlMinArgs];
-loaderMinArgs[loaderMinArgs.length - 2] = outputPath;
-loaderMinArgs[loaderMinArgs.length - 1] = tmpLoader;
-const loaderResult = spawnSync("npx", ["--no-install", "html-minifier-terser", ...loaderMinArgs], {
-  stdio: "inherit",
-});
-if (loaderResult.status !== 0) {
-  process.exit(loaderResult.status ?? 1);
+for (const variant of selectedVariants()) {
+  await buildBundleVariant(variant);
 }
-
-await ensureTrailingNewline(rawOutputPath);
-await ensureTrailingNewline(outputPath);
-
-await mkdir(dirname(packagePath), { recursive: true });
-await copyFile(outputPath, packagePath);
-
-console.log(`Wrote ${rawOutputPath}`);
-console.log(`Wrote ${outputPath}`);
-console.log(`Wrote ${packagePath}`);
