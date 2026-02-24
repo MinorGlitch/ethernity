@@ -129,11 +129,10 @@ Artifact naming:
 ethernity-{tag}-{os}-{arch}.{zip|tar.gz}
 ```
 
-Download and verify on Linux (auto-detect latest release tag):
+Download and verify on Linux:
 
 ```sh
-TAG="$(curl -fsSL https://api.github.com/repos/MinorGlitch/ethernity/releases/latest \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"tag_name\"])')"
+TAG="v0.9.0"
 OS_ARCH="linux-x64" # or linux-arm64
 BASE="ethernity-${TAG}-${OS_ARCH}.tar.gz"
 
@@ -146,11 +145,10 @@ tar -xzf "${BASE}"
 ./ethernity-${TAG}-${OS_ARCH}/ethernity --help
 ```
 
-Download and verify on macOS (auto-detect latest release tag):
+Download and verify on macOS:
 
 ```sh
-TAG="$(curl -fsSL https://api.github.com/repos/MinorGlitch/ethernity/releases/latest \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"tag_name\"])')"
+TAG="v0.9.0"
 OS_ARCH="macos-arm64" # or macos-x64
 BASE="ethernity-${TAG}-${OS_ARCH}.tar.gz"
 
@@ -163,10 +161,10 @@ tar -xzf "${BASE}"
 ./ethernity-${TAG}-${OS_ARCH}/ethernity --help
 ```
 
-Windows PowerShell equivalent (auto-detect latest release tag):
+Windows PowerShell equivalent:
 
 ```powershell
-$Tag = "vX.Y.Z"
+$Tag = "v0.9.0"
 $OsArch = "windows-x64" # currently published Windows variant
 $Base = "ethernity-$Tag-$OsArch.zip"
 
