@@ -56,7 +56,7 @@ def format_recovery_input_error(exc: Exception) -> str:
 def _read_text_lines(path: str) -> list[str]:
     """Read recovery text input from a file or stdin with size limits."""
 
-    normalized_path = expanduser_cli_path(path)
+    normalized_path = expanduser_cli_path(path) or path
     if normalized_path == "-":
         text = sys.stdin.read()
         text_bytes = len(text.encode("utf-8"))
