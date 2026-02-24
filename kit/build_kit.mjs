@@ -15,12 +15,11 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { copyFile, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { gzipSync } from "node:zlib";
 const BASE91_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~\"";
 const STYLE_TAG_RE = /<style\b[^>]*>([\s\S]*?)<\/style>/i;
 const CSS_CLASS_RE = /\.([A-Za-z_-][A-Za-z0-9_-]*)/g;
@@ -335,83 +334,17 @@ async function gzipWithLibdeflate(rawBundle, tmpBase) {
 }
 
 async function gzipBundlePayload(rawBundle, tmpBase) {
-  // Default to zlib for deterministic cross-environment bundle output unless CI/tooling
-  // is explicitly standardized on libdeflate-gzip.
-  const requested = (process.env.ETHERNITY_KIT_GZIP_COMPRESSOR ?? "zlib").toLowerCase();
-  if (!new Set(["auto", "libdeflate", "zlib"]).has(requested)) {
+  const requested = (process.env.ETHERNITY_KIT_GZIP_COMPRESSOR ?? "libdeflate").toLowerCase();
+  if (requested !== "libdeflate") {
     throw new Error(
-      "ETHERNITY_KIT_GZIP_COMPRESSOR must be one of: auto, libdeflate, zlib"
+      "ETHERNITY_KIT_GZIP_COMPRESSOR must be 'libdeflate' (other compressors are not supported)"
     );
   }
-
-  if (requested !== "zlib") {
-    const libdeflateBytes = await gzipWithLibdeflate(rawBundle, tmpBase);
-    if (libdeflateBytes) {
-      return { bytes: libdeflateBytes, method: "libdeflate" };
-    }
-    if (requested === "libdeflate") {
-      throw new Error(
-        "libdeflate compressor requested but 'libdeflate-gzip' CLI was not found in PATH"
-      );
-    }
+  const libdeflateBytes = await gzipWithLibdeflate(rawBundle, tmpBase);
+  if (!libdeflateBytes) {
+    throw new Error("libdeflate-gzip CLI was not found in PATH");
   }
-
-  return {
-    bytes: canonicalizeGzipHeader(
-      gzipSync(Buffer.from(rawBundle, "utf8"), { level: 9, mtime: 0 })
-    ),
-    method: "zlib",
-  };
-}
-
-async function secondPassAdvdef(gzBytes, tmpBase) {
-  const inputPath = `${tmpBase}.advdef-input.gz`;
-  await writeFile(inputPath, gzBytes);
-  const levelRaw = process.env.ETHERNITY_KIT_ADVDEF_LEVEL ?? "4";
-  const level = Number.parseInt(levelRaw, 10);
-  if (!Number.isInteger(level) || level < 1 || level > 4) {
-    throw new Error(`invalid ETHERNITY_KIT_ADVDEF_LEVEL: ${levelRaw}`);
-  }
-  const result = spawnSync("advdef", ["-z", `-${level}`, "-q", inputPath], {
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  if (result.error && result.error.code === "ENOENT") {
-    return null;
-  }
-  if (result.status !== 0) {
-    const details = [result.stdout, result.stderr]
-      .map((part) => (part ? Buffer.from(part).toString("utf8") : ""))
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-    throw new Error(`advdef failed${details ? `: ${details}` : ""}`);
-  }
-  try {
-    return canonicalizeGzipHeader(new Uint8Array(await readFile(inputPath)));
-  } finally {
-    await unlink(inputPath).catch(() => {});
-  }
-}
-
-async function maybeRunGzipSecondPass(gzBytes, tmpBase) {
-  const requested = (process.env.ETHERNITY_KIT_GZIP_SECOND_PASS ?? "none").toLowerCase();
-  if (!new Set(["none", "auto", "advdef"]).has(requested)) {
-    throw new Error(
-      "ETHERNITY_KIT_GZIP_SECOND_PASS must be one of: none, auto, advdef"
-    );
-  }
-  if (requested === "none") {
-    return { bytes: gzBytes, methodSuffix: "" };
-  }
-
-  const advdefBytes = await secondPassAdvdef(gzBytes, tmpBase);
-  if (advdefBytes) {
-    return { bytes: advdefBytes, methodSuffix: "+advdef" };
-  }
-  if (requested === "advdef") {
-    throw new Error("advdef second pass requested but 'advdef' CLI was not found in PATH");
-  }
-  return { bytes: gzBytes, methodSuffix: "" };
+  return { bytes: libdeflateBytes, method: "libdeflate" };
 }
 
 async function ensureTrailingNewline(path) {
@@ -502,11 +435,8 @@ if (htmlResult.status !== 0) {
 
 const rawBundle = await readFile(rawOutputPath, "utf8");
 const gzipResult = await gzipBundlePayload(rawBundle, tmpBase);
-const secondPassResult = await maybeRunGzipSecondPass(gzipResult.bytes, tmpBase);
-const gzPayload = secondPassResult.bytes;
-console.log(
-  `Gzip compressor: ${gzipResult.method}${secondPassResult.methodSuffix} (${gzPayload.length} bytes)`
-);
+const gzPayload = gzipResult.bytes;
+console.log(`Gzip compressor: ${gzipResult.method} (${gzPayload.length} bytes)`);
 const gzBase91 = base91Encode(gzPayload);
 const gzBase91Safe = gzBase91.replaceAll("</", "<\\/");
 const loaderHtml = `<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Ethernity Recovery Kit</title><script>(async()=>{const p=${JSON.stringify(gzBase91Safe)};if(!(\"DecompressionStream\"in window))return;const a=${JSON.stringify(BASE91_ALPHABET)};const d=t=>{let b=0,n=0,v=-1,o=[];for(let i=0;i<t.length;i++){const c=a.indexOf(t[i]);if(c===-1)continue;if(v<0){v=c;continue}v+=c*91;b|=v<<n;n+=(v&8191)>88?13:14;while(n>7){o.push(b&255);b>>=8;n-=8}v=-1}if(v>=0)o.push((b|v<<n)&255);return new Uint8Array(o)};const b=d(p);const ds=new DecompressionStream(\"gzip\");const s=new Blob([b]).stream().pipeThrough(ds);const t=await new Response(s).text();document.open();document.write(t);document.close();})();</script>`;
