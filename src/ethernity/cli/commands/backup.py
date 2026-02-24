@@ -76,6 +76,17 @@ def backup(
             rich_help_panel="Outputs",
         ),
     ] = None,
+    layout_debug_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--layout-debug-dir",
+            help=(
+                "Write per-document layout diagnostics JSON files to this directory "
+                "(for pagination/capacity debugging)."
+            ),
+            rich_help_panel="Advanced",
+        ),
+    ] = None,
     qr_chunk_size: Annotated[
         int | None,
         typer.Option(
@@ -256,6 +267,7 @@ def backup(
         input_dir=[str(path) for path in (input_dir or [])],
         base_dir=base_dir_value,
         output_dir=output_dir_value,
+        layout_debug_dir=layout_debug_dir,
         qr_chunk_size=qr_chunk_size,
         passphrase=passphrase,
         passphrase_generate=passphrase_generate,
