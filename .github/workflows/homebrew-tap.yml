@@ -110,7 +110,7 @@ jobs:
           if [[ -z "${tap_repo}" ]] || \
              [[ "${tap_repo}" == "minorglitch/homebrew-tap" ]] || \
              [[ "${tap_repo}" == "MinorGlitch/homebrew-ethernity" ]]; then
-            tap_repo="minorglitch/tap"
+            tap_repo="minorglitch/homebrew-tap"
           fi
           echo "tap_repo=${tap_repo}" >> "${GITHUB_OUTPUT}"
 
