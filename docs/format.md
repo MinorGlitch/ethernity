@@ -111,7 +111,7 @@ File entry (prefix-table mode):
 Manifest requirements (map keys):
 - `version`: int == MANIFEST_VERSION (1)
 - `created`: encoders SHOULD emit integer Unix epoch seconds as canonical output
-- `created`: decoders MAY accept integer or float values for compatibility with legacy payloads
+- `created`: decoders MAY accept integer or float values
 - `sealed`: bool
 - `seed`:
   - if `sealed` is true, `seed` MUST be null
@@ -135,8 +135,8 @@ Manifest requirements (map keys):
   decisions, key reconstruction eligibility, or authenticated/rescue trust labeling.
 - Encoders SHOULD NOT emit unknown top-level manifest keys for `MANIFEST_VERSION = 1`.
 - Stable v1 profile decoders MUST require `input_origin`, `input_roots`, and `path_encoding`.
-- Stable v1 profile decoders MUST require array-based `files` entries and MUST reject legacy
-  map-style file-entry manifests.
+- Stable v1 profile decoders MUST require array-based `files` entries and MUST reject map-style
+  file-entry manifests as out-of-profile.
 
 File list requirements:
 - Encoders MUST reject empty `files` lists at creation time.
@@ -493,23 +493,21 @@ Current version values (Version 1):
 - AUTH_VERSION = `1`
 - SHARD_VERSION = `1`
 
-### 12.1) Stable v1 Profile Compatibility Contract
+### 12.1) Stable v1 Profile Baseline Contract
 
 This document defines the stable v1 profile baseline.
 
 Stable v1 profile requirements:
 - Envelope/frame magic constants, frame types, and version constants remain unchanged from Version 1.
 - Stable v1 decoders MUST require manifest keys `input_origin`, `input_roots`, and `path_encoding`.
-- Stable v1 decoders MUST require array-based `files` entries and MUST reject legacy map-style
-  file-entry manifests as out-of-profile.
+- Stable v1 decoders MUST require array-based `files` entries and MUST reject map-style file-entry
+  manifests as out-of-profile.
 - Manifest/auth/shard unknown-key handling is extension-only as defined in Sections 3, 8, and 9.
 - Frame types are closed for v1; decoders MUST reject frame types outside Section 6.
 - QR payload encoding is fixed to unpadded base64 in v1; runtime/profile negotiation of alternate
   QR payload encodings is not permitted.
 - Parsing is fail-closed: malformed canonical encodings or invalid structural/binding content MUST
   be rejected.
-
-Non-normative migration guidance is provided in `docs/format_notes.md`.
 
 ## 13) Encryption
 
@@ -573,7 +571,7 @@ passphrase string:
 
 Reassembled shares produce the original passphrase string, ready for use.
 
-### 14.4) Non-BIP-39 Interoperability Guidance
+### 14.4) Non-BIP-39 Passphrase Handling Guidance
 
 For passphrases that are not BIP-39 mnemonics:
 - Producers SHOULD use a consistent Unicode normalization form (NFC is RECOMMENDED).
@@ -741,7 +739,7 @@ A conforming decoder MUST accept at least these scenarios:
 ### 18.3) Minimum Must-Reject Negative Scenarios
 
 A conforming decoder MUST reject at least these scenarios:
-1. Manifests that use legacy map-style file entries.
+1. Manifests that use map-style file entries (out of stable v1 profile).
 2. Envelope or frame headers containing non-canonical uvarints.
 3. Manifest, AUTH, or shard CBOR payloads that are non-canonical or use indefinite-length items.
 4. Inputs where unknown manifest/auth/shard keys are used to alter signature verification decisions,

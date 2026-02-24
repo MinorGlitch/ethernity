@@ -51,12 +51,12 @@ provided. This is a convenience behavior and not part of the on-disk format.
 
 ## Implementation Behavior Notes
 
-As of 2026-02-11, `ethernity.encoding.chunking.reassemble_payload` is defined for
+`ethernity.encoding.chunking.reassemble_payload` is defined for
 `FRAME_TYPE=MAIN_DOCUMENT` only. `AUTH` and `KEY_DOCUMENT` payloads are single-frame units and
 should be decoded directly from their frame `data` bytes.
 
 Some CLI flows expose an explicit unsigned-recovery override (for example, `--rescue-mode`, with
-`--skip-auth-check` as a legacy alias). This corresponds to rescue mode in `docs/format.md`
+`--skip-auth-check` as a compatibility alias). This corresponds to rescue mode in `docs/format.md`
 (Section 7.1), where signature verification bypass is allowed only under explicit operator
 override. Structural, binding, and consistency checks still apply, and results are treated as
 unauthenticated.
@@ -79,7 +79,7 @@ The v1 profile uses a strict fail-closed bound set centered on a `1 MiB` ciphert
 
 Design intent:
 - Keep worst-case memory/CPU bounded for CLI recovery and frame parsing paths.
-- Keep fallback-MAIN behavior compatible with current single-frame recovery text output.
+- Keep fallback-MAIN behavior aligned with single-frame recovery text output.
 - Keep limits round and operationally predictable for implementation and testing.
 
 Operational implications:
@@ -147,19 +147,13 @@ Python reference implementation:
 
 Scrypt parameters (work factor, salt, etc.) are defined by the age scrypt recipient stanza.
 
-## Versioning Notes
+## Stable v1 Baseline Notes
 
 Stable v1 profile baseline (normative requirements are in `docs/format.md`):
 - Stable v1 decoders require manifest keys `input_origin`, `input_roots`, and `path_encoding`.
 - Stable v1 decoders require array-based manifest `files` entries.
-- Legacy manifest file-entry encodings that used CBOR maps are out-of-profile and are rejected by
-  stable v1 decoders.
-
-Migration guidance:
-- Systems with legacy map-style manifest artifacts should migrate those artifacts to stable v1 array
-  file-entry form before expecting strict stable v1 decoder acceptance.
-- Binary framing/version constants remain Version 1; migration is a profile/baseline alignment, not
-  a framing-constant change.
+- Map-style manifest file-entry encodings are out-of-profile and are rejected by stable v1
+  decoders.
 
 CBOR payload evolution guidance:
 - These payloads are CBOR maps. New optional fields should be added as new map keys.
@@ -174,7 +168,7 @@ The normative conformance requirements, including required decoder validation or
 must-pass/must-reject scenarios, are defined in `docs/format.md` (Section 18).
 
 Operational recommendation:
-1. Use the Section 18 checklist as release gating for decoder compatibility claims.
+1. Use the Section 18 checklist as release gating for decoder conformance claims.
 2. Keep implementation-specific test harness details outside the normative spec.
 
 ## Varint and CBOR Integer Encoding

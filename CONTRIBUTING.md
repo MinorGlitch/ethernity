@@ -46,9 +46,12 @@ Optional, when touching browser kit assets:
 ```sh
 cd kit
 npm ci
+# Requires libdeflate-gzip (for example: apt install libdeflate-tools)
 node build_kit.mjs
 cd ..
 ```
+
+This builds both committed recovery kit bundles (lean + scanner variants).
 
 ## Pull Request Expectations
 
