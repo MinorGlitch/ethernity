@@ -4,7 +4,7 @@ class Ethernity < Formula
   desc "Secure, offline-recoverable backup system with QR-based recovery documents"
   homepage "https://github.com/MinorGlitch/ethernity"
   url "https://github.com/MinorGlitch/ethernity/archive/refs/tags/v0.9.1.tar.gz"
-  sha256 "20386ed7847b01298b43f7cbe653b09f98be77fa0b6a0569c09c0bad54382efc"
+  sha256 "9efc1b94b7c8736505359143dee5ffa0e4b641fadcbdc2d8f5a96c13d97457c5"
   license "GPL-3.0-or-later"
 
   depends_on "pkgconf" => :build
@@ -177,7 +177,12 @@ class Ethernity < Formula
     sha256 "1a3a1e510b553315f8e146c54764f4fb6264ffad731b3d78088cdb1478ffbdad"
   end
 
-  if OS.mac?
+  if OS.mac? && Hardware::CPU.arm?
+    resource "zxing-cpp" do
+      url "https://files.pythonhosted.org/packages/52/7e/971bb37b9091b02fd12f7c13745335a77a8e9e907abc3e0530ff9c4e6b32/zxing_cpp-3.0.0-cp313-cp313-macosx_11_0_arm64.whl"
+      sha256 "c4d44e63c0cb06df1d7ab636018b3e7139d5b010c22a5dcb18f3badfa29e1e1c"
+    end
+  elsif OS.mac?
     resource "zxing-cpp" do
       url "https://files.pythonhosted.org/packages/a0/c4/c4f276e43c4df74896b7cac2a3e5deabaf743e8256ee6736380d64f7295b/zxing_cpp-3.0.0-cp313-cp313-macosx_10_13_x86_64.whl"
       sha256 "26ee52319b545a0db5adc19c682d5bd7efa210456daff0293f5cc78311c52d90"
