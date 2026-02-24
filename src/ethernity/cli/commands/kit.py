@@ -48,6 +48,7 @@ def _run_kit_render(
     config_value: str | None,
     paper_value: str | None,
     design_value: str | None,
+    variant_value: str,
     qr_chunk_size: int | None,
     quiet_value: bool,
 ) -> None:
@@ -57,6 +58,7 @@ def _run_kit_render(
         config_path=config_value,
         paper_size=paper_value,
         design=design_value,
+        variant=variant_value,
         chunk_size=qr_chunk_size,
         quiet=quiet_value,
     )
@@ -67,6 +69,7 @@ def _run_kit_render(
                 f"QR codes: {result.chunk_count} "
                 f"(QR #1 shell + payload QRs up to {result.chunk_size} bytes)"
             ),
+            f"Kit variant: {variant_value}",
             "Print this document and store it with your recovery materials.",
         ]
         print_completion_panel("Recovery kit ready", actions, quiet=quiet_value)
@@ -101,6 +104,14 @@ def kit(
             ),
         ),
     ] = None,
+    variant: Annotated[
+        str,
+        typer.Option(
+            "--variant",
+            help="Recovery kit variant: lean (default) or scanner (includes jsQR camera scanning).",
+            rich_help_panel="Behavior",
+        ),
+    ] = "lean",
     config: Annotated[
         str | None,
         typer.Option(
@@ -142,6 +153,7 @@ def kit(
     config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
     design_value = design or (state.design if state is not None else None)
     quiet_value = quiet or (state.quiet if state is not None else False)
+    variant_value = variant.strip().lower()
     _run_cli(
         functools.partial(
             _run_kit_render,
@@ -150,6 +162,7 @@ def kit(
             config_value=config_value,
             paper_value=paper_value,
             design_value=design_value,
+            variant_value=variant_value,
             qr_chunk_size=qr_chunk_size,
             quiet_value=quiet_value,
         ),

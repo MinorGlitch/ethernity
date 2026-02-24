@@ -15,7 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { useQrScannerRuntime } from "../hooks/useQrScannerRuntime.js";
+import { useQrScannerRuntime } from "#kit-scanner-runtime";
 
 export function QrScannerPanel({ onScanText }) {
   const {
@@ -39,7 +39,10 @@ export function QrScannerPanel({ onScanText }) {
         </button>
         <div class="hint">{scanCount ? `Scanned: ${scanCount}` : "Camera (optional)"}</div>
       </div>
-      <video class="scan-video" ref={videoRef} muted hidden={!active} />
+      <div class="scan-preview" hidden={!active}>
+        <video class="scan-video" ref={videoRef} muted hidden={!active} />
+        {active ? <div class="scan-box" aria-hidden="true" /> : null}
+      </div>
       {status ? <div class="hint scan-status">{status}</div> : null}
       {!supported.ok && !active ? <div class="hint scan-status">{supported.reason}</div> : null}
     </div>
