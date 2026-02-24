@@ -193,15 +193,6 @@ def _build_fallback_lines(
     )
 
 
-def _recovery_has_shard_quorum(key_lines: Sequence[str]) -> bool:
-    prefix = "Recover with "
-    suffix = " shard documents."
-    for line in key_lines:
-        if line.startswith(prefix) and line.endswith(suffix):
-            return True
-    return False
-
-
 def _calculate_qr_grid(
     inputs: RenderInputs,
     spec: DocumentSpec,
@@ -376,11 +367,6 @@ def compute_layout(
         ),
         recovery_meta_lines_extra=int(spec.header.meta_lines_extra),
         include_instructions=include_instructions,
-        recovery_has_quorum=(
-            _recovery_has_shard_quorum(key_lines)
-            if inputs.doc_type.strip().lower() == DOC_TYPE_RECOVERY
-            else None
-        ),
     )
 
     # Calculate total pages

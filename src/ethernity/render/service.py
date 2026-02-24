@@ -30,6 +30,7 @@ from .doc_types import (
     DOC_TYPE_RECOVERY,
     DOC_TYPE_SHARD,
 )
+from .recovery_meta import RecoveryMeta
 from .types import FallbackSection, RenderInputs
 
 
@@ -69,6 +70,7 @@ class RenderService:
         *,
         qr_payloads: Sequence[bytes | str] | None = None,
         context: dict[str, object] | None = None,
+        layout_debug_json_path: str | Path | None = None,
     ) -> RenderInputs:
         return self._build_inputs(
             frames=frames,
@@ -78,6 +80,7 @@ class RenderService:
             qr_payloads=qr_payloads,
             render_fallback=False,
             doc_type=DOC_TYPE_MAIN,
+            layout_debug_json_path=layout_debug_json_path,
         )
 
     def recovery_inputs(
@@ -86,8 +89,10 @@ class RenderService:
         output_path: str | Path,
         *,
         key_lines: Sequence[str],
+        recovery_meta: RecoveryMeta,
         fallback_sections: Sequence[FallbackSection] | None = None,
         context: dict[str, object] | None = None,
+        layout_debug_json_path: str | Path | None = None,
     ) -> RenderInputs:
         return self._build_inputs(
             frames=frames,
@@ -96,8 +101,10 @@ class RenderService:
             context=context,
             render_qr=False,
             key_lines=key_lines,
+            recovery_meta=recovery_meta,
             fallback_sections=fallback_sections,
             doc_type=DOC_TYPE_RECOVERY,
+            layout_debug_json_path=layout_debug_json_path,
         )
 
     def shard_inputs(
@@ -111,6 +118,7 @@ class RenderService:
         qr_payloads: Sequence[bytes | str] | None = None,
         template_path: str | Path | None = None,
         doc_type: str | None = None,
+        layout_debug_json_path: str | Path | None = None,
     ) -> RenderInputs:
         return self._build_inputs(
             frames=[frame],
@@ -127,6 +135,7 @@ class RenderService:
             ),
             qr_payloads=qr_payloads,
             doc_type=doc_type or DOC_TYPE_SHARD,
+            layout_debug_json_path=layout_debug_json_path,
         )
 
     def kit_inputs(
@@ -137,6 +146,7 @@ class RenderService:
         qr_payloads: Sequence[bytes | str],
         context: dict[str, object] | None = None,
         template_path: str | Path | None = None,
+        layout_debug_json_path: str | Path | None = None,
     ) -> RenderInputs:
         return self._build_inputs(
             frames=frames,
@@ -146,6 +156,7 @@ class RenderService:
             qr_payloads=qr_payloads,
             render_fallback=False,
             doc_type=DOC_TYPE_KIT,
+            layout_debug_json_path=layout_debug_json_path,
         )
 
     def _build_inputs(
@@ -159,8 +170,10 @@ class RenderService:
         render_qr: bool = True,
         render_fallback: bool = True,
         key_lines: Sequence[str] | None = None,
+        recovery_meta: RecoveryMeta | None = None,
         fallback_sections: Sequence[FallbackSection] | None = None,
         doc_type: str,
+        layout_debug_json_path: str | Path | None = None,
     ) -> RenderInputs:
         resolved_context = self.base_context(context)
         return RenderInputs(
@@ -174,6 +187,8 @@ class RenderService:
             render_qr=render_qr,
             render_fallback=render_fallback,
             key_lines=key_lines,
+            recovery_meta=recovery_meta,
             fallback_sections=fallback_sections,
             render_jobs=self.config.cli_defaults.runtime.render_jobs,
+            layout_debug_json_path=layout_debug_json_path,
         )

@@ -24,9 +24,18 @@ conventions and a glob-based, working-tree inventory contract for contributors a
   rebuild via `kit/build_kit.mjs`.
 - Rendering contract: `RenderInputs` requires explicit `doc_type`; do not set
   `context["doc_type"]` and do not infer from template filename.
+- Recovery rendering contract: recovery documents must provide structured
+  `RenderInputs.recovery_meta`; do not infer recovery semantics by parsing `key_lines`.
+- Recovery metadata source: build recovery metadata from runtime values via
+  `src/ethernity/render/recovery_meta.py` (for example `build_recovery_meta(...)`) in
+  backup/recovery flows, then pass it through `RenderService.recovery_inputs(...)`.
+- Key line contract: treat `key_lines` as display/fallback text only; do not attach behavior to
+  specific line strings.
 - Template capabilities: behavior toggles belong in design style.json files (for example
   `src/ethernity/templates/forge/style.json`) under the `capabilities` object, not ad-hoc
   template-name checks.
+- Layout diagnostics: use `RenderInputs.layout_debug_json_path` when layout diagnostics are needed;
+  this emits a JSON sidecar and should not alter render behavior.
 - Template designs: discovery/prompt surfaces must expose only canonical design names:
   `archive`, `dossier`, `forge`, `ledger`, `maritime`, `midnight`, `monograph`, `sentinel`.
   Legacy aliases or stale copied names must not be surfaced. Enforcement point:
@@ -53,19 +62,21 @@ conventions and a glob-based, working-tree inventory contract for contributors a
 
 - Primary pipeline: spec + model + template + geometry/layout + page assembly + PDF render.
 - Shared fallback/layout heuristics are centralized in `src/ethernity/render/layout_policy.py`.
+- Geometry profiles are the source of truth for fallback line capacity tuning; prefer profile/style
+  adjustments over template-specific branching.
+- Page assembly must fail fast when fallback content cannot consume any lines on a page (zero
+  capacity with remaining fallback), rather than looping or silently degrading output.
 - Template style parsing and capability gates are in
   `src/ethernity/render/template_style.py`.
 - Supported capability keys in template style.json files:
   - `inject_forge_copy`
   - `repeat_primary_qr_on_shard_continuation`
   - `advanced_fallback_layout`
-  - `wide_recovery_fallback_lines`
   - `extra_main_first_page_qr_slot`
   - `uniform_main_qr_capacity`
   - `main_qr_grid_size_mm`
   - `main_qr_grid_max_cols`
-  - `shard_first_page_bonus_lines`
-  - `signing_key_shard_first_page_bonus_lines`
+  - `fallback_layout` (requires `recovery`, `shard`, `signing_key_shard` geometry profiles)
 - HTML-to-PDF conversion is isolated in `src/ethernity/render/html_to_pdf.py`.
 - DOCX envelope rendering is isolated in `src/ethernity/render/docx_render.py`.
 - Storage envelope template path/size helpers are in `src/ethernity/render/storage_paths.py`.

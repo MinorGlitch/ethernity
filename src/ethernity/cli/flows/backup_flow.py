@@ -38,6 +38,7 @@ from ...formats import envelope_codec as envelope_codec_module
 from ...formats.envelope_types import PayloadPart
 from ...qr.capacity import choose_frame_chunk_size
 from ...render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
+from ...render.recovery_meta import build_recovery_meta
 from ...render.service import RenderService
 from ...render.types import RenderInputs
 from ..api import progress, status
@@ -54,6 +55,20 @@ from ..ui.debug import (
 
 _KIT_INDEX_TEMPLATE_NAME = "kit_index_document.html.j2"
 _KIT_INDEX_TEMPLATE_MARKER = "kit_index_inventory_artifacts_v3"
+
+
+def _resolve_layout_debug_dir(path: str | None) -> str | None:
+    if path is None or not path.strip():
+        return None
+    resolved = Path(path).expanduser().resolve()
+    resolved.mkdir(parents=True, exist_ok=True)
+    return str(resolved)
+
+
+def _layout_debug_json_path(layout_debug_dir: str | None, stem: str) -> str | None:
+    if layout_debug_dir is None:
+        return None
+    return str(Path(layout_debug_dir) / f"{stem}.layout.json")
 
 
 def _is_compatible_kit_index_template(path: Path) -> bool:
@@ -135,6 +150,7 @@ def _render_shard(
     filename_prefix: str,
     template_path: str | Path,
     doc_type: str | None = None,
+    layout_debug_json_path: str | None = None,
 ) -> str:
     """Render a single shard document to PDF and return the output path."""
     shard_frame = Frame(
@@ -158,6 +174,7 @@ def _render_shard(
         qr_payloads=render_service.build_qr_payloads([shard_frame]),
         template_path=template_path,
         doc_type=doc_type,
+        layout_debug_json_path=layout_debug_json_path,
     )
     render_module.render_frames_to_pdf(shard_inputs)
     return shard_path
@@ -265,6 +282,7 @@ def _render_all_documents(
     render_service: RenderService,
     config: AppConfig,
     status_quiet: bool,
+    layout_debug_dir: str | None,
 ) -> tuple[list[str], list[str]]:
     """Render all PDF documents. Returns (shard_paths, signing_key_shard_paths)."""
     shard_paths: list[str] = []
@@ -291,6 +309,7 @@ def _render_all_documents(
                 output_dir=output_dir,
                 render_service=render_service,
                 config=config,
+                layout_debug_dir=layout_debug_dir,
             )
         else:
             shard_paths, signing_key_shard_paths = _render_without_progress(
@@ -304,6 +323,7 @@ def _render_all_documents(
                 render_service=render_service,
                 config=config,
                 status_quiet=status_quiet,
+                layout_debug_dir=layout_debug_dir,
             )
 
     return shard_paths, signing_key_shard_paths
@@ -322,6 +342,7 @@ def _render_with_progress(
     output_dir: str,
     render_service: RenderService,
     config: AppConfig,
+    layout_debug_dir: str | None,
 ) -> tuple[list[str], list[str]]:
     """Render documents with progress bar."""
     shard_paths: list[str] = []
@@ -356,6 +377,10 @@ def _render_with_progress(
                 render_service=render_service,
                 filename_prefix="shard",
                 template_path=config.shard_template_path,
+                layout_debug_json_path=_layout_debug_json_path(
+                    layout_debug_dir,
+                    f"shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
+                ),
             )
             shard_paths.append(shard_path)
             progress_bar.advance(task_id)
@@ -375,6 +400,10 @@ def _render_with_progress(
                 filename_prefix="signing-key-shard",
                 template_path=config.signing_key_shard_template_path,
                 doc_type=DOC_TYPE_SIGNING_KEY_SHARD,
+                layout_debug_json_path=_layout_debug_json_path(
+                    layout_debug_dir,
+                    f"signing-key-shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
+                ),
             )
             signing_key_shard_paths.append(shard_path)
             progress_bar.advance(task_id)
@@ -394,6 +423,7 @@ def _render_without_progress(
     render_service: RenderService,
     config: AppConfig,
     status_quiet: bool,
+    layout_debug_dir: str | None,
 ) -> tuple[list[str], list[str]]:
     """Render documents without progress bar (using status messages)."""
     shard_paths: list[str] = []
@@ -420,6 +450,10 @@ def _render_without_progress(
                     render_service=render_service,
                     filename_prefix="shard",
                     template_path=config.shard_template_path,
+                    layout_debug_json_path=_layout_debug_json_path(
+                        layout_debug_dir,
+                        f"shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
+                    ),
                 )
                 shard_paths.append(shard_path)
 
@@ -435,6 +469,10 @@ def _render_without_progress(
                     filename_prefix="signing-key-shard",
                     template_path=config.signing_key_shard_template_path,
                     doc_type=DOC_TYPE_SIGNING_KEY_SHARD,
+                    layout_debug_json_path=_layout_debug_json_path(
+                        layout_debug_dir,
+                        f"signing-key-shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
+                    ),
                 )
                 signing_key_shard_paths.append(shard_path)
 
@@ -446,6 +484,7 @@ def run_backup(
     input_files: list[InputFile],
     base_dir: Path | None,
     output_dir: str | None,
+    layout_debug_dir: str | None = None,
     input_origin: str = "file",
     input_roots: list[str] | None = None,
     plan: DocumentPlan,
@@ -524,6 +563,12 @@ def run_backup(
         ]
     else:
         key_lines = ["Passphrase:", passphrase_final]
+    recovery_meta = build_recovery_meta(
+        passphrase=None if plan_sharding is not None else passphrase_final,
+        quorum_threshold=plan_sharding.threshold if plan_sharding is not None else None,
+        quorum_shares=plan_sharding.shares if plan_sharding is not None else None,
+        signing_pub=sign_pub,
+    )
 
     # Create document identifiers and auth frame
     doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
@@ -574,10 +619,16 @@ def run_backup(
     kit_index_path = None
     if kit_index_template is not None:
         kit_index_path = os.path.join(output_dir, "recovery_kit_index.pdf")
+    layout_debug_dir = _resolve_layout_debug_dir(layout_debug_dir)
 
     render_service = RenderService(config)
     qr_payloads = render_service.build_qr_payloads(qr_frames)
-    qr_inputs = render_service.qr_inputs(qr_frames, qr_path, qr_payloads=qr_payloads)
+    qr_inputs = render_service.qr_inputs(
+        qr_frames,
+        qr_path,
+        qr_payloads=qr_payloads,
+        layout_debug_json_path=_layout_debug_json_path(layout_debug_dir, "qr_document"),
+    )
     kit_index_context = render_service.base_context(
         {
             "inventory_rows": _build_kit_index_inventory_rows(
@@ -593,6 +644,7 @@ def run_backup(
             qr_payloads=qr_payloads,
             context=kit_index_context,
             template_path=kit_index_template,
+            layout_debug_json_path=_layout_debug_json_path(layout_debug_dir, "recovery_kit_index"),
         )
         if kit_index_template is not None and kit_index_path is not None
         else None
@@ -611,7 +663,12 @@ def run_backup(
         render_module.FallbackSection(label=MAIN_FALLBACK_LABEL, frame=main_fallback_frame),
     ]
     recovery_inputs = render_service.recovery_inputs(
-        frames, recovery_path, key_lines=key_lines, fallback_sections=fallback_sections
+        frames,
+        recovery_path,
+        key_lines=key_lines,
+        recovery_meta=recovery_meta,
+        fallback_sections=fallback_sections,
+        layout_debug_json_path=_layout_debug_json_path(layout_debug_dir, "recovery_document"),
     )
 
     # Render all documents
@@ -626,6 +683,7 @@ def run_backup(
         render_service=render_service,
         config=config,
         status_quiet=status_quiet,
+        layout_debug_dir=layout_debug_dir,
     )
 
     return BackupResult(

@@ -248,11 +248,16 @@ def _build_fallback_blocks(
         lines_capacity=lines_capacity,
         page_idx=page_idx,
         recovery_meta_lines_extra=recovery_meta_lines_extra,
-        recovery_has_quorum=_recovery_has_shard_quorum(inputs.key_lines or ()),
     )
 
     page_fallback_blocks: list[FallbackBlock] = []
     if fallback_sections_data and fallback_state:
+        if lines_capacity <= 0:
+            raise ValueError(
+                "fallback capacity exhausted before consuming section data: "
+                f"page={page_idx + 1}, doc_type={inputs.doc_type!r}, "
+                f"line_height_mm={line_height:.3f}, available_height_mm={available_height:.3f}"
+            )
         restrict_recovery_first_page_to_first_section = (
             page_idx <= 0
             and inputs.doc_type.strip().lower() == DOC_TYPE_RECOVERY
@@ -300,19 +305,6 @@ def _build_fallback_blocks(
         ),
         lines_capacity,
     )
-
-
-def _recovery_has_shard_quorum(key_lines: tuple[str, ...] | list[str] | object) -> bool | None:
-    if not isinstance(key_lines, (list, tuple)):
-        return None
-    prefix = "Recover with "
-    suffix = " shard documents."
-    for line in key_lines:
-        if isinstance(line, str) and line.startswith(prefix) and line.endswith(suffix):
-            return True
-    if any(isinstance(line, str) for line in key_lines):
-        return False
-    return None
 
 
 def build_pages(
@@ -423,6 +415,7 @@ def build_pages(
                 sequence=qr_sequence,
                 fallback_blocks=page_fallback_blocks,
                 fallback_line_capacity=fallback_line_capacity,
+                fallback_row_height_mm=page_layout.line_height,
             )
         )
         page_idx += 1
@@ -448,6 +441,7 @@ def build_pages(
                 sequence=None,
                 fallback_blocks=(),
                 fallback_line_capacity=0,
+                fallback_row_height_mm=None,
             )
         )
 
@@ -470,6 +464,7 @@ def build_pages(
                 sequence=page.sequence,
                 fallback_blocks=page.fallback_blocks,
                 fallback_line_capacity=page.fallback_line_capacity,
+                fallback_row_height_mm=page.fallback_row_height_mm,
             )
             for idx, page in enumerate(pages)
         ]
