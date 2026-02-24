@@ -14,6 +14,7 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 import contextlib
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,6 +23,15 @@ from unittest import mock
 
 from ethernity.cli.flows import kit as kit_module
 from ethernity.qr.codec import QrConfig
+
+
+def _home_env(home: Path) -> dict[str, str]:
+    env = {"HOME": str(home), "USERPROFILE": str(home)}
+    drive, tail = os.path.splitdrive(str(home))
+    if drive:
+        env["HOMEDRIVE"] = drive
+        env["HOMEPATH"] = tail or "\\"
+    return env
 
 
 class TestKitFlowHelpers(unittest.TestCase):
@@ -105,7 +115,7 @@ class TestKitFlowHelpers(unittest.TestCase):
             home.mkdir()
             bundle_path = home / "bundle.html"
             bundle_path.write_bytes(b"bundle")
-            with mock.patch.dict("os.environ", {"HOME": str(home)}, clear=False):
+            with mock.patch.dict("os.environ", _home_env(home), clear=False):
                 self.assertEqual(kit_module._load_kit_bundle("~/bundle.html"), b"bundle")
 
     def test_load_kit_bundle_package_and_dev_fallback(self) -> None:
@@ -253,7 +263,7 @@ class TestRenderKitDocument(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "home"
             home.mkdir()
-            with mock.patch.dict("os.environ", {"HOME": str(home)}, clear=False):
+            with mock.patch.dict("os.environ", _home_env(home), clear=False):
                 result = kit_module.render_kit_qr_document(
                     bundle_path=None,
                     output_path="~/kit.pdf",

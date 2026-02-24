@@ -25,6 +25,15 @@ from ethernity.config import installer
 from ethernity.core import app_paths
 
 
+def _home_env(home: Path) -> dict[str, str]:
+    env = {"HOME": str(home), "USERPROFILE": str(home)}
+    drive, tail = os.path.splitdrive(str(home))
+    if drive:
+        env["HOMEDRIVE"] = drive
+        env["HOMEPATH"] = tail or "\\"
+    return env
+
+
 def _create_design(root: Path, name: str) -> Path:
     design_dir = root / name
     design_dir.mkdir(parents=True, exist_ok=True)
@@ -177,11 +186,14 @@ class TestConfigInstaller(unittest.TestCase):
     def test_resolve_config_path_paths(self) -> None:
         explicit = installer.resolve_config_path("custom.toml")
         self.assertEqual(explicit, Path("custom.toml"))
-        with mock.patch.dict(os.environ, {"HOME": "/tmp/home"}, clear=False):
-            self.assertEqual(
-                installer.resolve_config_path("~/custom.toml"),
-                Path("/tmp/home/custom.toml"),
-            )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir) / "home"
+            home.mkdir()
+            with mock.patch.dict(os.environ, _home_env(home), clear=False):
+                self.assertEqual(
+                    installer.resolve_config_path("~/custom.toml"),
+                    home / "custom.toml",
+                )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

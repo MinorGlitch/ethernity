@@ -125,8 +125,8 @@ class TestCliStartup(unittest.TestCase):
             ):
                 startup._configure_playwright_env()
                 self.assertEqual(
-                    os.environ[startup._PLAYWRIGHT_BROWSERS_ENV],
-                    "/cache/ms-playwright",
+                    Path(os.environ[startup._PLAYWRIGHT_BROWSERS_ENV]),
+                    Path("/cache/ms-playwright"),
                 )
 
     def test_playwright_driver_command_platform_variants_and_override(self) -> None:

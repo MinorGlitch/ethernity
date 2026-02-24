@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,13 +23,22 @@ from ethernity.cli.core.types import RecoverArgs
 from ethernity.cli.flows import recover_plan
 
 
+def _home_env(home: Path) -> dict[str, str]:
+    env = {"HOME": str(home), "USERPROFILE": str(home)}
+    drive, tail = os.path.splitdrive(str(home))
+    if drive:
+        env["HOMEDRIVE"] = drive
+        env["HOMEPATH"] = tail or "\\"
+    return env
+
+
 class TestRecoverPlanPathNormalization(unittest.TestCase):
     def test_frames_from_args_expands_user_paths(self) -> None:
         args = RecoverArgs(fallback_file="~/recovery.txt")
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
-            with mock.patch.dict("os.environ", {"HOME": str(home)}, clear=False):
+            with mock.patch.dict("os.environ", _home_env(home), clear=False):
                 with mock.patch.object(
                     recover_plan,
                     "_frames_from_fallback",
@@ -57,7 +67,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
-            with mock.patch.dict("os.environ", {"HOME": str(home)}, clear=False):
+            with mock.patch.dict("os.environ", _home_env(home), clear=False):
                 with mock.patch.object(
                     recover_plan,
                     "_auth_frames_from_fallback",
@@ -94,7 +104,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
             home.mkdir()
-            with mock.patch.dict("os.environ", {"HOME": str(home)}, clear=False):
+            with mock.patch.dict("os.environ", _home_env(home), clear=False):
                 with mock.patch.object(recover_plan, "validate_recover_args"):
                     with mock.patch.object(recover_plan, "resolve_recover_config"):
                         with mock.patch.object(
