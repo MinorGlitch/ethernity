@@ -76,14 +76,14 @@ h1,h2,h3 { margin: 0; font-weight: 600; }
   gap: 12px;
   padding: 20px;
   border-radius: 14px;
-  border: 1px solid #e0c389;
-  background: linear-gradient(180deg, #fffdf7 0%, #fffaf0 100%);
+  border: 1px solid #e1a2a2;
+  background: linear-gradient(180deg, #fff9f9 0%, #fff3f3 100%);
   box-shadow:
     0 12px 30px rgba(15, 23, 42, 0.08),
     0 1px 0 rgba(255, 255, 255, 0.8) inset;
 }
 .offline-guard-kicker {
-  color: var(--warn);
+  color: var(--err);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.1em;
@@ -106,6 +106,10 @@ h1,h2,h3 { margin: 0; font-weight: 600; }
   line-height: 1.5;
   border-width: 1px;
 }
+.offline-guard-status.status.warn {
+  border-color: #e1a2a2;
+  background: #fff4f4;
+}
 .offline-guard-note {
   color: var(--muted);
   font-size: 12px;
@@ -120,14 +124,14 @@ h1,h2,h3 { margin: 0; font-weight: 600; }
   display: grid;
   gap: 8px;
   padding: 12px;
-  border: 1px solid #ead8ab;
+  border: 1px solid #efc0c0;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.7);
 }
 .offline-guard-confirm-title {
   font-size: 12px;
   font-weight: 700;
-  color: var(--warn);
+  color: var(--err);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
