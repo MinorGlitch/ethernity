@@ -67,8 +67,12 @@ export async function addPayloads(dispatch, getState) {
   const work = cloneState(base);
   await updateAuthStatus(work);
   syncCollectedCiphertext(work);
+  if (!work.recoveredShardSecret) {
+    autoRecoverShardSecret(work);
+  }
   const next = cloneLatest(getState);
   copyAuthAndCipherFields(next, work);
+  copyShardAsyncFields(next, work);
   dispatchState(dispatch, next);
 }
 
