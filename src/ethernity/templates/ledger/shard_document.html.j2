@@ -54,6 +54,7 @@
       height: {{ page_height_mm }}mm;
       page-break-after: always;
       padding: {{ margin_mm }}mm;
+      position: relative;
       display: flex;
       flex-direction: column;
       gap: 2.4mm;
@@ -132,7 +133,7 @@
       border-left: 1.2mm solid var(--accent);
       border-top: 0.35mm solid var(--surface-border);
       border-bottom: 0.35mm solid var(--surface-border);
-      background: linear-gradient(90deg, rgba(47, 58, 51, 0.06) 0, rgba(255, 255, 255, 0) 70%);
+      background: rgba(47, 58, 51, 0.035);
       padding: 1.6mm 2.5mm 1.6mm 3mm;
       font-size: 9pt;
       line-height: 4.5mm;
@@ -251,6 +252,37 @@
     {% endif %}
 
     <div class="content">
+      {% set single_qr_stack = page.qr_items and page.qr_grid and (page.qr_items | length) == 1 and page.fallback_blocks %}
+      {% if single_qr_stack %}
+      <div style="flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 8mm;">
+        <div style="flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center;">
+          <div
+            class="qr-grid-items"
+            style="--qr-size: {{ page.qr_grid.size_mm }}mm; --qr-gap-x: {{ page.qr_grid.gap_x_mm }}mm; --qr-gap-y: {{ page.qr_grid.gap_y_mm }}mm; --qr-cols: {{ page.qr_grid.cols }}; align-content: center; justify-content: center;"
+          >
+            {% for slot in page.qr_items %}
+            <div class="qr-cell">
+              <div class="qr-card">
+                <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="fallback-list" style="flex: 0 0 auto; min-height: 0; margin-top: auto;">
+          {% for block in page.fallback_blocks %}
+          <div class="fallback">
+            {% if block.title %}<div class="fallback-title">{{ block.title }}</div>{% endif %}
+            <div class="fallback-lines" style="--line-offset: {{ block.line_offset }};">
+              {% for line in block.lines %}
+              <div class="fallback-line">{{ line }}</div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% else %}
       {% if page.qr_items and page.qr_grid %}
       <div
         class="qr-grid-items"
@@ -279,6 +311,7 @@
         </div>
         {% endfor %}
       </div>
+      {% endif %}
       {% endif %}
     </div>
   </section>

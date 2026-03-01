@@ -274,10 +274,6 @@
       background: #fff;
       width: var(--qr-size);
       height: var(--qr-size);
-      display: grid;
-      grid-template-rows: auto auto 1fr;
-      gap: 0.35mm;
-      align-items: start;
     }
 
     .qr {
@@ -366,7 +362,7 @@
 
     .footer {
       border-top: 0.26mm solid #000;
-      padding-top: 1mm;
+      padding-top: 1.6mm;
       display: grid;
       grid-template-columns: 1fr auto auto;
       align-items: center;
@@ -448,8 +444,6 @@
             {% for slot in page.qr_items %}
             <div class="qr-card">
               <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
-              <div class="qr-label">Part {{ "%02d"|format(slot.index) }}</div>
-              <div class="qr-checksum">checksum: n/a</div>
             </div>
             {% endfor %}
           </div>
@@ -475,9 +469,9 @@
       {% endif %}
 
       <footer class="footer">
-        <div class="footer-left">System Recovery Archival</div>
+        <div class="footer-left">{% if ethernity_version is defined and ethernity_version %}Ethernity v{{ ethernity_version }}{% else %}Ethernity{% endif %}</div>
         <div>Variant {{ page.page_num }} of {{ pages|length }}</div>
-        <div>v1.0.4</div>
+        <div></div>
       </footer>
     </div>
   </section>

@@ -23,11 +23,13 @@
 {% endif %}
 {% set _sentinel_header_title = sentinel_header_title if sentinel_header_title is defined else doc.title %}
 {% set _sentinel_header_subtitle = sentinel_header_subtitle if sentinel_header_subtitle is defined else doc.subtitle %}
+{% set _sentinel_hide_header = sentinel_hide_header if sentinel_hide_header is defined else false %}
 <div class="sentinel-shell-top-strip relative z-10 shrink-0 min-h-8 py-1 bg-primary border-b-4 border-black flex items-center justify-center px-[15mm]">
   <p class="text-[9px] font-black uppercase tracking-[0.12em] text-black text-center leading-tight">
     {{ sentinel_top_strip_text }}
   </p>
 </div>
+{% if not _sentinel_hide_header %}
 <header class="sentinel-shell-header relative z-10 shrink-0 border-b-2 border-black pt-2 pb-3 px-[15mm] grid grid-cols-[minmax(0,1fr)_60mm] gap-6 items-end">
   <div class="min-w-0">
     <h1 class="text-3xl font-black text-black tracking-tighter uppercase leading-none">{{ _sentinel_header_title }}</h1>
@@ -39,3 +41,4 @@
     <p>{{ _sentinel_page_label }}</p>
   </div>
 </header>
+{% endif %}
