@@ -125,6 +125,7 @@ test("extractFiles supports stable-v1 direct manifest entries", async () => {
     seed: null,
     input_origin: "file",
     input_roots: [],
+    payload_codec: "raw",
     path_encoding: "direct",
     files: buildDirectManifestEntries(files),
   };
@@ -147,6 +148,7 @@ test("extractFiles supports stable-v1 prefix_table manifest entries", async () =
     seed: null,
     input_origin: "directory",
     input_roots: ["docs"],
+    payload_codec: "raw",
     path_encoding: "prefix_table",
     path_prefixes: ["", "docs", "docs/sub"],
     files: [
@@ -172,6 +174,7 @@ test("extractFiles rejects legacy map-style file entries", async () => {
     seed: null,
     input_origin: "file",
     input_roots: [],
+    payload_codec: "raw",
     path_encoding: "direct",
     files: [{ path: "a.txt", size: 1, hash: sha256(data), mtime: null }],
   };

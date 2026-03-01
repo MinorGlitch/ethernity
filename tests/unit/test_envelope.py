@@ -75,7 +75,7 @@ def _make_manifest_cbor(
     input_roots: object | None = None,
     path_encoding: object = PATH_ENCODING_DIRECT,
     path_prefixes: object | None = None,
-    payload_codec: object | None = None,
+    payload_codec: object | None = PAYLOAD_CODEC_RAW,
     payload_raw_len: object | None = None,
     files: list[list[object]] | None = None,
 ) -> dict[str, object]:
@@ -527,6 +527,12 @@ class TestEnvelope(unittest.TestCase):
         data = _make_manifest_cbor()
         del data["path_encoding"]
         with self.assertRaisesRegex(ValueError, "path_encoding"):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_requires_payload_codec(self) -> None:
+        data = _make_manifest_cbor()
+        del data["payload_codec"]
+        with self.assertRaisesRegex(ValueError, "payload_codec"):
             EnvelopeManifest.from_cbor(data)
 
     def test_manifest_rejects_invalid_path_encoding(self) -> None:

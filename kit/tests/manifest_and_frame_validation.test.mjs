@@ -41,6 +41,7 @@ function validManifest(payload = Uint8Array.of(1)) {
     seed: null,
     input_origin: "file",
     input_roots: [],
+    payload_codec: "raw",
     path_encoding: "direct",
     files: [["a.txt", payload.length, sha256(payload), null]],
   };
@@ -66,6 +67,15 @@ test("manifest decoder rejects invalid stable-v1 structures", async () => {
         return buildEnvelope(manifest, payload);
       })(),
       error: /manifest created is required/,
+    },
+    {
+      name: "payload codec required",
+      envelope: (() => {
+        const manifest = validManifest(payload);
+        delete manifest.payload_codec;
+        return buildEnvelope(manifest, payload);
+      })(),
+      error: /manifest payload_codec is required/,
     },
     {
       name: "version type",
