@@ -196,6 +196,7 @@ class EnvelopeManifest:
                 "input_roots",
                 "path_encoding",
                 "files",
+                "payload_codec",
             ),
             label="manifest",
         )
@@ -207,7 +208,7 @@ class EnvelopeManifest:
         input_roots = validated["input_roots"]
         path_encoding = validated["path_encoding"]
         files_raw = validated["files"]
-        payload_codec_raw = validated.get("payload_codec", PAYLOAD_CODEC_RAW)
+        payload_codec_raw = validated["payload_codec"]
         payload_raw_len_raw = validated.get("payload_raw_len")
         format_version = require_int(format_version, label="manifest version")
         if format_version != MANIFEST_VERSION:

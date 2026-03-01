@@ -175,7 +175,10 @@ function parseManifest(manifest) {
     seenPaths.add(parsedEntry.path);
     entries.push(parsedEntry);
   }
-  const payloadCodecRaw = "payload_codec" in manifest ? manifest.payload_codec : PAYLOAD_CODEC_RAW;
+  if (!("payload_codec" in manifest)) {
+    throw new Error("manifest payload_codec is required");
+  }
+  const payloadCodecRaw = manifest.payload_codec;
   if (typeof payloadCodecRaw !== "string") {
     throw new Error("manifest payload_codec must be a string");
   }
