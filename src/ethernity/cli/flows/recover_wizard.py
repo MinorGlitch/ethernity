@@ -378,6 +378,7 @@ def _load_shard_frames(
                     _frames_from_shard_inputs(
                         shard_fallback_files,
                         shard_payloads_file,
+                        quiet=quiet,
                     )
                 )
             except ValueError as exc:

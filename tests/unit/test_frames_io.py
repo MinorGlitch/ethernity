@@ -115,7 +115,7 @@ class TestFramesIo(unittest.TestCase):
             ) as parse_mock:
                 parsed = _frame_from_fallback("fallback.txt")
         self.assertEqual(parsed, frame)
-        parse_mock.assert_called_once_with(["line"], label="fallback")
+        parse_mock.assert_called_once_with(["line"], label="fallback", quiet=False)
 
     def test_parse_fallback_section_without_markers_passes_through_lines(self) -> None:
         frame = self._frame()
@@ -132,7 +132,7 @@ class TestFramesIo(unittest.TestCase):
                     missing_error="missing",
                 )
         self.assertEqual(parsed, frame)
-        parse_mock.assert_called_once_with(["line"], label="auth")
+        parse_mock.assert_called_once_with(["line"], label="auth", quiet=True)
 
     def test_parse_fallback_section_requires_requested_marker_section(self) -> None:
         with mock.patch("ethernity.cli.io.frames._contains_fallback_markers", return_value=True):
@@ -305,7 +305,7 @@ class TestFramesIo(unittest.TestCase):
                     ["payloads.txt"],
                 )
         self.assertEqual(frames, [fallback_frame, payload_frame])
-        fallback_mock.assert_called_once_with("fallback.txt")
+        fallback_mock.assert_called_once_with("fallback.txt", quiet=False)
         payload_mock.assert_called_once_with("payloads.txt", label="shard QR payloads")
 
     def test_frames_from_scan_reports_scan_failures(self) -> None:

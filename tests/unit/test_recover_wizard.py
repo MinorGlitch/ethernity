@@ -319,7 +319,7 @@ class TestRecoveryWizardHelpers(unittest.TestCase):
         frames = wizard._load_shard_frames(["shards.txt"], [], extra_frames=[], quiet=False)
 
         self.assertEqual(frames, [shard])
-        frames_from_shard_inputs.assert_called_once_with(["shards.txt"], [])
+        frames_from_shard_inputs.assert_called_once_with(["shards.txt"], [], quiet=False)
 
     @mock.patch(
         "ethernity.cli.flows.recover_wizard._frames_from_shard_inputs",
