@@ -30,6 +30,9 @@ import {
   PATH_ENCODING_PREFIX_TABLE,
 } from "./constants.js";
 
+const PAYLOAD_CODEC_RAW = "raw";
+const PAYLOAD_CODEC_GZIP = "gzip";
+
 function decodeEnvelope(bytes) {
   if (bytes.length < 2) throw new Error("envelope too short");
   if (bytes[0] !== ENVELOPE_MAGIC[0] || bytes[1] !== ENVELOPE_MAGIC[1]) {
@@ -171,6 +174,31 @@ function parseManifest(manifest) {
     seenPaths.add(parsedEntry.path);
     entries.push(parsedEntry);
   }
+  const payloadCodecRaw = "payload_codec" in manifest ? manifest.payload_codec : PAYLOAD_CODEC_RAW;
+  if (typeof payloadCodecRaw !== "string") {
+    throw new Error("manifest payload_codec must be a string");
+  }
+  if (payloadCodecRaw !== PAYLOAD_CODEC_RAW && payloadCodecRaw !== PAYLOAD_CODEC_GZIP) {
+    throw new Error("manifest payload_codec must be one of: raw, gzip");
+  }
+  const expectedRawLen = entries.reduce((sum, entry) => sum + entry.size, 0);
+  let payloadRawLen = null;
+  if (payloadCodecRaw === PAYLOAD_CODEC_RAW) {
+    if ("payload_raw_len" in manifest && manifest.payload_raw_len !== null) {
+      throw new Error("manifest payload_raw_len must be null for raw payload_codec");
+    }
+  } else {
+    if (!("payload_raw_len" in manifest)) {
+      throw new Error("manifest payload_raw_len is required for gzip payload_codec");
+    }
+    payloadRawLen = manifest.payload_raw_len;
+    if (!Number.isInteger(payloadRawLen) || payloadRawLen <= 0) {
+      throw new Error("manifest payload_raw_len must be a positive int");
+    }
+    if (payloadRawLen !== expectedRawLen) {
+      throw new Error("manifest payload_raw_len must match sum of manifest file sizes");
+    }
+  }
 
   return {
     formatVersion,
@@ -180,6 +208,8 @@ function parseManifest(manifest) {
     inputOrigin,
     inputRoots,
     pathEncoding,
+    payloadCodec: payloadCodecRaw,
+    payloadRawLen,
     entries,
   };
 }
@@ -276,15 +306,43 @@ function buildManifestEntry({ path, size, sha, mtime }) {
   return { path: normalizedPath, size, sha, mtime };
 }
 
-export function extractFiles(envelopeBytes) {
+async function gunzipBytes(bytes) {
+  if (typeof DecompressionStream !== "function") {
+    throw new Error("gzip payload requires DecompressionStream support");
+  }
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  const buffer = await new Response(stream).arrayBuffer();
+  return new Uint8Array(buffer);
+}
+
+async function decodePayloadFromManifest(parsedManifest, payload) {
+  if (parsedManifest.payloadCodec === PAYLOAD_CODEC_RAW) {
+    return payload;
+  }
+  if (parsedManifest.payloadCodec !== PAYLOAD_CODEC_GZIP) {
+    throw new Error(`unsupported payload codec: ${parsedManifest.payloadCodec}`);
+  }
+  const expectedLen = parsedManifest.payloadRawLen;
+  if (!Number.isInteger(expectedLen) || expectedLen <= 0) {
+    throw new Error("manifest payload_raw_len must be a positive int");
+  }
+  const decoded = await gunzipBytes(payload);
+  if (decoded.length !== expectedLen) {
+    throw new Error("decoded payload length does not match manifest payload_raw_len");
+  }
+  return decoded;
+}
+
+export async function extractFiles(envelopeBytes) {
   const { manifest, payload } = decodeEnvelope(envelopeBytes);
   const parsed = parseManifest(manifest);
+  const normalizedPayload = await decodePayloadFromManifest(parsed, payload);
   const files = [];
   let offset = 0;
   for (const entry of parsed.entries) {
     const end = offset + entry.size;
-    if (end > payload.length) throw new Error("payload shorter than manifest");
-    const data = payload.slice(offset, end);
+    if (end > normalizedPayload.length) throw new Error("payload shorter than manifest");
+    const data = normalizedPayload.slice(offset, end);
     const digest = sha256(data);
     if (!bytesEqual(digest, entry.sha)) {
       throw new Error(`sha256 mismatch for ${entry.path}`);
@@ -292,7 +350,7 @@ export function extractFiles(envelopeBytes) {
     files.push({ path: entry.path, data });
     offset = end;
   }
-  if (offset !== payload.length) {
+  if (offset !== normalizedPayload.length) {
     throw new Error("payload length does not match manifest sizes");
   }
   return { files, manifest: parsed };

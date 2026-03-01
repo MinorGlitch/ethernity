@@ -60,7 +60,7 @@ export async function decryptCiphertext(dispatch, getState) {
     didStartDecrypt = true;
 
     const plaintext = await decryptAgePassphrase(bytes, prep.agePassphrase);
-    const result = extractFiles(plaintext);
+    const result = await extractFiles(plaintext);
     const next = cloneLatest(getState);
     next.decryptedEnvelope = plaintext;
     next.decryptedEnvelopeSource = "Collected ciphertext";
@@ -93,14 +93,14 @@ export async function decryptCiphertext(dispatch, getState) {
   dispatchState(dispatch, finalState);
 }
 
-export function extractEnvelope(dispatch, getState) {
+export async function extractEnvelope(dispatch, getState) {
   const base = cloneState(getState());
   try {
     clearRecoveredOutput(base);
     if (!base.decryptedEnvelope) {
       throw new Error("No decrypted envelope available yet.");
     }
-    const result = extractFiles(base.decryptedEnvelope);
+    const result = await extractFiles(base.decryptedEnvelope);
     applyExtractResult(base, result);
     dispatchState(dispatch, base);
   } catch (err) {
