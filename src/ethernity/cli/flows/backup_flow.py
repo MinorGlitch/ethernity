@@ -197,7 +197,9 @@ def _prepare_envelope(
     sign_priv: bytes,
     input_origin: str,
     input_roots: list[str],
-    payload_codec_mode: payload_codec_module.PayloadEncodingMode | None = None,
+    payload_codec_mode: payload_codec_module.PayloadEncodingMode = (
+        payload_codec_module.PAYLOAD_ENCODING_AUTO
+    ),
 ) -> tuple[bytes, bytes]:
     """Prepare the envelope from input files. Returns (envelope, payload)."""
     parts = [
@@ -214,7 +216,7 @@ def _prepare_envelope(
     encoded_payload, payload_codec, payload_raw_len = (
         payload_codec_module.encode_payload_for_manifest(
             payload,
-            mode=payload_codec_mode or payload_codec_module.PAYLOAD_ENCODING_AUTO,
+            mode=payload_codec_mode,
         )
     )
     manifest = replace(

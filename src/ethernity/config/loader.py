@@ -50,7 +50,7 @@ class BackupDefaults:
     signing_key_mode: Literal["embedded", "sharded"] | None = None
     signing_key_shard_threshold: int | None = None
     signing_key_shard_count: int | None = None
-    payload_codec: Literal["auto", "raw", "gzip"] | None = None
+    payload_codec: Literal["auto", "raw", "gzip"] = "auto"
 
 
 @dataclass(frozen=True)
@@ -256,7 +256,7 @@ def _parse_backup_defaults(cfg: dict[str, object]) -> BackupDefaults:
             cfg.get("signing_key_shard_count"),
             field="defaults.backup.signing_key_shard_count",
         ),
-        payload_codec=_parse_optional_payload_codec(
+        payload_codec=_parse_payload_codec(
             cfg.get("payload_codec"),
             field="defaults.backup.payload_codec",
         ),
@@ -452,22 +452,22 @@ def _parse_optional_signing_key_mode(
     return cast(Literal["embedded", "sharded"], normalized)
 
 
-def _parse_optional_payload_codec(
+def _parse_payload_codec(
     value: object,
     *,
     field: str,
-) -> Literal["auto", "raw", "gzip"] | None:
-    """Parse optional backup payload codec mode."""
+) -> Literal["auto", "raw", "gzip"]:
+    """Parse backup payload codec mode."""
 
     if value is None:
-        return None
+        return "auto"
     if not isinstance(value, str):
-        raise ValueError(f"{field} must be 'auto', 'raw', 'gzip', or empty")
+        raise ValueError(f"{field} must be 'auto', 'raw', or 'gzip'")
     normalized = value.strip().lower()
     if not normalized:
-        return None
+        raise ValueError(f"{field} must be 'auto', 'raw', or 'gzip'")
     if normalized not in {"auto", "raw", "gzip"}:
-        raise ValueError(f"{field} must be 'auto', 'raw', 'gzip', or empty")
+        raise ValueError(f"{field} must be 'auto', 'raw', or 'gzip'")
     return cast(Literal["auto", "raw", "gzip"], normalized)
 
 

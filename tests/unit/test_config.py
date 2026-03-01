@@ -430,7 +430,6 @@ shard_count = 0
 signing_key_mode = ""
 signing_key_shard_threshold = 0
 signing_key_shard_count = 0
-payload_codec = ""
 
 [defaults.recover]
 output = ""
@@ -453,7 +452,7 @@ render_jobs = "auto"
         self.assertIsNone(defaults.backup.signing_key_mode)
         self.assertIsNone(defaults.backup.signing_key_shard_threshold)
         self.assertIsNone(defaults.backup.signing_key_shard_count)
-        self.assertIsNone(defaults.backup.payload_codec)
+        self.assertEqual(defaults.backup.payload_codec, "auto")
         self.assertIsNone(defaults.recover.output)
         self.assertIsNone(defaults.debug.max_bytes)
         self.assertEqual(defaults.runtime.render_jobs, "auto")
@@ -468,7 +467,21 @@ payload_codec = "brotli"
             path.write_text(toml, encoding="utf-8")
             with self.assertRaisesRegex(
                 ValueError,
-                "defaults.backup.payload_codec must be 'auto', 'raw', 'gzip', or empty",
+                "defaults.backup.payload_codec must be 'auto', 'raw', or 'gzip'",
+            ):
+                load_cli_defaults(path=path)
+
+    def test_load_cli_defaults_rejects_empty_payload_codec(self) -> None:
+        toml = """
+[defaults.backup]
+payload_codec = ""
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            with self.assertRaisesRegex(
+                ValueError,
+                "defaults.backup.payload_codec must be 'auto', 'raw', or 'gzip'",
             ):
                 load_cli_defaults(path=path)
 
