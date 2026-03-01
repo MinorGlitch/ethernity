@@ -211,7 +211,7 @@ jobs:
           ls -1 ethernity--*.bottle.*
 
       - name: Upload bottle artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: bottles-${{ matrix.id }}
           path: |
@@ -229,7 +229,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Download bottle artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8.0.0
         with:
           path: ${{ runner.temp }}/bottles
 
