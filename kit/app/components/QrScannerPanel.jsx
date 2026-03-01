@@ -17,7 +17,7 @@
 
 import { useQrScannerRuntime } from "#kit-scanner-runtime";
 
-export function QrScannerPanel({ onScanText }) {
+export function QrScannerPanel({ onScanPayload }) {
   const {
     active,
     status,
@@ -26,7 +26,7 @@ export function QrScannerPanel({ onScanText }) {
     videoRef,
     startScanner,
     stopScanner,
-  } = useQrScannerRuntime(onScanText);
+  } = useQrScannerRuntime(onScanPayload);
 
   return (
     <div class="scan-panel">

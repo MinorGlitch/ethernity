@@ -32,6 +32,7 @@ export function ShardCollector({
   shardSignPub,
   onShardPayloadChange,
   onAddShardPayloads,
+  onScannedShardPayload,
   onCopyResult,
   canCopyResult,
   isComplete,
@@ -53,8 +54,18 @@ export function ShardCollector({
     setPasteHint("");
     onAddShardPayloads();
   };
-  const handleScanText = (rawText) => {
-    const lines = String(rawText ?? "")
+  const handleScanPayload = (scannedPayload) => {
+    const hasBytes =
+      scannedPayload &&
+      scannedPayload.bytes instanceof Uint8Array &&
+      scannedPayload.bytes.length > 0;
+    if (hasBytes && typeof onScannedShardPayload === "function") {
+      onScannedShardPayload(scannedPayload);
+      setPasteHint("Scanned 1 shard frame. Added automatically.");
+      return;
+    }
+
+    const lines = String(scannedPayload?.text ?? "")
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);
@@ -80,7 +91,7 @@ export function ShardCollector({
           onPaste={handlePaste}
           as="textarea"
         />
-        <QrScannerPanel onScanText={handleScanText} />
+        <QrScannerPanel onScanPayload={handleScanPayload} />
         {pasteHint ? <div class="hint">{pasteHint}</div> : null}
         <div class="hint">Skip if you already have the full passphrase.</div>
       </>

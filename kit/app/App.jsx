@@ -19,6 +19,8 @@ import { useEffect, useReducer, useRef, useState } from "microact/hooks";
 
 import {
   addPayloads,
+  addScannedPayload,
+  addScannedShardPayload,
   addShardPayloads,
   copyRecoveredSecret,
   resetAll,
@@ -88,7 +90,10 @@ export function App() {
     updateField(dispatch, getState, "agePassphrase", event.currentTarget.value);
 
   const handleAddPayloads = () => addPayloads(dispatch, getState);
+  const handleScannedPayload = (scanned) => addScannedPayload(dispatch, getState, scanned);
   const handleAddShardPayloads = () => addShardPayloads(dispatch, getState);
+  const handleScannedShardPayload = (scanned) =>
+    addScannedShardPayload(dispatch, getState, scanned);
   const handleReset = () => resetAll(dispatch);
   const handleDownloadCipher = () => downloadCipher(dispatch, getState);
   const handleCopyResult = () => copyRecoveredSecret(dispatch, getState);
@@ -197,6 +202,7 @@ export function App() {
             frameDiagnostics={frameDiagnostics}
             onPayloadChange={handlePayloadChange}
             onAddPayloads={handleAddPayloads}
+            onScannedPayload={handleScannedPayload}
             isComplete={Boolean(state.total && state.mainFrames.size === state.total)}
             onReset={handleReset}
             onDownloadCipher={handleDownloadCipher}
@@ -218,6 +224,7 @@ export function App() {
             shardSignPub={shardInputs.signPubHex}
             onShardPayloadChange={handleShardPayloadChange}
             onAddShardPayloads={handleAddShardPayloads}
+            onScannedShardPayload={handleScannedShardPayload}
             isComplete={Boolean(state.recoveredShardSecret)}
             onCopyResult={handleCopyResult}
             canCopyResult={actionState.canCopyResult}
