@@ -197,6 +197,7 @@ def _prepare_envelope(
     sign_priv: bytes,
     input_origin: str,
     input_roots: list[str],
+    payload_codec_mode: payload_codec_module.PayloadEncodingMode | None = None,
 ) -> tuple[bytes, bytes]:
     """Prepare the envelope from input files. Returns (envelope, payload)."""
     parts = [
@@ -211,7 +212,10 @@ def _prepare_envelope(
         input_roots=input_roots,
     )
     encoded_payload, payload_codec, payload_raw_len = (
-        payload_codec_module.encode_payload_for_manifest(payload)
+        payload_codec_module.encode_payload_for_manifest(
+            payload,
+            mode=payload_codec_mode or payload_codec_module.PAYLOAD_ENCODING_AUTO,
+        )
     )
     manifest = replace(
         manifest,
@@ -534,12 +538,14 @@ def run_backup(
 
     # Prepare envelope and handle debug output
     with status("Preparing payload...", quiet=status_quiet):
+        payload_codec_mode = config.cli_defaults.backup.payload_codec
         envelope, payload = _prepare_envelope(
             input_files,
             plan,
             sign_priv,
             input_origin,
             input_roots or [],
+            payload_codec_mode=payload_codec_mode,
         )
         manifest = envelope_codec_module.decode_envelope(envelope)[0]
 

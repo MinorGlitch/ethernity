@@ -20,15 +20,21 @@ from __future__ import annotations
 
 import gzip
 import zlib
+from typing import Literal
 
 from ..core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES
 from .envelope_types import PAYLOAD_CODEC_GZIP, PAYLOAD_CODEC_RAW, EnvelopeManifest
 
+PAYLOAD_ENCODING_AUTO: Literal["auto"] = "auto"
+PayloadEncodingMode = Literal["auto", "raw", "gzip"]
 
-def encode_payload_for_manifest(payload: bytes) -> tuple[bytes, str, int | None]:
+
+def encode_payload_for_manifest(
+    payload: bytes, *, mode: PayloadEncodingMode = PAYLOAD_ENCODING_AUTO
+) -> tuple[bytes, str, int | None]:
     """Encode payload bytes for storage and return `(payload, codec, raw_len)`.
 
-    Compression is deterministic and only selected when it strictly reduces payload size.
+    Compression is deterministic. In `auto` mode, gzip is selected only when it is smaller.
     """
 
     if len(payload) > MAX_DECOMPRESSED_PAYLOAD_BYTES:
@@ -37,7 +43,16 @@ def encode_payload_for_manifest(payload: bytes) -> tuple[bytes, str, int | None]
             f"({MAX_DECOMPRESSED_PAYLOAD_BYTES}): {len(payload)} bytes"
         )
 
+    if mode not in {PAYLOAD_ENCODING_AUTO, PAYLOAD_CODEC_RAW, PAYLOAD_CODEC_GZIP}:
+        raise ValueError(f"unsupported payload encoding mode: {mode}")
+
+    if mode == PAYLOAD_CODEC_RAW:
+        return payload, PAYLOAD_CODEC_RAW, None
+
     compressed = gzip.compress(payload, compresslevel=9, mtime=0)
+    if mode == PAYLOAD_CODEC_GZIP:
+        return compressed, PAYLOAD_CODEC_GZIP, len(payload)
+
     if len(compressed) < len(payload):
         return compressed, PAYLOAD_CODEC_GZIP, len(payload)
     return payload, PAYLOAD_CODEC_RAW, None
@@ -97,4 +112,6 @@ def decode_payload_from_manifest(manifest: EnvelopeManifest, payload: bytes) -> 
 __all__ = [
     "decode_payload_from_manifest",
     "encode_payload_for_manifest",
+    "PAYLOAD_ENCODING_AUTO",
+    "PayloadEncodingMode",
 ]

@@ -30,6 +30,7 @@ from ethernity.formats.envelope_types import (
     ManifestFile,
 )
 from ethernity.formats.payload_codec import (
+    PAYLOAD_ENCODING_AUTO,
     decode_payload_from_manifest,
     encode_payload_for_manifest,
 )
@@ -58,22 +59,40 @@ class TestPayloadCodec(unittest.TestCase):
 
     def test_encode_payload_for_manifest_auto_compresses_when_smaller(self) -> None:
         raw = b"A" * 4096
-        encoded, codec, raw_len = encode_payload_for_manifest(raw)
+        encoded, codec, raw_len = encode_payload_for_manifest(raw, mode=PAYLOAD_ENCODING_AUTO)
         self.assertEqual(codec, PAYLOAD_CODEC_GZIP)
         self.assertEqual(raw_len, len(raw))
         self.assertLess(len(encoded), len(raw))
 
     def test_encode_payload_for_manifest_keeps_raw_when_not_smaller(self) -> None:
         raw = os.urandom(4096)
-        encoded, codec, raw_len = encode_payload_for_manifest(raw)
+        encoded, codec, raw_len = encode_payload_for_manifest(raw, mode=PAYLOAD_ENCODING_AUTO)
         self.assertEqual(codec, PAYLOAD_CODEC_RAW)
         self.assertIsNone(raw_len)
         self.assertEqual(encoded, raw)
+
+    def test_encode_payload_for_manifest_forces_raw_mode(self) -> None:
+        raw = b"A" * 4096
+        encoded, codec, raw_len = encode_payload_for_manifest(raw, mode=PAYLOAD_CODEC_RAW)
+        self.assertEqual(codec, PAYLOAD_CODEC_RAW)
+        self.assertIsNone(raw_len)
+        self.assertEqual(encoded, raw)
+
+    def test_encode_payload_for_manifest_forces_gzip_mode(self) -> None:
+        raw = os.urandom(4096)
+        encoded, codec, raw_len = encode_payload_for_manifest(raw, mode=PAYLOAD_CODEC_GZIP)
+        self.assertEqual(codec, PAYLOAD_CODEC_GZIP)
+        self.assertEqual(raw_len, len(raw))
+        self.assertNotEqual(encoded, raw)
 
     def test_encode_payload_for_manifest_rejects_payload_over_max_decompressed_bound(self) -> None:
         with mock.patch("ethernity.formats.payload_codec.MAX_DECOMPRESSED_PAYLOAD_BYTES", 8):
             with self.assertRaisesRegex(ValueError, "MAX_DECOMPRESSED_PAYLOAD_BYTES"):
                 encode_payload_for_manifest(b"A" * 9)
+
+    def test_encode_payload_for_manifest_rejects_unknown_mode(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unsupported payload encoding mode"):
+            encode_payload_for_manifest(b"payload", mode="brotli")  # type: ignore[arg-type]
 
     def test_decode_payload_from_manifest_roundtrip_gzip(self) -> None:
         raw = b"hello world\n" * 300
