@@ -1,9 +1,9 @@
 {
   "artifact_hashes": {
-    "main_payloads.txt": "d6a2fc1446ad894e27f905e4fc19425c02660e488d08cfe44a52b2f9bdf467f0",
-    "qr_document.pdf": "d50562ab24ae5df9e13930cd2325e66d01caf23c3ded356e3e26804594e99059",
-    "recovery_document.pdf": "57d397238490d698c14a6390a834b9d5e2538650b66d5a4edbb3d633df58460f",
-    "recovery_kit_index.pdf": "2c7c4ad0f4476d257fde58f2d7ddab555317a8be896e571ab7aa2efa1206f786"
+    "main_payloads.txt": "1e9a3f258377359911e5070e0619176c68d0a3988f68b5f575f525ffb91cbdec",
+    "qr_document.pdf": "e3bc86dbb659555c03fe2cd4566b50327dfe01d84c5a89cb2ab17a476abecc97",
+    "recovery_document.pdf": "03cbe75adf493ee5819d30f6096957522eb7ba4f8c7884b0aac6c925d6dd9560",
+    "recovery_kit_index.pdf": "a1b2700cc875c69fe405c9934a10e378409d4b25e270524df3817c03dfa54d46"
   },
   "expected_file_sha256": {
     "standalone_secret.txt": "ce36ddabb5fdbed1f1e472cc5b61bfb5e0299c2a9adc6d2d0d54412e3251e449"

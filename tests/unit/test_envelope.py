@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+import gzip
 import hashlib
 import unicodedata
 import unittest
@@ -20,7 +21,11 @@ from unittest import mock
 
 import cbor2
 
-from ethernity.core.bounds import MAX_MANIFEST_CBOR_BYTES, MAX_MANIFEST_FILES
+from ethernity.core.bounds import (
+    MAX_DECOMPRESSED_PAYLOAD_BYTES,
+    MAX_MANIFEST_CBOR_BYTES,
+    MAX_MANIFEST_FILES,
+)
 from ethernity.encoding.varint import encode_uvarint
 from ethernity.formats.envelope_codec import (
     MAGIC,
@@ -35,6 +40,8 @@ from ethernity.formats.envelope_types import (
     MANIFEST_VERSION,
     PATH_ENCODING_DIRECT,
     PATH_ENCODING_PREFIX_TABLE,
+    PAYLOAD_CODEC_GZIP,
+    PAYLOAD_CODEC_RAW,
     EnvelopeManifest,
     ManifestFile,
     PayloadPart,
@@ -68,6 +75,8 @@ def _make_manifest_cbor(
     input_roots: object | None = None,
     path_encoding: object = PATH_ENCODING_DIRECT,
     path_prefixes: object | None = None,
+    payload_codec: object | None = PAYLOAD_CODEC_RAW,
+    payload_raw_len: object | None = None,
     files: list[list[object]] | None = None,
 ) -> dict[str, object]:
     if input_roots is None:
@@ -80,7 +89,7 @@ def _make_manifest_cbor(
             files = [_make_manifest_file_entry(prefix_index=0, suffix="payload.bin")]
         else:
             files = [_make_manifest_file_entry()]
-    return {
+    output = {
         "version": version,
         "created": created,
         "sealed": sealed,
@@ -91,6 +100,11 @@ def _make_manifest_cbor(
         "path_prefixes": path_prefixes if path_prefixes is not None else [""],
         "files": files,
     }
+    if payload_codec is not None:
+        output["payload_codec"] = payload_codec
+    if payload_raw_len is not None:
+        output["payload_raw_len"] = payload_raw_len
+    return output
 
 
 class TestEnvelope(unittest.TestCase):
@@ -128,6 +142,8 @@ class TestEnvelope(unittest.TestCase):
         decoded = cbor2.loads(encoded)
         self.assertIsInstance(decoded, dict)
         self.assertEqual(decoded["version"], MANIFEST_VERSION)
+        self.assertEqual(decoded["payload_codec"], PAYLOAD_CODEC_RAW)
+        self.assertNotIn("payload_raw_len", decoded)
         self.assertEqual(decoded["input_origin"], "file")
         self.assertEqual(decoded["input_roots"], [])
         self.assertEqual(decoded["path_encoding"], PATH_ENCODING_DIRECT)
@@ -511,6 +527,12 @@ class TestEnvelope(unittest.TestCase):
         data = _make_manifest_cbor()
         del data["path_encoding"]
         with self.assertRaisesRegex(ValueError, "path_encoding"):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_requires_payload_codec(self) -> None:
+        data = _make_manifest_cbor()
+        del data["payload_codec"]
+        with self.assertRaisesRegex(ValueError, "payload_codec"):
             EnvelopeManifest.from_cbor(data)
 
     def test_manifest_rejects_invalid_path_encoding(self) -> None:
@@ -953,6 +975,98 @@ class TestEnvelope(unittest.TestCase):
         non_canonical = encoded[:2] + b"\x81\x00" + encoded[3:]
         with self.assertRaisesRegex(ValueError, "non-canonical varint"):
             decode_envelope(non_canonical)
+
+    def test_manifest_gzip_codec_roundtrip(self) -> None:
+        payload = b"hello " * 400
+        compressed = gzip.compress(payload, compresslevel=9, mtime=0)
+        manifest = EnvelopeManifest(
+            format_version=MANIFEST_VERSION,
+            created_at=0.0,
+            sealed=False,
+            signing_seed=TEST_SIGNING_SEED,
+            payload_codec=PAYLOAD_CODEC_GZIP,
+            payload_raw_len=len(payload),
+            files=(
+                ManifestFile(
+                    path="payload.bin",
+                    size=len(payload),
+                    sha256=hashlib.sha256(payload).digest(),
+                    mtime=None,
+                ),
+            ),
+        )
+        encoded = encode_envelope(compressed, manifest)
+        decoded_manifest, decoded_payload = decode_envelope(encoded)
+        self.assertEqual(decoded_manifest.payload_codec, PAYLOAD_CODEC_GZIP)
+        self.assertEqual(decoded_manifest.payload_raw_len, len(payload))
+        extracted = extract_payloads(decoded_manifest, decoded_payload)
+        self.assertEqual(extracted[0][1], payload)
+
+    def test_manifest_raw_rejects_payload_raw_len(self) -> None:
+        manifest_data = _make_manifest_cbor(
+            sealed=True,
+            seed=None,
+            payload_codec=PAYLOAD_CODEC_RAW,
+            payload_raw_len=1,
+            files=[_make_manifest_file_entry(path="f.bin", size=1)],
+        )
+        with self.assertRaisesRegex(ValueError, "payload_raw_len"):
+            decode_manifest(cbor2.dumps(manifest_data, canonical=True))
+
+    def test_manifest_gzip_requires_payload_raw_len(self) -> None:
+        manifest_data = _make_manifest_cbor(
+            sealed=True,
+            seed=None,
+            payload_codec=PAYLOAD_CODEC_GZIP,
+            files=[_make_manifest_file_entry(path="f.bin", size=1)],
+        )
+        with self.assertRaisesRegex(ValueError, "payload_raw_len"):
+            decode_manifest(cbor2.dumps(manifest_data, canonical=True))
+
+    def test_manifest_gzip_payload_raw_len_must_match_files(self) -> None:
+        manifest_data = _make_manifest_cbor(
+            sealed=True,
+            seed=None,
+            payload_codec=PAYLOAD_CODEC_GZIP,
+            payload_raw_len=999,
+            files=[_make_manifest_file_entry(path="f.bin", size=1)],
+        )
+        with self.assertRaisesRegex(ValueError, "must match sum"):
+            decode_manifest(cbor2.dumps(manifest_data, canonical=True))
+
+    def test_manifest_gzip_payload_raw_len_rejects_over_max_decompressed_bound(self) -> None:
+        oversize_len = MAX_DECOMPRESSED_PAYLOAD_BYTES + 1
+        manifest_data = _make_manifest_cbor(
+            sealed=True,
+            seed=None,
+            payload_codec=PAYLOAD_CODEC_GZIP,
+            payload_raw_len=oversize_len,
+            files=[_make_manifest_file_entry(path="f.bin", size=oversize_len)],
+        )
+        with self.assertRaisesRegex(ValueError, "MAX_DECOMPRESSED_PAYLOAD_BYTES"):
+            decode_manifest(cbor2.dumps(manifest_data, canonical=True))
+
+    def test_extract_payloads_rejects_gzip_overrun(self) -> None:
+        payload = b"A" * 32
+        compressed = gzip.compress(payload, compresslevel=9, mtime=0)
+        manifest = EnvelopeManifest(
+            format_version=MANIFEST_VERSION,
+            created_at=0.0,
+            sealed=False,
+            signing_seed=TEST_SIGNING_SEED,
+            payload_codec=PAYLOAD_CODEC_GZIP,
+            payload_raw_len=len(payload) - 1,
+            files=(
+                ManifestFile(
+                    path="payload.bin",
+                    size=len(payload),
+                    sha256=hashlib.sha256(payload).digest(),
+                    mtime=None,
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "payload_raw_len"):
+            extract_payloads(manifest, compressed)
 
 
 if __name__ == "__main__":

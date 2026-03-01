@@ -92,6 +92,8 @@ Constants:
   "seed": signing_seed,     // bytes or null (Ed25519 seed, 32 bytes)
   "input_origin": origin,   // string: "file", "directory", or "mixed"
   "input_roots": roots,     // list[str], directory source leaf labels
+  "payload_codec": codec,   // REQUIRED string: "raw" or "gzip"
+  "payload_raw_len": n,     // OPTIONAL int, required when codec is "gzip"
   "path_encoding": mode,    // string: "direct" or "prefix_table"
   "path_prefixes": prefixes,// list[str], required when mode is "prefix_table"
   "files": files            // list[file_entry_direct] or list[file_entry_prefix]
@@ -122,6 +124,13 @@ Manifest requirements (map keys):
   - if `input_origin` is `"file"`, `input_roots` MUST be empty
   - if `input_origin` is `"directory"` or `"mixed"`, `input_roots` MUST be non-empty
 - `path_encoding`: string in `{"direct", "prefix_table"}`
+- `payload_codec`:
+  - required string in `{"raw", "gzip"}`
+- `payload_raw_len`:
+  - MUST be absent or null when `payload_codec` is `"raw"`
+  - MUST be present and a positive int when `payload_codec` is `"gzip"`
+  - MUST be ≤ `MAX_DECOMPRESSED_PAYLOAD_BYTES` (Section 17)
+  - MUST equal `sum(files[i].size)`
 - `path_prefixes`:
   - required when `path_encoding` is `"prefix_table"`
   - MUST be a non-empty list of strings
@@ -200,7 +209,25 @@ Path rules:
 
 Payload bytes MUST be the concatenation of file contents in ascending
 `normalize_path(reconstructed_path(entry))` order as defined in Section 3.
-Decoders MUST verify each entry's SHA-256 against its corresponding payload slice.
+The envelope payload storage representation is selected by manifest metadata:
+- raw mode:
+  - `payload_codec == "raw"`
+  - envelope payload bytes are the raw concatenated payload bytes
+- gzip mode:
+  - `payload_codec == "gzip"`
+  - envelope payload bytes are gzip-compressed bytes of the raw concatenated payload
+  - `payload_raw_len` MUST be present and equal `sum(files[i].size)`
+
+Decoder extraction requirements:
+- Decoders MUST normalize payload bytes according to `payload_codec` before file slicing.
+- For gzip mode, decoders MUST reject payloads where decompression emits more than
+  `payload_raw_len` bytes.
+- For gzip mode, decoders MUST reject payloads where final decompressed length is not exactly
+  `payload_raw_len`.
+- For gzip mode, decoders MUST reject manifests with `payload_raw_len` greater than
+  `MAX_DECOMPRESSED_PAYLOAD_BYTES`.
+- Decoders MUST verify each entry's SHA-256 against the corresponding slice of normalized payload
+  bytes.
 
 ## 6) Frame Format (QR + Fallback)
 
@@ -692,6 +719,9 @@ This section defines mandatory Version 1 resource bounds.
 
 Encoders MUST NOT emit artifacts that exceed these bounds.
 Decoders MUST reject inputs that exceed these bounds.
+For `MAX_CIPHERTEXT_BYTES`, the bound applies to the final encrypted ciphertext transport size.
+Encoders MAY accept larger pre-encryption inputs when compression/encryption still produces
+ciphertext within this ceiling.
 
 Constants:
 - `MAX_CIPHERTEXT_BYTES = 1_048_576`
@@ -706,6 +736,7 @@ Constants:
 - `MAX_FALLBACK_NORMALIZED_CHARS = 2_000_000`
 - `MAX_FALLBACK_LINES = 50_000`
 - `MAX_RECOVERY_TEXT_BYTES = 10_485_760`
+- `MAX_DECOMPRESSED_PAYLOAD_BYTES = 67_108_864`
 
 ## 18) Normative Conformance Appendix
 

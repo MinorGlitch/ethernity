@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { gzipSync } from "node:zlib";
 
 import { sha256 } from "@noble/hashes/sha2.js";
 
@@ -10,6 +11,7 @@ import {
   FRAME_TYPE_AUTH,
   FRAME_TYPE_KEY,
   FRAME_TYPE_MAIN,
+  MAX_DECOMPRESSED_PAYLOAD_BYTES,
   SHARD_KEY_PASSPHRASE,
 } from "../app/constants.js";
 import { parseAutoPayload, parseAutoShard } from "../app/frames_parse.js";
@@ -39,12 +41,17 @@ function validManifest(payload = Uint8Array.of(1)) {
     seed: null,
     input_origin: "file",
     input_roots: [],
+    payload_codec: "raw",
     path_encoding: "direct",
     files: [["a.txt", payload.length, sha256(payload), null]],
   };
 }
 
-test("manifest decoder rejects invalid stable-v1 structures", () => {
+function gzipPayload(payload) {
+  return new Uint8Array(gzipSync(Buffer.from(payload), { level: 9, mtime: 0 }));
+}
+
+test("manifest decoder rejects invalid stable-v1 structures", async () => {
   const payload = Uint8Array.of(1, 2, 3);
   const cases = [
     {
@@ -60,6 +67,15 @@ test("manifest decoder rejects invalid stable-v1 structures", () => {
         return buildEnvelope(manifest, payload);
       })(),
       error: /manifest created is required/,
+    },
+    {
+      name: "payload codec required",
+      envelope: (() => {
+        const manifest = validManifest(payload);
+        delete manifest.payload_codec;
+        return buildEnvelope(manifest, payload);
+      })(),
+      error: /manifest payload_codec is required/,
     },
     {
       name: "version type",
@@ -168,21 +184,41 @@ test("manifest decoder rejects invalid stable-v1 structures", () => {
       ),
       error: /file mtime must be an int/,
     },
+    {
+      name: "gzip payload_raw_len over decompressed bound",
+      envelope: buildEnvelope(
+        {
+          ...validManifest(Uint8Array.of(1)),
+          payload_codec: "gzip",
+          payload_raw_len: MAX_DECOMPRESSED_PAYLOAD_BYTES + 1,
+          files: [
+            [
+              "a.txt",
+              MAX_DECOMPRESSED_PAYLOAD_BYTES + 1,
+              sha256(Uint8Array.of(1)),
+              null,
+            ],
+          ],
+        },
+        gzipPayload(Uint8Array.of(1))
+      ),
+      error: /MAX_DECOMPRESSED_PAYLOAD_BYTES/,
+    },
   ];
 
   for (const testCase of cases) {
-    assert.throws(() => extractFiles(testCase.envelope), testCase.error, testCase.name);
+    await assert.rejects(() => extractFiles(testCase.envelope), testCase.error, testCase.name);
   }
 });
 
-test("envelope decoder rejects framing-length and hash mismatches", () => {
+test("envelope decoder rejects framing-length and hash mismatches", async () => {
   const payload = Uint8Array.of(1, 2, 3);
   const manifest = validManifest(payload);
   const manifestBytes = encodeCbor(manifest);
 
   const badMagic = buildEnvelope(manifest, payload);
   badMagic[0] = 0;
-  assert.throws(() => extractFiles(badMagic), /invalid envelope magic/);
+  await assert.rejects(() => extractFiles(badMagic), /invalid envelope magic/);
 
   const truncatedManifest = concatBytes([
     Uint8Array.from(ENVELOPE_MAGIC),
@@ -192,7 +228,7 @@ test("envelope decoder rejects framing-length and hash mismatches", () => {
     encodeUvarint(payload.length),
     payload,
   ]);
-  assert.throws(() => extractFiles(truncatedManifest), /truncated manifest/);
+  await assert.rejects(() => extractFiles(truncatedManifest), /truncated manifest/);
 
   const payloadMismatch = concatBytes([
     Uint8Array.from(ENVELOPE_MAGIC),
@@ -202,18 +238,75 @@ test("envelope decoder rejects framing-length and hash mismatches", () => {
     encodeUvarint(payload.length + 1),
     payload,
   ]);
-  assert.throws(() => extractFiles(payloadMismatch), /payload length mismatch/);
+  await assert.rejects(() => extractFiles(payloadMismatch), /payload length mismatch/);
 
   const digestMismatchManifest = {
     ...manifest,
     files: [["a.txt", payload.length, sha256(Uint8Array.of(9, 9, 9)), null]],
   };
-  assert.throws(() => extractFiles(buildEnvelope(digestMismatchManifest, payload)), /sha256 mismatch/);
+  await assert.rejects(
+    () => extractFiles(buildEnvelope(digestMismatchManifest, payload)),
+    /sha256 mismatch/
+  );
 
   const extraPayload = Uint8Array.of(1, 2, 3, 4);
-  assert.throws(
+  await assert.rejects(
     () => extractFiles(buildEnvelope(validManifest(payload), extraPayload)),
     /payload length does not match manifest sizes/
+  );
+});
+
+test("extractFiles normalizes gzip-coded payloads", async () => {
+  const rawPayload = Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8);
+  const compressedPayload = gzipPayload(rawPayload);
+  const manifest = {
+    ...validManifest(rawPayload),
+    payload_codec: "gzip",
+    payload_raw_len: rawPayload.length,
+  };
+  const extracted = await extractFiles(buildEnvelope(manifest, compressedPayload));
+  assert.equal(extracted.files.length, 1);
+  assert.equal(extracted.files[0].path, "a.txt");
+  assert.deepEqual(extracted.files[0].data, rawPayload);
+});
+
+test("extractFiles rejects gzip payload_raw_len mismatch", async () => {
+  const rawPayload = Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8);
+  const compressedPayload = gzipPayload(rawPayload);
+  const manifest = {
+    ...validManifest(rawPayload),
+    payload_codec: "gzip",
+    payload_raw_len: rawPayload.length + 1,
+  };
+  await assert.rejects(
+    () => extractFiles(buildEnvelope(manifest, compressedPayload)),
+    /payload_raw_len must match sum of manifest file sizes/
+  );
+});
+
+test("extractFiles rejects gzip expansion beyond declared payload_raw_len", async () => {
+  const rawPayload = new Uint8Array(2048).fill(0x41);
+  const compressedPayload = gzipPayload(rawPayload);
+  const manifest = {
+    ...validManifest(Uint8Array.of(0x41)),
+    payload_codec: "gzip",
+    payload_raw_len: 1,
+  };
+  await assert.rejects(
+    () => extractFiles(buildEnvelope(manifest, compressedPayload)),
+    /decoded payload exceeds manifest payload_raw_len/
+  );
+});
+
+test("extractFiles rejects unsupported manifest payload codecs", async () => {
+  const payload = Uint8Array.of(1, 2, 3);
+  const manifest = {
+    ...validManifest(payload),
+    payload_codec: "brotli",
+  };
+  await assert.rejects(
+    () => extractFiles(buildEnvelope(manifest, payload)),
+    /payload_codec must be one of: raw, gzip/
   );
 });
 

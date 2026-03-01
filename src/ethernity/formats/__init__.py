@@ -25,6 +25,7 @@ from .envelope_codec import (
     extract_payloads,
 )
 from .envelope_types import EnvelopeManifest, ManifestFile, PayloadPart
+from .payload_codec import decode_payload_from_manifest, encode_payload_for_manifest
 
 __all__ = [
     "ENVELOPE_MAGIC",
@@ -36,7 +37,9 @@ __all__ = [
     "build_single_file_manifest",
     "decode_envelope",
     "decode_manifest",
+    "decode_payload_from_manifest",
     "encode_envelope",
     "encode_manifest",
+    "encode_payload_for_manifest",
     "extract_payloads",
 ]

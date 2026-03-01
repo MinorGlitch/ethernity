@@ -52,10 +52,14 @@ MAX_FALLBACK_LINES = 50_000
 # Maximum recovery text input size (UTF-8 bytes).
 MAX_RECOVERY_TEXT_BYTES = 10_485_760
 
+# Maximum normalized raw payload bytes allowed after manifest-signaled decode.
+MAX_DECOMPRESSED_PAYLOAD_BYTES = 67_108_864  # 64 MiB
+
 
 __all__ = [
     "MAX_AUTH_CBOR_BYTES",
     "MAX_CIPHERTEXT_BYTES",
+    "MAX_DECOMPRESSED_PAYLOAD_BYTES",
     "MAX_FALLBACK_LINES",
     "MAX_FALLBACK_NORMALIZED_CHARS",
     "MAX_MAIN_FRAME_DATA_BYTES",

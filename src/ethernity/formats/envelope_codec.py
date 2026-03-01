@@ -37,6 +37,7 @@ from .envelope_types import (
     ManifestFile,
     PayloadPart,
 )
+from .payload_codec import decode_payload_from_manifest
 
 MAGIC = b"AY"
 VERSION = 1
@@ -211,6 +212,7 @@ def extract_payloads(
 ) -> list[tuple[ManifestFile, bytes]]:
     """Split payload bytes into manifest entries and verify entry hashes."""
 
+    payload = decode_payload_from_manifest(manifest, payload)
     outputs: list[tuple[ManifestFile, bytes]] = []
     offset = 0
     for entry in manifest.files:

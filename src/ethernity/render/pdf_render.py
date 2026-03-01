@@ -237,6 +237,21 @@ def _write_layout_debug_json(
                 "fallback_rows_used": _fallback_rows_used(page),
                 "fallback_block_count": len(getattr(page, "fallback_blocks", ())),
                 "qr_count": len(getattr(page, "qr_items", ())),
+                "qr_gap_x_mm": (
+                    None
+                    if getattr(page, "qr_grid", None) is None
+                    else getattr(getattr(page, "qr_grid"), "gap_x_mm", None)
+                ),
+                "qr_gap_y_mm": (
+                    None
+                    if getattr(page, "qr_grid", None) is None
+                    else getattr(getattr(page, "qr_grid"), "gap_y_mm", None)
+                ),
+                "qr_rows": (
+                    None
+                    if getattr(page, "qr_grid", None) is None
+                    else getattr(getattr(page, "qr_grid"), "rows", None)
+                ),
             }
             for page in pages
         ],
