@@ -1,15 +1,15 @@
 {
   "artifact_hashes": {
-    "main_payloads.txt": "f347f104e9d0ff3a9bd00090ebae74ba5abfd1529bdef5dc610e37466aa0a147",
-    "qr_document.pdf": "39ed32062bf78658b109343e64bdc7429b2c601b1a5da8ed6a82e3157d86260d",
-    "recovery_document.pdf": "8f70a03df6ad0e3e0748f8c3d500585cee1d055efb74dec1d4f7190a23d9c0e3",
-    "recovery_kit_index.pdf": "fa2dc221b149e84bf64a369582c7aaa43596406c3b2d9f4b177a9760373bc032",
-    "shard-73c025757e8f17e5-1-of-3.pdf": "83c25a7ba30901cca26b019f8066b9f4dc1ec108b7ba604bac14d305a3865b3e",
-    "shard-73c025757e8f17e5-2-of-3.pdf": "fe4008b9fc16e68b2dd7124cd868fdcf1820e1b68407f9a0a620cbbcc61ab3c1",
-    "shard-73c025757e8f17e5-3-of-3.pdf": "d7716d009fc827b395da049bbb9cfd119f0dfffc080b942cfc782e6f33d98169",
-    "shard_payloads_threshold.txt": "755ee74c7eea912397482e5f0e3287c9893e6b99ed597114a7502a439c0c286f",
-    "signing-key-shard-73c025757e8f17e5-1-of-2.pdf": "0f9582912aab7298b9874562e2aebeb062f7cd38ec1048088939dd7c0e82979a",
-    "signing-key-shard-73c025757e8f17e5-2-of-2.pdf": "d2ee97ce1e4ef02db80c312e786665a938a393dc313ae218fd383b105e9d57e6"
+    "main_payloads.txt": "7578fcd97b38952a5333f14bf0e55772bf2f8d5e902bb04e8f1b2af48470497d",
+    "qr_document.pdf": "b38ecc5fcf6ce527bf25aaf7bee74ded2dd7432b1e5e48255a140d40ab5a3791",
+    "recovery_document.pdf": "bdeda537ef9cfa210ea6f93f1edc1367a5b49df6d25de18a0576a07f7d299154",
+    "recovery_kit_index.pdf": "72d33406c426aaa9b53d63c884a87c0ec7390ee29dfa254c6dd8c87692a935a0",
+    "shard-3e4157fbd2a25707-1-of-3.pdf": "ffba6850542f4c11c373aef8a75ad8cab00ed05364a2643419c871e6e08f82a2",
+    "shard-3e4157fbd2a25707-2-of-3.pdf": "942359d0a6431091e6555ef991bec40add6c9fc4a12cb8d33e68a501d25c6c9c",
+    "shard-3e4157fbd2a25707-3-of-3.pdf": "7dcde297b37e87896ae20a4382f36e312332586e6a09efce7b7fa2252d6e9222",
+    "shard_payloads_threshold.txt": "792c19538637dff1954b1c97039d6f2cb6aab8bbff2b92ddd940ff9013eee63a",
+    "signing-key-shard-3e4157fbd2a25707-1-of-2.pdf": "5f09dc0a2b492eb322bf00f186a7c4527f5aa130efc54beaf958a81a8cb11812",
+    "signing-key-shard-3e4157fbd2a25707-2-of-2.pdf": "0cedde6063d7902e368f20af07ed8c91acbfd6ad2dcd69f5ccad34d5664b1ce6"
   },
   "expected_file_sha256": {
     "directory_payload/alpha.txt": "2f4b5a7d0ed3a982cf012f6af9d58168314e999c0eb3793f598978174928e20f",
