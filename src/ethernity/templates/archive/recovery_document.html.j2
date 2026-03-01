@@ -217,6 +217,13 @@
       padding: 1.2mm 1.8mm;
     }
 
+    .section-fallback {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+
     .section-head {
       display: flex;
       align-items: center;
@@ -293,9 +300,11 @@
     }
 
     .fallback-list {
-      display: grid;
+      display: flex;
+      flex-direction: column;
       gap: 0.8mm;
       min-height: 0;
+      flex: 1 1 auto;
     }
 
     .fallback {
@@ -306,6 +315,13 @@
       font-size: 6.7pt;
       line-height: 1.3;
       color: #334155;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .fallback:last-child {
+      flex: 1 1 auto;
     }
 
     .fallback-title {
@@ -485,9 +501,10 @@
             </div>
             <div class="seed-grid">
               {% for line in seed_words %}
+                {% set seed_line_index0 = loop.index0 %}
                 {% for word in line.split() %}
                 <div class="seed-line">
-                  <span class="seed-num">{{ "%02d."|format(loop.index + ((loop.parentloop.index0) * 6)) }}</span>
+                  <span class="seed-num">{{ "%02d."|format(loop.index + (seed_line_index0 * 6)) }}</span>
                   <span class="seed-word">{{ word }}</span>
                 </div>
                 {% endfor %}
@@ -496,7 +513,7 @@
           </section>
           {% endif %}
 
-          {% if recovery and recovery.signing_pub_lines %}
+          {% if page.page_num == 1 and recovery and recovery.signing_pub_lines %}
           <section class="section">
             <div class="section-head">
               <span class="section-title">Raw Hex Entropy</span>
@@ -510,7 +527,7 @@
           {% endif %}
 
           {% if page.fallback_blocks %}
-          <section class="section">
+          <section class="section section-fallback">
             <div class="section-head">
               <span class="section-title">Fallback Blocks</span>
               <span class="section-rule"></span>
@@ -552,7 +569,7 @@
       </section>
 
       <footer class="footer">
-        <span class="footer-left">Secure Recovery System v3.1</span>
+        <span class="footer-left">{% if ethernity_version is defined and ethernity_version %}Ethernity v{{ ethernity_version }}{% else %}Ethernity{% endif %}</span>
         <span>Page {{ page.page_num }} of {{ pages|length }}</span>
       </footer>
     </div>
