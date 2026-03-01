@@ -139,9 +139,9 @@ class EnvelopeManifest:
             "seed": self.signing_seed,
             "input_origin": self.input_origin,
             "input_roots": list(normalized_roots),
+            "payload_codec": payload_codec,
         }
         if payload_codec == PAYLOAD_CODEC_GZIP:
-            base_manifest["payload_codec"] = payload_codec
             base_manifest["payload_raw_len"] = self.payload_raw_len
 
         direct_manifest = dict(base_manifest)

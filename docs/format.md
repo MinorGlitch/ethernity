@@ -127,6 +127,7 @@ Manifest requirements (map keys):
 - `payload_codec`:
   - optional string in `{"raw", "gzip"}`
   - when absent, decoders MUST treat it as `"raw"`
+  - encoders SHOULD emit `payload_codec` explicitly for all manifests
 - `payload_raw_len`:
   - MUST be absent or null when `payload_codec` is `"raw"` (or absent)
   - MUST be present and a positive int when `payload_codec` is `"gzip"`

@@ -138,6 +138,8 @@ class TestEnvelope(unittest.TestCase):
         decoded = cbor2.loads(encoded)
         self.assertIsInstance(decoded, dict)
         self.assertEqual(decoded["version"], MANIFEST_VERSION)
+        self.assertEqual(decoded["payload_codec"], PAYLOAD_CODEC_RAW)
+        self.assertNotIn("payload_raw_len", decoded)
         self.assertEqual(decoded["input_origin"], "file")
         self.assertEqual(decoded["input_roots"], [])
         self.assertEqual(decoded["path_encoding"], PATH_ENCODING_DIRECT)
