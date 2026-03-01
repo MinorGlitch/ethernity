@@ -27,6 +27,7 @@ export function FrameCollector({
   frameDiagnostics,
   onPayloadChange,
   onAddPayloads,
+  onScannedPayload,
   onReset,
   onDownloadCipher,
   canDownloadCipher,
@@ -49,8 +50,18 @@ export function FrameCollector({
     setPasteHint("");
     onAddPayloads();
   };
-  const handleScanText = (rawText) => {
-    const lines = String(rawText ?? "")
+  const handleScanPayload = (scannedPayload) => {
+    const hasBytes =
+      scannedPayload &&
+      scannedPayload.bytes instanceof Uint8Array &&
+      scannedPayload.bytes.length > 0;
+    if (hasBytes && typeof onScannedPayload === "function") {
+      onScannedPayload(scannedPayload);
+      setPasteHint("Scanned 1 frame. Added automatically.");
+      return;
+    }
+
+    const lines = String(scannedPayload?.text ?? "")
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);
@@ -76,7 +87,7 @@ export function FrameCollector({
           onPaste={handlePaste}
           as="textarea"
         />
-        <QrScannerPanel onScanText={handleScanText} />
+        <QrScannerPanel onScanPayload={handleScanPayload} />
         {pasteHint ? <div class="hint">{pasteHint}</div> : null}
       </>
     ),

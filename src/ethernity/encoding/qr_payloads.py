@@ -14,21 +14,49 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""QR payload text encoding/decoding helpers (unpadded base64)."""
+"""QR payload transport encoding/decoding helpers."""
 
 from __future__ import annotations
 
 import base64
 import binascii
+from typing import Final, Literal
+
+QrPayloadCodec = Literal["raw", "base64"]
+QR_PAYLOAD_CODEC_RAW: Final[QrPayloadCodec] = "raw"
+QR_PAYLOAD_CODEC_BASE64: Final[QrPayloadCodec] = "base64"
 
 
-def encode_qr_payload(data: bytes) -> str:
-    """Encode frame bytes as unpadded base64 text."""
+def encode_qr_payload(
+    data: bytes,
+    *,
+    codec: QrPayloadCodec = QR_PAYLOAD_CODEC_BASE64,
+) -> bytes | str:
+    """Encode frame bytes for QR transport."""
+    if codec == QR_PAYLOAD_CODEC_RAW:
+        return data
+    if codec != QR_PAYLOAD_CODEC_BASE64:
+        raise ValueError(f"unsupported QR payload codec: {codec}")
     encoded = base64.b64encode(data).decode("ascii")
     return encoded.rstrip("=")
 
 
-def decode_qr_payload(payload: bytes | str) -> bytes:
+def decode_qr_payload(
+    payload: bytes | str,
+    *,
+    codec: QrPayloadCodec = QR_PAYLOAD_CODEC_BASE64,
+) -> bytes:
+    """Decode frame bytes from QR transport payload."""
+    if codec == QR_PAYLOAD_CODEC_RAW:
+        if isinstance(payload, bytes):
+            return payload
+        raise ValueError("invalid raw QR payload")
+    if codec != QR_PAYLOAD_CODEC_BASE64:
+        raise ValueError(f"unsupported QR payload codec: {codec}")
+    return _decode_base64_qr_payload(payload)
+
+
+def _decode_base64_qr_payload(payload: bytes | str) -> bytes:
     """Decode unpadded base64 QR payload text."""
     if isinstance(payload, bytes):
         try:
@@ -50,3 +78,12 @@ def _pad_unpadded_base64(text: str) -> str:
     """Add required padding to unpadded base64 text."""
     padding = (-len(text)) % 4
     return text + ("=" * padding)
+
+
+__all__ = [
+    "QR_PAYLOAD_CODEC_BASE64",
+    "QR_PAYLOAD_CODEC_RAW",
+    "QrPayloadCodec",
+    "decode_qr_payload",
+    "encode_qr_payload",
+]

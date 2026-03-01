@@ -8,12 +8,15 @@ import {
   FRAME_TYPE_MAIN,
   FRAME_VERSION,
   MAX_CIPHERTEXT_BYTES,
+  MAX_QR_PAYLOAD_CHARS,
   SHARD_KEY_PASSPHRASE,
   SHARD_KEY_SIGNING_SEED,
 } from "../app/constants.js";
 import {
   parseAutoPayload,
+  parseScannedPayload,
   parseAutoShard,
+  parseScannedShard,
 } from "../app/frames_parse.js";
 import { listMissing } from "../app/frame_list.js";
 import {
@@ -128,6 +131,60 @@ test("parseAutoPayload handles frame state transitions and hash caching", () => 
   const secondHash = ensureCiphertextAndHash(state);
   assert.ok(firstHash instanceof Uint8Array);
   assert.deepEqual(Array.from(firstHash), Array.from(secondHash));
+});
+
+test("parseScannedPayload accepts raw frame bytes above text payload char limits", () => {
+  const docId = Uint8Array.of(5, 5, 5, 5, 5, 5, 5, 5);
+  const largeFrame = buildFrame({
+    frameType: FRAME_TYPE_MAIN,
+    data: new Uint8Array(2_500).fill(0x7a),
+    index: 0,
+    total: 1,
+    docId,
+  });
+  const asText = toUnpaddedBase64(largeFrame);
+  assert.ok(asText.length > MAX_QR_PAYLOAD_CHARS);
+
+  const textOnlyState = createInitialState();
+  assert.throws(
+    () => parseAutoPayload(textOnlyState, asText),
+    /input is neither valid QR payloads nor valid fallback text/
+  );
+
+  const scannedState = createInitialState();
+  assert.equal(parseScannedPayload(scannedState, { bytes: largeFrame }), 1);
+  assert.equal(scannedState.mainFrames.size, 1);
+  assert.equal(scannedState.errors, 0);
+});
+
+test("parseScannedPayload and parseScannedShard fall back to text when bytes are ascii payload text", () => {
+  const mainFrameText = toUnpaddedBase64(
+    buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      data: Uint8Array.of(1, 2, 3),
+      index: 0,
+      total: 1,
+      docId: Uint8Array.of(6, 6, 6, 6, 6, 6, 6, 6),
+    })
+  );
+  const mainAsciiBytes = Uint8Array.from(mainFrameText, (char) => char.charCodeAt(0));
+  const mainState = createInitialState();
+  assert.equal(parseScannedPayload(mainState, { bytes: mainAsciiBytes, text: mainFrameText }), 1);
+  assert.equal(mainState.mainFrames.size, 1);
+  assert.equal(mainState.errors, 0);
+
+  const shardFrameText = toUnpaddedBase64(
+    buildFrame({
+      frameType: FRAME_TYPE_KEY,
+      data: encodeCbor(shardPayload({ shareIndex: 1, shareHex: FIXTURE_SHARES.share1 })),
+      docId: Uint8Array.of(7, 7, 7, 7, 7, 7, 7, 7),
+    })
+  );
+  const shardAsciiBytes = Uint8Array.from(shardFrameText, (char) => char.charCodeAt(0));
+  const shardState = createInitialState();
+  assert.equal(parseScannedShard(shardState, { bytes: shardAsciiBytes, text: shardFrameText }), 1);
+  assert.equal(shardState.shardFrames.size, 1);
+  assert.equal(shardState.shardErrors, 0);
 });
 
 test("parseAutoPayload supports fallback sections and handles invalid auth fallback", () => {

@@ -36,6 +36,7 @@ from ...crypto import (
 from ...crypto.sharding import ShardPayload
 from ...encoding.chunking import chunk_payload
 from ...encoding.framing import VERSION, Frame, FrameType
+from ...encoding.qr_payloads import QR_PAYLOAD_CODEC_RAW, QrPayloadCodec
 from ...formats import (
     envelope_codec as envelope_codec_module,
     payload_codec as payload_codec_module,
@@ -162,6 +163,7 @@ def _render_shard(
     template_path: str | Path,
     doc_type: str | None = None,
     layout_debug_json_path: str | None = None,
+    qr_payload_codec: QrPayloadCodec = QR_PAYLOAD_CODEC_RAW,
 ) -> str:
     """Render a single shard document to PDF and return the output path."""
     shard_frame = Frame(
@@ -182,7 +184,7 @@ def _render_shard(
         shard_index=shard.share_index,
         shard_total=shard.share_count,
         shard_threshold=shard.threshold,
-        qr_payloads=render_service.build_qr_payloads([shard_frame]),
+        qr_payloads=render_service.build_qr_payloads([shard_frame], codec=qr_payload_codec),
         template_path=template_path,
         doc_type=doc_type,
         layout_debug_json_path=layout_debug_json_path,
@@ -308,6 +310,7 @@ def _render_all_documents(
     config: AppConfig,
     status_quiet: bool,
     layout_debug_dir: str | None,
+    qr_payload_codec: QrPayloadCodec,
 ) -> tuple[list[str], list[str]]:
     """Render all PDF documents. Returns (shard_paths, signing_key_shard_paths)."""
     shard_paths: list[str] = []
@@ -335,6 +338,7 @@ def _render_all_documents(
                 render_service=render_service,
                 config=config,
                 layout_debug_dir=layout_debug_dir,
+                qr_payload_codec=qr_payload_codec,
             )
         else:
             shard_paths, signing_key_shard_paths = _render_without_progress(
@@ -349,6 +353,7 @@ def _render_all_documents(
                 config=config,
                 status_quiet=status_quiet,
                 layout_debug_dir=layout_debug_dir,
+                qr_payload_codec=qr_payload_codec,
             )
 
     return shard_paths, signing_key_shard_paths
@@ -368,6 +373,7 @@ def _render_with_progress(
     render_service: RenderService,
     config: AppConfig,
     layout_debug_dir: str | None,
+    qr_payload_codec: QrPayloadCodec,
 ) -> tuple[list[str], list[str]]:
     """Render documents with progress bar."""
     shard_paths: list[str] = []
@@ -406,6 +412,7 @@ def _render_with_progress(
                     layout_debug_dir,
                     f"shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                 ),
+                qr_payload_codec=qr_payload_codec,
             )
             shard_paths.append(shard_path)
             progress_bar.advance(task_id)
@@ -429,6 +436,7 @@ def _render_with_progress(
                     layout_debug_dir,
                     f"signing-key-shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                 ),
+                qr_payload_codec=qr_payload_codec,
             )
             signing_key_shard_paths.append(shard_path)
             progress_bar.advance(task_id)
@@ -449,6 +457,7 @@ def _render_without_progress(
     config: AppConfig,
     status_quiet: bool,
     layout_debug_dir: str | None,
+    qr_payload_codec: QrPayloadCodec,
 ) -> tuple[list[str], list[str]]:
     """Render documents without progress bar (using status messages)."""
     shard_paths: list[str] = []
@@ -479,6 +488,7 @@ def _render_without_progress(
                         layout_debug_dir,
                         f"shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                     ),
+                    qr_payload_codec=qr_payload_codec,
                 )
                 shard_paths.append(shard_path)
 
@@ -498,6 +508,7 @@ def _render_without_progress(
                         layout_debug_dir,
                         f"signing-key-shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                     ),
+                    qr_payload_codec=qr_payload_codec,
                 )
                 signing_key_shard_paths.append(shard_path)
 
@@ -541,6 +552,7 @@ def run_backup(
     # Prepare envelope and handle debug output
     with status("Preparing payload...", quiet=status_quiet):
         payload_codec_mode = config.cli_defaults.backup.payload_codec
+        qr_payload_codec_mode = config.cli_defaults.backup.qr_payload_codec
         envelope, payload = _prepare_envelope(
             input_files,
             plan,
@@ -623,6 +635,7 @@ def run_backup(
         doc_id=doc_id,
         frame_type=FrameType.MAIN_DOCUMENT,
         qr_config=config.qr_config,
+        payload_codec=qr_payload_codec_mode,
     )
     if main_chunk_size < config.qr_chunk_size:
         _warn(
@@ -651,7 +664,7 @@ def run_backup(
     layout_debug_dir = _resolve_layout_debug_dir(layout_debug_dir)
 
     render_service = RenderService(config)
-    qr_payloads = render_service.build_qr_payloads(qr_frames)
+    qr_payloads = render_service.build_qr_payloads(qr_frames, codec=qr_payload_codec_mode)
     qr_inputs = render_service.qr_inputs(
         qr_frames,
         qr_path,
@@ -713,6 +726,7 @@ def run_backup(
         config=config,
         status_quiet=status_quiet,
         layout_debug_dir=layout_debug_dir,
+        qr_payload_codec=qr_payload_codec_mode,
     )
 
     return BackupResult(

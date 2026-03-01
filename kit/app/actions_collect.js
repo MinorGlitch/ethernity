@@ -16,7 +16,12 @@
  */
 
 import { updateAuthStatus } from "./auth.js";
-import { parseAutoPayload, parseAutoShard } from "./frames_parse.js";
+import {
+  parseAutoPayload,
+  parseAutoShard,
+  parseScannedPayload,
+  parseScannedShard,
+} from "./frames_parse.js";
 import { syncCollectedCiphertext } from "./frames_cipher.js";
 import { verifyCollectedShardSignatures } from "./shard_auth.js";
 import { autoRecoverShardSecret } from "./shards.js";
@@ -31,39 +36,18 @@ import {
   parseTextWithErrors,
 } from "./actions_common.js";
 
-export function updateField(dispatch, getState, key, value) {
-  dispatchPatch(dispatch, getState, { [key]: value });
+function parsedMainAccepted(base, before, added) {
+  return (
+    added > 0 &&
+    base.errors === before.errors &&
+    base.conflicts === before.conflicts &&
+    base.ignored === before.ignored &&
+    base.authErrors === before.authErrors &&
+    base.authConflicts === before.authConflicts
+  );
 }
 
-export function resetAll(dispatch) {
-  dispatchReset(dispatch);
-}
-
-export async function addPayloads(dispatch, getState) {
-  const base = cloneState(getState());
-  const before = {
-    errors: base.errors,
-    conflicts: base.conflicts,
-    ignored: base.ignored,
-    authErrors: base.authErrors,
-    authConflicts: base.authConflicts,
-  };
-  const added = parseTextWithErrors(base, base.payloadText, parseAutoPayload, "errors");
-  const fullyAccepted = added > 0
-    && base.errors === before.errors
-    && base.conflicts === before.conflicts
-    && base.ignored === before.ignored
-    && base.authErrors === before.authErrors
-    && base.authConflicts === before.authConflicts;
-  if (fullyAccepted) {
-    base.payloadText = "";
-  }
-  setStatus(base, "frameStatus", [
-    `Added ${added} frame(s).`,
-    base.total ? "Collect all frames to download." : "Waiting for more frames.",
-  ]);
-  dispatchState(dispatch, base);
-
+async function runMainAsyncFollowups(dispatch, getState, base) {
   const work = cloneState(base);
   await updateAuthStatus(work);
   syncCollectedCiphertext(work);
@@ -76,29 +60,15 @@ export async function addPayloads(dispatch, getState) {
   dispatchState(dispatch, next);
 }
 
-export async function addShardPayloads(dispatch, getState) {
-  let added = 0;
-  const parsed = cloneState(getState());
-  const before = {
-    shardErrors: parsed.shardErrors,
-    shardConflicts: parsed.shardConflicts,
-  };
-  added = parseTextWithErrors(parsed, parsed.shardPayloadText, parseAutoShard, "shardErrors");
-  const fullyAccepted = added > 0
-    && parsed.shardErrors === before.shardErrors
-    && parsed.shardConflicts === before.shardConflicts;
-  if (fullyAccepted) {
-    parsed.shardPayloadText = "";
-  }
-  const baseStatusLines = [
-    `Added ${added} shard frame(s).`,
-    parsed.shardThreshold
-      ? "Ready to recover when enough shards are collected."
-      : "Waiting for shard metadata.",
-  ];
-  setStatus(parsed, "shardStatus", baseStatusLines);
-  dispatchState(dispatch, parsed);
+function parsedShardAccepted(parsed, before, added) {
+  return (
+    added > 0 &&
+    parsed.shardErrors === before.shardErrors &&
+    parsed.shardConflicts === before.shardConflicts
+  );
+}
 
+async function runShardAsyncFollowups(dispatch, getState, parsed, baseStatusLines) {
   const work = cloneState(parsed);
   const signatureLines = [];
   let signatureType = "";
@@ -135,6 +105,103 @@ export async function addShardPayloads(dispatch, getState) {
   const next = cloneLatest(getState);
   copyShardAsyncFields(next, work);
   dispatchState(dispatch, next);
+}
+
+export function updateField(dispatch, getState, key, value) {
+  dispatchPatch(dispatch, getState, { [key]: value });
+}
+
+export function resetAll(dispatch) {
+  dispatchReset(dispatch);
+}
+
+export async function addPayloads(dispatch, getState) {
+  const base = cloneState(getState());
+  const before = {
+    errors: base.errors,
+    conflicts: base.conflicts,
+    ignored: base.ignored,
+    authErrors: base.authErrors,
+    authConflicts: base.authConflicts,
+  };
+  const added = parseTextWithErrors(base, base.payloadText, parseAutoPayload, "errors");
+  const fullyAccepted = parsedMainAccepted(base, before, added);
+  if (fullyAccepted) {
+    base.payloadText = "";
+  }
+  setStatus(base, "frameStatus", [
+    `Added ${added} frame(s).`,
+    base.total ? "Collect all frames to download." : "Waiting for more frames.",
+  ]);
+  dispatchState(dispatch, base);
+  await runMainAsyncFollowups(dispatch, getState, base);
+}
+
+export async function addScannedPayload(dispatch, getState, scanned) {
+  const base = cloneState(getState());
+  const before = {
+    errors: base.errors,
+    conflicts: base.conflicts,
+    ignored: base.ignored,
+    authErrors: base.authErrors,
+    authConflicts: base.authConflicts,
+  };
+  const added = parseScannedPayload(base, scanned);
+  const fullyAccepted = parsedMainAccepted(base, before, added);
+  if (fullyAccepted) {
+    base.payloadText = "";
+  }
+  setStatus(base, "frameStatus", [
+    `Added ${added} frame(s).`,
+    base.total ? "Collect all frames to download." : "Waiting for more frames.",
+  ]);
+  dispatchState(dispatch, base);
+  await runMainAsyncFollowups(dispatch, getState, base);
+}
+
+export async function addShardPayloads(dispatch, getState) {
+  let added = 0;
+  const parsed = cloneState(getState());
+  const before = {
+    shardErrors: parsed.shardErrors,
+    shardConflicts: parsed.shardConflicts,
+  };
+  added = parseTextWithErrors(parsed, parsed.shardPayloadText, parseAutoShard, "shardErrors");
+  const fullyAccepted = parsedShardAccepted(parsed, before, added);
+  if (fullyAccepted) {
+    parsed.shardPayloadText = "";
+  }
+  const baseStatusLines = [
+    `Added ${added} shard frame(s).`,
+    parsed.shardThreshold
+      ? "Ready to recover when enough shards are collected."
+      : "Waiting for shard metadata.",
+  ];
+  setStatus(parsed, "shardStatus", baseStatusLines);
+  dispatchState(dispatch, parsed);
+  await runShardAsyncFollowups(dispatch, getState, parsed, baseStatusLines);
+}
+
+export async function addScannedShardPayload(dispatch, getState, scanned) {
+  const parsed = cloneState(getState());
+  const before = {
+    shardErrors: parsed.shardErrors,
+    shardConflicts: parsed.shardConflicts,
+  };
+  const added = parseScannedShard(parsed, scanned);
+  const fullyAccepted = parsedShardAccepted(parsed, before, added);
+  if (fullyAccepted) {
+    parsed.shardPayloadText = "";
+  }
+  const baseStatusLines = [
+    `Added ${added} shard frame(s).`,
+    parsed.shardThreshold
+      ? "Ready to recover when enough shards are collected."
+      : "Waiting for shard metadata.",
+  ];
+  setStatus(parsed, "shardStatus", baseStatusLines);
+  dispatchState(dispatch, parsed);
+  await runShardAsyncFollowups(dispatch, getState, parsed, baseStatusLines);
 }
 
 export async function copyRecoveredSecret(dispatch, getState) {

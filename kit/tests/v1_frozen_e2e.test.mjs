@@ -66,41 +66,56 @@ async function restoreScenario(scenarioPath) {
   }
 }
 
-test("frozen v1.0 fixtures restore end-to-end in the kit", async () => {
-  const index = readJson(path.join(FIXTURES_ROOT, "index.json"));
+function profileFixtureRoot(profileName) {
+  return path.join(FIXTURES_ROOT, profileName);
+}
+
+function profileIndex(profileName) {
+  return readJson(path.join(profileFixtureRoot(profileName), "index.json"));
+}
+
+test("frozen v1.0 base64 fixtures restore end-to-end in the kit", async () => {
+  const index = profileIndex("base64");
   for (const scenario of index.scenarios) {
-    await restoreScenario(path.join(FIXTURES_ROOT, scenario.path));
+    await restoreScenario(path.join(profileFixtureRoot("base64"), scenario.path));
+  }
+});
+
+test("frozen v1.0 raw fixtures restore end-to-end in the kit", async () => {
+  const index = profileIndex("raw");
+  for (const scenario of index.scenarios) {
+    await restoreScenario(path.join(profileFixtureRoot("raw"), scenario.path));
   }
 });
 
 test("shard-first then main frames triggers recovery without re-pasting shards", async () => {
-  const snapshot = readJson(path.join(FIXTURES_ROOT, "sharded_embedded", "snapshot.json"));
-  const mainPayloadText = fs.readFileSync(
-    path.join(FIXTURES_ROOT, "sharded_embedded", "main_payloads.txt"),
-    "utf8"
-  );
-  const shardPayloadText = fs.readFileSync(
-    path.join(FIXTURES_ROOT, "sharded_embedded", "shard_payloads_threshold.txt"),
-    "utf8"
-  );
+  for (const profileName of ["base64", "raw"]) {
+    const root = profileFixtureRoot(profileName);
+    const snapshot = readJson(path.join(root, "sharded_embedded", "snapshot.json"));
+    const mainPayloadText = fs.readFileSync(path.join(root, "sharded_embedded", "main_payloads.txt"), "utf8");
+    const shardPayloadText = fs.readFileSync(
+      path.join(root, "sharded_embedded", "shard_payloads_threshold.txt"),
+      "utf8"
+    );
 
-  let state = initialState();
-  const dispatch = (action) => {
-    state = reducer(state, action);
-  };
-  const getState = () => state;
+    let state = initialState();
+    const dispatch = (action) => {
+      state = reducer(state, action);
+    };
+    const getState = () => state;
 
-  state.shardPayloadText = shardPayloadText;
-  await addShardPayloads(dispatch, getState);
-  assert.equal(state.recoveredShardSecret, "");
-  assert.equal(
-    state.shardStatus.lines.includes("Shard recovery blocked: collect main frames to derive ciphertext hash."),
-    true
-  );
+    state.shardPayloadText = shardPayloadText;
+    await addShardPayloads(dispatch, getState);
+    assert.equal(state.recoveredShardSecret, "");
+    assert.equal(
+      state.shardStatus.lines.includes("Shard recovery blocked: collect main frames to derive ciphertext hash."),
+      true
+    );
 
-  state.payloadText = mainPayloadText;
-  await addPayloads(dispatch, getState);
-  assert.equal(state.recoveredShardSecret, snapshot.passphrase);
-  assert.equal(state.agePassphrase, snapshot.passphrase);
-  assert.equal(state.shardStatus.type, "ok");
+    state.payloadText = mainPayloadText;
+    await addPayloads(dispatch, getState);
+    assert.equal(state.recoveredShardSecret, snapshot.passphrase);
+    assert.equal(state.agePassphrase, snapshot.passphrase);
+    assert.equal(state.shardStatus.type, "ok");
+  }
 });

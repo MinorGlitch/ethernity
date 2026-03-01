@@ -17,6 +17,7 @@
 
 import { useEffect, useRef, useState } from "microact/hooks";
 import jsQR from "jsqr";
+import { normalizeJsQrPayload } from "../../lib/qr_scan_normalize.js";
 
 function cameraSupportState() {
   if (typeof window === "undefined") return { ok: false, reason: "No browser context." };
@@ -49,10 +50,10 @@ function detectWithJsQr(video, canvas, ctx) {
   const centerHit = jsQR(regionImage.data, region.width, region.height, {
     inversionAttempts: "dontInvert",
   });
-  return centerHit?.data?.trim() ? centerHit.data : null;
+  return normalizeJsQrPayload(centerHit);
 }
 
-export function useQrScannerRuntime(onScanText) {
+export function useQrScannerRuntime(onScanPayload) {
   const [active, setActive] = useState(false);
   const [status, setStatus] = useState("");
   const [supported, setSupported] = useState(() => cameraSupportState());
@@ -147,7 +148,7 @@ export function useQrScannerRuntime(onScanText) {
         if (!streamRef.current || !videoRef.current) return;
         if (sessionRef.current !== sessionId) return;
         try {
-          const scannedText = detectWithJsQr(
+          const scannedPayload = detectWithJsQr(
             videoRef.current,
             canvasRef.current,
             canvasCtxRef.current
@@ -155,11 +156,19 @@ export function useQrScannerRuntime(onScanText) {
           if (sessionRef.current !== sessionId || !streamRef.current || !videoRef.current) {
             return;
           }
-          if (!scannedText || typeof scannedText !== "string" || !scannedText.trim()) {
+          const hasText =
+            scannedPayload &&
+            typeof scannedPayload.text === "string" &&
+            scannedPayload.text.trim().length > 0;
+          const hasBytes =
+            scannedPayload &&
+            scannedPayload.bytes instanceof Uint8Array &&
+            scannedPayload.bytes.length > 0;
+          if (!hasText && !hasBytes) {
             timerRef.current = window.setTimeout(scanLoop, 220);
             return;
           }
-          onScanText(scannedText);
+          onScanPayload(scannedPayload);
           setScanCount((value) => value + 1);
           setStatus("Scanned 1 QR (jsQR). Camera stopped.");
           await stopRef.current?.();

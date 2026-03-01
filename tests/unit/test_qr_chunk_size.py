@@ -17,7 +17,11 @@ import unittest
 
 from ethernity.encoding.chunking import DEFAULT_CHUNK_SIZE, chunk_payload
 from ethernity.encoding.framing import DOC_ID_LEN, FrameType, encode_frame
-from ethernity.encoding.qr_payloads import encode_qr_payload
+from ethernity.encoding.qr_payloads import (
+    QR_PAYLOAD_CODEC_BASE64,
+    QR_PAYLOAD_CODEC_RAW,
+    encode_qr_payload,
+)
 from ethernity.qr.capacity import choose_frame_chunk_size
 from ethernity.qr.codec import QrConfig, make_qr
 
@@ -106,6 +110,29 @@ class TestQrChunkSize(unittest.TestCase):
                 micro=qr_config.micro,
                 boost_error=qr_config.boost_error,
             )
+
+    def test_choose_frame_chunk_size_raw_codec_fits_larger_chunks(self) -> None:
+        payload_len = 5000
+        doc_id = b"\x44" * DOC_ID_LEN
+        qr_config = QrConfig(error="H", version=10, micro=False, boost_error=False)
+
+        base64_chunk_size = choose_frame_chunk_size(
+            payload_len,
+            preferred_chunk_size=DEFAULT_CHUNK_SIZE,
+            doc_id=doc_id,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            qr_config=qr_config,
+            payload_codec=QR_PAYLOAD_CODEC_BASE64,
+        )
+        raw_chunk_size = choose_frame_chunk_size(
+            payload_len,
+            preferred_chunk_size=DEFAULT_CHUNK_SIZE,
+            doc_id=doc_id,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            qr_config=qr_config,
+            payload_codec=QR_PAYLOAD_CODEC_RAW,
+        )
+        self.assertGreaterEqual(raw_chunk_size, base64_chunk_size)
 
 
 if __name__ == "__main__":

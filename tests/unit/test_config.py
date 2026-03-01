@@ -32,6 +32,15 @@ from ethernity.encoding.chunking import DEFAULT_CHUNK_SIZE
 
 
 class TestConfig(unittest.TestCase):
+    @staticmethod
+    def _with_required_qr_payload_codec(toml: str) -> str:
+        if "qr_payload_codec" in toml:
+            return toml
+        marker = "[defaults.backup]"
+        if marker in toml:
+            return toml.replace(marker, f'{marker}\nqr_payload_codec = "raw"', 1)
+        return toml.rstrip() + '\n\n[defaults.backup]\nqr_payload_codec = "raw"\n'
+
     def test_load_app_config_parses_qr_config(self) -> None:
         toml = """
 [page]
@@ -49,7 +58,7 @@ light = [4, 5, 6, 7]
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             config = load_app_config(path=path)
 
         self.assertEqual(config.template_path, DEFAULT_TEMPLATE_PATH)
@@ -78,7 +87,7 @@ size = "A4"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             config = load_app_config(path=path)
 
         self.assertEqual(config.paper_size, "A4")
@@ -86,15 +95,15 @@ size = "A4"
         self.assertEqual(config.qr_chunk_size, DEFAULT_CHUNK_SIZE)
 
     def test_load_app_config_empty_file(self) -> None:
-        """Test loading empty config file uses all defaults."""
+        """Test loading empty config file fails when required backup defaults are missing."""
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
             path.write_text("", encoding="utf-8")
-            config = load_app_config(path=path)
-
-        self.assertEqual(config.paper_size, DEFAULT_PAPER_SIZE)
-        self.assertEqual(config.template_path, DEFAULT_TEMPLATE_PATH)
-        self.assertEqual(config.qr_chunk_size, DEFAULT_CHUNK_SIZE)
+            with self.assertRaisesRegex(
+                ValueError,
+                "defaults.backup.qr_payload_codec is required and must be 'raw' or 'base64'",
+            ):
+                load_app_config(path=path)
 
     def test_load_app_config_missing_sections(self) -> None:
         """Test loading config with missing optional sections."""
@@ -104,7 +113,7 @@ size = "Letter"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             config = load_app_config(path=path)
 
         self.assertEqual(config.paper_size, "Letter")
@@ -120,7 +129,7 @@ size = "{paper_size}"
 """
             with tempfile.TemporaryDirectory() as tmpdir:
                 path = Path(tmpdir) / "config.toml"
-                path.write_text(toml, encoding="utf-8")
+                path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
                 config = load_app_config(path=path)
             self.assertEqual(config.paper_size, paper_size)
 
@@ -136,7 +145,7 @@ chunk_size = 512
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             config = load_app_config(path=path)
 
         self.assertEqual(config.qr_config.scale, 1)
@@ -152,7 +161,7 @@ chunk_size = 0
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             with self.assertRaises(ValueError):
                 load_app_config(path=path)
 
@@ -163,7 +172,7 @@ payload_encoding = "base64url"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             config = load_app_config(path=path)
         self.assertIsNotNone(config.qr_config)
 
@@ -178,7 +187,7 @@ mask = 7
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             config = load_app_config(path=path)
 
         self.assertEqual(config.qr_config.scale, 20)
@@ -205,7 +214,7 @@ name = "sentinel"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             config = load_app_config(path=path)
 
         self.assertEqual(config.template_path.parent.name, "sentinel")
@@ -232,7 +241,7 @@ name = "maritime"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             config = load_app_config(path=path)
 
         self.assertEqual(config.template_path.parent.name, "forge")
@@ -248,7 +257,7 @@ path = "templates/ledger/main_document.html.j2"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "template.path is unsupported"):
                 load_app_config(path=path)
 
@@ -259,7 +268,7 @@ name = "   "
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "template.name must be a non-empty string"):
                 load_app_config(path=path)
 
@@ -270,7 +279,7 @@ name = "does-not-exist"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "unknown template design"):
                 load_app_config(path=path)
 
@@ -281,7 +290,7 @@ default_name = 123
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             with self.assertRaisesRegex(
                 ValueError, "templates.default_name must be a non-empty string"
             ):
@@ -297,7 +306,7 @@ name = "maritime"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             config = load_app_config(path=path)
 
         overridden = apply_template_design(config, "forge")
@@ -316,7 +325,7 @@ light = [255, 255, 255]
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             config = load_app_config(path=path)
 
         self.assertEqual(config.qr_config.dark, (0, 0, 0))
@@ -331,7 +340,7 @@ light = [255, 255, 255, 128]
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             config = load_app_config(path=path)
 
         self.assertEqual(config.qr_config.dark, (0, 0, 0, 255))
@@ -346,7 +355,7 @@ light = [255, 255, 255, 128]
 """
                 with tempfile.TemporaryDirectory() as tmpdir:
                     path = Path(tmpdir) / "config.toml"
-                    path.write_text(toml, encoding="utf-8")
+                    path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
                     with self.assertRaisesRegex(ValueError, rf"qr\.{field} must be a boolean"):
                         load_app_config(path=path)
 
@@ -356,7 +365,7 @@ qr = 7
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "qr must be a table"):
                 load_app_config(path=path)
 
@@ -367,7 +376,7 @@ dark = [1, 2]
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             with self.assertRaisesRegex(
                 ValueError,
                 "qr.dark must be a color string or RGB/RGBA tuple",
@@ -385,6 +394,7 @@ signing_key_mode = "sharded"
 signing_key_shard_threshold = 2
 signing_key_shard_count = 3
 payload_codec = "raw"
+qr_payload_codec = "base64"
 
 [defaults.recover]
 output = "/tmp/recovered"
@@ -402,7 +412,7 @@ render_jobs = 6
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             config = load_app_config(path=path)
 
         self.assertEqual(config.cli_defaults.backup.base_dir, "/tmp/base")
@@ -413,6 +423,7 @@ render_jobs = 6
         self.assertEqual(config.cli_defaults.backup.signing_key_shard_threshold, 2)
         self.assertEqual(config.cli_defaults.backup.signing_key_shard_count, 3)
         self.assertEqual(config.cli_defaults.backup.payload_codec, "raw")
+        self.assertEqual(config.cli_defaults.backup.qr_payload_codec, "base64")
         self.assertEqual(config.cli_defaults.recover.output, "/tmp/recovered")
         self.assertTrue(config.cli_defaults.ui.quiet)
         self.assertTrue(config.cli_defaults.ui.no_color)
@@ -430,6 +441,7 @@ shard_count = 0
 signing_key_mode = ""
 signing_key_shard_threshold = 0
 signing_key_shard_count = 0
+qr_payload_codec = "raw"
 
 [defaults.recover]
 output = ""
@@ -442,7 +454,7 @@ render_jobs = "auto"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             defaults = load_cli_defaults(path=path)
 
         self.assertIsNone(defaults.backup.base_dir)
@@ -453,9 +465,63 @@ render_jobs = "auto"
         self.assertIsNone(defaults.backup.signing_key_shard_threshold)
         self.assertIsNone(defaults.backup.signing_key_shard_count)
         self.assertEqual(defaults.backup.payload_codec, "auto")
+        self.assertEqual(defaults.backup.qr_payload_codec, "raw")
         self.assertIsNone(defaults.recover.output)
         self.assertIsNone(defaults.debug.max_bytes)
         self.assertEqual(defaults.runtime.render_jobs, "auto")
+
+    def test_load_cli_defaults_rejects_missing_qr_payload_codec(self) -> None:
+        toml = """
+[defaults.backup]
+payload_codec = "auto"
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            with self.assertRaisesRegex(
+                ValueError,
+                "defaults.backup.qr_payload_codec is required and must be 'raw' or 'base64'",
+            ):
+                load_cli_defaults(path=path)
+
+    def test_load_cli_defaults_rejects_empty_qr_payload_codec(self) -> None:
+        toml = """
+[defaults.backup]
+qr_payload_codec = ""
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            with self.assertRaisesRegex(
+                ValueError,
+                "defaults.backup.qr_payload_codec must be 'raw' or 'base64'",
+            ):
+                load_cli_defaults(path=path)
+
+    def test_load_cli_defaults_rejects_invalid_qr_payload_codec(self) -> None:
+        toml = """
+[defaults.backup]
+qr_payload_codec = "hex"
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            with self.assertRaisesRegex(
+                ValueError,
+                "defaults.backup.qr_payload_codec must be 'raw' or 'base64'",
+            ):
+                load_cli_defaults(path=path)
+
+    def test_load_cli_defaults_accepts_base64_qr_payload_codec(self) -> None:
+        toml = """
+[defaults.backup]
+qr_payload_codec = "base64"
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            defaults = load_cli_defaults(path=path)
+        self.assertEqual(defaults.backup.qr_payload_codec, "base64")
 
     def test_load_cli_defaults_rejects_invalid_payload_codec(self) -> None:
         toml = """
@@ -464,7 +530,7 @@ payload_codec = "brotli"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             with self.assertRaisesRegex(
                 ValueError,
                 "defaults.backup.payload_codec must be 'auto', 'raw', or 'gzip'",
@@ -478,7 +544,7 @@ payload_codec = ""
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             with self.assertRaisesRegex(
                 ValueError,
                 "defaults.backup.payload_codec must be 'auto', 'raw', or 'gzip'",
@@ -492,7 +558,7 @@ signing_key_mode = "invalid"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             with self.assertRaisesRegex(
                 ValueError,
                 "defaults.backup.signing_key_mode must be 'embedded', 'sharded', or empty",
@@ -506,7 +572,7 @@ render_jobs = "many"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             with self.assertRaisesRegex(
                 ValueError,
                 "runtime.render_jobs must be an integer",
@@ -520,22 +586,27 @@ no_color = "maybe"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
-            path.write_text(toml, encoding="utf-8")
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "ui.no_color must be a boolean"):
                 load_cli_defaults(path=path)
 
     def test_load_cli_defaults_rejects_malformed_section_types(self) -> None:
-        cases = (
-            ("runtime = 3", "runtime must be a table"),
-            ("defaults = 3", "defaults must be a table"),
-        )
+        cases = (("runtime = 3", "runtime must be a table"),)
         for toml, expected_error in cases:
             with self.subTest(toml=toml):
                 with tempfile.TemporaryDirectory() as tmpdir:
                     path = Path(tmpdir) / "config.toml"
-                    path.write_text(toml, encoding="utf-8")
+                    path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
                     with self.assertRaisesRegex(ValueError, expected_error):
                         load_cli_defaults(path=path)
+
+    def test_load_cli_defaults_rejects_malformed_defaults_section_type(self) -> None:
+        toml = "defaults = 3"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "defaults must be a table"):
+                load_cli_defaults(path=path)
 
 
 if __name__ == "__main__":

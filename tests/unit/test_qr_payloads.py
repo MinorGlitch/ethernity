@@ -15,10 +15,12 @@
 
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
 from ethernity.core.bounds import MAX_QR_PAYLOAD_CHARS
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import (
+    QR_PAYLOAD_CODEC_RAW,
     decode_qr_payload,
     encode_qr_payload,
 )
@@ -34,6 +36,17 @@ class TestQrPayloads(unittest.TestCase):
         self.assertEqual(decoded, data)
         decoded_bytes = decode_qr_payload(encoded.encode("ascii"))
         self.assertEqual(decoded_bytes, data)
+
+    def test_roundtrip_raw(self) -> None:
+        data = b"\x00\xffpayload"
+        encoded = encode_qr_payload(data, codec=QR_PAYLOAD_CODEC_RAW)
+        self.assertEqual(encoded, data)
+        decoded = decode_qr_payload(encoded, codec=QR_PAYLOAD_CODEC_RAW)
+        self.assertEqual(decoded, data)
+
+    def test_decode_raw_rejects_text(self) -> None:
+        with self.assertRaisesRegex(ValueError, "invalid raw QR payload"):
+            decode_qr_payload("not-bytes", codec=QR_PAYLOAD_CODEC_RAW)
 
     def test_decode_rejects_invalid_base64(self) -> None:
         with self.assertRaisesRegex(ValueError, "invalid base64 QR payload"):
@@ -76,6 +89,21 @@ class TestQrPayloads(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "MAX_QR_PAYLOAD_CHARS"):
             service.build_qr_payloads([overflow_frame])  # type: ignore[list-item]
+
+    def test_render_service_raw_codec_skips_text_bound(self) -> None:
+        config = SimpleNamespace()
+        service = RenderService(config=config)  # type: ignore[arg-type]
+        frame = Frame(
+            version=VERSION,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x01" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"x" * 512,
+        )
+        with mock.patch("ethernity.render.service.MAX_QR_PAYLOAD_CHARS", 4):
+            payload = service.build_qr_payloads([frame], codec=QR_PAYLOAD_CODEC_RAW)[0]
+        self.assertIsInstance(payload, bytes)
 
 
 if __name__ == "__main__":

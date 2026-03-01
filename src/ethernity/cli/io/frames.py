@@ -317,7 +317,7 @@ def _frames_from_scan(paths: list[str]) -> list[Frame]:
     errors: list[str] = []
     for idx, payload in enumerate(payloads, start=1):
         try:
-            frames.append(_frame_from_payload_text(payload))
+            frames.append(_frame_from_scanned_payload(payload))
         except ValueError as exc:
             errors.append(f"#{idx}: {exc}")
             continue
@@ -401,3 +401,14 @@ def _frame_from_payload_text(payload_text: bytes | str) -> Frame:
 
     payload = _decode_payload(payload_text)
     return decode_frame(payload)
+
+
+def _frame_from_scanned_payload(payload: bytes | str) -> Frame:
+    """Decode one scanned QR payload (raw frame bytes first, then base64 text)."""
+
+    if isinstance(payload, bytes):
+        try:
+            return decode_frame(payload)
+        except ValueError:
+            pass
+    return _frame_from_payload_text(payload)

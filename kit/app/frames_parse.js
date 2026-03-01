@@ -55,6 +55,28 @@ function parseShardPayloadLines(state, text) {
   return parsePayloadLinesWith(state, text, addShardFrame, "shardErrors");
 }
 
+function getScannedText(input) {
+  if (typeof input === "string") return input;
+  if (input && typeof input === "object" && typeof input.text === "string") {
+    return input.text;
+  }
+  return "";
+}
+
+function getScannedBytes(input) {
+  if (!input || typeof input !== "object" || input instanceof Uint8Array) {
+    return null;
+  }
+  const { bytes } = input;
+  if (!bytes) return null;
+  if (bytes instanceof Uint8Array) return bytes;
+  try {
+    return Uint8Array.from(bytes);
+  } catch {
+    return null;
+  }
+}
+
 function nonEmptyLines(text) {
   return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
@@ -208,4 +230,68 @@ export function parseAutoShard(state, text) {
     return parseShardFallbackText(state, text);
   }
   throw new Error("input is neither valid shard payloads nor valid fallback text");
+}
+
+export function parseScannedPayload(state, scanned) {
+  const text = getScannedText(scanned).trim();
+  const bytes = getScannedBytes(scanned);
+
+  if (bytes && bytes.length) {
+    try {
+      const frame = decodeFrame(bytes);
+      addFrame(state, frame);
+      return 1;
+    } catch {
+      if (!text) {
+        bumpError(state, "errors");
+        return 0;
+      }
+    }
+  }
+
+  if (text) {
+    try {
+      return parseAutoPayload(state, text);
+    } catch {
+      bumpError(state, "errors");
+      return 0;
+    }
+  }
+
+  bumpError(state, "errors");
+  return 0;
+}
+
+export function parseScannedShard(state, scanned) {
+  const text = getScannedText(scanned).trim();
+  const bytes = getScannedBytes(scanned);
+
+  if (bytes && bytes.length) {
+    try {
+      const frame = decodeFrame(bytes);
+      if (frame.frameType !== FRAME_TYPE_KEY) {
+        bumpError(state, "shardErrors");
+        return 0;
+      }
+      addShardFrame(state, frame);
+      return 1;
+    } catch {
+      if (!text) {
+        bumpError(state, "shardErrors");
+        return 0;
+      }
+    }
+  }
+
+  if (text) {
+    try {
+      return parseAutoShard(state, text);
+    } catch {
+      bumpError(state, "shardErrors");
+      return 0;
+    }
+  }
+
+  bumpError(state, "shardErrors");
+  return 0;
 }

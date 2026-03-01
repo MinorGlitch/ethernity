@@ -51,6 +51,7 @@ class BackupDefaults:
     signing_key_shard_threshold: int | None = None
     signing_key_shard_count: int | None = None
     payload_codec: Literal["auto", "raw", "gzip"] = "auto"
+    qr_payload_codec: Literal["raw", "base64"] = "raw"
 
 
 @dataclass(frozen=True)
@@ -259,6 +260,10 @@ def _parse_backup_defaults(cfg: dict[str, object]) -> BackupDefaults:
         payload_codec=_parse_payload_codec(
             cfg.get("payload_codec"),
             field="defaults.backup.payload_codec",
+        ),
+        qr_payload_codec=_parse_required_qr_payload_codec(
+            cfg.get("qr_payload_codec"),
+            field="defaults.backup.qr_payload_codec",
         ),
     )
 
@@ -469,6 +474,23 @@ def _parse_payload_codec(
     if normalized not in {"auto", "raw", "gzip"}:
         raise ValueError(f"{field} must be 'auto', 'raw', or 'gzip'")
     return cast(Literal["auto", "raw", "gzip"], normalized)
+
+
+def _parse_required_qr_payload_codec(
+    value: object,
+    *,
+    field: str,
+) -> Literal["raw", "base64"]:
+    """Parse required backup QR payload transport mode."""
+
+    if value is None:
+        raise ValueError(f"{field} is required and must be 'raw' or 'base64'")
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be 'raw' or 'base64'")
+    normalized = value.strip().lower()
+    if normalized not in {"raw", "base64"}:
+        raise ValueError(f"{field} must be 'raw' or 'base64'")
+    return cast(Literal["raw", "base64"], normalized)
 
 
 def _parse_optional_positive_int_or_unset_zero(value: object, *, field: str) -> int | None:
