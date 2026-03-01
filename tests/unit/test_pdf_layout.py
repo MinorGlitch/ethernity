@@ -41,7 +41,7 @@ from ethernity.render.spec import (
     TextBlockSpec,
     document_spec,
 )
-from ethernity.render.template_style import load_template_style
+from ethernity.render.template_style import TemplateCapabilities, load_template_style
 
 
 def _build_spec(*, line_count: int, line_height: float) -> DocumentSpec:
@@ -111,7 +111,7 @@ class TestPdfLayout(unittest.TestCase):
         }
         pdf = FPDF(unit="mm", format="A4")
 
-        for design in ("ledger", "dossier", "maritime", "midnight"):
+        for design in ("ledger", "maritime"):
             with self.subTest(design=design):
                 template_path = (
                     Path(__file__).resolve().parents[2]
@@ -162,105 +162,29 @@ class TestPdfLayout(unittest.TestCase):
                 self.assertEqual(layout.rows, 4)
                 self.assertEqual(layout.per_page, 12)
 
-    def test_monograph_main_enables_uniform_qr_capacity_across_pages(self) -> None:
-        frames = [
-            Frame(
-                version=1,
-                frame_type=FrameType.MAIN_DOCUMENT,
-                doc_id=b"\x12" * DOC_ID_LEN,
-                index=i,
-                total=30,
-                data=f"payload-{i}".encode("utf-8"),
-            )
-            for i in range(30)
-        ]
-        context = {
-            "doc_id": frames[0].doc_id.hex(),
-            "paper_size": "A4",
-            "created_timestamp_utc": "2026-01-01 00:00 UTC",
-        }
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "monograph"
-            / "main_document.html.j2"
-        )
-        inputs = RenderInputs(
-            frames=frames,
-            template_path=template_path,
-            output_path="out.pdf",
-            context=context,
-            doc_type="main",
-            render_fallback=False,
-        )
-        spec = document_spec("main", "A4", context)
-        style = load_template_style(template_path)
-        spec = replace(
-            spec,
-            header=replace(
-                spec.header,
-                meta_row_gap_mm=float(style.header.meta_row_gap_mm),
-                stack_gap_mm=float(style.header.stack_gap_mm),
-                divider_thickness_mm=float(style.header.divider_thickness_mm),
-            ),
-        )
-        spec = _apply_main_qr_grid_overrides(
-            spec=spec,
-            doc_type="main",
-            capabilities=style.capabilities,
-        )
-        pdf = FPDF(unit="mm", format="A4")
-        first_layout, _ = compute_layout(
-            inputs,
-            spec,
-            pdf,
-            key_lines=[],
-            include_keys=True,
-            include_instructions=True,
-        )
-        continuation_layout, _ = compute_layout(
-            inputs,
-            spec,
-            pdf,
-            key_lines=[],
-            include_keys=True,
-            include_instructions=False,
-        )
-
-        self.assertGreater(continuation_layout.per_page, first_layout.per_page)
-        self.assertEqual(first_layout.cols, 4)
-        self.assertEqual(first_layout.rows, 2)
-        self.assertEqual(first_layout.per_page, 8)
-        self.assertTrue(
-            _uses_uniform_main_qr_capacity(
-                doc_type="main",
-                capabilities=style.capabilities,
-            )
-        )
-
     def test_main_qr_grid_overrides_normalize_doc_type(self) -> None:
         context = {"paper_size": "A4"}
         spec = document_spec("main", "A4", context)
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "monograph"
-            / "main_document.html.j2"
+        capabilities = TemplateCapabilities(
+            uniform_main_qr_capacity=True,
+            main_qr_grid_size_mm=43.0,
+            main_qr_grid_max_cols=4,
         )
-        style = load_template_style(template_path)
 
         updated = _apply_main_qr_grid_overrides(
             spec=spec,
             doc_type=" Main ",
-            capabilities=style.capabilities,
+            capabilities=capabilities,
         )
 
         self.assertEqual(updated.qr_grid.qr_size_mm, 43.0)
         self.assertEqual(updated.qr_grid.max_cols, 4)
+        self.assertTrue(
+            _uses_uniform_main_qr_capacity(
+                doc_type=" Main ",
+                capabilities=capabilities,
+            )
+        )
 
     def test_recovery_text_layout_smoke_across_styles(self) -> None:
         frame = Frame(
@@ -285,7 +209,7 @@ class TestPdfLayout(unittest.TestCase):
         ]
         pdf = FPDF(unit="mm", format="A4")
 
-        for design in ("ledger", "dossier", "maritime", "midnight"):
+        for design in ("ledger", "maritime"):
             with self.subTest(design=design):
                 template_path = (
                     Path(__file__).resolve().parents[2]
@@ -1128,75 +1052,6 @@ class TestPdfLayout(unittest.TestCase):
             forge_layout.fallback_lines_per_page + 1,
         )
 
-    def test_monograph_shard_first_page_capacity_matches_sentinel_bonus_line(self) -> None:
-        frame = Frame(
-            version=1,
-            frame_type=FrameType.MAIN_DOCUMENT,
-            doc_id=b"\x37" * DOC_ID_LEN,
-            index=0,
-            total=1,
-            data=b"payload",
-        )
-        spec = _build_spec(line_count=6, line_height=3.5)
-        pdf = FPDF(unit="mm", format=(100, 100))
-
-        forge_template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "forge"
-            / "shard_document.html.j2"
-        )
-        forge_inputs = RenderInputs(
-            frames=[frame],
-            template_path=forge_template_path,
-            output_path="out.pdf",
-            context={"doc_id": frame.doc_id.hex()},
-            doc_type="shard",
-            render_qr=True,
-            render_fallback=True,
-            fallback_payload=b"shard payload",
-        )
-        forge_layout, _ = compute_layout(
-            forge_inputs,
-            spec,
-            pdf,
-            key_lines=[],
-            include_instructions=True,
-        )
-
-        monograph_template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "monograph"
-            / "shard_document.html.j2"
-        )
-        monograph_inputs = RenderInputs(
-            frames=[frame],
-            template_path=monograph_template_path,
-            output_path="out.pdf",
-            context={"doc_id": frame.doc_id.hex()},
-            doc_type="shard",
-            render_qr=True,
-            render_fallback=True,
-            fallback_payload=b"shard payload",
-        )
-        monograph_layout, _ = compute_layout(
-            monograph_inputs,
-            spec,
-            pdf,
-            key_lines=[],
-            include_instructions=True,
-        )
-
-        self.assertEqual(
-            monograph_layout.fallback_lines_per_page,
-            forge_layout.fallback_lines_per_page + 1,
-        )
-
     def test_non_forge_shard_uses_base_fallback_capacity(self) -> None:
         frame = Frame(
             version=1,
@@ -1388,75 +1243,6 @@ class TestPdfLayout(unittest.TestCase):
 
         self.assertEqual(
             sentinel_layout.fallback_lines_per_page,
-            forge_layout.fallback_lines_per_page + 9,
-        )
-
-    def test_monograph_signing_key_shard_first_page_capacity_matches_sentinel_bonus(self) -> None:
-        frame = Frame(
-            version=1,
-            frame_type=FrameType.MAIN_DOCUMENT,
-            doc_id=b"\x38" * DOC_ID_LEN,
-            index=0,
-            total=1,
-            data=b"payload",
-        )
-        spec = _build_spec(line_count=6, line_height=3.5)
-        pdf = FPDF(unit="mm", format=(100, 100))
-
-        forge_template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "forge"
-            / "signing_key_shard_document.html.j2"
-        )
-        forge_inputs = RenderInputs(
-            frames=[frame],
-            template_path=forge_template_path,
-            output_path="out.pdf",
-            context={"doc_id": frame.doc_id.hex()},
-            doc_type="signing_key_shard",
-            render_qr=True,
-            render_fallback=True,
-            fallback_payload=b"signing payload",
-        )
-        forge_layout, _ = compute_layout(
-            forge_inputs,
-            spec,
-            pdf,
-            key_lines=[],
-            include_instructions=True,
-        )
-
-        monograph_template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "monograph"
-            / "signing_key_shard_document.html.j2"
-        )
-        monograph_inputs = RenderInputs(
-            frames=[frame],
-            template_path=monograph_template_path,
-            output_path="out.pdf",
-            context={"doc_id": frame.doc_id.hex()},
-            doc_type="signing_key_shard",
-            render_qr=True,
-            render_fallback=True,
-            fallback_payload=b"signing payload",
-        )
-        monograph_layout, _ = compute_layout(
-            monograph_inputs,
-            spec,
-            pdf,
-            key_lines=[],
-            include_instructions=True,
-        )
-
-        self.assertEqual(
-            monograph_layout.fallback_lines_per_page,
             forge_layout.fallback_lines_per_page + 9,
         )
 
