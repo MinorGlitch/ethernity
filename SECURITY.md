@@ -2,9 +2,9 @@
 
 ## Project Status
 
-Ethernity is experimental software.
+Ethernity is stable v1 software.
 
-Treat it as a tool for controlled backup workflows, not as a fully mature backup platform.
+Treat it as a tool for controlled backup workflows, not as a fully autonomous backup platform.
 Always keep independent backups and run recovery drills.
 
 ## Security Model Summary

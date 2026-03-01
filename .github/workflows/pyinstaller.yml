@@ -67,22 +67,6 @@ jobs:
             exit 1
           fi
 
-          PROJECT_VERSION="$(python - <<'PY'
-          import pathlib
-          import tomllib
-
-          pyproject = pathlib.Path("pyproject.toml")
-          with pyproject.open("rb") as fh:
-              data = tomllib.load(fh)
-          print(data["project"]["version"])
-          PY
-          )"
-          EXPECTED_TAG="v${PROJECT_VERSION}"
-          if [[ "${TAG}" != "${EXPECTED_TAG}" ]]; then
-            echo "release tag/version mismatch: tag='${TAG}', expected='${EXPECTED_TAG}' from pyproject.toml" >&2
-            exit 1
-          fi
-
           git fetch --force --tags origin
           if ! git rev-parse --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
             echo "tag not found: ${TAG}" >&2
@@ -92,6 +76,33 @@ jobs:
           COMMIT_SHA="$(git rev-list -n 1 "refs/tags/${TAG}")"
           if [[ -z "${COMMIT_SHA}" ]]; then
             echo "unable to resolve commit SHA for tag: ${TAG}" >&2
+            exit 1
+          fi
+
+          export COMMIT_SHA
+          PROJECT_VERSION="$(python - <<'PY'
+          import os
+          import subprocess
+          import tomllib
+
+          commit_sha = os.environ["COMMIT_SHA"]
+          try:
+              raw_pyproject = subprocess.check_output(
+                  ["git", "show", f"{commit_sha}:pyproject.toml"],
+                  stderr=subprocess.DEVNULL,
+              )
+          except subprocess.CalledProcessError as exc:
+              raise SystemExit(
+                  f"unable to read pyproject.toml at commit {commit_sha}"
+              ) from exc
+
+          data = tomllib.loads(raw_pyproject.decode("utf-8"))
+          print(data["project"]["version"])
+          PY
+          )"
+          EXPECTED_TAG="v${PROJECT_VERSION}"
+          if [[ "${TAG}" != "${EXPECTED_TAG}" ]]; then
+            echo "release tag/version mismatch: tag='${TAG}', expected='${EXPECTED_TAG}' from pyproject.toml at ${COMMIT_SHA}" >&2
             exit 1
           fi
 
@@ -153,42 +164,54 @@ jobs:
                   payload = json.load(response)
 
               runs = payload.get("workflow_runs", [])
-              successful = [run for run in runs if run.get("conclusion") == "success"]
-              if successful:
-                  print(f"Found {len(successful)} successful CI workflow run(s) for {sha}.")
-                  break
+              if runs:
+                  latest = runs[0]
+                  latest_status = str(latest.get("status") or "unknown")
+                  latest_conclusion = str(latest.get("conclusion") or "unknown")
+                  latest_url = str(latest.get("html_url") or "")
 
-              in_progress = [
-                  run
-                  for run in runs
-                  if run.get("status") in {"queued", "in_progress", "requested", "waiting", "pending"}
-              ]
-              completed_non_success = [
-                  run
-                  for run in runs
-                  if run.get("status") == "completed" and run.get("conclusion") not in {None, "success"}
-              ]
+                  if latest_status == "completed":
+                      if latest_conclusion == "success":
+                          print(
+                              "Latest CI workflow run succeeded for "
+                              f"{sha}: conclusion={latest_conclusion}"
+                          )
+                          break
+                      print(
+                          "Latest CI workflow run for target commit completed without success "
+                          f"(status={latest_status}, conclusion={latest_conclusion}). "
+                          f"Run: {latest_url}",
+                          file=sys.stderr,
+                      )
+                      sys.exit(1)
 
-              if completed_non_success and not in_progress:
-                  conclusions = sorted(
-                      {str(run.get("conclusion", "unknown")) for run in completed_non_success}
-                  )
-                  print(
-                      "CI completed without success for target commit "
-                      f"{sha}. Conclusions: {', '.join(conclusions)}",
-                      file=sys.stderr,
-                  )
-                  sys.exit(1)
+                  if latest_status not in {
+                      "queued",
+                      "in_progress",
+                      "requested",
+                      "waiting",
+                      "pending",
+                  }:
+                      print(
+                          "Latest CI workflow run has unexpected status for target commit "
+                          f"{sha}: {latest_status}. Run: {latest_url}",
+                          file=sys.stderr,
+                      )
+                      sys.exit(1)
 
               now = time.time()
               if now >= deadline:
                   state = "no runs found"
-                  if in_progress:
-                      state = f"{len(in_progress)} run(s) still in progress/queued"
-                  elif runs:
-                      state = f"{len(runs)} run(s) found but none successful yet"
+                  if runs:
+                      latest = runs[0]
+                      latest_status = str(latest.get("status") or "unknown")
+                      latest_conclusion = str(latest.get("conclusion") or "unknown")
+                      state = (
+                          "latest run "
+                          f"status={latest_status}, conclusion={latest_conclusion}"
+                      )
                   print(
-                      "Timed out waiting for successful CI workflow run for commit "
+                      "Timed out waiting for latest successful CI workflow run for commit "
                       f"{sha} ({state}). Release publishing is blocked.",
                       file=sys.stderr,
                   )
