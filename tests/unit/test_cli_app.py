@@ -120,6 +120,41 @@ class TestCliApp(unittest.TestCase):
         self.assertEqual(exc_info.exception.exit_code, 2)
         print_err.assert_called_once()
 
+    @mock.patch("ethernity.cli.app.prompt_home_action")
+    @mock.patch("ethernity.cli.app.console_err.print")
+    @mock.patch("ethernity.cli.app.load_cli_defaults", return_value=CliDefaults())
+    @mock.patch("ethernity.cli.app.sys.stdout.isatty", return_value=False)
+    @mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=True)
+    @mock.patch("ethernity.cli.app.run_startup", return_value=False)
+    def test_cli_no_subcommand_non_tty_stdout_errors(
+        self,
+        _run_startup: mock.MagicMock,
+        _stdin_tty: mock.MagicMock,
+        _stdout_tty: mock.MagicMock,
+        _load_cli_defaults: mock.MagicMock,
+        print_err: mock.MagicMock,
+        prompt_home_action: mock.MagicMock,
+    ) -> None:
+        ctx = _Ctx(invoked_subcommand=None)
+        with self.assertRaises(typer.Exit) as exc_info:
+            app_module.cli(
+                ctx,
+                config=None,
+                paper=None,
+                design=None,
+                debug=False,
+                debug_max_bytes=1024,
+                debug_reveal_secrets=False,
+                quiet=False,
+                no_color=False,
+                no_animations=False,
+                init_config=False,
+                version=False,
+            )
+        self.assertEqual(exc_info.exception.exit_code, 2)
+        print_err.assert_called_once()
+        prompt_home_action.assert_not_called()
+
     @mock.patch("ethernity.cli.app.run_recover_wizard", return_value=0)
     @mock.patch("ethernity.cli.app._run_cli", side_effect=lambda func, debug: func())
     @mock.patch("ethernity.cli.app.empty_recover_args", return_value=RecoverArgs())
@@ -127,12 +162,14 @@ class TestCliApp(unittest.TestCase):
     @mock.patch("ethernity.cli.app.ui_screen_mode", return_value=contextlib.nullcontext())
     @mock.patch("ethernity.cli.app.load_cli_defaults", return_value=CliDefaults())
     @mock.patch("ethernity.cli.app._resolve_config_and_paper", return_value=("cfg", "A4"))
+    @mock.patch("ethernity.cli.app.sys.stdout.isatty", return_value=True)
     @mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=True)
     @mock.patch("ethernity.cli.app.run_startup", return_value=False)
     def test_cli_interactive_recover_route(
         self,
         _run_startup: mock.MagicMock,
         _stdin_tty: mock.MagicMock,
+        _stdout_tty: mock.MagicMock,
         _resolve_config_and_paper: mock.MagicMock,
         _load_cli_defaults: mock.MagicMock,
         ui_screen_mode: mock.MagicMock,
@@ -173,12 +210,14 @@ class TestCliApp(unittest.TestCase):
     @mock.patch("ethernity.cli.app.ui_screen_mode", return_value=contextlib.nullcontext())
     @mock.patch("ethernity.cli.app.load_cli_defaults", return_value=CliDefaults())
     @mock.patch("ethernity.cli.app._resolve_config_and_paper", return_value=("cfg", "A4"))
+    @mock.patch("ethernity.cli.app.sys.stdout.isatty", return_value=True)
     @mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=True)
     @mock.patch("ethernity.cli.app.run_startup", return_value=False)
     def test_cli_interactive_backup_route(
         self,
         _run_startup: mock.MagicMock,
         _stdin_tty: mock.MagicMock,
+        _stdout_tty: mock.MagicMock,
         _resolve_config_and_paper: mock.MagicMock,
         _load_cli_defaults: mock.MagicMock,
         ui_screen_mode: mock.MagicMock,
@@ -212,12 +251,14 @@ class TestCliApp(unittest.TestCase):
     @mock.patch("ethernity.cli.app.ui_screen_mode", return_value=contextlib.nullcontext())
     @mock.patch("ethernity.cli.app.load_cli_defaults", return_value=CliDefaults())
     @mock.patch("ethernity.cli.app._resolve_config_and_paper", return_value=("cfg", "A4"))
+    @mock.patch("ethernity.cli.app.sys.stdout.isatty", return_value=True)
     @mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=True)
     @mock.patch("ethernity.cli.app.run_startup", return_value=False)
     def test_cli_interactive_kit_route(
         self,
         _run_startup: mock.MagicMock,
         _stdin_tty: mock.MagicMock,
+        _stdout_tty: mock.MagicMock,
         _resolve_config_and_paper: mock.MagicMock,
         _load_cli_defaults: mock.MagicMock,
         ui_screen_mode: mock.MagicMock,

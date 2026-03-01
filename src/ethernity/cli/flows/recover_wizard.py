@@ -282,17 +282,17 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
             if plan.allow_unsigned:
                 _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
 
-            if not quiet:
-                with wizard_stage("Review"):
-                    review_rows = _build_recovery_review_rows(plan, args)
+            with wizard_stage("Review"):
+                review_rows = _build_recovery_review_rows(plan, args)
+                if not quiet:
                     console.print(panel("Review", build_review_table(review_rows)))
-                    if not assume_yes and not prompt_yes_no(
-                        "Proceed with recovery",
-                        default=True,
-                        help_text="Select no to cancel.",
-                    ):
-                        console.print("Recovery cancelled.")
-                        return 1
+                if not assume_yes and not prompt_yes_no(
+                    "Proceed with recovery",
+                    default=True,
+                    help_text="Select no to cancel.",
+                ):
+                    console.print("Recovery cancelled.")
+                    return 1
 
             manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
             if debug:

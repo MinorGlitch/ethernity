@@ -64,6 +64,7 @@ def render_kit_qr_document(
     chunk_size: int | None,
     quiet: bool,
 ) -> KitResult:
+    variant = _normalize_kit_variant(variant)
     config = load_app_config(config_path, paper_size=paper_size)
     config = apply_template_design(config, design)
     bundle_bytes = _load_kit_bundle(bundle_path, variant=variant)
@@ -72,9 +73,6 @@ def render_kit_qr_document(
     if chunk_size is None:
         max_size = _max_qr_payload_bytes(b"x" * _MAX_QR_PROBE_BYTES, qr_config)
         chunk_size = min(DEFAULT_KIT_CHUNK_SIZE, max_size)
-    else:
-        probe_size = min(max(chunk_size, 1), _MAX_QR_PROBE_BYTES)
-        _validate_qr_payload_bytes(chunk_size, b"x" * probe_size, qr_config)
 
     if chunk_size <= 0:
         raise ValueError("chunk_size must be positive")
@@ -260,17 +258,13 @@ def _build_kit_qr_payloads(bundle_bytes: bytes, chunk_size: int, config: QrConfi
             "Increase QR version / lower error level. "
             "--qr-chunk-size only affects payload QRs after the first shell QR."
         )
+    for payload_chunk in payload_chunks:
+        if not _fits_qr_payload(payload_chunk, config):
+            raise ValueError(
+                "chunk_size is too large for the current QR settings; "
+                "lower --qr-chunk-size or increase the QR version / error level."
+            )
     return [shell, *payload_chunks]
-
-
-def _validate_qr_payload_bytes(size: int, data: bytes, config: QrConfig) -> None:
-    if size <= 0:
-        raise ValueError("chunk_size must be positive")
-    if not _fits_qr_payload(data[:size], config):
-        raise ValueError(
-            "chunk_size is too large for the current QR settings; "
-            "lower --qr-chunk-size or increase the QR version / error level."
-        )
 
 
 def _max_qr_payload_bytes(data: bytes, config: QrConfig) -> int:

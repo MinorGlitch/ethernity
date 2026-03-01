@@ -363,7 +363,7 @@ def _build_review_rows(
     review_rows.append(("QR template", str(config.template_path)))
     review_rows.append(("Recovery template", str(config.recovery_template_path)))
     kit_index_template = _resolve_kit_index_template_path(config)
-    if kit_index_template.is_file():
+    if kit_index_template is not None:
         review_rows.append(("Recovery kit index template", str(kit_index_template)))
     if plan.sharding is not None:
         review_rows.append(("Shard template", str(config.shard_template_path)))
@@ -378,7 +378,7 @@ def _build_review_rows(
     return review_rows
 
 
-def _resolve_kit_index_template_path(config: AppConfig) -> Path:
+def _resolve_kit_index_template_path(config: AppConfig) -> Path | None:
     """Return the kit index template path candidate for the active design."""
 
     kit_template_path = config.kit_template_path
@@ -388,7 +388,9 @@ def _resolve_kit_index_template_path(config: AppConfig) -> Path:
     package_candidate = (
         PACKAGE_ROOT / "templates" / kit_template_path.parent.name / "kit_index_document.html.j2"
     )
-    return package_candidate
+    if package_candidate.is_file() and _is_compatible_kit_index_template(package_candidate):
+        return package_candidate
+    return None
 
 
 def _is_compatible_kit_index_template(path: Path) -> bool:
@@ -434,6 +436,8 @@ def run_wizard(
     args: BackupArgs | None = None,
 ) -> int:
     """Run the guided backup wizard and execute the resulting backup."""
+
+    assume_yes = bool(args.assume_yes) if args is not None else False
 
     with ui_screen_mode(quiet=quiet):
         with wizard_flow(name="Backup", total_steps=5, quiet=quiet):
@@ -488,7 +492,7 @@ def run_wizard(
 
             with wizard_stage("Review"):
                 console.print(panel("Review", build_review_table(review_rows)))
-                if not prompt_yes_no(
+                if not assume_yes and not prompt_yes_no(
                     "Proceed with backup",
                     default=True,
                     help_text="Select no to cancel.",
@@ -497,12 +501,30 @@ def run_wizard(
                     return 1
 
             if args is not None:
-                _validate_backup_args(args)
+                effective_args = replace(
+                    args,
+                    shard_threshold=plan.sharding.threshold if plan.sharding else None,
+                    shard_count=plan.sharding.shares if plan.sharding else None,
+                    signing_key_mode=plan.signing_seed_mode.value,
+                    signing_key_shard_threshold=(
+                        plan.signing_seed_sharding.threshold
+                        if plan.signing_seed_sharding is not None
+                        else None
+                    ),
+                    signing_key_shard_count=(
+                        plan.signing_seed_sharding.shares
+                        if plan.signing_seed_sharding is not None
+                        else None
+                    ),
+                    passphrase_words=passphrase_words,
+                )
+                _validate_backup_args(effective_args)
 
             result = run_backup(
                 input_files=input_files,
                 base_dir=resolved_base,
                 output_dir=output_dir,
+                layout_debug_dir=args.layout_debug_dir if args is not None else None,
                 input_origin=input_origin,
                 input_roots=input_roots,
                 plan=plan,

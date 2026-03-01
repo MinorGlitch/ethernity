@@ -99,13 +99,8 @@ def _resolve_kit_index_template_path(config: AppConfig) -> Path | None:
     if candidate.is_file() and _is_compatible_kit_index_template(candidate):
         return candidate
 
-    if package_candidate.is_file():
+    if package_candidate.is_file() and _is_compatible_kit_index_template(package_candidate):
         return package_candidate
-
-    # If the active design is loaded from a user override that predates the
-    # index template, fallback to the packaged design copy.
-    if candidate.is_file():
-        return candidate
 
     return None
 

@@ -119,7 +119,7 @@ def _passphrase_from_shard_frames(
             raise ValueError("invalid shard signature")
         existing = shares.get(payload.share_index)
         if existing is not None:
-            if existing.share != payload.share:
+            if existing != payload:
                 raise ValueError("duplicate shard index with mismatched data")
             continue
         shares[payload.share_index] = payload
