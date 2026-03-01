@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..core.bounds import MAX_MANIFEST_FILES
+from ..core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
 from ..core.validation import (
     normalize_manifest_path,
     normalize_path,
@@ -41,6 +41,8 @@ MANIFEST_VERSION = 1
 SIGNING_SEED_LEN = 32
 PATH_ENCODING_DIRECT = "direct"
 PATH_ENCODING_PREFIX_TABLE = "prefix_table"
+PAYLOAD_CODEC_RAW = "raw"
+PAYLOAD_CODEC_GZIP = "gzip"
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,8 @@ class EnvelopeManifest:
     files: tuple[ManifestFile, ...]
     input_origin: str = "file"
     input_roots: tuple[str, ...] = ()
+    payload_codec: str = PAYLOAD_CODEC_RAW
+    payload_raw_len: int | None = None
 
     def to_cbor(self) -> dict[str, object]:
         """Build the canonical manifest CBOR map, selecting the shortest path encoding."""
@@ -104,6 +108,28 @@ class EnvelopeManifest:
             raise ValueError("manifest input_origin must be one of: file, directory, mixed")
         normalized_roots = tuple(_normalize_root_label(root) for root in self.input_roots)
         _validate_input_origin_roots(self.input_origin, normalized_roots)
+        payload_codec = require_str(self.payload_codec, label="manifest payload_codec")
+        if payload_codec not in {PAYLOAD_CODEC_RAW, PAYLOAD_CODEC_GZIP}:
+            raise ValueError("manifest payload_codec must be one of: raw, gzip")
+        expected_raw_len = sum(entry.size for entry in self.files)
+        if payload_codec == PAYLOAD_CODEC_RAW:
+            if self.payload_raw_len is not None:
+                raise ValueError("manifest payload_raw_len must be null for raw payload_codec")
+        else:
+            if self.payload_raw_len is None:
+                raise ValueError("manifest payload_raw_len is required for gzip payload_codec")
+            raw_len = require_non_negative_int(
+                self.payload_raw_len, label="manifest payload_raw_len"
+            )
+            if raw_len <= 0:
+                raise ValueError("manifest payload_raw_len must be positive")
+            if raw_len > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+                raise ValueError(
+                    "manifest payload_raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES "
+                    f"({MAX_DECOMPRESSED_PAYLOAD_BYTES}): {raw_len}"
+                )
+            if raw_len != expected_raw_len:
+                raise ValueError("manifest payload_raw_len must match sum of manifest file sizes")
 
         seen_paths: set[str] = set()
         for entry in self.files:
@@ -118,7 +144,10 @@ class EnvelopeManifest:
             "seed": self.signing_seed,
             "input_origin": self.input_origin,
             "input_roots": list(normalized_roots),
+            "payload_codec": payload_codec,
         }
+        if payload_codec == PAYLOAD_CODEC_GZIP:
+            base_manifest["payload_raw_len"] = self.payload_raw_len
 
         direct_manifest = dict(base_manifest)
         direct_manifest["path_encoding"] = PATH_ENCODING_DIRECT
@@ -146,6 +175,8 @@ class EnvelopeManifest:
             "signing_seed": self.signing_seed,
             "input_origin": self.input_origin,
             "input_roots": list(self.input_roots),
+            "payload_codec": self.payload_codec,
+            "payload_raw_len": self.payload_raw_len,
             "files": [file.to_dict() for file in self.files],
         }
 
@@ -165,6 +196,7 @@ class EnvelopeManifest:
                 "input_roots",
                 "path_encoding",
                 "files",
+                "payload_codec",
             ),
             label="manifest",
         )
@@ -176,6 +208,8 @@ class EnvelopeManifest:
         input_roots = validated["input_roots"]
         path_encoding = validated["path_encoding"]
         files_raw = validated["files"]
+        payload_codec_raw = validated["payload_codec"]
+        payload_raw_len_raw = validated.get("payload_raw_len")
         format_version = require_int(format_version, label="manifest version")
         if format_version != MANIFEST_VERSION:
             raise ValueError(f"unsupported manifest version: {format_version}")
@@ -190,6 +224,9 @@ class EnvelopeManifest:
         path_encoding = require_str(path_encoding, label="manifest path_encoding")
         if path_encoding not in {PATH_ENCODING_DIRECT, PATH_ENCODING_PREFIX_TABLE}:
             raise ValueError("manifest path_encoding must be one of: direct, prefix_table")
+        payload_codec = require_str(payload_codec_raw, label="manifest payload_codec")
+        if payload_codec not in {PAYLOAD_CODEC_RAW, PAYLOAD_CODEC_GZIP}:
+            raise ValueError("manifest payload_codec must be one of: raw, gzip")
         normalized_roots: list[str] = []
         for root in input_roots:
             normalized_roots.append(_normalize_root_label(root))
@@ -225,6 +262,26 @@ class EnvelopeManifest:
             if file_entry.path in seen_paths:
                 raise ValueError(f"duplicate manifest file path: {file_entry.path}")
             seen_paths.add(file_entry.path)
+        expected_raw_len = sum(file_entry.size for file_entry in files)
+        if payload_codec == PAYLOAD_CODEC_RAW:
+            if payload_raw_len_raw is not None:
+                raise ValueError("manifest payload_raw_len must be null for raw payload_codec")
+            payload_raw_len = None
+        else:
+            if payload_raw_len_raw is None:
+                raise ValueError("manifest payload_raw_len is required for gzip payload_codec")
+            payload_raw_len = require_non_negative_int(
+                payload_raw_len_raw, label="manifest payload_raw_len"
+            )
+            if payload_raw_len <= 0:
+                raise ValueError("manifest payload_raw_len must be positive")
+            if payload_raw_len > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+                raise ValueError(
+                    "manifest payload_raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES "
+                    f"({MAX_DECOMPRESSED_PAYLOAD_BYTES}): {payload_raw_len}"
+                )
+            if payload_raw_len != expected_raw_len:
+                raise ValueError("manifest payload_raw_len must match sum of manifest file sizes")
         return cls(
             format_version=format_version,
             created_at=float(created_at),
@@ -232,6 +289,8 @@ class EnvelopeManifest:
             signing_seed=seed_bytes,
             input_origin=input_origin,
             input_roots=tuple(normalized_roots),
+            payload_codec=payload_codec,
+            payload_raw_len=payload_raw_len,
             files=tuple(files),
         )
 

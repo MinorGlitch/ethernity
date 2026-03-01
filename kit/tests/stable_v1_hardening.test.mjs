@@ -112,7 +112,7 @@ function buildDirectManifestEntries(files) {
   return files.map(file => [file.path, file.data.length, sha256(file.data), null]);
 }
 
-test("extractFiles supports stable-v1 direct manifest entries", () => {
+test("extractFiles supports stable-v1 direct manifest entries", async () => {
   const files = [
     { path: "docs/a.txt", data: new Uint8Array([1, 2, 3]) },
     { path: "docs/b.txt", data: new Uint8Array([4, 5]) },
@@ -125,11 +125,12 @@ test("extractFiles supports stable-v1 direct manifest entries", () => {
     seed: null,
     input_origin: "file",
     input_roots: [],
+    payload_codec: "raw",
     path_encoding: "direct",
     files: buildDirectManifestEntries(files),
   };
 
-  const extracted = extractFiles(buildEnvelope(manifest, payload));
+  const extracted = await extractFiles(buildEnvelope(manifest, payload));
   assert.equal(extracted.files.length, 2);
   assert.equal(extracted.files[0].path, "docs/a.txt");
   assert.deepEqual(Array.from(extracted.files[0].data), [1, 2, 3]);
@@ -137,7 +138,7 @@ test("extractFiles supports stable-v1 direct manifest entries", () => {
   assert.deepEqual(Array.from(extracted.files[1].data), [4, 5]);
 });
 
-test("extractFiles supports stable-v1 prefix_table manifest entries", () => {
+test("extractFiles supports stable-v1 prefix_table manifest entries", async () => {
   const aData = new Uint8Array([10, 11, 12]);
   const bData = new Uint8Array([13]);
   const manifest = {
@@ -147,6 +148,7 @@ test("extractFiles supports stable-v1 prefix_table manifest entries", () => {
     seed: null,
     input_origin: "directory",
     input_roots: ["docs"],
+    payload_codec: "raw",
     path_encoding: "prefix_table",
     path_prefixes: ["", "docs", "docs/sub"],
     files: [
@@ -156,14 +158,14 @@ test("extractFiles supports stable-v1 prefix_table manifest entries", () => {
   };
   const payload = concatBytes([aData, bData]);
 
-  const extracted = extractFiles(buildEnvelope(manifest, payload));
+  const extracted = await extractFiles(buildEnvelope(manifest, payload));
   assert.deepEqual(
     extracted.files.map(file => file.path),
     ["docs/a.txt", "docs/sub/b.txt"]
   );
 });
 
-test("extractFiles rejects legacy map-style file entries", () => {
+test("extractFiles rejects legacy map-style file entries", async () => {
   const data = new Uint8Array([7]);
   const manifest = {
     version: 1,
@@ -172,14 +174,15 @@ test("extractFiles rejects legacy map-style file entries", () => {
     seed: null,
     input_origin: "file",
     input_roots: [],
+    payload_codec: "raw",
     path_encoding: "direct",
     files: [{ path: "a.txt", size: 1, hash: sha256(data), mtime: null }],
   };
   const envelope = buildEnvelope(manifest, data);
-  assert.throws(() => extractFiles(envelope), /array encoding/);
+  await assert.rejects(() => extractFiles(envelope), /array encoding/);
 });
 
-test("extractFiles rejects non-canonical envelope varints", () => {
+test("extractFiles rejects non-canonical envelope varints", async () => {
   const envelope = Uint8Array.of(
     ENVELOPE_MAGIC[0],
     ENVELOPE_MAGIC[1],
@@ -188,10 +191,10 @@ test("extractFiles rejects non-canonical envelope varints", () => {
     0x00,
     0x00
   );
-  assert.throws(() => extractFiles(envelope), /non-canonical varint/);
+  await assert.rejects(() => extractFiles(envelope), /non-canonical varint/);
 });
 
-test("extractFiles rejects non-canonical manifest CBOR", () => {
+test("extractFiles rejects non-canonical manifest CBOR", async () => {
   const nonCanonicalManifest = Uint8Array.of(0x18, 0x01);
   const envelope = concatBytes([
     Uint8Array.from(ENVELOPE_MAGIC),
@@ -200,7 +203,7 @@ test("extractFiles rejects non-canonical manifest CBOR", () => {
     nonCanonicalManifest,
     encodeUvarint(0),
   ]);
-  assert.throws(() => extractFiles(envelope), /canonical CBOR encoding/);
+  await assert.rejects(() => extractFiles(envelope), /canonical CBOR encoding/);
 });
 
 test("readUvarint rejects overlong canonical forms", () => {

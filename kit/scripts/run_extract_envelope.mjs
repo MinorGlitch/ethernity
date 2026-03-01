@@ -9,14 +9,14 @@ function fail(message) {
   process.exit(1);
 }
 
-function main() {
+async function main() {
   const input = process.argv[2];
   if (!input) {
     fail("usage: node kit/scripts/run_extract_envelope.mjs <envelope-bytes-file>");
   }
   const envelopePath = path.resolve(input);
   const envelopeBytes = new Uint8Array(fs.readFileSync(envelopePath));
-  const result = extractFiles(envelopeBytes);
+  const result = await extractFiles(envelopeBytes);
   const files = result.files.map(file => ({
     path: file.path,
     data_base64: Buffer.from(file.data).toString("base64"),
@@ -24,4 +24,4 @@ function main() {
   process.stdout.write(`${JSON.stringify({ files })}\n`);
 }
 
-main();
+await main();

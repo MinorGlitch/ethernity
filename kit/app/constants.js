@@ -42,5 +42,6 @@ export const MAX_MANIFEST_CBOR_BYTES = 1_048_576;
 export const MAX_MANIFEST_FILES = 2_048;
 export const MAX_PATH_BYTES = 512;
 export const MAX_RECOVERY_TEXT_BYTES = 10_485_760;
+export const MAX_DECOMPRESSED_PAYLOAD_BYTES = 67_108_864;
 export const textEncoder = new TextEncoder();
 export const textDecoder = new TextDecoder();

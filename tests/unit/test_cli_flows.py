@@ -14,21 +14,24 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 import hashlib
+import os
 import unittest
 
 from ethernity.cli.flows.backup_flow import (
     _create_auth_frame,
     _prepare_envelope,
 )
+from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
 from ethernity.core.models import DocumentPlan
+from ethernity.crypto import decrypt_bytes, encrypt_bytes_with_passphrase
 from ethernity.crypto.signing import (
     decode_auth_payload,
     generate_signing_keypair,
     verify_auth,
 )
 from ethernity.encoding.framing import DOC_ID_LEN, FrameType
-from ethernity.formats.envelope_codec import decode_envelope
-from ethernity.formats.envelope_types import PayloadPart
+from ethernity.formats.envelope_codec import decode_envelope, extract_payloads
+from ethernity.formats.envelope_types import PAYLOAD_CODEC_GZIP, PAYLOAD_CODEC_RAW, PayloadPart
 
 
 class MockInputFile:
@@ -91,6 +94,48 @@ class TestPrepareEnvelope(unittest.TestCase):
         self.assertEqual(decoded_payload, b"content2content1content3")
         paths = [f.path for f in manifest.files]
         self.assertEqual(paths, ["dir/file2.txt", "file1.txt", "file3.bin"])
+
+    def test_prepare_envelope_forced_raw_mode_sets_raw_codec(self) -> None:
+        sign_priv, _ = generate_signing_keypair()
+        raw_payload = b"A" * 4096
+        input_files = [MockInputFile("large.txt", raw_payload)]
+        plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
+
+        envelope, _ = _prepare_envelope(
+            input_files,
+            plan,
+            sign_priv,
+            "file",
+            [],
+            payload_codec_mode=PAYLOAD_CODEC_RAW,
+        )
+
+        manifest, encoded_payload = decode_envelope(envelope)
+        self.assertEqual(manifest.payload_codec, PAYLOAD_CODEC_RAW)
+        self.assertIsNone(manifest.payload_raw_len)
+        extracted = extract_payloads(manifest, encoded_payload)
+        self.assertEqual(extracted[0][1], raw_payload)
+
+    def test_prepare_envelope_forced_gzip_mode_sets_gzip_codec(self) -> None:
+        sign_priv, _ = generate_signing_keypair()
+        raw_payload = os.urandom(4096)
+        input_files = [MockInputFile("large.bin", raw_payload)]
+        plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
+
+        envelope, _ = _prepare_envelope(
+            input_files,
+            plan,
+            sign_priv,
+            "file",
+            [],
+            payload_codec_mode=PAYLOAD_CODEC_GZIP,
+        )
+
+        manifest, encoded_payload = decode_envelope(envelope)
+        self.assertEqual(manifest.payload_codec, PAYLOAD_CODEC_GZIP)
+        self.assertEqual(manifest.payload_raw_len, len(raw_payload))
+        extracted = extract_payloads(manifest, encoded_payload)
+        self.assertEqual(extracted[0][1], raw_payload)
 
 
 class TestCreateAuthFrame(unittest.TestCase):
@@ -199,6 +244,34 @@ class TestRecoverFlow(unittest.TestCase):
         manifest_file, data = extracted[0]
         self.assertEqual(manifest_file.path, "recovered.txt")
         self.assertEqual(data, payload)
+
+
+class TestCompressionAdmission(unittest.TestCase):
+    def test_large_compressible_payload_recovers_when_ciphertext_fits(self) -> None:
+        sign_priv, _ = generate_signing_keypair()
+        raw_payload = b"A" * (MAX_CIPHERTEXT_BYTES + 200_000)
+        input_files = [MockInputFile("large.txt", raw_payload)]
+        plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
+
+        envelope, _ = _prepare_envelope(input_files, plan, sign_priv, "file", [])
+        ciphertext, _ = encrypt_bytes_with_passphrase(envelope, passphrase="test passphrase")
+        self.assertLessEqual(len(ciphertext), MAX_CIPHERTEXT_BYTES)
+
+        plaintext = decrypt_bytes(ciphertext, passphrase="test passphrase")
+        manifest, encoded_payload = decode_envelope(plaintext)
+        extracted = extract_payloads(manifest, encoded_payload)
+        self.assertEqual(len(extracted), 1)
+        self.assertEqual(extracted[0][1], raw_payload)
+
+    def test_incompressible_payload_still_exceeds_ciphertext_limit(self) -> None:
+        sign_priv, _ = generate_signing_keypair()
+        raw_payload = os.urandom(MAX_CIPHERTEXT_BYTES + 50_000)
+        input_files = [MockInputFile("large.bin", raw_payload)]
+        plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
+
+        envelope, _ = _prepare_envelope(input_files, plan, sign_priv, "file", [])
+        ciphertext, _ = encrypt_bytes_with_passphrase(envelope, passphrase="test passphrase")
+        self.assertGreater(len(ciphertext), MAX_CIPHERTEXT_BYTES)
 
 
 if __name__ == "__main__":

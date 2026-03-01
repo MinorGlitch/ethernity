@@ -87,6 +87,25 @@ Operational implications:
 - QR payload limits are intentionally conservative to avoid generating unreadable/high-density codes.
 - Fallback parsing applies independent caps to source bytes, filtered line count, and normalized
   z-base-32 character count so malformed or adversarial text fails early.
+- Input-admission policy is ciphertext-based: implementations may accept inputs larger than 1 MiB
+  when pre-encryption compression allows the final ciphertext to stay within `MAX_CIPHERTEXT_BYTES`.
+
+## Payload Compression Metadata (Manifest v1)
+
+Stable v1 uses manifest metadata for payload storage coding without a version bump:
+- `payload_codec`: required `"raw"` or `"gzip"`
+- `payload_raw_len`: required only when `payload_codec == "gzip"`
+
+Operational behavior:
+- Compression is intended for the payload before envelope encryption.
+- Recovery normalizes payload bytes via manifest metadata before manifest-file slicing/hash checks.
+- This keeps existing extraction call sites stable and codec-agnostic.
+- To avoid zip-bomb style inflation, gzip-coded manifests are capped by
+  `MAX_DECOMPRESSED_PAYLOAD_BYTES` before decompression.
+
+Compatibility note:
+- Artifacts missing `payload_codec` are invalid under current stable-v1 decoder behavior.
+- Implementations that do not support `gzip` metadata may fail to recover gzip-coded envelopes.
 
 ## QR Payload Encoding Note
 

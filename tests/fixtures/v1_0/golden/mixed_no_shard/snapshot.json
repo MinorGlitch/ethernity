@@ -1,9 +1,9 @@
 {
   "artifact_hashes": {
-    "main_payloads.txt": "ec6d3b855b512ffbe519529b0bf331207520866699416a42d047602277f7434f",
-    "qr_document.pdf": "343871a636cba57a1b8f24c3f0023ccad5ea30d7a1c3b483c179e790b9a4d06a",
-    "recovery_document.pdf": "14cebfb29f9d6d8050045a4c288e6a5ec65f079d3118b7ad0d6405383a54172e",
-    "recovery_kit_index.pdf": "2d7d5a23355adc8b29946be508a050d250a8719503e96ccbd86b94e301e40c34"
+    "main_payloads.txt": "e4249951c62b02490530543d45cd2c62922336d42bb278efdd7f950fdb44949a",
+    "qr_document.pdf": "8332039b6e2e858e1c39724647a217aeed01e971e7a200902314e4e48bd7f1d5",
+    "recovery_document.pdf": "b5f4806d78ed1731dc912ed240efa91ba6a381b65266035ab1399816385c1100",
+    "recovery_kit_index.pdf": "9046fa873a3a8dd6cc8515c19614b67396861f913f12ea541f8763660eaedd86"
   },
   "expected_file_sha256": {
     "directory_payload/alpha.txt": "2f4b5a7d0ed3a982cf012f6af9d58168314e999c0eb3793f598978174928e20f",

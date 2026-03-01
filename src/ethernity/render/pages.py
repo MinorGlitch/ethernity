@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from pathlib import Path
 
 from .doc_types import DOC_TYPE_KIT, DOC_TYPE_RECOVERY
 from .fallback import (
@@ -30,7 +31,7 @@ from .fallback import (
     fallback_sections_remaining,
     position_fallback_blocks,
 )
-from .geometry import COORDINATE_EPSILON
+from .geometry import COORDINATE_EPSILON, groups_from_line_length, line_length_from_groups
 from .layout_policy import (
     adjust_page_fallback_capacity,
     extra_main_first_page_qr_slots,
@@ -256,6 +257,8 @@ def _build_fallback_blocks(
 
     page_fallback_blocks: list[FallbackBlock] = []
     if fallback_sections_data and fallback_state:
+        normalized_doc_type = inputs.doc_type.strip().lower()
+        template_design = Path(inputs.template_path).parent.name.strip().lower()
         if lines_capacity <= 0:
             raise ValueError(
                 "fallback capacity exhausted before consuming section data: "
@@ -264,14 +267,42 @@ def _build_fallback_blocks(
             )
         restrict_recovery_first_page_to_first_section = (
             page_idx <= 0
-            and inputs.doc_type.strip().lower() == DOC_TYPE_RECOVERY
+            and normalized_doc_type == DOC_TYPE_RECOVERY
             and capabilities.inject_forge_copy
         )
+        section_lines_capacity = lines_capacity
+        section_line_length = page_layout.line_length
+        if normalized_doc_type == DOC_TYPE_RECOVERY and template_design == "archive":
+            # Archive-style recovery pages have spare visual room in fallback area.
+            # Allow extra payload rows on every page.
+            section_lines_capacity += 3
+            # Archive recovery pages also have enough horizontal room for
+            # denser grouped fallback lines.
+            group_size = next(
+                (
+                    section.group_size
+                    for section in fallback_sections_data
+                    if section.group_size > 0
+                ),
+                1,
+            )
+            base_groups = groups_from_line_length(section_line_length, group_size)
+            section_line_length = line_length_from_groups(base_groups + 5, group_size)
+            if page_idx > 0:
+                # Continuation pages no longer render the hex entropy card, so
+                # consume extra fallback rows in the main frame.
+                section_lines_capacity += 9
+            if page_idx <= 0 and fallback_state.section_idx == 0 and fallback_state.token_idx == 0:
+                non_empty_sections = sum(1 for section in fallback_sections_data if section.tokens)
+                # First page additionally pays title/gap overhead for section headers.
+                section_lines_capacity += 1
+                if non_empty_sections > 1:
+                    section_lines_capacity += 2
         page_fallback_blocks = consume_fallback_blocks(
             fallback_sections_data,
             fallback_state,
-            lines_capacity,
-            line_length=page_layout.line_length,
+            section_lines_capacity,
+            line_length=section_line_length,
             stop_after_current_section=restrict_recovery_first_page_to_first_section,
         )
     else:

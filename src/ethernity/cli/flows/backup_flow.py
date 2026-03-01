@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from rich.progress import Progress
@@ -35,7 +36,10 @@ from ...crypto import (
 from ...crypto.sharding import ShardPayload
 from ...encoding.chunking import chunk_payload
 from ...encoding.framing import VERSION, Frame, FrameType
-from ...formats import envelope_codec as envelope_codec_module
+from ...formats import (
+    envelope_codec as envelope_codec_module,
+    payload_codec as payload_codec_module,
+)
 from ...formats.envelope_types import PayloadPart
 from ...qr.capacity import choose_frame_chunk_size
 from ...render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
@@ -193,6 +197,9 @@ def _prepare_envelope(
     sign_priv: bytes,
     input_origin: str,
     input_roots: list[str],
+    payload_codec_mode: payload_codec_module.PayloadEncodingMode = (
+        payload_codec_module.PAYLOAD_ENCODING_AUTO
+    ),
 ) -> tuple[bytes, bytes]:
     """Prepare the envelope from input files. Returns (envelope, payload)."""
     parts = [
@@ -206,7 +213,18 @@ def _prepare_envelope(
         input_origin=input_origin,
         input_roots=input_roots,
     )
-    envelope = envelope_codec_module.encode_envelope(payload, manifest)
+    encoded_payload, payload_codec, payload_raw_len = (
+        payload_codec_module.encode_payload_for_manifest(
+            payload,
+            mode=payload_codec_mode,
+        )
+    )
+    manifest = replace(
+        manifest,
+        payload_codec=payload_codec,
+        payload_raw_len=payload_raw_len,
+    )
+    envelope = envelope_codec_module.encode_envelope(encoded_payload, manifest)
     return envelope, payload
 
 
@@ -522,12 +540,14 @@ def run_backup(
 
     # Prepare envelope and handle debug output
     with status("Preparing payload...", quiet=status_quiet):
+        payload_codec_mode = config.cli_defaults.backup.payload_codec
         envelope, payload = _prepare_envelope(
             input_files,
             plan,
             sign_priv,
             input_origin,
             input_roots or [],
+            payload_codec_mode=payload_codec_mode,
         )
         manifest = envelope_codec_module.decode_envelope(envelope)[0]
 
