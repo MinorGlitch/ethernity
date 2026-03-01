@@ -422,9 +422,9 @@ def _require_number(data: dict[str, object], key: str, *, path: Path) -> float:
     """Require a numeric field and normalize to float."""
 
     value = data.get(key)
-    if isinstance(value, (int, float)):
-        return float(value)
-    raise ValueError(f"missing or invalid '{key}' number in {path}")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"missing or invalid '{key}' number in {path}")
+    return float(value)
 
 
 def _require_positive_number(data: dict[str, object], key: str, *, path: Path) -> float:

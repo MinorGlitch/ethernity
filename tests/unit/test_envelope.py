@@ -108,6 +108,24 @@ def _make_manifest_cbor(
 
 
 class TestEnvelope(unittest.TestCase):
+    def test_encode_manifest_rejects_unsupported_manifest_version(self) -> None:
+        manifest = EnvelopeManifest(
+            format_version=MANIFEST_VERSION + 1,
+            created_at=0.0,
+            sealed=True,
+            signing_seed=None,
+            files=(
+                ManifestFile(
+                    path="payload.bin",
+                    size=1,
+                    sha256=hashlib.sha256(b"x").digest(),
+                    mtime=None,
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "unsupported manifest version"):
+            encode_manifest(manifest)
+
     def test_encode_manifest_rejects_empty_files(self) -> None:
         manifest = EnvelopeManifest(
             format_version=MANIFEST_VERSION,

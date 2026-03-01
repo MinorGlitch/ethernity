@@ -27,8 +27,10 @@ from Crypto.Signature import eddsa
 from ..core.validation import (
     require_bytes,
     require_dict,
+    require_int,
     require_keys,
     require_length,
+    require_non_empty_bytes,
     require_non_empty_str,
     require_non_negative_int,
     require_positive_int,
@@ -69,8 +71,8 @@ def generate_signing_keypair() -> tuple[bytes, bytes]:
 def _encode_auth_signed_payload(doc_hash: bytes, *, sign_pub: bytes) -> bytes:
     """Encode the canonical auth payload body that is signed and verified."""
 
-    require_length(doc_hash, DOC_HASH_LEN, label="doc_hash")
-    require_length(sign_pub, ED25519_PUB_LEN, label="sign_pub")
+    doc_hash = require_bytes(doc_hash, DOC_HASH_LEN, label="doc_hash")
+    sign_pub = require_bytes(sign_pub, ED25519_PUB_LEN, label="sign_pub")
     payload = {
         "version": AUTH_VERSION,
         "hash": doc_hash,
@@ -164,9 +166,9 @@ def verify_shard(
 def encode_auth_payload(doc_hash: bytes, *, sign_pub: bytes, signature: bytes) -> bytes:
     """Encode an auth payload as canonical CBOR."""
 
-    require_length(doc_hash, DOC_HASH_LEN, label="doc_hash")
-    require_length(sign_pub, ED25519_PUB_LEN, label="sign_pub")
-    require_length(signature, ED25519_SIG_LEN, label="signature")
+    doc_hash = require_bytes(doc_hash, DOC_HASH_LEN, label="doc_hash")
+    sign_pub = require_bytes(sign_pub, ED25519_PUB_LEN, label="sign_pub")
+    signature = require_bytes(signature, ED25519_SIG_LEN, label="signature")
     payload = {
         "version": AUTH_VERSION,
         "hash": doc_hash,
@@ -185,6 +187,7 @@ def decode_auth_payload(data: bytes) -> AuthPayload:
     doc_hash = decoded["hash"]
     sign_pub = decoded["pub"]
     signature = decoded["sig"]
+    version = require_int(version, label="auth version")
     if version != AUTH_VERSION:
         raise ValueError(f"unsupported auth version: {version}")
     doc_hash = require_bytes(doc_hash, DOC_HASH_LEN, label="hash", prefix="auth ")
@@ -226,8 +229,8 @@ def _encode_shard_signed_payload(
 ) -> bytes:
     """Encode the canonical shard payload body that is signed and verified."""
 
-    require_length(doc_hash, DOC_HASH_LEN, label="doc_hash")
-    require_length(sign_pub, ED25519_PUB_LEN, label="sign_pub")
+    doc_hash = require_bytes(doc_hash, DOC_HASH_LEN, label="doc_hash")
+    sign_pub = require_bytes(sign_pub, ED25519_PUB_LEN, label="sign_pub")
     shard_version = require_non_negative_int(shard_version, label="shard_version")
     key_type = require_non_empty_str(key_type, label="key_type")
     threshold = require_positive_int(threshold, label="threshold")
@@ -238,8 +241,7 @@ def _encode_shard_signed_payload(
     if share_index > share_count:
         raise ValueError("share_index cannot exceed share_count")
     secret_len = require_positive_int(secret_len, label="secret_len")
-    if not share:
-        raise ValueError("share cannot be empty")
+    share = require_non_empty_bytes(share, label="share")
     payload = {
         "version": shard_version,
         "type": key_type,

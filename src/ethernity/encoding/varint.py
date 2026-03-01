@@ -24,6 +24,8 @@ _MAX_UVARINT = (1 << 64) - 1
 def encode_uvarint(value: int) -> bytes:
     """Encode an unsigned integer as a canonical varint."""
 
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("value must be an int")
     if value < 0:
         raise ValueError("value must be non-negative")
     if value > _MAX_UVARINT:

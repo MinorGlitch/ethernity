@@ -149,7 +149,7 @@ class TestRecoverShardPrompts(unittest.TestCase):
         )
         signing_seed_frame = _build_shard_frame(
             share_index=1,
-            share=b"\xaa" * 16,
+            share=b"\xaa" * 32,
             key_type=KEY_TYPE_SIGNING_SEED,
         )
         with mock.patch("ethernity.cli.flows.prompts.console.print"):

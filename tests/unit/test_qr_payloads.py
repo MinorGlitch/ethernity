@@ -32,6 +32,8 @@ class TestQrPayloads(unittest.TestCase):
         data = b"\x00\xffpayload"
         encoded = encode_qr_payload(data)
         self.assertIsInstance(encoded, str)
+        if not isinstance(encoded, str):
+            self.fail("expected base64 payload text")
         decoded = decode_qr_payload(encoded)
         self.assertEqual(decoded, data)
         decoded_bytes = decode_qr_payload(encoded.encode("ascii"))
@@ -55,6 +57,10 @@ class TestQrPayloads(unittest.TestCase):
     def test_decode_rejects_padded_base64(self) -> None:
         with self.assertRaisesRegex(ValueError, "invalid base64 QR payload"):
             decode_qr_payload("YQ==")
+
+    def test_decode_rejects_noncanonical_tail_bits(self) -> None:
+        with self.assertRaisesRegex(ValueError, "invalid base64 QR payload"):
+            decode_qr_payload("AB")
 
     def test_render_service_qr_payload_bound(self) -> None:
         config = SimpleNamespace()

@@ -63,13 +63,16 @@ def decode_zbase32(text: str) -> bytes:
     bits = 0
     bit_count = 0
     out = bytearray()
+    normalized_chars: list[str] = []
 
     for char in text:
         if char.isspace() or char == "-":
             continue
-        value = ZBASE32_LOOKUP.get(char.lower())
+        normalized_char = char.lower()
+        value = ZBASE32_LOOKUP.get(normalized_char)
         if value is None:
             raise ValueError(f"invalid z-base-32 character: {char!r}")
+        normalized_chars.append(normalized_char)
         bits = (bits << 5) | value
         bit_count += 5
         if bit_count >= 8:
@@ -77,4 +80,8 @@ def decode_zbase32(text: str) -> bytes:
             out.append((bits >> shift) & 0xFF)
             bit_count -= 8
             bits &= (1 << bit_count) - 1
-    return bytes(out)
+    decoded = bytes(out)
+    normalized = "".join(normalized_chars)
+    if encode_zbase32(decoded) != normalized:
+        raise ValueError("invalid z-base-32 text: non-canonical tail bits")
+    return decoded
