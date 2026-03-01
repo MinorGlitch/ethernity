@@ -41,6 +41,7 @@ chunk_size = 512
 # signing_key_shard_threshold = 2
 # signing_key_shard_count = 3
 # payload_codec = "auto" # one of: auto | raw | gzip
+# qr_payload_codec = "raw" # required: raw | base64
 base_dir = ""
 output_dir = ""
 shard_threshold = 0
@@ -49,6 +50,7 @@ signing_key_mode = "" # embedded | sharded
 signing_key_shard_threshold = 0
 signing_key_shard_count = 0
 payload_codec = "auto" # one of: auto | raw | gzip
+qr_payload_codec = "raw" # required: raw | base64
 
 [defaults.recover]
 # Default recover output path (file or directory).

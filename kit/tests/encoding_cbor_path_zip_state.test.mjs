@@ -13,6 +13,7 @@ import { reducer } from "../app/state/reducer.js";
 import { decodeCanonicalCbor, decodeCbor, encodeCbor } from "../lib/cbor.js";
 import {
   bytesEqual,
+  bytesToUnpaddedBase64,
   concatBytes,
   decodePayloadString,
   decodeZBase32,
@@ -51,6 +52,7 @@ test("encoding primitives enforce strict payload and varint rules", () => {
 
   assert.equal(bytesEqual(Uint8Array.of(1, 2), Uint8Array.of(1, 2)), true);
   assert.equal(bytesEqual(Uint8Array.of(1, 2), Uint8Array.of(1, 3)), false);
+  assert.equal(bytesToUnpaddedBase64(Uint8Array.of(97)), "YQ");
   assert.deepEqual(Array.from(concatBytes(Uint8Array.of(1), Uint8Array.of(2, 3))), [1, 2, 3]);
   assert.deepEqual(Array.from(hexToBytes("0a0b")), [10, 11]);
 });
