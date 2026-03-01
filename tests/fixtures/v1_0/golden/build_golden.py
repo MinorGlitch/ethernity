@@ -174,7 +174,10 @@ def _write_payloads_file(pdf_paths: list[Path], destination: Path) -> None:
             normalized.append(payload.decode("ascii"))
         else:
             normalized.append(payload)
-    destination.write_text("\n".join(normalized), encoding="utf-8")
+    if not normalized:
+        destination.write_text("", encoding="utf-8")
+        return
+    destination.write_text("\n".join(normalized) + "\n", encoding="utf-8")
 
 
 def _manifest_projection(payloads_file: Path, passphrase: str) -> dict[str, object]:
