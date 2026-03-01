@@ -32,6 +32,7 @@ from ethernity.render.fallback_text import format_zbase32_lines
 from tests.test_support import suppress_output
 
 TEST_SIGNING_SEED = b"\x11" * 32
+_CONFIG_PATH = Path(__file__).resolve().parents[2] / "src" / "ethernity" / "config" / "config.toml"
 
 
 class TestEndToEndSharding(unittest.TestCase):
@@ -89,6 +90,7 @@ class TestEndToEndSharding(unittest.TestCase):
 
             output_path = tmp_path / "recovered.bin"
             args = RecoverArgs(
+                config=str(_CONFIG_PATH),
                 fallback_file=None,
                 payloads_file=str(frames_path),
                 scan=[],
@@ -161,6 +163,7 @@ class TestEndToEndSharding(unittest.TestCase):
 
             output_path = tmp_path / "recovered.bin"
             args = RecoverArgs(
+                config=str(_CONFIG_PATH),
                 fallback_file=None,
                 payloads_file=str(frames_path),
                 scan=[],
