@@ -228,7 +228,7 @@ test("parseAutoPayload rejects malformed frame encodings", () => {
     const state = createInitialState();
     assert.throws(
       () => parseAutoPayload(state, toUnpaddedBase64(frame)),
-      /(bad magic|unsupported frame version|non-canonical varint|crc mismatch|neither valid QR payloads nor valid fallback text)/
+      /(bad magic|unsupported frame version|non-canonical varint|crc mismatch|invalid z-base-32 text: non-canonical tail bits|neither valid QR payloads nor valid fallback text)/
     );
   }
 });
