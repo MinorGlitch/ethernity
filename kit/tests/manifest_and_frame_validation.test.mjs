@@ -274,6 +274,20 @@ test("extractFiles rejects gzip payload_raw_len mismatch", async () => {
   );
 });
 
+test("extractFiles rejects gzip expansion beyond declared payload_raw_len", async () => {
+  const rawPayload = new Uint8Array(2048).fill(0x41);
+  const compressedPayload = gzipPayload(rawPayload);
+  const manifest = {
+    ...validManifest(Uint8Array.of(0x41)),
+    payload_codec: "gzip",
+    payload_raw_len: 1,
+  };
+  await assert.rejects(
+    () => extractFiles(buildEnvelope(manifest, compressedPayload)),
+    /decoded payload exceeds manifest payload_raw_len/
+  );
+});
+
 test("extractFiles rejects unsupported manifest payload codecs", async () => {
   const payload = Uint8Array.of(1, 2, 3);
   const manifest = {

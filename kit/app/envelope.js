@@ -312,13 +312,50 @@ function buildManifestEntry({ path, size, sha, mtime }) {
   return { path: normalizedPath, size, sha, mtime };
 }
 
-async function gunzipBytes(bytes) {
+async function gunzipBytesBounded(bytes, maxLength) {
   if (typeof DecompressionStream !== "function") {
     throw new Error("gzip payload requires DecompressionStream support");
   }
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
-  const buffer = await new Response(stream).arrayBuffer();
-  return new Uint8Array(buffer);
+  const reader = stream.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) {
+        break;
+      }
+      if (!(value instanceof Uint8Array)) {
+        continue;
+      }
+      total += value.length;
+      if (total > maxLength) {
+        throw new Error("decoded payload exceeds manifest payload_raw_len");
+      }
+      chunks.push(value);
+    }
+  } catch (err) {
+    try {
+      await reader.cancel();
+    } catch {
+      // Ignore cancellation failures while surfacing the primary decode error.
+    }
+    if (err instanceof Error && err.message === "decoded payload exceeds manifest payload_raw_len") {
+      throw err;
+    }
+    throw new Error("invalid gzip payload");
+  } finally {
+    reader.releaseLock();
+  }
+
+  const decoded = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    decoded.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return decoded;
 }
 
 async function decodePayloadFromManifest(parsedManifest, payload) {
@@ -337,7 +374,7 @@ async function decodePayloadFromManifest(parsedManifest, payload) {
       `manifest payload_raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES (${MAX_DECOMPRESSED_PAYLOAD_BYTES}): ${expectedLen}`
     );
   }
-  const decoded = await gunzipBytes(payload);
+  const decoded = await gunzipBytesBounded(payload, expectedLen);
   if (decoded.length !== expectedLen) {
     throw new Error("decoded payload length does not match manifest payload_raw_len");
   }
