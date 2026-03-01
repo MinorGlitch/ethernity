@@ -41,12 +41,9 @@ DEFAULT_KIT_TEMPLATE_PATH = PACKAGE_ROOT / "templates/ledger/kit_document.html.j
 DEFAULT_TEMPLATE_STYLE = DEFAULT_TEMPLATE_PATH.parent.name
 SUPPORTED_TEMPLATE_DESIGNS = (
     "archive",
-    "dossier",
     "forge",
     "ledger",
     "maritime",
-    "midnight",
-    "monograph",
     "sentinel",
 )
 TEMPLATE_FILENAMES = (
