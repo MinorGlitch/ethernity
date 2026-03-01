@@ -63,53 +63,103 @@
 {% for page in pages %}
   <section class="print-sheet flex flex-col p-[15mm] border border-gray-100">
     {% if page.instructions_full_page %}
-    {% set forge_header_title = copy.title %}
-    {% set forge_header_subtitle = copy.subtitle %}
-    {% set forge_header_kicker = 'The Forge // Secure Offline Storage' %}
-    {% set forge_header_classification = 'Offline Processing Required' %}
-    {% set forge_header_guidance = copy.header_guidance %}
-    {% set forge_header_ref = doc_id %}
-    {% set forge_header_icon = 'token' %}
-    {% include 'partials/forge_shell_header.j2' %}
+    <div class="flex-1 border-2 border-slate-200 bg-slate-50/50 p-6 flex flex-col gap-5">
+      <div class="border-b-2 border-slate-300 pb-3">
+        <h2 class="font-serif text-2xl font-bold uppercase tracking-tight text-slate-900">
+          How to Rebuild the Recovery Kit
+        </h2>
+        <p class="mt-1 text-sm text-slate-700">
+          Use this page after scanning the QR pages. Keep everything offline.
+        </p>
+      </div>
 
-    <div class="border-l-4 border-primary bg-blue-50 p-4 mb-8">
-      <div class="flex gap-3">
-        <span class="material-symbols-outlined text-primary text-xl">warning</span>
-        <div>
-          <h3 class="font-bold text-gray-900 text-sm uppercase mb-1">{{ copy.warning_title }}</h3>
-          <p class="text-sm text-gray-700 leading-relaxed">
-            {{ copy.warning_body }}
-          </p>
-          <p class="mt-2 text-xs text-gray-600 inline-flex items-center gap-1">
-            <span class="material-symbols-outlined text-sm">qr_code_2</span>
-            Verify every scan in offline mode.
-          </p>
+      <div class="grid flex-1 grid-cols-2 gap-6">
+        <div class="space-y-4">
+          <div>
+            <h3 class="inline-flex items-center gap-2 border border-slate-900 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-900">
+              <span class="material-symbols-outlined text-sm">hub</span>
+              Scan + Assemble
+            </h3>
+            <div class="mt-3 space-y-2 text-sm text-slate-800">
+              <div class="flex items-start gap-2"><span class="material-symbols-outlined text-sm text-slate-500">adjust</span><span>Scan every QR code left to right, top to bottom.</span></div>
+              <div class="flex items-start gap-2"><span class="material-symbols-outlined text-sm text-slate-500">adjust</span><span>Save each decoded chunk in order. Do not insert spaces or blank lines.</span></div>
+              <div class="flex items-start gap-2"><span class="material-symbols-outlined text-sm text-slate-500">adjust</span><span>Concatenate the chunks into one continuous file.</span></div>
+              <div class="flex items-start gap-2"><span class="material-symbols-outlined text-sm text-slate-500">adjust</span><span>Name the file exactly: <span class="font-mono">recovery_kit.bundle.html</span></span></div>
+            </div>
+          </div>
+
+          <div>
+            <h3 class="inline-flex items-center gap-2 border border-slate-900 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-900">
+              <span class="material-symbols-outlined text-sm">language</span>
+              Open the Kit
+            </h3>
+            <div class="mt-3 space-y-2 text-sm text-slate-800">
+              <div class="flex items-start gap-2"><span class="material-symbols-outlined text-sm text-slate-500">adjust</span><span>Open <span class="font-mono">recovery_kit.bundle.html</span> in a browser while offline.</span></div>
+              <div class="flex items-start gap-2"><span class="material-symbols-outlined text-sm text-slate-500">adjust</span><span>If the file is large, wait for it to finish loading.</span></div>
+              <div class="flex items-start gap-2"><span class="material-symbols-outlined text-sm text-slate-500">adjust</span><span>Follow the on-screen prompts to recover your payload.</span></div>
+            </div>
+          </div>
+
+          <div>
+            <h3 class="inline-flex items-center gap-2 border border-slate-900 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-900">
+              <span class="material-symbols-outlined text-sm">build</span>
+              Troubleshooting
+            </h3>
+            <ul class="mt-3 list-disc list-inside space-y-1 text-sm text-slate-800">
+              <li>If the kit does not load, re-check chunk order and re-save the file.</li>
+              <li>Try another browser if rendering stalls.</li>
+              <li>Confirm the file size matches the sum of all QR chunks.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="space-y-3">
+          <div class="border border-slate-300 bg-white p-3">
+            <p class="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-900">Verify</p>
+            <p class="mt-1 text-sm text-slate-800">Confirm the kit loads and shows the Recovery Kit home screen.</p>
+            <p class="mt-1 text-sm text-slate-700">If it fails to open, re-check the order and re-save the file.</p>
+          </div>
+          <div class="border border-slate-300 bg-white p-3">
+            <p class="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-900">Storage</p>
+            <p class="mt-1 text-sm text-slate-800">Keep the QR pages and the bundle file in separate locations.</p>
+            <p class="mt-1 text-sm text-slate-700">Store the bundle on a write-protected drive if possible.</p>
+          </div>
+          <div class="border border-slate-300 bg-white p-3">
+            <p class="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-900">Security</p>
+            <p class="mt-1 text-sm text-slate-800">Work offline and on a trusted machine.</p>
+            <p class="mt-1 text-sm text-slate-700">Delete temporary files after successful recovery.</p>
+          </div>
+
+          <div class="border border-slate-300 bg-white p-3">
+            <h3 class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-900 mb-2">
+              <span class="material-symbols-outlined text-sm">verified_user</span>
+              {{ copy.checklist_label }}
+            </h3>
+            <div class="space-y-2">
+              {% for line in instructions.lines %}
+              <div class="flex items-start gap-2 text-sm text-slate-800">
+                <span class="material-symbols-outlined text-base text-slate-500">check_box_outline_blank</span>
+                <span>{{ line }}</span>
+              </div>
+              {% endfor %}
+              {% if instructions.scan_hint %}
+              <div class="flex items-start gap-2 text-sm text-slate-800">
+                <span class="material-symbols-outlined text-base text-slate-500">check_box_outline_blank</span>
+                <span>{{ instructions.scan_hint }}</span>
+              </div>
+              {% endif %}
+              <div class="flex items-start gap-2 text-sm text-slate-800">
+                <span class="material-symbols-outlined text-base text-slate-500">check_box_outline_blank</span>
+                <span>Recovery completed and data verified.</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div class="mb-10">
-      <h2 class="text-lg font-bold text-gray-900 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4 flex items-center gap-2">
-        <span class="material-symbols-outlined text-lg">verified_user</span>
-        {{ copy.checklist_label }}
-      </h2>
-      <div class="grid grid-cols-1 gap-y-4">
-        {% for line in instructions.lines %}
-        <div class="flex items-start gap-4 p-3 border border-gray-100 rounded bg-gray-50/50">
-          <span class="material-symbols-outlined text-[22px] text-gray-500 mt-0.5">check_box_outline_blank</span>
-          <div>
-            <p class="text-sm font-semibold text-gray-900">{{ line }}</p>
-          </div>
-        </div>
-        {% endfor %}
-        {% if instructions.scan_hint %}
-        <div class="flex items-start gap-4 p-3 border border-gray-100 rounded bg-gray-50/50">
-          <span class="material-symbols-outlined text-[22px] text-gray-500 mt-0.5">check_box_outline_blank</span>
-          <div>
-            <p class="text-sm font-semibold text-gray-900">{{ instructions.scan_hint }}</p>
-          </div>
-        </div>
-        {% endif %}
+      <div class="border-t border-slate-300 pt-3 flex items-center justify-between text-[10px] uppercase tracking-[0.12em] text-slate-600">
+        <span>Recovery Kit: offline HTML bundle</span>
+        <span>Document ID: <span class="font-mono normal-case tracking-normal text-slate-700">{{ doc_id }}</span></span>
       </div>
     </div>
     {% else %}
@@ -160,6 +210,7 @@
     {% endif %}
     {% endif %}
 
+    {% if not page.instructions_full_page %}
     <section class="mt-auto pt-8 border-t border-gray-200 flex justify-between items-end mb-4">
       <div class="text-xs text-gray-400">
         <p>{{ forge_copy.protocol_label }} {{ forge_copy.version }}</p>
@@ -176,10 +227,8 @@
         </div>
       </div>
     </section>
+    {% endif %}
 
-    {% set forge_footer_left = forge_copy.generator_label %}
-    {% set forge_footer_right = copy.footer_guidance %}
-    {% include 'partials/forge_shell_footer.j2' %}
   </section>
 {% endfor %}
 </body>

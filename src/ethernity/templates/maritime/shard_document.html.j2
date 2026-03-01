@@ -357,21 +357,101 @@
     {{ divider(page) }}
 
     {% if page.page_num == 1 %}
-    <div class="instructions" style="top: {{ page.instructions_y_mm }}mm;">
+    <div class="instructions" style="top: {{ page.instructions_y_mm + 8.0 }}mm;">
       <div class="instructions-label">{{ instructions.label }}</div>
       <div>
         {{ instructions_lines(instructions.lines) }}
       </div>
     </div>
     {% endif %}
+    {% if page.qr_items and page.qr_grid and page.qr_outline and (page.qr_items | length) == 1 %}
+    {% set single_qr_outline_left_mm = ((page_width_mm - page.qr_outline.width_mm) / 2) %}
+    {% set single_qr_top_bound_mm = page.qr_outline.y_mm %}
+    {% if page.page_num == 1 %}
+    {% set single_qr_min_top_mm = page.instructions_y_mm + 8.0 + 13.0 %}
+    {% if single_qr_min_top_mm > single_qr_top_bound_mm %}
+    {% set single_qr_top_bound_mm = single_qr_min_top_mm %}
+    {% endif %}
+    {% endif %}
+    {% set single_fallback_gap_mm = 8.0 %}
+    {% set single_fallback_top_mm = none %}
+    {% if page.fallback_blocks %}
+    {% set single_fallback_min_top_mm = page.fallback_blocks[0].y_mm + (page.fallback_blocks[0].height_mm * 0.5) %}
+    {% set single_qr_bottom_bound_mm = single_fallback_min_top_mm - single_fallback_gap_mm %}
+    {% else %}
+    {% set single_qr_bottom_bound_mm = page_height_mm - margin_mm %}
+    {% endif %}
+    {% set single_qr_outline_top_mm = single_qr_top_bound_mm + ((single_qr_bottom_bound_mm - single_qr_top_bound_mm - page.qr_outline.height_mm) / 2) %}
+    {% if single_qr_outline_top_mm < single_qr_top_bound_mm %}
+    {% set single_qr_outline_top_mm = single_qr_top_bound_mm %}
+    {% endif %}
+    {% if page.fallback_blocks %}
+    {% set single_fallback_top_mm = single_qr_outline_top_mm + page.qr_outline.height_mm + single_fallback_gap_mm %}
+    {% if single_fallback_top_mm < single_fallback_min_top_mm %}
+    {% set single_fallback_top_mm = single_fallback_min_top_mm %}
+    {% endif %}
+    {% endif %}
+    {% set single_qr_dx_mm = single_qr_outline_left_mm - page.qr_outline.x_mm %}
+    {% set single_qr_dy_mm = single_qr_outline_top_mm - page.qr_outline.y_mm %}
+    <div
+      class="qr-grid"
+      style="left: {{ single_qr_outline_left_mm }}mm; top: {{ single_qr_outline_top_mm }}mm; width: {{ page.qr_outline.width_mm }}mm; height: {{ page.qr_outline.height_mm }}mm;"
+    ></div>
+    {% elif page.qr_outline %}
+    <div
+      class="qr-grid"
+      style="left: {{ ((page_width_mm - page.qr_outline.width_mm) / 2) }}mm; top: {{ page.qr_outline.y_mm }}mm; width: {{ page.qr_outline.width_mm }}mm; height: {{ page.qr_outline.height_mm }}mm;"
+    ></div>
+    {% endif %}
 
-    {{ qr_grid(page) }}
-
+    {% if not (page.qr_items and page.qr_grid and page.qr_outline and (page.qr_items | length) == 1) %}
     {{ qr_sequence(page, page_width_mm, page_height_mm) }}
+    {% endif %}
 
-    {{ qr_grid_items(page, show_index=true) }}
+    {% if page.qr_items and page.qr_grid and page.qr_outline and (page.qr_items | length) == 1 %}
+    <div
+      class="qr-grid-items"
+      style="left: {{ page.qr_grid.x_mm + single_qr_dx_mm }}mm; top: {{ page.qr_grid.y_mm + single_qr_dy_mm }}mm; --qr-size: {{ page.qr_grid.size_mm }}mm; --qr-gap-x: {{ page.qr_grid.gap_x_mm }}mm; --qr-gap-y: {{ page.qr_grid.gap_y_mm }}mm; --qr-cols: {{ page.qr_grid.cols }};"
+    >
+      {% for slot in page.qr_items %}
+      <div class="qr-cell">
+        <div class="qr-card">
+          <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% elif page.qr_items and page.qr_grid %}
+    <div
+      class="qr-grid-items"
+      style="left: {{ ((page_width_mm - ((page.qr_grid.cols * page.qr_grid.size_mm) + ((page.qr_grid.cols - 1) * page.qr_grid.gap_x_mm))) / 2) }}mm; top: {{ page.qr_grid.y_mm }}mm; --qr-size: {{ page.qr_grid.size_mm }}mm; --qr-gap-x: {{ page.qr_grid.gap_x_mm }}mm; --qr-gap-y: {{ page.qr_grid.gap_y_mm }}mm; --qr-cols: {{ page.qr_grid.cols }};"
+    >
+      {% for slot in page.qr_items %}
+      <div class="qr-cell">
+        <div class="qr-card">
+          <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
 
+    {% if page.qr_items and page.qr_grid and page.qr_outline and (page.qr_items | length) == 1 and page.fallback_blocks %}
+    {%- for block in page.fallback_blocks %}
+    <div class="fallback" style="top: {{ (single_fallback_top_mm if loop.first else block.y_mm) }}mm;{% if loop.first %} height: {{ (page_height_mm - margin_mm - single_fallback_top_mm) }}mm;{% endif %}">
+      {%- if block.title %}
+      <div class="fallback-title">{{ block.title }}</div>
+      {%- endif %}
+      <div class="fallback-lines" style="counter-reset: line {{ block.line_offset | default(0) }};">
+        {%- for line in block.lines %}
+        <div class="fallback-line">{{ line }}</div>
+        {%- endfor %}
+      </div>
+    </div>
+    {%- endfor %}
+    {% else %}
     {{ fallback_blocks(page) }}
+    {% endif %}
   </section>
 {% endfor %}
 </body>
