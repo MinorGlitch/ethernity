@@ -165,6 +165,9 @@ jobs:
 
               runs = payload.get("workflow_runs", [])
               if runs:
+                  # Release gating policy: require the latest CI run for this commit SHA
+                  # to be green. We intentionally do not allow an older successful run
+                  # to satisfy the gate after a newer run fails/cancels.
                   latest = runs[0]
                   latest_status = str(latest.get("status") or "unknown")
                   latest_conclusion = str(latest.get("conclusion") or "unknown")
