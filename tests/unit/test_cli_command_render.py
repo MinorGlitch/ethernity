@@ -131,7 +131,7 @@ class TestRenderCommand(unittest.TestCase):
         expanduser_cli_path.assert_called_once_with(Path("~/out.pdf"), preserve_stdin=False)
         render_html_to_pdf.assert_called_once_with("<html />", Path("/tmp/expanded.pdf"))
         render_envelope_docx.assert_not_called()
-        print_mock.assert_called_once_with("/tmp/expanded.pdf")
+        print_mock.assert_called_once_with(str(Path("/tmp/expanded.pdf")))
 
     @mock.patch("ethernity.cli.commands.render.console.print")
     @mock.patch("ethernity.cli.commands.render.render_envelope_docx")
