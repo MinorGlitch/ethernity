@@ -204,96 +204,6 @@ class TestJinjaTemplates(unittest.TestCase):
         _inject_copy(context, template_name=template_name)
         return render_template(template_path, context)
 
-    def _render_monograph_template(self, template_name: str) -> str:
-        template_path = _ETHERNITY_ROOT / "templates" / "monograph" / template_name
-        context = _base_document_context()
-        if template_name == "main_document.html.j2":
-            context["pages"] = [_page_with_qr(page_num=1, page_label="Page 1 / 1")]
-            context["doc"] = {"title": "Main Document", "subtitle": _MAIN_SUBTITLE}
-        elif template_name == "recovery_document.html.j2":
-            context["pages"] = [
-                {
-                    **_page_base(page_num=1, page_label="Page 1 / 2"),
-                    "fallback_blocks": [
-                        {
-                            "title": "AUTH FRAME",
-                            "lines": [f"line-{idx:02d}" for idx in range(1, 8)],
-                            "line_offset": 0,
-                            "y_mm": 90.0,
-                            "height_mm": 80.0,
-                        }
-                    ],
-                },
-                {
-                    **_page_base(page_num=2, page_label="Page 2 / 2"),
-                    "show_instructions": False,
-                    "fallback_blocks": [
-                        {
-                            "title": None,
-                            "lines": [f"line-{idx:02d}" for idx in range(8, 18)],
-                            "line_offset": 7,
-                            "y_mm": 90.0,
-                            "height_mm": 80.0,
-                        }
-                    ],
-                },
-            ]
-            context["doc"] = {"title": "Recovery Document", "subtitle": "Keys + Text Fallback"}
-        elif template_name == "kit_document.html.j2":
-            context["pages"] = [
-                _page_with_qr(page_num=1, page_label="Page 1 / 2"),
-                {
-                    **_page_base(page_num=2, page_label="Page 2 / 2"),
-                    "instructions_full_page": True,
-                },
-            ]
-            context["doc"] = {"title": "Recovery Kit", "subtitle": "Offline HTML bundle"}
-            context["instructions"] = {
-                "label": "Instructions",
-                "lines": ["A", "B"],
-                "scan_hint": "Start at the top-left and follow each row.",
-            }
-        elif template_name == "kit_index_document.html.j2":
-            context["pages"] = [_page_with_qr(page_num=1, page_label="Page 1 / 1")]
-            context["doc"] = {"title": "Recovery Kit", "subtitle": "Offline HTML bundle"}
-            context["inventory_rows"] = [
-                {
-                    "component_id": "QR-DOC-01",
-                    "detail": "Encrypted payload and auth QR frames",
-                    "status": "Generated",
-                },
-                {
-                    "component_id": "RECOVERY-DOC-01",
-                    "detail": "Recovery keys and full fallback text",
-                    "status": "Generated",
-                },
-            ]
-        elif template_name in {"shard_document.html.j2", "signing_key_shard_document.html.j2"}:
-            context["pages"] = [
-                {
-                    **_page_with_qr(page_num=1, page_label="Page 1 / 1"),
-                    "fallback_blocks": [
-                        {
-                            "title": "MAIN",
-                            "lines": ["aaaa bbbb cccc dddd", "eeee ffff gggg hhhh"],
-                            "line_offset": 0,
-                            "y_mm": 90.0,
-                            "height_mm": 80.0,
-                        }
-                    ],
-                }
-            ]
-            context["doc"] = {
-                "title": "Signing Key Shard"
-                if template_name == "signing_key_shard_document.html.j2"
-                else "Shard Document",
-                "subtitle": "Shard 1 of 3",
-            }
-        else:
-            raise AssertionError(f"unexpected monograph template: {template_name}")
-        _inject_copy(context, template_name=template_name)
-        return render_template(template_path, context)
-
     def _render_forge_template(self, template_name: str) -> str:
         template_path = _ETHERNITY_ROOT / "templates" / "forge" / template_name
         context = _base_document_context()
@@ -474,6 +384,66 @@ class TestJinjaTemplates(unittest.TestCase):
             self.assertIn("base64,", rendered, str(template_path))
             self.assertIn(prefix, rendered, str(template_path))
 
+    def test_archive_kit_template_omits_footer(self) -> None:
+        template_path = _ETHERNITY_ROOT / "templates" / "archive" / "kit_document.html.j2"
+        source = template_path.read_text(encoding="utf-8")
+
+        self.assertNotIn("margin-bottom: auto;", source)
+        self.assertIn("--qr-size: {{ page.qr_grid.size_mm }}mm;", source)
+        self.assertNotIn('<footer class="footer">', source)
+
+    def test_archive_recovery_hex_entropy_panel_first_page_only(self) -> None:
+        template_path = _ETHERNITY_ROOT / "templates" / "archive" / "recovery_document.html.j2"
+        context = _base_document_context()
+        context["doc"] = {"title": "Recovery Document", "subtitle": "Keys + Text Fallback"}
+        context["pages"] = [
+            {
+                **_page_base(page_num=1, page_label="Page 1 / 2"),
+                "fallback_blocks": [
+                    {
+                        "title": "AUTH FRAME",
+                        "lines": [f"line-{idx:02d}" for idx in range(1, 5)],
+                        "line_offset": 0,
+                        "y_mm": 90.0,
+                        "height_mm": 40.0,
+                    }
+                ],
+            },
+            {
+                **_page_base(page_num=2, page_label="Page 2 / 2"),
+                "show_instructions": False,
+                "fallback_blocks": [
+                    {
+                        "title": "MAIN FRAME",
+                        "lines": [f"line-{idx:02d}" for idx in range(5, 9)],
+                        "line_offset": 4,
+                        "y_mm": 90.0,
+                        "height_mm": 40.0,
+                    }
+                ],
+            },
+        ]
+        context["recovery"] = {
+            "passphrase": None,
+            "passphrase_lines": [],
+            "quorum_value": None,
+            "signing_pub_lines": ["ab12 cd34 ef56 7890", "1122 3344 5566 7788"],
+        }
+        _inject_copy(context, template_name=template_path.name)
+        rendered = render_template(template_path, context)
+
+        self.assertEqual(rendered.count("Raw Hex Entropy"), 1)
+
+    def test_ledger_kit_template_uses_expanded_instructions_page(self) -> None:
+        template_path = _ETHERNITY_ROOT / "templates" / "ledger" / "kit_document.html.j2"
+        source = template_path.read_text(encoding="utf-8")
+
+        self.assertIn('class="instructions-page"', source)
+        self.assertIn("How to Rebuild the Recovery Kit", source)
+        self.assertIn("instructions-checklist", source)
+        self.assertIn("{% if not page.instructions_full_page %}", source)
+        self.assertIn("--stamp: #2b3f46;", source)
+
     def test_forge_qr_labels_use_global_slot_index(self) -> None:
         context = _base_document_context()
         context["doc"] = {"title": "Main Document", "subtitle": _MAIN_SUBTITLE}
@@ -542,7 +512,10 @@ class TestJinjaTemplates(unittest.TestCase):
                 rendered = self._render_forge_template(template_name)
                 self.assertIn("DOC ID:", rendered)
                 self.assertIn("GENERATED (UTC):", rendered)
-                self.assertIn("Ethernity v0.2.2", rendered)
+                if template_name == "kit_document.html.j2":
+                    self.assertNotIn("Ethernity v0.2.2", rendered)
+                else:
+                    self.assertIn("Ethernity v0.2.2", rendered)
 
         combined_rendered = "".join(self._render_forge_template(name) for name in forge_templates)
         self.assertNotIn("UNIQUE ID:", combined_rendered)
@@ -733,7 +706,10 @@ class TestJinjaTemplates(unittest.TestCase):
             with self.subTest(template=template_name):
                 rendered = self._render_forge_template(template_name)
                 self.assertIn("forge-shell-header", rendered)
-                self.assertIn("forge-shell-footer", rendered)
+                if template_name == "kit_document.html.j2":
+                    self.assertNotIn("forge-shell-footer", rendered)
+                else:
+                    self.assertIn("forge-shell-footer", rendered)
 
     def test_forge_recovery_uses_same_shell_on_continuation_pages(self) -> None:
         rendered = self._render_forge_template("recovery_document.html.j2")
@@ -742,10 +718,10 @@ class TestJinjaTemplates(unittest.TestCase):
 
     def test_forge_kit_pages_use_shared_shell_for_qr_and_instructions(self) -> None:
         rendered = self._render_forge_template("kit_document.html.j2")
-        self.assertEqual(rendered.count("forge-shell-header"), 2)
-        self.assertEqual(rendered.count("forge-shell-footer"), 2)
+        self.assertEqual(rendered.count("forge-shell-header"), 1)
+        self.assertEqual(rendered.count("forge-shell-footer"), 0)
         self.assertIn("Page 1 / 2", rendered)
-        self.assertIn("Page 2 / 2", rendered)
+        self.assertNotIn("Page 2 / 2", rendered)
 
     def test_forge_kit_index_uses_single_shell_footer_on_all_pages(self) -> None:
         forge_root = _ETHERNITY_ROOT / "templates" / "forge"
@@ -859,138 +835,6 @@ class TestJinjaTemplates(unittest.TestCase):
         shard_rendered = self._render_sentinel_template("shard_document.html.j2")
         self.assertIn("Recovery requires 2/3 shards.", shard_rendered)
 
-    def test_monograph_templates_use_shared_shell_hooks(self) -> None:
-        monograph_templates = [
-            "main_document.html.j2",
-            "recovery_document.html.j2",
-            "kit_document.html.j2",
-            "kit_index_document.html.j2",
-            "shard_document.html.j2",
-            "signing_key_shard_document.html.j2",
-        ]
-        for template_name in monograph_templates:
-            with self.subTest(template=template_name):
-                rendered = self._render_monograph_template(template_name)
-                self.assertIn("monograph-shell-header", rendered)
-                self.assertIn("monograph-shell-footer", rendered)
-
-    def test_monograph_recovery_uses_same_shell_on_continuation_pages(self) -> None:
-        rendered = self._render_monograph_template("recovery_document.html.j2")
-        self.assertEqual(rendered.count("monograph-shell-header"), 2)
-        self.assertEqual(rendered.count("monograph-shell-footer"), 2)
-
-    def test_monograph_kit_pages_use_shared_shell_for_qr_and_instructions(self) -> None:
-        rendered = self._render_monograph_template("kit_document.html.j2")
-        self.assertEqual(rendered.count("monograph-shell-header"), 2)
-        self.assertEqual(rendered.count("monograph-shell-footer"), 2)
-        self.assertIn("Page 1 / 2", rendered)
-        self.assertIn("Page 2 / 2", rendered)
-
-    def test_monograph_main_section_labels_use_global_roman_indices(self) -> None:
-        template_path = _ETHERNITY_ROOT / "templates" / "monograph" / "main_document.html.j2"
-        context = _base_document_context()
-        context["doc"] = {"title": "Main Document", "subtitle": _MAIN_SUBTITLE}
-        context["pages"] = [
-            {
-                **_page_base(page_num=1, page_label="Page 1 / 2"),
-                "qr_items": [{"index": 9, "data_uri": "data:image/png;base64,AA=="}],
-            },
-            {
-                **_page_base(page_num=2, page_label="Page 2 / 2"),
-                "qr_items": [{"index": 14, "data_uri": "data:image/png;base64,AA=="}],
-            },
-        ]
-
-        _inject_copy(context, template_name=template_path.name)
-        rendered = render_template(template_path, context)
-        self.assertIn("Segment IX", rendered)
-        self.assertIn("Segment XIV", rendered)
-        self.assertNotIn("Segment 14", rendered)
-        self.assertNotIn("Custody Continuation", rendered)
-
-    def test_monograph_main_shell_header_precedes_directives_panel(self) -> None:
-        source = (_ETHERNITY_ROOT / "templates" / "monograph" / "main_document.html.j2").read_text(
-            encoding="utf-8"
-        )
-        header_pos = source.find("{% include 'partials/monograph_shell_header.j2' %}")
-        directives_pos = source.find("copy.directives_label")
-        self.assertGreaterEqual(header_pos, 0)
-        self.assertGreaterEqual(directives_pos, 0)
-        self.assertLess(header_pos, directives_pos)
-
-    def test_monograph_recovery_first_page_renders_lines_beyond_twelve(self) -> None:
-        template_path = _ETHERNITY_ROOT / "templates" / "monograph" / "recovery_document.html.j2"
-        context = _base_document_context()
-        context["doc"] = {"title": "Recovery Document", "subtitle": "Keys + Text Fallback"}
-        context["pages"] = [
-            {
-                **_page_base(page_num=1, page_label="Page 1 / 1"),
-                "fallback_blocks": [
-                    {
-                        "title": "AUTH FRAME",
-                        "lines": ["auth-01", "auth-02", "auth-03"],
-                        "line_offset": 0,
-                        "y_mm": 90.0,
-                        "height_mm": 80.0,
-                    },
-                    {
-                        "title": "MAIN",
-                        "lines": [f"main-{idx:02d}" for idx in range(1, 19)],
-                        "line_offset": 3,
-                        "y_mm": 140.0,
-                        "height_mm": 120.0,
-                    },
-                ],
-                "fallback_line_capacity": 34,
-            }
-        ]
-
-        _inject_copy(context, template_name=template_path.name)
-        rendered = render_template(template_path, context)
-        self.assertIn("main-13", rendered)
-        self.assertIn("main-18", rendered)
-
-    def test_monograph_fallback_templates_do_not_use_hard_line_truncation(self) -> None:
-        recovery_source = (
-            _ETHERNITY_ROOT / "templates" / "monograph" / "recovery_document.html.j2"
-        ).read_text(encoding="utf-8")
-        shard_source = (
-            _ETHERNITY_ROOT / "templates" / "monograph" / "shard_document.html.j2"
-        ).read_text(encoding="utf-8")
-        signing_source = (
-            _ETHERNITY_ROOT / "templates" / "monograph" / "signing_key_shard_document.html.j2"
-        ).read_text(encoding="utf-8")
-
-        self.assertNotIn("whitespace-nowrap overflow-hidden", recovery_source)
-        self.assertNotIn("whitespace-nowrap overflow-hidden", shard_source)
-        self.assertNotIn("whitespace-nowrap overflow-hidden", signing_source)
-        self.assertNotIn("text-ellipsis", shard_source)
-        self.assertNotIn("text-ellipsis", signing_source)
-
-    def test_monograph_shard_footer_uses_versioned_ethernity_label(self) -> None:
-        rendered = self._render_monograph_template("shard_document.html.j2")
-        self.assertIn("Ethernity v0.2.2", rendered)
-        self.assertIn("Single shard cannot recover the secret", rendered)
-        self.assertNotIn("Monograph Archival Systems", rendered)
-
-    def test_monograph_templates_use_local_tailwind_runtime(self) -> None:
-        tailwind_asset = (
-            _ETHERNITY_ROOT
-            / "templates"
-            / "_shared"
-            / "assets"
-            / "tailwindcss-playcdn-forms-container-queries.js"
-        )
-        self.assertTrue(tailwind_asset.is_file())
-
-        monograph_root = _ETHERNITY_ROOT / "templates" / "monograph"
-        for template_path in sorted(monograph_root.glob("*_document.html.j2")):
-            with self.subTest(template=template_path.name):
-                source = template_path.read_text(encoding="utf-8")
-                self.assertIn("monograph_tailwind_setup.j2", source)
-                self.assertNotIn("cdn.tailwindcss.com", source)
-                self.assertNotIn("fonts.googleapis.com", source)
-
     def test_cross_theme_doc_titles_and_subtitles_are_unified(self) -> None:
         expectations = {
             "main_document.html.j2": ("Main Document", "Passphrase-protected payload"),
@@ -1003,7 +847,6 @@ class TestJinjaTemplates(unittest.TestCase):
         renderers = (
             self._render_forge_template,
             self._render_sentinel_template,
-            self._render_monograph_template,
         )
         for template_name, (title, subtitle) in expectations.items():
             for render in renderers:
@@ -1016,7 +859,6 @@ class TestJinjaTemplates(unittest.TestCase):
         renderers = (
             self._render_forge_template,
             self._render_sentinel_template,
-            self._render_monograph_template,
         )
         for render in renderers:
             with self.subTest(renderer=render.__name__):
@@ -1028,7 +870,6 @@ class TestJinjaTemplates(unittest.TestCase):
         renderers = (
             self._render_forge_template,
             self._render_sentinel_template,
-            self._render_monograph_template,
         )
         for render in renderers:
             with self.subTest(renderer=render.__name__):

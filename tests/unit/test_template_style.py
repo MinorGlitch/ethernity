@@ -49,28 +49,6 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertAlmostEqual(maritime.content_offset.divider_gap_extra_mm, 7.0)
         self.assertEqual(maritime.content_offset.doc_types, frozenset({"recovery"}))
 
-        dossier = load_template_style(_TEMPLATES_ROOT / "dossier" / "main_document.html.j2")
-        self.assertEqual(dossier.name, "dossier")
-        self.assertAlmostEqual(dossier.header.meta_row_gap_mm, 1.4)
-        self.assertAlmostEqual(dossier.header.stack_gap_mm, 2.0)
-        self.assertAlmostEqual(dossier.header.divider_thickness_mm, 0.6)
-        self.assertAlmostEqual(dossier.content_offset.divider_gap_extra_mm, 7.0)
-        self.assertEqual(
-            dossier.content_offset.doc_types,
-            frozenset({"recovery", "kit", "shard", "signing_key_shard"}),
-        )
-
-        midnight = load_template_style(_TEMPLATES_ROOT / "midnight" / "main_document.html.j2")
-        self.assertEqual(midnight.name, "midnight")
-        self.assertAlmostEqual(midnight.header.meta_row_gap_mm, 1.0)
-        self.assertAlmostEqual(midnight.header.stack_gap_mm, 1.6)
-        self.assertAlmostEqual(midnight.header.divider_thickness_mm, 0.45)
-        self.assertAlmostEqual(midnight.content_offset.divider_gap_extra_mm, 7.0)
-        self.assertEqual(
-            midnight.content_offset.doc_types,
-            frozenset({"recovery", "kit", "shard", "signing_key_shard"}),
-        )
-
         forge = load_template_style(_TEMPLATES_ROOT / "forge" / "main_document.html.j2")
         self.assertEqual(forge.name, "forge")
         self.assertAlmostEqual(forge.header.meta_row_gap_mm, 1.2)
@@ -121,31 +99,6 @@ class TestTemplateStyle(unittest.TestCase):
             )
             self.assertAlmostEqual(
                 sentinel.capabilities.fallback_layout.shard.first_page_payload_zone_height_mm,
-                48.0,
-            )
-
-        monograph = load_template_style(_TEMPLATES_ROOT / "monograph" / "main_document.html.j2")
-        self.assertEqual(monograph.name, "monograph")
-        self.assertAlmostEqual(monograph.header.meta_row_gap_mm, 1.2)
-        self.assertAlmostEqual(monograph.header.stack_gap_mm, 1.2)
-        self.assertAlmostEqual(monograph.header.divider_thickness_mm, 0.5)
-        self.assertAlmostEqual(monograph.content_offset.divider_gap_extra_mm, 0.0)
-        self.assertEqual(monograph.content_offset.doc_types, frozenset())
-        self.assertFalse(monograph.capabilities.inject_forge_copy)
-        self.assertTrue(monograph.capabilities.repeat_primary_qr_on_shard_continuation)
-        self.assertTrue(monograph.capabilities.advanced_fallback_layout)
-        self.assertFalse(monograph.capabilities.extra_main_first_page_qr_slot)
-        self.assertTrue(monograph.capabilities.uniform_main_qr_capacity)
-        self.assertAlmostEqual(monograph.capabilities.main_qr_grid_size_mm or 0.0, 43.0)
-        self.assertEqual(monograph.capabilities.main_qr_grid_max_cols, 4)
-        self.assertIsNotNone(monograph.capabilities.fallback_layout)
-        if monograph.capabilities.fallback_layout is not None:
-            self.assertAlmostEqual(
-                monograph.capabilities.fallback_layout.recovery.first_page_footer_reserve_mm,
-                76.0,
-            )
-            self.assertAlmostEqual(
-                monograph.capabilities.fallback_layout.shard.first_page_payload_zone_height_mm,
                 48.0,
             )
 

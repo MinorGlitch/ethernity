@@ -601,6 +601,273 @@ class TestBuildPages(unittest.TestCase):
                 fallback_state=FallbackConsumerState(),
             )
 
+    def test_archive_recovery_extra_rows_do_not_apply_to_other_templates(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\xaa" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        archive_template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "archive"
+            / "recovery_document.html.j2"
+        )
+        ledger_template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "ledger"
+            / "recovery_document.html.j2"
+        )
+        archive_inputs = RenderInputs(
+            frames=frames,
+            template_path=archive_template_path,
+            output_path="out.pdf",
+            context={},
+            doc_type="recovery",
+            render_qr=False,
+            render_fallback=True,
+        )
+        ledger_inputs = RenderInputs(
+            frames=frames,
+            template_path=ledger_template_path,
+            output_path="out.pdf",
+            context={},
+            doc_type="recovery",
+            render_qr=False,
+            render_fallback=True,
+        )
+        sections = [
+            FallbackSectionData(
+                title="MAIN FRAME",
+                tokens=(
+                    "aaaaaaaaaa",
+                    "bbbbbbbbbb",
+                    "cccccccccc",
+                    "dddddddddd",
+                    "eeeeeeeeee",
+                ),
+                group_size=1,
+            ),
+        ]
+        layout = replace(
+            _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=10),
+            content_start_y=98.0,
+            line_height=1.0,
+            line_length=10,
+        )
+
+        archive_pages = build_pages(
+            inputs=archive_inputs,
+            spec=_spec(),
+            layout=layout,
+            layout_rest=layout,
+            fallback_lines=["L1"],
+            qr_image_builder=lambda idx: f"qr:{idx}",
+            fallback_sections_data=sections,
+            fallback_state=FallbackConsumerState(),
+        )
+        ledger_pages = build_pages(
+            inputs=ledger_inputs,
+            spec=_spec(),
+            layout=layout,
+            layout_rest=layout,
+            fallback_lines=["L1"],
+            qr_image_builder=lambda idx: f"qr:{idx}",
+            fallback_sections_data=sections,
+            fallback_state=FallbackConsumerState(),
+        )
+
+        self.assertEqual(len(archive_pages), 1)
+        self.assertEqual(len(ledger_pages), 3)
+        self.assertEqual(len(archive_pages[0].fallback_blocks[0].lines), 5)
+        self.assertEqual(len(ledger_pages[0].fallback_blocks[0].lines), 1)
+
+    def test_archive_recovery_continuation_pages_use_extra_rows(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\xbb" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        archive_template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "archive"
+            / "recovery_document.html.j2"
+        )
+        ledger_template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "ledger"
+            / "recovery_document.html.j2"
+        )
+        archive_inputs = RenderInputs(
+            frames=frames,
+            template_path=archive_template_path,
+            output_path="out.pdf",
+            context={},
+            doc_type="recovery",
+            render_qr=False,
+            render_fallback=True,
+        )
+        ledger_inputs = RenderInputs(
+            frames=frames,
+            template_path=ledger_template_path,
+            output_path="out.pdf",
+            context={},
+            doc_type="recovery",
+            render_qr=False,
+            render_fallback=True,
+        )
+        sections = [
+            FallbackSectionData(
+                title="MAIN FRAME",
+                tokens=tuple(f"{idx:010d}" for idx in range(1, 21)),
+                group_size=1,
+            ),
+        ]
+        layout = replace(
+            _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=10),
+            content_start_y=97.0,
+            line_height=1.0,
+            line_length=10,
+        )
+
+        archive_pages = build_pages(
+            inputs=archive_inputs,
+            spec=_spec(),
+            layout=layout,
+            layout_rest=layout,
+            fallback_lines=["L1"],
+            qr_image_builder=lambda idx: f"qr:{idx}",
+            fallback_sections_data=sections,
+            fallback_state=FallbackConsumerState(),
+        )
+        ledger_pages = build_pages(
+            inputs=ledger_inputs,
+            spec=_spec(),
+            layout=layout,
+            layout_rest=layout,
+            fallback_lines=["L1"],
+            qr_image_builder=lambda idx: f"qr:{idx}",
+            fallback_sections_data=sections,
+            fallback_state=FallbackConsumerState(),
+        )
+
+        self.assertGreaterEqual(len(archive_pages), 2)
+        self.assertGreaterEqual(len(ledger_pages), 2)
+        self.assertEqual(len(archive_pages[1].fallback_blocks[0].lines), 14)
+        self.assertEqual(len(ledger_pages[1].fallback_blocks[0].lines), 3)
+
+    def test_archive_recovery_uses_wider_group_wrapping_on_first_and_continuation_pages(
+        self,
+    ) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\xcc" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        archive_template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "archive"
+            / "recovery_document.html.j2"
+        )
+        ledger_template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "ledger"
+            / "recovery_document.html.j2"
+        )
+        archive_inputs = RenderInputs(
+            frames=frames,
+            template_path=archive_template_path,
+            output_path="out.pdf",
+            context={},
+            doc_type="recovery",
+            render_qr=False,
+            render_fallback=True,
+        )
+        ledger_inputs = RenderInputs(
+            frames=frames,
+            template_path=ledger_template_path,
+            output_path="out.pdf",
+            context={},
+            doc_type="recovery",
+            render_qr=False,
+            render_fallback=True,
+        )
+        sections = [
+            FallbackSectionData(
+                title="MAIN FRAME",
+                tokens=tuple(f"{idx:02d}" for idx in range(1, 81)),
+                group_size=2,
+            ),
+        ]
+        layout = replace(
+            _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=10),
+            content_start_y=97.0,
+            line_height=1.0,
+            line_length=10,
+        )
+
+        archive_pages = build_pages(
+            inputs=archive_inputs,
+            spec=_spec(),
+            layout=layout,
+            layout_rest=layout,
+            fallback_lines=["L1"],
+            qr_image_builder=lambda idx: f"qr:{idx}",
+            fallback_sections_data=sections,
+            fallback_state=FallbackConsumerState(),
+        )
+        ledger_pages = build_pages(
+            inputs=ledger_inputs,
+            spec=_spec(),
+            layout=layout,
+            layout_rest=layout,
+            fallback_lines=["L1"],
+            qr_image_builder=lambda idx: f"qr:{idx}",
+            fallback_sections_data=sections,
+            fallback_state=FallbackConsumerState(),
+        )
+
+        self.assertGreaterEqual(len(archive_pages), 2)
+        self.assertGreaterEqual(len(ledger_pages), 2)
+        archive_first_groups = len(archive_pages[0].fallback_blocks[0].lines[0].split())
+        ledger_first_groups = len(ledger_pages[0].fallback_blocks[0].lines[0].split())
+        archive_cont_groups = len(archive_pages[1].fallback_blocks[0].lines[0].split())
+        ledger_cont_groups = len(ledger_pages[1].fallback_blocks[0].lines[0].split())
+        self.assertGreater(archive_first_groups, ledger_first_groups)
+        self.assertGreater(archive_cont_groups, ledger_cont_groups)
+
 
 if __name__ == "__main__":
     unittest.main()
