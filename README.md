@@ -65,11 +65,10 @@ formats are documented, payload structures are explicit, and release artifacts i
 
 ## Status (Stable v1)
 
-- Until a `v1.0.0` release is published on GitHub Releases, Ethernity remains experimental.
-- Once `v1.0.0` is released, stable v1 backups and recovery artifacts follow the baseline in
-  `docs/format.md`.
-- From `v1.0.0` onward, future stable releases will maintain backward compatibility for stable v1
-  backups and recovery artifacts.
+- Ethernity is stable v1 software.
+- Stable v1 backups and recovery artifacts follow the baseline in `docs/format.md`.
+- Future stable releases maintain backward compatibility for stable v1 backups and recovery
+  artifacts.
 - Do not use Ethernity as your only backup path; run recovery drills and keep an independent backup.
 
 ## Who It's For / Not For

@@ -300,11 +300,10 @@ wheels = [
 
 [[package]]
 name = "ethernity-paper"
-version = "0.9.1"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "cbor2" },
-    { name = "coverage" },
     { name = "fpdf2" },
     { name = "jinja2" },
     { name = "pillow" },
@@ -343,7 +342,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cbor2", specifier = ">=5.8.0" },
-    { name = "coverage", specifier = ">=7.13.4" },
     { name = "coverage", marker = "extra == 'dev'", specifier = ">=7.13.4" },
     { name = "fpdf2", specifier = ">=2.8.6" },
     { name = "jinja2", specifier = ">=3.1.6" },
