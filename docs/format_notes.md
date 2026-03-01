@@ -90,10 +90,10 @@ Operational implications:
 - Input-admission policy is ciphertext-based: implementations may accept inputs larger than 1 MiB
   when pre-encryption compression allows the final ciphertext to stay within `MAX_CIPHERTEXT_BYTES`.
 
-## Optional Payload Compression Metadata (Manifest v1)
+## Payload Compression Metadata (Manifest v1)
 
-Stable v1 permits optional manifest metadata for payload storage coding without a version bump:
-- `payload_codec`: `"raw"` (default when omitted) or `"gzip"`
+Stable v1 uses manifest metadata for payload storage coding without a version bump:
+- `payload_codec`: required `"raw"` or `"gzip"`
 - `payload_raw_len`: required only when `payload_codec == "gzip"`
 
 Operational behavior:
@@ -104,7 +104,7 @@ Operational behavior:
   `MAX_DECOMPRESSED_PAYLOAD_BYTES` before decompression.
 
 Compatibility note:
-- Legacy artifacts without codec fields remain valid (`raw` by default).
+- Artifacts missing `payload_codec` are invalid under current stable-v1 decoder behavior.
 - Implementations that do not support `gzip` metadata may fail to recover gzip-coded envelopes.
 
 ## QR Payload Encoding Note

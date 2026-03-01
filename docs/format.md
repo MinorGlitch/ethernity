@@ -92,7 +92,7 @@ Constants:
   "seed": signing_seed,     // bytes or null (Ed25519 seed, 32 bytes)
   "input_origin": origin,   // string: "file", "directory", or "mixed"
   "input_roots": roots,     // list[str], directory source leaf labels
-  "payload_codec": codec,   // OPTIONAL string: "raw" or "gzip" (default "raw")
+  "payload_codec": codec,   // REQUIRED string: "raw" or "gzip"
   "payload_raw_len": n,     // OPTIONAL int, required when codec is "gzip"
   "path_encoding": mode,    // string: "direct" or "prefix_table"
   "path_prefixes": prefixes,// list[str], required when mode is "prefix_table"
@@ -125,11 +125,9 @@ Manifest requirements (map keys):
   - if `input_origin` is `"directory"` or `"mixed"`, `input_roots` MUST be non-empty
 - `path_encoding`: string in `{"direct", "prefix_table"}`
 - `payload_codec`:
-  - optional string in `{"raw", "gzip"}`
-  - when absent, decoders MUST treat it as `"raw"`
-  - encoders SHOULD emit `payload_codec` explicitly for all manifests
+  - required string in `{"raw", "gzip"}`
 - `payload_raw_len`:
-  - MUST be absent or null when `payload_codec` is `"raw"` (or absent)
+  - MUST be absent or null when `payload_codec` is `"raw"`
   - MUST be present and a positive int when `payload_codec` is `"gzip"`
   - MUST be ≤ `MAX_DECOMPRESSED_PAYLOAD_BYTES` (Section 17)
   - MUST equal `sum(files[i].size)`
@@ -213,7 +211,7 @@ Payload bytes MUST be the concatenation of file contents in ascending
 `normalize_path(reconstructed_path(entry))` order as defined in Section 3.
 The envelope payload storage representation is selected by manifest metadata:
 - raw mode:
-  - `payload_codec` absent or `"raw"`
+  - `payload_codec == "raw"`
   - envelope payload bytes are the raw concatenated payload bytes
 - gzip mode:
   - `payload_codec == "gzip"`
