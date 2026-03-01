@@ -195,7 +195,7 @@ def cli(
         runtime_defaults=cli_defaults.runtime,
     )
     if ctx.invoked_subcommand is None:
-        if not sys.stdin.isatty():
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
             console_err.print(
                 "[red]Error:[/red] No subcommand provided. "
                 "Run `ethernity --help` for available commands."

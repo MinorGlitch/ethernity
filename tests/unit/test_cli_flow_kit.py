@@ -71,13 +71,40 @@ class TestKitFlowHelpers(unittest.TestCase):
     def test_fits_qr_payload_false_on_error(self, _make_qr: mock.MagicMock) -> None:
         self.assertFalse(kit_module._fits_qr_payload(b"abc", QrConfig()))
 
-    def test_validate_qr_payload_bytes(self) -> None:
-        with self.assertRaisesRegex(ValueError, "chunk_size must be positive"):
-            kit_module._validate_qr_payload_bytes(0, b"abc", QrConfig())
+    def test_build_kit_qr_payloads_validates_each_payload_qr(self) -> None:
+        with (
+            mock.patch(
+                "ethernity.cli.flows.kit._extract_kit_bundle_loader_payload", return_value="p"
+            ),
+            mock.patch(
+                "ethernity.cli.flows.kit._split_kit_payload_chunks",
+                return_value=[b"chunk-1", b"chunk-2"],
+            ),
+            mock.patch("ethernity.cli.flows.kit._kit_shell_payload", return_value=b"shell"),
+            mock.patch("ethernity.cli.flows.kit._fits_qr_payload", return_value=True) as fits,
+        ):
+            payloads = kit_module._build_kit_qr_payloads(b"bundle", 120, QrConfig())
 
-        with mock.patch("ethernity.cli.flows.kit._fits_qr_payload", return_value=False):
+        self.assertEqual(payloads, [b"shell", b"chunk-1", b"chunk-2"])
+        self.assertEqual(fits.call_count, 3)
+
+    def test_build_kit_qr_payloads_rejects_chunk_that_does_not_fit(self) -> None:
+        with (
+            mock.patch(
+                "ethernity.cli.flows.kit._extract_kit_bundle_loader_payload", return_value="p"
+            ),
+            mock.patch(
+                "ethernity.cli.flows.kit._split_kit_payload_chunks",
+                return_value=[b"chunk-1", b"chunk-2"],
+            ),
+            mock.patch("ethernity.cli.flows.kit._kit_shell_payload", return_value=b"shell"),
+            mock.patch(
+                "ethernity.cli.flows.kit._fits_qr_payload",
+                side_effect=[True, True, False],
+            ),
+        ):
             with self.assertRaisesRegex(ValueError, "chunk_size is too large"):
-                kit_module._validate_qr_payload_bytes(100, b"abc", QrConfig())
+                kit_module._build_kit_qr_payloads(b"bundle", 120, QrConfig())
 
     def test_max_qr_payload_bytes_binary_search(self) -> None:
         cfg = QrConfig()
@@ -220,7 +247,6 @@ class TestRenderKitDocument(unittest.TestCase):
     @mock.patch("ethernity.cli.flows.kit.RenderService")
     @mock.patch("ethernity.cli.flows.kit.status", return_value=contextlib.nullcontext(None))
     @mock.patch("ethernity.cli.flows.kit._build_kit_qr_payloads", return_value=[b"shell", b"chunk"])
-    @mock.patch("ethernity.cli.flows.kit._validate_qr_payload_bytes")
     @mock.patch("ethernity.cli.flows.kit._load_kit_bundle", return_value=b"bundle-bytes")
     @mock.patch("ethernity.cli.flows.kit.apply_template_design")
     @mock.patch("ethernity.cli.flows.kit.load_app_config")
@@ -229,8 +255,7 @@ class TestRenderKitDocument(unittest.TestCase):
         load_app_config: mock.MagicMock,
         apply_template_design: mock.MagicMock,
         _load_kit_bundle: mock.MagicMock,
-        validate_qr_payload_bytes: mock.MagicMock,
-        _build_kit_qr_payloads: mock.MagicMock,
+        build_kit_qr_payloads: mock.MagicMock,
         _status: mock.MagicMock,
         render_service_cls: mock.MagicMock,
         render_frames_to_pdf: mock.MagicMock,
@@ -257,14 +282,13 @@ class TestRenderKitDocument(unittest.TestCase):
         self.assertEqual(result.output_path, Path(kit_module.DEFAULT_KIT_OUTPUT))
         self.assertEqual(result.chunk_count, 2)
         self.assertEqual(result.chunk_size, 256)
-        validate_qr_payload_bytes.assert_called_once_with(256, b"x" * 256, config.qr_config)
+        build_kit_qr_payloads.assert_called_once_with(b"bundle-bytes", 256, config.qr_config)
         render_frames_to_pdf.assert_called_once_with("inputs")
 
     @mock.patch("ethernity.cli.flows.kit.render_frames_to_pdf")
     @mock.patch("ethernity.cli.flows.kit.RenderService")
     @mock.patch("ethernity.cli.flows.kit.status", return_value=contextlib.nullcontext(None))
     @mock.patch("ethernity.cli.flows.kit._build_kit_qr_payloads", return_value=[b"shell", b"chunk"])
-    @mock.patch("ethernity.cli.flows.kit._validate_qr_payload_bytes")
     @mock.patch("ethernity.cli.flows.kit._load_kit_bundle", return_value=b"bundle-bytes")
     @mock.patch("ethernity.cli.flows.kit.apply_template_design")
     @mock.patch("ethernity.cli.flows.kit.load_app_config")
@@ -273,7 +297,6 @@ class TestRenderKitDocument(unittest.TestCase):
         load_app_config: mock.MagicMock,
         apply_template_design: mock.MagicMock,
         _load_kit_bundle: mock.MagicMock,
-        _validate_qr_payload_bytes: mock.MagicMock,
         _build_kit_qr_payloads: mock.MagicMock,
         _status: mock.MagicMock,
         render_service_cls: mock.MagicMock,
@@ -306,17 +329,15 @@ class TestRenderKitDocument(unittest.TestCase):
     @mock.patch("ethernity.cli.flows.kit.RenderService")
     @mock.patch("ethernity.cli.flows.kit.status", return_value=contextlib.nullcontext(None))
     @mock.patch("ethernity.cli.flows.kit._build_kit_qr_payloads", return_value=[b"shell", b"chunk"])
-    @mock.patch("ethernity.cli.flows.kit._validate_qr_payload_bytes")
     @mock.patch("ethernity.cli.flows.kit._load_kit_bundle", return_value=b"bundle-bytes")
     @mock.patch("ethernity.cli.flows.kit.apply_template_design")
     @mock.patch("ethernity.cli.flows.kit.load_app_config")
-    def test_render_kit_qr_document_explicit_chunk_size_uses_bounded_probe(
+    def test_render_kit_qr_document_explicit_chunk_size_uses_requested_size(
         self,
         load_app_config: mock.MagicMock,
         apply_template_design: mock.MagicMock,
         _load_kit_bundle: mock.MagicMock,
-        validate_qr_payload_bytes: mock.MagicMock,
-        _build_kit_qr_payloads: mock.MagicMock,
+        build_kit_qr_payloads: mock.MagicMock,
         _status: mock.MagicMock,
         render_service_cls: mock.MagicMock,
         render_frames_to_pdf: mock.MagicMock,
@@ -341,12 +362,35 @@ class TestRenderKitDocument(unittest.TestCase):
             quiet=True,
         )
 
-        validate_qr_payload_bytes.assert_called_once_with(
-            huge,
-            b"x" * kit_module._MAX_QR_PROBE_BYTES,
-            config.qr_config,
-        )
+        build_kit_qr_payloads.assert_called_once_with(b"bundle-bytes", huge, config.qr_config)
         render_frames_to_pdf.assert_called_once_with("inputs")
+
+    @mock.patch("ethernity.cli.flows.kit._load_kit_bundle")
+    @mock.patch("ethernity.cli.flows.kit.apply_template_design")
+    @mock.patch("ethernity.cli.flows.kit.load_app_config")
+    def test_render_kit_qr_document_rejects_invalid_variant_even_with_bundle(
+        self,
+        load_app_config: mock.MagicMock,
+        apply_template_design: mock.MagicMock,
+        load_kit_bundle: mock.MagicMock,
+    ) -> None:
+        config = SimpleNamespace(qr_config=QrConfig())
+        load_app_config.return_value = config
+        apply_template_design.return_value = config
+
+        with self.assertRaisesRegex(ValueError, "variant must be 'lean' or 'scanner'"):
+            kit_module.render_kit_qr_document(
+                bundle_path="custom.html",
+                output_path=None,
+                config_path=None,
+                paper_size=None,
+                design=None,
+                variant="notreal",
+                chunk_size=256,
+                quiet=True,
+            )
+
+        load_kit_bundle.assert_not_called()
 
 
 if __name__ == "__main__":

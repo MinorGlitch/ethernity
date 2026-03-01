@@ -137,7 +137,10 @@ def recover(
         typer.Option(
             "--output",
             "-o",
-            help="Output file/dir (default: stdout).",
+            help=(
+                "Output file/dir (default: stdout for single-file recovery; "
+                "multi-file recovery requires --output directory)."
+            ),
             rich_help_panel="Output",
         ),
     ] = None,

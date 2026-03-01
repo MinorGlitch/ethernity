@@ -35,6 +35,7 @@ from ...render.storage_paths import (
 from ...render.templating import render_template
 from ..api import console
 from ..core.common import _ctx_state, _run_cli
+from ..core.paths import expanduser_cli_path
 
 RenderTarget = Literal["envelope-c6", "envelope-c5", "envelope-dl"]
 RenderFormat = Literal["pdf", "docx"]
@@ -62,7 +63,8 @@ def register(app: typer.Typer) -> None:
 def render(
     ctx: typer.Context,
     target: Annotated[
-        RenderTarget, typer.Argument(help="What to render (currently: envelope-c6).")
+        RenderTarget,
+        typer.Argument(help="What to render (envelope-c6, envelope-c5, envelope-dl)."),
     ],
     orientation: Annotated[
         RenderOrientation,
@@ -104,7 +106,10 @@ def render(
     debug_value = state.debug if state is not None else False
 
     def _run() -> None:
-        output_path = output or Path.cwd() / f"{target}.{format}"
+        if output is None:
+            output_path = Path.cwd() / f"{target}.{format}"
+        else:
+            output_path = Path(expanduser_cli_path(output, preserve_stdin=False) or "")
         kind = _ENVELOPE_TARGETS[target]
         template_path = envelope_template_path(kind)
         page_width_mm, page_height_mm = envelope_page_size_mm(kind, orientation)

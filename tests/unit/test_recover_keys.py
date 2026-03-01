@@ -422,6 +422,37 @@ class TestPassphraseFromShardFrames(unittest.TestCase):
                     allow_unsigned=True,
                 )
 
+    def test_rejects_duplicate_share_index_with_mismatched_signature(self) -> None:
+        frames = [
+            self._shard_frame(doc_id=b"\x37" * DOC_ID_LEN),
+            self._shard_frame(doc_id=b"\x37" * DOC_ID_LEN),
+        ]
+        payloads = [
+            self._payload(share_index=1, share=b"A" * 16),
+            ShardPayload(
+                share_index=1,
+                threshold=2,
+                share_count=3,
+                key_type="passphrase",
+                share=b"A" * 16,
+                secret_len=16,
+                doc_hash=b"\x20" * 32,
+                sign_pub=b"p" * 32,
+                signature=b"t" * 64,
+            ),
+        ]
+        with mock.patch(
+            "ethernity.cli.keys.recover_keys.decode_shard_payload", side_effect=payloads
+        ):
+            with self.assertRaisesRegex(ValueError, "duplicate shard index with mismatched data"):
+                _passphrase_from_shard_frames(
+                    frames,
+                    expected_doc_id=b"\x37" * DOC_ID_LEN,
+                    expected_doc_hash=None,
+                    expected_sign_pub=None,
+                    allow_unsigned=True,
+                )
+
     def test_rejects_mismatched_thresholds(self) -> None:
         frames = [
             self._shard_frame(doc_id=b"\x38" * DOC_ID_LEN),
