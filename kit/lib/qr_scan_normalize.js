@@ -15,7 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { bytesToUnpaddedBase64, decodePayloadString } from "./encoding.js";
+import { decodePayloadString } from "./encoding.js";
 
 function asciiFromBytes(bytes) {
   let text = "";
@@ -38,13 +38,12 @@ export function normalizeJsQrPayload(hit) {
         const rawAscii = asciiFromBytes(bytes);
         const cleanedText = text.replace(/\s+/g, "");
         if (rawAscii !== null && rawAscii === cleanedText) {
-          return text;
+          return { text };
         }
       }
     }
-    const encoded = bytesToUnpaddedBase64(bytes);
-    if (encoded) return encoded;
+    return { bytes, text };
   }
-  if (text) return text;
+  if (text) return { text };
   return null;
 }
