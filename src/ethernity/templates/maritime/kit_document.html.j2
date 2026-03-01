@@ -466,6 +466,7 @@
 <body>
 {% for page in pages %}
   <section class="page">
+    {% if not page.instructions_full_page %}
     <div class="header">
       <div class="header-left">
         <div class="title">{{ doc.title }}</div>
@@ -483,6 +484,7 @@
       </div>
     </div>
     {{ divider(page) }}
+    {% endif %}
 
     {% if page.instructions_full_page %}
     <div class="instructions-page">

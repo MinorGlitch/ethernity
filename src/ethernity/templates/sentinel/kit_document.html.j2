@@ -71,6 +71,7 @@
     {% set sentinel_header_classification = 'Offline Processing Required' %}
     {% set sentinel_header_subtitle = copy.subtitle %}
     {% set sentinel_footer_guidance = copy.footer_guidance %}
+    {% set sentinel_hide_header = page.instructions_full_page %}
     {% include 'partials/sentinel_shell_header.j2' %}
 
     {% if not page.instructions_full_page %}
@@ -79,37 +80,104 @@
 
     <div class="relative z-10 flex flex-col flex-1 p-[15mm] pt-4 gap-5">
       {% if page.instructions_full_page %}
-      <div class="bg-amber-50 border-l-4 border-primary p-4 rounded-r mb-2 flex items-start gap-3">
-        <span class="material-symbols-outlined text-primary shrink-0">warning</span>
-        <div>
-          <h3 class="font-bold text-sm uppercase">{{ copy.warning_title }}</h3>
-          <p class="text-sm text-gray-700 mt-1">
-            {{ copy.warning_body }}
+      <div class="flex-1 border-2 border-[#d1c7b7] bg-[#faf9f6] p-6 flex flex-col gap-5">
+        <div class="border-b-2 border-[#d1c7b7] pb-3">
+          <h2 class="font-serif text-2xl font-bold uppercase tracking-tight text-charcoal">
+            How to Rebuild the Recovery Kit
+          </h2>
+          <p class="mt-1 text-sm text-text-secondary-light">
+            Use this page after scanning the QR pages. Keep everything offline.
           </p>
         </div>
-      </div>
 
-      <div class="grid gap-3 flex-1">
-        {% for line in instructions.lines %}
-        <article class="flex gap-4 p-4 rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div class="flex items-center justify-center size-8 rounded-full border-2 border-gray-300 text-gray-500 font-bold text-sm shrink-0 mt-0.5">
-            {{ '%02d' % loop.index }}
+        <div class="grid flex-1 grid-cols-2 gap-6">
+          <div class="space-y-4">
+            <div>
+              <h3 class="inline-flex items-center gap-2 border border-charcoal px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-charcoal">
+                <span class="material-symbols-outlined text-sm">hub</span>
+                Scan + Assemble
+              </h3>
+              <div class="mt-3 space-y-2 text-sm text-charcoal">
+                <div class="flex items-start gap-2"><span class="material-symbols-outlined text-sm text-text-secondary-light">adjust</span><span>Scan every QR code left to right, top to bottom.</span></div>
+                <div class="flex items-start gap-2"><span class="material-symbols-outlined text-sm text-text-secondary-light">adjust</span><span>Save each decoded chunk in order. Do not insert spaces or blank lines.</span></div>
+                <div class="flex items-start gap-2"><span class="material-symbols-outlined text-sm text-text-secondary-light">adjust</span><span>Concatenate the chunks into one continuous file.</span></div>
+                <div class="flex items-start gap-2"><span class="material-symbols-outlined text-sm text-text-secondary-light">adjust</span><span>Name the file exactly: <span class="font-mono">recovery_kit.bundle.html</span></span></div>
+              </div>
+            </div>
+
+            <div>
+              <h3 class="inline-flex items-center gap-2 border border-charcoal px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-charcoal">
+                <span class="material-symbols-outlined text-sm">language</span>
+                Open the Kit
+              </h3>
+              <div class="mt-3 space-y-2 text-sm text-charcoal">
+                <div class="flex items-start gap-2"><span class="material-symbols-outlined text-sm text-text-secondary-light">adjust</span><span>Open <span class="font-mono">recovery_kit.bundle.html</span> in a browser while offline.</span></div>
+                <div class="flex items-start gap-2"><span class="material-symbols-outlined text-sm text-text-secondary-light">adjust</span><span>If the file is large, wait for it to finish loading.</span></div>
+                <div class="flex items-start gap-2"><span class="material-symbols-outlined text-sm text-text-secondary-light">adjust</span><span>Follow the on-screen prompts to recover your payload.</span></div>
+              </div>
+            </div>
+
+            <div>
+              <h3 class="inline-flex items-center gap-2 border border-charcoal px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-charcoal">
+                <span class="material-symbols-outlined text-sm">build</span>
+                Troubleshooting
+              </h3>
+              <ul class="mt-3 list-disc list-inside space-y-1 text-sm text-charcoal">
+                <li>If the kit does not load, re-check chunk order and re-save the file.</li>
+                <li>Try another browser if rendering stalls.</li>
+                <li>Confirm the file size matches the sum of all QR chunks.</li>
+              </ul>
+            </div>
           </div>
-          <div class="flex-1">
-            <p class="font-bold text-black text-base leading-snug">{{ line }}</p>
+
+          <div class="space-y-3">
+            <div class="border border-[#d1c7b7] bg-white p-3">
+              <p class="text-[10px] font-bold uppercase tracking-[0.12em] text-charcoal">Verify</p>
+              <p class="mt-1 text-sm text-charcoal">Confirm the kit loads and shows the Recovery Kit home screen.</p>
+              <p class="mt-1 text-sm text-text-secondary-light">If it fails to open, re-check the order and re-save the file.</p>
+            </div>
+            <div class="border border-[#d1c7b7] bg-white p-3">
+              <p class="text-[10px] font-bold uppercase tracking-[0.12em] text-charcoal">Storage</p>
+              <p class="mt-1 text-sm text-charcoal">Keep the QR pages and the bundle file in separate locations.</p>
+              <p class="mt-1 text-sm text-text-secondary-light">Store the bundle on a write-protected drive if possible.</p>
+            </div>
+            <div class="border border-[#d1c7b7] bg-white p-3">
+              <p class="text-[10px] font-bold uppercase tracking-[0.12em] text-charcoal">Security</p>
+              <p class="mt-1 text-sm text-charcoal">Work offline and on a trusted machine.</p>
+              <p class="mt-1 text-sm text-text-secondary-light">Delete temporary files after successful recovery.</p>
+            </div>
+
+            <div class="border border-[#d1c7b7] bg-white p-3">
+              <h3 class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.12em] text-charcoal mb-2">
+                <span class="material-symbols-outlined text-sm">verified_user</span>
+                {{ copy.checklist_label }}
+              </h3>
+              <div class="space-y-2">
+                {% for line in instructions.lines %}
+                <div class="flex items-start gap-2 text-sm text-charcoal">
+                  <span class="material-symbols-outlined text-base text-text-secondary-light">check_box_outline_blank</span>
+                  <span>{{ line }}</span>
+                </div>
+                {% endfor %}
+                {% if instructions.scan_hint %}
+                <div class="flex items-start gap-2 text-sm text-charcoal">
+                  <span class="material-symbols-outlined text-base text-text-secondary-light">check_box_outline_blank</span>
+                  <span>{{ instructions.scan_hint }}</span>
+                </div>
+                {% endif %}
+                <div class="flex items-start gap-2 text-sm text-charcoal">
+                  <span class="material-symbols-outlined text-base text-text-secondary-light">check_box_outline_blank</span>
+                  <span>Recovery completed and data verified.</span>
+                </div>
+              </div>
+            </div>
           </div>
-        </article>
-        {% endfor %}
-        {% if instructions.scan_hint %}
-        <article class="flex gap-4 p-4 rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div class="flex items-center justify-center size-8 rounded-full border-2 border-primary text-primary font-bold text-sm shrink-0 mt-0.5">
-            <span class="material-symbols-outlined text-lg">qr_code_scanner</span>
-          </div>
-          <div class="flex-1">
-            <p class="font-bold text-black text-base leading-snug">{{ instructions.scan_hint }}</p>
-          </div>
-        </article>
-        {% endif %}
+        </div>
+
+        <div class="border-t border-[#d1c7b7] pt-3 flex items-center justify-between text-[10px] uppercase tracking-[0.12em] text-text-secondary-light">
+          <span>Recovery Kit: offline HTML bundle</span>
+          <span>Document ID: <span class="font-mono normal-case tracking-normal text-charcoal">{{ doc_id }}</span></span>
+        </div>
       </div>
 
       {% else %}
@@ -119,33 +187,20 @@
       </div>
 
       {% if page.qr_items %}
-      <div class="kit-grid gap-0 border-t border-l border-dashed border-[#d1c7b7] flex-1" style="--qr-cols: {{ page.qr_grid.cols if page.qr_grid else 3 }};">
+      <div class="kit-grid gap-2 flex-1" style="--qr-cols: {{ page.qr_grid.cols if page.qr_grid else 3 }};">
         {% for slot in page.qr_items %}
-        <article class="relative border-b border-r border-dashed border-[#d1c7b7] p-4 flex flex-col gap-3 bg-white hover:bg-[#faf9f6] transition-colors">
-          <div class="absolute top-0 right-0 p-1 opacity-20">
-            <span class="material-symbols-outlined text-sm text-charcoal">content_cut</span>
+        <article class="p-2 flex flex-col gap-1 bg-white rounded border border-[#d1c7b7]">
+          <div class="flex items-start">
+            <span class="font-mono text-[10px] text-text-secondary-light uppercase tracking-widest">Part {{ '%02d' % slot.index }}</span>
           </div>
 
-          <div class="flex justify-between items-start">
-            <span class="font-mono text-[10px] text-text-secondary-light uppercase tracking-widest">SEQ {{ '%02d' % slot.index }}</span>
-            <span class="bg-charcoal text-white text-[10px] font-bold px-1.5 py-0.5 uppercase">Critical</span>
-          </div>
-
-          <div class="aspect-square w-full bg-white p-2 border-2 border-charcoal flex items-center justify-center">
+          <div class="aspect-square w-full bg-white p-1 border-2 border-charcoal flex items-center justify-center">
             <img
               class="w-full h-full object-contain"
               src="{{ slot.data_uri }}"
               alt="Recovery kit QR {{ slot.index }}"
               style="image-rendering: pixelated;"
             >
-          </div>
-
-          <div class="flex flex-col gap-1">
-            <h3 class="font-bold text-charcoal text-base leading-tight uppercase">Recovery Chunk {{ '%02d' % slot.index }}</h3>
-            <div class="flex flex-col gap-0.5 font-mono text-xs text-text-secondary-light">
-              <span class="flex justify-between"><span>TYPE:</span><span class="text-charcoal">KIT-DATA</span></span>
-              <span class="flex justify-between"><span>ORDER:</span><span class="text-charcoal">{{ '%02d' % slot.index }}</span></span>
-            </div>
           </div>
         </article>
         {% endfor %}
@@ -154,7 +209,9 @@
       {% endif %}
 
     </div>
+    {% if not page.instructions_full_page %}
     {% include 'partials/sentinel_shell_footer.j2' %}
+    {% endif %}
   </section>
 {% endfor %}
 </body>
