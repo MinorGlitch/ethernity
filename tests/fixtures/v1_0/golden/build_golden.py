@@ -29,7 +29,11 @@ from ethernity.cli.startup import ensure_playwright_browsers as _ensure_playwrig
 from ethernity.crypto import decrypt_bytes
 from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import FrameType, decode_frame
-from ethernity.encoding.qr_payloads import decode_qr_payload
+from ethernity.encoding.qr_payloads import (
+    QR_PAYLOAD_CODEC_BASE64,
+    decode_qr_payload,
+    encode_qr_payload,
+)
 from ethernity.formats.envelope_codec import decode_envelope
 from ethernity.qr.scan import scan_qr_payloads
 
@@ -143,7 +147,7 @@ def _scenario_definitions(source_root: Path) -> list[dict[str, object]]:
     ]
 
 
-def _run_cli(repo_root: Path, args: list[str], xdg_config_home: Path) -> None:
+def _run_cli(repo_root: Path, args: list[str], xdg_config_home: Path, config_path: Path) -> None:
     env = os.environ.copy()
     env["XDG_CONFIG_HOME"] = str(xdg_config_home)
     cmd = [
@@ -151,7 +155,7 @@ def _run_cli(repo_root: Path, args: list[str], xdg_config_home: Path) -> None:
         "-m",
         "ethernity.cli",
         "--config",
-        str(repo_root / "src" / "ethernity" / "config" / "config.toml"),
+        str(config_path),
         *args,
     ]
     result = subprocess.run(
@@ -171,7 +175,7 @@ def _write_payloads_file(pdf_paths: list[Path], destination: Path) -> None:
     normalized: list[str] = []
     for payload in payloads:
         if isinstance(payload, bytes):
-            normalized.append(payload.decode("ascii"))
+            normalized.append(encode_qr_payload(payload, codec=QR_PAYLOAD_CODEC_BASE64))
         else:
             normalized.append(payload)
     if not normalized:
@@ -234,6 +238,14 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory() as xdg_tmp:
         xdg_config_home = Path(xdg_tmp)
+        base_config_path = repo_root / "src" / "ethernity" / "config" / "config.toml"
+        config_text = base_config_path.read_text(encoding="utf-8").replace(
+            'qr_payload_codec = "raw" # required: raw | base64',
+            'qr_payload_codec = "base64" # required: raw | base64',
+            1,
+        )
+        golden_config_path = xdg_config_home / "config_base64.toml"
+        golden_config_path.write_text(config_text, encoding="utf-8")
         for scenario in scenarios:
             scenario_id = str(scenario["id"])
             scenario_root = golden_root / scenario_id
@@ -248,7 +260,7 @@ def main() -> None:
                 str(backup_dir),
                 "--quiet",
             ]
-            _run_cli(repo_root, backup_args, xdg_config_home)
+            _run_cli(repo_root, backup_args, xdg_config_home, golden_config_path)
 
             main_payloads = scenario_root / "main_payloads.txt"
             _write_payloads_file([backup_dir / "qr_document.pdf"], main_payloads)

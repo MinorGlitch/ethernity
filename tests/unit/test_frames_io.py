@@ -327,11 +327,22 @@ class TestFramesIo(unittest.TestCase):
             return_value=["bad-1", "bad-2"],
         ):
             with mock.patch(
-                "ethernity.cli.io.frames._frame_from_payload_text",
+                "ethernity.cli.io.frames._frame_from_scanned_payload",
                 side_effect=[ValueError("bad one"), ValueError("bad two")],
             ):
                 with self.assertRaisesRegex(ValueError, r"invalid QR payloads \(2\)"):
                     _frames_from_scan(["scan.png"])
+
+    def test_frames_from_scan_accepts_raw_frame_bytes(self) -> None:
+        frame = self._frame(frame_type=FrameType.AUTH, doc_id=b"\x31" * DOC_ID_LEN, data=b"auth")
+        with mock.patch(
+            "ethernity.cli.io.frames.scan_qr_payloads",
+            return_value=[encode_frame(frame)],
+        ):
+            parsed = _frames_from_scan(["scan.png"])
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0].frame_type, FrameType.AUTH)
+        self.assertEqual(parsed[0].doc_id, frame.doc_id)
 
     def test_dedupe_frames_accepts_identical_duplicates(self) -> None:
         frame = self._frame()

@@ -25,7 +25,11 @@ from typing import Sequence
 from ..config import AppConfig
 from ..core.bounds import MAX_QR_PAYLOAD_CHARS
 from ..encoding.framing import Frame, encode_frame
-from ..encoding.qr_payloads import encode_qr_payload
+from ..encoding.qr_payloads import (
+    QR_PAYLOAD_CODEC_BASE64,
+    QrPayloadCodec,
+    encode_qr_payload,
+)
 from .doc_types import (
     DOC_TYPE_KIT,
     DOC_TYPE_MAIN,
@@ -50,24 +54,30 @@ class RenderService:
             context.update(extra)
         return context
 
-    def build_qr_payloads(self, frames: Sequence[Frame]) -> list[bytes | str]:
+    def build_qr_payloads(
+        self,
+        frames: Sequence[Frame],
+        *,
+        codec: QrPayloadCodec = QR_PAYLOAD_CODEC_BASE64,
+    ) -> list[bytes | str]:
         """Encode frames into QR payload text and enforce payload length bounds."""
 
         payloads: list[bytes | str] = []
         for frame in frames:
-            payload = encode_qr_payload(encode_frame(frame))
-            if isinstance(payload, bytes):
-                try:
-                    payload_text = payload.decode("ascii")
-                except UnicodeDecodeError as exc:
-                    raise ValueError("QR payload text must be ASCII") from exc
-            else:
-                payload_text = payload
-            if len(payload_text) > MAX_QR_PAYLOAD_CHARS:
-                raise ValueError(
-                    f"QR payload exceeds MAX_QR_PAYLOAD_CHARS ({MAX_QR_PAYLOAD_CHARS}): "
-                    f"{len(payload_text)} chars"
-                )
+            payload = encode_qr_payload(encode_frame(frame), codec=codec)
+            if codec == QR_PAYLOAD_CODEC_BASE64:
+                if isinstance(payload, bytes):
+                    try:
+                        payload_text = payload.decode("ascii")
+                    except UnicodeDecodeError as exc:
+                        raise ValueError("QR payload text must be ASCII") from exc
+                else:
+                    payload_text = payload
+                if len(payload_text) > MAX_QR_PAYLOAD_CHARS:
+                    raise ValueError(
+                        f"QR payload exceeds MAX_QR_PAYLOAD_CHARS ({MAX_QR_PAYLOAD_CHARS}): "
+                        f"{len(payload_text)} chars"
+                    )
             payloads.append(payload)
         return payloads
 

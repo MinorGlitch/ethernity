@@ -462,23 +462,34 @@ Verification requirements:
 A recovery set MAY contain multiple `KEY_DOCUMENT` frames for the same DOC_ID.
 Each shard payload MUST be encoded as a single frame (frame index=0, frame total=1).
 
-## 10) QR Payload Encoding
+## 10) QR Payload Transport
 
-QR payload text MUST be base64 without padding.
-Version 1 defines no alternative QR payload encodings.
+Version 1 supports exactly two QR transport codecs for frame bytes:
+- `raw`: QR payload is the raw frame bytes.
+- `base64`: QR payload text is unpadded base64.
+
+No envelope or manifest field records the QR transport codec.
 
 Encoding:
-- Base64 encode the raw frame bytes.
-- Strip trailing "=" padding characters.
+- raw mode:
+  - Emit frame bytes unchanged.
+- base64 mode:
+  - Base64 encode the raw frame bytes.
+  - Strip trailing "=" padding characters.
 
 Decoding:
-- After whitespace removal, payload text MUST NOT contain "=" characters.
-- Restore padding to a multiple of 4.
-- Base64 decode with validation.
+- Byte scan inputs:
+  - Decoders SHOULD attempt direct frame decode from raw bytes first.
+  - If raw decode fails, decoders MAY interpret bytes as text and apply strict base64 decode.
+- Text inputs (for example payload files/stdin/manual paste):
+  - After whitespace removal, payload text MUST NOT contain "=" characters.
+  - Restore padding to a multiple of 4.
+  - Base64 decode with validation.
+  - After whitespace removal, payload text length MUST be ≤ `MAX_QR_PAYLOAD_CHARS` (Section 17).
 
-Decoders MUST ignore whitespace in payloads.
-After whitespace removal, payload text length MUST be ≤ `MAX_QR_PAYLOAD_CHARS` (Section 17).
-Encoders and decoders MUST NOT negotiate or auto-detect alternate QR payload encodings in Version 1.
+Decoders MUST ignore whitespace in text payloads.
+Encoders and decoders MUST NOT negotiate or auto-detect QR payload codecs beyond `raw` and
+`base64` in Version 1.
 
 ## 11) Fallback Text Encoding
 
@@ -531,8 +542,8 @@ Stable v1 profile requirements:
   manifests as out-of-profile.
 - Manifest/auth/shard unknown-key handling is extension-only as defined in Sections 3, 8, and 9.
 - Frame types are closed for v1; decoders MUST reject frame types outside Section 6.
-- QR payload encoding is fixed to unpadded base64 in v1; runtime/profile negotiation of alternate
-  QR payload encodings is not permitted.
+- QR payload transport codecs in v1 are limited to `raw` and unpadded `base64`; runtime/profile
+  negotiation of any other codec is not permitted.
 - Parsing is fail-closed: malformed canonical encodings or invalid structural/binding content MUST
   be rejected.
 
@@ -764,8 +775,9 @@ A conforming decoder MUST accept at least these scenarios:
    authenticated mode.
 3. A valid shard reconstruction set with canonical CBOR payloads, consistent set fields, sufficient
    threshold, and valid signatures in authenticated mode.
-4. A valid QR payload using unpadded base64 (with optional whitespace only) that decodes to a valid
-   frame.
+4. A valid QR payload that decodes to a valid frame using either:
+   - raw frame bytes transport, or
+   - unpadded base64 text transport (with optional whitespace only).
 
 ### 18.3) Minimum Must-Reject Negative Scenarios
 

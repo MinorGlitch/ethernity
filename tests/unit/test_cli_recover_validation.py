@@ -268,7 +268,7 @@ class TestCliRecoverValidation(unittest.TestCase):
         with mock.patch("ethernity.cli.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 cli.app,
-                ["recover", "--config", str(DEFAULT_CONFIG_PATH)],
+                ["--config", str(DEFAULT_CONFIG_PATH), "recover"],
                 input="",
             )
         self.assertEqual(result.exit_code, 2)
@@ -289,7 +289,11 @@ class TestCliRecoverValidation(unittest.TestCase):
                 "ethernity.cli.commands.recover.run_recover_command",
                 side_effect=_capture_args,
             ):
-                result = self.runner.invoke(cli.app, ["recover"], input="payload")
+                result = self.runner.invoke(
+                    cli.app,
+                    ["--config", str(DEFAULT_CONFIG_PATH), "recover"],
+                    input="payload",
+                )
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(captured.get("fallback_file"), "-")
 
@@ -308,7 +312,14 @@ class TestCliRecoverValidation(unittest.TestCase):
             ):
                 result = self.runner.invoke(
                     cli.app,
-                    ["recover", "--fallback-file", "fallback.txt", "--rescue-mode"],
+                    [
+                        "--config",
+                        str(DEFAULT_CONFIG_PATH),
+                        "recover",
+                        "--fallback-file",
+                        "fallback.txt",
+                        "--rescue-mode",
+                    ],
                 )
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertTrue(captured.get("allow_unsigned"))
@@ -328,7 +339,14 @@ class TestCliRecoverValidation(unittest.TestCase):
             ):
                 result = self.runner.invoke(
                     cli.app,
-                    ["recover", "--fallback-file", "fallback.txt", "--skip-auth-check"],
+                    [
+                        "--config",
+                        str(DEFAULT_CONFIG_PATH),
+                        "recover",
+                        "--fallback-file",
+                        "fallback.txt",
+                        "--skip-auth-check",
+                    ],
                 )
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertTrue(captured.get("allow_unsigned"))

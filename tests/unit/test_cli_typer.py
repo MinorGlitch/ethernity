@@ -58,25 +58,34 @@ class TestCliTyper(unittest.TestCase):
     def test_root_no_subcommand_non_tty_references_help(self) -> None:
         with mock.patch("ethernity.cli.app.run_startup", return_value=False):
             with mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=False):
-                result = self.runner.invoke(app, [])
+                result = self.runner.invoke(app, ["--config", str(DEFAULT_CONFIG_PATH)])
         self.assertEqual(result.exit_code, 2)
         self.assertIn("ethernity --help", result.output)
 
     def test_backup_help_lists_qr_chunk_size(self) -> None:
         with mock.patch("ethernity.cli.app.run_startup", return_value=False):
-            result = self.runner.invoke(app, ["backup", "--help"])
+            result = self.runner.invoke(
+                app,
+                ["--config", str(DEFAULT_CONFIG_PATH), "backup", "--help"],
+            )
         self.assertEqual(result.exit_code, 0)
         self.assertIn("--qr-chunk-size", _strip_ansi(result.output))
 
     def test_kit_help_lists_qr_chunk_size(self) -> None:
         with mock.patch("ethernity.cli.app.run_startup", return_value=False):
-            result = self.runner.invoke(app, ["kit", "--help"])
+            result = self.runner.invoke(
+                app,
+                ["--config", str(DEFAULT_CONFIG_PATH), "kit", "--help"],
+            )
         self.assertEqual(result.exit_code, 0)
         self.assertIn("--qr-chunk-size", _strip_ansi(result.output))
 
     def test_kit_old_chunk_size_flag_is_rejected(self) -> None:
         with mock.patch("ethernity.cli.app.run_startup", return_value=False):
-            result = self.runner.invoke(app, ["kit", "--chunk-size", "100"])
+            result = self.runner.invoke(
+                app,
+                ["--config", str(DEFAULT_CONFIG_PATH), "kit", "--chunk-size", "100"],
+            )
         self.assertEqual(result.exit_code, 2)
         self.assertIn("No such option", result.output)
         self.assertIn("--chunk-size", _strip_ansi(result.output))

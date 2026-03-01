@@ -26,7 +26,11 @@ from pathlib import Path
 from ethernity.crypto import decrypt_bytes
 from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import FrameType, decode_frame
-from ethernity.encoding.qr_payloads import decode_qr_payload
+from ethernity.encoding.qr_payloads import (
+    QR_PAYLOAD_CODEC_BASE64,
+    decode_qr_payload,
+    encode_qr_payload,
+)
 from ethernity.formats.envelope_codec import decode_envelope
 from ethernity.qr.scan import scan_qr_payloads
 from tests.test_support import build_cli_env, ensure_playwright_browsers
@@ -127,7 +131,7 @@ class TestStableV1FrozenBaseline(unittest.TestCase):
                         "-m",
                         "ethernity.cli",
                         "--config",
-                        str(_CONFIG_PATH),
+                        str(self._base64_config_path(tmp_path)),
                         "backup",
                         *self._backup_args_for_scenario(str(scenario["id"]), _SOURCE_ROOT),
                         "--design",
@@ -180,10 +184,22 @@ class TestStableV1FrozenBaseline(unittest.TestCase):
         normalized: list[str] = []
         for payload in payloads:
             if isinstance(payload, bytes):
-                normalized.append(payload.decode("ascii"))
+                normalized.append(encode_qr_payload(payload, codec=QR_PAYLOAD_CODEC_BASE64))
             else:
                 normalized.append(payload)
         return normalized
+
+    @staticmethod
+    def _base64_config_path(workspace: Path) -> Path:
+        base = _CONFIG_PATH.read_text(encoding="utf-8")
+        config_text = base.replace(
+            'qr_payload_codec = "raw" # required: raw | base64',
+            'qr_payload_codec = "base64" # required: raw | base64',
+            1,
+        )
+        path = workspace / "config_base64.toml"
+        path.write_text(config_text, encoding="utf-8")
+        return path
 
     def _manifest_projection(self, payload_lines: list[str], passphrase: str) -> dict[str, object]:
         frames = []
