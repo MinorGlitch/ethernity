@@ -53,7 +53,7 @@ async function restoreScenario(scenarioPath) {
   }
 
   const envelopeBytes = await decryptAgePassphrase(state.ciphertext, state.agePassphrase);
-  const extracted = extractFiles(envelopeBytes);
+  const extracted = await extractFiles(envelopeBytes);
   const expectedPaths = snapshot.expected_relative_paths.slice().sort();
   const actualPaths = extracted.files.map(file => file.path).sort();
 
