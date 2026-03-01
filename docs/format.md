@@ -131,6 +131,7 @@ Manifest requirements (map keys):
 - `payload_raw_len`:
   - MUST be absent or null when `payload_codec` is `"raw"` (or absent)
   - MUST be present and a positive int when `payload_codec` is `"gzip"`
+  - MUST be ≤ `MAX_DECOMPRESSED_PAYLOAD_BYTES` (Section 17)
   - MUST equal `sum(files[i].size)`
 - `path_prefixes`:
   - required when `path_encoding` is `"prefix_table"`
@@ -225,6 +226,8 @@ Decoder extraction requirements:
   `payload_raw_len` bytes.
 - For gzip mode, decoders MUST reject payloads where final decompressed length is not exactly
   `payload_raw_len`.
+- For gzip mode, decoders MUST reject manifests with `payload_raw_len` greater than
+  `MAX_DECOMPRESSED_PAYLOAD_BYTES`.
 - Decoders MUST verify each entry's SHA-256 against the corresponding slice of normalized payload
   bytes.
 
@@ -735,6 +738,7 @@ Constants:
 - `MAX_FALLBACK_NORMALIZED_CHARS = 2_000_000`
 - `MAX_FALLBACK_LINES = 50_000`
 - `MAX_RECOVERY_TEXT_BYTES = 10_485_760`
+- `MAX_DECOMPRESSED_PAYLOAD_BYTES = 67_108_864`
 
 ## 18) Normative Conformance Appendix
 

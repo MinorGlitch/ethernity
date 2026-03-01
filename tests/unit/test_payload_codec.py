@@ -19,7 +19,9 @@ import gzip
 import hashlib
 import os
 import unittest
+from unittest import mock
 
+from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES
 from ethernity.formats.envelope_types import (
     MANIFEST_VERSION,
     PAYLOAD_CODEC_GZIP,
@@ -68,6 +70,11 @@ class TestPayloadCodec(unittest.TestCase):
         self.assertIsNone(raw_len)
         self.assertEqual(encoded, raw)
 
+    def test_encode_payload_for_manifest_rejects_payload_over_max_decompressed_bound(self) -> None:
+        with mock.patch("ethernity.formats.payload_codec.MAX_DECOMPRESSED_PAYLOAD_BYTES", 8):
+            with self.assertRaisesRegex(ValueError, "MAX_DECOMPRESSED_PAYLOAD_BYTES"):
+                encode_payload_for_manifest(b"A" * 9)
+
     def test_decode_payload_from_manifest_roundtrip_gzip(self) -> None:
         raw = b"hello world\n" * 300
         compressed = gzip.compress(raw, compresslevel=9, mtime=0)
@@ -86,6 +93,28 @@ class TestPayloadCodec(unittest.TestCase):
         manifest = self._manifest_for(raw, codec=PAYLOAD_CODEC_RAW, raw_len=len(raw))
         with self.assertRaisesRegex(ValueError, "payload_raw_len"):
             decode_payload_from_manifest(manifest, raw)
+
+    def test_decode_payload_from_manifest_rejects_gzip_over_max_decompressed_bound(self) -> None:
+        expected_len = MAX_DECOMPRESSED_PAYLOAD_BYTES + 1
+        manifest = EnvelopeManifest(
+            format_version=MANIFEST_VERSION,
+            created_at=0.0,
+            sealed=False,
+            signing_seed=self._SEED,
+            payload_codec=PAYLOAD_CODEC_GZIP,
+            payload_raw_len=expected_len,
+            files=(
+                ManifestFile(
+                    path="payload.bin",
+                    size=expected_len,
+                    sha256=b"\x00" * 32,
+                    mtime=None,
+                ),
+            ),
+        )
+        compressed = gzip.compress(b"A", compresslevel=9, mtime=0)
+        with self.assertRaisesRegex(ValueError, "MAX_DECOMPRESSED_PAYLOAD_BYTES"):
+            decode_payload_from_manifest(manifest, compressed)
 
 
 if __name__ == "__main__":

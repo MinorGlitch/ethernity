@@ -11,6 +11,7 @@ import {
   FRAME_TYPE_AUTH,
   FRAME_TYPE_KEY,
   FRAME_TYPE_MAIN,
+  MAX_DECOMPRESSED_PAYLOAD_BYTES,
   SHARD_KEY_PASSPHRASE,
 } from "../app/constants.js";
 import { parseAutoPayload, parseAutoShard } from "../app/frames_parse.js";
@@ -172,6 +173,26 @@ test("manifest decoder rejects invalid stable-v1 structures", async () => {
         payload
       ),
       error: /file mtime must be an int/,
+    },
+    {
+      name: "gzip payload_raw_len over decompressed bound",
+      envelope: buildEnvelope(
+        {
+          ...validManifest(Uint8Array.of(1)),
+          payload_codec: "gzip",
+          payload_raw_len: MAX_DECOMPRESSED_PAYLOAD_BYTES + 1,
+          files: [
+            [
+              "a.txt",
+              MAX_DECOMPRESSED_PAYLOAD_BYTES + 1,
+              sha256(Uint8Array.of(1)),
+              null,
+            ],
+          ],
+        },
+        gzipPayload(Uint8Array.of(1))
+      ),
+      error: /MAX_DECOMPRESSED_PAYLOAD_BYTES/,
     },
   ];
 
