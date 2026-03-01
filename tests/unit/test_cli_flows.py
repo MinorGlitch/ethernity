@@ -31,7 +31,7 @@ from ethernity.crypto.signing import (
 )
 from ethernity.encoding.framing import DOC_ID_LEN, FrameType
 from ethernity.formats.envelope_codec import decode_envelope, extract_payloads
-from ethernity.formats.envelope_types import PayloadPart
+from ethernity.formats.envelope_types import PAYLOAD_CODEC_GZIP, PAYLOAD_CODEC_RAW, PayloadPart
 
 
 class MockInputFile:
@@ -94,6 +94,48 @@ class TestPrepareEnvelope(unittest.TestCase):
         self.assertEqual(decoded_payload, b"content2content1content3")
         paths = [f.path for f in manifest.files]
         self.assertEqual(paths, ["dir/file2.txt", "file1.txt", "file3.bin"])
+
+    def test_prepare_envelope_forced_raw_mode_sets_raw_codec(self) -> None:
+        sign_priv, _ = generate_signing_keypair()
+        raw_payload = b"A" * 4096
+        input_files = [MockInputFile("large.txt", raw_payload)]
+        plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
+
+        envelope, _ = _prepare_envelope(
+            input_files,
+            plan,
+            sign_priv,
+            "file",
+            [],
+            payload_codec_mode=PAYLOAD_CODEC_RAW,
+        )
+
+        manifest, encoded_payload = decode_envelope(envelope)
+        self.assertEqual(manifest.payload_codec, PAYLOAD_CODEC_RAW)
+        self.assertIsNone(manifest.payload_raw_len)
+        extracted = extract_payloads(manifest, encoded_payload)
+        self.assertEqual(extracted[0][1], raw_payload)
+
+    def test_prepare_envelope_forced_gzip_mode_sets_gzip_codec(self) -> None:
+        sign_priv, _ = generate_signing_keypair()
+        raw_payload = os.urandom(4096)
+        input_files = [MockInputFile("large.bin", raw_payload)]
+        plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
+
+        envelope, _ = _prepare_envelope(
+            input_files,
+            plan,
+            sign_priv,
+            "file",
+            [],
+            payload_codec_mode=PAYLOAD_CODEC_GZIP,
+        )
+
+        manifest, encoded_payload = decode_envelope(envelope)
+        self.assertEqual(manifest.payload_codec, PAYLOAD_CODEC_GZIP)
+        self.assertEqual(manifest.payload_raw_len, len(raw_payload))
+        extracted = extract_payloads(manifest, encoded_payload)
+        self.assertEqual(extracted[0][1], raw_payload)
 
 
 class TestCreateAuthFrame(unittest.TestCase):

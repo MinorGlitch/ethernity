@@ -198,7 +198,7 @@ name = "sentinel"
 name = "sentinel"
 
 [signing_key_shard_template]
-name = "monograph"
+name = "maritime"
 
 [kit_template]
 name = "sentinel"
@@ -211,7 +211,7 @@ name = "sentinel"
         self.assertEqual(config.template_path.parent.name, "sentinel")
         self.assertEqual(config.recovery_template_path.parent.name, "sentinel")
         self.assertEqual(config.shard_template_path.parent.name, "sentinel")
-        self.assertEqual(config.signing_key_shard_template_path.parent.name, "monograph")
+        self.assertEqual(config.signing_key_shard_template_path.parent.name, "maritime")
         self.assertEqual(config.kit_template_path.parent.name, "sentinel")
         self.assertEqual(config.template_path.name, DEFAULT_TEMPLATE_PATH.name)
         self.assertEqual(config.recovery_template_path.name, DEFAULT_RECOVERY_TEMPLATE_PATH.name)
@@ -228,7 +228,7 @@ name = "sentinel"
 default_name = "forge"
 
 [signing_key_shard_template]
-name = "monograph"
+name = "maritime"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
@@ -239,7 +239,7 @@ name = "monograph"
         self.assertEqual(config.recovery_template_path.parent.name, "forge")
         self.assertEqual(config.shard_template_path.parent.name, "forge")
         self.assertEqual(config.kit_template_path.parent.name, "forge")
-        self.assertEqual(config.signing_key_shard_template_path.parent.name, "monograph")
+        self.assertEqual(config.signing_key_shard_template_path.parent.name, "maritime")
 
     def test_load_app_config_rejects_legacy_template_path_key(self) -> None:
         toml = """
@@ -293,7 +293,7 @@ default_name = 123
 default_name = "sentinel"
 
 [signing_key_shard_template]
-name = "monograph"
+name = "maritime"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
@@ -384,6 +384,7 @@ shard_count = 3
 signing_key_mode = "sharded"
 signing_key_shard_threshold = 2
 signing_key_shard_count = 3
+payload_codec = "raw"
 
 [defaults.recover]
 output = "/tmp/recovered"
@@ -411,6 +412,7 @@ render_jobs = 6
         self.assertEqual(config.cli_defaults.backup.signing_key_mode, "sharded")
         self.assertEqual(config.cli_defaults.backup.signing_key_shard_threshold, 2)
         self.assertEqual(config.cli_defaults.backup.signing_key_shard_count, 3)
+        self.assertEqual(config.cli_defaults.backup.payload_codec, "raw")
         self.assertEqual(config.cli_defaults.recover.output, "/tmp/recovered")
         self.assertTrue(config.cli_defaults.ui.quiet)
         self.assertTrue(config.cli_defaults.ui.no_color)
@@ -428,6 +430,7 @@ shard_count = 0
 signing_key_mode = ""
 signing_key_shard_threshold = 0
 signing_key_shard_count = 0
+payload_codec = ""
 
 [defaults.recover]
 output = ""
@@ -450,9 +453,24 @@ render_jobs = "auto"
         self.assertIsNone(defaults.backup.signing_key_mode)
         self.assertIsNone(defaults.backup.signing_key_shard_threshold)
         self.assertIsNone(defaults.backup.signing_key_shard_count)
+        self.assertIsNone(defaults.backup.payload_codec)
         self.assertIsNone(defaults.recover.output)
         self.assertIsNone(defaults.debug.max_bytes)
         self.assertEqual(defaults.runtime.render_jobs, "auto")
+
+    def test_load_cli_defaults_rejects_invalid_payload_codec(self) -> None:
+        toml = """
+[defaults.backup]
+payload_codec = "brotli"
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(toml, encoding="utf-8")
+            with self.assertRaisesRegex(
+                ValueError,
+                "defaults.backup.payload_codec must be 'auto', 'raw', 'gzip', or empty",
+            ):
+                load_cli_defaults(path=path)
 
     def test_load_cli_defaults_rejects_invalid_signing_key_mode(self) -> None:
         toml = """
