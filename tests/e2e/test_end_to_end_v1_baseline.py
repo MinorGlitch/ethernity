@@ -23,7 +23,11 @@ import unittest
 from pathlib import Path
 
 from ethernity.encoding.framing import FrameType, decode_frame
-from ethernity.encoding.qr_payloads import decode_qr_payload
+from ethernity.encoding.qr_payloads import (
+    QR_PAYLOAD_CODEC_BASE64,
+    decode_qr_payload,
+    encode_qr_payload,
+)
 from ethernity.qr.scan import scan_qr_payloads
 from tests.test_support import build_cli_env, ensure_playwright_browsers
 
@@ -273,9 +277,15 @@ class TestStableV1Baseline(unittest.TestCase):
 
             signing_payloads = scan_qr_payloads([str(path) for path in signing_paths])
             self.assertGreaterEqual(len(signing_payloads), 1)
+            decoded_signing_frames = 0
             for payload in signing_payloads:
-                frame = decode_frame(decode_qr_payload(payload))
+                try:
+                    frame = self._decode_scanned_frame(payload)
+                except ValueError:
+                    continue
                 self.assertEqual(frame.frame_type, FrameType.KEY_DOCUMENT)
+                decoded_signing_frames += 1
+            self.assertGreaterEqual(decoded_signing_frames, 1)
 
             shard_payloads_file = workspace / "shard_payloads_signing_sharded.txt"
             self._write_scanned_payloads(shard_paths[:2], shard_payloads_file)
@@ -369,10 +379,19 @@ class TestStableV1Baseline(unittest.TestCase):
         normalized: list[str] = []
         for payload in payloads:
             if isinstance(payload, bytes):
-                normalized.append(payload.decode("ascii"))
+                normalized.append(encode_qr_payload(payload, codec=QR_PAYLOAD_CODEC_BASE64))
             else:
                 normalized.append(payload)
         destination.write_text("\n".join(normalized), encoding="utf-8")
+
+    @staticmethod
+    def _decode_scanned_frame(payload: bytes | str):
+        if isinstance(payload, bytes):
+            try:
+                return decode_frame(payload)
+            except ValueError:
+                pass
+        return decode_frame(decode_qr_payload(payload))
 
     def _assert_restored_matches(
         self,

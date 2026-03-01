@@ -20,9 +20,23 @@ import { MAX_QR_PAYLOAD_CHARS } from "../app/constants.js";
 const ZBASE32_ALPHABET = "ybndrfg8ejkmcpqxot1uwisza345h769";
 const BASE64_ALPHABET = /^[A-Za-z0-9+/]+$/;
 const MAX_UVARINT = (1n << 64n) - 1n;
+const BASE64_BINARY_CHUNK = 0x8000;
 
 function isBase64(text) {
   return BASE64_ALPHABET.test(text);
+}
+
+export function bytesToUnpaddedBase64(bytes) {
+  if (!(bytes instanceof Uint8Array)) {
+    throw new Error("bytesToUnpaddedBase64 expects Uint8Array");
+  }
+  if (bytes.length === 0) return "";
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += BASE64_BINARY_CHUNK) {
+    const chunk = bytes.subarray(offset, offset + BASE64_BINARY_CHUNK);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary).replace(/=+$/u, "");
 }
 
 export function decodePayloadString(text) {

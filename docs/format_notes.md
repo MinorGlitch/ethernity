@@ -107,10 +107,25 @@ Compatibility note:
 - Artifacts missing `payload_codec` are invalid under current stable-v1 decoder behavior.
 - Implementations that do not support `gzip` metadata may fail to recover gzip-coded envelopes.
 
-## QR Payload Encoding Note
+## QR Payload Transport Note
 
-Version 1 fixes QR payload encoding to base64 (no padding) as defined in `docs/format.md`.
-There is no runtime/profile negotiation of QR payload encoding in v1.
+Version 1 supports two QR transport codecs as defined in `docs/format.md`:
+- `raw` frame bytes (preferred for QR scan transport)
+- unpadded `base64` text (for text-based workflows)
+
+There is no manifest/envelope transport marker for QR payload codec in v1. Recovery boundaries
+handle this by source type:
+- byte-oriented scan sources can decode raw directly and fallback to base64 text decoding
+- text sources remain strict unpadded base64 parsing
+
+Implementations should not negotiate or introduce additional codecs in v1.
+
+## Runtime Config Note
+
+Current runtime config requires:
+- `[defaults.backup].qr_payload_codec` with value `"raw"` or `"base64"`
+
+Missing, empty, or unknown values are rejected by config loading.
 
 ## Passphrase Notes
 
