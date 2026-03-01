@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..core.bounds import MAX_MANIFEST_FILES
+from ..core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
 from ..core.validation import (
     normalize_manifest_path,
     normalize_path,
@@ -123,6 +123,11 @@ class EnvelopeManifest:
             )
             if raw_len <= 0:
                 raise ValueError("manifest payload_raw_len must be positive")
+            if raw_len > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+                raise ValueError(
+                    "manifest payload_raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES "
+                    f"({MAX_DECOMPRESSED_PAYLOAD_BYTES}): {raw_len}"
+                )
             if raw_len != expected_raw_len:
                 raise ValueError("manifest payload_raw_len must match sum of manifest file sizes")
 
@@ -269,6 +274,11 @@ class EnvelopeManifest:
             )
             if payload_raw_len <= 0:
                 raise ValueError("manifest payload_raw_len must be positive")
+            if payload_raw_len > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+                raise ValueError(
+                    "manifest payload_raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES "
+                    f"({MAX_DECOMPRESSED_PAYLOAD_BYTES}): {payload_raw_len}"
+                )
             if payload_raw_len != expected_raw_len:
                 raise ValueError("manifest payload_raw_len must match sum of manifest file sizes")
         return cls(

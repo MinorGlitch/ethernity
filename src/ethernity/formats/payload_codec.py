@@ -21,6 +21,7 @@ from __future__ import annotations
 import gzip
 import zlib
 
+from ..core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES
 from .envelope_types import PAYLOAD_CODEC_GZIP, PAYLOAD_CODEC_RAW, EnvelopeManifest
 
 
@@ -29,6 +30,12 @@ def encode_payload_for_manifest(payload: bytes) -> tuple[bytes, str, int | None]
 
     Compression is deterministic and only selected when it strictly reduces payload size.
     """
+
+    if len(payload) > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+        raise ValueError(
+            "payload exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES "
+            f"({MAX_DECOMPRESSED_PAYLOAD_BYTES}): {len(payload)} bytes"
+        )
 
     compressed = gzip.compress(payload, compresslevel=9, mtime=0)
     if len(compressed) < len(payload):
@@ -50,6 +57,11 @@ def decode_payload_from_manifest(manifest: EnvelopeManifest, payload: bytes) -> 
     expected_len = manifest.payload_raw_len
     if expected_len is None or expected_len <= 0:
         raise ValueError("manifest payload_raw_len must be a positive int for gzip payload codec")
+    if expected_len > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+        raise ValueError(
+            "manifest payload_raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES "
+            f"({MAX_DECOMPRESSED_PAYLOAD_BYTES}): {expected_len}"
+        )
 
     expected_from_entries = sum(entry.size for entry in manifest.files)
     if expected_from_entries != expected_len:

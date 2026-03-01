@@ -24,6 +24,7 @@ import {
   ENVELOPE_MAGIC,
   ENVELOPE_VERSION,
   MANIFEST_VERSION,
+  MAX_DECOMPRESSED_PAYLOAD_BYTES,
   MAX_MANIFEST_CBOR_BYTES,
   MAX_MANIFEST_FILES,
   PATH_ENCODING_DIRECT,
@@ -195,6 +196,11 @@ function parseManifest(manifest) {
     if (!Number.isInteger(payloadRawLen) || payloadRawLen <= 0) {
       throw new Error("manifest payload_raw_len must be a positive int");
     }
+    if (payloadRawLen > MAX_DECOMPRESSED_PAYLOAD_BYTES) {
+      throw new Error(
+        `manifest payload_raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES (${MAX_DECOMPRESSED_PAYLOAD_BYTES}): ${payloadRawLen}`
+      );
+    }
     if (payloadRawLen !== expectedRawLen) {
       throw new Error("manifest payload_raw_len must match sum of manifest file sizes");
     }
@@ -325,6 +331,11 @@ async function decodePayloadFromManifest(parsedManifest, payload) {
   const expectedLen = parsedManifest.payloadRawLen;
   if (!Number.isInteger(expectedLen) || expectedLen <= 0) {
     throw new Error("manifest payload_raw_len must be a positive int");
+  }
+  if (expectedLen > MAX_DECOMPRESSED_PAYLOAD_BYTES) {
+    throw new Error(
+      `manifest payload_raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES (${MAX_DECOMPRESSED_PAYLOAD_BYTES}): ${expectedLen}`
+    );
   }
   const decoded = await gunzipBytes(payload);
   if (decoded.length !== expectedLen) {

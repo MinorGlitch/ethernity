@@ -21,7 +21,11 @@ from unittest import mock
 
 import cbor2
 
-from ethernity.core.bounds import MAX_MANIFEST_CBOR_BYTES, MAX_MANIFEST_FILES
+from ethernity.core.bounds import (
+    MAX_DECOMPRESSED_PAYLOAD_BYTES,
+    MAX_MANIFEST_CBOR_BYTES,
+    MAX_MANIFEST_FILES,
+)
 from ethernity.encoding.varint import encode_uvarint
 from ethernity.formats.envelope_codec import (
     MAGIC,
@@ -1022,6 +1026,18 @@ class TestEnvelope(unittest.TestCase):
             files=[_make_manifest_file_entry(path="f.bin", size=1)],
         )
         with self.assertRaisesRegex(ValueError, "must match sum"):
+            decode_manifest(cbor2.dumps(manifest_data, canonical=True))
+
+    def test_manifest_gzip_payload_raw_len_rejects_over_max_decompressed_bound(self) -> None:
+        oversize_len = MAX_DECOMPRESSED_PAYLOAD_BYTES + 1
+        manifest_data = _make_manifest_cbor(
+            sealed=True,
+            seed=None,
+            payload_codec=PAYLOAD_CODEC_GZIP,
+            payload_raw_len=oversize_len,
+            files=[_make_manifest_file_entry(path="f.bin", size=oversize_len)],
+        )
+        with self.assertRaisesRegex(ValueError, "MAX_DECOMPRESSED_PAYLOAD_BYTES"):
             decode_manifest(cbor2.dumps(manifest_data, canonical=True))
 
     def test_extract_payloads_rejects_gzip_overrun(self) -> None:

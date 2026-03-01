@@ -100,6 +100,8 @@ Operational behavior:
 - Compression is intended for the payload before envelope encryption.
 - Recovery normalizes payload bytes via manifest metadata before manifest-file slicing/hash checks.
 - This keeps existing extraction call sites stable and codec-agnostic.
+- To avoid zip-bomb style inflation, gzip-coded manifests are capped by
+  `MAX_DECOMPRESSED_PAYLOAD_BYTES` before decompression.
 
 Compatibility note:
 - Legacy artifacts without codec fields remain valid (`raw` by default).
