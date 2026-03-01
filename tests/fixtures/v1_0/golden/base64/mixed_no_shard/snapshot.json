@@ -1,0 +1,58 @@
+{
+  "artifact_hashes": {
+    "main_payloads.bin": "8a711690513113b737e05a1abeaeda0d14f1ff262bde668e5da94c74c32f11ab",
+    "main_payloads.txt": "99e4d66e851300189e9b5972958cd01fffa6bc3a695ae1f3b7df2ea2d8af296f",
+    "qr_document.pdf": "edb16c53c780b6e6e95918d08b769d75eeb6be994d9a6072ab9c4f659f5a9b24",
+    "recovery_document.pdf": "4b9a4a3685c8896f3b0521272ced577b9e3d3ba976634dd579fc4cfb4d16153b",
+    "recovery_kit_index.pdf": "1c7f5ff1162907b8906663cca11602cb4b7a60ad087a74961a872843eeab5b19"
+  },
+  "expected_file_sha256": {
+    "directory_payload/alpha.txt": "2f4b5a7d0ed3a982cf012f6af9d58168314e999c0eb3793f598978174928e20f",
+    "directory_payload/nested/beta.json": "d54870a31ef24b66d447ffa2b5297527046741283cfd6053ba165c51c87d6c1f",
+    "directory_payload/nested/raw.bin": "01d1b8d1d3dd3575d6970f5f74759c78403b7684bfe8ab4426bfe5b42945cf1c",
+    "mixed_input.txt": "91030acd66ddfda36583b62880c2e2868ed8dfd49f3c0521fce010415f6e9250"
+  },
+  "expected_relative_paths": [
+    "mixed_input.txt",
+    "directory_payload/alpha.txt",
+    "directory_payload/nested/beta.json",
+    "directory_payload/nested/raw.bin"
+  ],
+  "expected_shard_pdfs": 0,
+  "expected_signing_key_shard_pdfs": 0,
+  "manifest_projection": {
+    "files": [
+      {
+        "path": "directory_payload/alpha.txt",
+        "sha256": "2f4b5a7d0ed3a982cf012f6af9d58168314e999c0eb3793f598978174928e20f",
+        "size": 66
+      },
+      {
+        "path": "directory_payload/nested/beta.json",
+        "sha256": "d54870a31ef24b66d447ffa2b5297527046741283cfd6053ba165c51c87d6c1f",
+        "size": 55
+      },
+      {
+        "path": "directory_payload/nested/raw.bin",
+        "sha256": "01d1b8d1d3dd3575d6970f5f74759c78403b7684bfe8ab4426bfe5b42945cf1c",
+        "size": 47
+      },
+      {
+        "path": "mixed_input.txt",
+        "sha256": "91030acd66ddfda36583b62880c2e2868ed8dfd49f3c0521fce010415f6e9250",
+        "size": 104
+      }
+    ],
+    "input_origin": "mixed",
+    "input_roots": [
+      "directory_payload"
+    ],
+    "sealed": false,
+    "version": 1
+  },
+  "passphrase": "stable-v1-baseline-passphrase",
+  "profile": "base64",
+  "qr_payload_codec": "base64",
+  "scenario_id": "mixed_no_shard",
+  "shard_payload_count": 0
+}

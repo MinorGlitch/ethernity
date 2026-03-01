@@ -17,7 +17,7 @@
 
 import { useEffect, useRef, useState } from "microact/hooks";
 import jsQR from "jsqr";
-import { bytesToUnpaddedBase64 } from "../../lib/encoding.js";
+import { normalizeJsQrPayload } from "../../lib/qr_scan_normalize.js";
 
 function cameraSupportState() {
   if (typeof window === "undefined") return { ok: false, reason: "No browser context." };
@@ -37,21 +37,6 @@ function centerScanRegion(width, height) {
   return { x, y, width: Math.min(side, width), height: Math.min(side, height) };
 }
 
-function _normalizeJsQrPayload(hit) {
-  if (!hit) return null;
-  const binaryData = hit.binaryData;
-  if (binaryData && binaryData.length) {
-    const bytes = binaryData instanceof Uint8Array ? binaryData : Uint8Array.from(binaryData);
-    const encoded = bytesToUnpaddedBase64(bytes);
-    if (encoded) return encoded;
-  }
-  const text = hit.data;
-  if (typeof text === "string" && text.trim()) {
-    return text.trim();
-  }
-  return null;
-}
-
 function detectWithJsQr(video, canvas, ctx) {
   const width = video.videoWidth | 0;
   const height = video.videoHeight | 0;
@@ -65,7 +50,7 @@ function detectWithJsQr(video, canvas, ctx) {
   const centerHit = jsQR(regionImage.data, region.width, region.height, {
     inversionAttempts: "dontInvert",
   });
-  return _normalizeJsQrPayload(centerHit);
+  return normalizeJsQrPayload(centerHit);
 }
 
 export function useQrScannerRuntime(onScanText) {

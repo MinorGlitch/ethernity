@@ -1,0 +1,65 @@
+{
+  "artifact_hashes": {
+    "main_payloads.bin": "2c404fef56ea691307bcddd40865e5d7920266b51f926d89fa99e83d3b618a6c",
+    "main_payloads.txt": "4783c8ed8e0103297f2662aef7cb41ef5468cee1d8d8983cb180cc323ca91dfd",
+    "qr_document.pdf": "d8812d9bc88db504cc66b566550612f4d6e800ea3a1271e5e8ff0dca8cd46615",
+    "recovery_document.pdf": "ab540c5b4f0cd0fc537da548fbc5d6f3827c22b391a15195a6efd33dfa8eb16e",
+    "recovery_kit_index.pdf": "c48fac047d08eb6139a0afab4b5f2b17821daae86f13133d7fc826f7aa14aa26",
+    "shard-06829ba6e3700e46-1-of-3.pdf": "83ddc875387d12a9e10a6750fae5e9bb7ceb0fe5bac1ce2ffcf8ae03d9d44e2f",
+    "shard-06829ba6e3700e46-2-of-3.pdf": "6dfb0dcd886518af06702c8e9319a317002a2053d1d9564e050a546f8fd058be",
+    "shard-06829ba6e3700e46-3-of-3.pdf": "405edbbad7a1aa7ca0e98d3b946cd34e6de8ba76c96d2a872520e4e046faa101",
+    "shard_payloads_threshold.bin": "057da3e28558e4d0a8c7249743dea6fe5a729f60361598fdb9cc3200eb44aece",
+    "shard_payloads_threshold.txt": "7230b8b14243c258f05a21180f218833e7ec9ad59595c9f9e1b605b15eefd562",
+    "signing-key-shard-06829ba6e3700e46-1-of-2.pdf": "03e79be58618b4bcbf1e8961d366d1e0920eb6353ca2b958472ff672d630639c",
+    "signing-key-shard-06829ba6e3700e46-2-of-2.pdf": "5d9040ddee6463a4ac357b25a2445b7317e1463b9d4e58026a7ff67cef93ab76"
+  },
+  "expected_file_sha256": {
+    "directory_payload/alpha.txt": "2f4b5a7d0ed3a982cf012f6af9d58168314e999c0eb3793f598978174928e20f",
+    "directory_payload/nested/beta.json": "d54870a31ef24b66d447ffa2b5297527046741283cfd6053ba165c51c87d6c1f",
+    "directory_payload/nested/raw.bin": "01d1b8d1d3dd3575d6970f5f74759c78403b7684bfe8ab4426bfe5b42945cf1c",
+    "mixed_input.txt": "91030acd66ddfda36583b62880c2e2868ed8dfd49f3c0521fce010415f6e9250"
+  },
+  "expected_relative_paths": [
+    "mixed_input.txt",
+    "directory_payload/alpha.txt",
+    "directory_payload/nested/beta.json",
+    "directory_payload/nested/raw.bin"
+  ],
+  "expected_shard_pdfs": 3,
+  "expected_signing_key_shard_pdfs": 2,
+  "manifest_projection": {
+    "files": [
+      {
+        "path": "directory_payload/alpha.txt",
+        "sha256": "2f4b5a7d0ed3a982cf012f6af9d58168314e999c0eb3793f598978174928e20f",
+        "size": 66
+      },
+      {
+        "path": "directory_payload/nested/beta.json",
+        "sha256": "d54870a31ef24b66d447ffa2b5297527046741283cfd6053ba165c51c87d6c1f",
+        "size": 55
+      },
+      {
+        "path": "directory_payload/nested/raw.bin",
+        "sha256": "01d1b8d1d3dd3575d6970f5f74759c78403b7684bfe8ab4426bfe5b42945cf1c",
+        "size": 47
+      },
+      {
+        "path": "mixed_input.txt",
+        "sha256": "91030acd66ddfda36583b62880c2e2868ed8dfd49f3c0521fce010415f6e9250",
+        "size": 104
+      }
+    ],
+    "input_origin": "mixed",
+    "input_roots": [
+      "directory_payload"
+    ],
+    "sealed": false,
+    "version": 1
+  },
+  "passphrase": "stable-v1-baseline-passphrase",
+  "profile": "raw",
+  "qr_payload_codec": "raw",
+  "scenario_id": "sharded_signing_sharded",
+  "shard_payload_count": 2
+}

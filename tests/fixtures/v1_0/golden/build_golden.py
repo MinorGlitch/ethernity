@@ -20,6 +20,7 @@ import hashlib
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -38,6 +39,9 @@ from ethernity.formats.envelope_codec import decode_envelope
 from ethernity.qr.scan import scan_qr_payloads
 
 PASS_PHRASE = "stable-v1-baseline-passphrase"
+_BINARY_PAYLOADS_MAGIC = b"EQPB"
+_BINARY_PAYLOADS_VERSION = 1
+_FROZEN_PROFILES: tuple[tuple[str, str], ...] = (("base64", "base64"), ("raw", "raw"))
 
 
 def _scenario_definitions(source_root: Path) -> list[dict[str, object]]:
@@ -170,18 +174,36 @@ def _run_cli(repo_root: Path, args: list[str], xdg_config_home: Path, config_pat
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
 
 
-def _write_payloads_file(pdf_paths: list[Path], destination: Path) -> None:
+def _scan_payload_bytes(pdf_paths: list[Path]) -> list[bytes]:
     payloads = scan_qr_payloads([str(path) for path in pdf_paths])
-    normalized: list[str] = []
+    normalized: list[bytes] = []
     for payload in payloads:
         if isinstance(payload, bytes):
-            normalized.append(encode_qr_payload(payload, codec=QR_PAYLOAD_CODEC_BASE64))
-        else:
             normalized.append(payload)
+        else:
+            normalized.append(payload.encode("utf-8"))
+    return normalized
+
+
+def _write_payloads_text_file(payloads: list[bytes], destination: Path) -> None:
+    normalized: list[str] = []
+    for payload in payloads:
+        normalized.append(encode_qr_payload(payload, codec=QR_PAYLOAD_CODEC_BASE64))
     if not normalized:
         destination.write_text("", encoding="utf-8")
         return
     destination.write_text("\n".join(normalized) + "\n", encoding="utf-8")
+
+
+def _write_payloads_binary_file(payloads: list[bytes], destination: Path) -> None:
+    out = bytearray()
+    out.extend(_BINARY_PAYLOADS_MAGIC)
+    out.append(_BINARY_PAYLOADS_VERSION)
+    out.extend(struct.pack(">I", len(payloads)))
+    for payload in payloads:
+        out.extend(struct.pack(">I", len(payload)))
+        out.extend(payload)
+    destination.write_bytes(bytes(out))
 
 
 def _manifest_projection(payloads_file: Path, passphrase: str) -> dict[str, object]:
@@ -217,6 +239,14 @@ def _file_sha256(path: Path) -> str:
     return hasher.hexdigest()
 
 
+def _config_with_qr_payload_codec(base_config: str, codec: str) -> str:
+    return base_config.replace(
+        'qr_payload_codec = "raw" # required: raw | base64',
+        f'qr_payload_codec = "{codec}" # required: raw | base64',
+        1,
+    )
+
+
 def main() -> None:
     repo_root = Path(__file__).resolve().parents[4]
     source_root = repo_root / "tests" / "fixtures" / "v1_0" / "source"
@@ -226,7 +256,7 @@ def main() -> None:
     _ensure_playwright_browsers(quiet=True)
 
     for child in golden_root.iterdir():
-        if child.name == "build_golden.py":
+        if child.name in {"build_golden.py", "README.md"}:
             continue
         if child.is_dir():
             shutil.rmtree(child)
@@ -234,81 +264,120 @@ def main() -> None:
             child.unlink()
 
     scenarios = _scenario_definitions(source_root)
-    index: dict[str, object] = {"version": "1.0.0", "passphrase": PASS_PHRASE, "scenarios": []}
+    index: dict[str, object] = {
+        "version": "1.0.0",
+        "passphrase": PASS_PHRASE,
+        "profiles": {},
+    }
 
     with tempfile.TemporaryDirectory() as xdg_tmp:
         xdg_config_home = Path(xdg_tmp)
         base_config_path = repo_root / "src" / "ethernity" / "config" / "config.toml"
-        config_text = base_config_path.read_text(encoding="utf-8").replace(
-            'qr_payload_codec = "raw" # required: raw | base64',
-            'qr_payload_codec = "base64" # required: raw | base64',
-            1,
-        )
-        golden_config_path = xdg_config_home / "config_base64.toml"
-        golden_config_path.write_text(config_text, encoding="utf-8")
-        for scenario in scenarios:
-            scenario_id = str(scenario["id"])
-            scenario_root = golden_root / scenario_id
-            backup_dir = scenario_root / "backup"
-            scenario_root.mkdir(parents=True, exist_ok=True)
-            backup_args = [
-                "backup",
-                *list(scenario["backup_args"]),
-                "--design",
-                "forge",
-                "--output-dir",
-                str(backup_dir),
-                "--quiet",
-            ]
-            _run_cli(repo_root, backup_args, xdg_config_home, golden_config_path)
-
-            main_payloads = scenario_root / "main_payloads.txt"
-            _write_payloads_file([backup_dir / "qr_document.pdf"], main_payloads)
-
-            shard_paths = sorted(backup_dir.glob("shard-*.pdf"))
-            shard_payloads_path = scenario_root / "shard_payloads_threshold.txt"
-            shard_payload_count = int(scenario["shard_payload_count"])
-            if shard_payload_count > 0:
-                _write_payloads_file(shard_paths[:shard_payload_count], shard_payloads_path)
-            elif shard_payloads_path.exists():
-                shard_payloads_path.unlink()
-
-            artifact_hashes = {}
-            for artifact in sorted(backup_dir.glob("*.pdf")):
-                artifact_hashes[artifact.name] = _file_sha256(artifact)
-            artifact_hashes["main_payloads.txt"] = _file_sha256(main_payloads)
-            if shard_payload_count > 0:
-                artifact_hashes["shard_payloads_threshold.txt"] = _file_sha256(shard_payloads_path)
-
-            expected_files = {}
-            expected_source_root = Path(str(scenario["expected_source_root"]))
-            for relative_path in list(scenario["expected_relative_paths"]):
-                source_path = expected_source_root / str(relative_path)
-                expected_files[str(relative_path)] = _file_sha256(source_path)
-
-            snapshot = {
-                "scenario_id": scenario_id,
+        base_config_text = base_config_path.read_text(encoding="utf-8")
+        for profile_name, qr_codec in _FROZEN_PROFILES:
+            profile_root = golden_root / profile_name
+            profile_root.mkdir(parents=True, exist_ok=True)
+            profile_index: dict[str, object] = {
+                "version": "1.0.0",
+                "profile": profile_name,
+                "qr_payload_codec": qr_codec,
                 "passphrase": PASS_PHRASE,
-                "expected_relative_paths": list(scenario["expected_relative_paths"]),
-                "expected_file_sha256": expected_files,
-                "artifact_hashes": artifact_hashes,
-                "manifest_projection": _manifest_projection(main_payloads, PASS_PHRASE),
-                "shard_payload_count": shard_payload_count,
-                "expected_shard_pdfs": len(shard_paths),
-                "expected_signing_key_shard_pdfs": len(
-                    list(backup_dir.glob("signing-key-shard-*.pdf"))
-                ),
+                "scenarios": [],
             }
-            (scenario_root / "snapshot.json").write_text(
-                json.dumps(snapshot, indent=2, sort_keys=True) + "\n",
+            profile_config_path = xdg_config_home / f"config_{profile_name}.toml"
+            profile_config_path.write_text(
+                _config_with_qr_payload_codec(base_config_text, qr_codec),
                 encoding="utf-8",
             )
-            index["scenarios"].append(
-                {
-                    "id": scenario_id,
-                    "path": f"{scenario_id}/snapshot.json",
+            for scenario in scenarios:
+                scenario_id = str(scenario["id"])
+                scenario_root = profile_root / scenario_id
+                backup_dir = scenario_root / "backup"
+                scenario_root.mkdir(parents=True, exist_ok=True)
+                backup_args = [
+                    "backup",
+                    *list(scenario["backup_args"]),
+                    "--design",
+                    "forge",
+                    "--output-dir",
+                    str(backup_dir),
+                    "--quiet",
+                ]
+                _run_cli(repo_root, backup_args, xdg_config_home, profile_config_path)
+
+                main_payloads = scenario_root / "main_payloads.txt"
+                main_payloads_binary = scenario_root / "main_payloads.bin"
+                main_payload_bytes = _scan_payload_bytes([backup_dir / "qr_document.pdf"])
+                _write_payloads_text_file(main_payload_bytes, main_payloads)
+                _write_payloads_binary_file(main_payload_bytes, main_payloads_binary)
+
+                shard_paths = sorted(backup_dir.glob("shard-*.pdf"))
+                shard_payloads_path = scenario_root / "shard_payloads_threshold.txt"
+                shard_payloads_binary_path = scenario_root / "shard_payloads_threshold.bin"
+                shard_payload_count = int(scenario["shard_payload_count"])
+                if shard_payload_count > 0:
+                    shard_payload_bytes = _scan_payload_bytes(shard_paths[:shard_payload_count])
+                    _write_payloads_text_file(shard_payload_bytes, shard_payloads_path)
+                    _write_payloads_binary_file(shard_payload_bytes, shard_payloads_binary_path)
+                else:
+                    if shard_payloads_path.exists():
+                        shard_payloads_path.unlink()
+                    if shard_payloads_binary_path.exists():
+                        shard_payloads_binary_path.unlink()
+
+                artifact_hashes = {}
+                for artifact in sorted(backup_dir.glob("*.pdf")):
+                    artifact_hashes[artifact.name] = _file_sha256(artifact)
+                artifact_hashes["main_payloads.txt"] = _file_sha256(main_payloads)
+                artifact_hashes["main_payloads.bin"] = _file_sha256(main_payloads_binary)
+                if shard_payload_count > 0:
+                    artifact_hashes["shard_payloads_threshold.txt"] = _file_sha256(
+                        shard_payloads_path
+                    )
+                    artifact_hashes["shard_payloads_threshold.bin"] = _file_sha256(
+                        shard_payloads_binary_path
+                    )
+
+                expected_files = {}
+                expected_source_root = Path(str(scenario["expected_source_root"]))
+                for relative_path in list(scenario["expected_relative_paths"]):
+                    source_path = expected_source_root / str(relative_path)
+                    expected_files[str(relative_path)] = _file_sha256(source_path)
+
+                snapshot = {
+                    "scenario_id": scenario_id,
+                    "profile": profile_name,
+                    "qr_payload_codec": qr_codec,
+                    "passphrase": PASS_PHRASE,
+                    "expected_relative_paths": list(scenario["expected_relative_paths"]),
+                    "expected_file_sha256": expected_files,
+                    "artifact_hashes": artifact_hashes,
+                    "manifest_projection": _manifest_projection(main_payloads, PASS_PHRASE),
+                    "shard_payload_count": shard_payload_count,
+                    "expected_shard_pdfs": len(shard_paths),
+                    "expected_signing_key_shard_pdfs": len(
+                        list(backup_dir.glob("signing-key-shard-*.pdf"))
+                    ),
                 }
+                (scenario_root / "snapshot.json").write_text(
+                    json.dumps(snapshot, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                profile_index["scenarios"].append(
+                    {
+                        "id": scenario_id,
+                        "path": f"{scenario_id}/snapshot.json",
+                    }
+                )
+
+            (profile_root / "index.json").write_text(
+                json.dumps(profile_index, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
             )
+            index["profiles"][profile_name] = {
+                "path": f"{profile_name}/index.json",
+                "qr_payload_codec": qr_codec,
+            }
 
     (golden_root / "index.json").write_text(
         json.dumps(index, indent=2, sort_keys=True) + "\n",
