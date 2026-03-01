@@ -1,9 +1,9 @@
 {
   "artifact_hashes": {
-    "main_payloads.txt": "3830f2d818ce8ea4f19c6c888cb46dd3f94cb9ba6e09a4a35d70c863182b6f2f",
-    "qr_document.pdf": "a2a3e9e934c04eb46d3b303bf26b6ad940ae210d1131c93e73a3d139f4a9ba56",
-    "recovery_document.pdf": "3b973c38ffa2ce1dc8f59ebee9c2e6554c1d19c00a0650ef8093a3b9eceffd5c",
-    "recovery_kit_index.pdf": "733fe7323864e260070a9112a579793a671baa46ef6551de557fcf50bf920bce"
+    "main_payloads.txt": "1e9a3f258377359911e5070e0619176c68d0a3988f68b5f575f525ffb91cbdec",
+    "qr_document.pdf": "e3bc86dbb659555c03fe2cd4566b50327dfe01d84c5a89cb2ab17a476abecc97",
+    "recovery_document.pdf": "03cbe75adf493ee5819d30f6096957522eb7ba4f8c7884b0aac6c925d6dd9560",
+    "recovery_kit_index.pdf": "a1b2700cc875c69fe405c9934a10e378409d4b25e270524df3817c03dfa54d46"
   },
   "expected_file_sha256": {
     "standalone_secret.txt": "ce36ddabb5fdbed1f1e472cc5b61bfb5e0299c2a9adc6d2d0d54412e3251e449"

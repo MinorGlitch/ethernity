@@ -1,13 +1,13 @@
 {
   "artifact_hashes": {
-    "main_payloads.txt": "312f2eb1f73c53fac5fd3b65dbc123d27cb0f91fa3b4c2a87b467c8e55e2aea6",
-    "qr_document.pdf": "f7b84d7d3239c943171ba203245e90a22dd3b65abb867774fa07affe3aee138d",
-    "recovery_document.pdf": "24e7d77359ef37d2f350a5210150b08527e9e24f15dc443de347280446974d35",
-    "recovery_kit_index.pdf": "bf9c7791d05ec4946b2f4d34ac16c7701c3eeff1236d60cc663a6c0d61c0e6b8",
-    "shard-0d3fe93632b8ac15-1-of-3.pdf": "c3250d32214ab724d580a509519cb56f50c2bcd4ea627ff7a0b7f37976a6f5f3",
-    "shard-0d3fe93632b8ac15-2-of-3.pdf": "7b0c77dc2b1b0f4c622e22a527cc6b12a97e72b939d4cfe291d5fcc75f7626a9",
-    "shard-0d3fe93632b8ac15-3-of-3.pdf": "923505b25e2570c7e390781bd73f0414a8f1cd94e641f23691567ff63ac3ce78",
-    "shard_payloads_threshold.txt": "48a43e59756b21dfa41146eb9d2980986e97cbc51e5cd5621f3ebe3d3ed83afb"
+    "main_payloads.txt": "d5f0766145c0e08e67127970fc4fd43eb3e06bd194f635161b3c2d94b579fbbc",
+    "qr_document.pdf": "a02105ef62aa679b403ad3369a994a7353fa511c2e542f9276e1335160e9b3c7",
+    "recovery_document.pdf": "f3c3f9f3e35e3b7f469dcaf5fe06e0d2092e8d0a7f5a24a22bd5272c62aaebee",
+    "recovery_kit_index.pdf": "ada2c5ef5a76c9766b805b822656ddcf3ffaaeaba6c2fbaf44afa5b743d92114",
+    "shard-df4b4e7ca4ec9bb4-1-of-3.pdf": "ff19f7d536cfe31990c227bc5df0da4c54cc376c632695687fefcb478cb9c6c5",
+    "shard-df4b4e7ca4ec9bb4-2-of-3.pdf": "d4c485511857db42a04f5fbae0b67a3eb6bb923af1e819fcba181f91b80353e5",
+    "shard-df4b4e7ca4ec9bb4-3-of-3.pdf": "2b4d06c7ec0f7b7e0cd01e198905a299f6cc7e839170658e8e7e5e69f3c02696",
+    "shard_payloads_threshold.txt": "aa644a86432c1d9e32367840d99738b40d15187fa5f92596919f77185175271c"
   },
   "expected_file_sha256": {
     "alpha.txt": "2f4b5a7d0ed3a982cf012f6af9d58168314e999c0eb3793f598978174928e20f",
