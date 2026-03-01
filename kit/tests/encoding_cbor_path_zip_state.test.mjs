@@ -34,12 +34,14 @@ test("encoding primitives enforce strict payload and varint rules", () => {
   assert.equal(decodePayloadString("abc_"), null);
   assert.equal(decodePayloadString("abc-"), null);
   assert.equal(decodePayloadString("abcde"), null);
+  assert.equal(decodePayloadString("AB"), null);
 
   const decoded = decodePayloadString("YQ");
   assert.ok(decoded instanceof Uint8Array);
   assert.deepEqual(Array.from(decoded), [97]);
 
   assert.deepEqual(Array.from(decodeZBase32("yy")), [0]);
+  assert.throws(() => decodeZBase32("yb"), /non-canonical tail bits/);
   assert.throws(() => decodeZBase32("!"), /invalid z-base-32 character/);
   assert.deepEqual(filterZBase32Lines("yy\nhello\n8x\n"), ["yy", "8x"]);
 

@@ -55,6 +55,9 @@ export function decodePayloadString(text) {
       for (let i = 0; i < binary.length; i += 1) {
         bytes[i] = binary.codePointAt(i);
       }
+      if (bytesToUnpaddedBase64(bytes) !== cleaned) {
+        return null;
+      }
       return bytes;
     } catch (err) {
       return null;
@@ -63,14 +66,43 @@ export function decodePayloadString(text) {
   return null;
 }
 
+function encodeZBase32(bytes) {
+  if (!(bytes instanceof Uint8Array)) {
+    throw new Error("encodeZBase32 expects Uint8Array");
+  }
+  if (bytes.length === 0) {
+    return "";
+  }
+  let bits = 0;
+  let bitCount = 0;
+  let out = "";
+  for (const byte of bytes) {
+    bits = (bits << 8) | byte;
+    bitCount += 8;
+    while (bitCount >= 5) {
+      const shift = bitCount - 5;
+      out += ZBASE32_ALPHABET[(bits >> shift) & 0x1f];
+      bitCount -= 5;
+      bits &= (1 << bitCount) - 1;
+    }
+  }
+  if (bitCount) {
+    out += ZBASE32_ALPHABET[(bits << (5 - bitCount)) & 0x1f];
+  }
+  return out;
+}
+
 export function decodeZBase32(text) {
   let bits = 0;
   let bitCount = 0;
   const out = [];
+  const normalizedChars = [];
   for (const ch of text) {
     if (ch === "-" || /\s/.test(ch)) continue;
-    const idx = ZBASE32_ALPHABET.indexOf(ch.toLowerCase());
+    const normalized = ch.toLowerCase();
+    const idx = ZBASE32_ALPHABET.indexOf(normalized);
     if (idx === -1) throw new Error(`invalid z-base-32 character: ${ch}`);
+    normalizedChars.push(normalized);
     bits = (bits << 5) | idx;
     bitCount += 5;
     if (bitCount >= 8) {
@@ -80,7 +112,11 @@ export function decodeZBase32(text) {
       bits &= (1 << bitCount) - 1;
     }
   }
-  return new Uint8Array(out);
+  const decoded = new Uint8Array(out);
+  if (encodeZBase32(decoded) !== normalizedChars.join("")) {
+    throw new Error("invalid z-base-32 text: non-canonical tail bits");
+  }
+  return decoded;
 }
 
 export function filterZBase32Lines(text) {

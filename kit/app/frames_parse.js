@@ -20,7 +20,12 @@ import {
   decodeZBase32,
   filterZBase32Lines,
 } from "../lib/encoding.js";
-import { FRAME_TYPE_KEY, MAX_RECOVERY_TEXT_BYTES } from "./constants.js";
+import {
+  FRAME_TYPE_KEY,
+  MAX_FALLBACK_LINES,
+  MAX_FALLBACK_NORMALIZED_CHARS,
+  MAX_RECOVERY_TEXT_BYTES,
+} from "./constants.js";
 import { addFrame, addShardFrame } from "./frames_apply.js";
 import { decodeFrame } from "./frames_protocol.js";
 import { bumpError } from "./state/initial.js";
@@ -128,6 +133,31 @@ function allLinesLookLikeFallback(lines) {
   return filtered.length === lines.length;
 }
 
+function normalizedZbaseChars(lines) {
+  let count = 0;
+  for (const line of lines) {
+    for (const ch of line) {
+      if (ch === "-" || /\s/.test(ch)) continue;
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function enforceFallbackLimits(lines, label) {
+  if (lines.length > MAX_FALLBACK_LINES) {
+    throw new Error(
+      `${label} fallback exceeds MAX_FALLBACK_LINES (${MAX_FALLBACK_LINES}): ${lines.length} lines`
+    );
+  }
+  const normalizedChars = normalizedZbaseChars(lines);
+  if (normalizedChars > MAX_FALLBACK_NORMALIZED_CHARS) {
+    throw new Error(
+      `${label} fallback exceeds MAX_FALLBACK_NORMALIZED_CHARS (${MAX_FALLBACK_NORMALIZED_CHARS}): ${normalizedChars} chars`
+    );
+  }
+}
+
 function parseFallbackText(state, text) {
   const lines = text.split(/\r?\n/);
   const sections = { main: [], auth: [], any: [] };
@@ -155,6 +185,7 @@ function parseFallbackText(state, text) {
   if (!filtered.length) {
     throw new Error("no fallback lines found");
   }
+  enforceFallbackLimits(filtered, "main");
   const bytes = decodeZBase32(filtered.join(""));
   const frame = decodeFrame(bytes);
   addFrame(state, frame);
@@ -164,6 +195,7 @@ function parseFallbackText(state, text) {
     try {
       const authLines = filterZBase32Lines(sections.auth.join("\n"));
       if (authLines.length) {
+        enforceFallbackLimits(authLines, "auth");
         const authBytes = decodeZBase32(authLines.join(""));
         const authFrame = decodeFrame(authBytes);
         addFrame(state, authFrame);
@@ -181,6 +213,7 @@ function parseShardFallbackText(state, text) {
   if (!filtered.length) {
     throw new Error("no shard fallback lines found");
   }
+  enforceFallbackLimits(filtered, "shard");
   const bytes = decodeZBase32(filtered.join(""));
   const frame = decodeFrame(bytes);
   addShardFrame(state, frame);
