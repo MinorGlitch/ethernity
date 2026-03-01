@@ -89,6 +89,10 @@ class EnvelopeManifest:
     def to_cbor(self) -> dict[str, object]:
         """Build the canonical manifest CBOR map, selecting the shortest path encoding."""
 
+        format_version = require_int(self.format_version, label="manifest version")
+        if format_version != MANIFEST_VERSION:
+            raise ValueError(f"unsupported manifest version: {format_version}")
+
         if not self.files:
             raise ValueError("manifest files are required")
         if len(self.files) > MAX_MANIFEST_FILES:
@@ -138,7 +142,7 @@ class EnvelopeManifest:
             seen_paths.add(entry.path)
 
         base_manifest: dict[str, object] = {
-            "version": self.format_version,
+            "version": format_version,
             "created": self.created_at,
             "sealed": self.sealed,
             "seed": self.signing_seed,

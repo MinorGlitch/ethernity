@@ -24,6 +24,7 @@ from playwright.sync_api import sync_playwright
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
 from ethernity.render import RenderInputs, pdf_render as pdf_render_module, render_frames_to_pdf
 from ethernity.render.recovery_meta import build_recovery_meta
+from ethernity.render.types import Layout
 from tests.test_support import ensure_playwright_browsers
 
 
@@ -316,6 +317,83 @@ class TestPdfRender(unittest.TestCase):
             self.assertIn("pages", payload)
             self.assertEqual(payload["style_name"], "ledger")
             self.assertEqual(payload["template_path"], str(template_path))
+
+    def test_recovery_doc_type_is_case_insensitive_for_layout_flags(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x52" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "ledger"
+            / "recovery_document.html.j2"
+        )
+        recovery_meta = build_recovery_meta(
+            passphrase=None,
+            quorum_threshold=2,
+            quorum_shares=3,
+            signing_pub=bytes.fromhex(
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            ),
+        )
+        inputs = RenderInputs(
+            frames=[frame],
+            template_path=template_path,
+            output_path="out.pdf",
+            context={"paper_size": "A4"},
+            doc_type="RECOVERY",
+            render_qr=False,
+            render_fallback=False,
+            recovery_meta=recovery_meta,
+        )
+        layout = Layout(
+            page_w=100.0,
+            page_h=100.0,
+            margin=0.0,
+            header_height=0.0,
+            instructions_y=0.0,
+            content_start_y=0.0,
+            usable_w=100.0,
+            usable_h=100.0,
+            usable_h_grid=100.0,
+            qr_size=10.0,
+            gap=0.0,
+            cols=1,
+            rows=1,
+            per_page=1,
+            gap_y_override=None,
+            fallback_width=100.0,
+            line_length=10,
+            line_height=1.0,
+            fallback_lines_per_page=1,
+            fallback_font="Courier",
+            fallback_size=8.0,
+            text_gap=0.0,
+            min_lines=1,
+            key_lines=(),
+            total_pages=1,
+        )
+
+        with mock.patch("ethernity.render.pdf_render.compute_layout") as compute_layout_mock:
+            compute_layout_mock.return_value = (layout, [])
+            with mock.patch("ethernity.render.pdf_render.build_pages", return_value=[]):
+                with mock.patch("ethernity.render.pdf_render.render_html_to_pdf"):
+                    with mock.patch(
+                        "ethernity.render.pdf_render.render_template",
+                        return_value="<html></html>",
+                    ):
+                        render_frames_to_pdf(inputs)
+
+        first_layout_call = compute_layout_mock.call_args_list[0]
+        self.assertTrue(first_layout_call.kwargs["include_instructions"])
+        self.assertFalse(first_layout_call.kwargs["include_keys"])
 
     def test_recovery_render_requires_structured_recovery_metadata(self) -> None:
         frame = Frame(

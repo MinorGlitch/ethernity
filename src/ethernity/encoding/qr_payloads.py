@@ -69,9 +69,13 @@ def _decode_base64_qr_payload(payload: bytes | str) -> bytes:
     if "=" in cleaned:
         raise ValueError("invalid base64 QR payload")
     try:
-        return base64.b64decode(_pad_unpadded_base64(cleaned), validate=True)
+        decoded = base64.b64decode(_pad_unpadded_base64(cleaned), validate=True)
     except (binascii.Error, ValueError) as exc:
         raise ValueError("invalid base64 QR payload") from exc
+    canonical = base64.b64encode(decoded).decode("ascii").rstrip("=")
+    if canonical != cleaned:
+        raise ValueError("invalid base64 QR payload")
+    return decoded
 
 
 def _pad_unpadded_base64(text: str) -> str:

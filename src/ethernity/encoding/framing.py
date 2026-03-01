@@ -135,6 +135,8 @@ def decode_frame(payload: bytes) -> Frame:
 def _validate_frame(frame: Frame) -> None:
     """Validate frame invariants and frame-type-specific bounds."""
 
+    if isinstance(frame.version, bool) or not isinstance(frame.version, int):
+        raise ValueError(f"unsupported frame version: {frame.version}")
     if frame.version != VERSION:
         raise ValueError(f"unsupported frame version: {frame.version}")
 
@@ -144,9 +146,9 @@ def _validate_frame(frame: Frame) -> None:
     except ValueError as exc:
         raise ValueError(f"unsupported frame type: {frame_type}") from exc
 
-    if frame.total <= 0:
+    if isinstance(frame.total, bool) or not isinstance(frame.total, int) or frame.total <= 0:
         raise ValueError("total must be positive")
-    if frame.index < 0:
+    if isinstance(frame.index, bool) or not isinstance(frame.index, int) or frame.index < 0:
         raise ValueError("index must be non-negative")
     if frame.index >= frame.total:
         raise ValueError("index must be < total")

@@ -98,6 +98,17 @@ class TestChunking(unittest.TestCase):
         decoded = decode_fallback_lines([spaced])
         self.assertEqual(decoded, data)
 
+    def test_decode_zbase32_accepts_uppercase_and_hyphens(self) -> None:
+        data = b"abc123"
+        encoded = encode_zbase32(data)
+        decorated = "-".join(encoded[i : i + 2].upper() for i in range(0, len(encoded), 2))
+        decoded = decode_zbase32(decorated)
+        self.assertEqual(decoded, data)
+
+    def test_decode_zbase32_rejects_noncanonical_tail_bits(self) -> None:
+        with self.assertRaisesRegex(ValueError, "non-canonical tail bits"):
+            decode_zbase32("yb")
+
     def test_chunk_reassemble_roundtrip(self) -> None:
         payload = b"0123456789" * 50
         doc_id = b"\x22" * DOC_ID_LEN

@@ -329,6 +329,32 @@ class TestTemplateStyle(unittest.TestCase):
             ):
                 load_template_style(template_dir / "main_document.html.j2")
 
+    def test_style_rejects_boolean_where_number_required(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            template_dir = Path(temp_dir)
+            (template_dir / "style.json").write_text(
+                """{
+  "name": "custom",
+  "header": {
+    "meta_row_gap_mm": true,
+    "stack_gap_mm": 1.0,
+    "divider_thickness_mm": 0.5
+  },
+  "content_offset": {
+    "divider_gap_extra_mm": 0.0,
+    "doc_types": []
+  }
+}
+""",
+                encoding="utf-8",
+            )
+            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
+            with self.assertRaisesRegex(
+                ValueError,
+                "missing or invalid 'meta_row_gap_mm' number",
+            ):
+                load_template_style(template_dir / "main_document.html.j2")
+
     def test_style_rejects_negative_recovery_continuation_footer_reserve(self) -> None:
         with TemporaryDirectory() as temp_dir:
             template_dir = Path(temp_dir)
