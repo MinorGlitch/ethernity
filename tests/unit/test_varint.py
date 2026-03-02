@@ -33,6 +33,10 @@ class TestVarint(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"2\^64-1"):
             encode_uvarint(1 << 64)
 
+    def test_encode_rejects_bool(self) -> None:
+        with self.assertRaisesRegex(ValueError, "value must be an int"):
+            encode_uvarint(True)
+
     def test_decode_rejects_non_canonical(self) -> None:
         with self.assertRaisesRegex(ValueError, "non-canonical"):
             decode_uvarint(b"\x80\x00", 0)

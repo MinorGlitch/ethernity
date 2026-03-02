@@ -29,6 +29,8 @@ import {
   SHARD_VERSION,
   SHARD_KEY_PASSPHRASE,
   SHARD_KEY_SIGNING_SEED,
+  SIGNING_SEED_LEN,
+  MAX_SHARD_SHARES,
   MAX_AUTH_CBOR_BYTES,
   MAX_MAIN_FRAME_DATA_BYTES,
   MAX_MAIN_FRAME_TOTAL,
@@ -172,11 +174,20 @@ export function decodeShardPayload(bytes) {
   if (!Number.isInteger(threshold) || threshold <= 0) {
     throw new Error("shard threshold must be a positive int");
   }
+  if (threshold > MAX_SHARD_SHARES) {
+    throw new Error(`shard threshold must be <= ${MAX_SHARD_SHARES}`);
+  }
   if (!Number.isInteger(shareCount) || shareCount <= 0) {
     throw new Error("shard share_count must be a positive int");
   }
+  if (shareCount > MAX_SHARD_SHARES) {
+    throw new Error(`shard share_count must be <= ${MAX_SHARD_SHARES}`);
+  }
   if (!Number.isInteger(shareIndex) || shareIndex <= 0) {
     throw new Error("shard share_index must be a positive int");
+  }
+  if (shareIndex > MAX_SHARD_SHARES) {
+    throw new Error(`shard share_index must be <= ${MAX_SHARD_SHARES}`);
   }
   if (threshold > shareCount) {
     throw new Error("shard threshold cannot exceed share_count");
@@ -186,6 +197,9 @@ export function decodeShardPayload(bytes) {
   }
   if (!Number.isInteger(secretLen) || secretLen <= 0) {
     throw new Error("shard secret length must be a positive int");
+  }
+  if (keyType === SHARD_KEY_SIGNING_SEED && secretLen !== SIGNING_SEED_LEN) {
+    throw new Error(`signing-seed shard length must be ${SIGNING_SEED_LEN}`);
   }
   if (!(share instanceof Uint8Array) || !share.length) {
     throw new Error("shard share must be bytes");

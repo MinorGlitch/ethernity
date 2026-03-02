@@ -323,8 +323,14 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
 
             compatible.write_text("incompatible", encoding="utf-8")
             package_candidate = root / "pkg" / "templates" / "forge" / "kit_index_document.html.j2"
+            package_candidate.parent.mkdir(parents=True, exist_ok=True)
+            package_candidate.write_text("kit_index_inventory_artifacts_v3", encoding="utf-8")
             with mock.patch.object(backup, "PACKAGE_ROOT", root / "pkg"):
                 self.assertEqual(backup._resolve_kit_index_template_path(config), package_candidate)
+
+            package_candidate.write_text("incompatible", encoding="utf-8")
+            with mock.patch.object(backup, "PACKAGE_ROOT", root / "pkg"):
+                self.assertIsNone(backup._resolve_kit_index_template_path(config))
 
             self.assertFalse(backup._is_compatible_kit_index_template(root / "missing.html.j2"))
 

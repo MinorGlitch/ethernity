@@ -320,6 +320,7 @@ def _shard_frames_from_args(
             shard_frames = _frames_from_shard_inputs(
                 shard_fallback_files,
                 shard_payloads_file,
+                quiet=quiet,
             )
         except ValueError as exc:
             raise ValueError(format_fallback_error(exc, context="Shard recovery text")) from exc

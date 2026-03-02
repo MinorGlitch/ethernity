@@ -67,6 +67,7 @@ class BackupArgs:
     debug: bool = False
     debug_max_bytes: int = 0
     debug_reveal_secrets: bool = False
+    assume_yes: bool = False
     quiet: bool = False
 
 

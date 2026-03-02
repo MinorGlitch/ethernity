@@ -91,8 +91,8 @@ def split_signing_seed(
 ) -> list[ShardPayload]:
     """Split an Ed25519 signing seed into signed shard payloads."""
 
-    if not seed:
-        raise ValueError("signing seed cannot be empty")
+    if len(seed) != ED25519_SEED_LEN:
+        raise ValueError(f"signing seed must be {ED25519_SEED_LEN} bytes")
     return _split_secret(
         seed,
         threshold=threshold,
@@ -114,11 +114,17 @@ def recover_passphrase(shares: list[ShardPayload]) -> str:
 def recover_signing_seed(shares: list[ShardPayload]) -> bytes:
     """Recover an Ed25519 signing seed from shard payloads."""
 
-    return _recover_secret(shares, key_type=KEY_TYPE_SIGNING_SEED)
+    seed = _recover_secret(shares, key_type=KEY_TYPE_SIGNING_SEED)
+    if len(seed) != ED25519_SEED_LEN:
+        raise ValueError(f"signing seed must be {ED25519_SEED_LEN} bytes")
+    return seed
 
 
 def encode_shard_payload(payload: ShardPayload) -> bytes:
     """Encode a shard payload as canonical CBOR."""
+
+    if payload.key_type == KEY_TYPE_SIGNING_SEED and payload.secret_len != ED25519_SEED_LEN:
+        raise ValueError(f"signing-seed shard length must be {ED25519_SEED_LEN} bytes")
 
     data = {
         "version": SHARD_VERSION,
@@ -183,6 +189,8 @@ def decode_shard_payload(data: bytes) -> ShardPayload:
     if share_index > share_count:
         raise ValueError("shard share_index cannot exceed share_count")
     secret_len = require_positive_int(secret_len, label="shard length")
+    if key_type == KEY_TYPE_SIGNING_SEED and secret_len != ED25519_SEED_LEN:
+        raise ValueError(f"signing-seed shard length must be {ED25519_SEED_LEN} bytes")
     if not isinstance(share, (bytes, bytearray)) or not share:
         raise ValueError("shard share must be bytes")
     if len(share) % BLOCK_SIZE != 0:
@@ -219,6 +227,9 @@ def _split_secret(
     key_type: str,
 ) -> list[ShardPayload]:
     """Split a secret into fixed-size Shamir blocks and sign each share."""
+
+    if key_type == KEY_TYPE_SIGNING_SEED and len(secret) != ED25519_SEED_LEN:
+        raise ValueError(f"signing seed must be {ED25519_SEED_LEN} bytes")
 
     if threshold <= 0 or shares <= 0:
         raise ValueError("threshold and shares must be positive")
@@ -285,6 +296,8 @@ def _recover_secret(shares: list[ShardPayload], *, key_type: str) -> bytes:
     threshold = shares[0].threshold
     secret_len = shares[0].secret_len
     share_total = shares[0].share_count
+    if key_type == KEY_TYPE_SIGNING_SEED and secret_len != ED25519_SEED_LEN:
+        raise ValueError(f"signing seed must be {ED25519_SEED_LEN} bytes")
     seen_indices: set[int] = set()
     for share in shares:
         if share.key_type != key_type:

@@ -7,20 +7,24 @@ on:
       - "kit/**"
       - "tests/**"
       - "scripts/**"
-      - ".github/workflows/ci.yml"
+      - ".github/workflows/**"
       - ".github/actions/**"
+      - ".github/dependabot.yml"
       - "pyproject.toml"
       - "uv.lock"
+      - "ethernity.spec"
   pull_request:
     paths:
       - "src/**"
       - "kit/**"
       - "tests/**"
       - "scripts/**"
-      - ".github/workflows/ci.yml"
+      - ".github/workflows/**"
       - ".github/actions/**"
+      - ".github/dependabot.yml"
       - "pyproject.toml"
       - "uv.lock"
+      - "ethernity.spec"
 
 permissions:
   contents: read
@@ -124,11 +128,7 @@ jobs:
       - name: Run tests with coverage
         run: |
           uv run pytest tests/unit tests/integration \
-            --cov=ethernity.core \
-            --cov=ethernity.crypto \
-            --cov=ethernity.encoding \
-            --cov=ethernity.formats \
-            --cov=ethernity.qr \
+            --cov=ethernity \
             --cov-report=term-missing \
             --cov-fail-under=85
 

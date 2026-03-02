@@ -66,7 +66,7 @@ def _ensure_output_dir(output_dir: str | None, doc_id_hex: str) -> str:
     except FileExistsError as exc:
         raise ValueError(
             f"output directory already exists: {directory}; "
-            "use a different --output path or remove the existing directory"
+            "use a different --output-dir path or remove the existing directory"
         ) from exc
     return directory
 

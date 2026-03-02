@@ -27,7 +27,6 @@ import { verifyCollectedShardSignatures } from "./shard_auth.js";
 import { autoRecoverShardSecret } from "./shards.js";
 import { cloneState, setStatus } from "./state/initial.js";
 import {
-  cloneLatest,
   copyAuthAndCipherFields,
   copyShardAsyncFields,
   dispatchPatch,
@@ -47,17 +46,22 @@ function parsedMainAccepted(base, before, added) {
   );
 }
 
-async function runMainAsyncFollowups(dispatch, getState, base) {
+async function runMainAsyncFollowups(dispatch, base) {
   const work = cloneState(base);
+  const targetRevision = base.revision + 1;
   await updateAuthStatus(work);
   syncCollectedCiphertext(work);
   if (!work.recoveredShardSecret) {
     autoRecoverShardSecret(work);
   }
-  const next = cloneLatest(getState);
-  copyAuthAndCipherFields(next, work);
-  copyShardAsyncFields(next, work);
-  dispatchState(dispatch, next);
+  dispatch({
+    type: "MUTATE_STATE",
+    baseRevision: targetRevision,
+    mutate(next) {
+      copyAuthAndCipherFields(next, work);
+      copyShardAsyncFields(next, work);
+    },
+  });
 }
 
 function parsedShardAccepted(parsed, before, added) {
@@ -68,8 +72,9 @@ function parsedShardAccepted(parsed, before, added) {
   );
 }
 
-async function runShardAsyncFollowups(dispatch, getState, parsed, baseStatusLines) {
+async function runShardAsyncFollowups(dispatch, parsed, baseStatusLines) {
   const work = cloneState(parsed);
+  const targetRevision = parsed.revision + 1;
   const signatureLines = [];
   let signatureType = "";
   try {
@@ -102,9 +107,13 @@ async function runShardAsyncFollowups(dispatch, getState, parsed, baseStatusLine
   if (!recovered && !shardStatusOverridden) {
     setStatus(work, "shardStatus", combinedLines, signatureType);
   }
-  const next = cloneLatest(getState);
-  copyShardAsyncFields(next, work);
-  dispatchState(dispatch, next);
+  dispatch({
+    type: "MUTATE_STATE",
+    baseRevision: targetRevision,
+    mutate(next) {
+      copyShardAsyncFields(next, work);
+    },
+  });
 }
 
 export function updateField(dispatch, getState, key, value) {
@@ -134,7 +143,7 @@ export async function addPayloads(dispatch, getState) {
     base.total ? "Collect all frames to download." : "Waiting for more frames.",
   ]);
   dispatchState(dispatch, base);
-  await runMainAsyncFollowups(dispatch, getState, base);
+  await runMainAsyncFollowups(dispatch, base);
 }
 
 export async function addScannedPayload(dispatch, getState, scanned) {
@@ -156,7 +165,7 @@ export async function addScannedPayload(dispatch, getState, scanned) {
     base.total ? "Collect all frames to download." : "Waiting for more frames.",
   ]);
   dispatchState(dispatch, base);
-  await runMainAsyncFollowups(dispatch, getState, base);
+  await runMainAsyncFollowups(dispatch, base);
 }
 
 export async function addShardPayloads(dispatch, getState) {
@@ -179,7 +188,7 @@ export async function addShardPayloads(dispatch, getState) {
   ];
   setStatus(parsed, "shardStatus", baseStatusLines);
   dispatchState(dispatch, parsed);
-  await runShardAsyncFollowups(dispatch, getState, parsed, baseStatusLines);
+  await runShardAsyncFollowups(dispatch, parsed, baseStatusLines);
 }
 
 export async function addScannedShardPayload(dispatch, getState, scanned) {
@@ -201,7 +210,7 @@ export async function addScannedShardPayload(dispatch, getState, scanned) {
   ];
   setStatus(parsed, "shardStatus", baseStatusLines);
   dispatchState(dispatch, parsed);
-  await runShardAsyncFollowups(dispatch, getState, parsed, baseStatusLines);
+  await runShardAsyncFollowups(dispatch, parsed, baseStatusLines);
 }
 
 export async function copyRecoveredSecret(dispatch, getState) {

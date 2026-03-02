@@ -215,6 +215,15 @@ def backup(
             rich_help_panel="Debug",
         ),
     ] = None,
+    assume_yes: Annotated[
+        bool,
+        typer.Option(
+            "--yes",
+            "-y",
+            help="Skip confirmation prompts and proceed.",
+            rich_help_panel="Behavior",
+        ),
+    ] = False,
     quiet: Annotated[
         bool,
         typer.Option(
@@ -281,6 +290,7 @@ def backup(
         debug=debug_value,
         debug_max_bytes=debug_max_value,
         debug_reveal_secrets=debug_reveal_value,
+        assume_yes=assume_yes,
         quiet=quiet_value,
     )
     if _should_use_wizard_for_backup(args):
