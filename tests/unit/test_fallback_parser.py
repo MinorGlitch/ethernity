@@ -17,10 +17,7 @@ import unittest
 from unittest import mock
 
 from ethernity.cli.io.fallback_parser import (
-    FilterConfig,
-    _is_valid_group_structure,
     _is_valid_zbase32_line,
-    _parse_groups,
     filter_fallback_lines,
     parse_fallback_frame,
 )
@@ -41,43 +38,6 @@ class TestIsValidZbase32Line(unittest.TestCase):
     def test_invalid_characters(self) -> None:
         self.assertFalse(_is_valid_zbase32_line("ybndr 0123"))  # digits
         self.assertFalse(_is_valid_zbase32_line("ybndr @#$%"))  # special chars
-
-
-class TestParseGroups(unittest.TestCase):
-    def test_space_separated(self) -> None:
-        self.assertEqual(_parse_groups("ybndr fghj kmnp"), ["ybndr", "fghj", "kmnp"])
-
-    def test_dash_separated(self) -> None:
-        self.assertEqual(_parse_groups("ybndr-fghj-kmnp"), ["ybndr", "fghj", "kmnp"])
-
-    def test_mixed_separators(self) -> None:
-        self.assertEqual(_parse_groups("ybndr-fghj kmnp"), ["ybndr", "fghj", "kmnp"])
-
-
-class TestIsValidGroupStructure(unittest.TestCase):
-    def test_all_full_length_groups(self) -> None:
-        config = FilterConfig(max_group_length=4)
-        self.assertTrue(_is_valid_group_structure(["ybnr", "fghj", "kmnp"], config))
-
-    def test_short_final_part_allowed(self) -> None:
-        config = FilterConfig(max_group_length=4)
-        self.assertTrue(_is_valid_group_structure(["ybnr", "fghj", "km"], config))
-
-    def test_short_non_final_part_rejected(self) -> None:
-        config = FilterConfig(max_group_length=4)
-        self.assertFalse(_is_valid_group_structure(["yb", "fghj", "kmnp"], config))
-
-    def test_multiple_short_parts_rejected(self) -> None:
-        config = FilterConfig(max_group_length=4)
-        self.assertFalse(_is_valid_group_structure(["yb", "fg", "km"], config))
-
-    def test_group_exceeds_max_length(self) -> None:
-        config = FilterConfig(max_group_length=4)
-        self.assertFalse(_is_valid_group_structure(["ybndr", "fghj", "kmnp"], config))
-
-    def test_empty_parts_rejected(self) -> None:
-        config = FilterConfig(max_group_length=4)
-        self.assertFalse(_is_valid_group_structure([], config))
 
 
 class TestFilterFallbackLines(unittest.TestCase):
@@ -111,17 +71,15 @@ class TestFilterFallbackLines(unittest.TestCase):
         self.assertEqual(len(filtered), 1)
         self.assertEqual(skipped, 0)
 
-    def test_filter_config_does_not_reject_valid_zbase32_lines(self) -> None:
+    def test_two_group_line_is_kept_when_characters_are_valid(self) -> None:
         lines = ["yb fg", "ybnr fghj kmnp qrst"]  # first line has only 2 groups
-        config = FilterConfig(min_groups=3)
-        filtered, skipped = filter_fallback_lines(lines, config)
+        filtered, skipped = filter_fallback_lines(lines)
         self.assertEqual(len(filtered), 2)
         self.assertEqual(skipped, 0)
 
-    def test_configurable_max_group_length(self) -> None:
+    def test_long_groups_are_kept_when_characters_are_valid(self) -> None:
         lines = ["ybndr fghjk kmnpq"]  # 5-char groups
-        config = FilterConfig(max_group_length=5, min_groups=3)
-        filtered, skipped = filter_fallback_lines(lines, config)
+        filtered, skipped = filter_fallback_lines(lines)
         self.assertEqual(len(filtered), 1)
         self.assertEqual(skipped, 0)
 

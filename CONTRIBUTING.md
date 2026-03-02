@@ -2,7 +2,7 @@
 
 Thanks for contributing.
 
-This project is stable v1 software, so small, focused changes with clear tests and docs are preferred.
+This project is stable software, so small, focused changes with clear tests and docs are preferred.
 
 ## Development Setup
 

@@ -90,5 +90,5 @@ def get_context() -> UIContext:
     return DEFAULT_CONTEXT
 
 
-def format_hint(help_text: str, *, context: UIContext | None = None) -> Text:
+def format_hint(help_text: str) -> Text:
     return Text(help_text, style="dim italic")

@@ -30,7 +30,6 @@ class TestPositionFallbackBlocks(unittest.TestCase):
         blocks = [
             FallbackBlock(
                 title=None,
-                section_title="",
                 lines=["a", "b"],
                 gap_lines=0,
                 line_offset=0,
@@ -50,7 +49,6 @@ class TestPositionFallbackBlocks(unittest.TestCase):
         blocks = [
             FallbackBlock(
                 title="Main",
-                section_title="Main",
                 lines=["a", "b"],
                 gap_lines=0,
                 line_offset=0,
@@ -70,14 +68,12 @@ class TestPositionFallbackBlocks(unittest.TestCase):
         blocks = [
             FallbackBlock(
                 title="First",
-                section_title="First",
                 lines=["a", "b"],
                 gap_lines=0,
                 line_offset=0,
             ),
             FallbackBlock(
                 title="Second",
-                section_title="Second",
                 lines=["c"],
                 gap_lines=1,
                 line_offset=0,

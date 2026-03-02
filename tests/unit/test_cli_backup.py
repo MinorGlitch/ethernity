@@ -281,6 +281,11 @@ class TestCliBackup(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "out"
+            templates_dir = Path(tmpdir) / "templates"
+            templates_dir.mkdir(parents=True, exist_ok=True)
+            kit_template = templates_dir / "kit_document.html.j2"
+            kit_template.write_text("{{ doc.title }}", encoding="utf-8")
+            config = replace(config, kit_template_path=kit_template)
             with mock.patch(
                 "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
                 return_value=(b"ciphertext", "auto-pass"),

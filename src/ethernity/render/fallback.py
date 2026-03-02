@@ -64,7 +64,6 @@ class FallbackBlock:
     """A block of fallback lines for rendering."""
 
     title: str | None
-    section_title: str
     lines: list[str]
     gap_lines: int
     line_offset: int
@@ -108,7 +107,7 @@ def fallback_lines_from_sections(
 def build_fallback_sections_data(
     inputs: RenderInputs,
     spec: DocumentSpec,
-    layout: Layout,
+    _layout: Layout,
 ) -> tuple[list[FallbackSectionData], FallbackConsumerState] | None:
     """Precompute tokenized fallback sections and mutable paging state."""
 
@@ -222,7 +221,6 @@ def consume_fallback_blocks(
         blocks.append(
             FallbackBlock(
                 title=section.title if show_title else None,
-                section_title=section.title,
                 lines=chunk,
                 gap_lines=gap_lines,
                 line_offset=line_offset,

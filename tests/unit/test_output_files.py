@@ -61,7 +61,7 @@ class TestOutputFiles(unittest.TestCase):
     def test_write_output_writes_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "out.bin"
-            _write_output(str(path), b"payload", quiet=True)
+            _write_output(str(path), b"payload")
             self.assertEqual(path.read_bytes(), b"payload")
 
     def test_write_output_expands_user_path(self) -> None:
@@ -70,7 +70,7 @@ class TestOutputFiles(unittest.TestCase):
             home.mkdir()
             path = home / "out.bin"
             with mock.patch.dict("os.environ", _home_env(home), clear=False):
-                _write_output("~/out.bin", b"payload", quiet=True)
+                _write_output("~/out.bin", b"payload")
             self.assertEqual(path.read_bytes(), b"payload")
 
     def test_permissions_hardened_on_posix(self) -> None:
@@ -80,7 +80,7 @@ class TestOutputFiles(unittest.TestCase):
             out_dir = Path(tmpdir) / "secure"
             _ensure_output_dir(str(out_dir), "deadbeef")
             out_file = out_dir / "payload.bin"
-            _write_output(str(out_file), b"payload", quiet=True)
+            _write_output(str(out_file), b"payload")
 
             dir_mode = stat.S_IMODE(out_dir.stat().st_mode)
             file_mode = stat.S_IMODE(out_file.stat().st_mode)
@@ -94,17 +94,17 @@ class TestOutputFiles(unittest.TestCase):
             with mock.patch("ethernity.cli.io.outputs.os.name", "posix"):
                 with mock.patch("pathlib.Path.chmod", side_effect=OSError("denied")):
                     _ensure_output_dir(str(out_dir), "deadbeef")
-                    _write_output(str(out_file), b"payload", quiet=True)
+                    _write_output(str(out_file), b"payload")
 
     def test_write_output_writes_stdout_when_path_is_none(self) -> None:
         fake_stdout = types.SimpleNamespace(buffer=io.BytesIO())
         with mock.patch("sys.stdout", new=fake_stdout):
-            _write_output(None, b"stdout-bytes", quiet=True)
+            _write_output(None, b"stdout-bytes")
         self.assertEqual(fake_stdout.buffer.getvalue(), b"stdout-bytes")
 
     def test_write_recovered_outputs_rejects_empty_entries(self) -> None:
         with self.assertRaisesRegex(ValueError, "no payloads to write"):
-            _write_recovered_outputs(None, [], quiet=True)
+            _write_recovered_outputs(None, [])
 
     def test_write_recovered_outputs_requires_output_for_multiple_files(self) -> None:
         entries = [
@@ -112,13 +112,13 @@ class TestOutputFiles(unittest.TestCase):
             (types.SimpleNamespace(path="b.txt"), b"B"),
         ]
         with self.assertRaisesRegex(ValueError, "multiple files require --output"):
-            _write_recovered_outputs(None, entries, quiet=True)
+            _write_recovered_outputs(None, entries)
 
     def test_write_recovered_outputs_single_entry_writes_target_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_path = Path(tmpdir) / "single.bin"
             entries = [(types.SimpleNamespace(path="ignored.txt"), b"single")]
-            _write_recovered_outputs(str(out_path), entries, quiet=True)
+            _write_recovered_outputs(str(out_path), entries)
             self.assertEqual(out_path.read_bytes(), b"single")
 
     def test_write_recovered_outputs_single_entry_directory_mode_writes_under_directory(
@@ -130,7 +130,6 @@ class TestOutputFiles(unittest.TestCase):
             _write_recovered_outputs(
                 str(out_dir),
                 entries,
-                quiet=True,
                 single_entry_output_is_directory=True,
             )
             self.assertEqual((out_dir / "nested" / "file.txt").read_bytes(), b"single")
@@ -142,7 +141,7 @@ class TestOutputFiles(unittest.TestCase):
                 (types.SimpleNamespace(path="dir/a.txt"), b"A"),
                 (types.SimpleNamespace(path="b.txt"), b"B"),
             ]
-            _write_recovered_outputs(str(out_dir), entries, quiet=True)
+            _write_recovered_outputs(str(out_dir), entries)
             self.assertEqual((out_dir / "dir" / "a.txt").read_bytes(), b"A")
             self.assertEqual((out_dir / "b.txt").read_bytes(), b"B")
 
@@ -154,7 +153,7 @@ class TestOutputFiles(unittest.TestCase):
                 (types.SimpleNamespace(path="ok.txt"), b"B"),
             ]
             with self.assertRaisesRegex(ValueError, "unsafe output path"):
-                _write_recovered_outputs(str(out_dir), entries, quiet=True)
+                _write_recovered_outputs(str(out_dir), entries)
 
     def test_ensure_output_dir_expands_user_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -430,37 +430,6 @@ def print_backup_debug(
         _print_text_section("Signing Private Key (hex, revealed)", signing_seed_hex, mode=mode)
 
 
-def _print_pre_encryption_debug(
-    *,
-    payload: bytes,
-    input_files: list[InputFile],
-    base_dir: Path | None,
-    manifest: bytes | EnvelopeManifest,
-    envelope: bytes,
-    plan: DocumentPlan,
-    passphrase: str | None,
-    signing_seed: bytes | None = None,
-    signing_pub: bytes | None = None,
-    signing_seed_stored: bool | None = None,
-    debug_max_bytes: int | None,
-) -> None:
-    """Compatibility wrapper for old call sites."""
-    print_backup_debug(
-        payload=payload,
-        input_files=input_files,
-        base_dir=base_dir,
-        manifest=manifest,
-        envelope=envelope,
-        plan=plan,
-        passphrase=passphrase,
-        signing_seed=signing_seed,
-        signing_pub=signing_pub,
-        signing_seed_stored=signing_seed_stored,
-        debug_max_bytes=debug_max_bytes,
-        reveal_secrets=False,
-    )
-
-
 def print_recover_debug(
     *,
     manifest: EnvelopeManifest,
