@@ -34,13 +34,13 @@ from ..core.app_paths import (
 )
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_TEMPLATE_PATH = PACKAGE_ROOT / "templates/ledger/main_document.html.j2"
-DEFAULT_RECOVERY_TEMPLATE_PATH = PACKAGE_ROOT / "templates/ledger/recovery_document.html.j2"
-DEFAULT_SHARD_TEMPLATE_PATH = PACKAGE_ROOT / "templates/ledger/shard_document.html.j2"
+DEFAULT_TEMPLATE_PATH = PACKAGE_ROOT / "templates/sentinel/main_document.html.j2"
+DEFAULT_RECOVERY_TEMPLATE_PATH = PACKAGE_ROOT / "templates/sentinel/recovery_document.html.j2"
+DEFAULT_SHARD_TEMPLATE_PATH = PACKAGE_ROOT / "templates/sentinel/shard_document.html.j2"
 DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH = (
-    PACKAGE_ROOT / "templates/ledger/signing_key_shard_document.html.j2"
+    PACKAGE_ROOT / "templates/sentinel/signing_key_shard_document.html.j2"
 )
-DEFAULT_KIT_TEMPLATE_PATH = PACKAGE_ROOT / "templates/ledger/kit_document.html.j2"
+DEFAULT_KIT_TEMPLATE_PATH = PACKAGE_ROOT / "templates/sentinel/kit_document.html.j2"
 DEFAULT_TEMPLATE_STYLE = DEFAULT_TEMPLATE_PATH.parent.name
 SUPPORTED_TEMPLATE_DESIGNS = (
     "archive",

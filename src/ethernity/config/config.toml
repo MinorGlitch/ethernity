@@ -1,20 +1,20 @@
 [templates]
-default_name = "ledger"
+default_name = "sentinel"
 
 [template]
-name = "ledger"
+name = "sentinel"
 
 [recovery_template]
-name = "ledger"
+name = "sentinel"
 
 [shard_template]
-name = "ledger"
+name = "sentinel"
 
 [signing_key_shard_template]
-name = "ledger"
+name = "sentinel"
 
 [kit_template]
-name = "ledger"
+name = "sentinel"
 
 [page]
 size = "A4" # Supported: A4, Letter
