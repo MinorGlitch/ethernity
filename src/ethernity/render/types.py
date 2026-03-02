@@ -26,9 +26,7 @@ from ..encoding.framing import Frame
 from ..qr.codec import QrConfig
 
 if TYPE_CHECKING:
-    from .fallback import FallbackConsumerState, FallbackSectionData
     from .recovery_meta import RecoveryMeta
-    from .spec import DocumentSpec
 
 
 @dataclass(frozen=True)
@@ -89,19 +87,3 @@ class Layout:
     min_lines: int
     key_lines: tuple[str, ...]
     total_pages: int
-
-
-@dataclass(frozen=True)
-class PageBuildContext:
-    """Context for building document pages, grouping related parameters."""
-
-    inputs: RenderInputs
-    spec: "DocumentSpec"
-    layout: Layout
-    layout_rest: Layout | None
-    fallback_lines: Sequence[str]
-    qr_payloads: Sequence[bytes | str]
-    fallback_sections_data: Sequence["FallbackSectionData"] | None
-    fallback_state: "FallbackConsumerState | None"
-    key_lines: Sequence[str]
-    keys_first_page_only: bool

@@ -69,7 +69,6 @@ def write_recovered_outputs(
     _write_recovered_outputs(
         output_path,
         extracted,
-        quiet=quiet,
         single_entry_output_is_directory=single_entry_output_is_directory,
     )
     auth_label = format_auth_status(auth_status, allow_unsigned=allow_unsigned)

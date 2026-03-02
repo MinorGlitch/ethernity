@@ -37,6 +37,7 @@ def print_backup_summary(
     *,
     quiet: bool,
 ) -> None:
+    _ = (plan, passphrase)
     if quiet:
         return
     console.print()

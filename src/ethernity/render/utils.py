@@ -31,17 +31,3 @@ def int_value(value: object, *, default: int) -> int:
         except ValueError:
             return default
     return default
-
-
-def float_value(value: object, *, default: float) -> float:
-    """Coerce a value to float with fallback to default."""
-    if isinstance(value, bool):
-        return float(value)
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value)
-        except ValueError:
-            return default
-    return default

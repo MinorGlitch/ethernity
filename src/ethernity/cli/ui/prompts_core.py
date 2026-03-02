@@ -43,7 +43,7 @@ def _resolve_context(context: UIContext | None) -> UIContext:
 
 
 def print_prompt_header(
-    prompt: str,
+    _prompt: str,
     help_text: str | None,
     *,
     context: UIContext | None = None,

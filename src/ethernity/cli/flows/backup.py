@@ -350,7 +350,7 @@ def _build_review_rows(
         review_rows.append(("Config", config_path))
     else:
         review_rows.append(("Config", "default"))
-    review_rows.append(("Paper size", str(config.paper_size)))
+    review_rows.append(("Paper size", paper or str(config.paper_size)))
     review_rows.append(("QR chunk size (preferred)", f"{config.qr_chunk_size} bytes"))
     if design:
         review_rows.append(("Template design", design))
