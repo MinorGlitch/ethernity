@@ -42,6 +42,8 @@ from .startup import run_startup
 
 app = typer.Typer(add_completion=False, help="Ethernity CLI.")
 
+_DEFAULTS_BOOTSTRAP_SUBCOMMANDS = frozenset({"backup", "recover", "kit", "render"})
+
 
 def _subcommand_config_override(argv: Sequence[str]) -> str | None:
     """Extract `--config` from argv so subcommand config can bootstrap defaults."""
@@ -63,6 +65,12 @@ def _subcommand_config_override(argv: Sequence[str]) -> str | None:
             config_path = arg.split("=", 1)[1]
         idx += 1
     return config_path
+
+
+def _should_use_subcommand_config_for_defaults(invoked_subcommand: str | None) -> bool:
+    """Return whether defaults bootstrap should honor subcommand `--config`."""
+
+    return invoked_subcommand in _DEFAULTS_BOOTSTRAP_SUBCOMMANDS
 
 
 def _version_callback(value: bool) -> None:
@@ -187,7 +195,9 @@ def cli(
     if should_exit:
         raise typer.Exit()
     config_path_for_defaults = config
-    if config_path_for_defaults is None:
+    if config_path_for_defaults is None and _should_use_subcommand_config_for_defaults(
+        ctx.invoked_subcommand
+    ):
         config_path_for_defaults = _subcommand_config_override(sys.argv)
 
     try:

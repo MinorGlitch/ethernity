@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import tomllib
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -279,6 +280,22 @@ class TestConfigInstaller(unittest.TestCase):
 
     def test_inject_missing_backup_qr_payload_codec_skips_malformed_defaults_shape(self) -> None:
         text = "defaults = 3\n"
+        self.assertIsNone(installer._inject_missing_backup_qr_payload_codec(text))
+
+    def test_inject_missing_backup_qr_payload_codec_supports_dotted_keys(self) -> None:
+        text = 'defaults.backup.payload_codec = "auto"\n'
+        migrated = installer._inject_missing_backup_qr_payload_codec(text)
+        self.assertIsNotNone(migrated)
+        migrated_text = "" if migrated is None else migrated
+        self.assertNotIn("[defaults.backup]", migrated_text)
+        self.assertIn('defaults.backup.qr_payload_codec = "raw"', migrated_text)
+        self.assertEqual(
+            tomllib.loads(migrated_text)["defaults"]["backup"]["qr_payload_codec"],
+            "raw",
+        )
+
+    def test_inject_missing_backup_qr_payload_codec_skips_inline_backup_table(self) -> None:
+        text = '[defaults]\nbackup = { payload_codec = "auto" }\n'
         self.assertIsNone(installer._inject_missing_backup_qr_payload_codec(text))
 
     def test_migrate_user_config_is_idempotent(self) -> None:
