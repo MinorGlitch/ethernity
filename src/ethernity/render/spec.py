@@ -30,8 +30,6 @@ from .doc_types import (
 )
 from .utils import int_value as _int_value
 
-Color = str | tuple[int, int, int] | tuple[int, int, int, int]
-
 
 @dataclass(frozen=True)
 class PageSpec:
@@ -117,7 +115,6 @@ class QrSequenceSpec:
 
     enabled: bool = False
     font_size: float = 12.0
-    line_thickness_mm: float = 0.7
     label_offset_mm: float = 2.0
 
 
