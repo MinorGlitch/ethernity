@@ -349,7 +349,6 @@ def _build_fallback_blocks(
             page_fallback_blocks = [
                 FallbackBlock(
                     title=None,
-                    section_title="",
                     lines=list(page_fallback_lines),
                     gap_lines=0,
                     line_offset=start,

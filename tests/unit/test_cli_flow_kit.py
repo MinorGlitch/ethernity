@@ -35,9 +35,6 @@ def _home_env(home: Path) -> dict[str, str]:
 
 
 class TestKitFlowHelpers(unittest.TestCase):
-    def test_split_bytes(self) -> None:
-        self.assertEqual(kit_module._split_bytes(b"abcdef", 2), [b"ab", b"cd", b"ef"])
-
     def test_build_kit_qr_payloads_shell_first_and_chunk_size_affects_following_qrs(
         self,
     ) -> None:

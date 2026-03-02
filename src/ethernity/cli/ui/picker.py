@@ -112,6 +112,8 @@ def _run_picker_flow(
             context=context,
         )
         if input_mode == "select":
+            if picker_help_text:
+                context.console.print(Padding(format_hint(picker_help_text), (0, 0, 0, 1)))
             directory = prompt_optional_path(
                 directory_prompt,
                 kind="dir",

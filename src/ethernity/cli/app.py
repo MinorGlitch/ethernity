@@ -219,7 +219,6 @@ def cli(
         no_animations=effective_no_animations,
         backup_defaults=cli_defaults.backup,
         recover_defaults=cli_defaults.recover,
-        runtime_defaults=cli_defaults.runtime,
     )
     if ctx.invoked_subcommand is None:
         if not (sys.stdin.isatty() and sys.stdout.isatty()):
