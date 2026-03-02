@@ -156,10 +156,6 @@ def _load_kit_bundle(bundle_path: str | Path | None, *, variant: str = "lean") -
     )
 
 
-def _split_bytes(data: bytes, chunk_size: int) -> list[bytes]:
-    return [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]
-
-
 def _extract_kit_bundle_loader_payload(bundle_bytes: bytes) -> str:
     try:
         bundle_text = bundle_bytes.decode("utf-8")

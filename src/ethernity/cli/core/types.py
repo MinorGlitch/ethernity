@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from ...config import BackupDefaults, RecoverDefaults, RuntimeDefaults
+from ...config import BackupDefaults, RecoverDefaults
 
 
 @dataclass(frozen=True)
@@ -109,4 +109,3 @@ class CliContextState:
     no_animations: bool = False
     backup_defaults: BackupDefaults = field(default_factory=BackupDefaults)
     recover_defaults: RecoverDefaults = field(default_factory=RecoverDefaults)
-    runtime_defaults: RuntimeDefaults = field(default_factory=RuntimeDefaults)

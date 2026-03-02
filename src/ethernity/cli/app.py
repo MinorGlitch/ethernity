@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Sequence
 from typing import Annotated
 
 import typer
@@ -40,6 +41,36 @@ from .flows.recover import run_recover_wizard
 from .startup import run_startup
 
 app = typer.Typer(add_completion=False, help="Ethernity CLI.")
+
+_DEFAULTS_BOOTSTRAP_SUBCOMMANDS = frozenset({"backup", "recover", "kit", "render"})
+
+
+def _subcommand_config_override(argv: Sequence[str]) -> str | None:
+    """Extract `--config` from argv so subcommand config can bootstrap defaults."""
+
+    args = list(argv)[1:]
+    config_path: str | None = None
+    idx = 0
+    while idx < len(args):
+        arg = args[idx]
+        if arg == "--":
+            break
+        if arg == "--config":
+            if idx + 1 < len(args):
+                config_path = args[idx + 1]
+                idx += 2
+                continue
+            break
+        if arg.startswith("--config="):
+            config_path = arg.split("=", 1)[1]
+        idx += 1
+    return config_path
+
+
+def _should_use_subcommand_config_for_defaults(invoked_subcommand: str | None) -> bool:
+    """Return whether defaults bootstrap should honor subcommand `--config`."""
+
+    return invoked_subcommand in _DEFAULTS_BOOTSTRAP_SUBCOMMANDS
 
 
 def _version_callback(value: bool) -> None:
@@ -163,8 +194,14 @@ def cli(
         raise typer.Exit(code=2)
     if should_exit:
         raise typer.Exit()
+    config_path_for_defaults = config
+    if config_path_for_defaults is None and _should_use_subcommand_config_for_defaults(
+        ctx.invoked_subcommand
+    ):
+        config_path_for_defaults = _subcommand_config_override(sys.argv)
+
     try:
-        cli_defaults = load_cli_defaults(path=config)
+        cli_defaults = load_cli_defaults(path=config_path_for_defaults)
     except (OSError, RuntimeError, ValueError) as exc:
         console_err.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(code=2)
@@ -192,7 +229,6 @@ def cli(
         no_animations=effective_no_animations,
         backup_defaults=cli_defaults.backup,
         recover_defaults=cli_defaults.recover,
-        runtime_defaults=cli_defaults.runtime,
     )
     if ctx.invoked_subcommand is None:
         if not (sys.stdin.isatty() and sys.stdout.isatty()):

@@ -16,9 +16,7 @@
 
 from __future__ import annotations
 
-from typing import Final, Literal
-
-DocType = Literal["main", "recovery", "kit", "shard", "signing_key_shard"]
+from typing import Final
 
 DOC_TYPE_MAIN: Final = "main"
 DOC_TYPE_RECOVERY: Final = "recovery"

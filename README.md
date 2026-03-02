@@ -31,8 +31,9 @@
 
 Start here: [Quick Start](#quick-start)
 
+- [Status](#status)
 - [What Is Ethernity?](#what-is-ethernity)
-- [Status (Stable v1)](#status-stable-v1)
+- [What Ethernity Supports](#what-ethernity-supports)
 - [Who It's For / Not For](#who-its-for--not-for)
 - [Document Previews](#document-previews)
 - [Quick Start](#quick-start)
@@ -50,6 +51,15 @@ Start here: [Quick Start](#quick-start)
 - [Star History](#star-history)
 - [License](#license)
 
+## Status
+
+- Good news: Ethernity is now stable.
+- Backups and recovery artifacts follow the baseline in `docs/format.md`.
+- Future stable releases guarantee backward compatibility for existing backups and recovery
+  artifacts.
+- Please still treat Ethernity as one layer in your strategy: run recovery drills and keep an
+  independent backup.
+
 ## What Is Ethernity?
 
 Ethernity is a Python CLI that turns sensitive files into encrypted, printable recovery artifacts.
@@ -63,13 +73,29 @@ This is designed for high-friction, low-dependency recovery scenarios where phys
 Ethernity is opinionated around verifiability:
 formats are documented, payload structures are explicit, and release artifacts include provenance material.
 
-## Status (Stable v1)
+## What Ethernity Supports
 
-- Ethernity is stable v1 software.
-- Stable v1 backups and recovery artifacts follow the baseline in `docs/format.md`.
-- Future stable releases maintain backward compatibility for stable v1 backups and recovery
-  artifacts.
-- Do not use Ethernity as your only backup path; run recovery drills and keep an independent backup.
+Core capabilities you can rely on today:
+
+- **Backup workflows**
+  - encrypt single files or directory inputs into recovery artifacts
+  - produce printable QR and recovery documents for offline custody
+  - support manifest payload codecs `raw` and `gzip`
+  - optional passphrase sharding with configurable threshold/quorum
+  - optional signing-key sharding with independent threshold/quorum controls
+- **Recovery workflows**
+  - recover from scanned artifacts (`--scan` supports image, PDF, or directory sources)
+  - recover from fallback text (`--fallback-file`) when scan quality is poor
+  - recover from exported QR payload text (`--payloads-file`)
+  - decode QR transport payloads in raw bytes (binary) or unpadded base64 mode
+  - include shard/auth inputs via fallback text files, payload files, or shard directories
+- **Recovery kit workflows**
+  - generate recovery-kit PDF output from the CLI (`ethernity kit`)
+  - use bundled browser recovery kits (lean and scanner variants) for local reconstruction/decryption
+- **Operational controls**
+  - supported template designs (`archive`, `forge`, `ledger`, `maritime`, `sentinel`)
+  - A4/Letter paper targeting and deterministic render layout
+  - documented format baseline and release-provenance verification guidance
 
 ## Who It's For / Not For
 
@@ -131,7 +157,7 @@ ethernity-{tag}-{os}-{arch}.{zip|tar.gz}
 Download and verify on Linux:
 
 ```sh
-TAG="v0.9.1"
+TAG="v1.0.0"
 OS_ARCH="linux-x64" # or linux-arm64
 BASE="ethernity-${TAG}-${OS_ARCH}.tar.gz"
 
@@ -147,7 +173,7 @@ tar -xzf "${BASE}"
 Download and verify on macOS:
 
 ```sh
-TAG="v0.9.1"
+TAG="v1.0.0"
 OS_ARCH="macos-arm64" # or macos-x64
 BASE="ethernity-${TAG}-${OS_ARCH}.tar.gz"
 
@@ -163,7 +189,7 @@ tar -xzf "${BASE}"
 Windows PowerShell equivalent:
 
 ```powershell
-$Tag = "v0.9.1"
+$Tag = "v1.0.0"
 $OsArch = "windows-x64" # currently published Windows variant
 $Base = "ethernity-$Tag-$OsArch.zip"
 
@@ -218,8 +244,8 @@ Common outputs:
 | --- | --- |
 | `qr_document.pdf` | primary scan source for payload recovery |
 | `recovery_document.pdf` | fallback text and metadata recovery path |
-| `shard_*.pdf` (optional) | threshold shard artifacts when sharding enabled |
-| `signing_key_shard_*.pdf` (optional) | separate signing-key shard artifacts |
+| `shard-*-N-of-K.pdf` (optional) | threshold shard artifacts when sharding enabled |
+| `signing-key-shard-*-N-of-K.pdf` (optional) | separate signing-key shard artifacts |
 
 ### First Recovery
 

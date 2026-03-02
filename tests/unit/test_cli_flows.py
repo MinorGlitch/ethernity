@@ -174,7 +174,7 @@ class TestCreateAuthFrame(unittest.TestCase):
     def test_auth_frame_invalid_signature_fails(self) -> None:
         """Test that wrong signature fails verification."""
         sign_priv, sign_pub = generate_signing_keypair()
-        other_priv, other_pub = generate_signing_keypair()
+        _other_priv, other_pub = generate_signing_keypair()
         doc_id = b"\x30" * DOC_ID_LEN
         doc_hash = hashlib.blake2b(b"data", digest_size=32).digest()
 

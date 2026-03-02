@@ -318,10 +318,10 @@ class TestStableV1Baseline(unittest.TestCase):
         shutil.copytree(_FIXTURE_SOURCE, workspace / "source")
 
         class _WorkspaceContext:
-            def __enter__(self_inner):
+            def __enter__(self):
                 return workspace
 
-            def __exit__(self_inner, exc_type, exc, tb):
+            def __exit__(self, exc_type, exc, tb):
                 return context.__exit__(exc_type, exc, tb)
 
         return _WorkspaceContext()

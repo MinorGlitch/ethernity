@@ -36,7 +36,7 @@ conventions and a glob-based, working-tree inventory contract for contributors a
   template-name checks.
 - Layout diagnostics: use `RenderInputs.layout_debug_json_path` when layout diagnostics are needed;
   this emits a JSON sidecar and should not alter render behavior.
-- Template designs: discovery/prompt surfaces must expose only canonical design names:
+- Template designs: discovery/prompt surfaces must expose only supported design names:
   `archive`, `forge`, `ledger`, `maritime`, `sentinel`.
   Legacy aliases or stale copied names must not be surfaced. Enforcement point:
   `src/ethernity/config/installer.py`.
