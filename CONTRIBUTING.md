@@ -23,7 +23,7 @@ uv run playwright install chromium
 
 ## Daily Workflow
 
-1. Create a branch from `master`.
+1. Fork the repository and branch from `master` on your fork.
 2. Make one focused change set.
 3. Add or update tests.
 4. Update docs if behavior/UX/output changed.
