@@ -32,7 +32,7 @@
 Start here: [Quick Start](#quick-start)
 
 - [What Is Ethernity?](#what-is-ethernity)
-- [Status (Stable v1)](#status-stable-v1)
+- [Status](#status)
 - [Who It's For / Not For](#who-its-for--not-for)
 - [Document Previews](#document-previews)
 - [Quick Start](#quick-start)
@@ -63,13 +63,14 @@ This is designed for high-friction, low-dependency recovery scenarios where phys
 Ethernity is opinionated around verifiability:
 formats are documented, payload structures are explicit, and release artifacts include provenance material.
 
-## Status (Stable v1)
+## Status
 
-- Ethernity is stable v1 software.
-- Stable v1 backups and recovery artifacts follow the baseline in `docs/format.md`.
-- Future stable releases maintain backward compatibility for stable v1 backups and recovery
+- Good news: Ethernity is now stable.
+- Backups and recovery artifacts follow the baseline in `docs/format.md`.
+- Future stable releases guarantee backward compatibility for existing backups and recovery
   artifacts.
-- Do not use Ethernity as your only backup path; run recovery drills and keep an independent backup.
+- Please still treat Ethernity as one layer in your strategy: run recovery drills and keep an
+  independent backup.
 
 ## Who It's For / Not For
 
@@ -218,8 +219,8 @@ Common outputs:
 | --- | --- |
 | `qr_document.pdf` | primary scan source for payload recovery |
 | `recovery_document.pdf` | fallback text and metadata recovery path |
-| `shard_*.pdf` (optional) | threshold shard artifacts when sharding enabled |
-| `signing_key_shard_*.pdf` (optional) | separate signing-key shard artifacts |
+| `shard-*-N-of-K.pdf` (optional) | threshold shard artifacts when sharding enabled |
+| `signing-key-shard-*-N-of-K.pdf` (optional) | separate signing-key shard artifacts |
 
 ### First Recovery
 
