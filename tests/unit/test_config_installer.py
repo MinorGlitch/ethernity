@@ -95,7 +95,7 @@ class TestConfigInstaller(unittest.TestCase):
 
         self.assertEqual(paths.user_config_dir, Path("/tmp/usercfg"))
         self.assertEqual(paths.user_templates_root, Path("/tmp/usercfg/templates"))
-        self.assertEqual(paths.user_templates_dir, Path("/tmp/usercfg/templates/ledger"))
+        self.assertEqual(paths.user_templates_dir, Path("/tmp/usercfg/templates/sentinel"))
         self.assertEqual(paths.user_config_path, Path("/tmp/usercfg/config.toml"))
         self.assertEqual(len(paths.user_template_paths), 5)
         self.assertEqual(len(paths.user_required_files), 6)
