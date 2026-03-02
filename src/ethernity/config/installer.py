@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import tomllib
 from dataclasses import dataclass
@@ -57,6 +58,8 @@ TEMPLATE_FILENAMES = (
 )
 DEFAULT_PAPER_SIZE = "A4"
 DEFAULT_CONFIG_PATH = PACKAGE_ROOT / "config/config.toml"
+
+_DOTTED_BACKUP_KEY_RE = re.compile(r"^\s*defaults\.backup\.[A-Za-z0-9_-]+\s*=", re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -249,6 +252,7 @@ def _inject_missing_backup_qr_payload_codec(text: str) -> str | None:
     line_ending = "\r\n" if "\r\n" in text else "\n"
     lines = text.splitlines()
     config_line = 'qr_payload_codec = "raw"'
+    dotted_config_line = 'defaults.backup.qr_payload_codec = "raw"'
 
     section_header = "[defaults.backup]"
     header_index = next(
@@ -256,10 +260,16 @@ def _inject_missing_backup_qr_payload_codec(text: str) -> str | None:
     )
     if header_index is not None:
         lines.insert(header_index + 1, config_line)
-    else:
+    elif backup is None:
         if lines and lines[-1].strip():
             lines.append("")
         lines.extend([section_header, config_line])
+    elif _DOTTED_BACKUP_KEY_RE.search(text):
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.append(dotted_config_line)
+    else:
+        return None
 
     return line_ending.join(lines) + line_ending
 
