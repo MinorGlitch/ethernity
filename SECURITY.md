@@ -2,7 +2,7 @@
 
 ## Project Status
 
-Ethernity is stable v1 software.
+Ethernity is stable software.
 
 Treat it as a tool for controlled backup workflows, not as a fully autonomous backup platform.
 Always keep independent backups and run recovery drills.
