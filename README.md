@@ -144,7 +144,37 @@ Fastest path: install, run one backup, run one recovery, then confirm outputs ma
 - Chromium binaries for PDF rendering (auto-installed on first backup/render run)
 - local disk space for generated PDFs and optional shard documents
 
-### 1) Install from Release Artifacts (Recommended)
+### 1) Primary install paths by platform
+
+- **macOS:** Homebrew (primary)
+- **Linux:** `pipx` (primary)
+- **Windows:** signed release artifacts (primary)
+
+macOS Homebrew install:
+
+```sh
+brew tap minorglitch/tap
+brew install ethernity
+ethernity --help
+```
+
+Linux `pipx` install:
+
+```sh
+pipx install ethernity-paper
+ethernity --help
+```
+
+Linux also supports Homebrew, but it is typically an optional path there:
+
+```sh
+brew tap minorglitch/tap
+brew install ethernity
+```
+
+Homebrew maintainer notes: `docs/homebrew.md`.
+
+### 2) Install from Signed Release Artifacts (Primary on Windows, optional on macOS/Linux)
 
 Download the archive matching your OS and CPU.
 
@@ -205,9 +235,11 @@ Expand-Archive -Path $Base -DestinationPath .
 For full verification and provenance guidance, use
 [Wiki: Release Artifacts](https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts).
 
-### 2) Install via pipx or pip
+### 3) Alternative: Install via pipx or pip
 
-`pipx` is recommended when you want isolated CLI installation:
+Use this when you prefer Python package installation instead of Homebrew or release archives.
+
+`pipx` is recommended for isolated CLI installation:
 
 ```sh
 pipx install ethernity-paper
@@ -221,7 +253,7 @@ pip install ethernity-paper
 ethernity --help
 ```
 
-### 3) Install from Source (Development or Audit)
+### 4) Install from Source (Development or Audit)
 
 ```sh
 git clone https://github.com/MinorGlitch/ethernity.git
