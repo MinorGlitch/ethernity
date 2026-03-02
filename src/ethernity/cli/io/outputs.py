@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -86,8 +87,6 @@ def _safe_join(base: Path, relative: str) -> Path:
 
 def _write_output(path: str | None, data: bytes, *, quiet: bool) -> None:
     """Write bytes to a file path or stdout when no path is provided."""
-
-    import sys
 
     if path:
         normalized = Path(expanduser_cli_path(path, preserve_stdin=False) or "")
