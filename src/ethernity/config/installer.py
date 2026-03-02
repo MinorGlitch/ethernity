@@ -19,8 +19,10 @@
 from __future__ import annotations
 
 import shutil
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from ..core.app_paths import (
     DEFAULT_CONFIG_FILENAME,
@@ -67,6 +69,17 @@ class ConfigPaths:
     user_config_path: Path
     user_template_paths: dict[str, Path]
     user_required_files: tuple[Path, ...]
+
+
+ConfigMigration = Callable[[str], str | None]
+
+
+@dataclass(frozen=True)
+class ConfigMigrationStep:
+    """A single text-based migration applied to user config files."""
+
+    migration_id: str
+    apply: ConfigMigration
 
 
 def _build_paths() -> ConfigPaths:
@@ -173,10 +186,90 @@ def _ensure_user_config(paths: ConfigPaths) -> bool:
         paths.user_config_dir.mkdir(parents=True, exist_ok=True)
         paths.user_templates_root.mkdir(parents=True, exist_ok=True)
         _copy_if_missing(DEFAULT_CONFIG_PATH, paths.user_config_path)
+        _migrate_user_config(paths.user_config_path)
         _copy_template_designs(paths)
     except OSError:
         return False
     return True
+
+
+def _migrate_user_config(path: Path) -> bool:
+    """Apply backward-compatible migrations to an existing user config file."""
+
+    original = path.read_text(encoding="utf-8")
+
+    updated, applied = _apply_config_migrations(original, _CONFIG_MIGRATIONS)
+    if not applied:
+        return False
+
+    backup_path = path.with_name(f"{path.name}.bak")
+    if not backup_path.exists():
+        shutil.copyfile(path, backup_path)
+
+    temp_path = path.with_name(f"{path.name}.tmp")
+    temp_path.write_text(updated, encoding="utf-8")
+    temp_path.replace(path)
+    return True
+
+
+def _apply_config_migrations(
+    text: str,
+    migrations: tuple[ConfigMigrationStep, ...],
+) -> tuple[str, tuple[str, ...]]:
+    """Apply config migrations in order and return updated text and applied IDs."""
+
+    current = text
+    applied: list[str] = []
+    for migration in migrations:
+        candidate = migration.apply(current)
+        if candidate is None or candidate == current:
+            continue
+        current = candidate
+        applied.append(migration.migration_id)
+    return current, tuple(applied)
+
+
+def _inject_missing_backup_qr_payload_codec(text: str) -> str | None:
+    """Insert a default `defaults.backup.qr_payload_codec` when absent."""
+
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return None
+
+    defaults = data.get("defaults")
+    if defaults is not None and not isinstance(defaults, dict):
+        return None
+    backup = defaults.get("backup") if isinstance(defaults, dict) else None
+    if backup is not None and not isinstance(backup, dict):
+        return None
+    if isinstance(backup, dict) and "qr_payload_codec" in backup:
+        return None
+
+    line_ending = "\r\n" if "\r\n" in text else "\n"
+    lines = text.splitlines()
+    config_line = 'qr_payload_codec = "raw"'
+
+    section_header = "[defaults.backup]"
+    header_index = next(
+        (idx for idx, line in enumerate(lines) if line.strip() == section_header), None
+    )
+    if header_index is not None:
+        lines.insert(header_index + 1, config_line)
+    else:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.extend([section_header, config_line])
+
+    return line_ending.join(lines) + line_ending
+
+
+_CONFIG_MIGRATIONS: tuple[ConfigMigrationStep, ...] = (
+    ConfigMigrationStep(
+        migration_id="2026_03_defaults_backup_qr_payload_codec",
+        apply=_inject_missing_backup_qr_payload_codec,
+    ),
+)
 
 
 def _copy_template_designs(paths: ConfigPaths) -> None:

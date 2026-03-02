@@ -131,7 +131,7 @@ ethernity-{tag}-{os}-{arch}.{zip|tar.gz}
 Download and verify on Linux:
 
 ```sh
-TAG="v0.9.1"
+TAG="v1.0.0"
 OS_ARCH="linux-x64" # or linux-arm64
 BASE="ethernity-${TAG}-${OS_ARCH}.tar.gz"
 
@@ -147,7 +147,7 @@ tar -xzf "${BASE}"
 Download and verify on macOS:
 
 ```sh
-TAG="v0.9.1"
+TAG="v1.0.0"
 OS_ARCH="macos-arm64" # or macos-x64
 BASE="ethernity-${TAG}-${OS_ARCH}.tar.gz"
 
@@ -163,7 +163,7 @@ tar -xzf "${BASE}"
 Windows PowerShell equivalent:
 
 ```powershell
-$Tag = "v0.9.1"
+$Tag = "v1.0.0"
 $OsArch = "windows-x64" # currently published Windows variant
 $Base = "ethernity-$Tag-$OsArch.zip"
 

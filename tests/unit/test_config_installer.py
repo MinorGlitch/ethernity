@@ -227,14 +227,100 @@ class TestConfigInstaller(unittest.TestCase):
             )
             with mock.patch.object(installer, "_copy_if_missing") as copy_mock:
                 with mock.patch.object(installer, "_copy_template_designs") as copy_designs_mock:
-                    self.assertTrue(installer._ensure_user_config(paths))
+                    with mock.patch.object(
+                        installer,
+                        "_migrate_user_config",
+                        return_value=False,
+                    ) as migrate_mock:
+                        self.assertTrue(installer._ensure_user_config(paths))
             copy_mock.assert_called_once()
+            migrate_mock.assert_called_once_with(paths.user_config_path)
             copy_designs_mock.assert_called_once_with(paths)
             self.assertTrue(paths.user_config_dir.is_dir())
             self.assertTrue(paths.user_templates_root.is_dir())
 
             with mock.patch.object(installer, "_copy_if_missing", side_effect=OSError("denied")):
                 self.assertFalse(installer._ensure_user_config(paths))
+
+    def test_ensure_user_config_migrates_stale_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            config_path = root / "cfg" / "config.toml"
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            original = '[defaults.backup]\npayload_codec = "auto"\n'
+            config_path.write_text(original, encoding="utf-8")
+
+            paths = installer.ConfigPaths(
+                user_config_dir=root / "cfg",
+                user_templates_root=root / "cfg" / "templates",
+                user_templates_dir=root / "cfg" / "templates" / "ledger",
+                user_config_path=config_path,
+                user_template_paths={},
+                user_required_files=(),
+            )
+
+            with mock.patch.object(installer, "_copy_template_designs"):
+                self.assertTrue(installer._ensure_user_config(paths))
+
+            migrated = config_path.read_text(encoding="utf-8")
+            self.assertIn('qr_payload_codec = "raw"', migrated)
+
+            backup_path = config_path.with_name("config.toml.bak")
+            self.assertTrue(backup_path.is_file())
+            self.assertEqual(backup_path.read_text(encoding="utf-8"), original)
+
+    def test_inject_missing_backup_qr_payload_codec_when_section_missing(self) -> None:
+        text = "[ui]\nquiet = false\n"
+        migrated = installer._inject_missing_backup_qr_payload_codec(text)
+        self.assertIsNotNone(migrated)
+        migrated_text = "" if migrated is None else migrated
+        self.assertIn("[defaults.backup]", migrated_text)
+        self.assertIn('qr_payload_codec = "raw"', migrated_text)
+
+    def test_inject_missing_backup_qr_payload_codec_skips_malformed_defaults_shape(self) -> None:
+        text = "defaults = 3\n"
+        self.assertIsNone(installer._inject_missing_backup_qr_payload_codec(text))
+
+    def test_migrate_user_config_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text('[defaults.backup]\npayload_codec = "auto"\n', encoding="utf-8")
+
+            self.assertTrue(installer._migrate_user_config(path))
+            self.assertFalse(installer._migrate_user_config(path))
+
+            backup_path = path.with_name("config.toml.bak")
+            self.assertTrue(backup_path.is_file())
+
+    def test_apply_config_migrations_runs_in_order(self) -> None:
+        steps = (
+            installer.ConfigMigrationStep(
+                migration_id="first",
+                apply=lambda text: text.replace("[x]", "[y]") if "[x]" in text else None,
+            ),
+            installer.ConfigMigrationStep(
+                migration_id="second",
+                apply=(
+                    lambda text: (
+                        text + 'qr_payload_codec = "raw"\n' if text.endswith("[y]\n") else None
+                    )
+                ),
+            ),
+        )
+        updated, applied = installer._apply_config_migrations("[x]\n", steps)
+        self.assertEqual(updated, '[y]\nqr_payload_codec = "raw"\n')
+        self.assertEqual(applied, ("first", "second"))
+
+    def test_apply_config_migrations_ignores_noop_changes(self) -> None:
+        steps = (
+            installer.ConfigMigrationStep(
+                migration_id="noop",
+                apply=lambda text: text,
+            ),
+        )
+        updated, applied = installer._apply_config_migrations("[defaults.backup]\n", steps)
+        self.assertEqual(updated, "[defaults.backup]\n")
+        self.assertEqual(applied, ())
 
     def test_copy_template_designs_shared_and_design_copy_behavior(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
