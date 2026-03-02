@@ -31,8 +31,9 @@
 
 Start here: [Quick Start](#quick-start)
 
-- [What Is Ethernity?](#what-is-ethernity)
 - [Status](#status)
+- [What Is Ethernity?](#what-is-ethernity)
+- [What Ethernity Supports](#what-ethernity-supports)
 - [Who It's For / Not For](#who-its-for--not-for)
 - [Document Previews](#document-previews)
 - [Quick Start](#quick-start)
@@ -50,6 +51,15 @@ Start here: [Quick Start](#quick-start)
 - [Star History](#star-history)
 - [License](#license)
 
+## Status
+
+- Good news: Ethernity is now stable.
+- Backups and recovery artifacts follow the baseline in `docs/format.md`.
+- Future stable releases guarantee backward compatibility for existing backups and recovery
+  artifacts.
+- Please still treat Ethernity as one layer in your strategy: run recovery drills and keep an
+  independent backup.
+
 ## What Is Ethernity?
 
 Ethernity is a Python CLI that turns sensitive files into encrypted, printable recovery artifacts.
@@ -63,14 +73,29 @@ This is designed for high-friction, low-dependency recovery scenarios where phys
 Ethernity is opinionated around verifiability:
 formats are documented, payload structures are explicit, and release artifacts include provenance material.
 
-## Status
+## What Ethernity Supports
 
-- Good news: Ethernity is now stable.
-- Backups and recovery artifacts follow the baseline in `docs/format.md`.
-- Future stable releases guarantee backward compatibility for existing backups and recovery
-  artifacts.
-- Please still treat Ethernity as one layer in your strategy: run recovery drills and keep an
-  independent backup.
+Core capabilities you can rely on today:
+
+- **Backup workflows**
+  - encrypt single files or directory inputs into recovery artifacts
+  - produce printable QR and recovery documents for offline custody
+  - support manifest payload codecs `raw` and `gzip`
+  - optional passphrase sharding with configurable threshold/quorum
+  - optional signing-key sharding with independent threshold/quorum controls
+- **Recovery workflows**
+  - recover from scanned artifacts (`--scan` supports image, PDF, or directory sources)
+  - recover from fallback text (`--fallback-file`) when scan quality is poor
+  - recover from exported QR payload text (`--payloads-file`)
+  - decode QR transport payloads in raw bytes (binary) or unpadded base64 mode
+  - include shard/auth inputs via fallback text files, payload files, or shard directories
+- **Recovery kit workflows**
+  - generate recovery-kit PDF output from the CLI (`ethernity kit`)
+  - use bundled browser recovery kits (lean and scanner variants) for local reconstruction/decryption
+- **Operational controls**
+  - supported template designs (`archive`, `forge`, `ledger`, `maritime`, `sentinel`)
+  - A4/Letter paper targeting and deterministic render layout
+  - documented format baseline and release-provenance verification guidance
 
 ## Who It's For / Not For
 
