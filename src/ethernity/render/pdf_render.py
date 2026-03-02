@@ -322,8 +322,8 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     pdf = FPDF(unit="mm", format=cast(Any, paper_format))
     pdf.set_auto_page_break(False)
 
-    include_instructions = inputs.doc_type != DOC_TYPE_KIT
-    include_keys = inputs.doc_type != DOC_TYPE_RECOVERY
+    include_instructions = normalized_doc_type != DOC_TYPE_KIT
+    include_keys = normalized_doc_type != DOC_TYPE_RECOVERY
     layout, fallback_lines = compute_layout(
         inputs,
         layout_spec,

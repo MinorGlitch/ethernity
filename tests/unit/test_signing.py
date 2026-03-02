@@ -15,6 +15,7 @@
 
 import hashlib
 import unittest
+from typing import cast
 
 import cbor2
 
@@ -114,6 +115,30 @@ class TestSigning(unittest.TestCase):
         self.assertEqual(decoded.doc_hash, doc_hash)
         self.assertEqual(decoded.sign_pub, sign_pub)
         self.assertEqual(decoded.signature, signature)
+
+    def test_encode_auth_payload_rejects_non_bytes_hash(self) -> None:
+        sign_priv, sign_pub = generate_signing_keypair()
+        signature = sign_auth(
+            hashlib.blake2b(b"ciphertext", digest_size=32).digest(),
+            sign_pub=sign_pub,
+            sign_priv=sign_priv,
+        )
+        with self.assertRaisesRegex(ValueError, "doc_hash must be bytes"):
+            encode_auth_payload(
+                cast(bytes, "a" * 32),
+                sign_pub=sign_pub,
+                signature=signature,
+            )
+
+    def test_decode_auth_payload_rejects_boolean_version(self) -> None:
+        payload = {
+            "version": True,
+            "hash": b"\x00" * 32,
+            "pub": b"\x00" * 32,
+            "sig": b"\x00" * 64,
+        }
+        with self.assertRaisesRegex(ValueError, "auth version must be an int"):
+            decode_auth_payload(cbor2.dumps(payload, canonical=True))
 
     def test_decode_auth_payload_ignores_unknown_keys(self) -> None:
         doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()

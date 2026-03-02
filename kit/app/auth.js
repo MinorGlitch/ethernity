@@ -49,48 +49,53 @@ export async function updateAuthStatus(state) {
     return;
   }
   authStatusPending = true;
-  if (!state.authPayload) {
-    state.authStatus = "missing";
+  try {
+    if (!state.authPayload) {
+      state.authStatus = "missing";
+      return;
+    }
+    if (state.authConflicts > 0) {
+      state.authStatus = "conflict";
+      return;
+    }
+    if (state.authErrors > 0 && state.authStatus === "invalid payload") {
+      return;
+    }
+    if (state.docIdHex && state.authDocIdHex && state.docIdHex !== state.authDocIdHex) {
+      state.authStatus = "doc_id mismatch";
+      return;
+    }
+    let docHash;
+    try {
+      docHash = ensureCiphertextAndHash(state);
+    } catch {
+      state.authStatus = "ciphertext error";
+      return;
+    }
+    if (!docHash) {
+      state.authStatus = "waiting for main frames";
+      return;
+    }
+    const docHashHex = bytesToHex(docHash);
+    if (state.authDocHashHex && state.authDocHashHex !== docHashHex) {
+      state.authStatus = "doc_hash mismatch";
+      return;
+    }
+    const verified = await verifyAuthSignature(
+      docHash,
+      state.authPayload.signPub,
+      state.authPayload.signature
+    );
+    if (verified === true) {
+      state.authStatus = "verified";
+      return;
+    }
+    if (verified === false) {
+      state.authStatus = "invalid signature";
+      return;
+    }
+    state.authStatus = "doc_hash matches; signature not verified";
+  } finally {
     authStatusPending = false;
-    return;
   }
-  if (state.authConflicts > 0) {
-    state.authStatus = "conflict";
-    authStatusPending = false;
-    return;
-  }
-  if (state.authErrors > 0 && state.authStatus === "invalid payload") {
-    authStatusPending = false;
-    return;
-  }
-  if (state.docIdHex && state.authDocIdHex && state.docIdHex !== state.authDocIdHex) {
-    state.authStatus = "doc_id mismatch";
-    authStatusPending = false;
-    return;
-  }
-  const docHash = ensureCiphertextAndHash(state);
-  if (!docHash) {
-    state.authStatus = "waiting for main frames";
-    authStatusPending = false;
-    return;
-  }
-  const docHashHex = bytesToHex(docHash);
-  if (state.authDocHashHex && state.authDocHashHex !== docHashHex) {
-    state.authStatus = "doc_hash mismatch";
-    authStatusPending = false;
-    return;
-  }
-  const verified = await verifyAuthSignature(docHash, state.authPayload.signPub, state.authPayload.signature);
-  if (verified === true) {
-    state.authStatus = "verified";
-    authStatusPending = false;
-    return;
-  }
-  if (verified === false) {
-    state.authStatus = "invalid signature";
-    authStatusPending = false;
-    return;
-  }
-  state.authStatus = "doc_hash matches; signature not verified";
-  authStatusPending = false;
 }

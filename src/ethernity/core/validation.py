@@ -89,7 +89,7 @@ def require_length(value: bytes, length: int, *, label: str, prefix: str = "") -
 
 def require_int(value: object, *, label: str) -> int:
     """Validate that value is an int."""
-    if not isinstance(value, int):
+    if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{label} must be an int")
     return value
 
@@ -133,20 +133,22 @@ def require_bytes(
 
 def require_positive_int(value: object, *, label: str) -> int:
     """Validate that value is a positive integer (> 0)."""
-    if not isinstance(value, int) or value <= 0:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError(f"{label} must be a positive int")
     return value
 
 
 def require_non_negative_int(value: object, *, label: str) -> int:
     """Validate that value is a non-negative integer (>= 0)."""
-    if not isinstance(value, int) or value < 0:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(f"{label} must be a non-negative int")
     return value
 
 
 def require_int_range(value: int, *, min_val: int, max_val: int, label: str) -> int:
     """Validate that integer value is within range [min_val, max_val]."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{label} must be an int")
     if value < min_val or value > max_val:
         raise ValueError(f"{label} must be between {min_val} and {max_val}")
     return value

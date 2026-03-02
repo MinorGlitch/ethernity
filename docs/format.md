@@ -424,6 +424,8 @@ Validation rules:
   - `share` length MUST be a multiple of 16 bytes.
   - `length` MUST satisfy 1 ≤ length ≤ len(share).
   - len(share) MUST equal `ceil(length/16) * 16`.
+- Type-specific length constraints:
+  - If `type == "signing-seed"`, `length` MUST equal 32.
 
 Decoders MUST reject shard payloads that violate these bounds.
 
@@ -485,6 +487,9 @@ Decoding:
   - After whitespace removal, payload text MUST NOT contain "=" characters.
   - Restore padding to a multiple of 4.
   - Base64 decode with validation.
+  - After decode, payload text MUST be canonical unpadded base64: if `normalized` is payload text
+    after whitespace removal and `decoded` is decoded bytes, decoders MUST require
+    `normalized == base64_unpadded(decoded)` and MUST reject otherwise.
   - After whitespace removal, payload text length MUST be ≤ `MAX_QR_PAYLOAD_CHARS` (Section 17).
 
 Decoders MUST ignore whitespace in text payloads.
@@ -514,6 +519,9 @@ Decoding:
 - Decoders MUST reject any fallback section that exceeds either bound.
 - Decoders MUST decode each filtered line list by concatenating filtered lines in order and applying
   z-base-32 decoding.
+- Decoders MUST reject non-canonical z-base-32 text (for example non-zero unused tail bits);
+  equivalently, after normalization/filtering, concatenated text MUST equal
+  `encode_zbase32(decode_zbase32(text))`.
 
 ## 12) Version Markers
 

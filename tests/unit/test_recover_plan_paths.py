@@ -96,7 +96,11 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
         self.assertEqual(shard_frames, ["shard"])
         self.assertEqual(shard_fallback, [str(home / "s1.txt")])
         self.assertEqual(shard_payloads, [str(home / "s2.txt")])
-        shard_mock.assert_called_once_with([str(home / "s1.txt")], [str(home / "s2.txt")])
+        shard_mock.assert_called_once_with(
+            [str(home / "s1.txt")],
+            [str(home / "s2.txt")],
+            quiet=True,
+        )
 
     def test_plan_from_args_expands_output_path(self) -> None:
         args = RecoverArgs(output="~/recovered")

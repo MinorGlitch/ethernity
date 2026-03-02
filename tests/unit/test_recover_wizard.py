@@ -319,7 +319,7 @@ class TestRecoveryWizardHelpers(unittest.TestCase):
         frames = wizard._load_shard_frames(["shards.txt"], [], extra_frames=[], quiet=False)
 
         self.assertEqual(frames, [shard])
-        frames_from_shard_inputs.assert_called_once_with(["shards.txt"], [])
+        frames_from_shard_inputs.assert_called_once_with(["shards.txt"], [], quiet=False)
 
     @mock.patch(
         "ethernity.cli.flows.recover_wizard._frames_from_shard_inputs",
@@ -429,6 +429,58 @@ class TestRunRecoverWizard(unittest.TestCase):
         )
 
         self.assertEqual(result, 1)
+        self.assertIn(mock.call("Recovery cancelled."), console_print.mock_calls)
+
+    @mock.patch("ethernity.cli.flows.recover_wizard.console.print")
+    @mock.patch("ethernity.cli.flows.recover_wizard.prompt_yes_no", return_value=False)
+    @mock.patch(
+        "ethernity.cli.flows.recover_wizard._build_recovery_review_rows", return_value=[("A", "B")]
+    )
+    @mock.patch("ethernity.cli.flows.recover_wizard.build_recovery_plan")
+    @mock.patch("ethernity.cli.flows.recover_wizard._load_shard_frames", return_value=[])
+    @mock.patch(
+        "ethernity.cli.flows.recover_wizard._prompt_key_material", return_value=("pass", [], [], [])
+    )
+    @mock.patch("ethernity.cli.flows.recover_wizard._load_extra_auth_frames", return_value=[])
+    @mock.patch("ethernity.cli.flows.recover_wizard._prompt_recovery_input")
+    @mock.patch("ethernity.cli.flows.recover_wizard.resolve_recover_config")
+    @mock.patch("ethernity.cli.flows.recover_wizard.validate_recover_args")
+    @mock.patch("ethernity.cli.flows.recover_wizard.sys.stdout.isatty", return_value=True)
+    @mock.patch("ethernity.cli.flows.recover_wizard.sys.stdin.isatty", return_value=True)
+    def test_interactive_quiet_still_confirms_recovery(
+        self,
+        _stdin_tty: mock.MagicMock,
+        _stdout_tty: mock.MagicMock,
+        _validate_recover_args: mock.MagicMock,
+        _resolve_recover_config: mock.MagicMock,
+        prompt_recovery_input: mock.MagicMock,
+        _load_extra_auth_frames: mock.MagicMock,
+        _prompt_key_material: mock.MagicMock,
+        _load_shard_frames: mock.MagicMock,
+        build_recovery_plan: mock.MagicMock,
+        _build_recovery_review_rows: mock.MagicMock,
+        prompt_yes_no: mock.MagicMock,
+        console_print: mock.MagicMock,
+    ) -> None:
+        main = _frame(FrameType.MAIN_DOCUMENT)
+        prompt_recovery_input.return_value = ([main], "Recovery text", "stdin")
+        build_recovery_plan.return_value = SimpleNamespace(
+            allow_unsigned=False,
+            shard_frames=(),
+            auth_status="verified",
+            input_label="Recovery text",
+            input_detail="stdin",
+            main_frames=(main,),
+            auth_frames=(),
+            doc_id=main.doc_id,
+        )
+
+        result = wizard.run_recover_wizard(
+            RecoverArgs(quiet=True, assume_yes=False), show_header=False
+        )
+
+        self.assertEqual(result, 1)
+        prompt_yes_no.assert_called_once()
         self.assertIn(mock.call("Recovery cancelled."), console_print.mock_calls)
 
     @mock.patch("ethernity.cli.flows.recover_wizard.write_recovered_outputs")

@@ -225,6 +225,19 @@ class TestSharding(unittest.TestCase):
         recovered = recover_signing_seed([shares[0], shares[2]])
         self.assertEqual(recovered, seed)
 
+    def test_split_signing_seed_rejects_non_32_byte_seed(self) -> None:
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        with self.assertRaisesRegex(ValueError, "signing seed must be 32 bytes"):
+            split_signing_seed(
+                b"x",
+                threshold=2,
+                shares=3,
+                doc_hash=doc_hash,
+                sign_priv=sign_priv,
+                sign_pub=sign_pub,
+            )
+
     def test_recover_passphrase_rejects_share_count_mismatch(self) -> None:
         passphrase = "share-count-check"
         doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
@@ -404,8 +417,8 @@ class TestSharding(unittest.TestCase):
             threshold=2,
             share_count=3,
             share_index=1,
-            secret_len=16,
-            share=b"\x02" * 16,
+            secret_len=32,
+            share=b"\x02" * 32,
             sign_pub=sign_pub,
             sign_priv=sign_priv,
         )
@@ -414,8 +427,8 @@ class TestSharding(unittest.TestCase):
             threshold=2,
             share_count=3,
             key_type=KEY_TYPE_SIGNING_SEED,
-            share=b"\x02" * 16,
-            secret_len=16,
+            share=b"\x02" * 32,
+            secret_len=32,
             doc_hash=doc_hash,
             sign_pub=sign_pub,
             signature=signature,
@@ -423,6 +436,52 @@ class TestSharding(unittest.TestCase):
         encoded = encode_shard_payload(payload)
         decoded = decode_shard_payload(encoded)
         self.assertEqual(decoded, payload)
+
+    def test_encode_shard_payload_rejects_short_signing_seed_length(self) -> None:
+        payload = ShardPayload(
+            share_index=1,
+            threshold=1,
+            share_count=1,
+            key_type=KEY_TYPE_SIGNING_SEED,
+            share=b"\x01" * 16,
+            secret_len=16,
+            doc_hash=b"\x00" * 32,
+            sign_pub=b"\x00" * 32,
+            signature=b"\x00" * 64,
+        )
+        with self.assertRaisesRegex(ValueError, "signing-seed shard length must be 32 bytes"):
+            encode_shard_payload(payload)
+
+    def test_decode_shard_payload_rejects_short_signing_seed_length(self) -> None:
+        payload = {
+            "version": SHARD_VERSION,
+            "type": KEY_TYPE_SIGNING_SEED,
+            "threshold": 1,
+            "share_count": 1,
+            "share_index": 1,
+            "length": 16,
+            "share": b"\x01" * 16,
+            "hash": b"\x00" * 32,
+            "pub": b"\x00" * 32,
+            "sig": b"\x00" * 64,
+        }
+        with self.assertRaisesRegex(ValueError, "signing-seed shard length must be 32 bytes"):
+            decode_shard_payload(cbor2.dumps(payload, canonical=True))
+
+    def test_recover_signing_seed_rejects_short_length_shares(self) -> None:
+        share = ShardPayload(
+            share_index=1,
+            threshold=1,
+            share_count=1,
+            key_type=KEY_TYPE_SIGNING_SEED,
+            share=b"\x01" * 16,
+            secret_len=16,
+            doc_hash=b"\x00" * 32,
+            sign_pub=b"\x00" * 32,
+            signature=b"\x00" * 64,
+        )
+        with self.assertRaisesRegex(ValueError, "signing seed must be 32 bytes"):
+            recover_signing_seed([share])
 
     def test_insufficient_shards(self) -> None:
         passphrase = "needs-two"

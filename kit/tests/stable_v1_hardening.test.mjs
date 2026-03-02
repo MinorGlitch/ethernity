@@ -12,7 +12,10 @@ import {
   FRAME_TYPE_KEY,
   FRAME_TYPE_MAIN,
   FRAME_VERSION,
+  MAX_FALLBACK_LINES,
+  MAX_FALLBACK_NORMALIZED_CHARS,
   SHARD_KEY_PASSPHRASE,
+  SHARD_KEY_SIGNING_SEED,
 } from "../app/constants.js";
 import { parseAutoPayload, parseAutoShard } from "../app/frames_parse.js";
 import { autoRecoverShardSecret } from "../app/shards.js";
@@ -213,6 +216,7 @@ test("readUvarint rejects overlong canonical forms", () => {
 test("decodePayloadString accepts only strict unpadded base64", () => {
   assert.equal(decodePayloadString("YQ=="), null);
   assert.equal(decodePayloadString("YWJjZA-_"), null);
+  assert.equal(decodePayloadString("AB"), null);
   const decoded = decodePayloadString("YQ");
   assert.ok(decoded instanceof Uint8Array);
   assert.deepEqual(Array.from(decoded), [97]);
@@ -267,6 +271,50 @@ test("parseAutoShard rejects structurally invalid shard payload share lengths", 
   assert.equal(state.shardFrames.size, 0);
 });
 
+test("parseAutoShard rejects shard payloads above MAX_SHARD_SHARES", () => {
+  const shardPayload = {
+    version: 1,
+    type: SHARD_KEY_PASSPHRASE,
+    threshold: 2,
+    share_count: 256,
+    share_index: 1,
+    length: 1,
+    share: new Uint8Array(16),
+    hash: new Uint8Array(32),
+    pub: new Uint8Array(32),
+    sig: new Uint8Array(64),
+  };
+  const frame = buildFrame({ frameType: FRAME_TYPE_KEY, data: encodeCbor(shardPayload) });
+  const state = createInitialState();
+
+  const added = parseAutoShard(state, toUnpaddedBase64(frame));
+  assert.equal(added, 1);
+  assert.equal(state.shardErrors, 1);
+  assert.equal(state.shardFrames.size, 0);
+});
+
+test("parseAutoShard rejects non-32-byte signing-seed shard payloads", () => {
+  const shardPayload = {
+    version: 1,
+    type: SHARD_KEY_SIGNING_SEED,
+    threshold: 2,
+    share_count: 3,
+    share_index: 1,
+    length: 31,
+    share: new Uint8Array(32),
+    hash: new Uint8Array(32),
+    pub: new Uint8Array(32),
+    sig: new Uint8Array(64),
+  };
+  const frame = buildFrame({ frameType: FRAME_TYPE_KEY, data: encodeCbor(shardPayload) });
+  const state = createInitialState();
+
+  const added = parseAutoShard(state, toUnpaddedBase64(frame));
+  assert.equal(added, 1);
+  assert.equal(state.shardErrors, 1);
+  assert.equal(state.shardFrames.size, 0);
+});
+
 test("parseAutoShard rejects non-canonical shard CBOR payload", () => {
   const shardPayload = {
     version: 1,
@@ -288,6 +336,28 @@ test("parseAutoShard rejects non-canonical shard CBOR payload", () => {
   assert.equal(added, 1);
   assert.equal(state.shardErrors, 1);
   assert.equal(state.shardFrames.size, 0);
+});
+
+test("parseAutoPayload rejects fallback input above MAX_FALLBACK_LINES", () => {
+  const state = createInitialState();
+  const fallbackLines = Array.from({ length: MAX_FALLBACK_LINES + 1 }, () => "yy");
+  const text = `MAIN FRAME\n${fallbackLines.join("\n")}`;
+  assert.throws(
+    () => parseAutoPayload(state, text),
+    /fallback exceeds MAX_FALLBACK_LINES/
+  );
+});
+
+test("parseAutoShard rejects fallback input above MAX_FALLBACK_NORMALIZED_CHARS", () => {
+  const state = createInitialState();
+  const line = "y".repeat(41);
+  const lineCount = Math.ceil((MAX_FALLBACK_NORMALIZED_CHARS + 1) / line.length);
+  const fallbackLines = Array.from({ length: lineCount }, () => line);
+  const text = `SHARD FRAME\n${fallbackLines.join("\n")}`;
+  assert.throws(
+    () => parseAutoShard(state, text),
+    /fallback exceeds MAX_FALLBACK_NORMALIZED_CHARS/
+  );
 });
 
 test("autoRecoverShardSecret rejects shard/doc hash mismatch before reconstruction", () => {

@@ -91,6 +91,49 @@ def _spec() -> DocumentSpec:
 
 
 class TestBuildPages(unittest.TestCase):
+    def test_kit_doc_type_is_case_insensitive_for_instruction_visibility(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\x12" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "forge"
+            / "kit_document.html.j2"
+        )
+        inputs = RenderInputs(
+            frames=frames,
+            template_path=template_path,
+            output_path="out.pdf",
+            context={},
+            doc_type="KIT",
+            render_qr=True,
+            render_fallback=False,
+        )
+
+        pages = build_pages(
+            inputs=inputs,
+            spec=_spec(),
+            layout=_layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=1),
+            layout_rest=None,
+            fallback_lines=[],
+            qr_image_builder=lambda idx: f"qr:{idx}",
+            fallback_sections_data=None,
+            fallback_state=None,
+        )
+
+        self.assertFalse(pages[0].show_instructions)
+        self.assertTrue(any(page.instructions_full_page for page in pages))
+
     def test_qr_page_starts_account_for_layout_rest(self) -> None:
         frames = [
             Frame(
@@ -190,6 +233,52 @@ class TestBuildPages(unittest.TestCase):
             [item.index for item in pages[1].qr_items],
             [8, 9, 10, 11, 12, 13, 14, 15, 16],
         )
+
+    def test_sentinel_extra_first_page_slot_without_layout_rest_renders_all_frames(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\x67" * DOC_ID_LEN,
+                index=i,
+                total=20,
+                data=f"payload-{i}".encode("utf-8"),
+            )
+            for i in range(20)
+        ]
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "sentinel"
+            / "main_document.html.j2"
+        )
+        inputs = RenderInputs(
+            frames=frames,
+            template_path=template_path,
+            output_path="out.pdf",
+            context={},
+            doc_type="main",
+            render_qr=True,
+            render_fallback=False,
+        )
+
+        layout = _layout(cols=3, rows=2, per_page=6, fallback_lines_per_page=1)
+        pages = build_pages(
+            inputs=inputs,
+            spec=_spec(),
+            layout=layout,
+            layout_rest=None,
+            fallback_lines=[],
+            qr_image_builder=lambda idx: f"qr:{idx}",
+            fallback_sections_data=None,
+            fallback_state=None,
+        )
+
+        self.assertEqual(len(pages), 4)
+        qr_indices = [item.index for page in pages for item in page.qr_items]
+        self.assertEqual(qr_indices, list(range(1, 21)))
 
     def test_fallback_page_slices_account_for_layout_rest_with_qr(self) -> None:
         frames = [
@@ -599,6 +688,149 @@ class TestBuildPages(unittest.TestCase):
                 qr_image_builder=lambda idx: f"qr:{idx}",
                 fallback_sections_data=sections,
                 fallback_state=FallbackConsumerState(),
+            )
+
+    def test_forge_recovery_raises_when_section_fallback_cannot_make_progress(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\xed" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "forge"
+            / "recovery_document.html.j2"
+        )
+        inputs = RenderInputs(
+            frames=frames,
+            template_path=template_path,
+            output_path="out.pdf",
+            context={},
+            doc_type="recovery",
+            render_qr=False,
+            render_fallback=True,
+        )
+        sections = [
+            FallbackSectionData(title="AUTH FRAME", tokens=("a", "b"), group_size=1),
+        ]
+        layout = replace(
+            _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=10),
+            content_start_y=99.0,
+            line_height=1.0,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "fallback capacity exhausted before consuming section data",
+        ):
+            build_pages(
+                inputs=inputs,
+                spec=_spec(),
+                layout=layout,
+                layout_rest=layout,
+                fallback_lines=["L1"],
+                qr_image_builder=lambda idx: f"qr:{idx}",
+                fallback_sections_data=sections,
+                fallback_state=FallbackConsumerState(),
+            )
+
+    def test_non_section_fallback_raises_when_first_page_capacity_is_zero(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\xef" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "ledger"
+            / "main_document.html.j2"
+        )
+        inputs = RenderInputs(
+            frames=frames,
+            template_path=template_path,
+            output_path="out.pdf",
+            context={},
+            doc_type="main",
+            render_qr=False,
+            render_fallback=True,
+        )
+        layout = _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=0)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "fallback capacity exhausted before consuming fallback lines",
+        ):
+            build_pages(
+                inputs=inputs,
+                spec=_spec(),
+                layout=layout,
+                layout_rest=layout,
+                fallback_lines=["L1"],
+                qr_image_builder=lambda idx: f"qr:{idx}",
+                fallback_sections_data=None,
+                fallback_state=None,
+            )
+
+    def test_non_section_fallback_raises_when_continuation_capacity_is_zero(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\xf0" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "templates"
+            / "ledger"
+            / "main_document.html.j2"
+        )
+        inputs = RenderInputs(
+            frames=frames,
+            template_path=template_path,
+            output_path="out.pdf",
+            context={},
+            doc_type="main",
+            render_qr=False,
+            render_fallback=True,
+        )
+        layout = _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=1)
+        layout_rest = _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=0)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "fallback continuation capacity exhausted before consuming fallback lines",
+        ):
+            build_pages(
+                inputs=inputs,
+                spec=_spec(),
+                layout=layout,
+                layout_rest=layout_rest,
+                fallback_lines=["L1", "L2"],
+                qr_image_builder=lambda idx: f"qr:{idx}",
+                fallback_sections_data=None,
+                fallback_state=None,
             )
 
     def test_archive_recovery_extra_rows_do_not_apply_to_other_templates(self) -> None:

@@ -290,6 +290,20 @@ class TestFraming(unittest.TestCase):
             encode_frame(frame)
         self.assertIn("version", str(ctx.exception).lower())
 
+    def test_boolean_version_raises(self) -> None:
+        doc_id = b"\x41" * DOC_ID_LEN
+        frame = Frame(
+            version=True,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=doc_id,
+            index=0,
+            total=1,
+            data=b"data",
+        )
+        with self.assertRaises(ValueError) as ctx:
+            encode_frame(frame)
+        self.assertIn("version", str(ctx.exception).lower())
+
     def test_negative_index_raises(self) -> None:
         """Test that negative index raises ValueError."""
         doc_id = b"\x50" * DOC_ID_LEN
@@ -329,6 +343,20 @@ class TestFraming(unittest.TestCase):
             doc_id=doc_id,
             index=0,
             total=0,
+            data=b"data",
+        )
+        with self.assertRaises(ValueError) as ctx:
+            encode_frame(frame)
+        self.assertIn("total", str(ctx.exception).lower())
+
+    def test_boolean_total_raises(self) -> None:
+        doc_id = b"\x61" * DOC_ID_LEN
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=doc_id,
+            index=0,
+            total=True,
             data=b"data",
         )
         with self.assertRaises(ValueError) as ctx:

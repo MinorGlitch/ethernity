@@ -21,6 +21,7 @@ from ethernity.core.validation import (
     normalize_path,
     require_bytes,
     require_dict,
+    require_int,
     require_int_range,
     require_keys,
     require_length,
@@ -141,16 +142,26 @@ class TestValidation(unittest.TestCase):
         self.assertEqual(require_positive_int(2, label="count"), 2)
         with self.assertRaisesRegex(ValueError, "count must be a positive int"):
             require_positive_int(0, label="count")
+        with self.assertRaisesRegex(ValueError, "count must be a positive int"):
+            require_positive_int(True, label="count")
 
     def test_require_non_negative_int_validation(self) -> None:
         self.assertEqual(require_non_negative_int(0, label="offset"), 0)
         with self.assertRaisesRegex(ValueError, "offset must be a non-negative int"):
             require_non_negative_int(-1, label="offset")
+        with self.assertRaisesRegex(ValueError, "offset must be a non-negative int"):
+            require_non_negative_int(False, label="offset")
 
     def test_require_int_range_validation(self) -> None:
         self.assertEqual(require_int_range(5, min_val=1, max_val=5, label="index"), 5)
         with self.assertRaisesRegex(ValueError, "index must be between 1 and 5"):
             require_int_range(6, min_val=1, max_val=5, label="index")
+        with self.assertRaisesRegex(ValueError, "index must be an int"):
+            require_int_range(True, min_val=1, max_val=5, label="index")
+
+    def test_require_int_rejects_bool(self) -> None:
+        with self.assertRaisesRegex(ValueError, "version must be an int"):
+            require_int(True, label="version")
 
     def test_require_non_empty_bytes_validation(self) -> None:
         self.assertEqual(require_non_empty_bytes(b"x", label="blob"), b"x")
