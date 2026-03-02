@@ -172,8 +172,6 @@ brew tap minorglitch/tap
 brew install ethernity
 ```
 
-Homebrew maintainer notes: `docs/homebrew.md`.
-
 ### 2) Install from Signed Release Artifacts (Primary on Windows, optional on macOS/Linux)
 
 Download the archive matching your OS and CPU.
@@ -410,7 +408,9 @@ Use [`CONTRIBUTING.md`](CONTRIBUTING.md) for workflow policy, expectations, and 
 
 ## Contributing
 
-Contributions are welcome. Prefer focused PRs with tests/docs updates when behavior changes.
+Contributions are welcome via fork + pull request. Prefer focused PRs with tests/docs updates when
+behavior changes.
+
 Before opening a PR, read [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md), and [`AGENTS.md`](AGENTS.md).
 
 ## Credits
