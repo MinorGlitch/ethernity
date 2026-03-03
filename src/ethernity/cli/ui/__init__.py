@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from .home import HOME_BANNER, empty_recover_args, prompt_home_action
+from .home import HOME_BANNER, empty_recover_args, prompt_home_action, render_home_banner
 from .prompts import (
     print_prompt_header,
     prompt_choice,
@@ -102,6 +102,7 @@ __all__ = [
     "ui_screen_mode",
     "progress",
     "status",
+    "render_home_banner",
     "validate_path",
     "wizard_flow",
     "wizard_stage",

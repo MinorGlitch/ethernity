@@ -46,11 +46,11 @@ def _create_design(root: Path, name: str) -> Path:
 class TestConfigInstaller(unittest.TestCase):
     def test_first_run_onboarding_marker_lifecycle(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            state_root = Path(tmpdir) / "state"
-            with mock.patch.object(installer, "user_state_dir_path", return_value=state_root):
+            config_root = Path(tmpdir) / "config"
+            with mock.patch.object(installer, "user_config_dir_path", return_value=config_root):
                 self.assertTrue(installer.first_run_onboarding_needed())
                 marker = installer.mark_first_run_onboarding_complete()
-                self.assertEqual(marker, state_root / "first_run_onboarding_v1.done")
+                self.assertEqual(marker, config_root / ".first_run_onboarding_v1.done")
                 self.assertTrue(marker.is_file())
                 self.assertFalse(installer.first_run_onboarding_needed())
 
@@ -94,6 +94,12 @@ qr_payload_codec = "raw"
                     design="forge",
                     payload_codec="gzip",
                     qr_payload_codec="base64",
+                    page_size="LETTER",
+                    backup_output_dir="/tmp/backups",
+                    qr_chunk_size=384,
+                    shard_threshold=2,
+                    shard_count=3,
+                    signing_key_mode="sharded",
                 )
             self.assertEqual(updated_path, config_path)
             parsed = tomllib.loads(config_path.read_text(encoding="utf-8"))
@@ -106,6 +112,12 @@ qr_payload_codec = "raw"
         self.assertEqual(parsed["kit_template"]["name"], "forge")
         self.assertEqual(parsed["defaults"]["backup"]["payload_codec"], "gzip")
         self.assertEqual(parsed["defaults"]["backup"]["qr_payload_codec"], "base64")
+        self.assertEqual(parsed["page"]["size"], "LETTER")
+        self.assertEqual(parsed["defaults"]["backup"]["output_dir"], "/tmp/backups")
+        self.assertEqual(parsed["qr"]["chunk_size"], 384)
+        self.assertEqual(parsed["defaults"]["backup"]["shard_threshold"], 2)
+        self.assertEqual(parsed["defaults"]["backup"]["shard_count"], 3)
+        self.assertEqual(parsed["defaults"]["backup"]["signing_key_mode"], "sharded")
 
     def test_upsert_table_key_updates_dotted_assignment(self) -> None:
         text = 'defaults.backup.payload_codec = "raw"\n'

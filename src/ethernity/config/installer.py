@@ -29,7 +29,6 @@ from ..core.app_paths import (
     DEFAULT_CONFIG_FILENAME,
     user_config_dir_path,
     user_config_file_path,
-    user_state_dir_path,
     user_templates_design_path,
     user_templates_root_path,
 )
@@ -62,7 +61,7 @@ DEFAULT_CONFIG_PATH = PACKAGE_ROOT / "config/config.toml"
 
 _DOTTED_BACKUP_KEY_RE = re.compile(r"^\s*defaults\.backup\.[A-Za-z0-9_-]+\s*=", re.MULTILINE)
 _TABLE_HEADER_RE = re.compile(r"^\s*\[([^\]]+)\]\s*(?:#.*)?$")
-_FIRST_RUN_ONBOARDING_MARKER_FILENAME = "first_run_onboarding_v1.done"
+_FIRST_RUN_ONBOARDING_MARKER_FILENAME = ".first_run_onboarding_v1.done"
 
 
 @dataclass(frozen=True)
@@ -90,6 +89,8 @@ class ConfigMigrationStep:
 
 PayloadCodec = Literal["auto", "raw", "gzip"]
 QrPayloadCodec = Literal["raw", "base64"]
+PageSize = Literal["A4", "LETTER"]
+SigningKeyMode = Literal["embedded", "sharded"]
 
 
 def _build_paths() -> ConfigPaths:
@@ -192,7 +193,7 @@ def resolve_config_path(path: str | Path | None = None) -> Path:
 def first_run_onboarding_marker_path() -> Path:
     """Return the marker file path used to gate first-run onboarding prompts."""
 
-    return user_state_dir_path() / _FIRST_RUN_ONBOARDING_MARKER_FILENAME
+    return user_config_dir_path() / _FIRST_RUN_ONBOARDING_MARKER_FILENAME
 
 
 def first_run_onboarding_needed() -> bool:
@@ -217,6 +218,14 @@ def apply_first_run_defaults(
     design: str,
     payload_codec: PayloadCodec,
     qr_payload_codec: QrPayloadCodec,
+    page_size: PageSize,
+    backup_output_dir: str | None,
+    qr_chunk_size: int,
+    shard_threshold: int | None,
+    shard_count: int | None,
+    signing_key_mode: SigningKeyMode | None,
+    signing_key_shard_threshold: int | None = None,
+    signing_key_shard_count: int | None = None,
 ) -> Path:
     """Apply first-run default selections into the resolved config file."""
 
@@ -225,6 +234,42 @@ def apply_first_run_defaults(
         raise ValueError("payload_codec must be 'auto', 'raw', or 'gzip'")
     if qr_payload_codec not in {"raw", "base64"}:
         raise ValueError("qr_payload_codec must be 'raw' or 'base64'")
+    if page_size not in {"A4", "LETTER"}:
+        raise ValueError("page_size must be 'A4' or 'LETTER'")
+    if qr_chunk_size <= 0:
+        raise ValueError("qr_chunk_size must be a positive integer")
+
+    if (shard_threshold is None) != (shard_count is None):
+        raise ValueError("shard_threshold and shard_count must be set together")
+    if shard_threshold is not None and shard_count is not None:
+        if shard_threshold < 1:
+            raise ValueError("shard_threshold must be >= 1")
+        if shard_threshold > 255:
+            raise ValueError("shard_threshold must be <= 255")
+        if shard_count < shard_threshold:
+            raise ValueError("shard_count must be >= shard_threshold")
+        if shard_count > 255:
+            raise ValueError("shard_count must be <= 255")
+
+    if signing_key_mode not in {None, "embedded", "sharded"}:
+        raise ValueError("signing_key_mode must be 'embedded', 'sharded', or None")
+    if signing_key_mode == "sharded" and (shard_threshold is None or shard_count is None):
+        raise ValueError("signing_key_mode='sharded' requires passphrase sharding")
+    if (signing_key_shard_threshold is None) != (signing_key_shard_count is None):
+        raise ValueError(
+            "signing_key_shard_threshold and signing_key_shard_count must be set together"
+        )
+    if signing_key_shard_threshold is not None and signing_key_shard_count is not None:
+        if signing_key_mode != "sharded":
+            raise ValueError("signing key shard counts require signing_key_mode='sharded'")
+        if signing_key_shard_threshold < 1:
+            raise ValueError("signing_key_shard_threshold must be >= 1")
+        if signing_key_shard_threshold > 255:
+            raise ValueError("signing_key_shard_threshold must be <= 255")
+        if signing_key_shard_count < signing_key_shard_threshold:
+            raise ValueError("signing_key_shard_count must be >= signing_key_shard_threshold")
+        if signing_key_shard_count > 255:
+            raise ValueError("signing_key_shard_count must be <= 255")
 
     config_path = resolve_config_path(path)
     original = config_path.read_text(encoding="utf-8")
@@ -252,6 +297,85 @@ def apply_first_run_defaults(
         key="qr_payload_codec",
         value=f'"{qr_payload_codec}"',
     )
+    updated = _upsert_table_key(updated, table="page", key="size", value=f'"{page_size}"')
+    updated = _upsert_table_key(
+        updated,
+        table="defaults.backup",
+        key="output_dir",
+        value=_toml_quote(backup_output_dir or ""),
+    )
+    updated = _upsert_table_key(updated, table="qr", key="chunk_size", value=str(qr_chunk_size))
+
+    if shard_threshold is None or shard_count is None:
+        updated = _upsert_table_key(
+            updated, table="defaults.backup", key="shard_threshold", value="0"
+        )
+        updated = _upsert_table_key(updated, table="defaults.backup", key="shard_count", value="0")
+        updated = _upsert_table_key(
+            updated,
+            table="defaults.backup",
+            key="signing_key_mode",
+            value='""',
+        )
+        updated = _upsert_table_key(
+            updated,
+            table="defaults.backup",
+            key="signing_key_shard_threshold",
+            value="0",
+        )
+        updated = _upsert_table_key(
+            updated,
+            table="defaults.backup",
+            key="signing_key_shard_count",
+            value="0",
+        )
+    else:
+        updated = _upsert_table_key(
+            updated,
+            table="defaults.backup",
+            key="shard_threshold",
+            value=str(shard_threshold),
+        )
+        updated = _upsert_table_key(
+            updated,
+            table="defaults.backup",
+            key="shard_count",
+            value=str(shard_count),
+        )
+        if signing_key_mode is None:
+            signing_key_mode = "embedded"
+        updated = _upsert_table_key(
+            updated,
+            table="defaults.backup",
+            key="signing_key_mode",
+            value=_toml_quote(signing_key_mode),
+        )
+        if signing_key_mode != "sharded":
+            updated = _upsert_table_key(
+                updated,
+                table="defaults.backup",
+                key="signing_key_shard_threshold",
+                value="0",
+            )
+            updated = _upsert_table_key(
+                updated,
+                table="defaults.backup",
+                key="signing_key_shard_count",
+                value="0",
+            )
+        else:
+            updated = _upsert_table_key(
+                updated,
+                table="defaults.backup",
+                key="signing_key_shard_threshold",
+                value=str(signing_key_shard_threshold or 0),
+            )
+            updated = _upsert_table_key(
+                updated,
+                table="defaults.backup",
+                key="signing_key_shard_count",
+                value=str(signing_key_shard_count or 0),
+            )
 
     if not updated.endswith(("\n", "\r\n")):
         updated += line_ending
@@ -265,6 +389,13 @@ def _write_text_atomic(path: Path, text: str) -> None:
     temp_path = path.with_name(f"{path.name}.tmp")
     temp_path.write_text(text, encoding="utf-8")
     temp_path.replace(path)
+
+
+def _toml_quote(value: str) -> str:
+    """Return a TOML basic string literal."""
+
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def _table_header_name(line: str) -> str | None:
