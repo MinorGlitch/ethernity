@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -27,6 +28,7 @@ import typer
 from ...config import resolve_config_path
 from ..api import console
 from ..core.common import _ctx_state, _run_cli
+from ..flows.first_run_config import run_first_run_config_wizard
 
 _CONFIG_HELP = (
     "Open the active TOML config in an editor.\n\n"
@@ -37,6 +39,7 @@ _CONFIG_HELP = (
     "  ethernity config --config ./my_config.toml\n"
     "  ethernity config --editor nano\n"
     '  ethernity config --editor "code -w"\n'
+    "  ethernity config --onboard\n"
 )
 
 
@@ -72,6 +75,14 @@ def config(
             rich_help_panel="Behavior",
         ),
     ] = False,
+    onboard: Annotated[
+        bool,
+        typer.Option(
+            "--onboard",
+            help="Run the first-run defaults wizard for this config file.",
+            rich_help_panel="Behavior",
+        ),
+    ] = False,
 ) -> None:
     state = _ctx_state(ctx)
     config_value = config or (state.config if state is not None else None)
@@ -80,6 +91,13 @@ def config(
 
     def _run() -> None:
         path = resolve_config_path(config_value)
+        if onboard and print_path:
+            raise ValueError("--onboard cannot be combined with --print-path")
+        if onboard:
+            if not (sys.stdin.isatty() and sys.stdout.isatty()):
+                raise ValueError("--onboard requires an interactive terminal")
+            run_first_run_config_wizard(config_path=str(path), quiet=quiet_value, force=True)
+            return
         if print_path:
             console.print(str(path))
             return

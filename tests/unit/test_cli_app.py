@@ -34,6 +34,19 @@ class _Ctx:
 
 
 class TestCliApp(unittest.TestCase):
+    def test_should_run_first_run_onboarding_only_for_interactive_root(self) -> None:
+        with (
+            mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=True),
+            mock.patch("ethernity.cli.app.sys.stdout.isatty", return_value=True),
+        ):
+            self.assertTrue(app_module._should_run_first_run_onboarding(None))
+            self.assertFalse(app_module._should_run_first_run_onboarding("backup"))
+        with (
+            mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=False),
+            mock.patch("ethernity.cli.app.sys.stdout.isatty", return_value=True),
+        ):
+            self.assertFalse(app_module._should_run_first_run_onboarding(None))
+
     def test_subcommand_config_override_extracts_supported_forms(self) -> None:
         self.assertEqual(
             app_module._subcommand_config_override(
@@ -270,6 +283,7 @@ class TestCliApp(unittest.TestCase):
     @mock.patch("ethernity.cli.app.empty_recover_args", return_value=RecoverArgs())
     @mock.patch("ethernity.cli.app.prompt_home_action", return_value="recover")
     @mock.patch("ethernity.cli.app.ui_screen_mode", return_value=contextlib.nullcontext())
+    @mock.patch("ethernity.cli.app.run_first_run_config_wizard", return_value=False)
     @mock.patch("ethernity.cli.app.load_cli_defaults", return_value=CliDefaults())
     @mock.patch("ethernity.cli.app._resolve_config_and_paper", return_value=("cfg", "A4"))
     @mock.patch("ethernity.cli.app.sys.stdout.isatty", return_value=True)
@@ -282,6 +296,7 @@ class TestCliApp(unittest.TestCase):
         _stdout_tty: mock.MagicMock,
         _resolve_config_and_paper: mock.MagicMock,
         _load_cli_defaults: mock.MagicMock,
+        _run_first_run_config_wizard: mock.MagicMock,
         ui_screen_mode: mock.MagicMock,
         _prompt_home_action: mock.MagicMock,
         _empty_recover_args: mock.MagicMock,
@@ -318,6 +333,7 @@ class TestCliApp(unittest.TestCase):
     @mock.patch("ethernity.cli.app._run_cli", side_effect=lambda func, debug: func())
     @mock.patch("ethernity.cli.app.prompt_home_action", return_value="backup")
     @mock.patch("ethernity.cli.app.ui_screen_mode", return_value=contextlib.nullcontext())
+    @mock.patch("ethernity.cli.app.run_first_run_config_wizard", return_value=False)
     @mock.patch("ethernity.cli.app.load_cli_defaults", return_value=CliDefaults())
     @mock.patch("ethernity.cli.app._resolve_config_and_paper", return_value=("cfg", "A4"))
     @mock.patch("ethernity.cli.app.sys.stdout.isatty", return_value=True)
@@ -330,6 +346,7 @@ class TestCliApp(unittest.TestCase):
         _stdout_tty: mock.MagicMock,
         _resolve_config_and_paper: mock.MagicMock,
         _load_cli_defaults: mock.MagicMock,
+        _run_first_run_config_wizard: mock.MagicMock,
         ui_screen_mode: mock.MagicMock,
         _prompt_home_action: mock.MagicMock,
         _run_cli: mock.MagicMock,
@@ -359,6 +376,7 @@ class TestCliApp(unittest.TestCase):
     @mock.patch("ethernity.cli.app._run_cli", side_effect=lambda func, debug: func())
     @mock.patch("ethernity.cli.app.prompt_home_action", return_value="kit")
     @mock.patch("ethernity.cli.app.ui_screen_mode", return_value=contextlib.nullcontext())
+    @mock.patch("ethernity.cli.app.run_first_run_config_wizard", return_value=False)
     @mock.patch("ethernity.cli.app.load_cli_defaults", return_value=CliDefaults())
     @mock.patch("ethernity.cli.app._resolve_config_and_paper", return_value=("cfg", "A4"))
     @mock.patch("ethernity.cli.app.sys.stdout.isatty", return_value=True)
@@ -371,6 +389,7 @@ class TestCliApp(unittest.TestCase):
         _stdout_tty: mock.MagicMock,
         _resolve_config_and_paper: mock.MagicMock,
         _load_cli_defaults: mock.MagicMock,
+        _run_first_run_config_wizard: mock.MagicMock,
         ui_screen_mode: mock.MagicMock,
         _prompt_home_action: mock.MagicMock,
         _run_cli: mock.MagicMock,
