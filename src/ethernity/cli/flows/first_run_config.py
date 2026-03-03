@@ -32,13 +32,19 @@ from ..api import (
     console,
     panel,
     prompt_choice,
+    prompt_int,
+    prompt_optional,
     prompt_yes_no,
+    render_home_banner,
     wizard_flow,
     wizard_stage,
 )
+from ..ui.runtime import clear_screen
 
 PayloadCodec = Literal["auto", "raw", "gzip"]
 QrPayloadCodec = Literal["raw", "base64"]
+PageSize = Literal["A4", "LETTER"]
+SigningKeyMode = Literal["embedded", "sharded"]
 
 _DESIGN_DESCRIPTIONS = {
     "archive": "clean archival look",
@@ -54,6 +60,12 @@ class FirstRunSelections:
     design: str
     qr_payload_codec: QrPayloadCodec
     payload_codec: PayloadCodec
+    page_size: PageSize
+    backup_output_dir: str | None
+    qr_chunk_size: int
+    shard_threshold: int | None
+    shard_count: int | None
+    signing_key_mode: SigningKeyMode | None
 
 
 def run_first_run_config_wizard(
@@ -70,9 +82,13 @@ def run_first_run_config_wizard(
     if not force and not first_run_onboarding_needed():
         return False
 
+    if not quiet:
+        clear_screen()
+
     with wizard_flow(name="First run setup", total_steps=2, quiet=quiet):
         with wizard_stage("Welcome"):
             if not quiet:
+                render_home_banner()
                 console.print("[title]Welcome to Ethernity[/title]")
                 console.print(
                     "[subtitle]This one-time setup chooses default backup preferences.[/subtitle]"
@@ -92,24 +108,70 @@ def run_first_run_config_wizard(
             if not should_configure:
                 mark_first_run_onboarding_complete()
                 if not quiet:
-                    console.print(
-                        "[dim]Keeping current defaults (template: sentinel, QR codec: raw, "
-                        "payload codec: auto).[/dim]"
-                    )
+                    console.print("[dim]Keeping current config defaults unchanged.[/dim]")
                 return False
 
             selections = FirstRunSelections(
                 design=_prompt_design(),
                 qr_payload_codec=_prompt_qr_payload_codec(),
                 payload_codec=_prompt_payload_codec(),
+                page_size=_prompt_page_size(),
+                backup_output_dir=_prompt_backup_output_dir(),
+                qr_chunk_size=_prompt_qr_chunk_size(),
+                shard_threshold=None,
+                shard_count=None,
+                signing_key_mode=None,
+            )
+            (
+                shard_threshold,
+                shard_count,
+                signing_key_mode,
+            ) = _prompt_sharding_defaults()
+            selections = FirstRunSelections(
+                design=selections.design,
+                qr_payload_codec=selections.qr_payload_codec,
+                payload_codec=selections.payload_codec,
+                page_size=selections.page_size,
+                backup_output_dir=selections.backup_output_dir,
+                qr_chunk_size=selections.qr_chunk_size,
+                shard_threshold=shard_threshold,
+                shard_count=shard_count,
+                signing_key_mode=signing_key_mode,
             )
 
         with wizard_stage("Review"):
             review_rows = [
                 ("Config file", str(resolve_config_path(config_path))),
                 ("Template design", selections.design),
+                ("Paper size", selections.page_size),
+                (
+                    "Backup output dir",
+                    selections.backup_output_dir or "unset (default backup-<doc_id>)",
+                ),
                 ("QR payload codec", selections.qr_payload_codec),
                 ("Payload codec", selections.payload_codec),
+                ("QR chunk size", f"{selections.qr_chunk_size} bytes"),
+                (
+                    "Passphrase sharding",
+                    (
+                        f"{selections.shard_threshold} of {selections.shard_count}"
+                        if selections.shard_threshold is not None
+                        and selections.shard_count is not None
+                        else "disabled"
+                    ),
+                ),
+                (
+                    "Signing key handling",
+                    (
+                        "same sharding as passphrase"
+                        if selections.signing_key_mode == "sharded"
+                        else (
+                            "embedded in main document"
+                            if selections.signing_key_mode == "embedded"
+                            else "not applicable"
+                        )
+                    ),
+                ),
                 ("Applies to", "default backup/recovery runs"),
             ]
             console.print(panel("First-run defaults", build_review_table(review_rows)))
@@ -128,6 +190,12 @@ def run_first_run_config_wizard(
             design=selections.design,
             payload_codec=selections.payload_codec,
             qr_payload_codec=selections.qr_payload_codec,
+            page_size=selections.page_size,
+            backup_output_dir=selections.backup_output_dir,
+            qr_chunk_size=selections.qr_chunk_size,
+            shard_threshold=selections.shard_threshold,
+            shard_count=selections.shard_count,
+            signing_key_mode=selections.signing_key_mode,
         )
         if not quiet:
             console.print(f"[success]Defaults saved to {path}[/success]")
@@ -195,3 +263,102 @@ def _prompt_payload_codec() -> PayloadCodec:
     if selected == "raw":
         return "raw"
     return "auto"
+
+
+def _prompt_page_size() -> PageSize:
+    choices = {
+        "A4": "A4 (recommended for most regions)",
+        "LETTER": "Letter (US/Canada)",
+    }
+    selected = prompt_choice(
+        "Default paper size",
+        choices,
+        default="A4",
+        help_text="Used for PDF rendering defaults. You can still override with --paper.",
+    )
+    return "LETTER" if selected == "LETTER" else "A4"
+
+
+def _prompt_backup_output_dir() -> str | None:
+    return prompt_optional(
+        "Default backup output directory (optional)",
+        help_text=(
+            "Leave empty to use the current behavior (creates backup-<doc_id> in your current "
+            "directory)."
+        ),
+    )
+
+
+def _prompt_qr_chunk_size() -> int:
+    preset = prompt_choice(
+        "Preferred QR chunk size",
+        {
+            "512": "512 bytes (recommended)",
+            "384": "384 bytes (more scan margin)",
+            "256": "256 bytes (highest scan margin)",
+            "custom": "Custom value",
+        },
+        default="512",
+        help_text=(
+            "Smaller chunk sizes create more QR codes but are easier to scan on lower quality "
+            "devices."
+        ),
+    )
+    if preset != "custom":
+        return int(preset)
+    return prompt_int(
+        "Custom QR chunk size (bytes)",
+        minimum=64,
+        maximum=2048,
+        help_text="Enter a value between 64 and 2048 bytes.",
+    )
+
+
+def _prompt_sharding_defaults() -> tuple[int | None, int | None, SigningKeyMode | None]:
+    mode = prompt_choice(
+        "Default passphrase sharding",
+        {
+            "none": "Disabled (single recovery passphrase)",
+            "2of3": "2 of 3 shards (recommended)",
+            "custom": "Custom threshold/count",
+        },
+        default="none",
+        help_text=(
+            "Sharding splits the recovery passphrase across multiple shard documents. "
+            "Any threshold number of shards can recover the passphrase."
+        ),
+    )
+    if mode == "none":
+        return None, None, None
+
+    if mode == "2of3":
+        threshold = 2
+        count = 3
+    else:
+        threshold = prompt_int(
+            "Shard threshold",
+            minimum=1,
+            maximum=255,
+            help_text="Minimum shards required to recover the passphrase (1-255).",
+        )
+        count = prompt_int(
+            "Shard count",
+            minimum=threshold,
+            maximum=255,
+            help_text="Total shard documents to create (must be >= threshold).",
+        )
+
+    signing_choice = prompt_choice(
+        "When sharding is enabled, how should the signing key be stored?",
+        {
+            "embedded": "Embedded in main document (recommended)",
+            "sharded": "Sharded using the same threshold/count",
+        },
+        default="embedded",
+        help_text=(
+            "Embedded keeps fewer documents. Sharded signing keys require shard documents for "
+            "signature verification and recovery metadata."
+        ),
+    )
+    signing_mode: SigningKeyMode = "sharded" if signing_choice == "sharded" else "embedded"
+    return threshold, count, signing_mode

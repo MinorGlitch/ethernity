@@ -49,6 +49,8 @@ class TestFirstRunConfig(unittest.TestCase):
                 "wizard_stage",
                 return_value=contextlib.nullcontext(),
             ),
+            mock.patch.object(first_run_config, "clear_screen") as clear_screen,
+            mock.patch.object(first_run_config, "render_home_banner") as render_home_banner,
             mock.patch.object(first_run_config, "prompt_yes_no", return_value=False),
             mock.patch.object(
                 first_run_config, "mark_first_run_onboarding_complete"
@@ -57,6 +59,8 @@ class TestFirstRunConfig(unittest.TestCase):
         ):
             result = first_run_config.run_first_run_config_wizard(config_path=None, quiet=False)
         self.assertFalse(result)
+        clear_screen.assert_called_once_with()
+        render_home_banner.assert_called_once_with()
         mark_complete.assert_called_once_with()
         apply_defaults.assert_not_called()
 
@@ -73,10 +77,24 @@ class TestFirstRunConfig(unittest.TestCase):
                 "wizard_stage",
                 return_value=contextlib.nullcontext(),
             ),
+            mock.patch.object(first_run_config, "clear_screen") as clear_screen,
+            mock.patch.object(first_run_config, "render_home_banner") as render_home_banner,
             mock.patch.object(first_run_config, "prompt_yes_no", side_effect=[True, True]),
             mock.patch.object(first_run_config, "_prompt_design", return_value="forge"),
             mock.patch.object(first_run_config, "_prompt_qr_payload_codec", return_value="base64"),
             mock.patch.object(first_run_config, "_prompt_payload_codec", return_value="gzip"),
+            mock.patch.object(first_run_config, "_prompt_page_size", return_value="LETTER"),
+            mock.patch.object(
+                first_run_config,
+                "_prompt_backup_output_dir",
+                return_value="/tmp/backups",
+            ),
+            mock.patch.object(first_run_config, "_prompt_qr_chunk_size", return_value=384),
+            mock.patch.object(
+                first_run_config,
+                "_prompt_sharding_defaults",
+                return_value=(2, 3, "sharded"),
+            ),
             mock.patch.object(
                 first_run_config, "resolve_config_path", return_value="/tmp/config.toml"
             ),
@@ -94,11 +112,19 @@ class TestFirstRunConfig(unittest.TestCase):
         ):
             result = first_run_config.run_first_run_config_wizard(config_path=None, quiet=False)
         self.assertTrue(result)
+        clear_screen.assert_called_once_with()
+        render_home_banner.assert_called_once_with()
         apply_defaults.assert_called_once_with(
             None,
             design="forge",
             payload_codec="gzip",
             qr_payload_codec="base64",
+            page_size="LETTER",
+            backup_output_dir="/tmp/backups",
+            qr_chunk_size=384,
+            shard_threshold=2,
+            shard_count=3,
+            signing_key_mode="sharded",
         )
         mark_complete.assert_called_once_with()
 
@@ -115,10 +141,20 @@ class TestFirstRunConfig(unittest.TestCase):
                 "wizard_stage",
                 return_value=contextlib.nullcontext(),
             ),
+            mock.patch.object(first_run_config, "clear_screen") as clear_screen,
+            mock.patch.object(first_run_config, "render_home_banner") as render_home_banner,
             mock.patch.object(first_run_config, "prompt_yes_no", side_effect=[True, False]),
             mock.patch.object(first_run_config, "_prompt_design", return_value="forge"),
             mock.patch.object(first_run_config, "_prompt_qr_payload_codec", return_value="raw"),
             mock.patch.object(first_run_config, "_prompt_payload_codec", return_value="auto"),
+            mock.patch.object(first_run_config, "_prompt_page_size", return_value="A4"),
+            mock.patch.object(first_run_config, "_prompt_backup_output_dir", return_value=None),
+            mock.patch.object(first_run_config, "_prompt_qr_chunk_size", return_value=512),
+            mock.patch.object(
+                first_run_config,
+                "_prompt_sharding_defaults",
+                return_value=(None, None, None),
+            ),
             mock.patch.object(
                 first_run_config, "resolve_config_path", return_value="/tmp/config.toml"
             ),
@@ -132,8 +168,49 @@ class TestFirstRunConfig(unittest.TestCase):
         ):
             result = first_run_config.run_first_run_config_wizard(config_path=None, quiet=False)
         self.assertFalse(result)
+        clear_screen.assert_called_once_with()
+        render_home_banner.assert_called_once_with()
         apply_defaults.assert_not_called()
         mark_complete.assert_called_once_with()
+
+    def test_run_first_run_config_wizard_quiet_skips_screen_clear_and_banner(self) -> None:
+        with (
+            mock.patch.object(first_run_config, "first_run_onboarding_needed", return_value=True),
+            mock.patch.object(
+                first_run_config,
+                "wizard_flow",
+                return_value=contextlib.nullcontext(),
+            ),
+            mock.patch.object(
+                first_run_config,
+                "wizard_stage",
+                return_value=contextlib.nullcontext(),
+            ),
+            mock.patch.object(first_run_config, "clear_screen") as clear_screen,
+            mock.patch.object(first_run_config, "render_home_banner") as render_home_banner,
+            mock.patch.object(first_run_config, "prompt_yes_no", side_effect=[True, False]),
+            mock.patch.object(first_run_config, "_prompt_design", return_value="forge"),
+            mock.patch.object(first_run_config, "_prompt_qr_payload_codec", return_value="raw"),
+            mock.patch.object(first_run_config, "_prompt_payload_codec", return_value="auto"),
+            mock.patch.object(first_run_config, "_prompt_page_size", return_value="A4"),
+            mock.patch.object(first_run_config, "_prompt_backup_output_dir", return_value=None),
+            mock.patch.object(first_run_config, "_prompt_qr_chunk_size", return_value=512),
+            mock.patch.object(
+                first_run_config,
+                "_prompt_sharding_defaults",
+                return_value=(None, None, None),
+            ),
+            mock.patch.object(
+                first_run_config, "resolve_config_path", return_value="/tmp/config.toml"
+            ),
+            mock.patch.object(first_run_config, "build_review_table", return_value="rows"),
+            mock.patch.object(first_run_config, "panel", return_value="panel"),
+            mock.patch.object(first_run_config, "mark_first_run_onboarding_complete"),
+            mock.patch.object(first_run_config, "apply_first_run_defaults"),
+        ):
+            first_run_config.run_first_run_config_wizard(config_path=None, quiet=True)
+        clear_screen.assert_not_called()
+        render_home_banner.assert_not_called()
 
 
 if __name__ == "__main__":
