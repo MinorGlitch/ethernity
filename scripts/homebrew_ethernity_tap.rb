@@ -10,6 +10,8 @@ class Ethernity < Formula
   depends_on "pkgconf" => :build
   depends_on "pillow"
   depends_on "python@3.13"
+  uses_from_macos "libxml2"
+  uses_from_macos "libxslt"
 
   resource "cbor2" do
     url "https://files.pythonhosted.org/packages/d6/4f/101071f880b4da05771128c0b89f41e334cff044dee05fb013c8f4be661c/cbor2-5.8.0-py3-none-any.whl"
@@ -93,34 +95,39 @@ class Ethernity < Formula
     sha256 "447700a657182d60338bab09fdb27518f8856aecd80ae4c6bdddb67ff5da44ef"
   end
 
-  if OS.mac?
+  if OS.mac? && Hardware::CPU.arm?
     resource "playwright" do
-      url "https://files.pythonhosted.org/packages/e1/ee/3ce6209c9c74a650aac9028c621f357a34ea5cd4d950700f8e2c4b7fe2c4/playwright-1.58.0-py3-none-macosx_11_0_universal2.whl"
-      sha256 "185e0132578733d02802dfddfbbc35f42be23a45ff49ccae5081f25952238117"
+      url "https://files.pythonhosted.org/packages/e0/40/59d34a756e02f8c670f0fee987d46f7ee53d05447d43cd114ca015cb168c/playwright-1.58.0-py3-none-macosx_11_0_arm64.whl"
+      sha256 "70c763694739d28df71ed578b9c8202bb83e8fe8fb9268c04dd13afe36301f71"
     end
-
-    resource "pyrage" do
-      url "https://files.pythonhosted.org/packages/f7/6e/3095678ee12f0401e1de17f4d6993783b20a4b807daf69e23b170724e5f4/pyrage-1.3.0-cp39-abi3-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl"
-      sha256 "907901ada8d63d674cc9005889150846c7349ef587ee8bf5e9278b79c54b4679"
+  elsif OS.mac?
+    resource "playwright" do
+      url "https://files.pythonhosted.org/packages/f8/c9/9c6061d5703267f1baae6a4647bfd1862e386fbfdb97d889f6f6ae9e3f64/playwright-1.58.0-py3-none-macosx_10_13_x86_64.whl"
+      sha256 "96e3204aac292ee639edbfdef6298b4be2ea0a55a16b7068df91adac077cc606"
     end
-
   elsif Hardware::CPU.arm?
     resource "playwright" do
       url "https://files.pythonhosted.org/packages/d9/a6/0e66ad04b6d3440dae73efb39540c5685c5fc95b17c8b29340b62abbd952/playwright-1.58.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
       sha256 "8f9999948f1ab541d98812de25e3a8c410776aa516d948807140aff797b4bffa"
     end
-
-    resource "pyrage" do
-      url "https://files.pythonhosted.org/packages/3b/e7/f515fbc972a5d83e9fa82d1c23a16f733f4dd6c2c6ae33d9054ca04a8d92/pyrage-1.3.0-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
-      sha256 "ea452cb9c9c47083a96b309467dea5614d12530e1de4b6585f10aa04d3d19d1c"
-    end
-
   else
     resource "playwright" do
       url "https://files.pythonhosted.org/packages/f1/af/009958cbf23fac551a940d34e3206e6c7eed2b8c940d0c3afd1feb0b0589/playwright-1.58.0-py3-none-manylinux1_x86_64.whl"
       sha256 "c95568ba1eda83812598c1dc9be60b4406dffd60b149bc1536180ad108723d6b"
     end
+  end
 
+  if OS.mac?
+    resource "pyrage" do
+      url "https://files.pythonhosted.org/packages/f7/6e/3095678ee12f0401e1de17f4d6993783b20a4b807daf69e23b170724e5f4/pyrage-1.3.0-cp39-abi3-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl"
+      sha256 "907901ada8d63d674cc9005889150846c7349ef587ee8bf5e9278b79c54b4679"
+    end
+  elsif Hardware::CPU.arm?
+    resource "pyrage" do
+      url "https://files.pythonhosted.org/packages/3b/e7/f515fbc972a5d83e9fa82d1c23a16f733f4dd6c2c6ae33d9054ca04a8d92/pyrage-1.3.0-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
+      sha256 "ea452cb9c9c47083a96b309467dea5614d12530e1de4b6585f10aa04d3d19d1c"
+    end
+  else
     resource "pyrage" do
       url "https://files.pythonhosted.org/packages/38/f3/e91bf604fd40c42c60e8f95075cddb0b85d0bdf452f736b533b1bad550e0/pyrage-1.3.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
       sha256 "ab066b22925c5a0ec5fead2e21e4586b21d5da730055c7e46caa978bd99de936"
@@ -160,6 +167,11 @@ class Ethernity < Formula
   resource "segno" do
     url "https://files.pythonhosted.org/packages/d6/02/12c73fd423eb9577b97fc1924966b929eff7074ae6b2e15dd3d30cb9e4ae/segno-1.6.6-py3-none-any.whl"
     sha256 "28c7d081ed0cf935e0411293a465efd4d500704072cdb039778a2ab8736190c7"
+  end
+
+  resource "shellingham" do
+    url "https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl"
+    sha256 "7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686"
   end
 
   resource "annotated-doc" do
