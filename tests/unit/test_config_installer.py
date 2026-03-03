@@ -44,6 +44,79 @@ def _create_design(root: Path, name: str) -> Path:
 
 
 class TestConfigInstaller(unittest.TestCase):
+    def test_first_run_onboarding_marker_lifecycle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_root = Path(tmpdir) / "state"
+            with mock.patch.object(installer, "user_state_dir_path", return_value=state_root):
+                self.assertTrue(installer.first_run_onboarding_needed())
+                marker = installer.mark_first_run_onboarding_complete()
+                self.assertEqual(marker, state_root / "first_run_onboarding_v1.done")
+                self.assertTrue(marker.is_file())
+                self.assertFalse(installer.first_run_onboarding_needed())
+
+    def test_apply_first_run_defaults_updates_existing_config(self) -> None:
+        initial = (
+            """
+[templates]
+default_name = "sentinel"
+
+[template]
+name = "sentinel"
+
+[recovery_template]
+name = "sentinel"
+
+[shard_template]
+name = "sentinel"
+
+[signing_key_shard_template]
+name = "sentinel"
+
+[kit_template]
+name = "sentinel"
+
+[defaults.backup]
+payload_codec = "auto"
+qr_payload_codec = "raw"
+""".strip()
+            + "\n"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(initial, encoding="utf-8")
+            with mock.patch.object(
+                installer,
+                "resolve_template_design_path",
+                return_value=Path("/tmp/forge"),
+            ):
+                updated_path = installer.apply_first_run_defaults(
+                    config_path,
+                    design="forge",
+                    payload_codec="gzip",
+                    qr_payload_codec="base64",
+                )
+            self.assertEqual(updated_path, config_path)
+            parsed = tomllib.loads(config_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(parsed["templates"]["default_name"], "forge")
+        self.assertEqual(parsed["template"]["name"], "forge")
+        self.assertEqual(parsed["recovery_template"]["name"], "forge")
+        self.assertEqual(parsed["shard_template"]["name"], "forge")
+        self.assertEqual(parsed["signing_key_shard_template"]["name"], "forge")
+        self.assertEqual(parsed["kit_template"]["name"], "forge")
+        self.assertEqual(parsed["defaults"]["backup"]["payload_codec"], "gzip")
+        self.assertEqual(parsed["defaults"]["backup"]["qr_payload_codec"], "base64")
+
+    def test_upsert_table_key_updates_dotted_assignment(self) -> None:
+        text = 'defaults.backup.payload_codec = "raw"\n'
+        updated = installer._upsert_table_key(
+            text,
+            table="defaults.backup",
+            key="payload_codec",
+            value='"gzip"',
+        )
+        self.assertEqual(tomllib.loads(updated)["defaults"]["backup"]["payload_codec"], "gzip")
+
     def test_user_config_dir_precedence(self) -> None:
         with mock.patch.dict(
             os.environ,

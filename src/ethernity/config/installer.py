@@ -23,12 +23,13 @@ import shutil
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal
 
 from ..core.app_paths import (
     DEFAULT_CONFIG_FILENAME,
     user_config_dir_path,
     user_config_file_path,
+    user_state_dir_path,
     user_templates_design_path,
     user_templates_root_path,
 )
@@ -60,6 +61,8 @@ DEFAULT_PAPER_SIZE = "A4"
 DEFAULT_CONFIG_PATH = PACKAGE_ROOT / "config/config.toml"
 
 _DOTTED_BACKUP_KEY_RE = re.compile(r"^\s*defaults\.backup\.[A-Za-z0-9_-]+\s*=", re.MULTILINE)
+_TABLE_HEADER_RE = re.compile(r"^\s*\[([^\]]+)\]\s*(?:#.*)?$")
+_FIRST_RUN_ONBOARDING_MARKER_FILENAME = "first_run_onboarding_v1.done"
 
 
 @dataclass(frozen=True)
@@ -83,6 +86,10 @@ class ConfigMigrationStep:
 
     migration_id: str
     apply: ConfigMigration
+
+
+PayloadCodec = Literal["auto", "raw", "gzip"]
+QrPayloadCodec = Literal["raw", "base64"]
 
 
 def _build_paths() -> ConfigPaths:
@@ -180,6 +187,156 @@ def resolve_config_path(path: str | Path | None = None) -> Path:
     if _ensure_user_config(paths) and paths.user_config_path.exists():
         return paths.user_config_path
     return DEFAULT_CONFIG_PATH
+
+
+def first_run_onboarding_marker_path() -> Path:
+    """Return the marker file path used to gate first-run onboarding prompts."""
+
+    return user_state_dir_path() / _FIRST_RUN_ONBOARDING_MARKER_FILENAME
+
+
+def first_run_onboarding_needed() -> bool:
+    """Return whether first-run onboarding should be offered."""
+
+    return not first_run_onboarding_marker_path().exists()
+
+
+def mark_first_run_onboarding_complete() -> Path:
+    """Persist the first-run onboarding completion marker and return its path."""
+
+    marker_path = first_run_onboarding_marker_path()
+    marker_path.parent.mkdir(parents=True, exist_ok=True)
+    if not marker_path.exists():
+        marker_path.write_text("completed\n", encoding="utf-8")
+    return marker_path
+
+
+def apply_first_run_defaults(
+    path: str | Path | None,
+    *,
+    design: str,
+    payload_codec: PayloadCodec,
+    qr_payload_codec: QrPayloadCodec,
+) -> Path:
+    """Apply first-run default selections into the resolved config file."""
+
+    _ = resolve_template_design_path(design)
+    if payload_codec not in {"auto", "raw", "gzip"}:
+        raise ValueError("payload_codec must be 'auto', 'raw', or 'gzip'")
+    if qr_payload_codec not in {"raw", "base64"}:
+        raise ValueError("qr_payload_codec must be 'raw' or 'base64'")
+
+    config_path = resolve_config_path(path)
+    original = config_path.read_text(encoding="utf-8")
+    line_ending = "\r\n" if "\r\n" in original else "\n"
+
+    updated = original
+    updated = _upsert_table_key(updated, table="templates", key="default_name", value=f'"{design}"')
+    for section in (
+        "template",
+        "recovery_template",
+        "shard_template",
+        "signing_key_shard_template",
+        "kit_template",
+    ):
+        updated = _upsert_table_key(updated, table=section, key="name", value=f'"{design}"')
+    updated = _upsert_table_key(
+        updated,
+        table="defaults.backup",
+        key="payload_codec",
+        value=f'"{payload_codec}"',
+    )
+    updated = _upsert_table_key(
+        updated,
+        table="defaults.backup",
+        key="qr_payload_codec",
+        value=f'"{qr_payload_codec}"',
+    )
+
+    if not updated.endswith(("\n", "\r\n")):
+        updated += line_ending
+    _write_text_atomic(config_path, updated)
+    return config_path
+
+
+def _write_text_atomic(path: Path, text: str) -> None:
+    """Atomically replace a text file in place."""
+
+    temp_path = path.with_name(f"{path.name}.tmp")
+    temp_path.write_text(text, encoding="utf-8")
+    temp_path.replace(path)
+
+
+def _table_header_name(line: str) -> str | None:
+    """Return table name when a line is a TOML table header."""
+
+    match = _TABLE_HEADER_RE.match(line)
+    if match is None:
+        return None
+    return match.group(1).strip()
+
+
+def _upsert_table_key(text: str, *, table: str, key: str, value: str) -> str:
+    """Set `key = value` inside a TOML table, appending table/key when missing."""
+
+    line_ending = "\r\n" if "\r\n" in text else "\n"
+    lines = text.splitlines()
+
+    dotted_key = f"{table}.{key}"
+    dotted_prefix = f"{dotted_key} ="
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#") or stripped.startswith(";"):
+            continue
+        if not stripped.startswith(dotted_prefix):
+            continue
+        indent = line[: len(line) - len(line.lstrip())]
+        comment = ""
+        hash_index = line.find("#")
+        if hash_index != -1:
+            comment = " " + line[hash_index:].strip()
+        lines[index] = f"{indent}{dotted_key} = {value}{comment}"
+        return line_ending.join(lines) + line_ending
+
+    table_index: int | None = None
+    table_end = len(lines)
+    for index, line in enumerate(lines):
+        header_name = _table_header_name(line)
+        if header_name is None:
+            continue
+        if table_index is None and header_name == table:
+            table_index = index
+            continue
+        if table_index is not None:
+            table_end = index
+            break
+
+    if table_index is None:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.append(f"[{table}]")
+        lines.append(f"{key} = {value}")
+        return line_ending.join(lines) + line_ending
+
+    key_pattern = re.compile(rf"^(\s*){re.escape(key)}\s*=.*$")
+    for index in range(table_index + 1, table_end):
+        line = lines[index]
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or stripped.startswith(";"):
+            continue
+        match = key_pattern.match(line)
+        if match is None:
+            continue
+        indent = match.group(1)
+        comment = ""
+        hash_index = line.find("#")
+        if hash_index != -1:
+            comment = " " + line[hash_index:].strip()
+        lines[index] = f"{indent}{key} = {value}{comment}"
+        return line_ending.join(lines) + line_ending
+
+    lines.insert(table_end, f"{key} = {value}")
+    return line_ending.join(lines) + line_ending
 
 
 def _ensure_user_config(paths: ConfigPaths) -> bool:
