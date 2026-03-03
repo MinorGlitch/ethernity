@@ -145,11 +145,11 @@ class TestConfigCommand(unittest.TestCase):
                 onboard=True,
             )
         resolve_config_path.assert_called_once_with("ctx.toml")
-        run_first_run_config_wizard.assert_called_once_with(
-            config_path="/tmp/cfg.toml",
-            quiet=True,
-            force=True,
-        )
+        run_first_run_config_wizard.assert_called_once()
+        wizard_kwargs = run_first_run_config_wizard.call_args.kwargs
+        self.assertEqual(wizard_kwargs["config_path"], str(Path("/tmp/cfg.toml")))
+        self.assertEqual(wizard_kwargs["quiet"], True)
+        self.assertEqual(wizard_kwargs["force"], True)
         open_in_editor.assert_not_called()
 
     @mock.patch(
