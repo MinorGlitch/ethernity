@@ -540,11 +540,7 @@ def _resolve_qr_workers(
             requested = configured
             explicit = True
 
-    process_cpu_count = getattr(os, "process_cpu_count", None)
-    if callable(process_cpu_count):
-        cpu = process_cpu_count() or 1
-    else:
-        cpu = os.cpu_count() or 1
+    cpu = _process_cpu_count()
     if requested is None:
         requested = min(cpu, _DEFAULT_QR_WORKERS_CAP)
 
@@ -553,6 +549,28 @@ def _resolve_qr_workers(
         workers = min(workers, max(1, task_count // _MIN_QR_TASKS_PER_WORKER))
 
     return max(1, workers)
+
+
+def _process_cpu_count() -> int:
+    """Best-effort process-scoped CPU count across Python and OS variants."""
+
+    process_cpu_count = cast(
+        Callable[[], int | None] | None, getattr(os, "process_cpu_count", None)
+    )
+    if callable(process_cpu_count):
+        return max(1, process_cpu_count() or 1)
+
+    sched_getaffinity = cast(
+        Callable[[int], Sequence[object]] | None,
+        getattr(os, "sched_getaffinity", None),
+    )
+    if callable(sched_getaffinity):
+        try:
+            return max(1, len(sched_getaffinity(0)))
+        except (OSError, TypeError):
+            pass
+
+    return max(1, os.cpu_count() or 1)
 
 
 def _qr_content_type(kind: str) -> str:
