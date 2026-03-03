@@ -25,8 +25,13 @@ from pathlib import Path
 from ...config import (
     DEFAULT_PAPER_SIZE,
     DEFAULT_TEMPLATE_STYLE,
+    ONBOARDING_FIELD_BACKUP_OUTPUT_DIR,
+    ONBOARDING_FIELD_PAGE_SIZE,
+    ONBOARDING_FIELD_SHARDING,
+    ONBOARDING_FIELD_TEMPLATE_DESIGN,
     AppConfig,
     apply_template_design,
+    first_run_onboarding_configured_fields,
     list_template_designs,
     load_app_config,
 )
@@ -117,6 +122,10 @@ def _prompt_recovery_options(
     args: BackupArgs | None,
     debug_override: bool | None,
     quiet: bool,
+    *,
+    confirm_existing_quorums: bool = True,
+    prompt_sharding_when_missing: bool = True,
+    prompt_signing_sharding_when_missing: bool = True,
 ) -> tuple[
     bool,
     bool,
@@ -128,7 +137,11 @@ def _prompt_recovery_options(
 
     Returns (sealed, debug, signing_seed_mode, sharding, signing_seed_sharding).
     """
-    sharding = resolve_passphrase_sharding(args=args)
+    sharding = resolve_passphrase_sharding(
+        args=args,
+        confirm_existing=confirm_existing_quorums,
+        prompt_when_missing=prompt_sharding_when_missing,
+    )
 
     if sharding is None:
         sealed = bool(args.sealed) if args is not None else False
@@ -160,6 +173,8 @@ def _prompt_recovery_options(
             args=args,
             signing_seed_mode=signing_seed_mode,
             passphrase_sharding=sharding,
+            confirm_existing=confirm_existing_quorums,
+            prompt_when_missing=prompt_signing_sharding_when_missing,
         )
     else:
         signing_seed_mode = SigningSeedMode.EMBEDDED
@@ -171,10 +186,12 @@ def _prompt_recovery_options(
 def _prompt_layout(
     config_path: str | None,
     paper_size: str | None,
+    *,
+    prompt_when_unset: bool = True,
 ) -> tuple[str | None, str | None]:
     """Prompt for layout settings. Returns (config_path, paper_size override)."""
     paper = paper_size
-    if config_path is None and not paper:
+    if config_path is None and not paper and prompt_when_unset:
         layout_choices = {
             "a4": "A4",
             "letter": "Letter",
@@ -214,7 +231,7 @@ def _resolve_design_name(design: str | None, designs: dict[str, Path]) -> str | 
     return None
 
 
-def _prompt_design(args: BackupArgs | None) -> str | None:
+def _prompt_design(args: BackupArgs | None, *, prompt_when_unset: bool = True) -> str | None:
     """Prompt for a template design, honoring valid CLI-provided values."""
 
     designs = list_template_designs()
@@ -226,6 +243,8 @@ def _prompt_design(args: BackupArgs | None) -> str | None:
         console_err.print(f"[error]Unknown template design: {requested}[/error]")
     if resolved:
         return resolved
+    if not prompt_when_unset:
+        return None
     design_names = sorted(designs.keys(), key=lambda name: name.lower())
     if len(design_names) == 1:
         return design_names[0]
@@ -239,10 +258,32 @@ def _prompt_design(args: BackupArgs | None) -> str | None:
     )
 
 
+def _prompt_backup_setup_mode(*, offer_quick: bool) -> bool:
+    """Return True when operator chooses quick setup mode."""
+
+    if not offer_quick:
+        return False
+    mode = prompt_choice(
+        "Backup setup mode",
+        {
+            "quick": "Quick run (use saved onboarding defaults)",
+            "advanced": "Advanced (review all backup options)",
+        },
+        default="quick",
+        help_text=(
+            "Quick mode skips prompts for options configured during onboarding. "
+            "Choose Advanced to customize everything for this run."
+        ),
+    )
+    return mode == "quick"
+
+
 def _prompt_inputs(
     args: BackupArgs | None,
     quiet: bool,
     debug: bool,
+    *,
+    show_output_prompt: bool = True,
 ) -> tuple[list, Path | None, str | None, str, list[str]]:
     """Prompt for input files.
 
@@ -260,11 +301,19 @@ def _prompt_inputs(
         )
         base_dir = args.base_dir if args is not None else None
         output_dir = args.output_dir if args is not None else None
-        if output_dir is None:
-            output_dir = prompt_optional(
-                "Output folder (press Enter for default)",
-                help_text="Creates a backup-<id> folder in current directory.",
+        if show_output_prompt:
+            output_help = (
+                "Press Enter to keep the saved default output directory, or enter a different "
+                "folder for this run."
+                if output_dir
+                else "Creates a backup-<id> folder in current directory."
             )
+            selected_output_dir = prompt_optional(
+                "Output folder (press Enter for default)",
+                help_text=output_help,
+            )
+            if selected_output_dir is not None:
+                output_dir = selected_output_dir
 
         status_quiet = quiet or debug
         try:
@@ -438,6 +487,16 @@ def run_wizard(
     """Run the guided backup wizard and execute the resulting backup."""
 
     assume_yes = bool(args.assume_yes) if args is not None else False
+    configured_fields = first_run_onboarding_configured_fields()
+    offer_quick_mode = bool(
+        configured_fields
+        & {
+            ONBOARDING_FIELD_SHARDING,
+            ONBOARDING_FIELD_PAGE_SIZE,
+            ONBOARDING_FIELD_TEMPLATE_DESIGN,
+            ONBOARDING_FIELD_BACKUP_OUTPUT_DIR,
+        }
+    )
 
     with ui_screen_mode(quiet=quiet):
         with wizard_flow(name="Backup", total_steps=5, quiet=quiet):
@@ -449,16 +508,40 @@ def run_wizard(
                 )
 
             with wizard_stage("Encryption"):
+                quick_mode = _prompt_backup_setup_mode(offer_quick=offer_quick_mode and not quiet)
                 passphrase, passphrase_words = _prompt_encryption(args)
+
+            use_saved_sharding = quick_mode and ONBOARDING_FIELD_SHARDING in configured_fields
+            use_saved_page_size = quick_mode and ONBOARDING_FIELD_PAGE_SIZE in configured_fields
+            use_saved_template = (
+                quick_mode and ONBOARDING_FIELD_TEMPLATE_DESIGN in configured_fields
+            )
+            use_saved_output_dir = (
+                quick_mode and ONBOARDING_FIELD_BACKUP_OUTPUT_DIR in configured_fields
+            )
 
             with wizard_stage("Recovery"):
                 sealed, debug, signing_seed_mode, sharding, signing_seed_sharding = (
-                    _prompt_recovery_options(args, debug_override, quiet)
+                    _prompt_recovery_options(
+                        args,
+                        debug_override,
+                        quiet,
+                        confirm_existing_quorums=not use_saved_sharding,
+                        prompt_sharding_when_missing=not use_saved_sharding,
+                        prompt_signing_sharding_when_missing=not use_saved_sharding,
+                    )
                 )
 
             with wizard_stage("Layout"):
-                config_path, paper = _prompt_layout(config_path, paper_size)
-                design = _prompt_design(args)
+                config_path, paper = _prompt_layout(
+                    config_path,
+                    paper_size,
+                    prompt_when_unset=not use_saved_page_size,
+                )
+                design = _prompt_design(
+                    args,
+                    prompt_when_unset=not use_saved_template,
+                )
 
             plan = build_document_plan(
                 sealed=sealed,
@@ -473,7 +556,10 @@ def run_wizard(
 
             with wizard_stage("Inputs"):
                 input_files, resolved_base, output_dir, input_origin, input_roots = _prompt_inputs(
-                    args, quiet, debug
+                    args,
+                    quiet,
+                    debug,
+                    show_output_prompt=not use_saved_output_dir,
                 )
 
             review_rows = _build_review_rows(
