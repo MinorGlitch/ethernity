@@ -478,7 +478,11 @@ class TestPdfRender(unittest.TestCase):
         self.assertTrue(rendered_context["recovery"]["signing_pub_lines"])
 
     @mock.patch.dict("os.environ", {}, clear=True)
-    @mock.patch("ethernity.render.pdf_render.os.process_cpu_count", return_value=8)
+    @mock.patch(
+        "ethernity.render.pdf_render.os.process_cpu_count",
+        create=True,
+        return_value=8,
+    )
     def test_resolve_qr_workers_uses_config_when_env_absent(
         self,
         _cpu_count: mock.MagicMock,
@@ -487,7 +491,11 @@ class TestPdfRender(unittest.TestCase):
         self.assertEqual(workers, 3)
 
     @mock.patch.dict("os.environ", {"ETHERNITY_RENDER_JOBS": "5"}, clear=True)
-    @mock.patch("ethernity.render.pdf_render.os.process_cpu_count", return_value=8)
+    @mock.patch(
+        "ethernity.render.pdf_render.os.process_cpu_count",
+        create=True,
+        return_value=8,
+    )
     def test_resolve_qr_workers_env_overrides_config(
         self,
         _cpu_count: mock.MagicMock,
@@ -496,7 +504,11 @@ class TestPdfRender(unittest.TestCase):
         self.assertEqual(workers, 5)
 
     @mock.patch.dict("os.environ", {"ETHERNITY_RENDER_JOBS": "invalid"}, clear=True)
-    @mock.patch("ethernity.render.pdf_render.os.process_cpu_count", return_value=8)
+    @mock.patch(
+        "ethernity.render.pdf_render.os.process_cpu_count",
+        create=True,
+        return_value=8,
+    )
     def test_resolve_qr_workers_invalid_env_still_errors_with_valid_config(
         self,
         _cpu_count: mock.MagicMock,
@@ -505,7 +517,11 @@ class TestPdfRender(unittest.TestCase):
             pdf_render_module._resolve_qr_workers(32, configured=2)
 
     @mock.patch.dict("os.environ", {}, clear=True)
-    @mock.patch("ethernity.render.pdf_render.os.process_cpu_count", return_value=8)
+    @mock.patch(
+        "ethernity.render.pdf_render.os.process_cpu_count",
+        create=True,
+        return_value=8,
+    )
     def test_resolve_qr_workers_auto_config_keeps_auto_heuristic(
         self,
         _cpu_count: mock.MagicMock,

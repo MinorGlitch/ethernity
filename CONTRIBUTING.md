@@ -8,7 +8,7 @@ This project is stable software, so small, focused changes with clear tests and 
 
 ### Prerequisites
 
-- Python 3.13+
+- Python 3.11+
 - `uv`
 - Node.js 20+ (for recovery kit build)
 

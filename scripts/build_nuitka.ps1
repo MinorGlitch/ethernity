@@ -23,7 +23,7 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..")
 $OutputDir = if ($env:NUITKA_OUTPUT_DIR) { $env:NUITKA_OUTPUT_DIR } else { Join-Path $ProjectRoot "dist/nuitka" }
-$NuitkaPython = if ($env:NUITKA_PYTHON) { $env:NUITKA_PYTHON } else { "3.13" }
+$NuitkaPython = if ($env:NUITKA_PYTHON) { $env:NUITKA_PYTHON } else { "3.11" }
 
 $hasMode = $false
 $hasModuleFlag = $false
