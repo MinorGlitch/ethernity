@@ -75,13 +75,15 @@ def _build_bottle_block(
         entries[tag] = _sha256_for_file(bottle_file)
 
     cellar = _format_cellar(_read_cellar_from_json(json_files))
+    max_tag_width = max(len(tag) for tag in entries)
 
     lines = [
         "  bottle do",
         f'    root_url "https://github.com/{tap_repo}/releases/download/{release_tag}"',
     ]
     for tag in sorted(entries):
-        lines.append(f'    sha256 cellar: {cellar}, {tag}: "{entries[tag]}"')
+        tag_field = f"{tag}:".ljust(max_tag_width + 1)
+        lines.append(f'    sha256 cellar: {cellar}, {tag_field} "{entries[tag]}"')
     lines.append("  end")
     return "\n".join(lines) + "\n"
 
@@ -93,7 +95,7 @@ def _insert_or_replace_bottle_block(formula: str, bottle_block: str) -> str:
     lines = formula.splitlines(keepends=True)
     for index, line in enumerate(lines):
         if line.strip().startswith('license "'):
-            lines.insert(index + 1, "\n" + bottle_block + "\n")
+            lines.insert(index + 1, "\n" + bottle_block)
             return "".join(lines)
     raise ValueError("formula does not contain a top-level license line")
 

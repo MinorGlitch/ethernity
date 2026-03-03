@@ -91,7 +91,7 @@ class TestOutputFiles(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "secure"
             out_file = out_dir / "payload.bin"
-            with mock.patch("ethernity.cli.io.outputs.os.name", "posix"):
+            with mock.patch("ethernity.cli.io.outputs._is_posix", return_value=True):
                 with mock.patch("pathlib.Path.chmod", side_effect=OSError("denied")):
                     _ensure_output_dir(str(out_dir), "deadbeef")
                     _write_output(str(out_file), b"payload")
