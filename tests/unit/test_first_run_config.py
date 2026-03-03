@@ -126,7 +126,8 @@ class TestFirstRunConfig(unittest.TestCase):
             shard_count=3,
             signing_key_mode="sharded",
         )
-        mark_complete.assert_called_once_with()
+        mark_complete.assert_called_once()
+        self.assertIn("configured_fields", mark_complete.call_args.kwargs)
 
     def test_run_first_run_config_wizard_confirm_no_does_not_apply(self) -> None:
         with (

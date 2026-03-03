@@ -53,6 +53,27 @@ class TestConfigInstaller(unittest.TestCase):
                 self.assertEqual(marker, config_root / ".first_run_onboarding_v1.done")
                 self.assertTrue(marker.is_file())
                 self.assertFalse(installer.first_run_onboarding_needed())
+                self.assertEqual(installer.first_run_onboarding_configured_fields(), frozenset())
+
+    def test_first_run_onboarding_marker_tracks_configured_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_root = Path(tmpdir) / "config"
+            with mock.patch.object(installer, "user_config_dir_path", return_value=config_root):
+                installer.mark_first_run_onboarding_complete(
+                    configured_fields={
+                        installer.ONBOARDING_FIELD_TEMPLATE_DESIGN,
+                        installer.ONBOARDING_FIELD_SHARDING,
+                    }
+                )
+                self.assertEqual(
+                    installer.first_run_onboarding_configured_fields(),
+                    frozenset(
+                        {
+                            installer.ONBOARDING_FIELD_TEMPLATE_DESIGN,
+                            installer.ONBOARDING_FIELD_SHARDING,
+                        }
+                    ),
+                )
 
     def test_apply_first_run_defaults_updates_existing_config(self) -> None:
         initial = (

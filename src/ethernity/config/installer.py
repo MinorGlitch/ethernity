@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import tomllib
@@ -62,6 +63,15 @@ DEFAULT_CONFIG_PATH = PACKAGE_ROOT / "config/config.toml"
 _DOTTED_BACKUP_KEY_RE = re.compile(r"^\s*defaults\.backup\.[A-Za-z0-9_-]+\s*=", re.MULTILINE)
 _TABLE_HEADER_RE = re.compile(r"^\s*\[([^\]]+)\]\s*(?:#.*)?$")
 _FIRST_RUN_ONBOARDING_MARKER_FILENAME = ".first_run_onboarding_v1.done"
+_FIRST_RUN_ONBOARDING_MARKER_VERSION = 1
+
+ONBOARDING_FIELD_TEMPLATE_DESIGN = "template_design"
+ONBOARDING_FIELD_PAGE_SIZE = "page_size"
+ONBOARDING_FIELD_BACKUP_OUTPUT_DIR = "backup_output_dir"
+ONBOARDING_FIELD_QR_CHUNK_SIZE = "qr_chunk_size"
+ONBOARDING_FIELD_SHARDING = "sharding"
+ONBOARDING_FIELD_PAYLOAD_CODEC = "payload_codec"
+ONBOARDING_FIELD_QR_PAYLOAD_CODEC = "qr_payload_codec"
 
 
 @dataclass(frozen=True)
@@ -202,13 +212,48 @@ def first_run_onboarding_needed() -> bool:
     return not first_run_onboarding_marker_path().exists()
 
 
-def mark_first_run_onboarding_complete() -> Path:
+def first_run_onboarding_configured_fields() -> frozenset[str]:
+    """Return onboarding-configured field identifiers from marker metadata."""
+
+    marker_path = first_run_onboarding_marker_path()
+    if not marker_path.exists():
+        return frozenset()
+    try:
+        payload = marker_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return frozenset()
+    if not payload:
+        return frozenset()
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError:
+        return frozenset()
+    if not isinstance(parsed, dict):
+        return frozenset()
+    values = parsed.get("configured_fields")
+    if not isinstance(values, list):
+        return frozenset()
+    configured: set[str] = set()
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            configured.add(value.strip())
+    return frozenset(configured)
+
+
+def mark_first_run_onboarding_complete(*, configured_fields: set[str] | None = None) -> Path:
     """Persist the first-run onboarding completion marker and return its path."""
 
     marker_path = first_run_onboarding_marker_path()
     marker_path.parent.mkdir(parents=True, exist_ok=True)
-    if not marker_path.exists():
-        marker_path.write_text("completed\n", encoding="utf-8")
+    existing_fields = set(first_run_onboarding_configured_fields())
+    merged_fields = (
+        existing_fields if configured_fields is None else existing_fields | configured_fields
+    )
+    payload = {
+        "version": _FIRST_RUN_ONBOARDING_MARKER_VERSION,
+        "configured_fields": sorted(merged_fields),
+    }
+    marker_path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
     return marker_path
 
 

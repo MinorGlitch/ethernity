@@ -21,6 +21,13 @@ from typing import Literal
 
 from ...config import (
     DEFAULT_TEMPLATE_STYLE,
+    ONBOARDING_FIELD_BACKUP_OUTPUT_DIR,
+    ONBOARDING_FIELD_PAGE_SIZE,
+    ONBOARDING_FIELD_PAYLOAD_CODEC,
+    ONBOARDING_FIELD_QR_CHUNK_SIZE,
+    ONBOARDING_FIELD_QR_PAYLOAD_CODEC,
+    ONBOARDING_FIELD_SHARDING,
+    ONBOARDING_FIELD_TEMPLATE_DESIGN,
     apply_first_run_defaults,
     first_run_onboarding_needed,
     list_template_designs,
@@ -52,6 +59,16 @@ _DESIGN_DESCRIPTIONS = {
     "ledger": "structured record style",
     "maritime": "compact navigation style",
     "sentinel": "balanced default look",
+}
+
+_FIRST_RUN_CONFIGURED_FIELDS = {
+    ONBOARDING_FIELD_TEMPLATE_DESIGN,
+    ONBOARDING_FIELD_PAGE_SIZE,
+    ONBOARDING_FIELD_BACKUP_OUTPUT_DIR,
+    ONBOARDING_FIELD_QR_CHUNK_SIZE,
+    ONBOARDING_FIELD_SHARDING,
+    ONBOARDING_FIELD_PAYLOAD_CODEC,
+    ONBOARDING_FIELD_QR_PAYLOAD_CODEC,
 }
 
 
@@ -199,10 +216,11 @@ def run_first_run_config_wizard(
         )
         if not quiet:
             console.print(f"[success]Defaults saved to {path}[/success]")
+        mark_first_run_onboarding_complete(configured_fields=_FIRST_RUN_CONFIGURED_FIELDS)
     else:
         if not quiet:
             console.print("[dim]No changes written.[/dim]")
-    mark_first_run_onboarding_complete()
+        mark_first_run_onboarding_complete()
     return apply_defaults
 
 
