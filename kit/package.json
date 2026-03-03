@@ -1,6 +1,6 @@
 {
   "name": "kit",
-  "version": "1.0.0",
+  "version": "0.9.9",
   "type": "module",
   "imports": {
     "#kit-scanner-runtime": "./app/hooks/useQrScannerRuntime.js"

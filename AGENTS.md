@@ -148,7 +148,7 @@ These paths are high-signal anchors that should remain present and accurate:
 
 ## Tooling and CI
 
-- Python package/runtime target is 3.13+ (`pyproject.toml` and CI are pinned to 3.13).
+- Python package/runtime target is 3.11+ (`pyproject.toml` and CI are pinned to 3.11).
 - Use `uv` for dependency management and command execution.
 - Static checks:
   - Ruff (`E`, `F`, `I`; line length 100)

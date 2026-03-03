@@ -478,7 +478,11 @@ class TestPdfRender(unittest.TestCase):
         self.assertTrue(rendered_context["recovery"]["signing_pub_lines"])
 
     @mock.patch.dict("os.environ", {}, clear=True)
-    @mock.patch("ethernity.render.pdf_render.os.process_cpu_count", return_value=8)
+    @mock.patch(
+        "ethernity.render.pdf_render.os.process_cpu_count",
+        create=True,
+        return_value=8,
+    )
     def test_resolve_qr_workers_uses_config_when_env_absent(
         self,
         _cpu_count: mock.MagicMock,
@@ -487,7 +491,11 @@ class TestPdfRender(unittest.TestCase):
         self.assertEqual(workers, 3)
 
     @mock.patch.dict("os.environ", {"ETHERNITY_RENDER_JOBS": "5"}, clear=True)
-    @mock.patch("ethernity.render.pdf_render.os.process_cpu_count", return_value=8)
+    @mock.patch(
+        "ethernity.render.pdf_render.os.process_cpu_count",
+        create=True,
+        return_value=8,
+    )
     def test_resolve_qr_workers_env_overrides_config(
         self,
         _cpu_count: mock.MagicMock,
@@ -496,7 +504,11 @@ class TestPdfRender(unittest.TestCase):
         self.assertEqual(workers, 5)
 
     @mock.patch.dict("os.environ", {"ETHERNITY_RENDER_JOBS": "invalid"}, clear=True)
-    @mock.patch("ethernity.render.pdf_render.os.process_cpu_count", return_value=8)
+    @mock.patch(
+        "ethernity.render.pdf_render.os.process_cpu_count",
+        create=True,
+        return_value=8,
+    )
     def test_resolve_qr_workers_invalid_env_still_errors_with_valid_config(
         self,
         _cpu_count: mock.MagicMock,
@@ -505,13 +517,47 @@ class TestPdfRender(unittest.TestCase):
             pdf_render_module._resolve_qr_workers(32, configured=2)
 
     @mock.patch.dict("os.environ", {}, clear=True)
-    @mock.patch("ethernity.render.pdf_render.os.process_cpu_count", return_value=8)
+    @mock.patch(
+        "ethernity.render.pdf_render.os.process_cpu_count",
+        create=True,
+        return_value=8,
+    )
     def test_resolve_qr_workers_auto_config_keeps_auto_heuristic(
         self,
         _cpu_count: mock.MagicMock,
     ) -> None:
         workers = pdf_render_module._resolve_qr_workers(32, configured="auto")
         self.assertEqual(workers, 8)
+
+    @mock.patch.dict("os.environ", {}, clear=True)
+    @mock.patch("ethernity.render.pdf_render.os.process_cpu_count", new=None, create=True)
+    @mock.patch(
+        "ethernity.render.pdf_render.os.sched_getaffinity",
+        create=True,
+        return_value={0, 1, 2},
+    )
+    def test_resolve_qr_workers_uses_sched_getaffinity_when_process_cpu_count_missing(
+        self,
+        _sched_getaffinity: mock.MagicMock,
+    ) -> None:
+        workers = pdf_render_module._resolve_qr_workers(32, configured="auto")
+        self.assertEqual(workers, 3)
+
+    @mock.patch.dict("os.environ", {}, clear=True)
+    @mock.patch("ethernity.render.pdf_render.os.process_cpu_count", new=None, create=True)
+    @mock.patch(
+        "ethernity.render.pdf_render.os.sched_getaffinity",
+        create=True,
+        side_effect=OSError("not supported"),
+    )
+    @mock.patch("ethernity.render.pdf_render.os.cpu_count", return_value=6)
+    def test_resolve_qr_workers_falls_back_to_os_cpu_count_when_affinity_unavailable(
+        self,
+        _cpu_count: mock.MagicMock,
+        _sched_getaffinity: mock.MagicMock,
+    ) -> None:
+        workers = pdf_render_module._resolve_qr_workers(32, configured="auto")
+        self.assertEqual(workers, 6)
 
 
 if __name__ == "__main__":

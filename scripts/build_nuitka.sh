@@ -19,7 +19,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${NUITKA_OUTPUT_DIR:-${PROJECT_ROOT}/dist/nuitka}"
-NUITKA_PYTHON="${NUITKA_PYTHON:-3.13}"
+NUITKA_PYTHON="${NUITKA_PYTHON:-3.11}"
 
 cd "${PROJECT_ROOT}"
 
