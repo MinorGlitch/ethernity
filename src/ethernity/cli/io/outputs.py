@@ -27,10 +27,14 @@ from ...core.validation import normalize_path
 from ..core.paths import expanduser_cli_path
 
 
+def _is_posix() -> bool:
+    return os.name == "posix"
+
+
 def _harden_dir_permissions(path: Path) -> None:
     """Apply restrictive directory permissions on POSIX systems."""
 
-    if os.name != "posix":
+    if not _is_posix():
         return
     try:
         path.chmod(0o700)
@@ -41,7 +45,7 @@ def _harden_dir_permissions(path: Path) -> None:
 def _harden_file_permissions(path: Path) -> None:
     """Apply restrictive file permissions on POSIX systems."""
 
-    if os.name != "posix":
+    if not _is_posix():
         return
     try:
         path.chmod(0o600)

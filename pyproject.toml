@@ -1,6 +1,6 @@
 [project]
 name = "ethernity-paper"
-version = "1.0.0"
+version = "0.9.9"
 description = "Secure, offline-recoverable backup system with QR-based recovery documents"
 readme = { file = "README_PYPI.md", content-type = "text/markdown" }
 license = "GPL-3.0-or-later"
