@@ -529,6 +529,36 @@ class TestPdfRender(unittest.TestCase):
         workers = pdf_render_module._resolve_qr_workers(32, configured="auto")
         self.assertEqual(workers, 8)
 
+    @mock.patch.dict("os.environ", {}, clear=True)
+    @mock.patch("ethernity.render.pdf_render.os.process_cpu_count", new=None, create=True)
+    @mock.patch(
+        "ethernity.render.pdf_render.os.sched_getaffinity",
+        create=True,
+        return_value={0, 1, 2},
+    )
+    def test_resolve_qr_workers_uses_sched_getaffinity_when_process_cpu_count_missing(
+        self,
+        _sched_getaffinity: mock.MagicMock,
+    ) -> None:
+        workers = pdf_render_module._resolve_qr_workers(32, configured="auto")
+        self.assertEqual(workers, 3)
+
+    @mock.patch.dict("os.environ", {}, clear=True)
+    @mock.patch("ethernity.render.pdf_render.os.process_cpu_count", new=None, create=True)
+    @mock.patch(
+        "ethernity.render.pdf_render.os.sched_getaffinity",
+        create=True,
+        side_effect=OSError("not supported"),
+    )
+    @mock.patch("ethernity.render.pdf_render.os.cpu_count", return_value=6)
+    def test_resolve_qr_workers_falls_back_to_os_cpu_count_when_affinity_unavailable(
+        self,
+        _cpu_count: mock.MagicMock,
+        _sched_getaffinity: mock.MagicMock,
+    ) -> None:
+        workers = pdf_render_module._resolve_qr_workers(32, configured="auto")
+        self.assertEqual(workers, 6)
+
 
 if __name__ == "__main__":
     unittest.main()
