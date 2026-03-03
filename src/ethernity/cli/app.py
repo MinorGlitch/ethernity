@@ -37,6 +37,7 @@ from .commands.kit import _run_kit_render
 from .core.common import _get_version, _paper_callback, _resolve_config_and_paper, _run_cli
 from .core.types import BackupArgs, CliContextState
 from .flows.backup import run_wizard
+from .flows.first_run_config import run_first_run_config_wizard
 from .flows.recover import run_recover_wizard
 from .startup import run_startup
 
@@ -71,6 +72,14 @@ def _should_use_subcommand_config_for_defaults(invoked_subcommand: str | None) -
     """Return whether defaults bootstrap should honor subcommand `--config`."""
 
     return invoked_subcommand in _DEFAULTS_BOOTSTRAP_SUBCOMMANDS
+
+
+def _should_run_first_run_onboarding(invoked_subcommand: str | None) -> bool:
+    """Return whether first-run onboarding should run in this invocation."""
+
+    if invoked_subcommand is not None:
+        return False
+    return sys.stdin.isatty() and sys.stdout.isatty()
 
 
 def _version_callback(value: bool) -> None:
@@ -194,6 +203,23 @@ def cli(
         raise typer.Exit(code=2)
     if should_exit:
         raise typer.Exit()
+    try:
+        if _should_run_first_run_onboarding(ctx.invoked_subcommand):
+            run_first_run_config_wizard(
+                config_path=config,
+                quiet=quiet,
+            )
+    except KeyboardInterrupt:
+        if debug:
+            raise
+        console_err.print("[warning]Cancelled by user.[/warning]")
+        raise typer.Exit(code=130)
+    except (OSError, RuntimeError, ValueError, TypeError, LookupError) as exc:
+        if debug:
+            raise
+        console_err.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(code=2)
+
     config_path_for_defaults = config
     if config_path_for_defaults is None and _should_use_subcommand_config_for_defaults(
         ctx.invoked_subcommand

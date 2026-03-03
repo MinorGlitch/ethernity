@@ -34,13 +34,19 @@ HOME_BANNER = r"""
 """
 
 
+def render_home_banner() -> None:
+    """Render the shared Ethernity ASCII banner and subtitle."""
+
+    banner = Align.center(HOME_BANNER.rstrip("\n"))
+    subtitle = Align.center("[subtitle]Secure paper backups and recovery[/subtitle]")
+    console.print(panel("Ethernity", banner, style="accent"))
+    console.print(subtitle)
+    console.print(Rule(style="rule"))
+
+
 def prompt_home_action(*, quiet: bool) -> str:
     if not quiet:
-        banner = Align.center(HOME_BANNER.rstrip("\n"))
-        subtitle = Align.center("[subtitle]Secure paper backups and recovery[/subtitle]")
-        console.print(panel("Ethernity", banner, style="accent"))
-        console.print(subtitle)
-        console.print(Rule(style="rule"))
+        render_home_banner()
     return prompt_choice(
         "What would you like to do?",
         {

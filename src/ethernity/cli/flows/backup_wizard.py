@@ -74,6 +74,8 @@ def _prompt_quorum_choice() -> ShardingConfig:
 def resolve_passphrase_sharding(
     *,
     args: BackupArgs | None,
+    confirm_existing: bool = True,
+    prompt_when_missing: bool = True,
 ) -> ShardingConfig | None:
     threshold = args.shard_threshold if args is not None else None
     shares = args.shard_count if args is not None else None
@@ -82,6 +84,8 @@ def resolve_passphrase_sharding(
     if threshold is not None or shares is not None:
         if threshold is None or shares is None:
             raise ValueError("both --shard-threshold and --shard-count are required")
+        if not confirm_existing:
+            return ShardingConfig(threshold=threshold, shares=shares)
         use_existing = prompt_yes_no(
             f"Use provided quorum ({threshold} of {shares})",
             default=True,
@@ -92,6 +96,9 @@ def resolve_passphrase_sharding(
         return _prompt_quorum_choice()
 
     # Interactive: single question about sharding
+    if not prompt_when_missing:
+        return None
+
     sharding_choice = prompt_choice(
         "Passphrase sharding",
         {
@@ -142,6 +149,8 @@ def resolve_signing_seed_sharding(
     args: BackupArgs | None,
     signing_seed_mode: SigningSeedMode,
     passphrase_sharding: ShardingConfig,
+    confirm_existing: bool = True,
+    prompt_when_missing: bool = True,
 ) -> ShardingConfig | None:
     if signing_seed_mode != SigningSeedMode.SHARDED:
         return None
@@ -155,6 +164,8 @@ def resolve_signing_seed_sharding(
             raise ValueError(
                 "both --signing-key-shard-threshold and --signing-key-shard-count are required"
             )
+        if not confirm_existing:
+            return ShardingConfig(threshold=sk_threshold, shares=sk_count)
         use_existing = prompt_yes_no(
             f"Use provided signing-key quorum ({sk_threshold} of {sk_count})",
             default=True,
@@ -162,6 +173,9 @@ def resolve_signing_seed_sharding(
         )
         if use_existing:
             return ShardingConfig(threshold=sk_threshold, shares=sk_count)
+
+    if not prompt_when_missing:
+        return None
 
     # Interactive: simple yes/no for using same quorum
     same_quorum = f"{passphrase_sharding.threshold} of {passphrase_sharding.shares}"

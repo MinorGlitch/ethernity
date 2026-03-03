@@ -18,12 +18,13 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal
 
 from ..core.app_paths import (
     DEFAULT_CONFIG_FILENAME,
@@ -60,6 +61,17 @@ DEFAULT_PAPER_SIZE = "A4"
 DEFAULT_CONFIG_PATH = PACKAGE_ROOT / "config/config.toml"
 
 _DOTTED_BACKUP_KEY_RE = re.compile(r"^\s*defaults\.backup\.[A-Za-z0-9_-]+\s*=", re.MULTILINE)
+_TABLE_HEADER_RE = re.compile(r"^\s*\[([^\]]+)\]\s*(?:#.*)?$")
+_FIRST_RUN_ONBOARDING_MARKER_FILENAME = ".first_run_onboarding_v1.done"
+_FIRST_RUN_ONBOARDING_MARKER_VERSION = 1
+
+ONBOARDING_FIELD_TEMPLATE_DESIGN = "template_design"
+ONBOARDING_FIELD_PAGE_SIZE = "page_size"
+ONBOARDING_FIELD_BACKUP_OUTPUT_DIR = "backup_output_dir"
+ONBOARDING_FIELD_QR_CHUNK_SIZE = "qr_chunk_size"
+ONBOARDING_FIELD_SHARDING = "sharding"
+ONBOARDING_FIELD_PAYLOAD_CODEC = "payload_codec"
+ONBOARDING_FIELD_QR_PAYLOAD_CODEC = "qr_payload_codec"
 
 
 @dataclass(frozen=True)
@@ -83,6 +95,12 @@ class ConfigMigrationStep:
 
     migration_id: str
     apply: ConfigMigration
+
+
+PayloadCodec = Literal["auto", "raw", "gzip"]
+QrPayloadCodec = Literal["raw", "base64"]
+PageSize = Literal["A4", "LETTER"]
+SigningKeyMode = Literal["embedded", "sharded"]
 
 
 def _build_paths() -> ConfigPaths:
@@ -180,6 +198,368 @@ def resolve_config_path(path: str | Path | None = None) -> Path:
     if _ensure_user_config(paths) and paths.user_config_path.exists():
         return paths.user_config_path
     return DEFAULT_CONFIG_PATH
+
+
+def first_run_onboarding_marker_path() -> Path:
+    """Return the marker file path used to gate first-run onboarding prompts."""
+
+    return user_config_dir_path() / _FIRST_RUN_ONBOARDING_MARKER_FILENAME
+
+
+def first_run_onboarding_needed() -> bool:
+    """Return whether first-run onboarding should be offered."""
+
+    return not first_run_onboarding_marker_path().exists()
+
+
+def first_run_onboarding_configured_fields() -> frozenset[str]:
+    """Return onboarding-configured field identifiers from marker metadata."""
+
+    marker_path = first_run_onboarding_marker_path()
+    if not marker_path.exists():
+        return frozenset()
+    try:
+        payload = marker_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return frozenset()
+    if not payload:
+        return frozenset()
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError:
+        return frozenset()
+    if not isinstance(parsed, dict):
+        return frozenset()
+    values = parsed.get("configured_fields")
+    if not isinstance(values, list):
+        return frozenset()
+    configured: set[str] = set()
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            configured.add(value.strip())
+    return frozenset(configured)
+
+
+def mark_first_run_onboarding_complete(*, configured_fields: set[str] | None = None) -> Path:
+    """Persist the first-run onboarding completion marker and return its path."""
+
+    marker_path = first_run_onboarding_marker_path()
+    marker_path.parent.mkdir(parents=True, exist_ok=True)
+    existing_fields = set(first_run_onboarding_configured_fields())
+    merged_fields = (
+        existing_fields if configured_fields is None else existing_fields | configured_fields
+    )
+    payload = {
+        "version": _FIRST_RUN_ONBOARDING_MARKER_VERSION,
+        "configured_fields": sorted(merged_fields),
+    }
+    marker_path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+    return marker_path
+
+
+def apply_first_run_defaults(
+    path: str | Path | None,
+    *,
+    design: str,
+    payload_codec: PayloadCodec,
+    qr_payload_codec: QrPayloadCodec,
+    page_size: PageSize,
+    backup_output_dir: str | None,
+    qr_chunk_size: int,
+    shard_threshold: int | None,
+    shard_count: int | None,
+    signing_key_mode: SigningKeyMode | None,
+    signing_key_shard_threshold: int | None = None,
+    signing_key_shard_count: int | None = None,
+) -> Path:
+    """Apply first-run default selections into the resolved config file."""
+
+    _ = resolve_template_design_path(design)
+    if payload_codec not in {"auto", "raw", "gzip"}:
+        raise ValueError("payload_codec must be 'auto', 'raw', or 'gzip'")
+    if qr_payload_codec not in {"raw", "base64"}:
+        raise ValueError("qr_payload_codec must be 'raw' or 'base64'")
+    if page_size not in {"A4", "LETTER"}:
+        raise ValueError("page_size must be 'A4' or 'LETTER'")
+    if qr_chunk_size <= 0:
+        raise ValueError("qr_chunk_size must be a positive integer")
+
+    if (shard_threshold is None) != (shard_count is None):
+        raise ValueError("shard_threshold and shard_count must be set together")
+    if shard_threshold is not None and shard_count is not None:
+        if shard_threshold < 1:
+            raise ValueError("shard_threshold must be >= 1")
+        if shard_threshold > 255:
+            raise ValueError("shard_threshold must be <= 255")
+        if shard_count < shard_threshold:
+            raise ValueError("shard_count must be >= shard_threshold")
+        if shard_count > 255:
+            raise ValueError("shard_count must be <= 255")
+
+    if signing_key_mode not in {None, "embedded", "sharded"}:
+        raise ValueError("signing_key_mode must be 'embedded', 'sharded', or None")
+    if signing_key_mode == "sharded" and (shard_threshold is None or shard_count is None):
+        raise ValueError("signing_key_mode='sharded' requires passphrase sharding")
+    if (signing_key_shard_threshold is None) != (signing_key_shard_count is None):
+        raise ValueError(
+            "signing_key_shard_threshold and signing_key_shard_count must be set together"
+        )
+    if signing_key_shard_threshold is not None and signing_key_shard_count is not None:
+        if signing_key_mode != "sharded":
+            raise ValueError("signing key shard counts require signing_key_mode='sharded'")
+        if signing_key_shard_threshold < 1:
+            raise ValueError("signing_key_shard_threshold must be >= 1")
+        if signing_key_shard_threshold > 255:
+            raise ValueError("signing_key_shard_threshold must be <= 255")
+        if signing_key_shard_count < signing_key_shard_threshold:
+            raise ValueError("signing_key_shard_count must be >= signing_key_shard_threshold")
+        if signing_key_shard_count > 255:
+            raise ValueError("signing_key_shard_count must be <= 255")
+
+    config_path = resolve_config_path(path)
+    original = config_path.read_text(encoding="utf-8")
+    line_ending = "\r\n" if "\r\n" in original else "\n"
+
+    updated = original
+    updated = _upsert_table_key(updated, table="templates", key="default_name", value=f'"{design}"')
+    for section in (
+        "template",
+        "recovery_template",
+        "shard_template",
+        "signing_key_shard_template",
+        "kit_template",
+    ):
+        updated = _upsert_table_key(updated, table=section, key="name", value=f'"{design}"')
+    updated = _upsert_table_key(
+        updated,
+        table="defaults.backup",
+        key="payload_codec",
+        value=f'"{payload_codec}"',
+    )
+    updated = _upsert_table_key(
+        updated,
+        table="defaults.backup",
+        key="qr_payload_codec",
+        value=f'"{qr_payload_codec}"',
+    )
+    updated = _upsert_table_key(updated, table="page", key="size", value=f'"{page_size}"')
+    updated = _upsert_table_key(
+        updated,
+        table="defaults.backup",
+        key="output_dir",
+        value=_toml_quote(backup_output_dir or ""),
+    )
+    updated = _upsert_table_key(updated, table="qr", key="chunk_size", value=str(qr_chunk_size))
+
+    if shard_threshold is None or shard_count is None:
+        updated = _upsert_table_key(
+            updated, table="defaults.backup", key="shard_threshold", value="0"
+        )
+        updated = _upsert_table_key(updated, table="defaults.backup", key="shard_count", value="0")
+        updated = _upsert_table_key(
+            updated,
+            table="defaults.backup",
+            key="signing_key_mode",
+            value='""',
+        )
+        updated = _upsert_table_key(
+            updated,
+            table="defaults.backup",
+            key="signing_key_shard_threshold",
+            value="0",
+        )
+        updated = _upsert_table_key(
+            updated,
+            table="defaults.backup",
+            key="signing_key_shard_count",
+            value="0",
+        )
+    else:
+        updated = _upsert_table_key(
+            updated,
+            table="defaults.backup",
+            key="shard_threshold",
+            value=str(shard_threshold),
+        )
+        updated = _upsert_table_key(
+            updated,
+            table="defaults.backup",
+            key="shard_count",
+            value=str(shard_count),
+        )
+        if signing_key_mode is None:
+            signing_key_mode = "embedded"
+        updated = _upsert_table_key(
+            updated,
+            table="defaults.backup",
+            key="signing_key_mode",
+            value=_toml_quote(signing_key_mode),
+        )
+        if signing_key_mode != "sharded":
+            updated = _upsert_table_key(
+                updated,
+                table="defaults.backup",
+                key="signing_key_shard_threshold",
+                value="0",
+            )
+            updated = _upsert_table_key(
+                updated,
+                table="defaults.backup",
+                key="signing_key_shard_count",
+                value="0",
+            )
+        else:
+            updated = _upsert_table_key(
+                updated,
+                table="defaults.backup",
+                key="signing_key_shard_threshold",
+                value=str(signing_key_shard_threshold or 0),
+            )
+            updated = _upsert_table_key(
+                updated,
+                table="defaults.backup",
+                key="signing_key_shard_count",
+                value=str(signing_key_shard_count or 0),
+            )
+
+    if not updated.endswith(("\n", "\r\n")):
+        updated += line_ending
+    _write_text_atomic(config_path, updated)
+    return config_path
+
+
+def _write_text_atomic(path: Path, text: str) -> None:
+    """Atomically replace a text file in place."""
+
+    temp_path = path.with_name(f"{path.name}.tmp")
+    temp_path.write_text(text, encoding="utf-8")
+    temp_path.replace(path)
+
+
+def _toml_quote(value: str) -> str:
+    """Return a TOML basic string literal."""
+
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _table_header_name(line: str) -> str | None:
+    """Return table name when a line is a TOML table header."""
+
+    match = _TABLE_HEADER_RE.match(line)
+    if match is None:
+        return None
+    return match.group(1).strip()
+
+
+def _upsert_table_key(text: str, *, table: str, key: str, value: str) -> str:
+    """Set `key = value` inside a TOML table, appending table/key when missing."""
+
+    line_ending = "\r\n" if "\r\n" in text else "\n"
+    lines = text.splitlines()
+
+    dotted_key = f"{table}.{key}"
+    dotted_key_pattern = re.compile(rf"^(\s*){re.escape(dotted_key)}\s*=.*$")
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#") or stripped.startswith(";"):
+            continue
+        match = dotted_key_pattern.match(line)
+        if match is None:
+            continue
+        indent = match.group(1)
+        comment = _extract_inline_comment(line)
+        lines[index] = f"{indent}{dotted_key} = {value}{comment}"
+        return line_ending.join(lines) + line_ending
+
+    table_index: int | None = None
+    table_end = len(lines)
+    for index, line in enumerate(lines):
+        header_name = _table_header_name(line)
+        if header_name is None:
+            continue
+        if table_index is None and header_name == table:
+            table_index = index
+            continue
+        if table_index is not None:
+            table_end = index
+            break
+
+    if table_index is None:
+        dotted_table_pattern = re.compile(rf"^\s*{re.escape(table)}\.[A-Za-z0-9_-]+\s*=")
+        has_dotted_table_keys = any(
+            not candidate.strip().startswith(("#", ";")) and dotted_table_pattern.match(candidate)
+            for candidate in lines
+        )
+        if has_dotted_table_keys:
+            lines.append(f"{dotted_key} = {value}")
+            return line_ending.join(lines) + line_ending
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.append(f"[{table}]")
+        lines.append(f"{key} = {value}")
+        return line_ending.join(lines) + line_ending
+
+    key_pattern = re.compile(rf"^(\s*){re.escape(key)}\s*=.*$")
+    for index in range(table_index + 1, table_end):
+        line = lines[index]
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or stripped.startswith(";"):
+            continue
+        match = key_pattern.match(line)
+        if match is None:
+            continue
+        indent = match.group(1)
+        comment = _extract_inline_comment(line)
+        lines[index] = f"{indent}{key} = {value}{comment}"
+        return line_ending.join(lines) + line_ending
+
+    lines.insert(table_end, f"{key} = {value}")
+    return line_ending.join(lines) + line_ending
+
+
+def _extract_inline_comment(line: str) -> str:
+    """Return trailing inline TOML comment with a leading space, or empty string."""
+
+    comment_start = _find_unquoted_hash(line)
+    if comment_start == -1:
+        return ""
+    return " " + line[comment_start:].strip()
+
+
+def _find_unquoted_hash(line: str) -> int:
+    """Return index of first # outside quoted strings, or -1 when absent."""
+
+    in_double = False
+    in_single = False
+    escaped = False
+
+    for index, ch in enumerate(line):
+        if in_double:
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\":
+                escaped = True
+                continue
+            if ch == '"':
+                in_double = False
+            continue
+        if in_single:
+            if ch == "'":
+                in_single = False
+            continue
+
+        if ch == '"':
+            in_double = True
+            continue
+        if ch == "'":
+            in_single = True
+            continue
+        if ch == "#":
+            return index
+
+    return -1
 
 
 def _ensure_user_config(paths: ConfigPaths) -> bool:
