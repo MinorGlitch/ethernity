@@ -150,6 +150,29 @@ qr_payload_codec = "raw"
         )
         self.assertEqual(tomllib.loads(updated)["defaults"]["backup"]["payload_codec"], "gzip")
 
+    def test_upsert_table_key_preserves_dotted_table_style_without_header(self) -> None:
+        text = 'defaults.backup.payload_codec = "raw"\ndefaults.backup.qr_payload_codec = "raw"\n'
+        updated = installer._upsert_table_key(
+            text,
+            table="defaults.backup",
+            key="output_dir",
+            value='"/tmp/backups"',
+        )
+        self.assertNotIn("[defaults.backup]", updated)
+        parsed = tomllib.loads(updated)
+        self.assertEqual(parsed["defaults"]["backup"]["output_dir"], "/tmp/backups")
+
+    def test_upsert_table_key_ignores_hash_inside_string_values(self) -> None:
+        text = '[defaults.backup]\noutput_dir = "C:/tmp/#archive"\n'
+        updated = installer._upsert_table_key(
+            text,
+            table="defaults.backup",
+            key="output_dir",
+            value='"D:/target"',
+        )
+        parsed = tomllib.loads(updated)
+        self.assertEqual(parsed["defaults"]["backup"]["output_dir"], "D:/target")
+
     def test_user_config_dir_precedence(self) -> None:
         with mock.patch.dict(
             os.environ,

@@ -459,18 +459,16 @@ def _upsert_table_key(text: str, *, table: str, key: str, value: str) -> str:
     lines = text.splitlines()
 
     dotted_key = f"{table}.{key}"
-    dotted_prefix = f"{dotted_key} ="
+    dotted_key_pattern = re.compile(rf"^(\s*){re.escape(dotted_key)}\s*=.*$")
     for index, line in enumerate(lines):
         stripped = line.strip()
         if stripped.startswith("#") or stripped.startswith(";"):
             continue
-        if not stripped.startswith(dotted_prefix):
+        match = dotted_key_pattern.match(line)
+        if match is None:
             continue
-        indent = line[: len(line) - len(line.lstrip())]
-        comment = ""
-        hash_index = line.find("#")
-        if hash_index != -1:
-            comment = " " + line[hash_index:].strip()
+        indent = match.group(1)
+        comment = _extract_inline_comment(line)
         lines[index] = f"{indent}{dotted_key} = {value}{comment}"
         return line_ending.join(lines) + line_ending
 
@@ -488,6 +486,14 @@ def _upsert_table_key(text: str, *, table: str, key: str, value: str) -> str:
             break
 
     if table_index is None:
+        dotted_table_pattern = re.compile(rf"^\s*{re.escape(table)}\.[A-Za-z0-9_-]+\s*=")
+        has_dotted_table_keys = any(
+            not candidate.strip().startswith(("#", ";")) and dotted_table_pattern.match(candidate)
+            for candidate in lines
+        )
+        if has_dotted_table_keys:
+            lines.append(f"{dotted_key} = {value}")
+            return line_ending.join(lines) + line_ending
         if lines and lines[-1].strip():
             lines.append("")
         lines.append(f"[{table}]")
@@ -504,15 +510,56 @@ def _upsert_table_key(text: str, *, table: str, key: str, value: str) -> str:
         if match is None:
             continue
         indent = match.group(1)
-        comment = ""
-        hash_index = line.find("#")
-        if hash_index != -1:
-            comment = " " + line[hash_index:].strip()
+        comment = _extract_inline_comment(line)
         lines[index] = f"{indent}{key} = {value}{comment}"
         return line_ending.join(lines) + line_ending
 
     lines.insert(table_end, f"{key} = {value}")
     return line_ending.join(lines) + line_ending
+
+
+def _extract_inline_comment(line: str) -> str:
+    """Return trailing inline TOML comment with a leading space, or empty string."""
+
+    comment_start = _find_unquoted_hash(line)
+    if comment_start == -1:
+        return ""
+    return " " + line[comment_start:].strip()
+
+
+def _find_unquoted_hash(line: str) -> int:
+    """Return index of first # outside quoted strings, or -1 when absent."""
+
+    in_double = False
+    in_single = False
+    escaped = False
+
+    for index, ch in enumerate(line):
+        if in_double:
+            if escaped:
+                escaped = False
+                continue
+            if ch == "\\":
+                escaped = True
+                continue
+            if ch == '"':
+                in_double = False
+            continue
+        if in_single:
+            if ch == "'":
+                in_single = False
+            continue
+
+        if ch == '"':
+            in_double = True
+            continue
+        if ch == "'":
+            in_single = True
+            continue
+        if ch == "#":
+            return index
+
+    return -1
 
 
 def _ensure_user_config(paths: ConfigPaths) -> bool:
