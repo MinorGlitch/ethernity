@@ -540,7 +540,11 @@ def _resolve_qr_workers(
             requested = configured
             explicit = True
 
-    cpu = os.process_cpu_count() or 1
+    process_cpu_count = getattr(os, "process_cpu_count", None)
+    if callable(process_cpu_count):
+        cpu = process_cpu_count() or 1
+    else:
+        cpu = os.cpu_count() or 1
     if requested is None:
         requested = min(cpu, _DEFAULT_QR_WORKERS_CAP)
 

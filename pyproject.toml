@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "Secure, offline-recoverable backup system with QR-based recovery documents"
 readme = { file = "README_PYPI.md", content-type = "text/markdown" }
 license = "GPL-3.0-or-later"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 keywords = ["backup", "recovery", "qr-code", "encryption", "offline", "paper-backup"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -12,6 +12,8 @@ classifiers = [
     "Intended Audience :: End Users/Desktop",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Security :: Cryptography",
     "Topic :: System :: Archiving :: Backup",
@@ -78,7 +80,7 @@ ethernity = [
 ]
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py311"
 line-length = 100
 src = ["src"]
 
@@ -89,7 +91,7 @@ select = ["E", "F", "I"]
 combine-as-imports = true
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.11"
 mypy_path = "src"
 ignore_missing_imports = true
 warn_redundant_casts = true

@@ -5,7 +5,7 @@
 [![Stargazers][stars-shield]][stars-url]
 [![Issues][issues-shield]][issues-url]
 [![License][license-shield]][license-url]
-[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg?style=for-the-badge)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg?style=for-the-badge)](https://www.python.org/downloads/)
 
 <div align="center">
   <img src="images/readme_logo.png" alt="Ethernity logo" width="320">
@@ -139,7 +139,7 @@ Fastest path: install, run one backup, run one recovery, then confirm outputs ma
 
 ### Prerequisites
 
-- Python 3.13+ (for source and pip-based installs)
+- Python 3.11+ (for source and pip-based installs)
 - `cosign` only if you verify release artifacts
 - Chromium binaries for PDF rendering (auto-installed on first backup/render run)
 - local disk space for generated PDFs and optional shard documents
