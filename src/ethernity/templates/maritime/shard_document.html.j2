@@ -16,7 +16,7 @@
 #}
 {% from 'css_base.j2' import reset_styles, page_styles, qr_grid_items_styles, qr_image_styles %}
 {% from 'css_variables.j2' import common_variables %}
-{% from 'html_components.j2' import divider, qr_grid, qr_grid_items, qr_sequence, fallback_blocks, instructions_lines %}
+{% from 'html_components.j2' import qr_grid, qr_grid_items, qr_sequence, fallback_blocks, instructions_lines %}
 
 <!doctype html>
 <html lang="en">
@@ -143,20 +143,6 @@
       color: var(--ink);
       font-family: var(--font-title);
       letter-spacing: 0.12em;
-    }
-    .divider {
-      position: absolute;
-      left: {{ margin_mm }}mm;
-      width: {{ usable_width_mm }}mm;
-      height: 0.4mm;
-      background: repeating-linear-gradient(
-        90deg,
-        var(--rule-strong) 0,
-        var(--rule-strong) 14mm,
-        transparent 14mm,
-        transparent 18mm
-      );
-      opacity: 0.7;
     }
     .instructions {
       position: absolute;
@@ -354,8 +340,6 @@
         <div class="stamp-value">{{ created_timestamp_utc }}</div>
       </div>
     </div>
-    {{ divider(page) }}
-
     {% if page.page_num == 1 %}
     <div class="instructions" style="top: {{ page.instructions_y_mm + 8.0 }}mm;">
       <div class="instructions-label">{{ instructions.label }}</div>

@@ -74,7 +74,7 @@
       {% set forge_header_classification = 'Confidential' %}
       {% set forge_header_guidance = copy.header_guidance %}
       {% set forge_header_ref = doc_id %}
-      {% set forge_header_icon = 'shield_lock' %}
+      {% set forge_header_icon = '' %}
       {% include 'partials/forge_shell_header.j2' %}
 
       <section class="mt-8 border-2 border-black p-4 bg-slate-100">
@@ -84,14 +84,9 @@
           </div>
           <div>
             <h3 class="font-bold text-lg uppercase mb-1">{{ copy.warning_title }}</h3>
-            <ul class="list-disc list-inside text-sm space-y-1 font-medium text-slate-800">
-              <li>{{ copy.warning_body }}</li>
-              {% if page.show_instructions %}
-                {% for line in instructions.lines %}
-                <li>{{ line }}</li>
-                {% endfor %}
-              {% endif %}
-            </ul>
+            <div class="text-sm space-y-1 font-medium text-slate-800">
+              <p>{{ copy.warning_body }}</p>
+            </div>
           </div>
         </div>
       </section>

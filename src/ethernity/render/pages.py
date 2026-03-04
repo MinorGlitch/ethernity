@@ -22,7 +22,7 @@ import math
 from collections.abc import Callable
 from pathlib import Path
 
-from .doc_types import DOC_TYPE_KIT, DOC_TYPE_RECOVERY
+from .doc_types import DOC_TYPE_KIT, DOC_TYPE_RECOVERY, DOC_TYPE_SHARD, DOC_TYPE_SIGNING_KEY_SHARD
 from .fallback import (
     FallbackBlock,
     FallbackConsumerState,
@@ -284,12 +284,39 @@ def _build_fallback_blocks(
         )
         section_lines_capacity = lines_capacity
         section_line_length = page_layout.line_length
-        if normalized_doc_type == DOC_TYPE_RECOVERY and template_design == "archive":
-            # Archive-style recovery pages have spare visual room in fallback area.
-            # Allow extra payload rows on every page.
+        if normalized_doc_type == DOC_TYPE_SHARD and template_design == "forge" and page_idx <= 0:
+            # Forge shard first page can safely absorb additional fallback rows.
             section_lines_capacity += 3
-            # Archive recovery pages also have enough horizontal room for
-            # denser grouped fallback lines.
+        if (
+            normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD
+            and template_design == "forge"
+            and page_idx <= 0
+        ):
+            # Forge signing-key shard first page can absorb extra fallback rows.
+            section_lines_capacity += 3
+        if (
+            normalized_doc_type == DOC_TYPE_RECOVERY
+            and template_design == "forge"
+            and page_idx > 0
+            and fallback_state.section_idx == 1
+            and fallback_state.token_idx == 0
+        ):
+            # Keep one row free on the page where the MAIN fallback section begins
+            # to preserve template spacing balance.
+            section_lines_capacity = max(0, section_lines_capacity - 1)
+        if (
+            normalized_doc_type == DOC_TYPE_RECOVERY
+            and template_design == "sentinel"
+            and inputs.recovery_meta is not None
+            and inputs.recovery_meta.quorum_value is None
+        ):
+            # Sentinel recovery pages have additional vertical room in the
+            # fallback region.
+            if page_idx <= 0:
+                section_lines_capacity += 5
+            else:
+                section_lines_capacity += 2
+        if template_design == "archive":
             group_size = next(
                 (
                     section.group_size
@@ -299,17 +326,33 @@ def _build_fallback_blocks(
                 1,
             )
             base_groups = groups_from_line_length(section_line_length, group_size)
-            section_line_length = line_length_from_groups(base_groups + 5, group_size)
-            if page_idx > 0:
-                # Continuation pages no longer render the hex entropy card, so
-                # consume extra fallback rows in the main frame.
-                section_lines_capacity += 9
-            if page_idx <= 0 and fallback_state.section_idx == 0 and fallback_state.token_idx == 0:
-                non_empty_sections = sum(1 for section in fallback_sections_data if section.tokens)
-                # First page additionally pays title/gap overhead for section headers.
-                section_lines_capacity += 1
-                if non_empty_sections > 1:
-                    section_lines_capacity += 2
+            if normalized_doc_type == DOC_TYPE_RECOVERY:
+                # Archive-style recovery pages have spare visual room in fallback area.
+                # Allow extra payload rows on every page.
+                section_lines_capacity += 3
+                if page_idx <= 0:
+                    # Archive first-page recovery layout has additional room after
+                    # removing duplicate metadata cards.
+                    section_lines_capacity += 9
+                # Archive recovery pages also have enough horizontal room for
+                # denser grouped fallback lines.
+                section_line_length = line_length_from_groups(base_groups + 5, group_size)
+                if page_idx > 0:
+                    # Continuation pages no longer render the hex entropy card, so
+                    # consume extra fallback rows in the main frame.
+                    section_lines_capacity += 13
+                if (
+                    page_idx <= 0
+                    and fallback_state.section_idx == 0
+                    and fallback_state.token_idx == 0
+                ):
+                    non_empty_sections = sum(
+                        1 for section in fallback_sections_data if section.tokens
+                    )
+                    # First page additionally pays title/gap overhead for section headers.
+                    section_lines_capacity += 1
+                    if non_empty_sections > 1:
+                        section_lines_capacity += 2
         section_idx_before = fallback_state.section_idx
         token_idx_before = fallback_state.token_idx
         page_fallback_blocks = consume_fallback_blocks(

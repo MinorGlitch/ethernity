@@ -116,13 +116,7 @@
     .divider {
       height: 0.6mm;
       width: 100%;
-      background: repeating-linear-gradient(
-        90deg,
-        var(--accent) 0,
-        var(--accent) 8mm,
-        transparent 8mm,
-        transparent 11mm
-      );
+      background: var(--accent);
       opacity: 0.9;
       flex: 0 0 auto;
     }
@@ -162,6 +156,10 @@
       column-gap: var(--qr-gap-x);
       row-gap: var(--qr-gap-y);
       align-content: start;
+      justify-content: center;
+      width: max-content;
+      margin-left: auto;
+      margin-right: auto;
     }
     .qr-cell {
       width: var(--qr-size);
@@ -258,7 +256,7 @@
         <div style="flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center;">
           <div
             class="qr-grid-items"
-            style="--qr-size: {{ page.qr_grid.size_mm }}mm; --qr-gap-x: {{ page.qr_grid.gap_x_mm }}mm; --qr-gap-y: {{ page.qr_grid.gap_y_mm }}mm; --qr-cols: {{ page.qr_grid.cols }}; align-content: center; justify-content: center;"
+            style="--qr-size: {{ page.qr_grid.size_mm }}mm; --qr-gap-x: {{ page.qr_grid.gap_x_mm }}mm; --qr-gap-y: {{ page.qr_grid.gap_y_mm }}mm; --qr-cols: 1; align-content: center; justify-content: center;"
           >
             {% for slot in page.qr_items %}
             <div class="qr-cell">

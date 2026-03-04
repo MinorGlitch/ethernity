@@ -88,27 +88,6 @@
       gap: 4mm;
     }
 
-    .system-line {
-      display: flex;
-      align-items: center;
-      gap: 1.2mm;
-      color: #64748b;
-      font-size: 6.4pt;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      font-weight: 800;
-      margin-bottom: 0.5mm;
-    }
-
-    .system-line::before {
-      content: "";
-      width: 2.2mm;
-      height: 2.2mm;
-      border-radius: 999px;
-      background: #0f172a;
-      flex: 0 0 auto;
-    }
-
     .title {
       margin: 0;
       font-size: 14.8pt;
@@ -188,26 +167,6 @@
       word-break: break-word;
     }
 
-    .security-level {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.6mm;
-      color: var(--accent);
-      font-size: 6.2pt;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      font-weight: 800;
-    }
-
-    .security-level::before {
-      content: "";
-      width: 2mm;
-      height: 2mm;
-      border-radius: 999px;
-      background: var(--accent);
-      flex: 0 0 auto;
-    }
-
     .instructions {
       border: 0.22mm solid #d1d5db;
       border-left: 1.1mm solid var(--accent);
@@ -250,9 +209,16 @@
     .content {
       flex: 1 1 auto;
       min-height: 0;
-      display: flex;
-      flex-direction: column;
+      display: grid;
+      grid-template-rows: 1fr auto;
       gap: 1.6mm;
+    }
+
+    .qr-stage {
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     .matrix-title {
@@ -311,7 +277,7 @@
       grid-template-columns: repeat(var(--qr-cols), var(--qr-size));
       grid-auto-rows: var(--qr-size);
       gap: var(--qr-gap-y) var(--qr-gap-x);
-      align-content: start;
+      align-content: center;
     }
 
     .qr-card {
@@ -355,7 +321,6 @@
     }
 
     .fallback {
-      margin-top: auto;
       border-top: 0.2mm dashed #cbd5e1;
       padding-top: 1.2mm;
       display: grid;
@@ -393,9 +358,9 @@
     .fallback-block {
       border: 0.2mm solid #d1d5db;
       background: #f8fafc;
-      padding: 0.8mm 1.6mm;
+      padding: 0.8mm 1mm;
       font-family: var(--font-mono);
-      font-size: 6.7pt;
+      font-size: 6pt;
       color: #334155;
       line-height: 1.3;
     }
@@ -416,7 +381,7 @@
     .fallback-line {
       position: relative;
       white-space: pre;
-      padding-left: 6.3mm;
+      padding-left: 5.4mm;
     }
 
     .fallback-line::before {
@@ -424,10 +389,10 @@
       content: counter(line, decimal-leading-zero);
       position: absolute;
       left: 0;
-      width: 5mm;
+      width: 4.2mm;
       text-align: right;
       color: #9ca3af;
-      font-size: 5.5pt;
+      font-size: 5pt;
       letter-spacing: 0.06em;
     }
 
@@ -469,7 +434,6 @@
       <header class="header">
         <div class="header-main">
           <div>
-            <div class="system-line">ShardSafe Archival System</div>
             <h1 class="title">{{ doc.title }}</h1>
             <div class="subtitle">{{ doc.subtitle }}</div>
           </div>
@@ -485,16 +449,8 @@
             <div class="meta-v">{{ doc_id }}</div>
           </div>
           <div class="meta-item">
-            <div class="meta-k">Page Index</div>
-            <div class="meta-v">{{ page.page_label }}</div>
-          </div>
-          <div class="meta-item">
             <div class="meta-k">Created (UTC)</div>
             <div class="meta-v">{{ created_timestamp_utc }}</div>
-          </div>
-          <div class="meta-item">
-            <div class="meta-k">Security Level</div>
-            <div class="meta-v"><span class="security-level">Critical</span></div>
           </div>
         </div>
       </header>
@@ -513,9 +469,8 @@
         {% endif %}
 
         <section class="content">
-          <h3 class="matrix-title">Recovery Data Matrix</h3>
-
           {% if page.qr_items and page.qr_grid %}
+            <div class="qr-stage">
             {% if page.qr_items|length == 1 %}
             <div class="single-qr">
               <img class="qr" src="{{ page.qr_items[0].data_uri }}" alt="QR code {{ page.qr_items[0].index }}">
@@ -534,6 +489,7 @@
               {% endfor %}
             </div>
             {% endif %}
+            </div>
           {% endif %}
 
           {% if page.fallback_blocks %}

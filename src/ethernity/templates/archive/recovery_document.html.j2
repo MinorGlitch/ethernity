@@ -286,19 +286,6 @@
       word-break: break-word;
     }
 
-    .hex-panel {
-      border: 0.18mm solid #e5e7eb;
-      background: #f9fafb;
-      padding: 1.1mm 1.6mm;
-      display: grid;
-      gap: 0.5mm;
-      font-family: var(--font-mono);
-      font-size: 6.6pt;
-      line-height: 1.3;
-      color: #111827;
-      word-break: break-word;
-    }
-
     .fallback-list {
       display: flex;
       flex-direction: column;
@@ -342,6 +329,7 @@
       position: relative;
       white-space: pre;
       padding-left: 6.2mm;
+      word-spacing: 0.16em;
     }
 
     .fallback-line::before {
@@ -470,10 +458,6 @@
             <div class="meta-v">{{ recovery.passphrase }}</div>
           </div>
           {% endif %}
-          <div class="meta-item">
-            <div class="meta-k">Page</div>
-            <div class="meta-v">{{ page.page_label }}</div>
-          </div>
         </div>
       </header>
 
@@ -491,41 +475,6 @@
         {% endif %}
 
         <section class="body">
-          {% set seed_words = recovery.passphrase_lines if recovery and recovery.passphrase_lines else [] %}
-          {% if seed_words %}
-          <section class="section">
-            <div class="section-head">
-              <span class="section-title">Master Mnemonic Seed</span>
-              <span class="section-rule"></span>
-              <span class="section-code">BIP-39</span>
-            </div>
-            <div class="seed-grid">
-              {% for line in seed_words %}
-                {% set seed_line_index0 = loop.index0 %}
-                {% for word in line.split() %}
-                <div class="seed-line">
-                  <span class="seed-num">{{ "%02d."|format(loop.index + (seed_line_index0 * 6)) }}</span>
-                  <span class="seed-word">{{ word }}</span>
-                </div>
-                {% endfor %}
-              {% endfor %}
-            </div>
-          </section>
-          {% endif %}
-
-          {% if page.page_num == 1 and recovery and recovery.signing_pub_lines %}
-          <section class="section">
-            <div class="section-head">
-              <span class="section-title">Raw Hex Entropy</span>
-              <span class="section-rule"></span>
-              <span class="section-code">256-bit</span>
-            </div>
-            <div class="hex-panel">
-              {% for line in recovery.signing_pub_lines %}<div>{{ line }}</div>{% endfor %}
-            </div>
-          </section>
-          {% endif %}
-
           {% if page.fallback_blocks %}
           <section class="section section-fallback">
             <div class="section-head">

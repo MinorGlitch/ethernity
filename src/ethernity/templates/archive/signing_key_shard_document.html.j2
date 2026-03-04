@@ -88,27 +88,6 @@
       gap: 4mm;
     }
 
-    .class-line {
-      display: flex;
-      align-items: center;
-      gap: 1.2mm;
-      color: #6b7280;
-      font-size: 6.1pt;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      font-weight: 800;
-      margin-bottom: 0.5mm;
-    }
-
-    .class-line::before {
-      content: "";
-      width: 2mm;
-      height: 2mm;
-      border-radius: 999px;
-      background: #111827;
-      flex: 0 0 auto;
-    }
-
     .title {
       margin: 0;
       font-size: 14.6pt;
@@ -145,7 +124,7 @@
       white-space: nowrap;
     }
 
-    .master-ref {
+    .conf {
       font-family: var(--font-mono);
       font-size: 5.8pt;
       color: #6b7280;
@@ -229,16 +208,26 @@
     .content {
       flex: 1 1 auto;
       min-height: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 1.8mm;
-      align-items: stretch;
+      display: grid;
+      grid-template-rows: 1fr auto;
+      gap: 1.6mm;
     }
 
-    .qr-wrap {
-      display: grid;
-      gap: 0.9mm;
-      justify-items: center;
+    .qr-stage {
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .matrix-title {
+      text-align: center;
+      margin: 0;
+      font-size: 6.1pt;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: #94a3b8;
+      font-weight: 800;
     }
 
     .single-qr {
@@ -306,8 +295,7 @@
       grid-template-columns: repeat(var(--qr-cols), var(--qr-size));
       grid-auto-rows: var(--qr-size);
       gap: var(--qr-gap-y) var(--qr-gap-x);
-      align-content: start;
-      justify-content: start;
+      align-content: center;
     }
 
     .qr-card {
@@ -350,63 +338,52 @@
       display: block;
     }
 
-    .scan-note {
-      text-align: center;
-      font-size: 6.5pt;
-      color: #6b7280;
-      max-width: 65mm;
-      line-height: 1.35;
-    }
-
-    .manual-sep {
-      display: flex;
-      align-items: center;
-      gap: 2mm;
-      padding: 0 6mm;
-    }
-
-    .manual-sep::before,
-    .manual-sep::after {
-      content: "";
-      height: 0.18mm;
-      background: #d1d5db;
-      flex: 1 1 auto;
-    }
-
-    .manual-sep span {
-      font-family: var(--font-mono);
-      font-size: 5.8pt;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: #9ca3af;
-      white-space: nowrap;
-    }
-
-    .manual-block {
-      border: 0.2mm solid #d1d5db;
-      background: #f9fafb;
-      padding: 1.3mm 1.8mm;
+    .fallback {
+      border-top: 0.2mm dashed #cbd5e1;
+      padding-top: 1.2mm;
       display: grid;
-      gap: 0.7mm;
+      gap: 0.8mm;
+    }
+
+    .fallback-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 2mm;
+    }
+
+    .fallback-title {
+      font-size: 6pt;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #64748b;
+      font-weight: 800;
+    }
+
+    .fallback-note {
+      font-family: var(--font-mono);
+      font-size: 5.6pt;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #94a3b8;
     }
 
     .fallback-list {
       display: grid;
-      gap: 0.7mm;
+      gap: 0.8mm;
     }
 
-    .fallback {
+    .fallback-block {
       border: 0.2mm solid #d1d5db;
-      background: #fff;
-      padding: 0.7mm 1.5mm;
+      background: #f8fafc;
+      padding: 0.8mm 1mm;
       font-family: var(--font-mono);
-      font-size: 6.7pt;
-      line-height: 1.3;
+      font-size: 6pt;
       color: #334155;
+      line-height: 1.3;
     }
 
-    .fallback-title {
-      font-family: var(--font-display);
+    .block-head {
       font-size: 5.7pt;
       text-transform: uppercase;
       letter-spacing: 0.1em;
@@ -422,7 +399,7 @@
     .fallback-line {
       position: relative;
       white-space: pre;
-      padding-left: 6.2mm;
+      padding-left: 5.4mm;
     }
 
     .fallback-line::before {
@@ -430,57 +407,16 @@
       content: counter(line, decimal-leading-zero);
       position: absolute;
       left: 0;
-      width: 5mm;
+      width: 4.2mm;
       text-align: right;
       color: #9ca3af;
-      font-size: 5.5pt;
+      font-size: 5pt;
       letter-spacing: 0.06em;
     }
 
     .footer {
-      border-top: 0.45mm solid #000;
-      padding-top: 1mm;
-      display: grid;
-      gap: 0.8mm;
-    }
-
-    .checksum {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-      gap: 2mm;
-    }
-
-    .checksum-k {
-      font-size: 5.8pt;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: #6b7280;
-      font-weight: 800;
-      margin-bottom: 0.2mm;
-    }
-
-    .checksum-v {
-      font-family: var(--font-mono);
-      font-size: 5.8pt;
-      color: #111827;
-      line-height: 1.2;
-      word-break: break-all;
-    }
-
-    .warning {
-      border: 0.2mm solid #d1d5db;
-      background: #f3f4f6;
-      padding: 0.8mm 1.4mm;
-      font-size: 6.2pt;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #111827;
-      font-weight: 800;
-      line-height: 1.35;
-    }
-
-    .final-line {
+      border-top: 0.2mm solid #f1f5f9;
+      padding-top: 0.8mm;
       display: grid;
       grid-template-columns: 1fr auto auto;
       align-items: center;
@@ -489,11 +425,11 @@
       font-size: 5.6pt;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: #6b7280;
+      color: #94a3b8;
     }
 
     .footer-left {
-      display: inline-flex;
+      display: flex;
       align-items: center;
       gap: 1.2mm;
       min-width: 0;
@@ -516,13 +452,12 @@
       <header class="header">
         <div class="top">
           <div>
-            <div class="class-line">Security Artifact Confidential</div>
             <h1 class="title">{{ doc.title }}</h1>
             <div class="subtitle">{{ doc.subtitle }}</div>
           </div>
           <div class="badge-col">
             <div class="badge">Shard {{ shard_index }} / {{ shard_total }}</div>
-            <div class="master-ref">Master key ref: {{ doc_id[:8] }}</div>
+            <span class="conf">Confidential</span>
           </div>
         </div>
 
@@ -534,14 +469,6 @@
           <div class="meta-item">
             <div class="meta-k">Created (UTC)</div>
             <div class="meta-v">{{ created_timestamp_utc }}</div>
-          </div>
-          <div class="meta-item">
-            <div class="meta-k">Page</div>
-            <div class="meta-v">{{ page.page_label }}</div>
-          </div>
-          <div class="meta-item">
-            <div class="meta-k">Valid Until</div>
-            <div class="meta-v">Permanent</div>
           </div>
         </div>
       </header>
@@ -560,41 +487,39 @@
         {% endif %}
 
         <section class="content">
-          <div class="qr-wrap">
-            {% if page.qr_items and page.qr_grid %}
-              {% if page.qr_items|length == 1 %}
-              <div class="single-qr">
-                <span class="corner-bl"></span>
-                <span class="corner-br"></span>
-                <img class="qr" src="{{ page.qr_items[0].data_uri }}" alt="QR code {{ page.qr_items[0].index }}">
+          {% if page.qr_items and page.qr_grid %}
+            <div class="qr-stage">
+            {% if page.qr_items|length == 1 %}
+            <div class="single-qr">
+              <img class="qr" src="{{ page.qr_items[0].data_uri }}" alt="QR code {{ page.qr_items[0].index }}">
+            </div>
+            {% else %}
+            <div
+              class="qr-grid"
+              style="--qr-size: {{ page.qr_grid.size_mm }}mm; --qr-gap-x: {{ page.qr_grid.gap_x_mm }}mm; --qr-gap-y: {{ page.qr_grid.gap_y_mm }}mm; --qr-cols: {{ page.qr_grid.cols }};"
+            >
+              {% for slot in page.qr_items %}
+              <div class="qr-card">
+                <div class="qr-label">Part {{ "%02d"|format(slot.index) }}</div>
+                <div class="qr-hint">Signing Segment</div>
+                <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
               </div>
-              {% else %}
-              <div
-                class="qr-grid"
-                style="--qr-size: {{ page.qr_grid.size_mm }}mm; --qr-gap-x: {{ page.qr_grid.gap_x_mm }}mm; --qr-gap-y: {{ page.qr_grid.gap_y_mm }}mm; --qr-cols: {{ page.qr_grid.cols }};"
-              >
-                {% for slot in page.qr_items %}
-                <div class="qr-card">
-                  <div class="qr-label">Part {{ "%02d"|format(slot.index) }}</div>
-                  <div class="qr-hint">Signing Segment</div>
-                  <img class="qr" src="{{ slot.data_uri }}" alt="QR code {{ slot.index }}">
-                </div>
-                {% endfor %}
-              </div>
-              {% endif %}
+              {% endfor %}
+            </div>
             {% endif %}
-
-            <div class="scan-note">Scan with the secure recovery tool. Ensure adequate lighting and high-contrast print quality.</div>
-          </div>
-
-          <div class="manual-sep"><span>Manual Entry Fallback</span></div>
+            </div>
+          {% endif %}
 
           {% if page.fallback_blocks %}
-          <div class="manual-block">
+          <section class="fallback">
+            <div class="fallback-head">
+              <div class="fallback-title">Raw Text Fallback</div>
+              <div class="fallback-note">Use if QR is unreadable</div>
+            </div>
             <div class="fallback-list">
               {% for block in page.fallback_blocks %}
-              <div class="fallback">
-                {% if block.title %}<div class="fallback-title">{{ block.title }}</div>{% endif %}
+              <div class="fallback-block">
+                {% if block.title %}<div class="block-head">{{ block.title }}</div>{% endif %}
                 <div class="fallback-lines" style="--line-offset: {{ block.line_offset }};">
                   {% for line in block.lines %}
                   <div class="fallback-line">{{ line }}</div>
@@ -603,24 +528,15 @@
               </div>
               {% endfor %}
             </div>
-          </div>
+          </section>
           {% endif %}
         </section>
       {% endif %}
 
       <footer class="footer">
-        <div class="checksum">
-          <div>
-            <div class="checksum-k">SHA-256 Checksum</div>
-            <div class="checksum-v">{{ doc_id }}</div>
-          </div>
-        </div>
-        <div class="warning">Warning: Store this document in a secure, offline location. Do not photograph or digitally transmit.</div>
-        <div class="final-line">
-          <span class="footer-left">{% if ethernity_version is defined and ethernity_version %}Ethernity v{{ ethernity_version }}{% else %}Ethernity{% endif %}</span>
-          <span>Page {{ page.page_num }} of {{ pages|length }}</span>
-          <span></span>
-        </div>
+        <span class="footer-left">{% if ethernity_version is defined and ethernity_version %}Ethernity v{{ ethernity_version }}{% else %}Ethernity{% endif %}</span>
+        <span>Page {{ page.page_num }} of {{ pages|length }}</span>
+        <span></span>
       </footer>
     </div>
   </section>

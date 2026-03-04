@@ -981,7 +981,7 @@ class TestPdfLayout(unittest.TestCase):
         pdf = FPDF(unit="mm", format=(100, 100))
         layout, _ = compute_layout(inputs, spec, pdf, key_lines=[])
 
-        self.assertEqual(layout.fallback_lines_per_page, 9)
+        self.assertEqual(layout.fallback_lines_per_page, 10)
 
     def test_sentinel_shard_first_page_capacity_adds_bonus_line(self) -> None:
         frame = Frame(
@@ -1049,7 +1049,7 @@ class TestPdfLayout(unittest.TestCase):
 
         self.assertEqual(
             sentinel_layout.fallback_lines_per_page,
-            forge_layout.fallback_lines_per_page + 1,
+            forge_layout.fallback_lines_per_page,
         )
 
     def test_non_forge_shard_uses_base_fallback_capacity(self) -> None:
@@ -1175,7 +1175,7 @@ class TestPdfLayout(unittest.TestCase):
         pdf = FPDF(unit="mm", format=(100, 100))
         layout, _ = compute_layout(inputs, spec, pdf, key_lines=[])
 
-        self.assertEqual(layout.fallback_lines_per_page, 8)
+        self.assertEqual(layout.fallback_lines_per_page, 11)
 
     def test_sentinel_signing_key_shard_first_page_capacity_adds_bonus_line(self) -> None:
         frame = Frame(
@@ -1243,7 +1243,7 @@ class TestPdfLayout(unittest.TestCase):
 
         self.assertEqual(
             sentinel_layout.fallback_lines_per_page,
-            forge_layout.fallback_lines_per_page + 9,
+            forge_layout.fallback_lines_per_page + 6,
         )
 
     def test_forge_signing_key_shard_continuation_pages_use_more_fallback_capacity(self) -> None:
