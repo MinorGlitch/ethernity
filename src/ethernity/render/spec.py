@@ -180,6 +180,7 @@ def document_spec(
 
     shard_index = _int_value(context.get("shard_index"), default=1)
     shard_total = _int_value(context.get("shard_total"), default=1)
+    shard_threshold = _int_value(context.get("shard_threshold"), default=shard_total)
     if normalized == DOC_TYPE_MAIN:
         header = replace(header, title="Main Document", subtitle="Passphrase-protected payload")
         instructions = replace(
@@ -235,8 +236,15 @@ def document_spec(
         instructions = replace(
             instructions,
             lines=(
-                "This document is one shard of the signing key.",
-                "Keep signing-key shards separate and secure.",
+                (
+                    f"This document contains shard {shard_index} of {shard_total}. "
+                    "Possession of this shard alone is insufficient for recovery."
+                ),
+                (
+                    f"Recovery requires {shard_threshold}/{shard_total} shards. "
+                    "Store separately from other shards to prevent"
+                ),
+                "unauthorized reassembly.",
             ),
         )
     else:
@@ -248,8 +256,15 @@ def document_spec(
         instructions = replace(
             instructions,
             lines=(
-                "This document is one shard of the passphrase.",
-                "Keep shards separate and secure.",
+                (
+                    f"This document contains shard {shard_index} of {shard_total}. "
+                    "Possession of this shard alone is insufficient for recovery."
+                ),
+                (
+                    f"Recovery requires {shard_threshold}/{shard_total} shards. "
+                    "Store separately from other shards to prevent"
+                ),
+                "unauthorized reassembly.",
             ),
         )
 

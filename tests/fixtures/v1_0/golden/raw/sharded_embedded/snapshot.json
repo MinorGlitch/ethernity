@@ -1,15 +1,15 @@
 {
   "artifact_hashes": {
-    "main_payloads.bin": "df96282eb5d938e48b7fd202d3be159cf2e2ce66a5071458a99aa50032a8212a",
-    "main_payloads.txt": "1cf1a90c69a33c79268e361c453b25fe606e67c51e5837751bf37f3a1749e31a",
-    "qr_document.pdf": "6ed13714f90372d25dba0dce941c63236f0895fbb3f5a4a428a41b768a6e56b1",
-    "recovery_document.pdf": "ce39ad6aae7f4b0c70296f3211f98801a034d1cdaee6663b99ffea6ba8d6b053",
-    "recovery_kit_index.pdf": "41357a43a1c0df5f94ac2884aaf575cacc8ab43f95e6e43c1c21785ba3ff2c63",
-    "shard-ccdba9ea510863d4-1-of-3.pdf": "ce65b0eb266684269dd0e9af6558539e12bdc570693964347865d032c47d4699",
-    "shard-ccdba9ea510863d4-2-of-3.pdf": "6d324185611a2b4112e2e3b085ed3ad35fa8d456861dc7bbf948b3ddc77d7656",
-    "shard-ccdba9ea510863d4-3-of-3.pdf": "567d2835b7f680c733b25c59f545eba563039dae45c9901a0befcead65245a88",
-    "shard_payloads_threshold.bin": "285bde383f1200250fe1622de783aa56b3672a39eacc472741940a3a389c38c9",
-    "shard_payloads_threshold.txt": "b3c5f213ff629935ab43cf75b1b2a4ac5bd1e9c4b14b1d15e22e918b2eaaf972"
+    "main_payloads.bin": "14c5a1071468d64d790e073ca0179dcf900f2064f44b383e6d6c8290d8609e17",
+    "main_payloads.txt": "8a614a3449f0e8a62236290f0783f39b35330e82b035350441bf856773768715",
+    "qr_document.pdf": "cdc708b41b64096a5b0013e3dbb3db5319ac2e0175eae55750712db1de201db4",
+    "recovery_document.pdf": "d1afe3519354e580eccf1aa9b4bad325249daff51fa3ac044b26d4718bedd53e",
+    "recovery_kit_index.pdf": "30e52416e792075d5239d8127d52a5b6b84fded6faffdada3bf90c582008b038",
+    "shard-4c285a1cd9ca7aec-1-of-3.pdf": "62e56e24440e8e8a2d0e0e93647c455f7ac235f909caaf431bd01f99ea2d3233",
+    "shard-4c285a1cd9ca7aec-2-of-3.pdf": "9123b89d714045e36d5500bc45e21e7f78825cfcf859c5d6acc6f51ca6693315",
+    "shard-4c285a1cd9ca7aec-3-of-3.pdf": "a171b818e759e715dec1dce061a9fe5e5bb731ca06a26005947babadb85d138a",
+    "shard_payloads_threshold.bin": "eca6afe295e0c4b87f8507f6916a18246a528ef598e48edbe002810603404293",
+    "shard_payloads_threshold.txt": "8a9d07312c49347e4287a2ba106661e76f331650150a716c570cbe7bb3a69d82"
   },
   "expected_file_sha256": {
     "alpha.txt": "2f4b5a7d0ed3a982cf012f6af9d58168314e999c0eb3793f598978174928e20f",

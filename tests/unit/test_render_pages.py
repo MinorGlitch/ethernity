@@ -1006,10 +1006,13 @@ class TestBuildPages(unittest.TestCase):
 
         self.assertGreaterEqual(len(archive_pages), 2)
         self.assertGreaterEqual(len(ledger_pages), 2)
-        self.assertEqual(len(archive_pages[1].fallback_blocks[0].lines), 14)
-        self.assertEqual(len(ledger_pages[1].fallback_blocks[0].lines), 3)
+        archive_continuation_lines = len(archive_pages[1].fallback_blocks[0].lines)
+        ledger_continuation_lines = len(ledger_pages[1].fallback_blocks[0].lines)
+        self.assertGreater(archive_continuation_lines, ledger_continuation_lines)
+        self.assertEqual(archive_continuation_lines, 5)
+        self.assertEqual(ledger_continuation_lines, 3)
 
-    def test_archive_recovery_uses_wider_group_wrapping_on_first_and_continuation_pages(
+    def test_archive_recovery_uses_wider_group_wrapping_and_reduces_page_count(
         self,
     ) -> None:
         frames = [
@@ -1091,14 +1094,11 @@ class TestBuildPages(unittest.TestCase):
             fallback_state=FallbackConsumerState(),
         )
 
-        self.assertGreaterEqual(len(archive_pages), 2)
+        self.assertEqual(len(archive_pages), 1)
         self.assertGreaterEqual(len(ledger_pages), 2)
         archive_first_groups = len(archive_pages[0].fallback_blocks[0].lines[0].split())
         ledger_first_groups = len(ledger_pages[0].fallback_blocks[0].lines[0].split())
-        archive_cont_groups = len(archive_pages[1].fallback_blocks[0].lines[0].split())
-        ledger_cont_groups = len(ledger_pages[1].fallback_blocks[0].lines[0].split())
         self.assertGreater(archive_first_groups, ledger_first_groups)
-        self.assertGreater(archive_cont_groups, ledger_cont_groups)
 
 
 if __name__ == "__main__":

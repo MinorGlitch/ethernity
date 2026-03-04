@@ -46,7 +46,7 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertAlmostEqual(maritime.header.meta_row_gap_mm, 1.2)
         self.assertAlmostEqual(maritime.header.stack_gap_mm, 1.6)
         self.assertAlmostEqual(maritime.header.divider_thickness_mm, 0.4)
-        self.assertAlmostEqual(maritime.content_offset.divider_gap_extra_mm, 7.0)
+        self.assertAlmostEqual(maritime.content_offset.divider_gap_extra_mm, -10.0)
         self.assertEqual(maritime.content_offset.doc_types, frozenset({"recovery"}))
 
         forge = load_template_style(_TEMPLATES_ROOT / "forge" / "main_document.html.j2")

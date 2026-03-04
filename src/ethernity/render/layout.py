@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Sequence
 
 from fpdf import FPDF
@@ -26,7 +27,7 @@ from fpdf import FPDF
 from ..encoding.chunking import reassemble_payload
 from ..encoding.framing import VERSION, Frame, FrameType, encode_frame
 from ..encoding.zbase32 import encode_zbase32
-from .doc_types import DOC_TYPE_RECOVERY
+from .doc_types import DOC_TYPE_RECOVERY, DOC_TYPE_SHARD, DOC_TYPE_SIGNING_KEY_SHARD
 from .fallback import (
     fallback_lines_from_sections,
     label_line_height_fallback,
@@ -325,6 +326,28 @@ def compute_layout(
             text_width_override_mm=text_width_override_mm,
         )
     )
+    normalized_doc_type = inputs.doc_type.strip().lower()
+    template_design = Path(inputs.template_path).parent.name.strip().lower()
+    if template_design == "archive" and normalized_doc_type in {
+        DOC_TYPE_SHARD,
+        DOC_TYPE_SIGNING_KEY_SHARD,
+    }:
+        base_groups = groups_from_line_length(line_length, group_size)
+        line_length = line_length_from_groups(base_groups + 10, group_size)
+    if template_design == "forge" and normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD:
+        base_groups = groups_from_line_length(line_length, group_size)
+        line_length = line_length_from_groups(base_groups + 2, group_size)
+    if template_design == "sentinel" and normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD:
+        base_groups = groups_from_line_length(line_length, group_size)
+        line_length = line_length_from_groups(base_groups + 3, group_size)
+    if (
+        template_design == "sentinel"
+        and normalized_doc_type == DOC_TYPE_RECOVERY
+        and inputs.recovery_meta is not None
+        and inputs.recovery_meta.quorum_value is None
+    ):
+        base_groups = groups_from_line_length(line_length, group_size)
+        line_length = line_length_from_groups(base_groups + 1, group_size)
 
     # Build fallback lines
     fallback_lines = _build_fallback_lines(inputs, group_size, line_length)
@@ -370,6 +393,11 @@ def compute_layout(
         recovery_meta_lines_extra=int(spec.header.meta_lines_extra),
         include_instructions=include_instructions,
     )
+    if template_design == "forge" and include_instructions:
+        if normalized_doc_type == DOC_TYPE_SHARD:
+            fallback_lines_per_page_val += 1
+        elif normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD:
+            fallback_lines_per_page_val += 3
 
     # Calculate total pages
     frames_pages = (

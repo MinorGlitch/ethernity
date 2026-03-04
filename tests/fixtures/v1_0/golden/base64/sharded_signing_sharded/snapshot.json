@@ -1,17 +1,17 @@
 {
   "artifact_hashes": {
-    "main_payloads.bin": "e2e1483c93002daa1f4d0902dccb708b90603581d9a45d2728fd7592285953e7",
-    "main_payloads.txt": "ee7466186f2bbea9460ddd9a88674c8fa59406248dc029a86d39972276aa427f",
-    "qr_document.pdf": "d15e00fe618b64feba564167c1f43adbb78785dfaf04d352e1c960b63768e3d5",
-    "recovery_document.pdf": "44e3749a95d9ccd0e5f1f5e40587b00ec720f01276f8470ae620d943e329019a",
-    "recovery_kit_index.pdf": "8acb2914a7b41a9220de5bc42115b1f8ea6ea18fdbed2c9d8d0d465601429018",
-    "shard-f5c94255fd80534d-1-of-3.pdf": "436606271b2f73bae3bb3275813bbd3358fd1f094cad64789fa027d528f87c75",
-    "shard-f5c94255fd80534d-2-of-3.pdf": "a9f3b7b0b4a0be8efc8e2416b8cb48af64151735c3d1483fc80a57472e8ca787",
-    "shard-f5c94255fd80534d-3-of-3.pdf": "7287869d305f4355be843190711cc86de50441c668029d3cf8abdb79d07f78bd",
-    "shard_payloads_threshold.bin": "91c40196689b356a884ab9da763c2b481caa861ca3e6ab285d437be7cd424634",
-    "shard_payloads_threshold.txt": "c432ab99b45927349f277b4a58f6783c84f7bd1cd73b5d9b1082b8fd1ab1f217",
-    "signing-key-shard-f5c94255fd80534d-1-of-2.pdf": "911f2ec578cd276da03ebab94af3dae7499bf8ee3ff1cff9470996baad5e53e3",
-    "signing-key-shard-f5c94255fd80534d-2-of-2.pdf": "7bc969ab6af891e8a2d96910baa0dba8d59c51ce5e7ff76eb959a5ad6772bc87"
+    "main_payloads.bin": "bd783e5faadda86c5b5fc56fd55c1f05f80f7a4049d90088d7fcc8bf62806330",
+    "main_payloads.txt": "5f812b4d13a17e9deebce4982f669e8661340e651ab508674ef4eaed2f1e57e2",
+    "qr_document.pdf": "79eed47b82557a1e36d5e28401704a83847b4691e842316eadfe36fe0eaafc7f",
+    "recovery_document.pdf": "c663572f2b50e764563df6b9b58518d53cb40aa17fa8ba3ce4dc0c81eab8ba9a",
+    "recovery_kit_index.pdf": "0f9469f29396bb9999149405adf481677751acb02ebd0725e3400a00430d45fe",
+    "shard-d7f460c1b2974b4e-1-of-3.pdf": "85ca6014fcf1804aab987719e99c08d05574a4925df40f4b711a476355995fb6",
+    "shard-d7f460c1b2974b4e-2-of-3.pdf": "71b988f70e98194cd6c485bf3f23f83c29df7a6c2d430b4deb978fa2a1618ec6",
+    "shard-d7f460c1b2974b4e-3-of-3.pdf": "a31a23ef50a56970a834f9f2ff2d38a5b261622d62b17b22d4fcf58f9327d6ba",
+    "shard_payloads_threshold.bin": "e0041a7e2ec443e6d63114e2902e61a0549f49de9b3f6d0279d079105176ae53",
+    "shard_payloads_threshold.txt": "3e65136885e3a32ac75acd5387727ba8d54aa0bf368e215c1048833b2d6ed93f",
+    "signing-key-shard-d7f460c1b2974b4e-1-of-2.pdf": "c4b3f3d22cb54340e84bcac45bb2e973bd124597692cd8bab99b113f848ed24a",
+    "signing-key-shard-d7f460c1b2974b4e-2-of-2.pdf": "ee5f0fb6095f229b658f76c68355fba80e5d281e4d35bba332b75316ed1857d9"
   },
   "expected_file_sha256": {
     "directory_payload/alpha.txt": "2f4b5a7d0ed3a982cf012f6af9d58168314e999c0eb3793f598978174928e20f",

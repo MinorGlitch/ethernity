@@ -267,6 +267,12 @@
       justify-content: start;
     }
 
+    .qr-grid-spread {
+      width: 100%;
+      align-content: space-between;
+      justify-content: space-between;
+    }
+
     .qr-card {
       border: 0.22mm solid #d1d5db;
       border-radius: 0.9mm;
@@ -437,8 +443,9 @@
       {% else %}
         <section class="content">
           {% if page.qr_items and page.qr_grid %}
+          {% set spread_qr_grid = page.page_num == 1 and page.qr_grid.cols == 3 and page.qr_grid.rows == 3 %}
           <div
-            class="qr-grid"
+            class="qr-grid{% if spread_qr_grid %} qr-grid-spread{% endif %}"
             style="--qr-size: {{ page.qr_grid.size_mm }}mm; --qr-gap-x: {{ page.qr_grid.gap_x_mm }}mm; --qr-gap-y: {{ page.qr_grid.gap_y_mm }}mm; --qr-cols: {{ page.qr_grid.cols }};"
           >
             {% for slot in page.qr_items %}
@@ -470,7 +477,7 @@
 
       <footer class="footer">
         <div class="footer-left">{% if ethernity_version is defined and ethernity_version %}Ethernity v{{ ethernity_version }}{% else %}Ethernity{% endif %}</div>
-        <div>Variant {{ page.page_num }} of {{ pages|length }}</div>
+        <div>Page {{ page.page_num }} of {{ pages|length }}</div>
         <div></div>
       </footer>
     </div>

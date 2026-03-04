@@ -66,11 +66,11 @@
   <section class="print-sheet relative flex flex-col">
     {% set forge_header_title = copy.title %}
     {% set forge_header_subtitle = copy.subtitle %}
-    {% set forge_header_kicker = 'The Forge // Secure Offline Storage' %}
+    {% set forge_header_kicker = '' %}
     {% set forge_header_classification = 'Restricted Access' %}
     {% set forge_header_guidance = copy.header_guidance %}
     {% set forge_header_ref = doc_id %}
-    {% set forge_header_icon = 'token' %}
+    {% set forge_header_icon = '' %}
     {% set forge_shell_header_inset = 'p-10 pb-6 mb-0' %}
     {% include 'partials/forge_shell_header.j2' %}
 
@@ -187,16 +187,6 @@
         </div>
       </section>
 
-      <section class="flex flex-col grow">
-        <div class="flex items-baseline justify-between mb-2">
-          <h4 class="font-bold text-sm uppercase tracking-tight text-gray-400">04. Custodian Notes</h4>
-        </div>
-        <div class="border border-gray-200 min-h-[120px] bg-blueprint-grid p-4 relative">
-          <div class="w-full h-px bg-gray-200 absolute top-10 left-0"></div>
-          <div class="w-full h-px bg-gray-200 absolute top-20 left-0"></div>
-          <span class="text-[10px] text-gray-300 absolute top-2 right-2">Write clearly in block letters</span>
-        </div>
-      </section>
     </div>
 
     <section class="p-10 pt-4 mt-auto mb-4">

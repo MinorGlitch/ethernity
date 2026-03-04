@@ -432,7 +432,7 @@ class TestJinjaTemplates(unittest.TestCase):
         _inject_copy(context, template_name=template_path.name)
         rendered = render_template(template_path, context)
 
-        self.assertEqual(rendered.count("Raw Hex Entropy"), 1)
+        self.assertEqual(rendered.count("Raw Hex Entropy"), 0)
 
     def test_ledger_kit_template_uses_expanded_instructions_page(self) -> None:
         template_path = _ETHERNITY_ROOT / "templates" / "ledger" / "kit_document.html.j2"
@@ -562,19 +562,16 @@ class TestJinjaTemplates(unittest.TestCase):
     def test_forge_templates_render_mock_icon_ligatures(self) -> None:
         forge_root = _ETHERNITY_ROOT / "templates" / "forge"
         expected_icons_by_template = {
-            "main_document.html.j2": ["token", "visibility_off", "lock", "grid_view"],
-            "recovery_document.html.j2": ["shield_lock", "warning", "fingerprint"],
-            "shard_document.html.j2": ["shield_lock", "warning"],
+            "main_document.html.j2": ["visibility_off", "lock", "grid_view", "description"],
+            "recovery_document.html.j2": ["warning", "fingerprint"],
+            "shard_document.html.j2": ["warning"],
             "signing_key_shard_document.html.j2": [
-                "token",
                 "shield_lock",
                 "vpn_key",
                 "visibility",
                 "settings_ethernet",
             ],
             "kit_document.html.j2": [
-                "token",
-                "qr_code_2",
                 "warning",
                 "verified_user",
                 "check_box_outline_blank",
