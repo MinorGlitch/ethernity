@@ -231,6 +231,15 @@ def _resolve_design_name(design: str | None, designs: dict[str, Path]) -> str | 
     return None
 
 
+def _preferred_design_order(names: list[str]) -> list[str]:
+    """Return design names with sentinel first, then alphabetical."""
+
+    return sorted(
+        names,
+        key=lambda name: (0 if name.lower() == "sentinel" else 1, name.lower()),
+    )
+
+
 def _prompt_design(args: BackupArgs | None, *, prompt_when_unset: bool = True) -> str | None:
     """Prompt for a template design, honoring valid CLI-provided values."""
 
@@ -245,11 +254,14 @@ def _prompt_design(args: BackupArgs | None, *, prompt_when_unset: bool = True) -
         return resolved
     if not prompt_when_unset:
         return None
-    design_names = sorted(designs.keys(), key=lambda name: name.lower())
+    design_names = _preferred_design_order(list(designs.keys()))
     if len(design_names) == 1:
         return design_names[0]
     default = DEFAULT_TEMPLATE_STYLE if DEFAULT_TEMPLATE_STYLE in designs else design_names[0]
-    choices = {name: name for name in design_names}
+    choices = {
+        name: "sentinel (recommended)" if name.lower() == "sentinel" else name
+        for name in design_names
+    }
     return prompt_choice(
         "Template design",
         choices,

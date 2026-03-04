@@ -72,6 +72,16 @@ _FIRST_RUN_CONFIGURED_FIELDS = {
 }
 
 
+def _preferred_design_order(names: list[str]) -> list[str]:
+    """Return design names with sentinel first, then alphabetical."""
+
+    sentinel_first = sorted(
+        names,
+        key=lambda name: (0 if name.lower() == "sentinel" else 1, name.lower()),
+    )
+    return sentinel_first
+
+
 @dataclass(frozen=True)
 class FirstRunSelections:
     design: str
@@ -228,10 +238,15 @@ def _prompt_design() -> str:
     designs = list_template_designs()
     if not designs:
         raise ValueError("no template designs available")
-    names = sorted(designs.keys(), key=lambda name: name.lower())
+    names = _preferred_design_order(list(designs.keys()))
     default = DEFAULT_TEMPLATE_STYLE if DEFAULT_TEMPLATE_STYLE in designs else names[0]
     choices = {
-        name: f"{name} ({_DESIGN_DESCRIPTIONS.get(name, 'template design')})" for name in names
+        name: (
+            f"{name} ({_DESIGN_DESCRIPTIONS.get(name, 'template design')}, recommended)"
+            if name.lower() == "sentinel"
+            else f"{name} ({_DESIGN_DESCRIPTIONS.get(name, 'template design')})"
+        )
+        for name in names
     }
     return prompt_choice(
         "Default template design",
@@ -311,12 +326,16 @@ def _prompt_qr_chunk_size() -> int:
     preset = prompt_choice(
         "Preferred QR chunk size",
         {
-            "512": "512 bytes (recommended)",
-            "384": "384 bytes (more scan margin)",
+            "768": "768 bytes (recommended default)",
             "256": "256 bytes (highest scan margin)",
+            "384": "384 bytes (more scan margin)",
+            "512": "512 bytes (balanced scan margin)",
+            "1024": "1024 bytes (fewer QR codes)",
+            "1536": "1536 bytes (fewer QR codes, less scan margin)",
+            "2048": "2048 bytes (fewest QR codes, least scan margin)",
             "custom": "Custom value",
         },
-        default="512",
+        default="768",
         help_text=(
             "Smaller chunk sizes create more QR codes but are easier to scan on lower quality "
             "devices."
