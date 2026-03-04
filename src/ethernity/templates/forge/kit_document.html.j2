@@ -56,6 +56,13 @@
 
     .qr-grid-cards {
       grid-template-columns: repeat(var(--forge-cols), minmax(0, 1fr));
+      grid-auto-rows: max-content;
+      align-content: start;
+      align-items: start;
+    }
+
+    .qr-grid-cards > div {
+      align-self: start;
     }
   </style>
 </head>
@@ -165,23 +172,17 @@
     {% else %}
     {% set forge_header_title = copy.title %}
     {% set forge_header_subtitle = copy.subtitle %}
-    {% set forge_header_kicker = 'The Forge // Secure Offline Storage' %}
+    {% set forge_header_kicker = '' %}
     {% set forge_header_classification = 'Offline Processing Required' %}
     {% set forge_header_guidance = copy.header_guidance %}
     {% set forge_header_ref = doc_id %}
-    {% set forge_header_icon = 'token' %}
+    {% set forge_header_icon = '' %}
     {% include 'partials/forge_shell_header.j2' %}
 
     <div class="border-l-4 border-primary bg-blue-50 p-4 mb-8">
       <div class="flex items-start gap-3">
         <span class="material-symbols-outlined text-primary text-xl">warning</span>
-        <p class="text-sm text-gray-700 leading-relaxed">
-          {{ copy.continuation_hint }}
-          <span class="inline-flex items-center gap-1 ml-1">
-            <span class="material-symbols-outlined text-sm">qr_code_2</span>
-            Keep scans offline.
-          </span>
-        </p>
+        <p class="text-sm text-gray-700 leading-relaxed">{{ copy.continuation_hint }}</p>
       </div>
     </div>
 
@@ -192,9 +193,8 @@
     >
       {% for slot in page.qr_items %}
       <div class="flex flex-col rounded border border-slate-300 p-3">
-        <div class="mb-2 flex justify-between border-b border-slate-100 pb-1">
+        <div class="mb-2 border-b border-slate-100 pb-1">
           <span class="font-mono text-xs font-bold text-slate-900">KIT {{ '%02d' % slot.index }}</span>
-          <span class="font-mono text-[10px] text-slate-400">SEQ {{ '%02d' % slot.index }}</span>
         </div>
         <div class="aspect-square w-full rounded-sm bg-slate-900 p-1">
           <img
@@ -208,25 +208,6 @@
       {% endfor %}
     </div>
     {% endif %}
-    {% endif %}
-
-    {% if not page.instructions_full_page %}
-    <section class="mt-auto pt-8 border-t border-gray-200 flex justify-between items-end mb-4">
-      <div class="text-xs text-gray-400">
-        <p>{{ forge_copy.protocol_label }} {{ forge_copy.version }}</p>
-        <p>Printed from secure session ID: <span class="font-mono text-gray-600">{{ doc_id }}</span></p>
-      </div>
-      <div class="flex flex-col items-end">
-        <div class="text-right mb-2">
-          <p class="text-[10px] uppercase tracking-widest text-gray-400 font-bold mb-1">Custodian Signature</p>
-          <div class="w-48 h-10 border-b border-gray-300 border-dashed"></div>
-        </div>
-        <div class="text-[10px] font-mono inline-flex items-center gap-1 text-gray-500">
-          <span class="material-symbols-outlined text-sm">lock</span>
-          Verification Complete
-        </div>
-      </div>
-    </section>
     {% endif %}
 
   </section>

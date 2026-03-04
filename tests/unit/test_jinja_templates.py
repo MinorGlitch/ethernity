@@ -572,8 +572,6 @@ class TestJinjaTemplates(unittest.TestCase):
                 "settings_ethernet",
             ],
             "kit_document.html.j2": [
-                "token",
-                "qr_code_2",
                 "warning",
                 "verified_user",
                 "check_box_outline_blank",
