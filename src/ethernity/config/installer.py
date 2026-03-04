@@ -33,6 +33,7 @@ from ..core.app_paths import (
     user_templates_design_path,
     user_templates_root_path,
 )
+from ..version import get_ethernity_version
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TEMPLATE_PATH = PACKAGE_ROOT / "templates/sentinel/main_document.html.j2"
@@ -62,6 +63,8 @@ DEFAULT_CONFIG_PATH = PACKAGE_ROOT / "config/config.toml"
 
 _DOTTED_BACKUP_KEY_RE = re.compile(r"^\s*defaults\.backup\.[A-Za-z0-9_-]+\s*=", re.MULTILINE)
 _TABLE_HEADER_RE = re.compile(r"^\s*\[([^\]]+)\]\s*(?:#.*)?$")
+_TEMPLATE_SYNC_STATE_FILENAME = ".template_sync_state_v1.json"
+_TEMPLATE_SYNC_STATE_VERSION = 1
 _FIRST_RUN_ONBOARDING_MARKER_FILENAME = ".first_run_onboarding_v1.done"
 _FIRST_RUN_ONBOARDING_MARKER_VERSION = 1
 
@@ -570,10 +573,62 @@ def _ensure_user_config(paths: ConfigPaths) -> bool:
         paths.user_templates_root.mkdir(parents=True, exist_ok=True)
         _copy_if_missing(DEFAULT_CONFIG_PATH, paths.user_config_path)
         _migrate_user_config(paths.user_config_path)
-        _copy_template_designs(paths)
+        template_version = get_ethernity_version()
+        overwrite_templates = _should_overwrite_templates(paths, template_version=template_version)
+        _copy_template_designs(paths, overwrite=overwrite_templates)
+        if overwrite_templates:
+            _write_template_sync_state(paths, template_version=template_version)
     except OSError:
         return False
     return True
+
+
+def _template_sync_state_path(paths: ConfigPaths) -> Path:
+    """Return the per-user template sync state path."""
+
+    return paths.user_templates_root / _TEMPLATE_SYNC_STATE_FILENAME
+
+
+def _read_template_sync_version(paths: ConfigPaths) -> str | None:
+    """Return the last template version synced for this user, when available."""
+
+    state_path = _template_sync_state_path(paths)
+    if not state_path.exists():
+        return None
+    try:
+        payload = state_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not payload:
+        return None
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    template_version = parsed.get("template_version")
+    if not isinstance(template_version, str):
+        return None
+    return template_version
+
+
+def _should_overwrite_templates(paths: ConfigPaths, *, template_version: str) -> bool:
+    """Return whether packaged templates should overwrite user copies."""
+
+    previous_version = _read_template_sync_version(paths)
+    return previous_version != template_version
+
+
+def _write_template_sync_state(paths: ConfigPaths, *, template_version: str) -> None:
+    """Persist template sync metadata for upgrade overwrite detection."""
+
+    state_path = _template_sync_state_path(paths)
+    payload = {
+        "version": _TEMPLATE_SYNC_STATE_VERSION,
+        "template_version": template_version,
+    }
+    _write_text_atomic(state_path, json.dumps(payload, sort_keys=True) + "\n")
 
 
 def _migrate_user_config(path: Path) -> bool:
@@ -662,7 +717,7 @@ _CONFIG_MIGRATIONS: tuple[ConfigMigrationStep, ...] = (
 )
 
 
-def _copy_template_designs(paths: ConfigPaths) -> None:
+def _copy_template_designs(paths: ConfigPaths, *, overwrite: bool = False) -> None:
     """Copy packaged template designs into the user config directory."""
 
     package_root = PACKAGE_ROOT / "templates"
@@ -678,7 +733,7 @@ def _copy_template_designs(paths: ConfigPaths) -> None:
                 continue
             relative = shared_path.relative_to(shared_dir)
             destination = dest_shared / relative
-            _copy_if_missing(shared_path, destination)
+            _copy_template_file(shared_path, destination, overwrite=overwrite)
 
     for entry in sorted(package_root.iterdir(), key=lambda item: item.name.lower()):
         if entry.name.startswith(".") or not entry.is_dir():
@@ -692,7 +747,17 @@ def _copy_template_designs(paths: ConfigPaths) -> None:
         for template_path in sorted(entry.iterdir(), key=lambda item: item.name.lower()):
             if template_path.name.startswith(".") or not template_path.is_file():
                 continue
-            _copy_if_missing(template_path, dest_dir / template_path.name)
+            _copy_template_file(template_path, dest_dir / template_path.name, overwrite=overwrite)
+
+
+def _copy_template_file(source: Path, dest: Path, *, overwrite: bool) -> None:
+    """Copy a template file, optionally overwriting existing user copies."""
+
+    if overwrite:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, dest)
+        return
+    _copy_if_missing(source, dest)
 
 
 def _copy_if_missing(source: Path, dest: Path) -> None:
