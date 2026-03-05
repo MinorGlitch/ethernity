@@ -5,6 +5,7 @@ hiddenimports = (
     collect_submodules("playwright")
     + collect_submodules("questionary")
     + collect_submodules("prompt_toolkit")
+    + collect_submodules("rich._unicode_data")
 )
 datas = collect_data_files("ethernity") + collect_data_files("playwright") + copy_metadata("ethernity-paper")
 
