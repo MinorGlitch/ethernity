@@ -122,26 +122,25 @@ Baseline one-page capacity at defaults (`error = M`, QR transport `raw`):
 | 768 B | 8,063 B (7.87 KiB) |
 | 1,536 B | 16,510 B (16.12 KiB) |
 
-Advanced combinations (same defaults, with units):
+Impact table with fixed QR version (`version = 33`, auto-scaling disabled):
 
-These values come from running the real backup/framing/QR-fit pipeline with current defaults.
+This is an explanatory comparison view; default runtime behavior still uses QR auto-scaling.
 
-| Preferred chunk size | QR transport codec | Payload codec | Max original input (incompressible profile) | Max original input (compressible profile) |
+These rows isolate QR transport and error-correction effects.
+Assumptions for this table: incompressible profile, payload codec `raw`.
+
+| QR error correction | 768 B chunk, raw | 768 B chunk, base64 | 1,536 B chunk, raw | 1,536 B chunk, base64 |
 | --- | --- | --- | --- | --- |
-| 768 B | raw | raw | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) |
-| 768 B | raw | gzip | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
-| 768 B | base64 | raw | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) |
-| 768 B | base64 | gzip | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
-| 1,536 B | raw | raw | 16,510 B (16.12 KiB) | 16,510 B (16.12 KiB) |
-| 1,536 B | raw | gzip | 16,462 B (16.08 KiB) | 5,634,796 B (5.37 MiB) |
-| 1,536 B | base64 | raw | 16,510 B (16.12 KiB) | 16,510 B (16.12 KiB) |
-| 1,536 B | base64 | gzip | 16,462 B (16.08 KiB) | 5,634,796 B (5.37 MiB) |
+| L | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) | 16,510 B (16.12 KiB) | 16,455 B (16.07 KiB) |
+| M | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) | 16,510 B (16.12 KiB) | 12,826 B (12.53 KiB) |
+| Q | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) | 12,243 B (11.96 KiB) | 9,031 B (8.82 KiB) |
+| H | 8,063 B (7.87 KiB) | 6,798 B (6.64 KiB) | 9,273 B (9.06 KiB) | 6,798 B (6.64 KiB) |
 
-Error-correction impact range: compared with default `M`, switching to `Q`/`H` changes one-page
-capacity by about `0%` to `40%` in these runs (largest drop at `1,536` + `base64` + `H`).
+In this fixed-version view, `base64` reduces one-page capacity by about `0%` to `26.7%` versus
+`raw`, depending on chunk size and error-correction level.
 
-Why some `base64` rows match `raw`: with default settings and these chunk sizes, QR version
-auto-scaling still fits the full chunk, so one-page frame counts stay the same.
+If you use payload codec `gzip` and your input compresses well, original-data capacity can be much
+higher than the incompressible baseline above.
 
 ## Who It's For / Not For
 
