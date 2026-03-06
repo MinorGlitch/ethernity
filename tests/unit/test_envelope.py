@@ -77,7 +77,7 @@ def _make_manifest_cbor(
     path_prefixes: object | None = None,
     payload_codec: object | None = PAYLOAD_CODEC_RAW,
     payload_raw_len: object | None = None,
-    files: list[list[object]] | None = None,
+    files: list[object] | None = None,
 ) -> dict[str, object]:
     if input_roots is None:
         if input_origin in {"directory", "mixed"}:
@@ -1085,6 +1085,50 @@ class TestEnvelope(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "payload_raw_len"):
             extract_payloads(manifest, compressed)
+
+    def test_extract_payloads_rejects_gzip_trailing_bytes(self) -> None:
+        payload = b"trailing-check" * 40
+        compressed = gzip.compress(payload, compresslevel=9, mtime=0)
+        manifest = EnvelopeManifest(
+            format_version=MANIFEST_VERSION,
+            created_at=0.0,
+            sealed=False,
+            signing_seed=TEST_SIGNING_SEED,
+            payload_codec=PAYLOAD_CODEC_GZIP,
+            payload_raw_len=len(payload),
+            files=(
+                ManifestFile(
+                    path="payload.bin",
+                    size=len(payload),
+                    sha256=hashlib.sha256(payload).digest(),
+                    mtime=None,
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "trailing data"):
+            extract_payloads(manifest, compressed + b"junk")
+
+    def test_extract_payloads_rejects_incomplete_gzip_stream(self) -> None:
+        payload = b"incomplete-stream" * 40
+        compressed = gzip.compress(payload, compresslevel=9, mtime=0)
+        manifest = EnvelopeManifest(
+            format_version=MANIFEST_VERSION,
+            created_at=0.0,
+            sealed=False,
+            signing_seed=TEST_SIGNING_SEED,
+            payload_codec=PAYLOAD_CODEC_GZIP,
+            payload_raw_len=len(payload),
+            files=(
+                ManifestFile(
+                    path="payload.bin",
+                    size=len(payload),
+                    sha256=hashlib.sha256(payload).digest(),
+                    mtime=None,
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "invalid gzip payload"):
+            extract_payloads(manifest, compressed[:-1])
 
 
 if __name__ == "__main__":

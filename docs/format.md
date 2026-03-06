@@ -53,7 +53,7 @@ VERSION (uvarint)
 MANIFEST_LEN (uvarint)
 MANIFEST_BYTES (CBOR)
 PAYLOAD_LEN (uvarint)
-PAYLOAD_BYTES (raw)
+PAYLOAD_BYTES (stored payload bytes; encoded per manifest payload_codec)
 ```
 
 Rules:
@@ -118,7 +118,8 @@ Manifest requirements (map keys):
 - `seed`:
   - if `sealed` is true, `seed` MUST be null
   - if `sealed` is false, `seed` MUST be 32 bytes
-- `input_origin`: string in `{"file", "directory", "mixed"}`
+- `input_origin`: string in `{"file", "directory", "mixed"}`; `"mixed"` indicates payloads
+  sourced from more than one logical root label
 - `input_roots`: list of non-empty UTF-8 strings, each a leaf label (no `/` or `\`)
 - cross-field consistency:
   - if `input_origin` is `"file"`, `input_roots` MUST be empty
@@ -183,9 +184,8 @@ Ordering:
 
 ### 3.1) Sealing
 
-Sealing controls whether the signing seed is present in the encrypted manifest:
-- If `sealed` is true, `seed` MUST be null.
-- If `sealed` is false, `seed` MUST be 32 bytes.
+Sealing semantics are normative in Section 3 (`sealed`/`seed` cross-field rules); this subsection
+is informative only.
 
 ## 4) File Paths
 
@@ -193,29 +193,22 @@ File paths are represented according to `path_encoding`:
 - direct mode stores full path in each file entry
 - prefix-table mode stores `prefix_index + suffix` and reconstructs full path via `path_prefixes`
 
-Path rules:
-- Stored paths MUST use POSIX separators (`/`).
-- Paths MUST satisfy the normalization requirements in Section 16.
-- Paths that differ only by Unicode normalization are considered identical; duplicates MUST be rejected.
-- Paths MUST be relative (no leading `/`).
-- Paths MUST NOT start with a drive-letter prefix (`A:` through `Z:` or `a:` through `z:`).
-- Paths MUST NOT contain empty segments (for example `a//b` or a trailing `/`).
-- Paths MUST NOT contain `.` or `..` segments.
-- Path UTF-8 byte length MUST be ≤ `MAX_PATH_BYTES` (Section 17).
-- `reconstructed_path(entry)` (direct or prefix-table reconstruction) MUST be the path basis for
-  ordering and payload concatenation (Sections 3 and 5).
+Path validation and normalization requirements are defined in Section 16.
+`reconstructed_path(entry)` (direct or prefix-table reconstruction) MUST be the path basis for
+ordering and payload concatenation (Sections 3 and 5).
 
 ## 5) Payload
 
-Payload bytes MUST be the concatenation of file contents in ascending
+Define `raw_payload_bytes` as the concatenation of file contents in ascending
 `normalize_path(reconstructed_path(entry))` order as defined in Section 3.
-The envelope payload storage representation is selected by manifest metadata:
+
+The envelope `PAYLOAD_BYTES` storage representation is selected by manifest metadata:
 - raw mode:
   - `payload_codec == "raw"`
-  - envelope payload bytes are the raw concatenated payload bytes
+  - envelope payload bytes are `raw_payload_bytes`
 - gzip mode:
   - `payload_codec == "gzip"`
-  - envelope payload bytes are gzip-compressed bytes of the raw concatenated payload
+  - envelope payload bytes are gzip-compressed bytes of `raw_payload_bytes`
   - `payload_raw_len` MUST be present and equal `sum(files[i].size)`
 
 Decoder extraction requirements:
@@ -224,6 +217,8 @@ Decoder extraction requirements:
   `payload_raw_len` bytes.
 - For gzip mode, decoders MUST reject payloads where final decompressed length is not exactly
   `payload_raw_len`.
+- For gzip mode, decoders MUST require a complete gzip stream (end-of-stream reached).
+- For gzip mode, decoders MUST reject payloads with trailing bytes after the gzip stream.
 - For gzip mode, decoders MUST reject manifests with `payload_raw_len` greater than
   `MAX_DECOMPRESSED_PAYLOAD_BYTES`.
 - Decoders MUST verify each entry's SHA-256 against the corresponding slice of normalized payload
@@ -523,6 +518,11 @@ Decoding:
   equivalently, after normalization/filtering, concatenated text MUST equal
   `encode_zbase32(decode_zbase32(text))`.
 
+### 11.1) Reference
+
+z-base-32 (human-oriented base-32):
+https://philzimmermann.com/docs/human-oriented-base-32-encoding.txt
+
 ## 12) Version Markers
 
 Version markers:
@@ -674,6 +674,9 @@ Decoders MUST reject shard payloads where `share` and `length` are inconsistent.
 
 Input:
 - At least t shares after applying duplicate handling rules from Section 9
+- Reconstruction uses the deduplicated set from Section 9.
+- Decoders MAY use any subset of at least `threshold` distinct shares from that set (including all
+  available shares).
 
 Process:
 - Lagrange interpolation over GF(2^128)
@@ -713,9 +716,15 @@ Requirements:
 - Paths MUST be normalized to NFC before storage in manifest
 - Paths MUST be normalized to NFC before any comparison operation
 - Paths that are not valid UTF-8 MUST be rejected
+- Paths MUST be relative (no leading `/`)
 - Paths MUST NOT start with a drive-letter prefix (`A:` through `Z:` or `a:` through `z:`)
 - Paths MUST NOT contain empty segments
 - Paths MUST NOT contain `.` or `..` segments
+- Path UTF-8 byte length MUST be ≤ `MAX_PATH_BYTES` (Section 17)
+
+Manifest-level path consistency:
+- Paths that differ only by Unicode normalization are considered identical; duplicates MUST be
+  rejected
 
 ### 16.2) Normalization Function
 
@@ -741,6 +750,9 @@ Decoders MUST reject inputs that exceed these bounds.
 For `MAX_CIPHERTEXT_BYTES`, the bound applies to the final encrypted ciphertext transport size.
 Encoders MAY accept larger pre-encryption inputs when compression/encryption still produces
 ciphertext within this ceiling.
+- `MAX_MAIN_FRAME_DATA_BYTES` bounds each MAIN frame `DATA` field independently.
+- `MAX_CIPHERTEXT_BYTES` bounds the reassembled MAIN payload bytes.
+- Both constraints apply; frame-level limits do not relax the reassembled ciphertext ceiling.
 
 Constants:
 - `MAX_CIPHERTEXT_BYTES = 1_048_576`
@@ -755,7 +767,7 @@ Constants:
 - `MAX_FALLBACK_NORMALIZED_CHARS = 2_000_000`
 - `MAX_FALLBACK_LINES = 50_000`
 - `MAX_RECOVERY_TEXT_BYTES = 10_485_760`
-- `MAX_DECOMPRESSED_PAYLOAD_BYTES = 67_108_864`
+- `MAX_DECOMPRESSED_PAYLOAD_BYTES = 67_108_864` (64 MiB)
 
 ## 18) Normative Conformance Appendix
 
@@ -795,10 +807,12 @@ A conforming decoder MUST reject at least these scenarios:
 3. Manifest, AUTH, or shard CBOR payloads that are non-canonical or use indefinite-length items.
 4. Inputs where unknown manifest/auth/shard keys are used to alter signature verification decisions,
    key reconstruction eligibility, or authenticated/rescue trust labeling.
-5. Fallback sections whose filtering/counting outcome is nondeterministic or that exceed
-   `MAX_FALLBACK_LINES` or `MAX_FALLBACK_NORMALIZED_CHARS` under Section 11 algorithm.
+5. Fallback sections whose filtering/counting outcome is nondeterministic (for example,
+   locale-dependent whitespace classification or implementation-defined line splitting) or that
+   exceed `MAX_FALLBACK_LINES` or `MAX_FALLBACK_NORMALIZED_CHARS` under Section 11 algorithm.
 6. AUTH or shard payloads whose `hash` does not bind to recovered ciphertext `doc_hash`, or whose
    frame `DOC_ID` does not match derived `doc_id`.
 7. QR payload text that contains `=` after whitespace removal or otherwise violates unpadded-base64
    strictness in Section 10.
-8. Manifest paths that start with a drive-letter prefix (`A:` through `Z:` or `a:` through `z:`).
+8. Gzip-coded envelope payloads that include trailing bytes after a valid gzip stream.
+9. Manifest paths that start with a drive-letter prefix (`A:` through `Z:` or `a:` through `z:`).

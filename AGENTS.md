@@ -46,6 +46,17 @@ conventions and a glob-based, working-tree inventory contract for contributors a
 - Recovery kit index: backup flow may emit a separate `recovery_kit_index.pdf` when a compatible
   `src/ethernity/templates/forge/kit_index_document.html.j2` style of index template is available.
 - CLI prompts: Questionary is the only prompt library for CLI UI.
+- Fallback parser contract: for fallback section filtering, non-empty normalized lines that contain
+  characters outside the z-base-32 alphabet must be treated as invalid input (reject), not silently
+  discarded.
+- Shard version typing: shard payload `version` validation must require a strict integer value
+  (`int == 1`); bool and non-integer numeric values are out of profile and must be rejected.
+- Format spec source of truth: `docs/format.md` is the only normative format specification.
+- Format rationale and operations: keep non-normative guidance in `docs/format_notes.md`.
+- Format change ledger: append each format-related delta to `docs/format_changes.md` with
+  compatibility and version/profile bump rationale.
+- Format PR discipline: when normative format behavior changes, update spec + implementation + tests
+  in the same change.
 
 ## Architecture Notes
 
@@ -106,6 +117,7 @@ Paths are maintained by scope globs rather than exhaustive file-by-file lists.
 - `kit/app/**/*`
 - `kit/lib/**/*`
 - `kit/scripts/**/*`
+- `kit/tests/**/*`
 - `kit/build_kit.mjs`
 - `kit/package.json`
 - `kit/package-lock.json`
@@ -122,7 +134,6 @@ Paths are maintained by scope globs rather than exhaustive file-by-file lists.
 - `.github/workflows/*`
 - `.github/actions/setup-python/action.yml`
 - `.github/dependabot.yml`
-- `.github/ISSUE_TEMPLATE/*`
 
 ### Docs
 
@@ -138,6 +149,7 @@ These paths are high-signal anchors that should remain present and accurate:
 - `src/ethernity/core/bounds.py`
 - `docs/format.md`
 - `docs/format_notes.md`
+- `docs/format_changes.md`
 - `docs/release_artifacts.md`
 
 ### Inventory Maintenance Rules
@@ -156,6 +168,8 @@ These paths are high-signal anchors that should remain present and accurate:
 - CI (`.github/workflows/ci.yml`) covers Ruff, formatting check, Mypy, unit/integration tests,
   coverage, and kit bundle verification/build.
 - Release pipeline (`.github/workflows/pyinstaller.yml`) produces PyInstaller artifacts.
+- Homebrew tap pipeline (`.github/workflows/homebrew-tap.yml`) updates tap formulae on
+  release/tag events and can publish bottle metadata.
 - Nuitka scripts in `scripts/build_nuitka.sh` and `scripts/build_nuitka.ps1` are local/experimental
   build helpers, not current release pipeline.
 
@@ -173,6 +187,7 @@ These paths are high-signal anchors that should remain present and accurate:
 - Recover command help: `uv run ethernity recover --help`
 - Kit command help: `uv run ethernity kit --help`
 - Render command help: `uv run ethernity render --help`
+- Kit tests: `cd kit && npm test`
 - Envelope PDF render: `uv run ethernity render envelope-c6 --format pdf -o envelope_c6.pdf`
 - Envelope DOCX render: `uv run ethernity render envelope-c6 --format docx -o envelope_c6.docx`
 - Kit bundle rebuild (requires `libdeflate-gzip`): `cd kit && npm ci && node build_kit.mjs`

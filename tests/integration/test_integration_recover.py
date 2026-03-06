@@ -16,6 +16,7 @@
 import hashlib
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 import segno
@@ -37,11 +38,19 @@ from ethernity.formats.envelope_codec import (
     build_single_file_manifest,
     encode_envelope,
 )
-from ethernity.formats.envelope_types import PayloadPart
+from ethernity.formats.envelope_types import PAYLOAD_CODEC_GZIP, PayloadPart
+from ethernity.formats.payload_codec import encode_payload_for_manifest
 from ethernity.render.fallback_text import format_zbase32_lines
 from tests.test_support import suppress_output
 
 TEST_SIGNING_SEED = b"\x11" * 32
+
+
+def _qr_payload_text(frame: Frame) -> str:
+    payload = encode_qr_payload(encode_frame(frame))
+    if isinstance(payload, bytes):
+        return payload.decode("ascii")
+    return payload
 
 
 class TestIntegrationRecover(unittest.TestCase):
@@ -66,7 +75,7 @@ class TestIntegrationRecover(unittest.TestCase):
             )
             frames_path = tmp_path / "frames.txt"
             frames_path.write_text(
-                "\n".join(encode_qr_payload(encode_frame(frame)) for frame in frames),
+                "\n".join(_qr_payload_text(frame) for frame in frames),
                 encoding="utf-8",
             )
             output_path = tmp_path / "out.bin"
@@ -155,10 +164,10 @@ class TestIntegrationRecover(unittest.TestCase):
                 frame_type=FrameType.MAIN_DOCUMENT,
                 chunk_size=len(ciphertext),
             )
-            frame_payloads = [encode_qr_payload(encode_frame(frame)) for frame in frames]
+            frame_payloads = [_qr_payload_text(frame) for frame in frames]
             qr_path = tmp_path / "qr.png"
             qr = segno.make(frame_payloads[0], error="Q")
-            qr.save(qr_path, kind="png", scale=4, border=2)
+            qr.save(str(qr_path), kind="png", scale=4, border=2)
             output_path = tmp_path / "out.bin"
 
             args = RecoverArgs(
@@ -229,6 +238,62 @@ class TestIntegrationRecover(unittest.TestCase):
             self.assertEqual((output_dir / "alpha.txt").read_bytes(), b"alpha")
             self.assertEqual((output_dir / "beta" / "beta.txt").read_bytes(), b"beta")
 
+    def test_recover_rejects_gzip_payload_with_trailing_bytes(self) -> None:
+        raw_payload = b"gzip trailing integration" * 32
+        parts = [PayloadPart(path="payload.bin", data=raw_payload, mtime=None)]
+        manifest, payload = build_manifest_and_payload(
+            parts,
+            sealed=False,
+            created_at=0.0,
+            signing_seed=TEST_SIGNING_SEED,
+        )
+        encoded_payload, payload_codec, payload_raw_len = encode_payload_for_manifest(
+            payload,
+            mode=PAYLOAD_CODEC_GZIP,
+        )
+        manifest = replace(
+            manifest,
+            payload_codec=payload_codec,
+            payload_raw_len=payload_raw_len,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            envelope = encode_envelope(encoded_payload + b"junk", manifest)
+            ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
+            doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
+            doc_id = doc_hash[:DOC_ID_LEN]
+            frames = chunk_payload(
+                ciphertext,
+                doc_id=doc_id,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                chunk_size=64,
+            )
+            frames_path = tmp_path / "frames.txt"
+            frames_path.write_text(
+                "\n".join(_qr_payload_text(frame) for frame in frames),
+                encoding="utf-8",
+            )
+            output_path = tmp_path / "out.bin"
+
+            args = RecoverArgs(
+                fallback_file=None,
+                payloads_file=str(frames_path),
+                scan=[],
+                passphrase=passphrase,
+                shard_fallback_file=[],
+                shard_payloads_file=[],
+                output=str(output_path),
+                allow_unsigned=True,
+                assume_yes=True,
+                quiet=True,
+                config=str(DEFAULT_CONFIG_PATH),
+            )
+            with self.assertRaisesRegex(ValueError, "trailing data"):
+                with suppress_output():
+                    run_recover_command(args)
+            self.assertFalse(output_path.exists())
+
     def test_recover_with_multiple_key_document_frames_same_doc_id(self) -> None:
         payload = b"integration shard payloads"
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -252,9 +317,12 @@ class TestIntegrationRecover(unittest.TestCase):
             )
             frames_path = tmp_path / "frames.txt"
             frames_path.write_text(
-                "\n".join(encode_qr_payload(encode_frame(frame)) for frame in frames),
+                "\n".join(_qr_payload_text(frame) for frame in frames),
                 encoding="utf-8",
             )
+
+            if passphrase is None:
+                self.fail("expected generated passphrase")
 
             shares = split_passphrase(
                 passphrase,
@@ -284,7 +352,7 @@ class TestIntegrationRecover(unittest.TestCase):
             ]
             shard_frames_path = tmp_path / "shard_frames.txt"
             shard_frames_path.write_text(
-                "\n".join(encode_qr_payload(encode_frame(frame)) for frame in shard_frames),
+                "\n".join(_qr_payload_text(frame) for frame in shard_frames),
                 encoding="utf-8",
             )
             output_path = tmp_path / "out.bin"
