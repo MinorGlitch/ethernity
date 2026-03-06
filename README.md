@@ -115,19 +115,33 @@ Practical first-page guidance:
 Limits depend on QR settings and template layout (error level, page geometry, and future defaults),
 so treat these as baseline guidance.
 
-Advanced capacity reference (with units):
+Baseline one-page capacity at defaults (`error = M`, QR transport `raw`):
+
+| Preferred chunk size | One-page baseline capacity (incompressible profile) |
+| --- | --- |
+| 768 B | 8,063 B (7.87 KiB) |
+| 1,536 B | 16,510 B (16.12 KiB) |
+
+Advanced combinations (same defaults, with units):
 
 These values come from running the real backup/framing/QR-fit pipeline with current defaults.
 
-| Preferred chunk size | Payload codec | Max original input (incompressible profile) | Max original input (compressible profile) |
-| --- | --- | --- | --- |
-| 768 B | raw | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) |
-| 768 B | gzip | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
-| 1,536 B | raw | 16,510 B (16.12 KiB) | 16,510 B (16.12 KiB) |
-| 1,536 B | gzip | 16,462 B (16.08 KiB) | 5,634,796 B (5.37 MiB) |
+| Preferred chunk size | QR transport codec | Payload codec | Max original input (incompressible profile) | Max original input (compressible profile) |
+| --- | --- | --- | --- | --- |
+| 768 B | raw | raw | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) |
+| 768 B | raw | gzip | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
+| 768 B | base64 | raw | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) |
+| 768 B | base64 | gzip | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
+| 1,536 B | raw | raw | 16,510 B (16.12 KiB) | 16,510 B (16.12 KiB) |
+| 1,536 B | raw | gzip | 16,462 B (16.08 KiB) | 5,634,796 B (5.37 MiB) |
+| 1,536 B | base64 | raw | 16,510 B (16.12 KiB) | 16,510 B (16.12 KiB) |
+| 1,536 B | base64 | gzip | 16,462 B (16.08 KiB) | 5,634,796 B (5.37 MiB) |
 
 Error-correction impact range: compared with default `M`, switching to `Q`/`H` changes one-page
 capacity by about `0%` to `40%` in these runs (largest drop at `1,536` + `base64` + `H`).
+
+Why some `base64` rows match `raw`: with default settings and these chunk sizes, QR version
+auto-scaling still fits the full chunk, so one-page frame counts stay the same.
 
 ## Who It's For / Not For
 
