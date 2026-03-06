@@ -34,7 +34,7 @@
 - [Status](#status)
 - [What Is Ethernity?](#what-is-ethernity)
 - [What Ethernity Supports](#what-ethernity-supports)
-- [How Much Data Can I Store? (3x4 Grid)](#how-much-data-can-i-store-3x4-grid)
+- [How Much Data Can I Store? (Quick Guide)](#how-much-data-can-i-store-quick-guide)
 - [Who It's For / Not For](#who-its-for--not-for)
 - [Document Previews](#document-previews)
 - [Quick Start](#quick-start)
@@ -98,60 +98,34 @@ Core capabilities you can rely on today:
   - A4/Letter paper targeting and deterministic render layout
   - documented format baseline and release-provenance verification guidance
 
-## How Much Data Can I Store? (3x4 Grid)
+## How Much Data Can I Store? (Quick Guide)
 
-Most templates use a 3x4 QR grid on the main QR document first page (12 total slots).
-This section shows results from running the real backup/framing/QR-fit pipeline.
-It estimates how much original input data can fit on that first page.
-For one-page recovery sizing, model it as 11 MAIN frames plus 1 AUTH frame:
+Most templates use a 3x4 QR grid on the main QR document first page (12 total slots, including one
+AUTH frame).
 
-| Row | Col 1 | Col 2 | Col 3 |
-| --- | --- | --- | --- |
-| 1 | MAIN | MAIN | MAIN |
-| 2 | MAIN | MAIN | MAIN |
-| 3 | MAIN | MAIN | MAIN |
-| 4 | MAIN | MAIN | AUTH |
+Practical first-page guidance:
+- Default `--qr-chunk-size 768`: plan for about `8 KB` of original data on page 1.
+- `--qr-chunk-size 1536`: plan for about `16 KB` of original data on page 1.
+- If input compresses well and `gzip` is used, much larger original data can still fit on one page.
+- If input is larger than one page capacity, Ethernity automatically spills to additional QR pages.
 
-Test setup (current defaults):
-- Preferred chunk size: `768` (default) and `1536`
-- QR transport codec: `raw` and `base64`
-- Manifest payload codec: `raw` and `gzip`
-- QR config: `src/ethernity/config/config.toml` (`error = "M"`, auto version)
-- Fit rule: total QR frames on first page `<= 12` (11 MAIN + 1 AUTH)
-- Profiles: incompressible random bytes (safety baseline) and compressible text-like bytes
+<details>
+<summary>Advanced capacity reference (full matrix)</summary>
 
-Incompressible random profile:
+These values come from running the real backup/framing/QR-fit pipeline with current defaults.
 
-| Preferred chunk | QR codec | Payload codec | Effective chunk | Max original input bytes (1 page) | Stored payload bytes | Ciphertext bytes | Frames (MAIN+AUTH) |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 768 | raw | raw | 768 | 8063 | 8063 | 8448 | 11+1 |
-| 768 | raw | gzip | 768 | 8020 | 8043 | 8448 | 11+1 |
-| 768 | base64 | raw | 768 | 8063 | 8063 | 8448 | 11+1 |
-| 768 | base64 | gzip | 768 | 8020 | 8043 | 8448 | 11+1 |
-| 1536 | raw | raw | 1536 | 16510 | 16510 | 16896 | 11+1 |
-| 1536 | raw | gzip | 1536 | 16462 | 16490 | 16896 | 11+1 |
-| 1536 | base64 | raw | 1536 | 16510 | 16510 | 16896 | 11+1 |
-| 1536 | base64 | gzip | 1536 | 16462 | 16490 | 16896 | 11+1 |
+| Preferred chunk | QR codec | Payload codec | Max original input bytes (incompressible profile) | Max original input bytes (compressible profile) |
+| --- | --- | --- | --- | --- |
+| 768 | raw | raw | 8063 | 8063 |
+| 768 | raw | gzip | 8020 | 2733832 |
+| 768 | base64 | raw | 8063 | 8063 |
+| 768 | base64 | gzip | 8020 | 2733832 |
+| 1536 | raw | raw | 16510 | 16510 |
+| 1536 | raw | gzip | 16462 | 5634796 |
+| 1536 | base64 | raw | 16510 | 16510 |
+| 1536 | base64 | gzip | 16462 | 5634796 |
 
-Compressible text-like profile:
-
-| Preferred chunk | QR codec | Payload codec | Effective chunk | Max original input bytes (1 page) | Stored payload bytes | Ciphertext bytes | Frames (MAIN+AUTH) |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 768 | raw | raw | 768 | 8063 | 8063 | 8448 | 11+1 |
-| 768 | raw | gzip | 768 | 2733832 | 8039 | 8448 | 11+1 |
-| 768 | base64 | raw | 768 | 8063 | 8063 | 8448 | 11+1 |
-| 768 | base64 | gzip | 768 | 2733832 | 8039 | 8448 | 11+1 |
-| 1536 | raw | raw | 1536 | 16510 | 16510 | 16896 | 11+1 |
-| 1536 | raw | gzip | 1536 | 5634796 | 16486 | 16896 | 11+1 |
-| 1536 | base64 | raw | 1536 | 16510 | 16510 | 16896 | 11+1 |
-| 1536 | base64 | gzip | 1536 | 5634796 | 16486 | 16896 | 11+1 |
-
-Notes:
-- Under current QR settings, `raw` and `base64` transport codecs produce the same frame-count
-  envelope for these chunk sizes.
-- For incompressible inputs, forced `gzip` slightly reduces maximum recoverable original bytes.
-- For compressible inputs, forced `gzip` can dramatically increase original bytes that still fit on
-  a single 3x4 page.
+</details>
 
 ## Who It's For / Not For
 
