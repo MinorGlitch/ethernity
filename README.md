@@ -17,6 +17,8 @@
     &middot;
     <a href="docs/format_notes.md"><strong>Format notes</strong></a>
     &middot;
+    <a href="docs/format_changes.md"><strong>Format changes</strong></a>
+    &middot;
     <a href="SECURITY.md"><strong>Security policy</strong></a>
     <br />
     <a href="https://github.com/MinorGlitch/ethernity/issues">Issues</a>
@@ -29,11 +31,10 @@
 
 ## Table of Contents
 
-Start here: [Quick Start](#quick-start)
-
 - [Status](#status)
 - [What Is Ethernity?](#what-is-ethernity)
 - [What Ethernity Supports](#what-ethernity-supports)
+- [How Much Data Can I Store? (3x4 Grid)](#how-much-data-can-i-store-3x4-grid)
 - [Who It's For / Not For](#who-its-for--not-for)
 - [Document Previews](#document-previews)
 - [Quick Start](#quick-start)
@@ -96,6 +97,61 @@ Core capabilities you can rely on today:
   - supported template designs (`archive`, `forge`, `ledger`, `maritime`, `sentinel`)
   - A4/Letter paper targeting and deterministic render layout
   - documented format baseline and release-provenance verification guidance
+
+## How Much Data Can I Store? (3x4 Grid)
+
+Most templates use a 3x4 QR grid on the main QR document first page (12 total slots).
+This section shows results from running the real backup/framing/QR-fit pipeline.
+It estimates how much original input data can fit on that first page.
+For one-page recovery sizing, model it as 11 MAIN frames plus 1 AUTH frame:
+
+| Row | Col 1 | Col 2 | Col 3 |
+| --- | --- | --- | --- |
+| 1 | MAIN | MAIN | MAIN |
+| 2 | MAIN | MAIN | MAIN |
+| 3 | MAIN | MAIN | MAIN |
+| 4 | MAIN | MAIN | AUTH |
+
+Test setup (current defaults):
+- Preferred chunk size: `768` (default) and `1536`
+- QR transport codec: `raw` and `base64`
+- Manifest payload codec: `raw` and `gzip`
+- QR config: `src/ethernity/config/config.toml` (`error = "M"`, auto version)
+- Fit rule: total QR frames on first page `<= 12` (11 MAIN + 1 AUTH)
+- Profiles: incompressible random bytes (safety baseline) and compressible text-like bytes
+
+Incompressible random profile:
+
+| Preferred chunk | QR codec | Payload codec | Effective chunk | Max original input bytes (1 page) | Stored payload bytes | Ciphertext bytes | Frames (MAIN+AUTH) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 768 | raw | raw | 768 | 8063 | 8063 | 8448 | 11+1 |
+| 768 | raw | gzip | 768 | 8020 | 8043 | 8448 | 11+1 |
+| 768 | base64 | raw | 768 | 8063 | 8063 | 8448 | 11+1 |
+| 768 | base64 | gzip | 768 | 8020 | 8043 | 8448 | 11+1 |
+| 1536 | raw | raw | 1536 | 16510 | 16510 | 16896 | 11+1 |
+| 1536 | raw | gzip | 1536 | 16462 | 16490 | 16896 | 11+1 |
+| 1536 | base64 | raw | 1536 | 16510 | 16510 | 16896 | 11+1 |
+| 1536 | base64 | gzip | 1536 | 16462 | 16490 | 16896 | 11+1 |
+
+Compressible text-like profile:
+
+| Preferred chunk | QR codec | Payload codec | Effective chunk | Max original input bytes (1 page) | Stored payload bytes | Ciphertext bytes | Frames (MAIN+AUTH) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 768 | raw | raw | 768 | 8063 | 8063 | 8448 | 11+1 |
+| 768 | raw | gzip | 768 | 2733832 | 8039 | 8448 | 11+1 |
+| 768 | base64 | raw | 768 | 8063 | 8063 | 8448 | 11+1 |
+| 768 | base64 | gzip | 768 | 2733832 | 8039 | 8448 | 11+1 |
+| 1536 | raw | raw | 1536 | 16510 | 16510 | 16896 | 11+1 |
+| 1536 | raw | gzip | 1536 | 5634796 | 16486 | 16896 | 11+1 |
+| 1536 | base64 | raw | 1536 | 16510 | 16510 | 16896 | 11+1 |
+| 1536 | base64 | gzip | 1536 | 5634796 | 16486 | 16896 | 11+1 |
+
+Notes:
+- Under current QR settings, `raw` and `base64` transport codecs produce the same frame-count
+  envelope for these chunk sizes.
+- For incompressible inputs, forced `gzip` slightly reduces maximum recoverable original bytes.
+- For compressible inputs, forced `gzip` can dramatically increase original bytes that still fit on
+  a single 3x4 page.
 
 ## Who It's For / Not For
 
@@ -182,10 +238,12 @@ Artifact naming:
 ethernity-{tag}-{os}-{arch}.{zip|tar.gz}
 ```
 
+Replace `{tag}` with the current release tag (for example, `v1.0.1`).
+
 Download and verify on Linux:
 
 ```sh
-TAG="v1.0.0"
+TAG="v1.0.1"
 OS_ARCH="linux-x64" # or linux-arm64
 BASE="ethernity-${TAG}-${OS_ARCH}.tar.gz"
 
@@ -201,7 +259,7 @@ tar -xzf "${BASE}"
 Download and verify on macOS:
 
 ```sh
-TAG="v1.0.0"
+TAG="v1.0.1"
 OS_ARCH="macos-arm64" # or macos-x64
 BASE="ethernity-${TAG}-${OS_ARCH}.tar.gz"
 
@@ -217,7 +275,7 @@ tar -xzf "${BASE}"
 Windows PowerShell equivalent:
 
 ```powershell
-$Tag = "v1.0.0"
+$Tag = "v1.0.1"
 $OsArch = "windows-x64" # currently published Windows variant
 $Base = "ethernity-$Tag-$OsArch.zip"
 
@@ -233,16 +291,11 @@ Expand-Archive -Path $Base -DestinationPath .
 For full verification and provenance guidance, use
 [Wiki: Release Artifacts](https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts).
 
-### 3) Alternative: Install via pipx or pip
+### 3) Alternative: Install via pip
 
 Use this when you prefer Python package installation instead of Homebrew or release archives.
 
-`pipx` is recommended for isolated CLI installation:
-
-```sh
-pipx install ethernity-paper
-ethernity --help
-```
+If you want an isolated CLI install, use `pipx install ethernity-paper` from step 1.
 
 `pip` is acceptable inside an existing Python environment:
 
@@ -305,11 +358,16 @@ ethernity backup --input ./vault-export.json --output-dir ./demo-backup
 # 3) Recover from scans
 ethernity recover --scan ./demo-backup --output ./vault-export.recovered.json
 
-# 4) Validate payload equality
+# 4) Validate payload equality (macOS/Linux)
 cmp ./vault-export.json ./vault-export.recovered.json
 ```
 
-Expected result: `cmp` exits with status `0` and recovered JSON is byte-identical.
+```powershell
+# 4) Validate payload equality (Windows PowerShell)
+fc.exe /b .\vault-export.json .\vault-export.recovered.json
+```
+
+Expected result: `cmp` (or `fc /b`) reports no differences and recovered JSON is byte-identical.
 
 ## Troubleshooting (Quick Fixes)
 
