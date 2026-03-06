@@ -103,29 +103,49 @@ Core capabilities you can rely on today:
 Most templates use a 3x4 QR grid on the main QR document first page (12 total slots, including one
 AUTH frame).
 
+**One-page only:** these numbers describe first-page fit, not total backup capacity.
+
 Practical first-page guidance:
-- Default `--qr-chunk-size 768`: plan for about `8 KB` of original data on page 1.
-- `--qr-chunk-size 1536`: plan for about `16 KB` of original data on page 1.
+- Assumes default QR error correction `M`.
+- Default `--qr-chunk-size 768`: plan for about `~7.9 KiB` of original data on page 1.
+- `--qr-chunk-size 1536`: plan for about `~16.1 KiB` of original data on page 1.
 - If input compresses well and `gzip` is used, much larger original data can still fit on one page.
 - If input is larger than one page capacity, Ethernity automatically spills to additional QR pages.
 
-<details>
-<summary>Advanced capacity reference (full matrix)</summary>
+Limits depend on QR settings and template layout (error level, page geometry, and future defaults),
+so treat these as baseline guidance.
+
+Advanced capacity reference (with units):
 
 These values come from running the real backup/framing/QR-fit pipeline with current defaults.
 
-| Preferred chunk | QR codec | Payload codec | Max original input bytes (incompressible profile) | Max original input bytes (compressible profile) |
-| --- | --- | --- | --- | --- |
-| 768 | raw | raw | 8063 | 8063 |
-| 768 | raw | gzip | 8020 | 2733832 |
-| 768 | base64 | raw | 8063 | 8063 |
-| 768 | base64 | gzip | 8020 | 2733832 |
-| 1536 | raw | raw | 16510 | 16510 |
-| 1536 | raw | gzip | 16462 | 5634796 |
-| 1536 | base64 | raw | 16510 | 16510 |
-| 1536 | base64 | gzip | 16462 | 5634796 |
+| QR error correction | Preferred chunk size | QR transport codec | Payload codec | Effective chunk size used | Max original input (incompressible profile) | Max original input (compressible profile) |
+| --- | --- | --- | --- | --- | --- | --- |
+| L | 768 B | raw/base64 | raw | 768 B | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) |
+| L | 768 B | raw/base64 | gzip | 768 B | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
+| L | 1,536 B | raw/base64 | raw | 1,536 B | 16,510 B (16.12 KiB) | 16,510 B (16.12 KiB) |
+| L | 1,536 B | raw/base64 | gzip | 1,536 B | 16,462 B (16.08 KiB) | 5,634,796 B (5.37 MiB) |
+| M | 768 B | raw/base64 | raw | 768 B | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) |
+| M | 768 B | raw/base64 | gzip | 768 B | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
+| M | 1,536 B | raw/base64 | raw | 1,536 B | 16,510 B (16.12 KiB) | 16,510 B (16.12 KiB) |
+| M | 1,536 B | raw/base64 | gzip | 1,536 B | 16,462 B (16.08 KiB) | 5,634,796 B (5.37 MiB) |
+| Q | 768 B | raw/base64 | raw | 768 B | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) |
+| Q | 768 B | raw/base64 | gzip | 768 B | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
+| Q | 1,536 B | raw | raw | 1,536 B | 16,510 B (16.12 KiB) | 16,510 B (16.12 KiB) |
+| Q | 1,536 B | raw | gzip | 1,536 B | 16,462 B (16.08 KiB) | 5,634,796 B (5.37 MiB) |
+| Q | 1,536 B | base64 | raw | 1,227 B | 13,112 B (12.80 KiB) | 13,112 B (12.80 KiB) |
+| Q | 1,536 B | base64 | gzip | 1,227 B | 13,069 B (12.76 KiB) | 4,465,912 B (4.26 MiB) |
+| H | 768 B | raw/base64 | raw | 768 B | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) |
+| H | 768 B | raw/base64 | gzip | 768 B | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
+| H | 1,536 B | raw | raw | 1,253 B | 13,398 B (13.08 KiB) | 13,398 B (13.08 KiB) |
+| H | 1,536 B | raw | gzip | 1,253 B | 13,355 B (13.04 KiB) | 4,564,342 B (4.35 MiB) |
+| H | 1,536 B | base64 | raw | 934 B | 9,889 B (9.66 KiB) | 9,889 B (9.66 KiB) |
+| H | 1,536 B | base64 | gzip | 934 B | 9,846 B (9.62 KiB) | 3,361,806 B (3.21 MiB) |
 
-</details>
+QR transport codec note (current defaults):
+- At `--qr-chunk-size 768`, `raw` and `base64` produced the same first-page fit limits.
+- At `--qr-chunk-size 1536`, `base64` can reduce effective chunk size at higher error correction
+  levels (`Q`/`H`), which lowers one-page capacity.
 
 ## Who It's For / Not For
 
