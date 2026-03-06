@@ -119,33 +119,15 @@ Advanced capacity reference (with units):
 
 These values come from running the real backup/framing/QR-fit pipeline with current defaults.
 
-| QR error correction | Preferred chunk size | QR transport codec | Payload codec | Effective chunk size used | Max original input (incompressible profile) | Max original input (compressible profile) |
-| --- | --- | --- | --- | --- | --- | --- |
-| L | 768 B | raw/base64 | raw | 768 B | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) |
-| L | 768 B | raw/base64 | gzip | 768 B | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
-| L | 1,536 B | raw/base64 | raw | 1,536 B | 16,510 B (16.12 KiB) | 16,510 B (16.12 KiB) |
-| L | 1,536 B | raw/base64 | gzip | 1,536 B | 16,462 B (16.08 KiB) | 5,634,796 B (5.37 MiB) |
-| M | 768 B | raw/base64 | raw | 768 B | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) |
-| M | 768 B | raw/base64 | gzip | 768 B | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
-| M | 1,536 B | raw/base64 | raw | 1,536 B | 16,510 B (16.12 KiB) | 16,510 B (16.12 KiB) |
-| M | 1,536 B | raw/base64 | gzip | 1,536 B | 16,462 B (16.08 KiB) | 5,634,796 B (5.37 MiB) |
-| Q | 768 B | raw/base64 | raw | 768 B | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) |
-| Q | 768 B | raw/base64 | gzip | 768 B | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
-| Q | 1,536 B | raw | raw | 1,536 B | 16,510 B (16.12 KiB) | 16,510 B (16.12 KiB) |
-| Q | 1,536 B | raw | gzip | 1,536 B | 16,462 B (16.08 KiB) | 5,634,796 B (5.37 MiB) |
-| Q | 1,536 B | base64 | raw | 1,227 B | 13,112 B (12.80 KiB) | 13,112 B (12.80 KiB) |
-| Q | 1,536 B | base64 | gzip | 1,227 B | 13,069 B (12.76 KiB) | 4,465,912 B (4.26 MiB) |
-| H | 768 B | raw/base64 | raw | 768 B | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) |
-| H | 768 B | raw/base64 | gzip | 768 B | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
-| H | 1,536 B | raw | raw | 1,253 B | 13,398 B (13.08 KiB) | 13,398 B (13.08 KiB) |
-| H | 1,536 B | raw | gzip | 1,253 B | 13,355 B (13.04 KiB) | 4,564,342 B (4.35 MiB) |
-| H | 1,536 B | base64 | raw | 934 B | 9,889 B (9.66 KiB) | 9,889 B (9.66 KiB) |
-| H | 1,536 B | base64 | gzip | 934 B | 9,846 B (9.62 KiB) | 3,361,806 B (3.21 MiB) |
+| Preferred chunk size | Payload codec | Max original input (incompressible profile) | Max original input (compressible profile) |
+| --- | --- | --- | --- |
+| 768 B | raw | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) |
+| 768 B | gzip | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
+| 1,536 B | raw | 16,510 B (16.12 KiB) | 16,510 B (16.12 KiB) |
+| 1,536 B | gzip | 16,462 B (16.08 KiB) | 5,634,796 B (5.37 MiB) |
 
-QR transport codec note (current defaults):
-- At `--qr-chunk-size 768`, `raw` and `base64` produced the same first-page fit limits.
-- At `--qr-chunk-size 1536`, `base64` can reduce effective chunk size at higher error correction
-  levels (`Q`/`H`), which lowers one-page capacity.
+Error-correction impact range: compared with default `M`, switching to `Q`/`H` changes one-page
+capacity by about `0%` to `40%` in these runs (largest drop at `1,536` + `base64` + `H`).
 
 ## Who It's For / Not For
 
