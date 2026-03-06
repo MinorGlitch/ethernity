@@ -112,19 +112,15 @@ Baseline one-page capacity at defaults (`error = M`, QR transport `raw`):
 
 Advanced combinations with fixed QR version (`version = 33`, auto-scaling disabled):
 
-This table keeps the previous layout, but locks QR version so `raw` vs `base64` impact is explicit.
-Assumptions for this table: QR error correction `M`.
+This comparison isolates `raw` vs `base64` QR transport impact with QR error correction `M`.
+All rows below use payload codec `gzip`.
 
-| Preferred chunk size | QR transport codec | Payload codec | Max original input (incompressible profile) | Max original input (compressible profile) |
-| --- | --- | --- | --- | --- |
-| 768 B | raw | raw | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) |
-| 768 B | raw | gzip | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
-| 768 B | base64 | raw | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) |
-| 768 B | base64 | gzip | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
-| 1,536 B | raw | raw | 16,510 B (16.12 KiB) | 16,510 B (16.12 KiB) |
-| 1,536 B | raw | gzip | 16,462 B (16.08 KiB) | 5,634,796 B (5.37 MiB) |
-| 1,536 B | base64 | raw | 12,826 B (12.53 KiB) | 12,826 B (12.53 KiB) |
-| 1,536 B | base64 | gzip | 12,783 B (12.48 KiB) | 4,367,500 B (4.16 MiB) |
+| Preferred chunk size | QR transport codec | Max original input (incompressible profile) | Max original input (compressible profile) |
+| --- | --- | --- | --- |
+| 768 B | raw | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
+| 768 B | base64 | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
+| 1,536 B | raw | 16,462 B (16.08 KiB) | 5,634,796 B (5.37 MiB) |
+| 1,536 B | base64 | 12,783 B (12.48 KiB) | 4,367,500 B (4.16 MiB) |
 
 If you raise QR error correction to `Q` or `H`, one-page capacity drops further.
 
