@@ -115,14 +115,16 @@ Advanced combinations with fixed QR version (`version = 33`, auto-scaling disabl
 This comparison isolates `raw` vs `base64` QR transport impact with QR error correction `M`.
 All rows below use payload codec `gzip`.
 
-| Preferred chunk size | QR transport codec | Max original input (incompressible profile) | Max original input (compressible profile) |
+| Preferred chunk size | QR transport codec | Max original input (incompressible profile) | Max original input (moderately compressible JSON-like profile) |
 | --- | --- | --- | --- |
-| 768 B | raw | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
-| 768 B | base64 | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
-| 1,536 B | raw | 16,462 B (16.08 KiB) | 5,634,796 B (5.37 MiB) |
-| 1,536 B | base64 | 12,783 B (12.48 KiB) | 4,367,500 B (4.16 MiB) |
+| 768 B | raw | 8,020 B (7.83 KiB) | 73,624 B (71.90 KiB) |
+| 768 B | base64 | 8,020 B (7.83 KiB) | 73,624 B (71.90 KiB) |
+| 1,536 B | raw | 16,462 B (16.08 KiB) | 152,798 B (149.22 KiB) |
+| 1,536 B | base64 | 12,783 B (12.48 KiB) | 118,198 B (115.43 KiB) |
 
 If you raise QR error correction to `Q` or `H`, one-page capacity drops further.
+The JSON-like profile is a practical middle ground; highly repetitive synthetic text can compress much
+more, while incompressible binary data compresses little or not at all.
 
 ## Who It's For / Not For
 
