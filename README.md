@@ -416,20 +416,34 @@ Before opening a PR, read [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](
 ## Credits
 
 Ethernity was heavily inspired by [Paperback](https://github.com/cyphar/paperback) by cyphar.
-Also worth checking out:
+
+Worth checking out:
 
 - [Rememory](https://github.com/eljojo/rememory) by eljojo
 
 Core open-source building blocks include:
 
-- [age](https://github.com/FiloSottile/age)
-- Typer, Rich, and Questionary
-- fpdf2, Jinja2, and Playwright
+- [age](https://github.com/FiloSottile/age) via [pyrage](https://github.com/str4d/rage), plus
+  [PyCryptodome](https://github.com/Legrandin/pycryptodome) and
+  [cbor2](https://github.com/agronholm/cbor2)
+- [Typer](https://github.com/fastapi/typer), [Rich](https://github.com/Textualize/rich), and
+  [Questionary](https://github.com/tmbo/questionary)
+- [fpdf2](https://github.com/py-pdf/fpdf2), [Jinja2](https://github.com/pallets/jinja), and
+  [Playwright](https://playwright.dev/python/)
+- [Segno](https://github.com/heuer/segno), [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp),
+  [jsQR](https://github.com/cozmo/jsQR), [@noble/ciphers](https://github.com/paulmillr/noble-ciphers),
+  and [@noble/hashes](https://github.com/paulmillr/noble-hashes)
 
 Standards and verification ecosystem acknowledgements:
 
-- [BIP-39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) mnemonic standard
-- [Sigstore](https://www.sigstore.dev/) and [Cosign](https://github.com/sigstore/cosign) for artifact verification workflows
+- [age v1 format](https://age-encryption.org/v1),
+  [BIP-39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki),
+  [RFC 8949 (CBOR)](https://www.rfc-editor.org/rfc/rfc8949),
+  [Unicode TR15](https://unicode.org/reports/tr15/),
+  [z-base-32 reference](https://philzimmermann.com/docs/human-oriented-base-32-encoding.txt), and
+  Shamir's secret sharing paper (1979)
+- [Sigstore](https://www.sigstore.dev/) and [Cosign](https://github.com/sigstore/cosign) for
+  artifact verification workflows
 
 ## Star History
 
