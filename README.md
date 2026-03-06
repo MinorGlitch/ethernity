@@ -100,20 +100,8 @@ Core capabilities you can rely on today:
 
 ## How Much Data Can I Store? (Quick Guide)
 
-Most templates use a 3x4 QR grid on the main QR document first page (12 total slots, including one
-AUTH frame).
-
-**One-page only:** these numbers describe first-page fit, not total backup capacity.
-
-Practical first-page guidance:
-- Assumes default QR error correction `M`.
-- Default `--qr-chunk-size 768`: plan for about `~7.9 KiB` of original data on page 1.
-- `--qr-chunk-size 1536`: plan for about `~16.1 KiB` of original data on page 1.
-- If input compresses well and `gzip` is used, much larger original data can still fit on one page.
-- If input is larger than one page capacity, Ethernity automatically spills to additional QR pages.
-
-Limits depend on QR settings and template layout (error level, page geometry, and future defaults),
-so treat these as baseline guidance.
+Most templates use a 3x4 first-page grid (11 MAIN + 1 AUTH).
+**One-page only:** this section describes first-page fit, not total backup capacity.
 
 Baseline one-page capacity at defaults (`error = M`, QR transport `raw`):
 
@@ -122,25 +110,23 @@ Baseline one-page capacity at defaults (`error = M`, QR transport `raw`):
 | 768 B | 8,063 B (7.87 KiB) |
 | 1,536 B | 16,510 B (16.12 KiB) |
 
-Impact table with fixed QR version (`version = 33`, auto-scaling disabled):
+Advanced combinations with fixed QR version (`version = 33`, auto-scaling disabled):
 
-This is an explanatory comparison view; default runtime behavior still uses QR auto-scaling.
+This table keeps the previous layout, but locks QR version so `raw` vs `base64` impact is explicit.
+Assumptions for this table: QR error correction `M`.
 
-These rows isolate QR transport and error-correction effects.
-Assumptions for this table: incompressible profile, payload codec `raw`.
-
-| QR error correction | 768 B chunk, raw | 768 B chunk, base64 | 1,536 B chunk, raw | 1,536 B chunk, base64 |
+| Preferred chunk size | QR transport codec | Payload codec | Max original input (incompressible profile) | Max original input (compressible profile) |
 | --- | --- | --- | --- | --- |
-| L | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) | 16,510 B (16.12 KiB) | 16,455 B (16.07 KiB) |
-| M | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) | 16,510 B (16.12 KiB) | 12,826 B (12.53 KiB) |
-| Q | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) | 12,243 B (11.96 KiB) | 9,031 B (8.82 KiB) |
-| H | 8,063 B (7.87 KiB) | 6,798 B (6.64 KiB) | 9,273 B (9.06 KiB) | 6,798 B (6.64 KiB) |
+| 768 B | raw | raw | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) |
+| 768 B | raw | gzip | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
+| 768 B | base64 | raw | 8,063 B (7.87 KiB) | 8,063 B (7.87 KiB) |
+| 768 B | base64 | gzip | 8,020 B (7.83 KiB) | 2,733,832 B (2.61 MiB) |
+| 1,536 B | raw | raw | 16,510 B (16.12 KiB) | 16,510 B (16.12 KiB) |
+| 1,536 B | raw | gzip | 16,462 B (16.08 KiB) | 5,634,796 B (5.37 MiB) |
+| 1,536 B | base64 | raw | 12,826 B (12.53 KiB) | 12,826 B (12.53 KiB) |
+| 1,536 B | base64 | gzip | 12,783 B (12.48 KiB) | 4,367,500 B (4.16 MiB) |
 
-In this fixed-version view, `base64` reduces one-page capacity by about `0%` to `26.7%` versus
-`raw`, depending on chunk size and error-correction level.
-
-If you use payload codec `gzip` and your input compresses well, original-data capacity can be much
-higher than the incompressible baseline above.
+If you raise QR error correction to `Q` or `H`, one-page capacity drops further.
 
 ## Who It's For / Not For
 
