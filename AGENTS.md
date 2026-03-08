@@ -85,6 +85,7 @@ conventions and a glob-based, working-tree inventory contract for contributors a
   - `advanced_fallback_layout`
   - `extra_main_first_page_qr_slot`
   - `uniform_main_qr_capacity`
+  - `repeat_main_instructions_on_all_pages`
   - `main_qr_grid_size_mm`
   - `main_qr_grid_max_cols`
   - `fallback_layout` (requires `recovery`, `shard`, `signing_key_shard` geometry profiles)

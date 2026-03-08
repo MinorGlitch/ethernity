@@ -35,6 +35,8 @@
   {% include 'partials/sentinel_tailwind_setup.j2' %}
   <style>
     {% include 'partials/material_symbols_local.j2' %}
+    {% include 'partials/print_text_clarity.j2' %}
+
     @page {
       size: {{ page_size_css }};
       margin: 0;
@@ -82,7 +84,7 @@
     }
   </style>
 </head>
-<body class="bg-background-light font-display antialiased min-h-screen">
+<body class="bg-background-light font-display min-h-screen">
 {% for page in pages %}
   <section class="print-sheet border border-border-light flex flex-col">
     <div class="absolute inset-0 watermark-grid opacity-[0.04] pointer-events-none"></div>

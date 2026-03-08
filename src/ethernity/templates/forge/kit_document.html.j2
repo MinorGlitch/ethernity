@@ -21,6 +21,7 @@
   <style>
     {% include 'partials/forge_tailwind.j2' %}
     {% include 'partials/material_symbols_local.j2' %}
+    {% include 'partials/print_text_clarity.j2' %}
 
     @page {
       size: {{ page_size_css }};
@@ -66,7 +67,7 @@
     }
   </style>
 </head>
-<body class="bg-background-light font-display antialiased min-h-screen flex flex-col">
+<body class="bg-background-light font-display min-h-screen flex flex-col">
 {% for page in pages %}
   <section class="print-sheet flex flex-col p-[15mm] border border-gray-100">
     {% if page.instructions_full_page %}

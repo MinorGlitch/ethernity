@@ -116,6 +116,7 @@ qr_payload_codec = "raw"
                     design="forge",
                     payload_codec="gzip",
                     qr_payload_codec="base64",
+                    qr_error_correction="Q",
                     page_size="LETTER",
                     backup_output_dir="/tmp/backups",
                     qr_chunk_size=384,
@@ -134,6 +135,7 @@ qr_payload_codec = "raw"
         self.assertEqual(parsed["kit_template"]["name"], "forge")
         self.assertEqual(parsed["defaults"]["backup"]["payload_codec"], "gzip")
         self.assertEqual(parsed["defaults"]["backup"]["qr_payload_codec"], "base64")
+        self.assertEqual(parsed["qr"]["error"], "Q")
         self.assertEqual(parsed["page"]["size"], "LETTER")
         self.assertEqual(parsed["defaults"]["backup"]["output_dir"], "/tmp/backups")
         self.assertEqual(parsed["qr"]["chunk_size"], 384)

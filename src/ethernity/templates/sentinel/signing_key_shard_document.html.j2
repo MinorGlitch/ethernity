@@ -21,6 +21,8 @@
   {% include 'partials/sentinel_tailwind_setup.j2' %}
   <style>
     {% include 'partials/material_symbols_local.j2' %}
+    {% include 'partials/print_text_clarity.j2' %}
+
     @page {
       size: {{ page_size_css }};
       margin: 0;
@@ -125,7 +127,7 @@
           </div>
           {% endif %}
 
-          <div class="flex-1 min-w-0 bg-gray-50 border border-gray-200 p-4 rounded font-mono text-[10px] leading-5 tracking-normal text-black min-h-[160px]">
+          <div class="fallback-payload flex-1 min-w-0 bg-gray-50 border border-gray-200 p-4 rounded font-mono text-[10px] leading-5 tracking-normal text-black min-h-[160px]">
             {% if page.fallback_blocks %}
               {% for block in page.fallback_blocks %}
                 {% if block.title %}

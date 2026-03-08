@@ -36,6 +36,10 @@ node_modules/
 # Kit build outputs (dev only, canonical bundle is in src/ethernity/kit/)
 kit/dist/
 backup-*/
+generated_backups/
+generated_backups_input.txt
+session-ses_*.md
+src/ethernity.zip
 
 # macOS
 .DS_Store

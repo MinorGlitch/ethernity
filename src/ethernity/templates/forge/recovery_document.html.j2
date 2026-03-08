@@ -21,6 +21,7 @@
   <style>
     {% include 'partials/forge_tailwind.j2' %}
     {% include 'partials/material_symbols_local.j2' %}
+    {% include 'partials/print_text_clarity.j2' %}
 
     @page {
       size: {{ page_size_css }};
@@ -111,7 +112,7 @@
           {% for line in block.lines %}
           <div class="flex items-end gap-3 py-1.5 border-b border-slate-300">
             <span class="w-10 font-mono text-slate-500 text-right select-none text-sm">{{ '%02d' % (block.line_offset + loop.index) }}.</span>
-            <div class="flex-1 border-b-0 border-black border-dotted h-6 bg-slate-50/50 font-mono text-xs text-slate-800 px-2 py-1 whitespace-nowrap">{{ line }}</div>
+            <div class="fallback-payload flex-1 border-b-0 border-black border-dotted h-6 bg-slate-50/50 font-mono text-xs text-slate-800 px-2 py-1 whitespace-nowrap">{{ line }}</div>
           </div>
           {% endfor %}
         {% endfor %}

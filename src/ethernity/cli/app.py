@@ -82,6 +82,40 @@ def _should_run_first_run_onboarding(invoked_subcommand: str | None) -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
+def _home_backup_wizard_args(
+    *,
+    state: CliContextState | None,
+    config: str | None,
+    paper: str | None,
+    design: str | None,
+    debug_max_bytes: int,
+    debug_reveal_secrets: bool,
+    quiet: bool,
+) -> BackupArgs:
+    """Build backup wizard args for the interactive home screen flow."""
+
+    backup_defaults = state.backup_defaults if state is not None else None
+    return BackupArgs(
+        config=config,
+        paper=paper,
+        design=design,
+        base_dir=backup_defaults.base_dir if backup_defaults is not None else None,
+        output_dir=backup_defaults.output_dir if backup_defaults is not None else None,
+        shard_threshold=backup_defaults.shard_threshold if backup_defaults is not None else None,
+        shard_count=backup_defaults.shard_count if backup_defaults is not None else None,
+        signing_key_mode=backup_defaults.signing_key_mode if backup_defaults is not None else None,
+        signing_key_shard_threshold=(
+            backup_defaults.signing_key_shard_threshold if backup_defaults is not None else None
+        ),
+        signing_key_shard_count=(
+            backup_defaults.signing_key_shard_count if backup_defaults is not None else None
+        ),
+        debug_max_bytes=debug_max_bytes,
+        debug_reveal_secrets=debug_reveal_secrets,
+        quiet=quiet,
+    )
+
+
 def _version_callback(value: bool) -> None:
     if value:
         console.print(f"ethernity {_get_version()}")
@@ -290,7 +324,15 @@ def cli(
                 debug=debug,
             )
         else:
-            wizard_args = BackupArgs(design=design) if design else None
+            wizard_args = _home_backup_wizard_args(
+                state=ctx.obj,
+                config=config_value,
+                paper=paper_value,
+                design=design,
+                debug_max_bytes=effective_debug_max_bytes,
+                debug_reveal_secrets=debug_reveal_secrets,
+                quiet=effective_quiet,
+            )
             _run_cli(
                 lambda: run_wizard(
                     debug_override=debug if debug else None,

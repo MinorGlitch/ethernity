@@ -102,6 +102,15 @@ def _uses_uniform_main_qr_capacity(*, doc_type: str, capabilities: TemplateCapab
     return doc_type.strip().lower() == DOC_TYPE_MAIN and capabilities.uniform_main_qr_capacity
 
 
+def _uses_repeated_main_instructions(*, doc_type: str, capabilities: TemplateCapabilities) -> bool:
+    """Return whether main-document instructions should appear on all pages."""
+
+    return (
+        doc_type.strip().lower() == DOC_TYPE_MAIN
+        and capabilities.repeat_main_instructions_on_all_pages
+    )
+
+
 def _apply_main_qr_grid_overrides(
     *,
     spec: DocumentSpec,
@@ -339,6 +348,11 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     keys_first_page_only = bool(spec.keys.first_page_only)
     instructions_first_page_only = bool(spec.instructions.first_page_only)
     if _uses_uniform_main_qr_capacity(
+        doc_type=inputs.doc_type,
+        capabilities=style.capabilities,
+    ):
+        instructions_first_page_only = False
+    if _uses_repeated_main_instructions(
         doc_type=inputs.doc_type,
         capabilities=style.capabilities,
     ):

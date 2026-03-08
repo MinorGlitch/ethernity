@@ -23,6 +23,8 @@
 <head>
   <meta charset="utf-8">
   <style>
+    {% include 'partials/print_text_clarity.j2' %}
+
     @page {
       size: {{ page_size_css }};
       margin: 0;
@@ -261,7 +263,7 @@
       position: absolute;
       left: {{ margin_mm }}mm;
       width: {{ fallback.width_mm }}mm;
-      font-family: "Courier", "Courier New", monospace;
+      font-family: var(--font-mono);
       font-size: 9.0pt;
       line-height: var(--fallback-line);
       letter-spacing: 0;

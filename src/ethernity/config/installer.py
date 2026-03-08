@@ -72,6 +72,7 @@ ONBOARDING_FIELD_TEMPLATE_DESIGN = "template_design"
 ONBOARDING_FIELD_PAGE_SIZE = "page_size"
 ONBOARDING_FIELD_BACKUP_OUTPUT_DIR = "backup_output_dir"
 ONBOARDING_FIELD_QR_CHUNK_SIZE = "qr_chunk_size"
+ONBOARDING_FIELD_QR_ERROR_CORRECTION = "qr_error_correction"
 ONBOARDING_FIELD_SHARDING = "sharding"
 ONBOARDING_FIELD_PAYLOAD_CODEC = "payload_codec"
 ONBOARDING_FIELD_QR_PAYLOAD_CODEC = "qr_payload_codec"
@@ -102,6 +103,7 @@ class ConfigMigrationStep:
 
 PayloadCodec = Literal["auto", "raw", "gzip"]
 QrPayloadCodec = Literal["raw", "base64"]
+QrErrorCorrection = Literal["L", "M", "Q", "H"]
 PageSize = Literal["A4", "LETTER"]
 SigningKeyMode = Literal["embedded", "sharded"]
 
@@ -266,6 +268,7 @@ def apply_first_run_defaults(
     design: str,
     payload_codec: PayloadCodec,
     qr_payload_codec: QrPayloadCodec,
+    qr_error_correction: QrErrorCorrection,
     page_size: PageSize,
     backup_output_dir: str | None,
     qr_chunk_size: int,
@@ -282,6 +285,8 @@ def apply_first_run_defaults(
         raise ValueError("payload_codec must be 'auto', 'raw', or 'gzip'")
     if qr_payload_codec not in {"raw", "base64"}:
         raise ValueError("qr_payload_codec must be 'raw' or 'base64'")
+    if qr_error_correction not in {"L", "M", "Q", "H"}:
+        raise ValueError("qr_error_correction must be one of 'L', 'M', 'Q', or 'H'")
     if page_size not in {"A4", "LETTER"}:
         raise ValueError("page_size must be 'A4' or 'LETTER'")
     if qr_chunk_size <= 0:
@@ -345,6 +350,7 @@ def apply_first_run_defaults(
         key="qr_payload_codec",
         value=f'"{qr_payload_codec}"',
     )
+    updated = _upsert_table_key(updated, table="qr", key="error", value=f'"{qr_error_correction}"')
     updated = _upsert_table_key(updated, table="page", key="size", value=f'"{page_size}"')
     updated = _upsert_table_key(
         updated,

@@ -22,7 +22,7 @@ from unittest import mock
 import typer
 
 from ethernity.cli.core.types import CliContextState, RecoverArgs
-from ethernity.config import CliDefaults, DebugDefaults, UiDefaults
+from ethernity.config import BackupDefaults, CliDefaults, DebugDefaults, UiDefaults
 
 app_module = importlib.import_module("ethernity.cli.app")
 
@@ -371,6 +371,69 @@ class TestCliApp(unittest.TestCase):
         run_wizard.assert_called_once()
         self.assertEqual(run_wizard.call_args.kwargs["args"].design, "forge")
         self.assertTrue(run_wizard.call_args.kwargs["debug_reveal_secrets"])
+
+    @mock.patch("ethernity.cli.app.run_wizard", return_value=0)
+    @mock.patch("ethernity.cli.app._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch("ethernity.cli.app.prompt_home_action", return_value="backup")
+    @mock.patch("ethernity.cli.app.ui_screen_mode", return_value=contextlib.nullcontext())
+    @mock.patch("ethernity.cli.app.run_first_run_config_wizard", return_value=False)
+    @mock.patch("ethernity.cli.app._resolve_config_and_paper", return_value=("cfg", "A4"))
+    @mock.patch("ethernity.cli.app.sys.stdout.isatty", return_value=True)
+    @mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=True)
+    @mock.patch("ethernity.cli.app.run_startup", return_value=False)
+    def test_cli_interactive_backup_route_hydrates_saved_backup_defaults(
+        self,
+        _run_startup: mock.MagicMock,
+        _stdin_tty: mock.MagicMock,
+        _stdout_tty: mock.MagicMock,
+        _resolve_config_and_paper: mock.MagicMock,
+        _run_first_run_config_wizard: mock.MagicMock,
+        ui_screen_mode: mock.MagicMock,
+        _prompt_home_action: mock.MagicMock,
+        _run_cli: mock.MagicMock,
+        run_wizard: mock.MagicMock,
+    ) -> None:
+        ctx = _Ctx(invoked_subcommand=None)
+        defaults = CliDefaults(
+            backup=BackupDefaults(
+                base_dir="/base",
+                output_dir="/tmp/default-out",
+                shard_threshold=2,
+                shard_count=3,
+                signing_key_mode="sharded",
+                signing_key_shard_threshold=1,
+                signing_key_shard_count=2,
+            )
+        )
+        with mock.patch("ethernity.cli.app.load_cli_defaults", return_value=defaults):
+            app_module.cli(
+                ctx,
+                config=None,
+                paper=None,
+                design="forge",
+                debug=False,
+                debug_max_bytes=1024,
+                debug_reveal_secrets=True,
+                quiet=False,
+                no_color=False,
+                no_animations=False,
+                init_config=False,
+                version=False,
+            )
+
+        ui_screen_mode.assert_called_once_with(quiet=False)
+        run_wizard.assert_called_once()
+        wizard_args = run_wizard.call_args.kwargs["args"]
+        self.assertEqual(wizard_args.config, "cfg")
+        self.assertEqual(wizard_args.paper, "A4")
+        self.assertEqual(wizard_args.design, "forge")
+        self.assertEqual(wizard_args.base_dir, "/base")
+        self.assertEqual(wizard_args.output_dir, "/tmp/default-out")
+        self.assertEqual(wizard_args.shard_threshold, 2)
+        self.assertEqual(wizard_args.shard_count, 3)
+        self.assertEqual(wizard_args.signing_key_mode, "sharded")
+        self.assertEqual(wizard_args.signing_key_shard_threshold, 1)
+        self.assertEqual(wizard_args.signing_key_shard_count, 2)
 
     @mock.patch("ethernity.cli.app._run_kit_render", return_value=None)
     @mock.patch("ethernity.cli.app._run_cli", side_effect=lambda func, debug: func())

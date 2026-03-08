@@ -106,6 +106,28 @@ class TestJinjaTemplates(unittest.TestCase):
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", rendered)
         self.assertNotIn("<script>alert(1)</script>", rendered)
 
+    def test_maritime_main_template_shows_instructions_on_continuation_pages(self) -> None:
+        template_path = _ETHERNITY_ROOT / "templates" / "maritime" / "main_document.html.j2"
+        context = _base_document_context()
+        context["pages"] = [
+            _page_with_qr(page_num=1, page_label="Page 1 / 2"),
+            {
+                **_page_with_qr(page_num=2, page_label="Page 2 / 2"),
+                "show_instructions": True,
+            },
+        ]
+        context["doc"] = {"title": "Main Document", "subtitle": _MAIN_SUBTITLE}
+        context["instructions"] = {
+            "label": "Instructions",
+            "lines": ["A", "B", "C"],
+            "scan_hint": None,
+        }
+        _inject_copy(context, template_name="main_document.html.j2")
+
+        rendered = render_template(template_path, context)
+
+        self.assertGreaterEqual(rendered.count("Instructions"), 2)
+
     def _render_sentinel_template(self, template_name: str) -> str:
         template_path = _ETHERNITY_ROOT / "templates" / "sentinel" / template_name
         context = _base_document_context()
