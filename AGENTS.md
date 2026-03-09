@@ -131,6 +131,7 @@ Paths are maintained by scope globs rather than exhaustive file-by-file lists.
 
 ### Scripts and Automation
 
+- `install.ps1`
 - `scripts/*`
 - `.github/workflows/*`
 - `.github/actions/setup-python/action.yml`

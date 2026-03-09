@@ -166,20 +166,9 @@ Classic template previews (Maritime):
 
 Fastest path: install, run one backup, run one recovery, then confirm outputs match.
 
-### Prerequisites
+### 1) macOS and Linux
 
-- Python 3.11+ (for source and pip-based installs)
-- `cosign` only if you verify release artifacts
-- Chromium binaries for PDF rendering (auto-installed on first backup/render run)
-- local disk space for generated PDFs and optional shard documents
-
-### 1) Primary install paths by platform
-
-- **macOS:** Homebrew (primary)
-- **Linux:** `pipx` (primary)
-- **Windows:** signed release artifacts (primary)
-
-macOS Homebrew install:
+Homebrew works on both macOS and Linux and is the easiest place to start:
 
 ```sh
 brew tap minorglitch/tap
@@ -187,88 +176,31 @@ brew install ethernity
 ethernity --help
 ```
 
-Linux `pipx` install:
+If you prefer a Python-managed install, `pipx` also works on both macOS and Linux:
 
 ```sh
 pipx install ethernity-paper
 ethernity --help
 ```
 
-Linux also supports Homebrew, but it is typically an optional path there:
+### 2) Windows
 
-```sh
-brew tap minorglitch/tap
-brew install ethernity
-```
-
-### 2) Install from Signed Release Artifacts (Primary on Windows, optional on macOS/Linux)
-
-Download the archive matching your OS and CPU.
-
-Artifact naming:
-
-```text
-ethernity-{tag}-{os}-{arch}.{zip|tar.gz}
-```
-
-Replace `{tag}` with the current release tag (for example, `v1.0.1`).
-
-Download and verify on Linux:
-
-```sh
-TAG="v1.0.1"
-OS_ARCH="linux-x64" # or linux-arm64
-BASE="ethernity-${TAG}-${OS_ARCH}.tar.gz"
-
-curl -LO "https://github.com/MinorGlitch/ethernity/releases/download/${TAG}/${BASE}"
-curl -LO "https://github.com/MinorGlitch/ethernity/releases/download/${TAG}/${BASE}.sigstore.json"
-
-cosign verify-blob --bundle "${BASE}.sigstore.json" "${BASE}"
-
-tar -xzf "${BASE}"
-./ethernity-${TAG}-${OS_ARCH}/ethernity --help
-```
-
-Download and verify on macOS:
-
-```sh
-TAG="v1.0.1"
-OS_ARCH="macos-arm64" # or macos-x64
-BASE="ethernity-${TAG}-${OS_ARCH}.tar.gz"
-
-curl -LO "https://github.com/MinorGlitch/ethernity/releases/download/${TAG}/${BASE}"
-curl -LO "https://github.com/MinorGlitch/ethernity/releases/download/${TAG}/${BASE}.sigstore.json"
-
-cosign verify-blob --bundle "${BASE}.sigstore.json" "${BASE}"
-
-tar -xzf "${BASE}"
-./ethernity-${TAG}-${OS_ARCH}/ethernity --help
-```
-
-Windows PowerShell equivalent:
+Use the PowerShell installer. It resolves the latest Windows release, downloads it, installs it
+into your user profile, and updates your user `PATH`.
 
 ```powershell
-$Tag = "v1.0.1"
-$OsArch = "windows-x64" # currently published Windows variant
-$Base = "ethernity-$Tag-$OsArch.zip"
-
-Invoke-WebRequest "https://github.com/MinorGlitch/ethernity/releases/download/$Tag/$Base" -OutFile $Base
-Invoke-WebRequest "https://github.com/MinorGlitch/ethernity/releases/download/$Tag/$Base.sigstore.json" -OutFile "$Base.sigstore.json"
-
-cosign verify-blob --bundle "$Base.sigstore.json" "$Base"
-
-Expand-Archive -Path $Base -DestinationPath .
-.\ethernity-$Tag-$OsArch\ethernity.exe --help
+$ProgressPreference = 'SilentlyContinue'
+Invoke-WebRequest "https://raw.githubusercontent.com/MinorGlitch/ethernity/master/install.ps1" -OutFile install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+ethernity --help
 ```
 
-For full verification and provenance guidance, use
+For manual signed artifact downloads and verification, use
 [Wiki: Release Artifacts](https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts).
 
 ### 3) Alternative: Install via pip
 
-Use this when you prefer Python package installation instead of Homebrew or release archives.
-
-If you want an isolated CLI install, use `pipx install ethernity-paper` from step 1.
+Use this when you want Ethernity inside an existing Python environment.
 
 `pip` is acceptable inside an existing Python environment:
 
