@@ -95,6 +95,45 @@ class RecoverArgs:
 
 
 @dataclass
+class MintArgs:
+    """Typed container for mint command arguments."""
+
+    config: str | None = None
+    paper: str | None = None
+    design: str | None = None
+    fallback_file: str | None = None
+    payloads_file: str | None = None
+    scan: list[str] | None = None
+    passphrase: str | None = None
+    shard_fallback_file: list[str] | None = None
+    shard_dir: str | None = None
+    shard_payloads_file: list[str] | None = None
+    auth_fallback_file: str | None = None
+    auth_payloads_file: str | None = None
+    signing_key_shard_fallback_file: list[str] | None = None
+    signing_key_shard_dir: str | None = None
+    signing_key_shard_payloads_file: list[str] | None = None
+    output_dir: str | None = None
+    layout_debug_dir: str | None = None
+    shard_threshold: int | None = None
+    shard_count: int | None = None
+    signing_key_shard_threshold: int | None = None
+    signing_key_shard_count: int | None = None
+    mint_passphrase_shards: bool = True
+    mint_signing_key_shards: bool = True
+    quiet: bool = False
+
+
+@dataclass(frozen=True)
+class MintResult:
+    doc_id: bytes
+    output_dir: str
+    shard_paths: tuple[str, ...]
+    signing_key_shard_paths: tuple[str, ...]
+    signing_key_source: str
+
+
+@dataclass
 class CliContextState:
     """Typed shared CLI state stored on `typer.Context.obj`."""
 

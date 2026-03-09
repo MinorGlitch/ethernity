@@ -29,6 +29,7 @@ from .api import (
     configure_ui,
     console,
     console_err,
+    empty_mint_args,
     empty_recover_args,
     prompt_home_action,
     ui_screen_mode,
@@ -38,12 +39,13 @@ from .core.common import _get_version, _paper_callback, _resolve_config_and_pape
 from .core.types import BackupArgs, CliContextState
 from .flows.backup import run_wizard
 from .flows.first_run_config import run_first_run_config_wizard
+from .flows.mint import run_mint_wizard
 from .flows.recover import run_recover_wizard
 from .startup import run_startup
 
 app = typer.Typer(add_completion=False, help="Ethernity CLI.")
 
-_DEFAULTS_BOOTSTRAP_SUBCOMMANDS = frozenset({"backup", "recover", "kit", "render"})
+_DEFAULTS_BOOTSTRAP_SUBCOMMANDS = frozenset({"backup", "recover", "kit", "mint", "render"})
 
 
 def _subcommand_config_override(argv: Sequence[str]) -> str | None:
@@ -309,6 +311,14 @@ def cli(
                 debug_reveal_secrets=debug_reveal_secrets,
             )
             _run_cli(lambda: run_recover_wizard(args, debug=debug), debug=debug)
+        elif action == "mint":
+            args = empty_mint_args(
+                config=config_value,
+                paper=paper_value,
+                design=design,
+                quiet=effective_quiet,
+            )
+            _run_cli(lambda: run_mint_wizard(args, debug=debug), debug=debug)
         elif action == "kit":
             _run_cli(
                 lambda: _run_kit_render(

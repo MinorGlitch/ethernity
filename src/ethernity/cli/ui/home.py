@@ -19,7 +19,7 @@ from __future__ import annotations
 from rich.align import Align
 from rich.rule import Rule
 
-from ..core.types import RecoverArgs
+from ..core.types import MintArgs, RecoverArgs
 from .prompts import prompt_choice
 from .renderables import panel
 from .runtime import console
@@ -52,11 +52,13 @@ def prompt_home_action(*, quiet: bool) -> str:
         {
             "backup": "Create a new backup PDF.",
             "recover": "Recover from an existing backup.",
+            "mint": "Mint fresh shard documents from an existing backup.",
             "kit": "Generate a recovery kit QR document.",
         },
         default="backup",
         help_text=(
-            "You can also run `ethernity backup`, `ethernity recover`, or `ethernity kit` directly."
+            "You can also run `ethernity backup`, `ethernity recover`, `ethernity mint`, "
+            "or `ethernity kit` directly."
         ),
     )
 
@@ -74,5 +76,20 @@ def empty_recover_args(
         paper=paper,
         debug_max_bytes=debug_max_bytes,
         debug_reveal_secrets=debug_reveal_secrets,
+        quiet=quiet,
+    )
+
+
+def empty_mint_args(
+    *,
+    config: str | None,
+    paper: str | None,
+    design: str | None,
+    quiet: bool,
+) -> MintArgs:
+    return MintArgs(
+        config=config,
+        paper=paper,
+        design=design,
         quiet=quiet,
     )

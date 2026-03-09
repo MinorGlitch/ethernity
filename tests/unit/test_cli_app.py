@@ -329,6 +329,57 @@ class TestCliApp(unittest.TestCase):
             debug_reveal_secrets=True,
         )
 
+    @mock.patch("ethernity.cli.app.run_mint_wizard", return_value=0)
+    @mock.patch("ethernity.cli.app._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch("ethernity.cli.app.empty_mint_args")
+    @mock.patch("ethernity.cli.app.prompt_home_action", return_value="mint")
+    @mock.patch("ethernity.cli.app.ui_screen_mode", return_value=contextlib.nullcontext())
+    @mock.patch("ethernity.cli.app.run_first_run_config_wizard", return_value=False)
+    @mock.patch("ethernity.cli.app.load_cli_defaults", return_value=CliDefaults())
+    @mock.patch("ethernity.cli.app._resolve_config_and_paper", return_value=("cfg", "A4"))
+    @mock.patch("ethernity.cli.app.sys.stdout.isatty", return_value=True)
+    @mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=True)
+    @mock.patch("ethernity.cli.app.run_startup", return_value=False)
+    def test_cli_interactive_mint_route(
+        self,
+        _run_startup: mock.MagicMock,
+        _stdin_tty: mock.MagicMock,
+        _stdout_tty: mock.MagicMock,
+        _resolve_config_and_paper: mock.MagicMock,
+        _load_cli_defaults: mock.MagicMock,
+        _run_first_run_config_wizard: mock.MagicMock,
+        ui_screen_mode: mock.MagicMock,
+        _prompt_home_action: mock.MagicMock,
+        empty_mint_args: mock.MagicMock,
+        _run_cli: mock.MagicMock,
+        run_mint_wizard: mock.MagicMock,
+    ) -> None:
+        ctx = _Ctx(invoked_subcommand=None)
+        empty_mint_args.return_value = mock.Mock()
+        app_module.cli(
+            ctx,
+            config=None,
+            paper=None,
+            design="forge",
+            debug=True,
+            debug_max_bytes=1024,
+            debug_reveal_secrets=False,
+            quiet=False,
+            no_color=False,
+            no_animations=False,
+            init_config=False,
+            version=False,
+        )
+        ui_screen_mode.assert_called_once_with(quiet=False)
+        empty_mint_args.assert_called_once_with(
+            config="cfg",
+            paper="A4",
+            design="forge",
+            quiet=False,
+        )
+        run_mint_wizard.assert_called_once()
+        self.assertTrue(run_mint_wizard.call_args.kwargs["debug"])
+
     @mock.patch("ethernity.cli.app.run_wizard", return_value=0)
     @mock.patch("ethernity.cli.app._run_cli", side_effect=lambda func, debug: func())
     @mock.patch("ethernity.cli.app.prompt_home_action", return_value="backup")

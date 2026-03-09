@@ -114,6 +114,24 @@ def build_outputs_tree(
     return tree
 
 
+def build_mint_outputs_tree(
+    shard_paths: Sequence[str],
+    signing_key_shard_paths: Sequence[str],
+) -> Tree:
+    tree = Tree("Documents", guide_style="muted")
+    if shard_paths:
+        shards = tree.add(f"[accent]Shard documents[/accent] ({len(shard_paths)})")
+        for path in shard_paths:
+            shards.add(path)
+    if signing_key_shard_paths:
+        shards = tree.add(
+            f"[accent]Signing-key shard documents[/accent] ({len(signing_key_shard_paths)})"
+        )
+        for path in signing_key_shard_paths:
+            shards.add(path)
+    return tree
+
+
 def build_recovered_tree(
     entries: Sequence[tuple[object, bytes]],
     output_path: str | None,

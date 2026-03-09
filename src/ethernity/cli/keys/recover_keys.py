@@ -18,7 +18,15 @@ from __future__ import annotations
 
 import hmac
 
-from ...crypto.sharding import SHARD_VERSION, ShardPayload, decode_shard_payload, recover_passphrase
+from ...crypto.sharding import (
+    KEY_TYPE_PASSPHRASE,
+    KEY_TYPE_SIGNING_SEED,
+    SHARD_VERSION,
+    ShardPayload,
+    decode_shard_payload,
+    recover_passphrase,
+    recover_signing_seed,
+)
 from ...crypto.signing import decode_auth_payload, verify_auth, verify_shard
 from ...encoding.framing import Frame, FrameType
 from ..core.log import _warn
@@ -85,6 +93,48 @@ def _passphrase_from_shard_frames(
     expected_sign_pub: bytes | None,
     allow_unsigned: bool,
 ) -> str:
+    share_list = _validated_shard_payloads_from_frames(
+        frames,
+        expected_doc_id=expected_doc_id,
+        expected_doc_hash=expected_doc_hash,
+        expected_sign_pub=expected_sign_pub,
+        allow_unsigned=allow_unsigned,
+        key_type=KEY_TYPE_PASSPHRASE,
+        secret_label="passphrase",
+    )
+    return recover_passphrase(share_list)
+
+
+def _signing_seed_from_shard_frames(
+    frames: list[Frame],
+    *,
+    expected_doc_id: bytes | None,
+    expected_doc_hash: bytes | None,
+    expected_sign_pub: bytes | None,
+    allow_unsigned: bool,
+) -> bytes:
+    share_list = _validated_shard_payloads_from_frames(
+        frames,
+        expected_doc_id=expected_doc_id,
+        expected_doc_hash=expected_doc_hash,
+        expected_sign_pub=expected_sign_pub,
+        allow_unsigned=allow_unsigned,
+        key_type=KEY_TYPE_SIGNING_SEED,
+        secret_label="signing key",
+    )
+    return recover_signing_seed(share_list)
+
+
+def _validated_shard_payloads_from_frames(
+    frames: list[Frame],
+    *,
+    expected_doc_id: bytes | None,
+    expected_doc_hash: bytes | None,
+    expected_sign_pub: bytes | None,
+    allow_unsigned: bool,
+    key_type: str,
+    secret_label: str,
+) -> list[ShardPayload]:
     shares: dict[int, ShardPayload] = {}
     doc_hash: bytes | None = expected_doc_hash
     sign_pub: bytes | None = expected_sign_pub
@@ -96,6 +146,8 @@ def _passphrase_from_shard_frames(
         if frame.total != 1 or frame.index != 0:
             raise ValueError("shard payloads must be single-frame payloads")
         payload = decode_shard_payload(frame.data)
+        if payload.key_type != key_type:
+            raise ValueError(f"shard payloads must be {secret_label} shards")
         if doc_hash is None:
             doc_hash = payload.doc_hash
         elif not hmac.compare_digest(payload.doc_hash, doc_hash):
@@ -136,6 +188,6 @@ def _passphrase_from_shard_frames(
         if share.share_count != share_total:
             raise ValueError("shard share counts do not match")
     if len(share_list) < threshold:
-        raise ValueError(f"need at least {threshold} shard(s) to recover passphrase")
+        raise ValueError(f"need at least {threshold} shard(s) to recover {secret_label}")
 
-    return recover_passphrase(share_list)
+    return share_list

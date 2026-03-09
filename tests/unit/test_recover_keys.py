@@ -19,7 +19,11 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from ethernity.cli.keys.recover_keys import _passphrase_from_shard_frames, _resolve_auth_payload
+from ethernity.cli.keys.recover_keys import (
+    _passphrase_from_shard_frames,
+    _resolve_auth_payload,
+    _signing_seed_from_shard_frames,
+)
 from ethernity.crypto.sharding import ShardPayload
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
 
@@ -549,6 +553,73 @@ class TestPassphraseFromShardFrames(unittest.TestCase):
                 expected_sign_pub=None,
                 allow_unsigned=True,
             )
+
+
+class TestSigningSeedFromShardFrames(unittest.TestCase):
+    @staticmethod
+    def _shard_frame(*, doc_id: bytes) -> Frame:
+        return Frame(
+            version=1,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=doc_id,
+            index=0,
+            total=1,
+            data=b"shard",
+        )
+
+    def test_rejects_passphrase_shards_for_signing_seed_recovery(self) -> None:
+        payload = ShardPayload(
+            share_index=1,
+            threshold=1,
+            share_count=1,
+            key_type="passphrase",
+            share=b"A" * 16,
+            secret_len=16,
+            doc_hash=b"\x20" * 32,
+            sign_pub=b"p" * 32,
+            signature=b"s" * 64,
+        )
+        with mock.patch(
+            "ethernity.cli.keys.recover_keys.decode_shard_payload", return_value=payload
+        ):
+            with self.assertRaisesRegex(ValueError, "signing key shards"):
+                _signing_seed_from_shard_frames(
+                    [self._shard_frame(doc_id=b"\x41" * DOC_ID_LEN)],
+                    expected_doc_id=b"\x41" * DOC_ID_LEN,
+                    expected_doc_hash=None,
+                    expected_sign_pub=None,
+                    allow_unsigned=False,
+                )
+
+    def test_recovers_signing_seed(self) -> None:
+        payload = ShardPayload(
+            share_index=1,
+            threshold=1,
+            share_count=1,
+            key_type="signing-seed",
+            share=b"A" * 32,
+            secret_len=32,
+            doc_hash=b"\x20" * 32,
+            sign_pub=b"p" * 32,
+            signature=b"s" * 64,
+        )
+        with mock.patch(
+            "ethernity.cli.keys.recover_keys.decode_shard_payload", return_value=payload
+        ):
+            with mock.patch("ethernity.cli.keys.recover_keys.verify_shard", return_value=True):
+                with mock.patch(
+                    "ethernity.cli.keys.recover_keys.recover_signing_seed",
+                    return_value=b"z" * 32,
+                ) as recover:
+                    result = _signing_seed_from_shard_frames(
+                        [self._shard_frame(doc_id=b"\x42" * DOC_ID_LEN)],
+                        expected_doc_id=b"\x42" * DOC_ID_LEN,
+                        expected_doc_hash=None,
+                        expected_sign_pub=None,
+                        allow_unsigned=False,
+                    )
+        self.assertEqual(result, b"z" * 32)
+        recover.assert_called_once()
 
 
 if __name__ == "__main__":

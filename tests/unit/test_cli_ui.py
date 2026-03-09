@@ -377,6 +377,7 @@ class TestUIHelpers(unittest.TestCase):
         self.assertEqual(action_quiet, "backup")
         self.assertEqual(action_verbose, "backup")
         self.assertGreaterEqual(prompt_choice.call_count, 2)
+        self.assertIn("mint", prompt_choice.call_args.args[1])
         self.assertIn("kit", prompt_choice.call_args.args[1])
         self.assertGreater(print_mock.call_count, 0)
 
@@ -392,6 +393,18 @@ class TestUIHelpers(unittest.TestCase):
         self.assertEqual(args.paper, "A4")
         self.assertEqual(args.debug_max_bytes, 512)
         self.assertTrue(args.debug_reveal_secrets)
+        self.assertTrue(args.quiet)
+
+    def test_empty_mint_args(self) -> None:
+        args = ui_module.empty_mint_args(
+            config="cfg.toml",
+            paper="A4",
+            design="forge",
+            quiet=True,
+        )
+        self.assertEqual(args.config, "cfg.toml")
+        self.assertEqual(args.paper, "A4")
+        self.assertEqual(args.design, "forge")
         self.assertTrue(args.quiet)
 
 

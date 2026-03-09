@@ -22,9 +22,10 @@ from pathlib import Path
 
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.encoding.chunking import chunk_payload
-from ethernity.encoding.framing import DOC_ID_LEN, FrameType, encode_frame
-from ethernity.encoding.qr_payloads import encode_qr_payload
+from ethernity.encoding.framing import DOC_ID_LEN, FrameType, decode_frame, encode_frame
+from ethernity.encoding.qr_payloads import decode_qr_payload, encode_qr_payload
 from ethernity.formats.envelope_codec import build_single_file_manifest, encode_envelope
+from ethernity.qr.scan import scan_qr_payloads
 from tests.test_support import build_cli_env, ensure_playwright_browsers
 
 TEST_SIGNING_SEED = b"\x11" * 32
@@ -137,8 +138,14 @@ class TestEndToEndCli(unittest.TestCase):
                 chunk_size=10,
             )
             frames_path = tmp_path / "frames.txt"
+            payload_lines = []
+            for frame in frames:
+                encoded = encode_qr_payload(encode_frame(frame))
+                payload_lines.append(
+                    encoded.decode("ascii") if isinstance(encoded, bytes) else encoded
+                )
             frames_path.write_text(
-                "\n".join(encode_qr_payload(encode_frame(frame)) for frame in frames),
+                "\n".join(payload_lines),
                 encoding="utf-8",
             )
             output_path = tmp_path / "recovered.bin"
@@ -153,7 +160,7 @@ class TestEndToEndCli(unittest.TestCase):
                     "--payloads-file",
                     str(frames_path),
                     "--passphrase",
-                    passphrase,
+                    str(passphrase),
                     "--skip-auth-check",
                     "--output",
                     str(output_path),
@@ -167,6 +174,101 @@ class TestEndToEndCli(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(output_path.read_bytes(), payload)
+
+    def test_mint_cli_rejects_sealed_backup_without_signing_key_shards(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            input_path = tmp_path / "input.txt"
+            input_path.write_text("sealed mint payload", encoding="utf-8")
+            output_dir = tmp_path / "backup"
+            repo_root = Path(__file__).resolve().parents[2]
+            config_path = repo_root / "src" / "ethernity" / "config" / "config.toml"
+
+            env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
+            backup = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(config_path),
+                    "backup",
+                    "--input",
+                    str(input_path),
+                    "--output-dir",
+                    str(output_dir),
+                    "--passphrase",
+                    "sealed-mint-passphrase",
+                    "--sealed",
+                    "--shard-threshold",
+                    "2",
+                    "--shard-count",
+                    "3",
+                    "--design",
+                    "forge",
+                    "--quiet",
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(backup.returncode, 0, backup.stderr)
+
+            main_payloads = tmp_path / "main_payloads.txt"
+            shard_payloads = tmp_path / "shard_payloads.txt"
+            self._write_scanned_payloads([output_dir / "qr_document.pdf"], main_payloads)
+            self._write_scanned_payloads(sorted(output_dir.glob("shard-*.pdf"))[:2], shard_payloads)
+
+            mint = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(config_path),
+                    "mint",
+                    "--payloads-file",
+                    str(main_payloads),
+                    "--shard-payloads-file",
+                    str(shard_payloads),
+                    "--shard-threshold",
+                    "2",
+                    "--shard-count",
+                    "3",
+                    "--signing-key-shard-threshold",
+                    "1",
+                    "--signing-key-shard-count",
+                    "2",
+                    "--output-dir",
+                    str(tmp_path / "minted"),
+                    "--quiet",
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(mint.returncode, 2)
+            self.assertIn("backup is sealed", mint.stderr)
+
+    @staticmethod
+    def _write_scanned_payloads(pdf_paths: list[Path], destination: Path) -> None:
+        payloads = scan_qr_payloads([str(path) for path in pdf_paths])
+        normalized: list[str] = []
+        for payload in payloads:
+            try:
+                if isinstance(payload, bytes):
+                    frame = decode_frame(payload)
+                else:
+                    frame = decode_frame(decode_qr_payload(payload))
+            except ValueError:
+                continue
+            encoded = encode_qr_payload(encode_frame(frame), codec="base64")
+            normalized.append(encoded.decode("ascii") if isinstance(encoded, bytes) else encoded)
+        destination.write_text("\n".join(normalized), encoding="utf-8")
 
 
 if __name__ == "__main__":

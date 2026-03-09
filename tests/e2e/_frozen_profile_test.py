@@ -23,10 +23,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, cast
 
 from ethernity.crypto import decrypt_bytes
+from ethernity.crypto.sharding import decode_shard_payload
 from ethernity.encoding.chunking import reassemble_payload
-from ethernity.encoding.framing import FrameType, decode_frame
+from ethernity.encoding.framing import FrameType, decode_frame, encode_frame
 from ethernity.encoding.qr_payloads import (
     QR_PAYLOAD_CODEC_BASE64,
     decode_qr_payload,
@@ -34,6 +36,12 @@ from ethernity.encoding.qr_payloads import (
 )
 from ethernity.formats.envelope_codec import decode_envelope
 from ethernity.qr.scan import scan_qr_payloads
+from tests.e2e._mint_fixture_support import (
+    MINT_SNAPSHOT_FILENAME,
+    MintFrozenCase,
+    mint_cases_for_scenario,
+    mint_cli_args,
+)
 from tests.test_support import build_cli_env, ensure_playwright_browsers
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -198,8 +206,196 @@ class FrozenProfileTestCase(unittest.TestCase):
                     ]:
                         self.assertTrue((output_dir / required_name).exists())
 
+    def test_mint_from_frozen_backups_matches_snapshots(self) -> None:
+        for scenario in self._scenarios():
+            scenario_id = str(scenario["id"])
+            mint_snapshot = self._mint_snapshot(scenario_id)
+            if mint_snapshot is None:
+                continue
+            for case in mint_cases_for_scenario(scenario_id):
+                with self.subTest(scenario=scenario_id, mint_case=case.case_id):
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        tmp_path = Path(tmpdir)
+                        env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
+                        scenario_root = self._profile_root() / scenario_id
+                        output_dir = tmp_path / "minted"
+                        cmd = [
+                            sys.executable,
+                            "-m",
+                            "ethernity.cli",
+                            "--config",
+                            str(self._profile_config_path(tmp_path)),
+                            *self._mint_args(case, scenario_root, output_dir),
+                        ]
+                        result = subprocess.run(
+                            cmd,
+                            cwd=_REPO_ROOT,
+                            env=env,
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                        )
+                        self.assertEqual(
+                            result.returncode,
+                            0,
+                            msg=result.stderr.strip() or result.stdout.strip(),
+                        )
+                        mint_cases = cast(dict[str, dict[str, Any]], mint_snapshot["mint_cases"])
+                        self._assert_mint_hashes(output_dir, mint_cases[case.case_id])
+
+    def test_minted_passphrase_shards_recover_original_payloads(self) -> None:
+        for scenario in self._scenarios():
+            snapshot = self._snapshot(scenario)
+            scenario_id = str(scenario["id"])
+            if self._mint_snapshot(scenario_id) is None:
+                continue
+            cases = [
+                case for case in mint_cases_for_scenario(scenario_id) if case.mint_passphrase_shards
+            ]
+            for case in cases:
+                with self.subTest(scenario=scenario_id, mint_case=case.case_id):
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        tmp_path = Path(tmpdir)
+                        env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
+                        scenario_root = self._profile_root() / scenario_id
+                        output_dir = tmp_path / "minted"
+                        self._run_cli_command(
+                            [
+                                sys.executable,
+                                "-m",
+                                "ethernity.cli",
+                                "--config",
+                                str(self._profile_config_path(tmp_path)),
+                                *self._mint_args(case, scenario_root, output_dir),
+                            ],
+                            env=env,
+                        )
+                        shard_payloads_file = tmp_path / "minted_shard_payloads.txt"
+                        self._write_scanned_payloads(
+                            sorted(output_dir.glob("shard-*.pdf"))[: int(case.shard_threshold)],
+                            shard_payloads_file,
+                        )
+                        expected_files = cast(dict[str, str], snapshot["expected_file_sha256"])
+                        is_single_file = len(expected_files) == 1
+                        recover_output = tmp_path / (
+                            "restored.bin" if is_single_file else "restored"
+                        )
+                        self._run_cli_command(
+                            [
+                                sys.executable,
+                                "-m",
+                                "ethernity.cli",
+                                "--config",
+                                str(self._profile_config_path(tmp_path)),
+                                "recover",
+                                "--payloads-file",
+                                str(scenario_root / "main_payloads.txt"),
+                                "--shard-payloads-file",
+                                str(shard_payloads_file),
+                                "--output",
+                                str(recover_output),
+                                "--quiet",
+                            ],
+                            env=env,
+                        )
+                        self._assert_recovered_hashes(recover_output, expected_files)
+
+    def test_minted_signing_key_shards_allow_followup_remint(self) -> None:
+        scenario_id = "sharded_signing_sharded"
+        snapshot = self._snapshot({"path": f"{scenario_id}/snapshot.json"})
+        self.assertIsNotNone(self._mint_snapshot(scenario_id))
+        scenario_root = self._profile_root() / scenario_id
+        followup_case = next(
+            case
+            for case in mint_cases_for_scenario(scenario_id)
+            if case.case_id == "external_signing_only"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
+            first_output = tmp_path / "minted-signing-only"
+            self._run_cli_command(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(self._profile_config_path(tmp_path)),
+                    *self._mint_args(followup_case, scenario_root, first_output),
+                ],
+                env=env,
+            )
+            minted_signing_payloads = tmp_path / "minted_signing_payloads.txt"
+            self._write_scanned_payloads(
+                sorted(first_output.glob("signing-key-shard-*.pdf"))[
+                    : self._required_int(followup_case.signing_key_shard_threshold)
+                ],
+                minted_signing_payloads,
+            )
+
+            second_output = tmp_path / "followup-passphrase-mint"
+            self._run_cli_command(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(self._profile_config_path(tmp_path)),
+                    "mint",
+                    "--payloads-file",
+                    str(scenario_root / "main_payloads.txt"),
+                    "--shard-payloads-file",
+                    str(scenario_root / "shard_payloads_threshold.txt"),
+                    "--signing-key-shard-payloads-file",
+                    str(minted_signing_payloads),
+                    "--shard-threshold",
+                    "2",
+                    "--shard-count",
+                    "3",
+                    "--no-signing-key-shards",
+                    "--output-dir",
+                    str(second_output),
+                    "--quiet",
+                ],
+                env=env,
+            )
+
+            followup_shard_payloads = tmp_path / "followup_shard_payloads.txt"
+            self._write_scanned_payloads(
+                sorted(second_output.glob("shard-*.pdf"))[:2], followup_shard_payloads
+            )
+            recover_output = tmp_path / "restored"
+            self._run_cli_command(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(self._profile_config_path(tmp_path)),
+                    "recover",
+                    "--payloads-file",
+                    str(scenario_root / "main_payloads.txt"),
+                    "--shard-payloads-file",
+                    str(followup_shard_payloads),
+                    "--output",
+                    str(recover_output),
+                    "--quiet",
+                ],
+                env=env,
+            )
+            self._assert_recovered_hashes(
+                recover_output,
+                cast(dict[str, str], snapshot["expected_file_sha256"]),
+            )
+
     def _profile_root(self) -> Path:
         return _GOLDEN_ROOT / self.PROFILE_NAME
+
+    def _mint_args(self, case: MintFrozenCase, scenario_root: Path, output_dir: Path) -> list[str]:
+        args = mint_cli_args(case, scenario_root, self._passphrase)
+        output_index = args.index("--output-dir") + 1
+        args[output_index] = str(output_dir)
+        return args
 
     def _scenarios(self) -> list[dict[str, object]]:
         return list(self._index["scenarios"])
@@ -208,15 +404,113 @@ class FrozenProfileTestCase(unittest.TestCase):
         snapshot_path = self._profile_root() / str(scenario["path"])
         return json.loads(snapshot_path.read_text(encoding="utf-8"))
 
+    def _mint_snapshot(self, scenario_id: str) -> dict[str, object] | None:
+        snapshot_path = self._profile_root() / scenario_id / MINT_SNAPSHOT_FILENAME
+        if not snapshot_path.exists():
+            return None
+        return json.loads(snapshot_path.read_text(encoding="utf-8"))
+
+    def _run_cli_command(self, cmd: list[str], *, env: dict[str, str]) -> None:
+        result = subprocess.run(
+            cmd,
+            cwd=_REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stderr.strip() or result.stdout.strip())
+
+    def _assert_mint_hashes(self, output_dir: Path, snapshot: dict[str, Any]) -> None:
+        expected_projections = cast(dict[str, list[dict[str, Any]]], snapshot["shard_projections"])
+        actual_projections = self._shard_projections_by_file(sorted(output_dir.glob("*.pdf")))
+        self.assertEqual(actual_projections, expected_projections)
+        self.assertEqual(
+            len(list(output_dir.glob("shard-*.pdf"))), int(snapshot["expected_shard_pdfs"])
+        )
+        self.assertEqual(
+            len(list(output_dir.glob("signing-key-shard-*.pdf"))),
+            int(snapshot["expected_signing_key_shard_pdfs"]),
+        )
+
+    def _write_scanned_payloads(self, pdf_paths: list[Path], destination: Path) -> None:
+        payloads = scan_qr_payloads([str(path) for path in pdf_paths])
+        normalized: list[str] = []
+        for payload in payloads:
+            if isinstance(payload, bytes):
+                try:
+                    frame = decode_frame(payload)
+                except ValueError:
+                    continue
+                encoded = encode_qr_payload(encode_frame(frame), codec=QR_PAYLOAD_CODEC_BASE64)
+                normalized.append(
+                    encoded.decode("ascii") if isinstance(encoded, bytes) else encoded
+                )
+            else:
+                try:
+                    frame = decode_frame(decode_qr_payload(payload))
+                except ValueError:
+                    continue
+                encoded = encode_qr_payload(encode_frame(frame), codec=QR_PAYLOAD_CODEC_BASE64)
+                normalized.append(
+                    encoded.decode("ascii") if isinstance(encoded, bytes) else encoded
+                )
+        destination.write_text("\n".join(normalized), encoding="utf-8")
+
     def _scan_payloads(self, pdf_paths: list[Path]) -> list[str]:
         payloads = scan_qr_payloads([str(path) for path in pdf_paths])
         normalized: list[str] = []
         for payload in payloads:
             if isinstance(payload, bytes):
-                normalized.append(encode_qr_payload(payload, codec=QR_PAYLOAD_CODEC_BASE64))
+                encoded = encode_qr_payload(payload, codec=QR_PAYLOAD_CODEC_BASE64)
+                normalized.append(
+                    encoded.decode("ascii") if isinstance(encoded, bytes) else encoded
+                )
             else:
                 normalized.append(payload)
         return normalized
+
+    def _shard_projections_by_file(self, pdf_paths: list[Path]) -> dict[str, list[dict[str, Any]]]:
+        payload_hashes: dict[str, list[dict[str, Any]]] = {}
+        for pdf_path in pdf_paths:
+            payload_hashes[pdf_path.name] = [
+                self._frame_to_shard_projection(frame)
+                for frame in self._valid_scanned_frames([pdf_path])
+            ]
+        return payload_hashes
+
+    def _valid_scanned_frames(self, pdf_paths: list[Path]) -> list[Any]:
+        payloads = scan_qr_payloads([str(path) for path in pdf_paths])
+        frames = []
+        for payload in payloads:
+            try:
+                if isinstance(payload, bytes):
+                    frame = decode_frame(payload)
+                else:
+                    frame = decode_frame(decode_qr_payload(payload))
+            except ValueError:
+                continue
+            frames.append(frame)
+        return frames
+
+    def _frame_to_shard_projection(self, frame: Any) -> dict[str, Any]:
+        payload = decode_shard_payload(frame.data)
+        return {
+            "doc_id": frame.doc_id.hex(),
+            "share_index": payload.share_index,
+            "threshold": payload.threshold,
+            "share_count": payload.share_count,
+            "key_type": payload.key_type,
+            "secret_len": payload.secret_len,
+            "doc_hash": payload.doc_hash.hex(),
+            "sign_pub": payload.sign_pub.hex(),
+        }
+
+    @staticmethod
+    def _required_int(value: int | None) -> int:
+        if value is None:
+            raise AssertionError("expected integer value")
+        return value
 
     def _profile_config_path(self, workspace: Path) -> Path:
         base = _CONFIG_PATH.read_text(encoding="utf-8")

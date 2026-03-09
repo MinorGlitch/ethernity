@@ -16,7 +16,9 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
+import importlib
 import json
 import os
 import shutil
@@ -25,9 +27,11 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any, cast
 
 from ethernity.cli.startup import ensure_playwright_browsers as _ensure_playwright_browsers
 from ethernity.crypto import decrypt_bytes
+from ethernity.crypto.sharding import decode_shard_payload
 from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import FrameType, decode_frame
 from ethernity.encoding.qr_payloads import (
@@ -42,6 +46,33 @@ PASS_PHRASE = "stable-v1-baseline-passphrase"
 _BINARY_PAYLOADS_MAGIC = b"EQPB"
 _BINARY_PAYLOADS_VERSION = 1
 _FROZEN_PROFILES: tuple[tuple[str, str], ...] = (("base64", "base64"), ("raw", "raw"))
+
+
+def _mint_support() -> Any:
+    repo_root = Path(__file__).resolve().parents[4]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    return importlib.import_module("tests.e2e._mint_fixture_support")
+
+
+def _mint_snapshot_filename() -> str:
+    return str(_mint_support().MINT_SNAPSHOT_FILENAME)
+
+
+def _signing_key_payloads_text() -> str:
+    return str(_mint_support().SIGNING_KEY_PAYLOADS_TEXT)
+
+
+def _signing_key_payloads_binary() -> str:
+    return str(_mint_support().SIGNING_KEY_PAYLOADS_BINARY)
+
+
+def _mint_cases_for_scenario(scenario_id: str) -> tuple[Any, ...]:
+    return tuple(_mint_support().mint_cases_for_scenario(scenario_id))
+
+
+def _mint_cli_args(case: Any, scenario_root: Path, passphrase: str) -> list[str]:
+    return list(_mint_support().mint_cli_args(case, scenario_root, passphrase))
 
 
 def _scenario_definitions(source_root: Path) -> list[dict[str, object]]:
@@ -188,7 +219,8 @@ def _scan_payload_bytes(pdf_paths: list[Path]) -> list[bytes]:
 def _write_payloads_text_file(payloads: list[bytes], destination: Path) -> None:
     normalized: list[str] = []
     for payload in payloads:
-        normalized.append(encode_qr_payload(payload, codec=QR_PAYLOAD_CODEC_BASE64))
+        encoded = encode_qr_payload(payload, codec=QR_PAYLOAD_CODEC_BASE64)
+        normalized.append(encoded.decode("ascii") if isinstance(encoded, bytes) else encoded)
     if not normalized:
         destination.write_text("", encoding="utf-8")
         return
@@ -233,6 +265,43 @@ def _manifest_projection(payloads_file: Path, passphrase: str) -> dict[str, obje
     }
 
 
+def _valid_scanned_frames(pdf_path: Path) -> list:
+    payloads = scan_qr_payloads([str(pdf_path)])
+    frames = []
+    for payload in payloads:
+        try:
+            if isinstance(payload, bytes):
+                frame = decode_frame(payload)
+            else:
+                frame = decode_frame(decode_qr_payload(payload))
+        except ValueError:
+            continue
+        frames.append(frame)
+    return frames
+
+
+def _shard_projections_by_file(pdf_paths: list[Path]) -> dict[str, list[dict[str, object]]]:
+    shard_projections: dict[str, list[dict[str, object]]] = {}
+    for pdf_path in pdf_paths:
+        projections: list[dict[str, object]] = []
+        for frame in _valid_scanned_frames(pdf_path):
+            payload = decode_shard_payload(frame.data)
+            projections.append(
+                {
+                    "doc_id": frame.doc_id.hex(),
+                    "share_index": payload.share_index,
+                    "threshold": payload.threshold,
+                    "share_count": payload.share_count,
+                    "key_type": payload.key_type,
+                    "secret_len": payload.secret_len,
+                    "doc_hash": payload.doc_hash.hex(),
+                    "sign_pub": payload.sign_pub.hex(),
+                }
+            )
+        shard_projections[pdf_path.name] = projections
+    return shard_projections
+
+
 def _file_sha256(path: Path) -> str:
     hasher = hashlib.sha256()
     hasher.update(path.read_bytes())
@@ -247,7 +316,94 @@ def _config_with_qr_payload_codec(base_config: str, codec: str) -> str:
     )
 
 
-def main() -> None:
+def _write_signing_key_payload_fixtures(scenario_root: Path) -> None:
+    signing_key_paths = sorted((scenario_root / "backup").glob("signing-key-shard-*.pdf"))
+    text_path = scenario_root / _signing_key_payloads_text()
+    binary_path = scenario_root / _signing_key_payloads_binary()
+    if not signing_key_paths:
+        if text_path.exists():
+            text_path.unlink()
+        if binary_path.exists():
+            binary_path.unlink()
+        return
+    signing_key_payload_bytes = _scan_payload_bytes(signing_key_paths[:1])
+    _write_payloads_text_file(signing_key_payload_bytes, text_path)
+    _write_payloads_binary_file(signing_key_payload_bytes, binary_path)
+
+
+def _write_mint_snapshot(
+    repo_root: Path,
+    *,
+    scenario_root: Path,
+    scenario_id: str,
+    profile_name: str,
+    profile_config_path: Path,
+    xdg_config_home: Path,
+) -> None:
+    _write_signing_key_payload_fixtures(scenario_root)
+    mint_cases: dict[str, object] = {}
+    for mint_case in _mint_cases_for_scenario(scenario_id):
+        mint_output_dir = scenario_root / "mint-output" / mint_case.case_id
+        _run_cli(
+            repo_root,
+            _mint_cli_args(mint_case, scenario_root, PASS_PHRASE),
+            xdg_config_home,
+            profile_config_path,
+        )
+        mint_pdfs = sorted(mint_output_dir.glob("*.pdf"))
+        mint_cases[mint_case.case_id] = {
+            "shard_projections": _shard_projections_by_file(mint_pdfs),
+            "expected_shard_pdfs": len(list(mint_output_dir.glob("shard-*.pdf"))),
+            "expected_signing_key_shard_pdfs": len(
+                list(mint_output_dir.glob("signing-key-shard-*.pdf"))
+            ),
+        }
+        shutil.rmtree(mint_output_dir)
+    mint_snapshot = {
+        "scenario_id": scenario_id,
+        "profile": profile_name,
+        "mint_cases": mint_cases,
+    }
+    (scenario_root / _mint_snapshot_filename()).write_text(
+        json.dumps(mint_snapshot, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _generate_mint_golden() -> None:
+    repo_root = Path(__file__).resolve().parents[4]
+    golden_root = repo_root / "tests" / "fixtures" / "v1_0" / "golden"
+    os.environ.pop("ETHERNITY_SKIP_PLAYWRIGHT_INSTALL", None)
+    _ensure_playwright_browsers(quiet=True)
+
+    with tempfile.TemporaryDirectory() as xdg_tmp:
+        xdg_config_home = Path(xdg_tmp)
+        base_config_path = repo_root / "src" / "ethernity" / "config" / "config.toml"
+        base_config_text = base_config_path.read_text(encoding="utf-8")
+        for profile_name, qr_codec in _FROZEN_PROFILES:
+            profile_root = golden_root / profile_name
+            profile_config_path = xdg_config_home / f"config_{profile_name}.toml"
+            profile_config_path.write_text(
+                _config_with_qr_payload_codec(base_config_text, qr_codec),
+                encoding="utf-8",
+            )
+            profile_index = json.loads((profile_root / "index.json").read_text(encoding="utf-8"))
+            for scenario in cast(list[dict[str, object]], profile_index["scenarios"]):
+                scenario_id = str(scenario["id"])
+                if not _mint_cases_for_scenario(scenario_id):
+                    continue
+                scenario_root = profile_root / scenario_id
+                _write_mint_snapshot(
+                    repo_root,
+                    scenario_root=scenario_root,
+                    scenario_id=scenario_id,
+                    profile_name=profile_name,
+                    profile_config_path=profile_config_path,
+                    xdg_config_home=xdg_config_home,
+                )
+
+
+def _generate_full_golden() -> None:
     repo_root = Path(__file__).resolve().parents[4]
     source_root = repo_root / "tests" / "fixtures" / "v1_0" / "source"
     golden_root = repo_root / "tests" / "fixtures" / "v1_0" / "golden"
@@ -264,7 +420,7 @@ def main() -> None:
             child.unlink()
 
     scenarios = _scenario_definitions(source_root)
-    index: dict[str, object] = {
+    index: dict[str, Any] = {
         "version": "1.0.0",
         "passphrase": PASS_PHRASE,
         "profiles": {},
@@ -277,7 +433,7 @@ def main() -> None:
         for profile_name, qr_codec in _FROZEN_PROFILES:
             profile_root = golden_root / profile_name
             profile_root.mkdir(parents=True, exist_ok=True)
-            profile_index: dict[str, object] = {
+            profile_index: dict[str, Any] = {
                 "version": "1.0.0",
                 "profile": profile_name,
                 "qr_payload_codec": qr_codec,
@@ -290,13 +446,17 @@ def main() -> None:
                 encoding="utf-8",
             )
             for scenario in scenarios:
+                backup_args_raw = cast(list[str], scenario["backup_args"])
+                expected_relative_paths = cast(list[str], scenario["expected_relative_paths"])
+                expected_source_root = cast(Path, scenario["expected_source_root"])
+                shard_payload_count = cast(int, scenario["shard_payload_count"])
                 scenario_id = str(scenario["id"])
                 scenario_root = profile_root / scenario_id
                 backup_dir = scenario_root / "backup"
                 scenario_root.mkdir(parents=True, exist_ok=True)
                 backup_args = [
                     "backup",
-                    *list(scenario["backup_args"]),
+                    *backup_args_raw,
                     "--design",
                     "forge",
                     "--output-dir",
@@ -314,7 +474,6 @@ def main() -> None:
                 shard_paths = sorted(backup_dir.glob("shard-*.pdf"))
                 shard_payloads_path = scenario_root / "shard_payloads_threshold.txt"
                 shard_payloads_binary_path = scenario_root / "shard_payloads_threshold.bin"
-                shard_payload_count = int(scenario["shard_payload_count"])
                 if shard_payload_count > 0:
                     shard_payload_bytes = _scan_payload_bytes(shard_paths[:shard_payload_count])
                     _write_payloads_text_file(shard_payload_bytes, shard_payloads_path)
@@ -324,6 +483,7 @@ def main() -> None:
                         shard_payloads_path.unlink()
                     if shard_payloads_binary_path.exists():
                         shard_payloads_binary_path.unlink()
+                _write_signing_key_payload_fixtures(scenario_root)
 
                 artifact_hashes = {}
                 for artifact in sorted(backup_dir.glob("*.pdf")):
@@ -339,8 +499,7 @@ def main() -> None:
                     )
 
                 expected_files = {}
-                expected_source_root = Path(str(scenario["expected_source_root"]))
-                for relative_path in list(scenario["expected_relative_paths"]):
+                for relative_path in expected_relative_paths:
                     source_path = expected_source_root / str(relative_path)
                     expected_files[str(relative_path)] = _file_sha256(source_path)
 
@@ -349,7 +508,7 @@ def main() -> None:
                     "profile": profile_name,
                     "qr_payload_codec": qr_codec,
                     "passphrase": PASS_PHRASE,
-                    "expected_relative_paths": list(scenario["expected_relative_paths"]),
+                    "expected_relative_paths": expected_relative_paths,
                     "expected_file_sha256": expected_files,
                     "artifact_hashes": artifact_hashes,
                     "manifest_projection": _manifest_projection(main_payloads, PASS_PHRASE),
@@ -363,6 +522,15 @@ def main() -> None:
                     json.dumps(snapshot, indent=2, sort_keys=True) + "\n",
                     encoding="utf-8",
                 )
+                if _mint_cases_for_scenario(scenario_id):
+                    _write_mint_snapshot(
+                        repo_root,
+                        scenario_root=scenario_root,
+                        scenario_id=scenario_id,
+                        profile_name=profile_name,
+                        profile_config_path=profile_config_path,
+                        xdg_config_home=xdg_config_home,
+                    )
                 profile_index["scenarios"].append(
                     {
                         "id": scenario_id,
@@ -383,6 +551,16 @@ def main() -> None:
         json.dumps(index, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mint-only", action="store_true")
+    args = parser.parse_args()
+    if args.mint_only:
+        _generate_mint_golden()
+        return
+    _generate_full_golden()
 
 
 if __name__ == "__main__":

@@ -68,6 +68,13 @@ def generate_signing_keypair() -> tuple[bytes, bytes]:
     return seed, key.public_key().export_key(format="raw")
 
 
+def derive_public_key(sign_priv: bytes) -> bytes:
+    """Derive a raw Ed25519 public key from a seed."""
+
+    key = _key_from_seed(sign_priv)
+    return key.public_key().export_key(format="raw")
+
+
 def _encode_auth_signed_payload(doc_hash: bytes, *, sign_pub: bytes) -> bytes:
     """Encode the canonical auth payload body that is signed and verified."""
 
