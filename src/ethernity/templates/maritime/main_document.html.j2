@@ -23,6 +23,8 @@
 <head>
   <meta charset="utf-8">
   <style>
+    {% include 'partials/print_text_clarity.j2' %}
+
     @page {
       size: {{ page_size_css }};
       margin: 0;
@@ -287,7 +289,7 @@
         <div class="stamp-value">{{ created_timestamp_utc }}</div>
       </div>
     </div>
-    {% if page.page_num == 1 %}
+    {% if page.show_instructions %}
     <div class="instructions" style="top: {{ page.instructions_y_mm }}mm;">
       <div class="instructions-label">{{ instructions.label }}</div>
       <div>

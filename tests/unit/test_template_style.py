@@ -48,6 +48,7 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertAlmostEqual(maritime.header.divider_thickness_mm, 0.4)
         self.assertAlmostEqual(maritime.content_offset.divider_gap_extra_mm, -10.0)
         self.assertEqual(maritime.content_offset.doc_types, frozenset({"recovery"}))
+        self.assertTrue(maritime.capabilities.repeat_main_instructions_on_all_pages)
 
         forge = load_template_style(_TEMPLATES_ROOT / "forge" / "main_document.html.j2")
         self.assertEqual(forge.name, "forge")
@@ -128,6 +129,7 @@ class TestTemplateStyle(unittest.TestCase):
             self.assertFalse(style.capabilities.advanced_fallback_layout)
             self.assertFalse(style.capabilities.extra_main_first_page_qr_slot)
             self.assertFalse(style.capabilities.uniform_main_qr_capacity)
+            self.assertFalse(style.capabilities.repeat_main_instructions_on_all_pages)
             self.assertIsNone(style.capabilities.main_qr_grid_size_mm)
             self.assertIsNone(style.capabilities.main_qr_grid_max_cols)
             self.assertIsNone(style.capabilities.fallback_layout)

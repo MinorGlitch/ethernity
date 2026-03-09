@@ -1,0 +1,93 @@
+{#
+ Copyright (C) 2026 Alex Stoyanov
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License along with this program.
+ If not, see <https://www.gnu.org/licenses/>.
+#}
+@media print {
+  :root {
+    --muted: #374151;
+    --muted-soft: #4b5563;
+    --ink-soft: #374151;
+    --ink-label: #1f2937;
+    --ink-muted: #374151;
+  }
+
+  html,
+  body {
+    color: #000 !important;
+    text-rendering: geometricPrecision;
+    -webkit-font-smoothing: auto;
+  }
+
+  code,
+  pre,
+  kbd,
+  samp,
+  .font-mono,
+  .fallback,
+  .fallback-lines,
+  .fallback-line,
+  .keys-line,
+  .fallback-payload,
+  .sentinel-fallback-text {
+    font-variant-ligatures: none;
+  }
+
+  .fallback,
+  .fallback-lines,
+  .fallback-line,
+  .fallback-payload,
+  .sentinel-fallback-text {
+    color: #000 !important;
+  }
+
+  [class*="text-gray-"],
+  [class*="text-slate-"],
+  [class*="text-zinc-"],
+  [class*="text-neutral-"],
+  .text-text-secondary-light {
+    color: #1f2937 !important;
+  }
+
+  .text-white,
+  [class*="text-white"] {
+    color: #fff !important;
+  }
+
+  .subtitle,
+  .meta-k,
+  .meta-label,
+  .mode-row,
+  .fallback-title,
+  .fallback-label,
+  .keys-label,
+  .instructions-label,
+  .instructions-full-label,
+  .section-code,
+  .stamp-title,
+  .qr-sequence text,
+  th,
+  label {
+    font-weight: 600 !important;
+    color: #111827 !important;
+  }
+
+  .qr-grid::after {
+    opacity: 0.12 !important;
+  }
+
+  .qr-sequence line {
+    opacity: 0.28 !important;
+  }
+}

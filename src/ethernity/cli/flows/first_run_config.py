@@ -25,6 +25,7 @@ from ...config import (
     ONBOARDING_FIELD_PAGE_SIZE,
     ONBOARDING_FIELD_PAYLOAD_CODEC,
     ONBOARDING_FIELD_QR_CHUNK_SIZE,
+    ONBOARDING_FIELD_QR_ERROR_CORRECTION,
     ONBOARDING_FIELD_QR_PAYLOAD_CODEC,
     ONBOARDING_FIELD_SHARDING,
     ONBOARDING_FIELD_TEMPLATE_DESIGN,
@@ -50,6 +51,7 @@ from ..ui.runtime import clear_screen
 
 PayloadCodec = Literal["auto", "raw", "gzip"]
 QrPayloadCodec = Literal["raw", "base64"]
+QrErrorCorrection = Literal["L", "M", "Q", "H"]
 PageSize = Literal["A4", "LETTER"]
 SigningKeyMode = Literal["embedded", "sharded"]
 
@@ -66,6 +68,7 @@ _FIRST_RUN_CONFIGURED_FIELDS = {
     ONBOARDING_FIELD_PAGE_SIZE,
     ONBOARDING_FIELD_BACKUP_OUTPUT_DIR,
     ONBOARDING_FIELD_QR_CHUNK_SIZE,
+    ONBOARDING_FIELD_QR_ERROR_CORRECTION,
     ONBOARDING_FIELD_SHARDING,
     ONBOARDING_FIELD_PAYLOAD_CODEC,
     ONBOARDING_FIELD_QR_PAYLOAD_CODEC,
@@ -86,6 +89,7 @@ def _preferred_design_order(names: list[str]) -> list[str]:
 class FirstRunSelections:
     design: str
     qr_payload_codec: QrPayloadCodec
+    qr_error_correction: QrErrorCorrection
     payload_codec: PayloadCodec
     page_size: PageSize
     backup_output_dir: str | None
@@ -141,6 +145,7 @@ def run_first_run_config_wizard(
             selections = FirstRunSelections(
                 design=_prompt_design(),
                 qr_payload_codec=_prompt_qr_payload_codec(),
+                qr_error_correction=_prompt_qr_error_correction(),
                 payload_codec=_prompt_payload_codec(),
                 page_size=_prompt_page_size(),
                 backup_output_dir=_prompt_backup_output_dir(),
@@ -157,6 +162,7 @@ def run_first_run_config_wizard(
             selections = FirstRunSelections(
                 design=selections.design,
                 qr_payload_codec=selections.qr_payload_codec,
+                qr_error_correction=selections.qr_error_correction,
                 payload_codec=selections.payload_codec,
                 page_size=selections.page_size,
                 backup_output_dir=selections.backup_output_dir,
@@ -176,6 +182,7 @@ def run_first_run_config_wizard(
                     selections.backup_output_dir or "unset (default backup-<doc_id>)",
                 ),
                 ("QR payload codec", selections.qr_payload_codec),
+                ("QR error correction", selections.qr_error_correction),
                 ("Payload codec", selections.payload_codec),
                 ("QR chunk size", f"{selections.qr_chunk_size} bytes"),
                 (
@@ -217,6 +224,7 @@ def run_first_run_config_wizard(
             design=selections.design,
             payload_codec=selections.payload_codec,
             qr_payload_codec=selections.qr_payload_codec,
+            qr_error_correction=selections.qr_error_correction,
             page_size=selections.page_size,
             backup_output_dir=selections.backup_output_dir,
             qr_chunk_size=selections.qr_chunk_size,
@@ -274,6 +282,27 @@ def _prompt_qr_payload_codec() -> QrPayloadCodec:
         ),
     )
     return "base64" if selected == "base64" else "raw"
+
+
+def _prompt_qr_error_correction() -> QrErrorCorrection:
+    choices = {
+        "M": "M (recommended, balanced capacity and resilience)",
+        "L": "L (highest capacity, least resilience)",
+        "Q": "Q (higher resilience, fewer QR bytes)",
+        "H": "H (maximum resilience, fewest QR bytes)",
+    }
+    selected = prompt_choice(
+        "QR error correction",
+        choices,
+        default="M",
+        help_text=(
+            "Higher levels survive more print/scan damage but fit less data per QR code. "
+            "M is a good default for most backups."
+        ),
+    )
+    if selected in {"L", "M", "Q", "H"}:
+        return selected
+    return "M"
 
 
 def _prompt_payload_codec() -> PayloadCodec:

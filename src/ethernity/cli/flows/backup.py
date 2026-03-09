@@ -37,6 +37,11 @@ from ...config import (
 )
 from ...config.installer import PACKAGE_ROOT
 from ...core.models import DocumentPlan, ShardingConfig, SigningSeedMode
+from ...formats import (
+    envelope_codec as envelope_codec_module,
+    payload_codec as payload_codec_module,
+)
+from ...formats.envelope_types import SIGNING_SEED_LEN, PayloadPart
 from ..api import (
     DEBUG_MAX_BYTES_DEFAULT,
     build_review_table,
@@ -368,6 +373,11 @@ def _build_review_rows(
 ) -> list[tuple[str, str | None]]:
     """Build the review table rows."""
     review_rows: list[tuple[str, str | None]] = []
+    payload_codec_label, compression_ratio = _build_payload_review_details(
+        input_files=input_files,
+        plan=plan,
+        config=config,
+    )
     review_rows.append(("Keys", None))
     if passphrase:
         review_rows.append(("Passphrase", "provided"))
@@ -405,6 +415,9 @@ def _build_review_rows(
     review_rows.append(("Sealed", "yes" if plan.sealed else "no"))
     review_rows.append(("Inputs", None))
     review_rows.append(("Input files", f"{len(input_files)} file(s)"))
+    review_rows.append(("Payload codec", payload_codec_label))
+    if compression_ratio is not None:
+        review_rows.append(("Compression ratio", compression_ratio))
     if resolved_base:
         review_rows.append(("Base dir", str(resolved_base)))
     if config_path:
@@ -437,6 +450,63 @@ def _build_review_rows(
             ("Signing-key shard template", str(config.signing_key_shard_template_path))
         )
     return review_rows
+
+
+def _build_payload_review_details(
+    *,
+    input_files: list[InputFile],
+    plan: DocumentPlan,
+    config: AppConfig,
+) -> tuple[str, str | None]:
+    """Return payload codec review text and optional gzip compression ratio."""
+
+    payload_codec_mode = config.cli_defaults.backup.payload_codec
+    if payload_codec_mode == payload_codec_module.PAYLOAD_CODEC_RAW:
+        return payload_codec_mode, None
+
+    try:
+        payload_parts = [
+            PayloadPart(path=item.relative_path, data=item.data, mtime=item.mtime)
+            for item in input_files
+        ]
+        signing_seed = None if plan.sealed else (b"\x00" * SIGNING_SEED_LEN)
+        _manifest, payload = envelope_codec_module.build_manifest_and_payload(
+            payload_parts,
+            sealed=plan.sealed,
+            signing_seed=signing_seed,
+            input_origin="file",
+            input_roots=(),
+        )
+        encoded_payload, actual_codec, payload_raw_len = (
+            payload_codec_module.encode_payload_for_manifest(
+                payload,
+                mode=payload_codec_mode,
+            )
+        )
+    except ValueError:
+        return str(payload_codec_mode), "unavailable (computed during backup)"
+
+    codec_label = actual_codec
+    if payload_codec_mode == payload_codec_module.PAYLOAD_ENCODING_AUTO:
+        codec_label = f"auto -> {actual_codec}"
+
+    if actual_codec != payload_codec_module.PAYLOAD_CODEC_GZIP or payload_raw_len is None:
+        return codec_label, None
+
+    compressed_len = len(encoded_payload)
+    ratio = compressed_len / payload_raw_len
+    delta = (1 - ratio) * 100
+    if delta >= 0:
+        ratio_label = (
+            f"{compressed_len:,}/{payload_raw_len:,} bytes "
+            f"({ratio * 100:.1f}% of original, {delta:.1f}% smaller)"
+        )
+    else:
+        ratio_label = (
+            f"{compressed_len:,}/{payload_raw_len:,} bytes "
+            f"({ratio * 100:.1f}% of original, {abs(delta):.1f}% larger)"
+        )
+    return codec_label, ratio_label
 
 
 def _resolve_kit_index_template_path(config: AppConfig) -> Path | None:

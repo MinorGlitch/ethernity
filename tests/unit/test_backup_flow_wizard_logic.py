@@ -24,7 +24,7 @@ from unittest import mock
 
 from ethernity.cli.core.types import BackupArgs, BackupResult, InputFile
 from ethernity.cli.flows import backup
-from ethernity.config import load_app_config
+from ethernity.config import BackupDefaults, load_app_config
 from ethernity.core.models import DocumentPlan, ShardingConfig, SigningSeedMode
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -304,6 +304,166 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
         )
         self.assertIn(("Signing key handling", "not stored (sealed backup)"), rows)
         self.assertIn(("Signing-key shards", "1 of 2"), rows)
+
+    def test_build_review_rows_shows_gzip_compression_ratio_when_used(self) -> None:
+        input_files = [
+            InputFile(
+                source_path=Path("input.txt"),
+                relative_path="input.txt",
+                data=(b"compress-me\n" * 512),
+                mtime=None,
+            )
+        ]
+        config = load_app_config(path=DEFAULT_CONFIG_PATH)
+        config = replace(
+            config,
+            cli_defaults=replace(
+                config.cli_defaults,
+                backup=BackupDefaults(
+                    payload_codec="gzip",
+                    qr_payload_codec=config.cli_defaults.backup.qr_payload_codec,
+                ),
+            ),
+        )
+
+        rows = backup._build_review_rows(
+            passphrase=None,
+            passphrase_words=24,
+            plan=DocumentPlan(version=1, sealed=False, sharding=None),
+            input_files=input_files,
+            resolved_base=None,
+            output_dir=None,
+            config_path=None,
+            paper=None,
+            design=None,
+            config=config,
+            debug=False,
+        )
+
+        self.assertIn(("Payload codec", "gzip"), rows)
+        compression_ratio = dict(rows)["Compression ratio"]
+        assert compression_ratio is not None
+        self.assertIn("bytes", compression_ratio)
+        self.assertIn("of original", compression_ratio)
+        self.assertIn("smaller", compression_ratio)
+
+    def test_build_review_rows_shows_auto_selected_gzip_ratio(self) -> None:
+        input_files = [
+            InputFile(
+                source_path=Path("input.txt"),
+                relative_path="input.txt",
+                data=(b"A" * 8192),
+                mtime=None,
+            )
+        ]
+        config = load_app_config(path=DEFAULT_CONFIG_PATH)
+        config = replace(
+            config,
+            cli_defaults=replace(
+                config.cli_defaults,
+                backup=BackupDefaults(
+                    payload_codec="auto",
+                    qr_payload_codec=config.cli_defaults.backup.qr_payload_codec,
+                ),
+            ),
+        )
+
+        rows = backup._build_review_rows(
+            passphrase=None,
+            passphrase_words=24,
+            plan=DocumentPlan(version=1, sealed=False, sharding=None),
+            input_files=input_files,
+            resolved_base=None,
+            output_dir=None,
+            config_path=None,
+            paper=None,
+            design=None,
+            config=config,
+            debug=False,
+        )
+
+        self.assertIn(("Payload codec", "auto -> gzip"), rows)
+        self.assertIn("Compression ratio", dict(rows))
+
+    def test_build_review_rows_omits_compression_ratio_when_gzip_not_used(self) -> None:
+        input_files = [
+            InputFile(
+                source_path=Path("input.bin"),
+                relative_path="input.bin",
+                data=bytes(range(256)) * 16,
+                mtime=None,
+            )
+        ]
+        config = load_app_config(path=DEFAULT_CONFIG_PATH)
+        config = replace(
+            config,
+            cli_defaults=replace(
+                config.cli_defaults,
+                backup=BackupDefaults(
+                    payload_codec="raw",
+                    qr_payload_codec=config.cli_defaults.backup.qr_payload_codec,
+                ),
+            ),
+        )
+
+        rows = backup._build_review_rows(
+            passphrase=None,
+            passphrase_words=24,
+            plan=DocumentPlan(version=1, sealed=False, sharding=None),
+            input_files=input_files,
+            resolved_base=None,
+            output_dir=None,
+            config_path=None,
+            paper=None,
+            design=None,
+            config=config,
+            debug=False,
+        )
+
+        self.assertIn(("Payload codec", "raw"), rows)
+        self.assertNotIn("Compression ratio", dict(rows))
+
+    def test_build_review_rows_handles_payload_review_errors_gracefully(self) -> None:
+        input_files = [
+            InputFile(
+                source_path=Path("input.txt"),
+                relative_path="input.txt",
+                data=b"payload",
+                mtime=None,
+            )
+        ]
+        config = load_app_config(path=DEFAULT_CONFIG_PATH)
+        config = replace(
+            config,
+            cli_defaults=replace(
+                config.cli_defaults,
+                backup=BackupDefaults(
+                    payload_codec="gzip",
+                    qr_payload_codec=config.cli_defaults.backup.qr_payload_codec,
+                ),
+            ),
+        )
+
+        with mock.patch(
+            "ethernity.cli.flows.backup.payload_codec_module.encode_payload_for_manifest",
+            side_effect=ValueError("too big"),
+        ):
+            rows = backup._build_review_rows(
+                passphrase=None,
+                passphrase_words=24,
+                plan=DocumentPlan(version=1, sealed=False, sharding=None),
+                input_files=input_files,
+                resolved_base=None,
+                output_dir=None,
+                config_path=None,
+                paper=None,
+                design=None,
+                config=config,
+                debug=False,
+            )
+
+        self.assertIn(("Payload codec", "gzip"), rows)
+        self.assertIn(("Compression ratio", "unavailable (computed during backup)"), rows)
 
     def test_resolve_kit_index_template_path_and_compatibility(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

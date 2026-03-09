@@ -21,6 +21,8 @@
   {% include 'partials/sentinel_tailwind_setup.j2' %}
   <style>
     {% include 'partials/material_symbols_local.j2' %}
+    {% include 'partials/print_text_clarity.j2' %}
+
     @page {
       size: {{ page_size_css }};
       margin: 0;
@@ -71,6 +73,15 @@
         #e5e7eb 21px,
         #e5e7eb 22px
       );
+    }
+
+    .sentinel-fallback-row {
+      line-height: 1.15;
+    }
+
+    .sentinel-fallback-text {
+      display: block;
+      line-height: 1.15;
     }
   </style>
 </head>
@@ -172,9 +183,9 @@
                   {% set ns.used_rows = ns.used_rows + 1 %}
                   {% endif %}
                   {% for line in block.lines %}
-                  <div class="grid grid-cols-[34px_1fr] gap-2 px-2 items-center border-b border-gray-200 text-[9px] font-mono leading-none" style="height: {{ '%.2f'|format(row_height_mm) }}mm">
+                  <div class="sentinel-fallback-row grid grid-cols-[34px_1fr] gap-2 px-2 items-center border-b border-gray-200 text-[9px] font-mono" style="height: {{ '%.2f'|format(row_height_mm) }}mm">
                     <span class="text-right pr-1 text-text-secondary-light">{{ '%02d' % (block.line_offset + loop.index) }}.</span>
-                    <span class="tracking-normal whitespace-nowrap">{{ line }}</span>
+                    <span class="sentinel-fallback-text fallback-payload tracking-normal whitespace-nowrap">{{ line }}</span>
                   </div>
                   {% set ns.used_rows = ns.used_rows + 1 %}
                   {% endfor %}
@@ -266,9 +277,9 @@
               {% set ns.used_rows = ns.used_rows + 1 %}
               {% endif %}
               {% for line in block.lines %}
-              <div class="grid grid-cols-[30px_1fr_44px] gap-2 items-center" style="height: {{ '%.2f'|format(row_height_mm) }}mm">
+              <div class="sentinel-fallback-row grid grid-cols-[30px_1fr_44px] gap-2 items-center" style="height: {{ '%.2f'|format(row_height_mm) }}mm">
                 <div class="font-mono text-[11px] font-bold text-text-secondary-light text-right pr-1">{{ '%02d' % (block.line_offset + loop.index) }}</div>
-                <div class="border border-border-light bg-transparent px-2 flex items-center font-mono text-[9px] leading-none tracking-tight whitespace-nowrap" style="height: {{ '%.2f'|format(row_height_mm) }}mm">{{ line }}</div>
+                <div class="fallback-payload border border-border-light bg-transparent px-2 flex items-center font-mono text-[9px] tracking-tight whitespace-nowrap" style="height: {{ '%.2f'|format(row_height_mm) }}mm"><span class="sentinel-fallback-text fallback-payload">{{ line }}</span></div>
                 <div class="border border-dashed border-border-light bg-[#faf8f4] flex items-center justify-center" style="height: {{ '%.2f'|format(row_height_mm) }}mm">
                   <span class="material-symbols-outlined text-gray-400 text-[14px]">check_circle</span>
                 </div>

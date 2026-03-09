@@ -21,6 +21,7 @@
   <style>
     {% include 'partials/forge_tailwind.j2' %}
     {% include 'partials/material_symbols_local.j2' %}
+    {% include 'partials/print_text_clarity.j2' %}
 
     @page {
       size: {{ page_size_css }};
@@ -53,7 +54,7 @@
     }
   </style>
 </head>
-<body class="bg-background-light font-display antialiased">
+<body class="bg-background-light font-display">
 {% macro inventory_table(rows) %}
   <div class="overflow-hidden border border-gray-200 rounded">
     <table class="w-full text-left text-sm">

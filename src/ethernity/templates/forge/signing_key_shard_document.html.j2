@@ -21,6 +21,7 @@
   <style>
     {% include 'partials/forge_tailwind.j2' %}
     {% include 'partials/material_symbols_local.j2' %}
+    {% include 'partials/print_text_clarity.j2' %}
 
     @page {
       size: {{ page_size_css }};
@@ -124,7 +125,7 @@
                     {% if block.title %}
                     <div class="text-[10px] font-bold uppercase text-gray-500 mb-1 mt-2">{{ block.title }}</div>
                     {% endif %}
-                    <div class="font-mono text-gray-900 tracking-wide" style="font-size: 10.7px; line-height: 1.2;">
+                    <div class="fallback-payload font-mono text-gray-900 tracking-wide" style="font-size: 10.7px; line-height: 1.2;">
                       {% for line in block.lines %}
                       <div style="white-space: nowrap;">{{ line }}</div>
                       {% endfor %}

@@ -21,6 +21,8 @@
   {% include 'partials/sentinel_tailwind_setup.j2' %}
   <style>
     {% include 'partials/material_symbols_local.j2' %}
+    {% include 'partials/print_text_clarity.j2' %}
+
     @page {
       size: {{ page_size_css }};
       margin: 0;
@@ -115,7 +117,7 @@
               {% if block.title %}
               <p class="text-[10px] font-bold uppercase tracking-[0.12em] text-text-secondary-light mb-1 mt-2">{{ block.title }}</p>
               {% endif %}
-              <div class="font-mono text-xs leading-tight tracking-wide text-black space-y-1">
+              <div class="fallback-payload font-mono text-xs leading-tight tracking-wide text-black space-y-1">
                 {% for line in block.lines %}
                 <div class="whitespace-normal break-words">{{ line }}</div>
                 {% endfor %}
