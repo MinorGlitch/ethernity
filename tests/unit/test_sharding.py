@@ -14,6 +14,7 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 import hashlib
+import random
 import unittest
 
 import cbor2
@@ -253,6 +254,70 @@ class TestSharding(unittest.TestCase):
                 sign_priv=sign_priv,
                 sign_pub=sign_pub,
             )
+
+    def test_mint_replacement_shards_matches_original_missing_share_randomized(self) -> None:
+        rng = random.Random(20260310)
+        for case_index in range(20):
+            threshold = rng.randint(2, 4)
+            share_count = rng.randint(threshold + 1, 6)
+            passphrase = "".join(
+                chr(ord("a") + rng.randrange(26)) for _ in range(rng.randint(8, 40))
+            )
+            doc_hash = hashlib.blake2b(
+                f"ciphertext-{case_index}".encode("ascii"), digest_size=32
+            ).digest()
+            sign_priv, sign_pub = generate_signing_keypair()
+            shares = split_passphrase(
+                passphrase,
+                threshold=threshold,
+                shares=share_count,
+                doc_hash=doc_hash,
+                sign_priv=sign_priv,
+                sign_pub=sign_pub,
+            )
+            missing_share = shares[rng.randrange(share_count)]
+            source = [share for share in shares if share.share_index != missing_share.share_index]
+            replacement = mint_replacement_shards(
+                source,
+                count=1,
+                sign_priv=sign_priv,
+                sign_pub=sign_pub,
+            )[0]
+            self.assertEqual(replacement.share_index, missing_share.share_index)
+            self.assertEqual(replacement.share, missing_share.share)
+            recovered = recover_passphrase(source[: threshold - 1] + [replacement])
+            self.assertEqual(recovered, passphrase)
+
+    def test_mint_signing_seed_replacement_matches_original_missing_share_randomized(self) -> None:
+        rng = random.Random(20260311)
+        for case_index in range(20):
+            threshold = rng.randint(2, 4)
+            share_count = rng.randint(threshold + 1, 6)
+            seed = rng.randbytes(32)
+            doc_hash = hashlib.blake2b(
+                f"seed-{case_index}".encode("ascii"), digest_size=32
+            ).digest()
+            sign_priv, sign_pub = generate_signing_keypair()
+            shares = split_signing_seed(
+                seed,
+                threshold=threshold,
+                shares=share_count,
+                doc_hash=doc_hash,
+                sign_priv=sign_priv,
+                sign_pub=sign_pub,
+            )
+            missing_share = shares[rng.randrange(share_count)]
+            source = [share for share in shares if share.share_index != missing_share.share_index]
+            replacement = mint_replacement_shards(
+                source,
+                count=1,
+                sign_priv=sign_priv,
+                sign_pub=sign_pub,
+            )[0]
+            self.assertEqual(replacement.share_index, missing_share.share_index)
+            self.assertEqual(replacement.share, missing_share.share)
+            recovered = recover_signing_seed(source[: threshold - 1] + [replacement])
+            self.assertEqual(recovered, seed)
 
     def test_split_and_recover_signing_seed(self) -> None:
         seed = b"\x5a" * 32

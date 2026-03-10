@@ -19,9 +19,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import cast
 
-from Crypto.Protocol.SecretSharing import Shamir, _Element
+from Crypto.Protocol.SecretSharing import Shamir
 
 from ..core.validation import (
     require_bytes,
@@ -31,12 +31,12 @@ from ..core.validation import (
     require_positive_int,
 )
 from ..encoding.cbor import dumps_canonical, loads_canonical
+from ._shamir_compat import BLOCK_SIZE, interpolate_share_blocks
 from .signing import DOC_HASH_LEN, ED25519_PUB_LEN, ED25519_SEED_LEN, ED25519_SIG_LEN, sign_shard
 
 SHARD_VERSION = 1
 KEY_TYPE_PASSPHRASE = "passphrase"
 KEY_TYPE_SIGNING_SEED = "signing-seed"
-BLOCK_SIZE = 16
 MAX_SHARES = 255
 
 
@@ -169,11 +169,10 @@ def mint_replacement_shards(
 
     payloads: list[ShardPayload] = []
     for share_index in missing_indices[:count]:
-        share_bytes = b"".join(
-            _interpolate_share_block(
-                source_shares, share_index=share_index, block_index=block_index
-            )
-            for block_index in range(block_count)
+        share_bytes = interpolate_share_blocks(
+            [(share.share_index, share.share) for share in source_shares],
+            target_index=share_index,
+            block_count=block_count,
         )
         signature = sign_shard(
             doc_hash,
@@ -329,9 +328,8 @@ def _split_secret(
         blocks.append(block)
 
     share_map: dict[int, bytearray] = {}
-    shamir = cast(Any, Shamir)
     for block in blocks:
-        split = shamir.split(threshold, shares, block)
+        split = cast(list[tuple[int, bytes]], Shamir.split(threshold, shares, block, False))
         for index, share in split:
             bucket = share_map.setdefault(index, bytearray())
             bucket.extend(share)
@@ -405,43 +403,11 @@ def _recover_secret(shares: list[ShardPayload], *, key_type: str) -> bytes:
         if len(share.share) != expected_len:
             raise ValueError("shard share length does not match secret length")
 
-    shamir = cast(Any, Shamir)
     blocks: list[bytes] = []
     for block_idx in range(block_count):
         start = block_idx * BLOCK_SIZE
         end = start + BLOCK_SIZE
         pairs = [(share.share_index, share.share[start:end]) for share in shares]
-        blocks.append(cast(bytes, shamir.combine(pairs)))
+        blocks.append(cast(bytes, Shamir.combine(pairs, False)))
 
     return b"".join(blocks)[:secret_len]
-
-
-def _interpolate_share_block(
-    shares: list[ShardPayload],
-    *,
-    share_index: int,
-    block_index: int,
-) -> bytes:
-    x = _Element(share_index)
-    offset = block_index * BLOCK_SIZE
-    points = [
-        (_Element(share.share_index), _Element(share.share[offset : offset + BLOCK_SIZE]))
-        for share in shares
-    ]
-    result = _Element(0)
-    for index, (x_j, y_j) in enumerate(points):
-        numerator = _Element(1)
-        denominator = _Element(1)
-        for other_index, (x_m, _y_m) in enumerate(points):
-            if other_index == index:
-                continue
-            numerator_any: Any = numerator
-            denominator_any: Any = denominator
-            numerator = numerator_any * (x + x_m)
-            denominator = denominator_any * (x_j + x_m)
-        result_any: Any = result
-        y_any: Any = y_j
-        numerator_any = numerator
-        denominator_inv_any: Any = denominator.inverse()
-        result = result_any + (y_any * numerator_any * denominator_inv_any)
-    return result.encode()
