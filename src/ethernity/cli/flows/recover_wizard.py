@@ -126,6 +126,7 @@ def _prompt_key_material(
     args: RecoverArgs,
     *,
     quiet: bool,
+    collect_all_shards: bool = False,
 ) -> tuple[str | None, list[str], list[str], list[Frame]]:
     """Prompt for key material.
 
@@ -157,7 +158,7 @@ def _prompt_key_material(
                 shard_fallback_files,
                 shard_payloads_file,
                 pasted_shard_frames,
-            ) = _prompt_shard_inputs(quiet=quiet)
+            ) = _prompt_shard_inputs(quiet=quiet, stop_at_quorum=not collect_all_shards)
             break
 
     return (

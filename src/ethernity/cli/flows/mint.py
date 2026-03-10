@@ -183,6 +183,7 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                         ) = _prompt_key_material(
                             recover_args,
                             quiet=quiet,
+                            collect_all_shards=True,
                         )
                         shard_frames = (
                             _load_shard_frames(
@@ -234,6 +235,7 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                             quiet=quiet,
                             key_type=KEY_TYPE_SIGNING_SEED,
                             label="Signing-key shard documents",
+                            stop_at_quorum=False,
                         )
                     stage_index += 1
                     continue
@@ -368,7 +370,7 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
         config=args.config,
         paper=args.paper,
         design=args.design,
-        output_dir=None,
+        output_dir=working_args.output_dir,
         layout_debug_dir=args.layout_debug_dir,
         shard_threshold=passphrase_sharding.threshold if passphrase_sharding else None,
         shard_count=passphrase_sharding.shares if passphrase_sharding else None,

@@ -307,6 +307,7 @@ class TestCliFlowPrompts(unittest.TestCase):
     def test_prompt_shard_inputs_paths(self) -> None:
         frame_one = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
         frame_two = _build_shard_frame(share_index=2, share=b"\xbb" * 16)
+        frame_three = _build_shard_frame(share_index=3, share=b"\xcc" * 16)
 
         with (
             mock.patch.object(prompts, "prompt_paths_with_picker", return_value=["-"]),
@@ -335,6 +336,27 @@ class TestCliFlowPrompts(unittest.TestCase):
             _scan, _text, frames = prompts._prompt_shard_inputs(quiet=True)
         self.assertEqual(len(frames), 2)
         err_print.assert_called_once()
+
+        with (
+            mock.patch.object(
+                prompts,
+                "prompt_paths_with_picker",
+                side_effect=[["batch-one.txt"], ["batch-two.txt"]],
+            ),
+            mock.patch.object(
+                prompts,
+                "_frames_from_shard_text_or_payload_files",
+                side_effect=[[frame_one, frame_two], [frame_three]],
+            ),
+            mock.patch.object(prompts, "status", return_value=contextlib.nullcontext(None)),
+            mock.patch.object(prompts, "prompt_yes_no", return_value=True) as prompt_yes_no,
+        ):
+            _scan, _text, frames = prompts._prompt_shard_inputs(
+                quiet=True,
+                stop_at_quorum=False,
+            )
+        self.assertEqual(frames, [frame_one, frame_two, frame_three])
+        prompt_yes_no.assert_called_once()
 
 
 if __name__ == "__main__":

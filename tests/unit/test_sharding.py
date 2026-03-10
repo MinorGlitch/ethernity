@@ -232,6 +232,11 @@ class TestSharding(unittest.TestCase):
         )
         self.assertEqual(len(replacements), 1)
         self.assertEqual(replacements[0].share_index, 4)
+        self.assertEqual(replacements[0], shares[3])
+        self.assertEqual(
+            encode_shard_payload(replacements[0]),
+            encode_shard_payload(shares[3]),
+        )
         recovered = recover_passphrase([shares[0], replacements[0]])
         self.assertEqual(recovered, passphrase)
 
@@ -283,8 +288,11 @@ class TestSharding(unittest.TestCase):
                 sign_priv=sign_priv,
                 sign_pub=sign_pub,
             )[0]
-            self.assertEqual(replacement.share_index, missing_share.share_index)
-            self.assertEqual(replacement.share, missing_share.share)
+            self.assertEqual(replacement, missing_share)
+            self.assertEqual(
+                encode_shard_payload(replacement),
+                encode_shard_payload(missing_share),
+            )
             recovered = recover_passphrase(source[: threshold - 1] + [replacement])
             self.assertEqual(recovered, passphrase)
 
@@ -314,8 +322,11 @@ class TestSharding(unittest.TestCase):
                 sign_priv=sign_priv,
                 sign_pub=sign_pub,
             )[0]
-            self.assertEqual(replacement.share_index, missing_share.share_index)
-            self.assertEqual(replacement.share, missing_share.share)
+            self.assertEqual(replacement, missing_share)
+            self.assertEqual(
+                encode_shard_payload(replacement),
+                encode_shard_payload(missing_share),
+            )
             recovered = recover_signing_seed(source[: threshold - 1] + [replacement])
             self.assertEqual(recovered, seed)
 
