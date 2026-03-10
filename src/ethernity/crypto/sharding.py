@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, cast
 
-from Crypto.Protocol.SecretSharing import Shamir
+from Crypto.Protocol.SecretSharing import Shamir, _Element
 
 from ..core.validation import (
     require_bytes,
@@ -118,6 +118,89 @@ def recover_signing_seed(shares: list[ShardPayload]) -> bytes:
     if len(seed) != ED25519_SEED_LEN:
         raise ValueError(f"signing seed must be {ED25519_SEED_LEN} bytes")
     return seed
+
+
+def mint_replacement_shards(
+    shares: list[ShardPayload],
+    *,
+    count: int,
+    sign_priv: bytes,
+    sign_pub: bytes,
+) -> list[ShardPayload]:
+    """Mint replacement shards compatible with an existing shard set."""
+
+    if not shares:
+        raise ValueError("no shares provided")
+    count = require_positive_int(count, label="replacement shard count")
+    threshold = shares[0].threshold
+    secret_len = shares[0].secret_len
+    share_total = shares[0].share_count
+    key_type = shares[0].key_type
+    doc_hash = shares[0].doc_hash
+    seen_indices: set[int] = set()
+    for share in shares:
+        if share.key_type != key_type:
+            raise ValueError("shard key types do not match")
+        if share.threshold != threshold:
+            raise ValueError("shard thresholds do not match")
+        if share.share_count != share_total:
+            raise ValueError("shard share counts do not match")
+        if share.secret_len != secret_len:
+            raise ValueError("shard secret lengths do not match")
+        if share.doc_hash != doc_hash:
+            raise ValueError("shard doc hashes do not match")
+        if share.share_index in seen_indices:
+            raise ValueError("duplicate shard index")
+        seen_indices.add(share.share_index)
+    if len(shares) < threshold:
+        raise ValueError(f"need at least {threshold} shard(s) to mint compatible replacements")
+
+    missing_indices = [index for index in range(1, share_total + 1) if index not in seen_indices]
+    if count > len(missing_indices):
+        raise ValueError(
+            f"only {len(missing_indices)} replacement shard(s) can be minted from this set"
+        )
+
+    source_shares = sorted(shares, key=lambda item: item.share_index)[:threshold]
+    block_count = (secret_len + BLOCK_SIZE - 1) // BLOCK_SIZE
+    require_length(doc_hash, DOC_HASH_LEN, label="doc_hash", prefix="shard ")
+    require_length(sign_pub, ED25519_PUB_LEN, label="sign_pub", prefix="shard ")
+    require_length(sign_priv, ED25519_SEED_LEN, label="sign_priv", prefix="shard ")
+
+    payloads: list[ShardPayload] = []
+    for share_index in missing_indices[:count]:
+        share_bytes = b"".join(
+            _interpolate_share_block(
+                source_shares, share_index=share_index, block_index=block_index
+            )
+            for block_index in range(block_count)
+        )
+        signature = sign_shard(
+            doc_hash,
+            shard_version=SHARD_VERSION,
+            key_type=key_type,
+            threshold=threshold,
+            share_count=share_total,
+            share_index=share_index,
+            secret_len=secret_len,
+            share=share_bytes,
+            sign_pub=sign_pub,
+            sign_priv=sign_priv,
+        )
+        payloads.append(
+            ShardPayload(
+                share_index=share_index,
+                threshold=threshold,
+                share_count=share_total,
+                key_type=key_type,
+                share=share_bytes,
+                secret_len=secret_len,
+                doc_hash=doc_hash,
+                sign_pub=sign_pub,
+                signature=signature,
+            )
+        )
+    return payloads
 
 
 def encode_shard_payload(payload: ShardPayload) -> bytes:
@@ -331,3 +414,34 @@ def _recover_secret(shares: list[ShardPayload], *, key_type: str) -> bytes:
         blocks.append(cast(bytes, shamir.combine(pairs)))
 
     return b"".join(blocks)[:secret_len]
+
+
+def _interpolate_share_block(
+    shares: list[ShardPayload],
+    *,
+    share_index: int,
+    block_index: int,
+) -> bytes:
+    x = _Element(share_index)
+    offset = block_index * BLOCK_SIZE
+    points = [
+        (_Element(share.share_index), _Element(share.share[offset : offset + BLOCK_SIZE]))
+        for share in shares
+    ]
+    result = _Element(0)
+    for index, (x_j, y_j) in enumerate(points):
+        numerator = _Element(1)
+        denominator = _Element(1)
+        for other_index, (x_m, _y_m) in enumerate(points):
+            if other_index == index:
+                continue
+            numerator_any: Any = numerator
+            denominator_any: Any = denominator
+            numerator = numerator_any * (x + x_m)
+            denominator = denominator_any * (x_j + x_m)
+        result_any: Any = result
+        y_any: Any = y_j
+        numerator_any = numerator
+        denominator_inv_any: Any = denominator.inverse()
+        result = result_any + (y_any * numerator_any * denominator_inv_any)
+    return result.encode()

@@ -19,11 +19,20 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
+from typing import Any, cast
 
 from ...config import apply_template_design, load_app_config
-from ...core.models import ShardingConfig, SigningSeedMode
+from ...core.models import ShardingConfig
 from ...crypto import decrypt_bytes
-from ...crypto.sharding import KEY_TYPE_SIGNING_SEED, split_passphrase, split_signing_seed
+from ...crypto.sharding import (
+    KEY_TYPE_PASSPHRASE,
+    KEY_TYPE_SIGNING_SEED,
+    ShardPayload,
+    mint_replacement_shards,
+    split_passphrase,
+    split_signing_seed,
+)
 from ...crypto.signing import derive_public_key
 from ...encoding.framing import Frame
 from ...formats.envelope_codec import decode_envelope
@@ -32,7 +41,8 @@ from ...render.service import RenderService
 from ..api import (
     console,
     print_completion_panel,
-    prompt_optional_path_with_picker,
+    prompt_choice,
+    prompt_int,
     prompt_yes_no,
     ui_screen_mode,
     wizard_flow,
@@ -40,13 +50,14 @@ from ..api import (
 )
 from ..core.types import MintArgs, MintResult, RecoverArgs
 from ..io.outputs import _ensure_directory
-from ..keys.recover_keys import _signing_seed_from_shard_frames
+from ..keys.recover_keys import (
+    _signing_seed_from_shard_frames,
+    _validated_shard_payloads_from_frames,
+)
 from ..ui.summary import print_mint_summary
 from .backup_flow import _layout_debug_json_path, _render_shard, _resolve_layout_debug_dir
 from .backup_wizard import (
     _prompt_quorum_choice,
-    resolve_passphrase_sharding,
-    resolve_signing_seed_sharding,
 )
 from .prompts import _prompt_shard_inputs
 from .recover_input import prompt_recovery_input_interactive
@@ -60,6 +71,7 @@ from .recover_plan import (
 from .recover_wizard import _load_shard_frames, _prompt_key_material
 
 MAX_SHARDS = 255
+_UNSET = object()
 
 
 def run_mint_command(args: MintArgs, *, debug: bool = False) -> int:
@@ -106,7 +118,9 @@ def run_mint_command(args: MintArgs, *, debug: bool = False) -> int:
         plan=plan,
         config=config,
         args=args,
+        passphrase_shard_frames=shard_frames,
         signing_key_frames=signing_key_frames,
+        manifest_signing_seed=_UNSET,
         debug=debug,
     )
     print_mint_summary(result, quiet=args.quiet)
@@ -122,6 +136,7 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
     config = load_app_config(args.config, paper_size=args.paper)
     config = apply_template_design(config, args.design)
     recover_args = _recover_args_from_mint_args(args)
+    working_args = replace(args)
 
     with ui_screen_mode(quiet=quiet):
         if show_header and not quiet:
@@ -129,113 +144,231 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
             console.print("[subtitle]Guided minting of fresh shard documents.[/subtitle]")
 
         with wizard_flow(name="Mint", total_steps=4, quiet=quiet):
-            with wizard_stage("Input"):
-                frames, input_label, input_detail = prompt_recovery_input_interactive(
+            frames: list = []
+            input_label: str | None = None
+            input_detail: str | None = None
+            passphrase = working_args.passphrase
+            shard_fallback_files = list(working_args.shard_fallback_file or [])
+            shard_payloads_file = list(working_args.shard_payloads_file or [])
+            pasted_shard_frames: list[Frame] = []
+            shard_frames: list[Frame] = []
+            plan = None
+            manifest = None
+            signing_key_frames: list[Frame] = []
+            mint_passphrase_shards = True
+            mint_signing_key_shards = True
+            passphrase_sharding = None
+            signing_key_sharding = None
+            passphrase_replacement_count = None
+            signing_key_replacement_count = None
+            stage_index = 0
+
+            while stage_index < 4:
+                if stage_index == 0:
+                    with wizard_stage("Input", step_number=1):
+                        frames, input_label, input_detail = prompt_recovery_input_interactive(
+                            allow_unsigned=False,
+                            quiet=quiet,
+                        )
+                    stage_index += 1
+                    continue
+
+                if stage_index == 1:
+                    with wizard_stage("Keys", step_number=2):
+                        (
+                            passphrase,
+                            shard_fallback_files,
+                            shard_payloads_file,
+                            pasted_shard_frames,
+                        ) = _prompt_key_material(
+                            recover_args,
+                            quiet=quiet,
+                        )
+                        shard_frames = (
+                            _load_shard_frames(
+                                shard_fallback_files,
+                                shard_payloads_file,
+                                pasted_shard_frames,
+                                quiet,
+                            )
+                            if (
+                                shard_fallback_files
+                                or shard_payloads_file
+                                or pasted_shard_frames
+                                or passphrase is None
+                            )
+                            else []
+                        )
+                        working_args.passphrase = passphrase
+                        working_args.shard_fallback_file = list(shard_fallback_files)
+                        working_args.shard_payloads_file = list(shard_payloads_file or [])
+                    stage_index += 1
+                    continue
+
+                plan = build_recovery_plan(
+                    frames=frames,
+                    extra_auth_frames=[],
+                    shard_frames=shard_frames,
+                    passphrase=passphrase,
                     allow_unsigned=False,
+                    input_label=input_label,
+                    input_detail=input_detail,
+                    shard_fallback_files=shard_fallback_files,
+                    shard_payloads_file=shard_payloads_file,
+                    output_path=None,
+                    args=recover_args,
                     quiet=quiet,
                 )
-
-            with wizard_stage("Keys"):
-                (
-                    passphrase,
-                    shard_fallback_files,
-                    shard_payloads_file,
-                    pasted_shard_frames,
-                ) = _prompt_key_material(recover_args, quiet=quiet)
-                shard_frames = (
-                    _load_shard_frames(
-                        shard_fallback_files,
-                        shard_payloads_file,
-                        pasted_shard_frames,
-                        quiet,
+                if plan.auth_payload is None:
+                    raise ValueError(
+                        "minting requires authenticated recovery input; use `ethernity mint` for "
+                        "advanced auth-input options"
                     )
-                    if (
-                        shard_fallback_files
-                        or shard_payloads_file
-                        or pasted_shard_frames
-                        or passphrase is None
-                    )
-                    else []
-                )
+                plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
+                manifest, _payload = decode_envelope(plaintext)
+                needs_signing_authority = manifest.signing_seed is None
 
-            plan = build_recovery_plan(
-                frames=frames,
-                extra_auth_frames=[],
-                shard_frames=shard_frames,
-                passphrase=passphrase,
-                allow_unsigned=False,
-                input_label=input_label,
-                input_detail=input_detail,
-                shard_fallback_files=shard_fallback_files,
-                shard_payloads_file=shard_payloads_file,
-                output_path=None,
-                args=recover_args,
-                quiet=quiet,
-            )
-            if plan.auth_payload is None:
-                raise ValueError(
-                    "minting requires authenticated recovery input; use `ethernity mint` for "
-                    "advanced auth-input options"
-                )
-
-            plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
-            manifest, _payload = decode_envelope(plaintext)
-
-            signing_key_frames: list[Frame] = []
-            if manifest.signing_seed is None:
-                with wizard_stage("Signing authority"):
-                    _fallback_files, _payload_files, signing_key_frames = _prompt_shard_inputs(
-                        quiet=quiet,
-                        key_type=KEY_TYPE_SIGNING_SEED,
-                        label="Signing-key shard documents",
-                    )
-
-            with wizard_stage("Outputs"):
-                mint_passphrase_shards = prompt_yes_no(
-                    "Mint fresh passphrase shard documents",
-                    default=True,
-                )
-                mint_signing_key_shards = prompt_yes_no(
-                    "Mint fresh signing-key shard documents",
-                    default=True,
-                )
-                if not mint_passphrase_shards and not mint_signing_key_shards:
-                    raise ValueError("mint must create at least one shard document type")
-                passphrase_sharding = (
-                    resolve_passphrase_sharding(
-                        args=None,
-                        confirm_existing=False,
-                        prompt_when_missing=True,
-                    )
-                    if mint_passphrase_shards
-                    else None
-                )
-                if mint_signing_key_shards:
-                    if passphrase_sharding is not None:
-                        signing_key_sharding = resolve_signing_seed_sharding(
-                            args=None,
-                            signing_seed_mode=SigningSeedMode.SHARDED,
-                            passphrase_sharding=passphrase_sharding,
-                            confirm_existing=False,
-                            prompt_when_missing=True,
+                if stage_index == 2 and needs_signing_authority:
+                    with wizard_stage("Signing authority", step_number=3):
+                        _fallback_files, _payload_files, signing_key_frames = _prompt_shard_inputs(
+                            quiet=quiet,
+                            key_type=KEY_TYPE_SIGNING_SEED,
+                            label="Signing-key shard documents",
                         )
-                    else:
-                        signing_key_sharding = _prompt_quorum_choice()
-                else:
+                    stage_index += 1
+                    continue
+
+                if stage_index == 2:
+                    stage_index += 1
+                    continue
+
+                with wizard_stage(
+                    "Outputs",
+                    step_number=4 if needs_signing_authority else 3,
+                ):
+                    mint_passphrase_shards = prompt_yes_no(
+                        "Mint passphrase shard documents",
+                        default=True,
+                    )
+                    mint_signing_key_shards = prompt_yes_no(
+                        "Mint signing-key shard documents",
+                        default=True,
+                    )
+                    if not mint_passphrase_shards and not mint_signing_key_shards:
+                        raise ValueError("mint must create at least one shard document type")
+                    passphrase_sharding = None
                     signing_key_sharding = None
-                output_dir = prompt_optional_path_with_picker(
-                    "Output directory",
-                    kind="dir",
-                    allow_new=True,
-                    help_text="Leave blank to use mint-<doc_id> in the current directory.",
-                    picker_prompt="Select an output directory",
-                )
+                    passphrase_replacement_count = None
+                    if mint_passphrase_shards:
+                        passphrase_payloads = _replacement_payloads_from_frames(
+                            shard_frames,
+                            doc_id=plan.doc_id,
+                            doc_hash=plan.doc_hash,
+                            sign_pub=plan.auth_payload.sign_pub,
+                            key_type=KEY_TYPE_PASSPHRASE,
+                            secret_label="passphrase",
+                        )
+                        if passphrase_payloads:
+                            missing_count = _missing_replacement_count(passphrase_payloads)
+                            if missing_count > 0:
+                                mode = _prompt_shard_mint_mode(
+                                    label="passphrase",
+                                    threshold=passphrase_payloads[0].threshold,
+                                    share_count=passphrase_payloads[0].share_count,
+                                    missing_count=missing_count,
+                                )
+                                if mode == "replacement":
+                                    passphrase_replacement_count = (
+                                        1
+                                        if missing_count == 1
+                                        else _prompt_replacement_count(
+                                            "passphrase",
+                                            maximum=missing_count,
+                                        )
+                                    )
+                        if passphrase_replacement_count is None:
+                            passphrase_sharding = _prompt_quorum_choice(
+                                title="Passphrase shard quorum",
+                                help_text=(
+                                    "Choose how many fresh passphrase shard documents to create "
+                                    "and how many are required to recover."
+                                ),
+                            )
+
+                    signing_key_replacement_count = None
+                    if mint_signing_key_shards:
+                        signing_payloads = _replacement_payloads_from_frames(
+                            signing_key_frames,
+                            doc_id=plan.doc_id,
+                            doc_hash=plan.doc_hash,
+                            sign_pub=plan.auth_payload.sign_pub,
+                            key_type=KEY_TYPE_SIGNING_SEED,
+                            secret_label="signing key",
+                        )
+                        if signing_payloads:
+                            missing_count = _missing_replacement_count(signing_payloads)
+                            if missing_count > 0:
+                                mode = _prompt_shard_mint_mode(
+                                    label="signing-key",
+                                    threshold=signing_payloads[0].threshold,
+                                    share_count=signing_payloads[0].share_count,
+                                    missing_count=missing_count,
+                                )
+                                if mode == "replacement":
+                                    signing_key_replacement_count = (
+                                        1
+                                        if missing_count == 1
+                                        else _prompt_replacement_count(
+                                            "signing-key",
+                                            maximum=missing_count,
+                                        )
+                                    )
+                        if (
+                            signing_key_replacement_count is None
+                            and passphrase_sharding is not None
+                        ):
+                            use_same = prompt_yes_no(
+                                (
+                                    "Use same quorum for signing-key shards "
+                                    f"({passphrase_sharding.threshold} "
+                                    f"of {passphrase_sharding.shares})"
+                                ),
+                                default=True,
+                                help_text=(
+                                    "Choose no if you want a different number of signing-key shard "
+                                    "documents."
+                                ),
+                            )
+                            signing_key_sharding = (
+                                None
+                                if use_same
+                                else _prompt_quorum_choice(
+                                    title="Signing-key shard quorum",
+                                    help_text=(
+                                        "Choose how many fresh signing-key shard documents "
+                                        "to create "
+                                        "and how many are required to recover."
+                                    ),
+                                )
+                            )
+                        elif signing_key_replacement_count is None:
+                            signing_key_sharding = _prompt_quorum_choice(
+                                title="Signing-key shard quorum",
+                                help_text=(
+                                    "Choose how many fresh signing-key shard documents to create "
+                                    "and how many are required to recover."
+                                ),
+                            )
+                break
+
+            plan = cast(Any, plan)
+            manifest = cast(Any, manifest)
 
     wizard_args = MintArgs(
         config=args.config,
         paper=args.paper,
         design=args.design,
-        output_dir=output_dir,
+        output_dir=None,
         layout_debug_dir=args.layout_debug_dir,
         shard_threshold=passphrase_sharding.threshold if passphrase_sharding else None,
         shard_count=passphrase_sharding.shares if passphrase_sharding else None,
@@ -245,6 +378,8 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
         signing_key_shard_count=(
             signing_key_sharding.shares if signing_key_sharding is not None else None
         ),
+        passphrase_replacement_count=passphrase_replacement_count,
+        signing_key_replacement_count=signing_key_replacement_count,
         mint_passphrase_shards=mint_passphrase_shards,
         mint_signing_key_shards=mint_signing_key_shards,
         quiet=quiet,
@@ -253,7 +388,9 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
         plan=plan,
         config=config,
         args=wizard_args,
+        passphrase_shard_frames=shard_frames,
         signing_key_frames=signing_key_frames,
+        manifest_signing_seed=manifest.signing_seed,
         debug=debug,
     )
     print_mint_summary(result, quiet=quiet)
@@ -286,6 +423,10 @@ def _recover_args_from_mint_args(args: MintArgs) -> RecoverArgs:
 def _validate_mint_args(args: MintArgs) -> None:
     if not args.mint_passphrase_shards and not args.mint_signing_key_shards:
         raise ValueError("mint must create at least one shard document type")
+    if args.passphrase_replacement_count is not None and args.passphrase_replacement_count < 1:
+        raise ValueError("passphrase replacement count must be >= 1")
+    if args.signing_key_replacement_count is not None and args.signing_key_replacement_count < 1:
+        raise ValueError("signing key replacement count must be >= 1")
     _recover_args_from_mint_args(args)
     _validate_quorum_pair(
         args.shard_threshold,
@@ -293,7 +434,7 @@ def _validate_mint_args(args: MintArgs) -> None:
         threshold_label="shard threshold",
         count_label="shard count",
         pair_label="--shard-threshold and --shard-count",
-        required=args.mint_passphrase_shards,
+        required=args.mint_passphrase_shards and args.passphrase_replacement_count is None,
     )
     _validate_quorum_pair(
         args.signing_key_shard_threshold,
@@ -304,6 +445,8 @@ def _validate_mint_args(args: MintArgs) -> None:
         required=False,
     )
     if args.mint_signing_key_shards:
+        if args.signing_key_replacement_count is not None:
+            return
         has_explicit_signing_quorum = (
             args.signing_key_shard_threshold is not None
             and args.signing_key_shard_count is not None
@@ -346,13 +489,19 @@ def _mint_from_plan(
     plan,
     config,
     args: MintArgs,
+    passphrase_shard_frames: list[Frame],
     signing_key_frames: list[Frame],
+    manifest_signing_seed: object,
     debug: bool,
 ) -> MintResult:
-    plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
-    manifest, _payload = decode_envelope(plaintext)
+    if manifest_signing_seed is _UNSET:
+        plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
+        manifest, _payload = decode_envelope(plaintext)
+        resolved_manifest_signing_seed = manifest.signing_seed
+    else:
+        resolved_manifest_signing_seed = cast(bytes | None, manifest_signing_seed)
     sign_priv, signing_key_source = _resolve_signing_authority(
-        manifest_signing_seed=manifest.signing_seed,
+        manifest_signing_seed=resolved_manifest_signing_seed,
         signing_key_frames=signing_key_frames,
         doc_id=plan.doc_id,
         doc_hash=plan.doc_hash,
@@ -366,21 +515,45 @@ def _mint_from_plan(
     layout_debug_dir = _resolve_layout_debug_dir(args.layout_debug_dir)
     render_service = RenderService(config)
     qr_payload_codec = config.cli_defaults.backup.qr_payload_codec
+    passphrase_payloads = _replacement_payloads_from_frames(
+        passphrase_shard_frames,
+        doc_id=plan.doc_id,
+        doc_hash=plan.doc_hash,
+        sign_pub=plan.auth_payload.sign_pub,
+        key_type=KEY_TYPE_PASSPHRASE,
+        secret_label="passphrase",
+    )
+    signing_payloads = _replacement_payloads_from_frames(
+        signing_key_frames,
+        doc_id=plan.doc_id,
+        doc_hash=plan.doc_hash,
+        sign_pub=plan.auth_payload.sign_pub,
+        key_type=KEY_TYPE_SIGNING_SEED,
+        secret_label="signing key",
+    )
 
     shard_paths: list[str] = []
     if args.mint_passphrase_shards:
-        passphrase_sharding = ShardingConfig(
-            threshold=_required_int(args.shard_threshold, label="shard threshold"),
-            shares=_required_int(args.shard_count, label="shard count"),
-        )
-        shard_payloads = split_passphrase(
-            plan.passphrase,
-            threshold=passphrase_sharding.threshold,
-            shares=passphrase_sharding.shares,
-            doc_hash=plan.doc_hash,
-            sign_priv=sign_priv,
-            sign_pub=sign_pub,
-        )
+        if args.passphrase_replacement_count is not None:
+            shard_payloads = mint_replacement_shards(
+                passphrase_payloads,
+                count=args.passphrase_replacement_count,
+                sign_priv=sign_priv,
+                sign_pub=sign_pub,
+            )
+        else:
+            passphrase_sharding = ShardingConfig(
+                threshold=_required_int(args.shard_threshold, label="shard threshold"),
+                shares=_required_int(args.shard_count, label="shard count"),
+            )
+            shard_payloads = split_passphrase(
+                plan.passphrase,
+                threshold=passphrase_sharding.threshold,
+                shares=passphrase_sharding.shares,
+                doc_hash=plan.doc_hash,
+                sign_priv=sign_priv,
+                sign_pub=sign_pub,
+            )
         for shard in sorted(shard_payloads, key=lambda item: item.share_index):
             shard_paths.append(
                 _render_shard(
@@ -400,15 +573,23 @@ def _mint_from_plan(
 
     signing_key_shard_paths: list[str] = []
     if args.mint_signing_key_shards:
-        signing_key_sharding = _resolve_signing_key_output_sharding(args)
-        signing_key_payloads = split_signing_seed(
-            sign_priv,
-            threshold=signing_key_sharding.threshold,
-            shares=signing_key_sharding.shares,
-            doc_hash=plan.doc_hash,
-            sign_priv=sign_priv,
-            sign_pub=sign_pub,
-        )
+        if args.signing_key_replacement_count is not None:
+            signing_key_payloads = mint_replacement_shards(
+                signing_payloads,
+                count=args.signing_key_replacement_count,
+                sign_priv=sign_priv,
+                sign_pub=sign_pub,
+            )
+        else:
+            signing_key_sharding = _resolve_signing_key_output_sharding(args)
+            signing_key_payloads = split_signing_seed(
+                sign_priv,
+                threshold=signing_key_sharding.threshold,
+                shares=signing_key_sharding.shares,
+                doc_hash=plan.doc_hash,
+                sign_priv=sign_priv,
+                sign_pub=sign_pub,
+            )
         for shard in sorted(signing_key_payloads, key=lambda item: item.share_index):
             signing_key_shard_paths.append(
                 _render_shard(
@@ -472,6 +653,76 @@ def _resolve_signing_authority(
         allow_unsigned=False,
     )
     return signing_seed, "signing-key shards"
+
+
+def _replacement_payloads_from_frames(
+    frames: list[Frame],
+    *,
+    doc_id: bytes,
+    doc_hash: bytes,
+    sign_pub: bytes,
+    key_type: str,
+    secret_label: str,
+) -> list[ShardPayload]:
+    if not frames:
+        return []
+    try:
+        return _validated_shard_payloads_from_frames(
+            frames,
+            expected_doc_id=doc_id,
+            expected_doc_hash=doc_hash,
+            expected_sign_pub=sign_pub,
+            allow_unsigned=False,
+            key_type=key_type,
+            secret_label=secret_label,
+        )
+    except ValueError as exc:
+        if "need at least" in str(exc):
+            return []
+        raise
+
+
+def _missing_replacement_count(payloads: list[ShardPayload]) -> int:
+    if not payloads:
+        return 0
+    seen = {payload.share_index for payload in payloads}
+    return len([index for index in range(1, payloads[0].share_count + 1) if index not in seen])
+
+
+def _prompt_shard_mint_mode(
+    *,
+    label: str,
+    threshold: int,
+    share_count: int,
+    missing_count: int,
+) -> str:
+    shard_label = f"{label} shards"
+    replacement_label = f"Mint compatible replacement {shard_label} ({missing_count} available)"
+    fresh_label = f"Mint fresh {shard_label} set"
+    return prompt_choice(
+        f"{label.capitalize()} shard mode",
+        {
+            "replacement": replacement_label,
+            "fresh": fresh_label,
+        },
+        default="replacement",
+        help_text=(
+            f"Detected current {threshold} of {share_count} set. "
+            "Compatible replacements fill missing shard slots; a fresh set creates a new shard set."
+        ),
+    )
+
+
+def _prompt_replacement_count(label: str, *, maximum: int) -> int:
+    return prompt_int(
+        f"How many replacement {label} shard documents to mint",
+        minimum=1,
+        maximum=maximum,
+        help_text=(
+            f"You can mint up to {maximum} compatible replacement {label} shard document(s) "
+            "from the current set."
+        ),
+    )
 
 
 def _resolve_signing_key_output_sharding(args: MintArgs) -> ShardingConfig:

@@ -27,6 +27,7 @@ from ethernity.crypto.sharding import (
     ShardPayload,
     decode_shard_payload,
     encode_shard_payload,
+    mint_replacement_shards,
     recover_passphrase,
     recover_signing_seed,
     split_passphrase,
@@ -209,6 +210,49 @@ class TestSharding(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             recover_passphrase([shares[0], shares[0]])
+
+    def test_mint_replacement_shards_recovers_same_passphrase(self) -> None:
+        passphrase = "compatible-replacement-check"
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        shares = split_passphrase(
+            passphrase,
+            threshold=2,
+            shares=5,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        replacements = mint_replacement_shards(
+            [shares[0], shares[1], shares[2]],
+            count=1,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        self.assertEqual(len(replacements), 1)
+        self.assertEqual(replacements[0].share_index, 4)
+        recovered = recover_passphrase([shares[0], replacements[0]])
+        self.assertEqual(recovered, passphrase)
+
+    def test_mint_replacement_shards_rejects_when_no_missing_slots(self) -> None:
+        passphrase = "replacement-limit-check"
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        shares = split_passphrase(
+            passphrase,
+            threshold=2,
+            shares=2,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        with self.assertRaisesRegex(ValueError, "only 0 replacement shard"):
+            mint_replacement_shards(
+                shares,
+                count=1,
+                sign_priv=sign_priv,
+                sign_pub=sign_pub,
+            )
 
     def test_split_and_recover_signing_seed(self) -> None:
         seed = b"\x5a" * 32

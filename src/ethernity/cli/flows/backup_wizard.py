@@ -42,14 +42,18 @@ def prompt_passphrase_words() -> int:
     return int(value)
 
 
-def _prompt_quorum_choice() -> ShardingConfig:
+def _prompt_quorum_choice(
+    *,
+    title: str = "Shard quorum",
+    help_text: str = "How many shard documents are needed to recover the passphrase.",
+) -> ShardingConfig:
     """Single-choice quorum selection with presets."""
     choices = {key: desc for key, (desc, _, _, _) in QUORUM_PRESETS.items()}
     choice = prompt_choice(
-        "Shard quorum",
+        title,
         choices,
         default="2of3",
-        help_text="How many shard documents are needed to recover the passphrase.",
+        help_text=help_text,
     )
 
     if choice == "custom":

@@ -119,6 +119,8 @@ class MintArgs:
     shard_count: int | None = None
     signing_key_shard_threshold: int | None = None
     signing_key_shard_count: int | None = None
+    passphrase_replacement_count: int | None = None
+    signing_key_replacement_count: int | None = None
     mint_passphrase_shards: bool = True
     mint_signing_key_shards: bool = True
     quiet: bool = False

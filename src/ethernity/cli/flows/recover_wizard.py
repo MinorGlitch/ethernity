@@ -19,6 +19,8 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
+from typing import Any, cast
 
 from ...encoding.framing import Frame
 from ..api import (
@@ -241,89 +243,122 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
 
         validate_recover_args(args)
         resolve_recover_config(args)
+        working_args = replace(args)
 
         with wizard_flow(name="Recovery", total_steps=4, quiet=quiet):
-            with wizard_stage("Input"):
-                frames, input_label, input_detail = _prompt_recovery_input(
-                    args, allow_unsigned, quiet
-                )
+            frames: list = []
+            input_label: str | None = None
+            input_detail: str | None = None
+            passphrase = working_args.passphrase
+            shard_fallback_files = list(working_args.shard_fallback_file or [])
+            shard_payloads_file = list(working_args.shard_payloads_file or [])
+            pasted_shard_frames: list[Frame] = []
+            plan: Any = None
+            manifest: Any = None
+            extracted: list[Any] = []
+            output_path = working_args.output
+            stage_index = 0
 
-            extra_auth_frames = _load_extra_auth_frames(args, allow_unsigned, quiet)
+            while stage_index < 4:
+                if stage_index == 0:
+                    with wizard_stage("Input", step_number=1):
+                        frames, input_label, input_detail = _prompt_recovery_input(
+                            working_args, allow_unsigned, quiet
+                        )
+                    stage_index += 1
+                    continue
 
-            with wizard_stage("Keys"):
-                (
-                    passphrase,
+                if stage_index == 1:
+                    with wizard_stage("Keys", step_number=2):
+                        (
+                            passphrase,
+                            shard_fallback_files,
+                            shard_payloads_file,
+                            pasted_shard_frames,
+                        ) = _prompt_key_material(working_args, quiet=quiet)
+                        working_args.passphrase = passphrase
+                        working_args.shard_fallback_file = list(shard_fallback_files)
+                        working_args.shard_payloads_file = list(shard_payloads_file)
+                    stage_index += 1
+                    continue
+
+                extra_auth_frames = _load_extra_auth_frames(working_args, allow_unsigned, quiet)
+                shard_frames = _load_shard_frames(
                     shard_fallback_files,
                     shard_payloads_file,
-                    pasted_shard_frames,
-                ) = _prompt_key_material(args, quiet=quiet)
-
-            shard_frames = _load_shard_frames(
-                shard_fallback_files,
-                shard_payloads_file,
-                extra_frames=pasted_shard_frames,
-                quiet=quiet,
-            )
-
-            plan = build_recovery_plan(
-                frames=frames,
-                extra_auth_frames=extra_auth_frames,
-                shard_frames=shard_frames,
-                passphrase=passphrase,
-                allow_unsigned=allow_unsigned,
-                input_label=input_label,
-                input_detail=input_detail,
-                shard_fallback_files=shard_fallback_files,
-                shard_payloads_file=shard_payloads_file,
-                output_path=args.output,
-                args=args,
-                quiet=quiet,
-            )
-            if plan.allow_unsigned:
-                _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
-
-            with wizard_stage("Review"):
-                review_rows = _build_recovery_review_rows(plan, args)
-                if not quiet:
-                    console.print(panel("Review", build_review_table(review_rows)))
-                if not assume_yes and not prompt_yes_no(
-                    "Proceed with recovery",
-                    default=True,
-                    help_text="Select no to cancel.",
-                ):
-                    console.print("Recovery cancelled.")
-                    return 1
-
-            manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
-            if debug:
-                print_recover_debug(
-                    manifest=manifest,
-                    extracted=extracted,
-                    ciphertext=plan.ciphertext,
-                    passphrase=plan.passphrase,
-                    auth_status=plan.auth_status,
-                    allow_unsigned=plan.allow_unsigned,
-                    output_path=args.output,
-                    debug_max_bytes=args.debug_max_bytes,
-                    reveal_secrets=args.debug_reveal_secrets,
+                    extra_frames=pasted_shard_frames,
+                    quiet=quiet,
                 )
-
-            with wizard_stage("Output"):
-                output_path = _resolve_recover_output(
-                    extracted,
-                    args.output,
-                    interactive=True,
-                    doc_id=plan.doc_id,
-                    input_origin=manifest.input_origin,
-                    input_roots=manifest.input_roots,
+                plan = build_recovery_plan(
+                    frames=frames,
+                    extra_auth_frames=extra_auth_frames,
+                    shard_frames=shard_frames,
+                    passphrase=passphrase,
+                    allow_unsigned=allow_unsigned,
+                    input_label=input_label,
+                    input_detail=input_detail,
+                    shard_fallback_files=shard_fallback_files,
+                    shard_payloads_file=shard_payloads_file,
+                    output_path=working_args.output,
+                    args=working_args,
+                    quiet=quiet,
                 )
-                if not assume_yes and not prompt_yes_no(
-                    "Proceed with writing files",
-                    default=True,
-                    help_text="Select no to cancel.",
-                ):
-                    console.print("Recovery cancelled.")
-                    return 1
+                if plan.allow_unsigned:
+                    _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
+
+                if stage_index == 2:
+                    with wizard_stage("Review", step_number=3):
+                        review_rows = _build_recovery_review_rows(plan, working_args)
+                        if not quiet:
+                            console.print(panel("Review", build_review_table(review_rows)))
+                        if not assume_yes and not prompt_yes_no(
+                            "Proceed with recovery",
+                            default=True,
+                            help_text="Select no to cancel.",
+                        ):
+                            console.print("Recovery cancelled.")
+                            return 1
+                    manifest, extracted = decrypt_manifest_and_extract(
+                        plan, quiet=quiet, debug=debug
+                    )
+                    if debug:
+                        print_recover_debug(
+                            manifest=manifest,
+                            extracted=extracted,
+                            ciphertext=plan.ciphertext,
+                            passphrase=plan.passphrase,
+                            auth_status=plan.auth_status,
+                            allow_unsigned=plan.allow_unsigned,
+                            output_path=working_args.output,
+                            debug_max_bytes=args.debug_max_bytes,
+                            reveal_secrets=args.debug_reveal_secrets,
+                        )
+                    stage_index += 1
+                    continue
+
+                with wizard_stage("Output", step_number=4):
+                    plan = cast(Any, plan)
+                    manifest = cast(Any, manifest)
+                    output_path = _resolve_recover_output(
+                        extracted,
+                        working_args.output,
+                        interactive=True,
+                        doc_id=plan.doc_id,
+                        input_origin=manifest.input_origin,
+                        input_roots=manifest.input_roots,
+                    )
+                    working_args.output = output_path
+                    if not assume_yes and not prompt_yes_no(
+                        "Proceed with writing files",
+                        default=True,
+                        help_text="Select no to cancel.",
+                    ):
+                        console.print("Recovery cancelled.")
+                        return 1
+                break
+
+            plan = cast(Any, plan)
+            manifest = cast(Any, manifest)
 
             single_entry_output_is_directory = (
                 output_path is not None
