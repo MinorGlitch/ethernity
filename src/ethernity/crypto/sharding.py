@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import hmac
 from dataclasses import dataclass
 from typing import cast
 
@@ -38,6 +39,9 @@ SHARD_VERSION = 1
 KEY_TYPE_PASSPHRASE = "passphrase"
 KEY_TYPE_SIGNING_SEED = "signing-seed"
 MAX_SHARES = 255
+_INCOMPATIBLE_SHARD_SET_MESSAGE = (
+    "shards are not mutually compatible; they may come from different shard sets"
+)
 
 
 @dataclass(frozen=True)
@@ -137,6 +141,7 @@ def mint_replacement_shards(
     share_total = shares[0].share_count
     key_type = shares[0].key_type
     doc_hash = shares[0].doc_hash
+    source_sign_pub = shares[0].sign_pub
     seen_indices: set[int] = set()
     for share in shares:
         if share.key_type != key_type:
@@ -149,11 +154,15 @@ def mint_replacement_shards(
             raise ValueError("shard secret lengths do not match")
         if share.doc_hash != doc_hash:
             raise ValueError("shard doc hashes do not match")
+        if not hmac.compare_digest(share.sign_pub, source_sign_pub):
+            raise ValueError("shard signing keys do not match")
         if share.share_index in seen_indices:
             raise ValueError("duplicate shard index")
         seen_indices.add(share.share_index)
     if len(shares) < threshold:
         raise ValueError(f"need at least {threshold} shard(s) to mint compatible replacements")
+
+    validate_shard_set_consistency(shares)
 
     missing_indices = [index for index in range(1, share_total + 1) if index not in seen_indices]
     if count > len(missing_indices):
@@ -166,6 +175,8 @@ def mint_replacement_shards(
     require_length(doc_hash, DOC_HASH_LEN, label="doc_hash", prefix="shard ")
     require_length(sign_pub, ED25519_PUB_LEN, label="sign_pub", prefix="shard ")
     require_length(sign_priv, ED25519_SEED_LEN, label="sign_priv", prefix="shard ")
+    if not hmac.compare_digest(sign_pub, source_sign_pub):
+        raise ValueError("replacement signing key must match source shard set")
 
     payloads: list[ShardPayload] = []
     for share_index in missing_indices[:count]:
@@ -369,6 +380,36 @@ def _split_secret(
     return payloads
 
 
+def validate_shard_set_consistency(shares: list[ShardPayload]) -> None:
+    """Reject share sets that are detectably mixed across different polynomials."""
+
+    if not shares:
+        raise ValueError("no shares provided")
+
+    threshold = shares[0].threshold
+    if len(shares) <= threshold:
+        return
+
+    secret_len = shares[0].secret_len
+    block_count = (secret_len + BLOCK_SIZE - 1) // BLOCK_SIZE
+    expected_len = block_count * BLOCK_SIZE
+    ordered = sorted(shares, key=lambda item: item.share_index)
+
+    for share in ordered:
+        if len(share.share) != expected_len:
+            raise ValueError("shard share length does not match secret length")
+
+    source_shares = [(share.share_index, share.share) for share in ordered[:threshold]]
+    for share in ordered[threshold:]:
+        interpolated = interpolate_share_blocks(
+            source_shares,
+            target_index=share.share_index,
+            block_count=block_count,
+        )
+        if not hmac.compare_digest(interpolated, share.share):
+            raise ValueError(_INCOMPATIBLE_SHARD_SET_MESSAGE)
+
+
 def _recover_secret(shares: list[ShardPayload], *, key_type: str) -> bytes:
     """Recover a secret from validated shard payloads of one key type."""
 
@@ -403,11 +444,14 @@ def _recover_secret(shares: list[ShardPayload], *, key_type: str) -> bytes:
         if len(share.share) != expected_len:
             raise ValueError("shard share length does not match secret length")
 
+    validate_shard_set_consistency(shares)
+    source_shares = sorted(shares, key=lambda item: item.share_index)[:threshold]
+
     blocks: list[bytes] = []
     for block_idx in range(block_count):
         start = block_idx * BLOCK_SIZE
         end = start + BLOCK_SIZE
-        pairs = [(share.share_index, share.share[start:end]) for share in shares]
+        pairs = [(share.share_index, share.share[start:end]) for share in source_shares]
         blocks.append(cast(bytes, Shamir.combine(pairs, False)))
 
     return b"".join(blocks)[:secret_len]

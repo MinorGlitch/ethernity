@@ -51,9 +51,13 @@ def interpolate_share_blocks(
         raise ValueError("block count must be >= 1")
 
     share_len = block_count * BLOCK_SIZE
+    seen_indices: set[int] = set()
     for index, share in source_shares:
         if index < 1:
             raise ValueError("share index must be >= 1")
+        if index in seen_indices:
+            raise ValueError("duplicate share index")
+        seen_indices.add(index)
         if len(share) != share_len:
             raise ValueError("share length does not match block count")
 

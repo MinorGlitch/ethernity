@@ -35,6 +35,7 @@ def _build_shard_frame(
     share_count: int = 3,
     doc_hash: bytes = b"\x11" * 32,
     sign_pub: bytes = b"\x22" * 32,
+    signature: bytes = b"\x33" * 64,
     index: int = 0,
     total: int = 1,
 ) -> Frame:
@@ -47,7 +48,7 @@ def _build_shard_frame(
         secret_len=len(share),
         doc_hash=doc_hash,
         sign_pub=sign_pub,
-        signature=b"\x33" * 64,
+        signature=signature,
     )
     return Frame(
         version=VERSION,
@@ -91,6 +92,31 @@ class TestRecoverShardPrompts(unittest.TestCase):
         self.assertFalse(accepted)
         self.assertEqual(len(state.frames), 1)
         self.assertEqual(len(state.seen_shares), 1)
+        self.assertTrue(
+            any(
+                "This shard conflicts with one you've already provided." in str(call)
+                for call in error_print_mock.mock_calls
+            )
+        )
+
+    def test_duplicate_shard_with_mismatched_signature_is_rejected(self) -> None:
+        state = _ShardPasteState(frames=[], seen_shares={})
+        first_frame = _build_shard_frame(share_index=1, share=b"\xaa" * 16, signature=b"\x33" * 64)
+        conflicting_frame = _build_shard_frame(
+            share_index=1,
+            share=b"\xaa" * 16,
+            signature=b"\x44" * 64,
+        )
+        with mock.patch("ethernity.cli.flows.prompts.console.print"):
+            with mock.patch("ethernity.cli.flows.prompts.console_err.print") as error_print_mock:
+                _ingest_shard_frame(frame=first_frame, state=state, label="Shard documents")
+                accepted = _ingest_shard_frame(
+                    frame=conflicting_frame,
+                    state=state,
+                    label="Shard documents",
+                )
+        self.assertFalse(accepted)
+        self.assertEqual(len(state.frames), 1)
         self.assertTrue(
             any(
                 "This shard conflicts with one you've already provided." in str(call)
@@ -187,6 +213,22 @@ class TestRecoverShardPrompts(unittest.TestCase):
         self.assertEqual(len(state.frames), 1)
         self.assertEqual(len(state.seen_shares), 1)
         self.assertGreaterEqual(len(error_print_mock.mock_calls), 1)
+
+    def test_rejects_mismatched_secret_length(self) -> None:
+        state = _ShardPasteState(frames=[], seen_shares={})
+        first = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
+        mismatched = _build_shard_frame(share_index=2, share=b"\xbb" * 32)
+        with mock.patch("ethernity.cli.flows.prompts.console.print"):
+            with mock.patch("ethernity.cli.flows.prompts.console_err.print") as error_print_mock:
+                self.assertFalse(
+                    _ingest_shard_frame(frame=first, state=state, label="Shard documents")
+                )
+                self.assertFalse(
+                    _ingest_shard_frame(frame=mismatched, state=state, label="Shard documents")
+                )
+        self.assertTrue(
+            any("different secret length" in str(call) for call in error_print_mock.mock_calls)
+        )
 
 
 if __name__ == "__main__":

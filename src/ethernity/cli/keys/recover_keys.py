@@ -26,11 +26,22 @@ from ...crypto.sharding import (
     decode_shard_payload,
     recover_passphrase,
     recover_signing_seed,
+    validate_shard_set_consistency,
 )
 from ...crypto.signing import decode_auth_payload, verify_auth, verify_shard
 from ...encoding.framing import Frame, FrameType
 from ..core.log import _warn
 from ..core.types import RecoverArgs
+
+
+class InsufficientShardError(ValueError):
+    """Raised when a shard set is well-formed but under quorum."""
+
+    def __init__(self, *, threshold: int, provided_count: int, secret_label: str) -> None:
+        self.threshold = threshold
+        self.provided_count = provided_count
+        self.secret_label = secret_label
+        super().__init__(f"need at least {threshold} shard(s) to recover {secret_label}")
 
 
 def _resolve_recovery_keys(args: RecoverArgs) -> str:
@@ -187,7 +198,12 @@ def _validated_shard_payloads_from_frames(
             raise ValueError("shard thresholds do not match")
         if share.share_count != share_total:
             raise ValueError("shard share counts do not match")
+    validate_shard_set_consistency(share_list)
     if len(share_list) < threshold:
-        raise ValueError(f"need at least {threshold} shard(s) to recover {secret_label}")
+        raise InsufficientShardError(
+            threshold=threshold,
+            provided_count=len(share_list),
+            secret_label=secret_label,
+        )
 
     return share_list

@@ -141,6 +141,32 @@ class TestCliFlowPrompts(unittest.TestCase):
             self.assertEqual(prompts._prompt_shard_payload_paste(state=done_state), [frame_one])
         prompt_required.assert_not_called()
 
+        with (
+            mock.patch.object(prompts, "prompt_required", return_value="good") as prompt_required,
+            mock.patch.object(prompts, "_frame_from_payload_text", return_value=frame_two),
+            mock.patch.object(prompts, "_ingest_shard_frame", return_value=True) as ingest,
+            mock.patch.object(prompts, "prompt_yes_no", return_value=True),
+        ):
+            frames = prompts._prompt_shard_payload_paste(
+                state=done_state,
+                stop_at_quorum=False,
+            )
+        self.assertEqual(frames, [frame_one])
+        prompt_required.assert_called_once_with(
+            "Shard QR payload (0 remaining)",
+            help_text=(
+                "Paste one shard QR payload per line; after quorum you can add more shards from "
+                "the same set."
+            ),
+        )
+        ingest.assert_called_once_with(
+            frame=frame_two,
+            state=done_state,
+            label="Shard payloads",
+            key_type=KEY_TYPE_PASSPHRASE,
+            stop_at_quorum=False,
+        )
+
         state = _ShardPasteState(frames=[], seen_shares={})
         with mock.patch.object(prompts, "prompt_required") as prompt_required:
             frames = prompts._prompt_shard_payload_paste(
@@ -177,6 +203,22 @@ class TestCliFlowPrompts(unittest.TestCase):
         )
         err_print.assert_called_once()
         ingest.assert_called_once()
+
+        with (
+            mock.patch.object(prompts, "_ingest_shard_frame", return_value=True),
+            mock.patch.object(prompts.console, "print") as info_print,
+        ):
+            prompts._prompt_shard_payload_paste(
+                initial_frames=[frame_one],
+                state=_ShardPasteState(frames=[], seen_shares={}),
+                stop_at_quorum=False,
+            )
+        self.assertTrue(
+            any(
+                "After quorum, you can add more shards" in str(call)
+                for call in info_print.call_args_list
+            )
+        )
 
     def test_prompt_shard_fallback_until_complete_paths(self) -> None:
         frame = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
@@ -227,6 +269,39 @@ class TestCliFlowPrompts(unittest.TestCase):
             self.assertEqual(prompts._prompt_shard_fallback_paste(state=done_state), [frame_one])
         prompt_more.assert_not_called()
 
+        with (
+            mock.patch.object(
+                prompts,
+                "_prompt_shard_fallback_until_complete",
+                return_value=frame_two,
+            ) as prompt_more,
+            mock.patch.object(prompts, "_ingest_shard_frame", return_value=True) as ingest,
+            mock.patch.object(prompts, "prompt_yes_no", return_value=True),
+            mock.patch.object(prompts.console, "print"),
+            mock.patch.object(prompts.console_err, "print"),
+        ):
+            frames = prompts._prompt_shard_fallback_paste(
+                state=done_state,
+                stop_at_quorum=False,
+            )
+        self.assertEqual(frames, [frame_one])
+        prompt_more.assert_called_once_with(
+            help_text=(
+                "Paste shard recovery text (headers are ok). "
+                "We'll keep asking until it decodes, then let you add more shards from the same "
+                "set."
+            ),
+            initial_lines=[],
+            prompt_label="Paste shard recovery text (0 remaining)",
+        )
+        ingest.assert_called_once_with(
+            frame=frame_two,
+            state=done_state,
+            label="Shard documents",
+            key_type=KEY_TYPE_PASSPHRASE,
+            stop_at_quorum=False,
+        )
+
         state = _ShardPasteState(frames=[], seen_shares={})
         with (
             mock.patch.object(
@@ -242,6 +317,25 @@ class TestCliFlowPrompts(unittest.TestCase):
         self.assertTrue(
             any(
                 "Paste shard recovery text in batches" in str(call)
+                for call in info_print.call_args_list
+            )
+        )
+
+        with (
+            mock.patch.object(
+                prompts, "_prompt_shard_fallback_until_complete", return_value=frame_one
+            ),
+            mock.patch.object(prompts, "_ingest_shard_frame", return_value=True),
+            mock.patch.object(prompts.console, "print") as info_print,
+            mock.patch.object(prompts.console_err, "print"),
+        ):
+            prompts._prompt_shard_fallback_paste(
+                state=_ShardPasteState(frames=[], seen_shares={}),
+                stop_at_quorum=False,
+            )
+        self.assertTrue(
+            any(
+                "after quorum you can add more shards" in str(call).lower()
                 for call in info_print.call_args_list
             )
         )

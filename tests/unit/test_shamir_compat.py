@@ -67,6 +67,14 @@ class TestShamirCompat(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "share length does not match block count"):
             interpolate_share_blocks([(1, b"short")], target_index=2, block_count=1)
 
+    def test_interpolate_share_blocks_rejects_duplicate_indices(self) -> None:
+        with self.assertRaisesRegex(ValueError, "duplicate share index"):
+            interpolate_share_blocks(
+                [(1, b"\x00" * BLOCK_SIZE), (1, b"\x01" * BLOCK_SIZE)],
+                target_index=2,
+                block_count=1,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

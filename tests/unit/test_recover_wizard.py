@@ -224,7 +224,7 @@ class TestPromptKeyMaterial(unittest.TestCase):
 
         self.assertEqual(result, (None, ["shards.txt"], ["shards.payload"], [shard]))
         prompt_choice.assert_called_once()
-        prompt_shard_inputs.assert_called_once_with(quiet=True)
+        prompt_shard_inputs.assert_called_once_with(quiet=True, stop_at_quorum=True)
 
 
 class TestRecoveryWizardHelpers(unittest.TestCase):

@@ -17,10 +17,15 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from ...crypto.sharding import KEY_TYPE_PASSPHRASE, KEY_TYPE_SIGNING_SEED, decode_shard_payload
+from ...crypto.sharding import (
+    KEY_TYPE_PASSPHRASE,
+    KEY_TYPE_SIGNING_SEED,
+    ShardPayload,
+    decode_shard_payload,
+)
 from ...encoding.framing import Frame, FrameType
 from ..api import (
     console,
@@ -289,8 +294,10 @@ def _prompt_shard_inputs(
 class _ShardPasteState:
     frames: list[Frame]
     seen_shares: dict[int, bytes]
+    seen_payloads: dict[int, ShardPayload] = field(default_factory=dict)
     expected_threshold: int | None = None
     expected_shares: int | None = None
+    expected_secret_len: int | None = None
     expected_doc_hash: bytes | None = None
     expected_sign_pub: bytes | None = None
 
@@ -331,6 +338,7 @@ def _ingest_shard_frame(
     if state.expected_threshold is None:
         state.expected_threshold = payload.threshold
         state.expected_shares = payload.share_count
+        state.expected_secret_len = payload.secret_len
         state.expected_doc_hash = payload.doc_hash
         state.expected_sign_pub = payload.sign_pub
     else:
@@ -346,6 +354,15 @@ def _ingest_shard_frame(
                 "Use shards from one quorum set.[/error]"
             )
             return False
+        if (
+            state.expected_secret_len is not None
+            and payload.secret_len != state.expected_secret_len
+        ):
+            console_err.print(
+                "[error]This shard has a different secret length than the previous ones. "
+                "Use shards from one quorum set.[/error]"
+            )
+            return False
         if state.expected_doc_hash is not None and payload.doc_hash != state.expected_doc_hash:
             console_err.print(
                 "[error]This shard is from a different document than the previous ones. "
@@ -355,6 +372,17 @@ def _ingest_shard_frame(
         if state.expected_sign_pub is not None and payload.sign_pub != state.expected_sign_pub:
             console_err.print("[error]This shard is from a different signing key set.[/error]")
             return False
+
+    existing_payload = state.seen_payloads.get(payload.share_index)
+    if existing_payload is not None:
+        if existing_payload != payload:
+            console_err.print(
+                "[error]This shard conflicts with one you've already provided. "
+                "Keep only one version per share index.[/error]"
+            )
+        else:
+            console.print("[subtitle]Duplicate shard ignored.[/subtitle]")
+        return False
 
     existing_share = state.seen_shares.get(payload.share_index)
     if existing_share is not None:
@@ -368,6 +396,7 @@ def _ingest_shard_frame(
         return False
 
     state.seen_shares[payload.share_index] = payload.share
+    state.seen_payloads[payload.share_index] = payload
     state.frames.append(frame)
 
     if state.expected_threshold is None:
@@ -412,17 +441,29 @@ def _prompt_shard_fallback_paste(
     state = state or _ShardPasteState(frames=[], seen_shares={})
     if state.expected_threshold is not None:
         remaining = state.expected_threshold - len(state.seen_shares)
-        if remaining <= 0:
+        if remaining <= 0 and stop_at_quorum:
             return state.frames
-    console.print(
-        "[subtitle]"
-        "Paste shard recovery text in batches; we'll continue until enough shards are decoded."
-        "[/subtitle]"
-    )
-    help_text: str | None = (
-        "Paste shard recovery text (headers are ok). "
-        "We'll keep asking until it decodes and stop once enough shards are collected."
-    )
+    if stop_at_quorum:
+        console.print(
+            "[subtitle]"
+            "Paste shard recovery text in batches; we'll continue until enough shards are decoded."
+            "[/subtitle]"
+        )
+        help_text: str | None = (
+            "Paste shard recovery text (headers are ok). "
+            "We'll keep asking until it decodes and stop once enough shards are collected."
+        )
+    else:
+        console.print(
+            "[subtitle]"
+            "Paste shard recovery text in batches; after quorum you can add more shards "
+            "from the same set."
+            "[/subtitle]"
+        )
+        help_text = (
+            "Paste shard recovery text (headers are ok). "
+            "We'll keep asking until it decodes, then let you add more shards from the same set."
+        )
     first_lines = list(initial_lines or [])
     while True:
         prompt_label = "Paste shard recovery text"
@@ -616,19 +657,33 @@ def _prompt_shard_payload_paste(
     label: str = "Shard payloads",
     stop_at_quorum: bool = True,
 ) -> list[Frame]:
-    help_text: str | None = (
-        "Paste one shard QR payload per line; we'll stop once enough shards are collected."
-    )
+    if stop_at_quorum:
+        help_text: str | None = (
+            "Paste one shard QR payload per line; we'll stop once enough shards are collected."
+        )
+    else:
+        help_text = (
+            "Paste one shard QR payload per line; after quorum you can add more shards from the "
+            "same set."
+        )
     state = state or _ShardPasteState(frames=[], seen_shares={})
     if state.expected_threshold is not None:
         remaining = state.expected_threshold - len(state.seen_shares)
-        if remaining <= 0:
+        if remaining <= 0 and stop_at_quorum:
             return state.frames
-    console.print(
-        "[subtitle]"
-        "Paste one shard QR payload per line. We'll stop once the threshold is met."
-        "[/subtitle]"
-    )
+    if stop_at_quorum:
+        console.print(
+            "[subtitle]"
+            "Paste one shard QR payload per line. We'll stop once the threshold is met."
+            "[/subtitle]"
+        )
+    else:
+        console.print(
+            "[subtitle]"
+            "Paste one shard QR payload per line. After quorum, you can add more shards from the "
+            "same set."
+            "[/subtitle]"
+        )
 
     for frame in initial_frames or []:
         if _ingest_shard_frame(

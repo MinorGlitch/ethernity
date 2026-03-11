@@ -34,6 +34,8 @@ _MINT_HELP = (
     "--shard-threshold 2 --shard-count 3\n"
     "  ethernity mint --scan scans --shard-payloads-file old_shards.txt "
     "--signing-key-shard-payloads-file signing_shards.txt --shard-threshold 2 --shard-count 5\n"
+    "  ethernity mint --payloads-file qr.txt --passphrase '...' --shard-payloads-file old.txt "
+    "--passphrase-replacement-count 1 --no-signing-key-shards\n"
 )
 
 
@@ -205,6 +207,22 @@ def mint(
             rich_help_panel="Outputs",
         ),
     ] = None,
+    passphrase_replacement_count: Annotated[
+        int | None,
+        typer.Option(
+            "--passphrase-replacement-count",
+            help="Mint this many compatible replacement passphrase shards.",
+            rich_help_panel="Outputs",
+        ),
+    ] = None,
+    signing_key_replacement_count: Annotated[
+        int | None,
+        typer.Option(
+            "--signing-key-replacement-count",
+            help="Mint this many compatible replacement signing-key shards.",
+            rich_help_panel="Outputs",
+        ),
+    ] = None,
     mint_passphrase_shards: Annotated[
         bool,
         typer.Option(
@@ -290,6 +308,8 @@ def mint(
         shard_count=shard_count,
         signing_key_shard_threshold=signing_key_shard_threshold,
         signing_key_shard_count=signing_key_shard_count,
+        passphrase_replacement_count=passphrase_replacement_count,
+        signing_key_replacement_count=signing_key_replacement_count,
         mint_passphrase_shards=mint_passphrase_shards,
         mint_signing_key_shards=mint_signing_key_shards,
         quiet=quiet_value,

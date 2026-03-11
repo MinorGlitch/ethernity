@@ -260,6 +260,57 @@ class TestSharding(unittest.TestCase):
                 sign_pub=sign_pub,
             )
 
+    def test_mint_replacement_shards_rejects_mixed_source_signing_keys(self) -> None:
+        passphrase = "signing-key-consistency-check"
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        shares = split_passphrase(
+            passphrase,
+            threshold=2,
+            shares=3,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        mixed_share = ShardPayload(
+            share_index=shares[1].share_index,
+            threshold=shares[1].threshold,
+            share_count=shares[1].share_count,
+            key_type=shares[1].key_type,
+            share=shares[1].share,
+            secret_len=shares[1].secret_len,
+            doc_hash=shares[1].doc_hash,
+            sign_pub=b"q" * 32,
+            signature=shares[1].signature,
+        )
+        with self.assertRaisesRegex(ValueError, "signing keys do not match"):
+            mint_replacement_shards(
+                [shares[0], mixed_share],
+                count=1,
+                sign_priv=sign_priv,
+                sign_pub=sign_pub,
+            )
+
+    def test_mint_replacement_shards_rejects_new_signing_key_mismatch(self) -> None:
+        passphrase = "replacement-signing-key-mismatch"
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        shares = split_passphrase(
+            passphrase,
+            threshold=2,
+            shares=4,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        with self.assertRaisesRegex(ValueError, "replacement signing key must match"):
+            mint_replacement_shards(
+                [shares[0], shares[1]],
+                count=1,
+                sign_priv=sign_priv,
+                sign_pub=b"z" * 32,
+            )
+
     def test_mint_replacement_shards_matches_original_missing_share_randomized(self) -> None:
         rng = random.Random(20260310)
         for case_index in range(20):
@@ -295,6 +346,61 @@ class TestSharding(unittest.TestCase):
             )
             recovered = recover_passphrase(source[: threshold - 1] + [replacement])
             self.assertEqual(recovered, passphrase)
+
+    def test_mint_replacement_shards_rejects_mixed_valid_shard_sets(self) -> None:
+        passphrase = "mixed-valid-shard-sets"
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        first_set = split_passphrase(
+            passphrase,
+            threshold=2,
+            shares=4,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        second_set = split_passphrase(
+            passphrase,
+            threshold=2,
+            shares=4,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+
+        with self.assertRaisesRegex(ValueError, "not mutually compatible"):
+            mint_replacement_shards(
+                [first_set[0], second_set[1], first_set[2]],
+                count=1,
+                sign_priv=sign_priv,
+                sign_pub=sign_pub,
+            )
+
+    def test_recover_passphrase_rejects_mixed_valid_shard_sets_when_extra_share_available(
+        self,
+    ) -> None:
+        passphrase = "mixed-valid-shard-sets"
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        first_set = split_passphrase(
+            passphrase,
+            threshold=2,
+            shares=4,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        second_set = split_passphrase(
+            passphrase,
+            threshold=2,
+            shares=4,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+
+        with self.assertRaisesRegex(ValueError, "not mutually compatible"):
+            recover_passphrase([first_set[0], second_set[1], first_set[2]])
 
     def test_mint_signing_seed_replacement_matches_original_missing_share_randomized(self) -> None:
         rng = random.Random(20260311)
