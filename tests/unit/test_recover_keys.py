@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -24,8 +25,16 @@ from ethernity.cli.keys.recover_keys import (
     _resolve_auth_payload,
     _signing_seed_from_shard_frames,
 )
-from ethernity.crypto.sharding import ShardPayload
-from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
+from ethernity.crypto.sharding import (
+    LEGACY_SHARD_VERSION,
+    ShardPayload,
+    encode_shard_payload,
+    split_passphrase,
+)
+from ethernity.crypto.signing import SHARD_SET_ID_LEN, generate_signing_keypair, sign_shard
+from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
+
+TEST_SHARD_SET_ID = b"s" * SHARD_SET_ID_LEN
 
 
 class TestResolveAuthPayload(unittest.TestCase):
@@ -305,6 +314,7 @@ class TestPassphraseFromShardFrames(unittest.TestCase):
             doc_hash=doc_hash or (b"\x20" * 32),
             sign_pub=sign_pub or (b"p" * 32),
             signature=b"s" * 64,
+            shard_set_id=TEST_SHARD_SET_ID,
         )
 
     def test_rejects_non_key_frames(self) -> None:
@@ -443,6 +453,7 @@ class TestPassphraseFromShardFrames(unittest.TestCase):
                 doc_hash=b"\x20" * 32,
                 sign_pub=b"p" * 32,
                 signature=b"t" * 64,
+                shard_set_id=TEST_SHARD_SET_ID,
             ),
         ]
         with mock.patch(
@@ -514,6 +525,124 @@ class TestPassphraseFromShardFrames(unittest.TestCase):
                     allow_unsigned=True,
                 )
 
+    def test_recovers_legacy_v1_passphrase_with_signature_verification(self) -> None:
+        passphrase = "legacy-passphrase"
+        doc_id = b"\x3c" * DOC_ID_LEN
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        shares = split_passphrase(
+            passphrase,
+            threshold=2,
+            shares=3,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        legacy_shares = []
+        for share in shares:
+            legacy_shares.append(
+                ShardPayload(
+                    share_index=share.share_index,
+                    threshold=share.threshold,
+                    share_count=share.share_count,
+                    key_type=share.key_type,
+                    share=share.share,
+                    secret_len=share.secret_len,
+                    doc_hash=share.doc_hash,
+                    sign_pub=share.sign_pub,
+                    signature=sign_shard(
+                        share.doc_hash,
+                        shard_version=LEGACY_SHARD_VERSION,
+                        key_type=share.key_type,
+                        threshold=share.threshold,
+                        share_count=share.share_count,
+                        share_index=share.share_index,
+                        secret_len=share.secret_len,
+                        share=share.share,
+                        sign_pub=share.sign_pub,
+                        sign_priv=sign_priv,
+                    ),
+                    version=LEGACY_SHARD_VERSION,
+                )
+            )
+        frames = [
+            Frame(
+                version=VERSION,
+                frame_type=FrameType.KEY_DOCUMENT,
+                doc_id=doc_id,
+                index=0,
+                total=1,
+                data=encode_shard_payload(legacy_shares[0]),
+            ),
+            Frame(
+                version=VERSION,
+                frame_type=FrameType.KEY_DOCUMENT,
+                doc_id=doc_id,
+                index=0,
+                total=1,
+                data=encode_shard_payload(legacy_shares[2]),
+            ),
+        ]
+
+        recovered = _passphrase_from_shard_frames(
+            frames,
+            expected_doc_id=doc_id,
+            expected_doc_hash=doc_hash,
+            expected_sign_pub=sign_pub,
+            allow_unsigned=False,
+        )
+
+        self.assertEqual(recovered, passphrase)
+
+    def test_rejects_v2_shards_with_mismatched_set_ids_at_threshold(self) -> None:
+        passphrase = "set-id-check"
+        doc_id = b"\x3d" * DOC_ID_LEN
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        first_set = split_passphrase(
+            passphrase,
+            threshold=2,
+            shares=4,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        second_set = split_passphrase(
+            passphrase,
+            threshold=2,
+            shares=4,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        frames = [
+            Frame(
+                version=VERSION,
+                frame_type=FrameType.KEY_DOCUMENT,
+                doc_id=doc_id,
+                index=0,
+                total=1,
+                data=encode_shard_payload(first_set[0]),
+            ),
+            Frame(
+                version=VERSION,
+                frame_type=FrameType.KEY_DOCUMENT,
+                doc_id=doc_id,
+                index=0,
+                total=1,
+                data=encode_shard_payload(second_set[1]),
+            ),
+        ]
+
+        with self.assertRaisesRegex(ValueError, "not mutually compatible"):
+            _passphrase_from_shard_frames(
+                frames,
+                expected_doc_id=doc_id,
+                expected_doc_hash=doc_hash,
+                expected_sign_pub=sign_pub,
+                allow_unsigned=False,
+            )
+
     def test_recovers_passphrase_and_dedupes_identical_duplicate(self) -> None:
         frames = [
             self._shard_frame(doc_id=b"\x3b" * DOC_ID_LEN),
@@ -578,6 +707,7 @@ class TestSigningSeedFromShardFrames(unittest.TestCase):
             doc_hash=b"\x20" * 32,
             sign_pub=b"p" * 32,
             signature=b"s" * 64,
+            shard_set_id=TEST_SHARD_SET_ID,
         )
         with mock.patch(
             "ethernity.cli.keys.recover_keys.decode_shard_payload", return_value=payload
@@ -602,6 +732,7 @@ class TestSigningSeedFromShardFrames(unittest.TestCase):
             doc_hash=b"\x20" * 32,
             sign_pub=b"p" * 32,
             signature=b"s" * 64,
+            shard_set_id=TEST_SHARD_SET_ID,
         )
         with mock.patch(
             "ethernity.cli.keys.recover_keys.decode_shard_payload", return_value=payload

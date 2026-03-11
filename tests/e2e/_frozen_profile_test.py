@@ -46,25 +46,34 @@ from tests.test_support import build_cli_env, ensure_playwright_browsers
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CONFIG_PATH = _REPO_ROOT / "src" / "ethernity" / "config" / "config.toml"
-_SOURCE_ROOT = _REPO_ROOT / "tests" / "fixtures" / "v1_0" / "source"
-_GOLDEN_ROOT = _REPO_ROOT / "tests" / "fixtures" / "v1_0" / "golden"
 _BINARY_PAYLOADS_MAGIC = b"EQPB"
 _BINARY_PAYLOADS_VERSION = 1
 
 
 class FrozenProfileTestCase(unittest.TestCase):
     __test__ = False
+    FIXTURE_VERSION = "v1_0"
+    SOURCE_VERSION = "v1_0"
     PROFILE_NAME = ""
     QR_PAYLOAD_CODEC = ""
+    INCLUDE_SHARD_SET_FIELDS = False
 
     @classmethod
     def setUpClass(cls) -> None:
         if not cls.PROFILE_NAME or cls.QR_PAYLOAD_CODEC not in {"raw", "base64"}:
             raise AssertionError("PROFILE_NAME and QR_PAYLOAD_CODEC must be configured")
         ensure_playwright_browsers()
-        index_path = _GOLDEN_ROOT / cls.PROFILE_NAME / "index.json"
+        index_path = cls._golden_root() / cls.PROFILE_NAME / "index.json"
         cls._index = json.loads(index_path.read_text(encoding="utf-8"))
         cls._passphrase = str(cls._index["passphrase"])
+
+    @classmethod
+    def _source_root(cls) -> Path:
+        return _REPO_ROOT / "tests" / "fixtures" / cls.SOURCE_VERSION / "source"
+
+    @classmethod
+    def _golden_root(cls) -> Path:
+        return _REPO_ROOT / "tests" / "fixtures" / cls.FIXTURE_VERSION / "golden"
 
     def test_frozen_artifact_hashes_match_snapshots(self) -> None:
         for scenario in self._scenarios():
@@ -166,7 +175,7 @@ class FrozenProfileTestCase(unittest.TestCase):
                         "--config",
                         str(self._profile_config_path(tmp_path)),
                         "backup",
-                        *self._backup_args_for_scenario(str(scenario["id"]), _SOURCE_ROOT),
+                        *self._backup_args_for_scenario(str(scenario["id"]), self._source_root()),
                         "--design",
                         "forge",
                         "--output-dir",
@@ -388,8 +397,95 @@ class FrozenProfileTestCase(unittest.TestCase):
                 cast(dict[str, str], snapshot["expected_file_sha256"]),
             )
 
+    def test_minted_shards_reject_exact_threshold_mixed_sets(self) -> None:
+        if not self.INCLUDE_SHARD_SET_FIELDS:
+            self.skipTest(
+                "mixed-set exact-threshold detection is only enforced in shard payload v2"
+            )
+
+        scenario_id = "sharded_embedded"
+        scenario_root = self._profile_root() / scenario_id
+        mint_case = next(
+            case
+            for case in mint_cases_for_scenario(scenario_id)
+            if case.case_id == "embedded_from_passphrase_shards_both"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
+            first_output = tmp_path / "minted-first"
+            second_output = tmp_path / "minted-second"
+            self._run_cli_command(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(self._profile_config_path(tmp_path)),
+                    *self._mint_args(mint_case, scenario_root, first_output),
+                ],
+                env=env,
+            )
+            self._run_cli_command(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(self._profile_config_path(tmp_path)),
+                    *self._mint_args(mint_case, scenario_root, second_output),
+                ],
+                env=env,
+            )
+
+            first_shards = sorted(first_output.glob("shard-*.pdf"))
+            second_shards = sorted(second_output.glob("shard-*.pdf"))
+            self.assertGreaterEqual(len(first_shards), 2)
+            self.assertGreaterEqual(len(second_shards), 2)
+
+            first_projection = self._frame_to_shard_projection(
+                self._valid_scanned_frames([first_shards[0]])[0]
+            )
+            second_projection = self._frame_to_shard_projection(
+                self._valid_scanned_frames([second_shards[0]])[0]
+            )
+            self.assertEqual(len(cast(str, first_projection["set_id"])), 32)
+            self.assertEqual(len(cast(str, second_projection["set_id"])), 32)
+            self.assertNotEqual(first_projection["set_id"], second_projection["set_id"])
+
+            mixed_payloads = tmp_path / "mixed_shard_payloads.txt"
+            self._write_scanned_payloads([first_shards[0], second_shards[1]], mixed_payloads)
+            recover_output = tmp_path / "rejected-restore"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(self._profile_config_path(tmp_path)),
+                    "recover",
+                    "--payloads-file",
+                    str(scenario_root / "main_payloads.txt"),
+                    "--shard-payloads-file",
+                    str(mixed_payloads),
+                    "--output",
+                    str(recover_output),
+                    "--quiet",
+                ],
+                cwd=_REPO_ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "not mutually compatible",
+                (result.stderr or result.stdout).lower(),
+            )
+
     def _profile_root(self) -> Path:
-        return _GOLDEN_ROOT / self.PROFILE_NAME
+        return self._golden_root() / self.PROFILE_NAME
 
     def _mint_args(self, case: MintFrozenCase, scenario_root: Path, output_dir: Path) -> list[str]:
         args = mint_cli_args(case, scenario_root, self._passphrase)
@@ -471,13 +567,36 @@ class FrozenProfileTestCase(unittest.TestCase):
         return normalized
 
     def _shard_projections_by_file(self, pdf_paths: list[Path]) -> dict[str, list[dict[str, Any]]]:
+        shard_set_labels: dict[str, str] = {}
         payload_hashes: dict[str, list[dict[str, Any]]] = {}
         for pdf_path in pdf_paths:
             payload_hashes[pdf_path.name] = [
-                self._frame_to_shard_projection(frame)
+                self._normalize_shard_projection(
+                    self._frame_to_shard_projection(frame),
+                    shard_set_labels=shard_set_labels,
+                )
                 for frame in self._valid_scanned_frames([pdf_path])
             ]
         return payload_hashes
+
+    def _normalize_shard_projection(
+        self,
+        projection: dict[str, Any],
+        *,
+        shard_set_labels: dict[str, str],
+    ) -> dict[str, Any]:
+        normalized = dict(projection)
+        if not self.INCLUDE_SHARD_SET_FIELDS:
+            return normalized
+        set_id = cast(str | None, normalized.get("set_id"))
+        if set_id is None:
+            return normalized
+        label = shard_set_labels.get(set_id)
+        if label is None:
+            label = f"set-{len(shard_set_labels) + 1}"
+            shard_set_labels[set_id] = label
+        normalized["set_id"] = label
+        return normalized
 
     def _valid_scanned_frames(self, pdf_paths: list[Path]) -> list[Any]:
         payloads = scan_qr_payloads([str(path) for path in pdf_paths])
@@ -495,7 +614,7 @@ class FrozenProfileTestCase(unittest.TestCase):
 
     def _frame_to_shard_projection(self, frame: Any) -> dict[str, Any]:
         payload = decode_shard_payload(frame.data)
-        return {
+        projection: dict[str, Any] = {
             "doc_id": frame.doc_id.hex(),
             "share_index": payload.share_index,
             "threshold": payload.threshold,
@@ -505,6 +624,12 @@ class FrozenProfileTestCase(unittest.TestCase):
             "doc_hash": payload.doc_hash.hex(),
             "sign_pub": payload.sign_pub.hex(),
         }
+        if self.INCLUDE_SHARD_SET_FIELDS:
+            projection["version"] = payload.version
+            projection["set_id"] = (
+                None if payload.shard_set_id is None else payload.shard_set_id.hex()
+            )
+        return projection
 
     @staticmethod
     def _required_int(value: int | None) -> int:

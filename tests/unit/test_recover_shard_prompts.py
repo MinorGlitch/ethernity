@@ -23,7 +23,10 @@ from ethernity.crypto.sharding import (
     ShardPayload,
     encode_shard_payload,
 )
+from ethernity.crypto.signing import SHARD_SET_ID_LEN
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
+
+TEST_SHARD_SET_ID = b"p" * SHARD_SET_ID_LEN
 
 
 def _build_shard_frame(
@@ -49,6 +52,7 @@ def _build_shard_frame(
         doc_hash=doc_hash,
         sign_pub=sign_pub,
         signature=signature,
+        shard_set_id=TEST_SHARD_SET_ID,
     )
     return Frame(
         version=VERSION,

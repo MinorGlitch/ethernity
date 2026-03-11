@@ -1,0 +1,35 @@
+{
+  "artifact_hashes": {
+    "main_payloads.bin": "87762da35e9679db85c26988502e625766804cdb113b8f7f746f07b96ef3800f",
+    "main_payloads.txt": "736ce5c34e1a69d4797637e9bc0c60be32674c25def6929a3ad9f9cb968998a5",
+    "qr_document.pdf": "d031d5b61511a4b6d6b169e9401d0b18336ffb66b4e0784c99c364d1f83eb559",
+    "recovery_document.pdf": "176c1d7c895c324115899efebdc7658bd1656accd44ecfe975abfde6df42daa9",
+    "recovery_kit_index.pdf": "21d2f950917f48b472ed43bd577ceedc0e3d55a3787b249517f2a8f4b80d5605"
+  },
+  "expected_file_sha256": {
+    "standalone_secret.txt": "ce36ddabb5fdbed1f1e472cc5b61bfb5e0299c2a9adc6d2d0d54412e3251e449"
+  },
+  "expected_relative_paths": [
+    "standalone_secret.txt"
+  ],
+  "expected_shard_pdfs": 0,
+  "expected_signing_key_shard_pdfs": 0,
+  "manifest_projection": {
+    "files": [
+      {
+        "path": "standalone_secret.txt",
+        "sha256": "ce36ddabb5fdbed1f1e472cc5b61bfb5e0299c2a9adc6d2d0d54412e3251e449",
+        "size": 119
+      }
+    ],
+    "input_origin": "file",
+    "input_roots": [],
+    "sealed": false,
+    "version": 1
+  },
+  "passphrase": "stable-v1_1-golden-passphrase",
+  "profile": "raw",
+  "qr_payload_codec": "raw",
+  "scenario_id": "file_no_shard",
+  "shard_payload_count": 0
+}

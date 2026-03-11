@@ -82,7 +82,6 @@ class RecoverArgs:
     scan: list[str] | None = None
     passphrase: str | None = None
     shard_fallback_file: list[str] | None = None
-    shard_dir: str | None = None
     shard_payloads_file: list[str] | None = None
     auth_fallback_file: str | None = None
     auth_payloads_file: str | None = None
@@ -106,12 +105,10 @@ class MintArgs:
     scan: list[str] | None = None
     passphrase: str | None = None
     shard_fallback_file: list[str] | None = None
-    shard_dir: str | None = None
     shard_payloads_file: list[str] | None = None
     auth_fallback_file: str | None = None
     auth_payloads_file: str | None = None
     signing_key_shard_fallback_file: list[str] | None = None
-    signing_key_shard_dir: str | None = None
     signing_key_shard_payloads_file: list[str] | None = None
     output_dir: str | None = None
     layout_debug_dir: str | None = None
@@ -133,6 +130,7 @@ class MintResult:
     shard_paths: tuple[str, ...]
     signing_key_shard_paths: tuple[str, ...]
     signing_key_source: str
+    notes: tuple[str, ...] = ()
 
 
 @dataclass

@@ -36,8 +36,8 @@ from ..io.frames import (
     _dedupe_frames,
     _frames_from_fallback,
     _frames_from_payloads,
-    _frames_from_scan,
     _frames_from_shard_inputs,
+    _recovery_frames_from_scan,
     _split_main_and_auth_frames,
     format_recovery_input_error,
 )
@@ -268,7 +268,7 @@ def _frames_from_args(
         input_label = "Scan"
         input_detail = ", ".join(scan)
         try:
-            frames = _frames_from_scan(scan)
+            frames = _recovery_frames_from_scan(scan, quiet=quiet)
         except ValueError as exc:
             raise ValueError(format_recovery_input_error(exc)) from exc
     else:

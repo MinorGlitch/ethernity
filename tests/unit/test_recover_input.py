@@ -558,9 +558,9 @@ class TestRecoverInput(unittest.TestCase):
                 return_value="scan.png",
             ):
                 with mock.patch(
-                    "ethernity.cli.flows.recover_input._frames_from_scan",
+                    "ethernity.cli.flows.recover_input._recovery_frames_from_scan",
                     return_value=[frame],
-                ):
+                ) as recovery_scan:
                     with mock.patch(
                         "ethernity.cli.flows.recover_input.status",
                         return_value=contextlib.nullcontext(),
@@ -572,6 +572,41 @@ class TestRecoverInput(unittest.TestCase):
         self.assertEqual(label, "Scan")
         self.assertEqual(detail, "scan.png")
         self.assertEqual(frames, [frame])
+        recovery_scan.assert_called_once_with(["scan.png"], quiet=True)
+
+    def test_prompt_recovery_input_interactive_scan_uses_recovery_scan_helper(self) -> None:
+        main = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x63" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        with mock.patch(
+            "ethernity.cli.flows.recover_input.prompt_choice",
+            return_value="scan",
+        ):
+            with mock.patch(
+                "ethernity.cli.flows.recover_input.prompt_path_with_picker",
+                return_value="backup-dir",
+            ):
+                with mock.patch(
+                    "ethernity.cli.flows.recover_input._recovery_frames_from_scan",
+                    return_value=[main],
+                ) as recovery_scan:
+                    with mock.patch(
+                        "ethernity.cli.flows.recover_input.status",
+                        return_value=contextlib.nullcontext(),
+                    ):
+                        frames, label, detail = prompt_recovery_input_interactive(
+                            allow_unsigned=True,
+                            quiet=False,
+                        )
+        self.assertEqual(label, "Scan")
+        self.assertEqual(detail, "backup-dir")
+        self.assertEqual(frames, [main])
+        recovery_scan.assert_called_once_with(["backup-dir"], quiet=False)
 
     def test_prompt_recovery_input_interactive_retries_after_parse_error(self) -> None:
         frame = Frame(
@@ -595,7 +630,7 @@ class TestRecoverInput(unittest.TestCase):
                     side_effect=[ValueError("bad"), ["line"]],
                 ):
                     with mock.patch(
-                        "ethernity.cli.flows.recover_input._frames_from_scan",
+                        "ethernity.cli.flows.recover_input._recovery_frames_from_scan",
                         return_value=[frame],
                     ):
                         with mock.patch(

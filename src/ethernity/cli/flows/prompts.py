@@ -295,11 +295,13 @@ class _ShardPasteState:
     frames: list[Frame]
     seen_shares: dict[int, bytes]
     seen_payloads: dict[int, ShardPayload] = field(default_factory=dict)
+    expected_version: int | None = None
     expected_threshold: int | None = None
     expected_shares: int | None = None
     expected_secret_len: int | None = None
     expected_doc_hash: bytes | None = None
     expected_sign_pub: bytes | None = None
+    expected_shard_set_id: bytes | None = None
 
 
 def _ingest_shard_frame(
@@ -336,12 +338,20 @@ def _ingest_shard_frame(
         return False
 
     if state.expected_threshold is None:
+        state.expected_version = payload.version
         state.expected_threshold = payload.threshold
         state.expected_shares = payload.share_count
         state.expected_secret_len = payload.secret_len
         state.expected_doc_hash = payload.doc_hash
         state.expected_sign_pub = payload.sign_pub
+        state.expected_shard_set_id = payload.shard_set_id
     else:
+        if state.expected_version is not None and payload.version != state.expected_version:
+            console_err.print(
+                "[error]This shard uses a different shard-payload version than the previous ones. "
+                "Use shards from one quorum set.[/error]"
+            )
+            return False
         if payload.threshold != state.expected_threshold:
             console_err.print(
                 "[error]This shard has a different threshold than the previous ones. "
@@ -372,24 +382,18 @@ def _ingest_shard_frame(
         if state.expected_sign_pub is not None and payload.sign_pub != state.expected_sign_pub:
             console_err.print("[error]This shard is from a different signing key set.[/error]")
             return False
+        if payload.shard_set_id != state.expected_shard_set_id:
+            console_err.print(
+                "[error]This shard is from a different shard set than the previous ones.[/error]"
+            )
+            return False
 
     existing_payload = state.seen_payloads.get(payload.share_index)
     if existing_payload is not None:
         if existing_payload != payload:
             console_err.print(
                 "[error]This shard conflicts with one you've already provided. "
-                "Keep only one version per share index.[/error]"
-            )
-        else:
-            console.print("[subtitle]Duplicate shard ignored.[/subtitle]")
-        return False
-
-    existing_share = state.seen_shares.get(payload.share_index)
-    if existing_share is not None:
-        if existing_share != payload.share:
-            console_err.print(
-                "[error]This shard conflicts with one you've already provided. "
-                "Keep only one version per share index.[/error]"
+                "Keep only one shard per share index from the same shard set.[/error]"
             )
         else:
             console.print("[subtitle]Duplicate shard ignored.[/subtitle]")

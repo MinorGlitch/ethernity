@@ -40,6 +40,7 @@ from ethernity.cli.io.frames import (
     _frames_from_shard_inputs,
     _parse_fallback_section,
     _read_text_lines,
+    _recovery_frames_from_scan,
     _split_main_and_auth_frames,
 )
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, encode_frame
@@ -343,6 +344,24 @@ class TestFramesIo(unittest.TestCase):
         self.assertEqual(len(parsed), 1)
         self.assertEqual(parsed[0].frame_type, FrameType.AUTH)
         self.assertEqual(parsed[0].doc_id, frame.doc_id)
+
+    def test_recovery_frames_from_scan_filters_out_shards(self) -> None:
+        main = self._frame(frame_type=FrameType.MAIN_DOCUMENT, doc_id=b"\x40" * DOC_ID_LEN)
+        auth = self._frame(frame_type=FrameType.AUTH, doc_id=b"\x40" * DOC_ID_LEN, data=b"auth")
+        shard = self._frame(frame_type=FrameType.KEY_DOCUMENT, doc_id=b"\x40" * DOC_ID_LEN)
+        with mock.patch(
+            "ethernity.cli.io.frames._frames_from_scan", return_value=[main, auth, shard]
+        ):
+            with mock.patch("ethernity.cli.io.frames._warn") as warn_mock:
+                frames = _recovery_frames_from_scan(["backup-dir"], quiet=False)
+        self.assertEqual(frames, [main, auth])
+        warn_mock.assert_called_once()
+
+    def test_recovery_frames_from_scan_rejects_shard_only_input(self) -> None:
+        shard = self._frame(frame_type=FrameType.KEY_DOCUMENT, doc_id=b"\x41" * DOC_ID_LEN)
+        with mock.patch("ethernity.cli.io.frames._frames_from_scan", return_value=[shard]):
+            with self.assertRaisesRegex(ValueError, "did not contain recovery QR payloads"):
+                _recovery_frames_from_scan(["backup-dir"], quiet=True)
 
     def test_dedupe_frames_accepts_identical_duplicates(self) -> None:
         frame = self._frame()

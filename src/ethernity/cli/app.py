@@ -303,22 +303,22 @@ def cli(
         with ui_screen_mode(quiet=effective_quiet):
             action = prompt_home_action(quiet=effective_quiet)
         if action == "recover":
-            args = empty_recover_args(
+            recover_args = empty_recover_args(
                 config=config_value,
                 paper=paper_value,
                 quiet=effective_quiet,
                 debug_max_bytes=effective_debug_max_bytes,
                 debug_reveal_secrets=debug_reveal_secrets,
             )
-            _run_cli(lambda: run_recover_wizard(args, debug=debug), debug=debug)
+            _run_cli(lambda: run_recover_wizard(recover_args, debug=debug), debug=debug)
         elif action == "mint":
-            args = empty_mint_args(
+            mint_args = empty_mint_args(
                 config=config_value,
                 paper=paper_value,
                 design=design,
                 quiet=effective_quiet,
             )
-            _run_cli(lambda: run_mint_wizard(args, debug=debug), debug=debug)
+            _run_cli(lambda: run_mint_wizard(mint_args, debug=debug), debug=debug)
         elif action == "kit":
             _run_cli(
                 lambda: _run_kit_render(

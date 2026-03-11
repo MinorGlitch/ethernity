@@ -43,8 +43,8 @@ from ..io.frames import (
     _auth_frames_from_payloads,
     _frames_from_fallback,
     _frames_from_payloads,
-    _frames_from_scan,
     _frames_from_shard_inputs,
+    _recovery_frames_from_scan,
 )
 from ..ui.debug import print_recover_debug
 from ..ui.summary import format_auth_status
@@ -112,7 +112,7 @@ def _prompt_recovery_input(
         input_label = "Scan"
         input_detail = ", ".join(args.scan)
         with status("Scanning QR images...", quiet=quiet):
-            frames = _frames_from_scan(args.scan)
+            frames = _recovery_frames_from_scan(args.scan, quiet=quiet)
     else:
         frames, input_label, input_detail = prompt_recovery_input_interactive(
             allow_unsigned=allow_unsigned,
@@ -226,11 +226,11 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
             and not sys.stdin.isatty()
         ):
             args.fallback_file = "-"
-        plan = plan_from_args(args)
-        if plan.allow_unsigned:
+        recovery_plan = plan_from_args(args)
+        if recovery_plan.allow_unsigned:
             _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
         return write_plan_outputs(
-            plan,
+            recovery_plan,
             quiet=quiet,
             debug=debug,
             debug_max_bytes=args.debug_max_bytes,

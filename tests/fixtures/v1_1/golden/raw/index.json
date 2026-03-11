@@ -1,0 +1,28 @@
+{
+  "passphrase": "stable-v1_1-golden-passphrase",
+  "profile": "raw",
+  "qr_payload_codec": "raw",
+  "scenarios": [
+    {
+      "id": "file_no_shard",
+      "path": "file_no_shard/snapshot.json"
+    },
+    {
+      "id": "directory_no_shard",
+      "path": "directory_no_shard/snapshot.json"
+    },
+    {
+      "id": "mixed_no_shard",
+      "path": "mixed_no_shard/snapshot.json"
+    },
+    {
+      "id": "sharded_embedded",
+      "path": "sharded_embedded/snapshot.json"
+    },
+    {
+      "id": "sharded_signing_sharded",
+      "path": "sharded_signing_sharded/snapshot.json"
+    }
+  ],
+  "version": "1.1.0"
+}

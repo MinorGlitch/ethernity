@@ -22,7 +22,10 @@ from unittest import mock
 from ethernity.cli.flows import prompts
 from ethernity.cli.flows.prompts import _ShardPasteState
 from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE, ShardPayload, encode_shard_payload
+from ethernity.crypto.signing import SHARD_SET_ID_LEN
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
+
+TEST_SHARD_SET_ID = b"p" * SHARD_SET_ID_LEN
 
 
 def _build_shard_frame(
@@ -42,6 +45,7 @@ def _build_shard_frame(
         doc_hash=b"\x11" * 32,
         sign_pub=b"\x22" * 32,
         signature=b"\x33" * 64,
+        shard_set_id=TEST_SHARD_SET_ID,
     )
     return Frame(
         version=VERSION,

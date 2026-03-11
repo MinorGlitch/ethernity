@@ -28,6 +28,7 @@ from ...crypto import decrypt_bytes
 from ...crypto.sharding import (
     KEY_TYPE_PASSPHRASE,
     KEY_TYPE_SIGNING_SEED,
+    LEGACY_SHARD_VERSION,
     ShardPayload,
     mint_replacement_shards,
     split_passphrase,
@@ -40,6 +41,7 @@ from ...render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
 from ...render.service import RenderService
 from ..api import (
     console,
+    panel,
     print_completion_panel,
     prompt_choice,
     prompt_int,
@@ -80,10 +82,15 @@ class _ReplacementShardResolution:
     payloads: tuple[ShardPayload, ...] = ()
     provided_count: int = 0
     threshold: int | None = None
+    shard_version: int | None = None
 
     @property
     def under_quorum(self) -> bool:
         return self.threshold is not None and self.provided_count < self.threshold
+
+    @property
+    def uses_legacy_shards(self) -> bool:
+        return self.shard_version == LEGACY_SHARD_VERSION
 
 
 def run_mint_command(args: MintArgs, *, debug: bool = False) -> int:
@@ -181,6 +188,7 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
             signing_key_sharding = None
             passphrase_replacement_count = None
             signing_key_replacement_count = None
+            legacy_advisory_notes: tuple[str, ...] = ()
             stage_index = 0
 
             while stage_index < 4:
@@ -278,6 +286,8 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                     "Outputs",
                     step_number=4 if needs_signing_authority else 3,
                 ):
+                    passphrase_resolution = _ReplacementShardResolution()
+                    signing_resolution = _ReplacementShardResolution()
                     mint_passphrase_shards = prompt_yes_no(
                         "Mint passphrase shard documents",
                         default=True,
@@ -426,6 +436,15 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                                     "and how many are required to recover."
                                 ),
                             )
+                    legacy_advisory_notes = _legacy_replacement_notes(
+                        passphrase_resolution=passphrase_resolution,
+                        signing_resolution=signing_resolution,
+                        args=MintArgs(
+                            passphrase_replacement_count=passphrase_replacement_count,
+                            signing_key_replacement_count=signing_key_replacement_count,
+                        ),
+                    )
+                    _print_legacy_replacement_warning(legacy_advisory_notes, quiet=quiet)
                 break
 
             plan = cast(Any, plan)
@@ -460,6 +479,11 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
         manifest_signing_seed=manifest.signing_seed,
         debug=debug,
     )
+    if legacy_advisory_notes:
+        result = replace(
+            result,
+            notes=tuple(note for note in result.notes if note not in legacy_advisory_notes),
+        )
     print_mint_summary(result, quiet=quiet)
     _print_completion_actions(result, quiet=quiet)
     return 0
@@ -474,7 +498,6 @@ def _recover_args_from_mint_args(args: MintArgs) -> RecoverArgs:
         scan=list(args.scan or []),
         passphrase=args.passphrase,
         shard_fallback_file=list(args.shard_fallback_file or []),
-        shard_dir=args.shard_dir,
         shard_payloads_file=list(args.shard_payloads_file or []),
         auth_fallback_file=args.auth_fallback_file,
         auth_payloads_file=args.auth_payloads_file,
@@ -505,13 +528,11 @@ def _validate_mint_args(args: MintArgs) -> None:
     if args.passphrase_replacement_count is not None and not _has_existing_shard_inputs(
         args.shard_fallback_file,
         args.shard_payloads_file,
-        args.shard_dir,
     ):
         raise ValueError("passphrase replacement minting requires existing passphrase shard inputs")
     if args.signing_key_replacement_count is not None and not _has_existing_shard_inputs(
         args.signing_key_shard_fallback_file,
         args.signing_key_shard_payloads_file,
-        args.signing_key_shard_dir,
     ):
         raise ValueError(
             "signing-key replacement minting requires existing signing-key shard inputs"
@@ -576,9 +597,8 @@ def _validate_quorum_pair(
 def _has_existing_shard_inputs(
     fallback_files: list[str] | None,
     payload_files: list[str] | None,
-    shard_dir: str | None,
 ) -> bool:
-    return bool(fallback_files or payload_files or shard_dir)
+    return bool(fallback_files or payload_files)
 
 
 def _recovery_shard_inputs_for_plan(
@@ -730,12 +750,19 @@ def _mint_from_plan(
             )
         )
 
+    notes = _legacy_replacement_notes(
+        passphrase_resolution=passphrase_resolution,
+        signing_resolution=signing_resolution,
+        args=args,
+    )
+
     return MintResult(
         doc_id=plan.doc_id,
         output_dir=output_dir,
         shard_paths=tuple(shard_paths),
         signing_key_shard_paths=tuple(signing_key_shard_paths),
         signing_key_source=signing_key_source,
+        notes=notes,
     )
 
 
@@ -803,7 +830,42 @@ def _replacement_payloads_from_frames(
             provided_count=exc.provided_count,
             threshold=exc.threshold,
         )
-    return _ReplacementShardResolution(payloads=tuple(payloads))
+    return _ReplacementShardResolution(
+        payloads=tuple(payloads),
+        shard_version=payloads[0].version if payloads else None,
+    )
+
+
+def _legacy_replacement_notes(
+    *,
+    passphrase_resolution: _ReplacementShardResolution,
+    signing_resolution: _ReplacementShardResolution,
+    args: MintArgs,
+) -> tuple[str, ...]:
+    notes: list[str] = []
+    if args.passphrase_replacement_count is not None and passphrase_resolution.uses_legacy_shards:
+        notes.append(
+            "Legacy v1 passphrase shards detected. Compatible replacements stay on v1; "
+            "prefer minting a full new passphrase shard set to migrate to shard payload v2."
+        )
+    if args.signing_key_replacement_count is not None and signing_resolution.uses_legacy_shards:
+        notes.append(
+            "Legacy v1 signing-key shards detected. Compatible replacements stay on v1; "
+            "prefer minting a full new signing-key shard set to migrate to shard payload v2."
+        )
+    return tuple(notes)
+
+
+def _print_legacy_replacement_warning(notes: tuple[str, ...], *, quiet: bool) -> None:
+    if quiet or not notes:
+        return
+    console.print(
+        panel(
+            "Legacy shard advisory",
+            "\n".join(f"- {note}" for note in notes),
+            style="warning",
+        )
+    )
 
 
 def _require_replacement_payloads(

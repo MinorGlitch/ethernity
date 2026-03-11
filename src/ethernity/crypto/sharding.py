@@ -19,23 +19,32 @@
 from __future__ import annotations
 
 import hmac
+import secrets
 from dataclasses import dataclass
-from typing import cast
 
 from Crypto.Protocol.SecretSharing import Shamir
 
 from ..core.validation import (
     require_bytes,
     require_dict,
+    require_int,
     require_keys,
     require_length,
     require_positive_int,
 )
 from ..encoding.cbor import dumps_canonical, loads_canonical
 from ._shamir_compat import BLOCK_SIZE, interpolate_share_blocks
-from .signing import DOC_HASH_LEN, ED25519_PUB_LEN, ED25519_SEED_LEN, ED25519_SIG_LEN, sign_shard
+from .signing import (
+    DOC_HASH_LEN,
+    ED25519_PUB_LEN,
+    ED25519_SEED_LEN,
+    ED25519_SIG_LEN,
+    SHARD_SET_ID_LEN,
+    sign_shard,
+)
 
-SHARD_VERSION = 1
+LEGACY_SHARD_VERSION = 1
+SHARD_VERSION = 2
 KEY_TYPE_PASSPHRASE = "passphrase"
 KEY_TYPE_SIGNING_SEED = "signing-seed"
 MAX_SHARES = 255
@@ -57,6 +66,8 @@ class ShardPayload:
     doc_hash: bytes
     sign_pub: bytes
     signature: bytes
+    version: int = SHARD_VERSION
+    shard_set_id: bytes | None = None
 
 
 def split_passphrase(
@@ -142,6 +153,8 @@ def mint_replacement_shards(
     key_type = shares[0].key_type
     doc_hash = shares[0].doc_hash
     source_sign_pub = shares[0].sign_pub
+    version = shares[0].version
+    shard_set_id = shares[0].shard_set_id
     seen_indices: set[int] = set()
     for share in shares:
         if share.key_type != key_type:
@@ -159,10 +172,9 @@ def mint_replacement_shards(
         if share.share_index in seen_indices:
             raise ValueError("duplicate shard index")
         seen_indices.add(share.share_index)
+    validate_shard_set_consistency(shares)
     if len(shares) < threshold:
         raise ValueError(f"need at least {threshold} shard(s) to mint compatible replacements")
-
-    validate_shard_set_consistency(shares)
 
     missing_indices = [index for index in range(1, share_total + 1) if index not in seen_indices]
     if count > len(missing_indices):
@@ -187,13 +199,14 @@ def mint_replacement_shards(
         )
         signature = sign_shard(
             doc_hash,
-            shard_version=SHARD_VERSION,
+            shard_version=version,
             key_type=key_type,
             threshold=threshold,
             share_count=share_total,
             share_index=share_index,
             secret_len=secret_len,
             share=share_bytes,
+            shard_set_id=shard_set_id,
             sign_pub=sign_pub,
             sign_priv=sign_priv,
         )
@@ -208,6 +221,8 @@ def mint_replacement_shards(
                 doc_hash=doc_hash,
                 sign_pub=sign_pub,
                 signature=signature,
+                version=version,
+                shard_set_id=shard_set_id,
             )
         )
     return payloads
@@ -216,11 +231,14 @@ def mint_replacement_shards(
 def encode_shard_payload(payload: ShardPayload) -> bytes:
     """Encode a shard payload as canonical CBOR."""
 
+    version = require_int(payload.version, label="shard version")
+    if version not in (LEGACY_SHARD_VERSION, SHARD_VERSION):
+        raise ValueError(f"unsupported shard payload version: {version}")
     if payload.key_type == KEY_TYPE_SIGNING_SEED and payload.secret_len != ED25519_SEED_LEN:
         raise ValueError(f"signing-seed shard length must be {ED25519_SEED_LEN} bytes")
 
     data = {
-        "version": SHARD_VERSION,
+        "version": version,
         "type": payload.key_type,
         "threshold": payload.threshold,
         "share_count": payload.share_count,
@@ -231,6 +249,15 @@ def encode_shard_payload(payload: ShardPayload) -> bytes:
         "pub": payload.sign_pub,
         "sig": payload.signature,
     }
+    if version == SHARD_VERSION:
+        data["set_id"] = require_bytes(
+            payload.shard_set_id,
+            SHARD_SET_ID_LEN,
+            label="set_id",
+            prefix="shard ",
+        )
+    elif payload.shard_set_id is not None:
+        raise ValueError("shard set_id is not supported for shard version 1")
     return dumps_canonical(data)
 
 
@@ -254,7 +281,7 @@ def decode_shard_payload(data: bytes) -> ShardPayload:
         ),
         label="shard payload",
     )
-    version = decoded["version"]
+    version = require_int(decoded["version"], label="shard version")
     key_type = decoded["type"]
     threshold = decoded["threshold"]
     share_count = decoded["share_count"]
@@ -264,7 +291,7 @@ def decode_shard_payload(data: bytes) -> ShardPayload:
     doc_hash = decoded["hash"]
     sign_pub = decoded["pub"]
     signature = decoded["sig"]
-    if version != SHARD_VERSION:
+    if version not in (LEGACY_SHARD_VERSION, SHARD_VERSION):
         raise ValueError(f"unsupported shard payload version: {version}")
     if key_type not in (KEY_TYPE_PASSPHRASE, KEY_TYPE_SIGNING_SEED):
         raise ValueError(f"unsupported shard key type: {key_type}")
@@ -296,6 +323,14 @@ def decode_shard_payload(data: bytes) -> ShardPayload:
     doc_hash = require_bytes(doc_hash, DOC_HASH_LEN, label="hash", prefix="shard ")
     sign_pub = require_bytes(sign_pub, ED25519_PUB_LEN, label="pub", prefix="shard ")
     signature = require_bytes(signature, ED25519_SIG_LEN, label="sig", prefix="shard ")
+    shard_set_id: bytes | None = None
+    if version == SHARD_VERSION:
+        shard_set_id = require_bytes(
+            decoded.get("set_id"),
+            SHARD_SET_ID_LEN,
+            label="set_id",
+            prefix="shard ",
+        )
     return ShardPayload(
         share_index=share_index,
         threshold=threshold,
@@ -306,6 +341,8 @@ def decode_shard_payload(data: bytes) -> ShardPayload:
         doc_hash=doc_hash,
         sign_pub=sign_pub,
         signature=signature,
+        version=version,
+        shard_set_id=shard_set_id,
     )
 
 
@@ -330,6 +367,7 @@ def _split_secret(
         raise ValueError("threshold cannot exceed shares")
     if threshold > MAX_SHARES or shares > MAX_SHARES:
         raise ValueError(f"threshold and shares must be <= {MAX_SHARES}")
+    shard_set_id = secrets.token_bytes(SHARD_SET_ID_LEN)
 
     blocks: list[bytes] = []
     for offset in range(0, len(secret), BLOCK_SIZE):
@@ -340,8 +378,7 @@ def _split_secret(
 
     share_map: dict[int, bytearray] = {}
     for block in blocks:
-        split = cast(list[tuple[int, bytes]], Shamir.split(threshold, shares, block, False))
-        for index, share in split:
+        for index, share in Shamir.split(threshold, shares, block, False):
             bucket = share_map.setdefault(index, bytearray())
             bucket.extend(share)
 
@@ -361,6 +398,7 @@ def _split_secret(
             share_index=index,
             secret_len=len(secret),
             share=share_bytes,
+            shard_set_id=shard_set_id,
             sign_pub=sign_pub,
             sign_priv=sign_priv,
         )
@@ -375,6 +413,8 @@ def _split_secret(
                 doc_hash=doc_hash,
                 sign_pub=sign_pub,
                 signature=signature,
+                version=SHARD_VERSION,
+                shard_set_id=shard_set_id,
             )
         )
     return payloads
@@ -387,6 +427,13 @@ def validate_shard_set_consistency(shares: list[ShardPayload]) -> None:
         raise ValueError("no shares provided")
 
     threshold = shares[0].threshold
+    version = shares[0].version
+    shard_set_id = shares[0].shard_set_id
+    for share in shares:
+        if share.version != version:
+            raise ValueError("shard versions do not match")
+        if not _same_shard_set_id(share.shard_set_id, shard_set_id):
+            raise ValueError(_INCOMPATIBLE_SHARD_SET_MESSAGE)
     if len(shares) <= threshold:
         return
 
@@ -452,6 +499,12 @@ def _recover_secret(shares: list[ShardPayload], *, key_type: str) -> bytes:
         start = block_idx * BLOCK_SIZE
         end = start + BLOCK_SIZE
         pairs = [(share.share_index, share.share[start:end]) for share in source_shares]
-        blocks.append(cast(bytes, Shamir.combine(pairs, False)))
+        blocks.append(Shamir.combine(pairs, False))
 
     return b"".join(blocks)[:secret_len]
+
+
+def _same_shard_set_id(left: bytes | None, right: bytes | None) -> bool:
+    if left is None or right is None:
+        return left is right
+    return hmac.compare_digest(left, right)

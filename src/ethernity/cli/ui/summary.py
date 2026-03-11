@@ -106,6 +106,8 @@ def print_mint_summary(result: MintResult, *, quiet: bool) -> None:
             ),
         )
     )
+    if result.notes:
+        console.print(panel("Advisory", "\n".join(f"- {note}" for note in result.notes)))
 
 
 def format_auth_status(status: str, *, allow_unsigned: bool) -> str:

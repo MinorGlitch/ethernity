@@ -46,6 +46,7 @@ ED25519_PUB_LEN = 32
 ED25519_SEED_LEN = 32
 ED25519_SIG_LEN = 64
 DOC_HASH_LEN = 32
+SHARD_SET_ID_LEN = 16
 
 
 @dataclass(frozen=True)
@@ -115,6 +116,7 @@ def sign_shard(
     share_index: int,
     secret_len: int,
     share: bytes,
+    shard_set_id: bytes | None = None,
     sign_pub: bytes,
     sign_priv: bytes,
 ) -> bytes:
@@ -129,6 +131,7 @@ def sign_shard(
         share_index=share_index,
         secret_len=secret_len,
         share=share,
+        shard_set_id=shard_set_id,
         sign_pub=sign_pub,
     )
     return _sign_message(message, sign_priv=sign_priv)
@@ -144,6 +147,7 @@ def verify_shard(
     share_index: int,
     secret_len: int,
     share: bytes,
+    shard_set_id: bytes | None = None,
     sign_pub: bytes,
     signature: bytes,
 ) -> bool:
@@ -159,6 +163,7 @@ def verify_shard(
             share_index=share_index,
             secret_len=secret_len,
             share=share,
+            shard_set_id=shard_set_id,
             sign_pub=sign_pub,
         )
     except ValueError:
@@ -232,6 +237,7 @@ def _encode_shard_signed_payload(
     share_index: int,
     secret_len: int,
     share: bytes,
+    shard_set_id: bytes | None,
     sign_pub: bytes,
 ) -> bytes:
     """Encode the canonical shard payload body that is signed and verified."""
@@ -260,6 +266,13 @@ def _encode_shard_signed_payload(
         "hash": doc_hash,
         "pub": sign_pub,
     }
+    if shard_version == 1:
+        if shard_set_id is not None:
+            raise ValueError("shard_set_id is not supported for shard version 1")
+    elif shard_version == 2:
+        payload["set_id"] = require_bytes(shard_set_id, SHARD_SET_ID_LEN, label="shard_set_id")
+    else:
+        raise ValueError(f"unsupported shard_version: {shard_version}")
     return dumps_canonical(payload)
 
 

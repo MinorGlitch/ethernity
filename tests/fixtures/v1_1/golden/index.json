@@ -1,0 +1,14 @@
+{
+  "passphrase": "stable-v1_1-golden-passphrase",
+  "profiles": {
+    "base64": {
+      "path": "base64/index.json",
+      "qr_payload_codec": "base64"
+    },
+    "raw": {
+      "path": "raw/index.json",
+      "qr_payload_codec": "raw"
+    }
+  },
+  "version": "1.1.0"
+}

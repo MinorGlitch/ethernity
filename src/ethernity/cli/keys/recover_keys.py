@@ -21,7 +21,6 @@ import hmac
 from ...crypto.sharding import (
     KEY_TYPE_PASSPHRASE,
     KEY_TYPE_SIGNING_SEED,
-    SHARD_VERSION,
     ShardPayload,
     decode_shard_payload,
     recover_passphrase,
@@ -169,13 +168,14 @@ def _validated_shard_payloads_from_frames(
             raise ValueError("shard signing key does not match")
         if not allow_unsigned and not verify_shard(
             doc_hash,
-            shard_version=SHARD_VERSION,
+            shard_version=payload.version,
             key_type=payload.key_type,
             threshold=payload.threshold,
             share_count=payload.share_count,
             share_index=payload.share_index,
             secret_len=payload.secret_len,
             share=payload.share,
+            shard_set_id=payload.shard_set_id,
             sign_pub=payload.sign_pub,
             signature=payload.signature,
         ):

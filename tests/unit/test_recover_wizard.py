@@ -147,17 +147,17 @@ class TestPromptRecoveryInput(unittest.TestCase):
         self.assertEqual((label, detail), ("QR payloads", "payloads.txt"))
         frames_from_payloads.assert_called_once_with("payloads.txt", label="frame")
 
-    @mock.patch("ethernity.cli.flows.recover_wizard._frames_from_scan")
+    @mock.patch("ethernity.cli.flows.recover_wizard._recovery_frames_from_scan")
     @mock.patch(
         "ethernity.cli.flows.recover_wizard.status", return_value=contextlib.nullcontext(None)
     )
     def test_scan_path_reads_frames(
         self,
         _status: mock.MagicMock,
-        frames_from_scan: mock.MagicMock,
+        recovery_frames_from_scan: mock.MagicMock,
     ) -> None:
         main = _frame(FrameType.MAIN_DOCUMENT)
-        frames_from_scan.return_value = [main]
+        recovery_frames_from_scan.return_value = [main]
 
         frames, label, detail = wizard._prompt_recovery_input(
             RecoverArgs(scan=["a.png", "b.png"]),
@@ -167,7 +167,7 @@ class TestPromptRecoveryInput(unittest.TestCase):
 
         self.assertEqual(frames, [main])
         self.assertEqual((label, detail), ("Scan", "a.png, b.png"))
-        frames_from_scan.assert_called_once_with(["a.png", "b.png"])
+        recovery_frames_from_scan.assert_called_once_with(["a.png", "b.png"], quiet=False)
 
     @mock.patch("ethernity.cli.flows.recover_wizard.prompt_recovery_input_interactive")
     def test_interactive_prompt_fallback_when_no_input_flags(

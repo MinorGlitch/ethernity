@@ -58,6 +58,27 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
             quiet=True,
         )
 
+    def test_frames_from_args_scan_filters_out_shard_documents(self) -> None:
+        args = RecoverArgs(scan=["~/backup-dir"])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir) / "home"
+            home.mkdir()
+            with mock.patch.dict("os.environ", _home_env(home), clear=False):
+                with mock.patch.object(
+                    recover_plan,
+                    "_recovery_frames_from_scan",
+                    return_value=["main", "auth"],
+                ) as scan_mock:
+                    frames, label, detail = recover_plan._frames_from_args(
+                        args,
+                        allow_unsigned=False,
+                        quiet=True,
+                    )
+        self.assertEqual(frames, ["main", "auth"])
+        self.assertEqual(label, "Scan")
+        self.assertEqual(detail, str(home / "backup-dir"))
+        scan_mock.assert_called_once_with([str(home / "backup-dir")], quiet=True)
+
     def test_shard_and_auth_path_helpers_expand_user_paths(self) -> None:
         args = RecoverArgs(
             auth_fallback_file="~/auth.txt",

@@ -25,7 +25,7 @@ from unittest import mock
 import typer
 
 from ethernity.cli.commands import mint as mint_command
-from ethernity.cli.core.types import CliContextState, MintArgs
+from ethernity.cli.core.types import CliContextState, MintArgs, MintResult
 from ethernity.cli.flows import mint as mint_flow
 from ethernity.crypto.sharding import KEY_TYPE_SIGNING_SEED
 
@@ -183,6 +183,68 @@ class TestMintFlow(unittest.TestCase):
                 debug=False,
             )
         _ensure_mint_output_dir.assert_not_called()
+
+    @mock.patch(
+        "ethernity.cli.flows.mint._replacement_payloads_from_frames",
+        side_effect=[
+            mint_flow._ReplacementShardResolution(
+                payloads=(cast(Any, SimpleNamespace(version=1)),),
+                shard_version=1,
+            ),
+            mint_flow._ReplacementShardResolution(),
+        ],
+    )
+    @mock.patch("ethernity.cli.flows.mint._ensure_mint_output_dir", return_value="/tmp/minted")
+    @mock.patch("ethernity.cli.flows.mint.RenderService")
+    @mock.patch("ethernity.cli.flows.mint.mint_replacement_shards", return_value=[])
+    @mock.patch("ethernity.cli.flows.mint.derive_public_key", return_value=b"p" * 32)
+    def test_mint_from_plan_adds_legacy_replacement_note(
+        self,
+        _derive_public_key: mock.MagicMock,
+        _mint_replacement_shards: mock.MagicMock,
+        _render_service: mock.MagicMock,
+        _ensure_mint_output_dir: mock.MagicMock,
+        _replacement_payloads_from_frames: mock.MagicMock,
+    ) -> None:
+        args = MintArgs(
+            passphrase_replacement_count=1,
+            mint_signing_key_shards=False,
+            quiet=True,
+        )
+        plan = SimpleNamespace(
+            ciphertext=b"ciphertext",
+            doc_id=b"d" * 16,
+            doc_hash=b"h" * 32,
+            passphrase="mint-passphrase",
+            auth_payload=SimpleNamespace(sign_pub=b"p" * 32),
+        )
+        config = SimpleNamespace(
+            shard_template_path=Path("shard.html.j2"),
+            signing_key_shard_template_path=Path("signing-shard.html.j2"),
+            cli_defaults=SimpleNamespace(backup=SimpleNamespace(qr_payload_codec="raw")),
+        )
+
+        result = mint_flow._mint_from_plan(
+            plan=plan,
+            config=config,
+            args=args,
+            passphrase_shard_frames=[mock.Mock()],
+            signing_key_frames=[],
+            manifest_signing_seed=b"s" * 32,
+            debug=False,
+        )
+
+        self.assertEqual(len(result.notes), 1)
+        self.assertIn("Legacy v1 passphrase shards detected", result.notes[0])
+
+    def test_legacy_replacement_notes_only_apply_to_replacement_requests(self) -> None:
+        notes = mint_flow._legacy_replacement_notes(
+            passphrase_resolution=mint_flow._ReplacementShardResolution(shard_version=1),
+            signing_resolution=mint_flow._ReplacementShardResolution(shard_version=1),
+            args=MintArgs(),
+        )
+
+        self.assertEqual(notes, ())
 
     @mock.patch("ethernity.cli.flows.mint._print_completion_actions")
     @mock.patch("ethernity.cli.flows.mint.print_mint_summary")
@@ -522,14 +584,19 @@ class TestMintFlow(unittest.TestCase):
 
     @mock.patch("ethernity.cli.flows.mint._print_completion_actions")
     @mock.patch("ethernity.cli.flows.mint.print_mint_summary")
+    @mock.patch("ethernity.cli.flows.mint._print_legacy_replacement_warning")
     @mock.patch(
         "ethernity.cli.flows.mint._mint_from_plan",
-        return_value=SimpleNamespace(
+        return_value=MintResult(
             doc_id=b"d" * 16,
             output_dir="mint-dd",
             shard_paths=(),
             signing_key_shard_paths=(),
             signing_key_source="embedded signing seed",
+            notes=(
+                "Legacy v1 passphrase shards detected. Compatible replacements stay on v1; "
+                "prefer minting a full new passphrase shard set to migrate to shard payload v2.",
+            ),
         ),
     )
     @mock.patch(
@@ -553,7 +620,8 @@ class TestMintFlow(unittest.TestCase):
         "ethernity.cli.flows.mint._replacement_payloads_from_frames",
         side_effect=[
             mint_flow._ReplacementShardResolution(
-                payloads=(cast(Any, SimpleNamespace(threshold=2, share_count=5, share_index=1)),)
+                payloads=(cast(Any, SimpleNamespace(threshold=2, share_count=5, share_index=1)),),
+                shard_version=1,
             ),
             mint_flow._ReplacementShardResolution(),
         ],
@@ -605,23 +673,30 @@ class TestMintFlow(unittest.TestCase):
         _decrypt_bytes: mock.MagicMock,
         _decode_envelope: mock.MagicMock,
         mint_from_plan: mock.MagicMock,
+        print_legacy_replacement_warning: mock.MagicMock,
         print_mint_summary: mock.MagicMock,
         print_completion_actions: mock.MagicMock,
     ) -> None:
         prompt_key_material.return_value = ("passphrase", [], [], [mock.Mock()])
 
-        result = mint_flow.run_mint_wizard(MintArgs(quiet=True), debug=False, show_header=False)
+        result = mint_flow.run_mint_wizard(MintArgs(quiet=False), debug=False, show_header=False)
 
         self.assertEqual(result, 0)
-        prompt_key_material.assert_called_once_with(mock.ANY, quiet=True, collect_all_shards=True)
+        prompt_key_material.assert_called_once_with(mock.ANY, quiet=False, collect_all_shards=True)
         prompt_shard_mint_mode.assert_called_once()
         prompt_replacement_count.assert_called_once_with("passphrase", maximum=2)
         prompt_quorum_choice.assert_not_called()
+        print_legacy_replacement_warning.assert_called_once()
+        self.assertIn(
+            "Legacy v1 passphrase shards detected",
+            print_legacy_replacement_warning.call_args.args[0][0],
+        )
         wizard_args = mint_from_plan.call_args.kwargs["args"]
         self.assertEqual(wizard_args.passphrase_replacement_count, 1)
         self.assertIsNone(wizard_args.shard_threshold)
         self.assertFalse(wizard_args.mint_signing_key_shards)
         print_mint_summary.assert_called_once()
+        self.assertEqual(print_mint_summary.call_args.args[0].notes, ())
         print_completion_actions.assert_called_once()
 
     @mock.patch("ethernity.cli.flows.mint._print_completion_actions")
