@@ -72,6 +72,7 @@ class TestMintCommand(unittest.TestCase):
             mint_command._expand_shard_dir("/definitely/missing", label="shard")
 
     @mock.patch("ethernity.cli.commands.mint.run_mint_command", return_value=0)
+    @mock.patch("ethernity.cli.commands.mint._should_use_wizard_for_mint", return_value=False)
     @mock.patch("ethernity.cli.commands.mint._run_cli", side_effect=lambda func, debug: func())
     @mock.patch("ethernity.cli.commands.mint._expand_shard_dir")
     @mock.patch("ethernity.cli.commands.mint._resolve_config_and_paper", return_value=("cfg", "A4"))
@@ -80,6 +81,7 @@ class TestMintCommand(unittest.TestCase):
         _resolve_config_and_paper: mock.MagicMock,
         expand_shard_dir: mock.MagicMock,
         _run_cli: mock.MagicMock,
+        _should_use_wizard_for_mint: mock.MagicMock,
         run_mint_command: mock.MagicMock,
     ) -> None:
         expand_shard_dir.side_effect = [["passphrase-dir.txt"], ["signing-dir.txt"]]
@@ -108,6 +110,32 @@ class TestMintCommand(unittest.TestCase):
         self.assertEqual(args.passphrase_replacement_count, 1)
         self.assertEqual(args.signing_key_replacement_count, 2)
         self.assertEqual(run_mint_command.call_args.kwargs["debug"], True)
+
+    @mock.patch("ethernity.cli.commands.mint.run_mint_command", return_value=0)
+    @mock.patch("ethernity.cli.commands.mint.run_mint_wizard", return_value=0)
+    @mock.patch("ethernity.cli.commands.mint._should_use_wizard_for_mint", return_value=True)
+    @mock.patch("ethernity.cli.commands.mint._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch("ethernity.cli.commands.mint._resolve_config_and_paper", return_value=("cfg", "A4"))
+    def test_mint_uses_wizard_when_interactive_inputs_are_missing(
+        self,
+        _resolve_config_and_paper: mock.MagicMock,
+        _run_cli: mock.MagicMock,
+        _should_use_wizard_for_mint: mock.MagicMock,
+        run_mint_wizard: mock.MagicMock,
+        run_mint_command: mock.MagicMock,
+    ) -> None:
+        ctx = self._ctx(quiet=False, debug=True, design="sentinel")
+
+        self._call_mint(ctx)
+
+        run_mint_wizard.assert_called_once()
+        run_mint_command.assert_not_called()
+        args = run_mint_wizard.call_args.args[0]
+        self.assertIsInstance(args, MintArgs)
+        self.assertEqual(args.config, "cfg")
+        self.assertEqual(args.paper, "A4")
+        self.assertEqual(args.design, "sentinel")
+        self.assertEqual(run_mint_wizard.call_args.kwargs["debug"], True)
 
     def test_register(self) -> None:
         app = typer.Typer()

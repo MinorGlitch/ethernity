@@ -25,7 +25,7 @@ import typer
 from ..core.common import _ctx_state, _paper_callback, _resolve_config_and_paper, _run_cli
 from ..core.paths import expanduser_cli_path
 from ..core.types import MintArgs
-from ..flows.mint import run_mint_command
+from ..flows.mint import _should_use_wizard_for_mint, run_mint_command, run_mint_wizard
 
 _MINT_HELP = (
     "Mint fresh shard PDFs for an existing backup.\n\n"
@@ -312,4 +312,7 @@ def mint(
         mint_signing_key_shards=mint_signing_key_shards,
         quiet=quiet_value,
     )
+    if _should_use_wizard_for_mint(args):
+        _run_cli(functools.partial(run_mint_wizard, args, debug=debug_value), debug=debug_value)
+        return
     _run_cli(functools.partial(run_mint_command, args, debug=debug_value), debug=debug_value)

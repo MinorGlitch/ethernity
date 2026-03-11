@@ -397,6 +397,222 @@ class FrozenProfileTestCase(unittest.TestCase):
                 cast(dict[str, str], snapshot["expected_file_sha256"]),
             )
 
+    def test_minted_signing_key_replacement_shards_allow_followup_remint(self) -> None:
+        scenario_id = "sharded_signing_sharded"
+        snapshot = self._snapshot({"path": f"{scenario_id}/snapshot.json"})
+        scenario_root = self._profile_root() / scenario_id
+        mint_case = next(
+            case
+            for case in mint_cases_for_scenario(scenario_id)
+            if case.case_id == "external_signing_only"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
+            first_output = tmp_path / "minted-signing-only"
+            self._run_cli_command(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(self._profile_config_path(tmp_path)),
+                    *self._mint_args(mint_case, scenario_root, first_output),
+                ],
+                env=env,
+            )
+
+            provided_signing_payloads = tmp_path / "provided_signing_payloads.txt"
+            provided_signing_shards = sorted(first_output.glob("signing-key-shard-*.pdf"))[
+                : self._required_int(mint_case.signing_key_shard_threshold)
+            ]
+            self._write_scanned_payloads(provided_signing_shards, provided_signing_payloads)
+
+            replacement_output = tmp_path / "replacement-signing-only"
+            self._run_cli_command(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(self._profile_config_path(tmp_path)),
+                    "mint",
+                    "--payloads-file",
+                    str(scenario_root / "main_payloads.txt"),
+                    "--shard-payloads-file",
+                    str(scenario_root / "shard_payloads_threshold.txt"),
+                    "--signing-key-shard-payloads-file",
+                    str(provided_signing_payloads),
+                    "--signing-key-replacement-count",
+                    "1",
+                    "--no-passphrase-shards",
+                    "--output-dir",
+                    str(replacement_output),
+                    "--quiet",
+                ],
+                env=env,
+            )
+
+            replacement_signing_shards = sorted(replacement_output.glob("signing-key-shard-*.pdf"))
+            self.assertEqual(len(replacement_signing_shards), 1)
+
+            remint_signing_payloads = tmp_path / "remint_signing_payloads.txt"
+            self._write_scanned_payloads(
+                [provided_signing_shards[0], replacement_signing_shards[0]],
+                remint_signing_payloads,
+            )
+
+            followup_output = tmp_path / "followup-passphrase-mint"
+            self._run_cli_command(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(self._profile_config_path(tmp_path)),
+                    "mint",
+                    "--payloads-file",
+                    str(scenario_root / "main_payloads.txt"),
+                    "--shard-payloads-file",
+                    str(scenario_root / "shard_payloads_threshold.txt"),
+                    "--signing-key-shard-payloads-file",
+                    str(remint_signing_payloads),
+                    "--shard-threshold",
+                    "2",
+                    "--shard-count",
+                    "3",
+                    "--no-signing-key-shards",
+                    "--output-dir",
+                    str(followup_output),
+                    "--quiet",
+                ],
+                env=env,
+            )
+
+            followup_shard_payloads = tmp_path / "followup_shard_payloads.txt"
+            self._write_scanned_payloads(
+                sorted(followup_output.glob("shard-*.pdf"))[:2],
+                followup_shard_payloads,
+            )
+            recover_output = tmp_path / "restored-from-replacement-authority"
+            self._run_cli_command(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(self._profile_config_path(tmp_path)),
+                    "recover",
+                    "--payloads-file",
+                    str(scenario_root / "main_payloads.txt"),
+                    "--shard-payloads-file",
+                    str(followup_shard_payloads),
+                    "--output",
+                    str(recover_output),
+                    "--quiet",
+                ],
+                env=env,
+            )
+            self._assert_recovered_hashes(
+                recover_output,
+                cast(dict[str, str], snapshot["expected_file_sha256"]),
+            )
+
+    def test_minted_signing_key_replacement_shards_reject_exact_threshold_mixed_sets(self) -> None:
+        if not self.INCLUDE_SHARD_SET_FIELDS:
+            self.skipTest(
+                "mixed-set exact-threshold detection is only enforced in shard payload v2"
+            )
+
+        scenario_id = "sharded_signing_sharded"
+        scenario_root = self._profile_root() / scenario_id
+        mint_case = next(
+            case
+            for case in mint_cases_for_scenario(scenario_id)
+            if case.case_id == "external_signing_only"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
+            first_output = tmp_path / "minted-signing-first"
+            second_output = tmp_path / "minted-signing-second"
+            self._run_cli_command(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(self._profile_config_path(tmp_path)),
+                    *self._mint_args(mint_case, scenario_root, first_output),
+                ],
+                env=env,
+            )
+            self._run_cli_command(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(self._profile_config_path(tmp_path)),
+                    *self._mint_args(mint_case, scenario_root, second_output),
+                ],
+                env=env,
+            )
+
+            first_signing_shards = sorted(first_output.glob("signing-key-shard-*.pdf"))
+            second_signing_shards = sorted(second_output.glob("signing-key-shard-*.pdf"))
+            self.assertGreaterEqual(len(first_signing_shards), 2)
+            self.assertGreaterEqual(len(second_signing_shards), 2)
+
+            first_projection = self._frame_to_shard_projection(
+                self._valid_scanned_frames([first_signing_shards[0]])[0]
+            )
+            second_projection = self._frame_to_shard_projection(
+                self._valid_scanned_frames([second_signing_shards[0]])[0]
+            )
+            self.assertEqual(len(cast(str, first_projection["set_id"])), 32)
+            self.assertEqual(len(cast(str, second_projection["set_id"])), 32)
+            self.assertNotEqual(first_projection["set_id"], second_projection["set_id"])
+
+            mixed_signing_payloads = tmp_path / "mixed_signing_payloads.txt"
+            self._write_scanned_payloads(
+                [first_signing_shards[0], second_signing_shards[1]],
+                mixed_signing_payloads,
+            )
+            replacement_output = tmp_path / "rejected-signing-replacement"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(self._profile_config_path(tmp_path)),
+                    "mint",
+                    "--payloads-file",
+                    str(scenario_root / "main_payloads.txt"),
+                    "--shard-payloads-file",
+                    str(scenario_root / "shard_payloads_threshold.txt"),
+                    "--signing-key-shard-payloads-file",
+                    str(mixed_signing_payloads),
+                    "--signing-key-replacement-count",
+                    "1",
+                    "--no-passphrase-shards",
+                    "--output-dir",
+                    str(replacement_output),
+                    "--quiet",
+                ],
+                cwd=_REPO_ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "not mutually compatible",
+                (result.stderr or result.stdout).lower(),
+            )
+
     def test_minted_shards_reject_exact_threshold_mixed_sets(self) -> None:
         if not self.INCLUDE_SHARD_SET_FIELDS:
             self.skipTest(

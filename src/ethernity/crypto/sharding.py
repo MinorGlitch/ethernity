@@ -40,6 +40,7 @@ from .signing import (
     ED25519_SEED_LEN,
     ED25519_SIG_LEN,
     SHARD_SET_ID_LEN,
+    derive_public_key,
     sign_shard,
 )
 
@@ -140,7 +141,6 @@ def mint_replacement_shards(
     *,
     count: int,
     sign_priv: bytes,
-    sign_pub: bytes,
 ) -> list[ShardPayload]:
     """Mint replacement shards compatible with an existing shard set."""
 
@@ -185,9 +185,9 @@ def mint_replacement_shards(
     source_shares = sorted(shares, key=lambda item: item.share_index)[:threshold]
     block_count = (secret_len + BLOCK_SIZE - 1) // BLOCK_SIZE
     require_length(doc_hash, DOC_HASH_LEN, label="doc_hash", prefix="shard ")
-    require_length(sign_pub, ED25519_PUB_LEN, label="sign_pub", prefix="shard ")
     require_length(sign_priv, ED25519_SEED_LEN, label="sign_priv", prefix="shard ")
-    if not hmac.compare_digest(sign_pub, source_sign_pub):
+    replacement_sign_pub = derive_public_key(sign_priv)
+    if not hmac.compare_digest(replacement_sign_pub, source_sign_pub):
         raise ValueError("replacement signing key must match source shard set")
 
     payloads: list[ShardPayload] = []
@@ -207,7 +207,7 @@ def mint_replacement_shards(
             secret_len=secret_len,
             share=share_bytes,
             shard_set_id=shard_set_id,
-            sign_pub=sign_pub,
+            sign_pub=replacement_sign_pub,
             sign_priv=sign_priv,
         )
         payloads.append(
@@ -219,7 +219,7 @@ def mint_replacement_shards(
                 share=share_bytes,
                 secret_len=secret_len,
                 doc_hash=doc_hash,
-                sign_pub=sign_pub,
+                sign_pub=replacement_sign_pub,
                 signature=signature,
                 version=version,
                 shard_set_id=shard_set_id,

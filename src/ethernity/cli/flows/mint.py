@@ -155,6 +155,14 @@ def run_mint_command(args: MintArgs, *, debug: bool = False) -> int:
     return 0
 
 
+def _should_use_wizard_for_mint(args: MintArgs) -> bool:
+    if args.fallback_file or args.payloads_file or args.scan:
+        return False
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        return False
+    return True
+
+
 def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = True) -> int:
     quiet = args.quiet
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
@@ -668,7 +676,6 @@ def _mint_from_plan(
                 list(passphrase_resolution.payloads),
                 count=args.passphrase_replacement_count,
                 sign_priv=sign_priv,
-                sign_pub=sign_pub,
             )
         else:
             passphrase_sharding = ShardingConfig(
@@ -695,7 +702,6 @@ def _mint_from_plan(
                 list(signing_resolution.payloads),
                 count=args.signing_key_replacement_count,
                 sign_priv=sign_priv,
-                sign_pub=sign_pub,
             )
         else:
             signing_key_sharding = _resolve_signing_key_output_sharding(args)
