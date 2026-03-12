@@ -382,19 +382,19 @@ def _ingest_shard_frame(
         if state.expected_version is not None and payload.version != state.expected_version:
             console_err.print(
                 "[error]This shard uses a different shard-payload version than the previous ones. "
-                "Use shards from one quorum set.[/error]"
+                "Use shards from one shard set.[/error]"
             )
             return False
         if payload.threshold != state.expected_threshold:
             console_err.print(
                 "[error]This shard has a different threshold than the previous ones. "
-                "Use shards from one quorum set.[/error]"
+                "Use shards from one shard set.[/error]"
             )
             return False
         if state.expected_shares is not None and payload.share_count != state.expected_shares:
             console_err.print(
                 "[error]This shard has a different share count than the previous ones. "
-                "Use shards from one quorum set.[/error]"
+                "Use shards from one shard set.[/error]"
             )
             return False
         if (
@@ -403,7 +403,7 @@ def _ingest_shard_frame(
         ):
             console_err.print(
                 "[error]This shard has a different secret length than the previous ones. "
-                "Use shards from one quorum set.[/error]"
+                "Use shards from one shard set.[/error]"
             )
             return False
         if state.expected_doc_hash is not None and payload.doc_hash != state.expected_doc_hash:

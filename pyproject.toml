@@ -49,6 +49,7 @@ dev = [
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
     "ruff>=0.15.2",
+    "tkinterdnd2>=0.4.3",
 ]
 
 [build-system]
@@ -116,5 +117,6 @@ show_missing = true
 [dependency-groups]
 dev = [
     "debugpy>=1.8.20",
+    "tkinterdnd2>=0.4.3",
     "twine>=6.2.0",
 ]

@@ -171,6 +171,11 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
     config = load_app_config(args.config, paper_size=args.paper)
     config = apply_template_design(config, args.design)
     recover_args = _recover_args_from_mint_args(args)
+    extra_auth_frames = _extra_auth_frames_from_args(
+        recover_args,
+        allow_unsigned=False,
+        quiet=quiet,
+    )
     working_args = replace(args)
     _validate_wizard_output_args(working_args)
 
@@ -243,6 +248,11 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                         working_args.passphrase = passphrase
                         working_args.shard_fallback_file = list(shard_fallback_files)
                         working_args.shard_payloads_file = list(shard_payloads_file or [])
+                        if passphrase_replacement_count is not None and not shard_frames:
+                            raise ValueError(
+                                "passphrase replacement minting requires existing "
+                                "passphrase shard inputs"
+                            )
                     stage_index += 1
                     continue
 
@@ -258,7 +268,7 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                 )
                 plan = build_recovery_plan(
                     frames=frames,
-                    extra_auth_frames=[],
+                    extra_auth_frames=extra_auth_frames,
                     shard_frames=recovery_shard_frames,
                     passphrase=passphrase,
                     allow_unsigned=False,
@@ -296,6 +306,11 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                     continue
 
                 if stage_index == 2:
+                    if signing_key_replacement_count is not None and not signing_key_frames:
+                        raise ValueError(
+                            "signing-key replacement minting requires existing "
+                            "signing-key shard inputs"
+                        )
                     stage_index += 1
                     continue
 
@@ -960,6 +975,7 @@ def _replacement_payloads_from_frames(
         return _ReplacementShardResolution(
             provided_count=exc.provided_count,
             threshold=exc.threshold,
+            shard_version=exc.shard_version,
         )
     return _ReplacementShardResolution(
         payloads=tuple(payloads),
@@ -1011,6 +1027,7 @@ def _require_replacement_payloads(
         raise ValueError(
             f"cannot mint compatible replacement {secret_label} shards: "
             f"need at least {threshold} validated shard(s), got {resolution.provided_count}"
+            f"{_legacy_replacement_resolution_hint(resolution, secret_label=secret_label)}"
         )
     raise ValueError(
         f"cannot mint compatible replacement {secret_label} shards: "
@@ -1030,6 +1047,20 @@ def _raise_if_under_quorum_replacement_inputs(
         f"cannot evaluate compatible replacement {secret_label} shards: "
         f"need at least {threshold} validated shard(s), got {resolution.provided_count}; "
         f"provide a full quorum or remove existing {secret_label} shard inputs to mint a fresh set"
+        f"{_legacy_replacement_resolution_hint(resolution, secret_label=secret_label)}"
+    )
+
+
+def _legacy_replacement_resolution_hint(
+    resolution: _ReplacementShardResolution,
+    *,
+    secret_label: str,
+) -> str:
+    if not resolution.uses_legacy_shards:
+        return ""
+    return (
+        f". Existing {secret_label} shards are legacy v1; compatible replacements stay on v1, "
+        f"so mint a fresh {secret_label} shard set to migrate to shard payload v2"
     )
 
 

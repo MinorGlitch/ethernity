@@ -36,10 +36,18 @@ from ..core.types import RecoverArgs
 class InsufficientShardError(ValueError):
     """Raised when a shard set is well-formed but under quorum."""
 
-    def __init__(self, *, threshold: int, provided_count: int, secret_label: str) -> None:
+    def __init__(
+        self,
+        *,
+        threshold: int,
+        provided_count: int,
+        secret_label: str,
+        shard_version: int | None = None,
+    ) -> None:
         self.threshold = threshold
         self.provided_count = provided_count
         self.secret_label = secret_label
+        self.shard_version = shard_version
         super().__init__(f"need at least {threshold} shard(s) to recover {secret_label}")
 
 
@@ -204,6 +212,7 @@ def _validated_shard_payloads_from_frames(
             threshold=threshold,
             provided_count=len(share_list),
             secret_label=secret_label,
+            shard_version=share_list[0].version,
         )
 
     return share_list
