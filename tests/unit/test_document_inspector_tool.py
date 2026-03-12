@@ -7,19 +7,26 @@ from pathlib import Path
 import tooling.document_inspector as inspector
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_FIXTURES_ROOT = _REPO_ROOT / "tests" / "fixtures" / "v1_1" / "golden" / "base64"
+_V1_0_FIXTURES_ROOT = _REPO_ROOT / "tests" / "fixtures" / "v1_0" / "golden" / "base64"
+_V1_1_FIXTURES_ROOT = _REPO_ROOT / "tests" / "fixtures" / "v1_1" / "golden" / "base64"
+_V1_0_PASSPHRASE = "stable-v1-baseline-passphrase"
+_V1_1_PASSPHRASE = "stable-v1_1-golden-passphrase"
+
+
+def _backup_shards(scenario_root: Path) -> list[Path]:
+    return sorted((scenario_root / "backup").glob("shard-*.pdf"))
 
 
 class TestDocumentInspectorTool(unittest.TestCase):
     def test_inspect_main_payloads_exposes_round_trip_views(self) -> None:
-        payload_text = (_FIXTURES_ROOT / "file_no_shard" / "main_payloads.txt").read_text(
+        payload_text = (_V1_0_FIXTURES_ROOT / "file_no_shard" / "main_payloads.txt").read_text(
             encoding="utf-8"
         )
 
         result = inspector.inspect_pasted_text(
             payload_text,
             selected_mode=inspector.MODE_AUTO,
-            passphrase="stable-v1_1-golden-passphrase",
+            passphrase=_V1_0_PASSPHRASE,
             source_label="fixture main payloads",
         )
 
@@ -33,7 +40,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
 
     def test_inspect_shard_payloads_recovers_passphrase(self) -> None:
         payload_text = (
-            _FIXTURES_ROOT / "sharded_embedded" / "shard_payloads_threshold.txt"
+            _V1_1_FIXTURES_ROOT / "sharded_embedded" / "shard_payloads_threshold.txt"
         ).read_text(encoding="utf-8")
 
         result = inspector.inspect_pasted_text(
@@ -48,10 +55,10 @@ class TestDocumentInspectorTool(unittest.TestCase):
         secret = result.recovered_secrets[0]
         self.assertEqual(secret.label, "passphrase")
         self.assertEqual(secret.status, "recoverable")
-        self.assertIn("stable-v1_1-golden-passphrase", secret.detail_text)
+        self.assertIn(_V1_1_PASSPHRASE, secret.detail_text)
 
     def test_collect_scan_files_recurses_directory(self) -> None:
-        files = inspector._collect_scan_files([_FIXTURES_ROOT / "file_no_shard" / "backup"])
+        files = inspector._collect_scan_files([_V1_0_FIXTURES_ROOT / "file_no_shard" / "backup"])
 
         self.assertGreaterEqual(len(files), 2)
         self.assertTrue(any(path.name == "qr_document.pdf" for path in files))
@@ -59,26 +66,22 @@ class TestDocumentInspectorTool(unittest.TestCase):
 
     def test_payload_text_from_scan_paths_decodes_fixture_pdf(self) -> None:
         payload_text, warnings = inspector._payload_text_from_scan_paths(
-            [_FIXTURES_ROOT / "file_no_shard" / "backup" / "qr_document.pdf"]
+            [_V1_0_FIXTURES_ROOT / "file_no_shard" / "backup" / "qr_document.pdf"]
         )
 
         self.assertEqual(warnings, [])
         result = inspector.inspect_pasted_text(
             payload_text,
             selected_mode=inspector.MODE_AUTO,
-            passphrase="stable-v1_1-golden-passphrase",
+            passphrase=_V1_0_PASSPHRASE,
             source_label="fixture qr document",
         )
         self.assertEqual(result.parsed_frame_count, 3)
 
     def test_payload_text_from_multiple_shard_pdfs_reaches_quorum(self) -> None:
-        shard_dir = _FIXTURES_ROOT / "sharded_embedded" / "backup"
-        payload_text, warnings = inspector._payload_text_from_scan_paths(
-            [
-                shard_dir / "shard-a692dae43a50e933-1-of-3.pdf",
-                shard_dir / "shard-a692dae43a50e933-2-of-3.pdf",
-            ]
-        )
+        scenario_root = _V1_1_FIXTURES_ROOT / "sharded_embedded"
+        shard_paths = _backup_shards(scenario_root)
+        payload_text, warnings = inspector._payload_text_from_scan_paths(shard_paths[:2])
 
         self.assertEqual(warnings, [])
         result = inspector.inspect_pasted_text(
@@ -93,13 +96,10 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertEqual(result.recovered_secrets[0].status, "recoverable")
 
     def test_combined_backup_and_shards_auto_decrypts_from_recovered_passphrase(self) -> None:
-        shard_dir = _FIXTURES_ROOT / "sharded_embedded" / "backup"
+        scenario_root = _V1_1_FIXTURES_ROOT / "sharded_embedded"
+        shard_paths = _backup_shards(scenario_root)
         payload_text, warnings = inspector._payload_text_from_scan_paths(
-            [
-                shard_dir / "qr_document.pdf",
-                shard_dir / "shard-a692dae43a50e933-1-of-3.pdf",
-                shard_dir / "shard-a692dae43a50e933-2-of-3.pdf",
-            ]
+            [scenario_root / "backup" / "qr_document.pdf", *shard_paths[:2]]
         )
 
         self.assertEqual(warnings, [])
