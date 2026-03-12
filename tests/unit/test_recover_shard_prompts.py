@@ -66,7 +66,7 @@ def _build_shard_frame(
 
 class TestRecoverShardPrompts(unittest.TestCase):
     def test_duplicate_shard_same_payload_is_ignored(self) -> None:
-        state = _ShardPasteState(frames=[], seen_shares={})
+        state = _ShardPasteState(frames=[], seen_shares=set())
         frame = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
         with mock.patch("ethernity.cli.flows.prompts.console.print") as print_mock:
             with mock.patch("ethernity.cli.flows.prompts.console_err.print"):
@@ -82,7 +82,7 @@ class TestRecoverShardPrompts(unittest.TestCase):
         )
 
     def test_duplicate_shard_conflict_is_rejected(self) -> None:
-        state = _ShardPasteState(frames=[], seen_shares={})
+        state = _ShardPasteState(frames=[], seen_shares=set())
         first_frame = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
         conflicting_frame = _build_shard_frame(share_index=1, share=b"\xbb" * 16)
         with mock.patch("ethernity.cli.flows.prompts.console.print"):
@@ -104,7 +104,7 @@ class TestRecoverShardPrompts(unittest.TestCase):
         )
 
     def test_duplicate_shard_with_mismatched_signature_is_rejected(self) -> None:
-        state = _ShardPasteState(frames=[], seen_shares={})
+        state = _ShardPasteState(frames=[], seen_shares=set())
         first_frame = _build_shard_frame(share_index=1, share=b"\xaa" * 16, signature=b"\x33" * 64)
         conflicting_frame = _build_shard_frame(
             share_index=1,
@@ -129,7 +129,7 @@ class TestRecoverShardPrompts(unittest.TestCase):
         )
 
     def test_threshold_completion_returns_true_when_enough_shards_collected(self) -> None:
-        state = _ShardPasteState(frames=[], seen_shares={})
+        state = _ShardPasteState(frames=[], seen_shares=set())
         frame_one = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
         frame_two = _build_shard_frame(share_index=2, share=b"\xbb" * 16)
         with mock.patch("ethernity.cli.flows.prompts.console.print") as print_mock:
@@ -146,7 +146,7 @@ class TestRecoverShardPrompts(unittest.TestCase):
         )
 
     def test_rejects_non_shard_frame_and_multiframe(self) -> None:
-        state = _ShardPasteState(frames=[], seen_shares={})
+        state = _ShardPasteState(frames=[], seen_shares=set())
         wrong_type = Frame(
             version=VERSION,
             frame_type=FrameType.MAIN_DOCUMENT,
@@ -168,7 +168,7 @@ class TestRecoverShardPrompts(unittest.TestCase):
         self.assertEqual(len(error_print_mock.mock_calls), 2)
 
     def test_rejects_decode_error_and_wrong_key_type(self) -> None:
-        state = _ShardPasteState(frames=[], seen_shares={})
+        state = _ShardPasteState(frames=[], seen_shares=set())
         invalid = Frame(
             version=VERSION,
             frame_type=FrameType.KEY_DOCUMENT,
@@ -196,7 +196,7 @@ class TestRecoverShardPrompts(unittest.TestCase):
         self.assertEqual(len(error_print_mock.mock_calls), 2)
 
     def test_rejects_mismatched_shard_metadata(self) -> None:
-        state = _ShardPasteState(frames=[], seen_shares={})
+        state = _ShardPasteState(frames=[], seen_shares=set())
         first = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
         mismatched = _build_shard_frame(
             share_index=2,
@@ -219,7 +219,7 @@ class TestRecoverShardPrompts(unittest.TestCase):
         self.assertGreaterEqual(len(error_print_mock.mock_calls), 1)
 
     def test_rejects_mismatched_secret_length(self) -> None:
-        state = _ShardPasteState(frames=[], seen_shares={})
+        state = _ShardPasteState(frames=[], seen_shares=set())
         first = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
         mismatched = _build_shard_frame(share_index=2, share=b"\xbb" * 32)
         with mock.patch("ethernity.cli.flows.prompts.console.print"):

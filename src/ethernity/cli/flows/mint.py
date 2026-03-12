@@ -771,26 +771,20 @@ def _mint_from_plan(
     if sign_pub != plan.auth_payload.sign_pub:
         raise ValueError("signing authority does not match the authenticated backup")
 
-    passphrase_resolution = _replacement_payloads_from_frames(
-        passphrase_shard_frames,
-        doc_id=plan.doc_id,
-        doc_hash=plan.doc_hash,
-        sign_pub=plan.auth_payload.sign_pub,
-        key_type=KEY_TYPE_PASSPHRASE,
-        secret_label="passphrase",
-    )
-    signing_resolution = _replacement_payloads_from_frames(
-        signing_key_frames,
-        doc_id=plan.doc_id,
-        doc_hash=plan.doc_hash,
-        sign_pub=plan.auth_payload.sign_pub,
-        key_type=KEY_TYPE_SIGNING_SEED,
-        secret_label="signing key",
-    )
+    passphrase_resolution = _ReplacementShardResolution()
+    signing_resolution = _ReplacementShardResolution()
 
     shard_payloads: list[ShardPayload] = []
     if args.mint_passphrase_shards:
         if args.passphrase_replacement_count is not None:
+            passphrase_resolution = _replacement_payloads_from_frames(
+                passphrase_shard_frames,
+                doc_id=plan.doc_id,
+                doc_hash=plan.doc_hash,
+                sign_pub=plan.auth_payload.sign_pub,
+                key_type=KEY_TYPE_PASSPHRASE,
+                secret_label="passphrase",
+            )
             _require_replacement_payloads(
                 passphrase_resolution,
                 secret_label="passphrase",
@@ -817,6 +811,14 @@ def _mint_from_plan(
     signing_key_payloads: list[ShardPayload] = []
     if args.mint_signing_key_shards:
         if args.signing_key_replacement_count is not None:
+            signing_resolution = _replacement_payloads_from_frames(
+                signing_key_frames,
+                doc_id=plan.doc_id,
+                doc_hash=plan.doc_hash,
+                sign_pub=plan.auth_payload.sign_pub,
+                key_type=KEY_TYPE_SIGNING_SEED,
+                secret_label="signing key",
+            )
             _require_replacement_payloads(
                 signing_resolution,
                 secret_label="signing key",

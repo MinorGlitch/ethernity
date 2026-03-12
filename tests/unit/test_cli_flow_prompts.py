@@ -162,7 +162,7 @@ class TestCliFlowPrompts(unittest.TestCase):
 
         done_state = _ShardPasteState(
             frames=[frame_one],
-            seen_shares={1: b"\xaa" * 16},
+            seen_shares={1},
             expected_threshold=1,
         )
         with mock.patch.object(prompts, "prompt_required") as prompt_required:
@@ -195,7 +195,7 @@ class TestCliFlowPrompts(unittest.TestCase):
             stop_at_quorum=False,
         )
 
-        state = _ShardPasteState(frames=[], seen_shares={})
+        state = _ShardPasteState(frames=[], seen_shares=set())
         with mock.patch.object(prompts, "prompt_required") as prompt_required:
             frames = prompts._prompt_shard_payload_paste(
                 initial_frames=[frame_one, frame_two],
@@ -217,7 +217,7 @@ class TestCliFlowPrompts(unittest.TestCase):
             mock.patch.object(prompts.console_err, "print") as err_print,
             mock.patch.object(prompts.console, "print") as info_print,
         ):
-            state = _ShardPasteState(frames=[], seen_shares={}, expected_threshold=1)
+            state = _ShardPasteState(frames=[], seen_shares=set(), expected_threshold=1)
             frames = prompts._prompt_shard_payload_paste(state=state)
         self.assertEqual(frames, [])
         self.assertEqual(
@@ -238,7 +238,7 @@ class TestCliFlowPrompts(unittest.TestCase):
         ):
             prompts._prompt_shard_payload_paste(
                 initial_frames=[frame_one],
-                state=_ShardPasteState(frames=[], seen_shares={}),
+                state=_ShardPasteState(frames=[], seen_shares=set()),
                 stop_at_quorum=False,
             )
         self.assertTrue(
@@ -290,7 +290,7 @@ class TestCliFlowPrompts(unittest.TestCase):
 
         done_state = _ShardPasteState(
             frames=[frame_one],
-            seen_shares={1: b"\xaa" * 16},
+            seen_shares={1},
             expected_threshold=1,
         )
         with mock.patch.object(prompts, "_prompt_shard_fallback_until_complete") as prompt_more:
@@ -330,7 +330,7 @@ class TestCliFlowPrompts(unittest.TestCase):
             stop_at_quorum=False,
         )
 
-        state = _ShardPasteState(frames=[], seen_shares={})
+        state = _ShardPasteState(frames=[], seen_shares=set())
         with (
             mock.patch.object(
                 prompts,
@@ -358,7 +358,7 @@ class TestCliFlowPrompts(unittest.TestCase):
             mock.patch.object(prompts.console_err, "print"),
         ):
             prompts._prompt_shard_fallback_paste(
-                state=_ShardPasteState(frames=[], seen_shares={}),
+                state=_ShardPasteState(frames=[], seen_shares=set()),
                 stop_at_quorum=False,
             )
         self.assertTrue(
@@ -483,12 +483,47 @@ class TestCliFlowPrompts(unittest.TestCase):
             ),
             mock.patch.object(prompts, "prompt_yes_no", return_value=True) as prompt_yes_no,
         ):
-            _scan, _text, frames = prompts._prompt_shard_inputs(
+            fallback_files, payload_files, frames = prompts._prompt_shard_inputs(
                 quiet=True,
                 stop_at_quorum=False,
             )
+        self.assertEqual(fallback_files, [])
+        self.assertEqual(payload_files, ["batch-one.txt", "batch-two.txt"])
         self.assertEqual(frames, [frame_one, frame_two, frame_three])
         prompt_yes_no.assert_called_once()
+
+    def test_prompt_shard_inputs_keeps_prior_file_paths_when_switching_to_stdin(self) -> None:
+        frame_one = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
+        frame_two = _build_shard_frame(share_index=2, share=b"\xbb" * 16)
+
+        with (
+            mock.patch.object(
+                prompts,
+                "prompt_paths_with_picker",
+                side_effect=[["alpha.txt"], ["-"]],
+            ),
+            mock.patch.object(
+                prompts,
+                "_frames_from_shard_text_or_payload_files",
+                return_value=[frame_one],
+            ),
+            mock.patch.object(
+                prompts,
+                "_classify_shard_input_paths",
+                return_value=(["alpha.txt"], []),
+            ),
+            mock.patch.object(
+                prompts,
+                "_prompt_shard_text_or_payloads_stdin",
+                return_value=[frame_one, frame_two],
+            ),
+            mock.patch.object(prompts, "status", return_value=contextlib.nullcontext(None)),
+        ):
+            fallback_files, payload_files, frames = prompts._prompt_shard_inputs(quiet=True)
+
+        self.assertEqual(fallback_files, ["alpha.txt"])
+        self.assertEqual(payload_files, [])
+        self.assertEqual(frames, [frame_one, frame_two])
 
 
 if __name__ == "__main__":

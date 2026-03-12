@@ -234,7 +234,9 @@ def _prompt_shard_inputs(
     label: str = "Shard documents",
     stop_at_quorum: bool = True,
 ) -> tuple[list[str], list[str], list[Frame]]:
-    state = _ShardPasteState(frames=[], seen_shares={})
+    state = _ShardPasteState(frames=[], seen_shares=set())
+    fallback_files: list[str] = []
+    payload_files: list[str] = []
     manual_help_text = "Enter shard text, QR payloads, or scan file paths; enter '-' to paste."
     while True:
         if state.expected_threshold is not None:
@@ -257,8 +259,8 @@ def _prompt_shard_inputs(
         )
         if "-" in paths:
             return (
-                [],
-                [],
+                fallback_files,
+                payload_files,
                 _prompt_shard_text_or_payloads_stdin(
                     state=state,
                     key_type=key_type,
@@ -273,6 +275,9 @@ def _prompt_shard_inputs(
         except ValueError as exc:
             console_err.print(f"[error]{_format_shard_input_error(exc)}[/error]")
             continue
+        batch_fallback_files, batch_payload_files = _classify_shard_input_paths(paths)
+        _extend_unique_paths(fallback_files, batch_fallback_files)
+        _extend_unique_paths(payload_files, batch_payload_files)
         for frame in frames:
             if _ingest_shard_frame(
                 frame=frame,
@@ -281,15 +286,19 @@ def _prompt_shard_inputs(
                 key_type=key_type,
                 stop_at_quorum=stop_at_quorum,
             ):
-                fallback_files, payload_files = _classify_shard_input_paths(paths)
                 return fallback_files, payload_files, state.frames
         if _should_finish_shard_collection(
             state,
             label=label,
             stop_at_quorum=stop_at_quorum,
         ):
-            fallback_files, payload_files = _classify_shard_input_paths(paths)
             return fallback_files, payload_files, state.frames
+
+
+def _extend_unique_paths(destination: list[str], paths: list[str]) -> None:
+    for path in paths:
+        if path not in destination:
+            destination.append(path)
 
 
 def _classify_shard_input_paths(paths: list[str]) -> tuple[list[str], list[str]]:
@@ -317,7 +326,7 @@ def _classify_shard_input_paths(paths: list[str]) -> tuple[list[str], list[str]]
 @dataclass
 class _ShardPasteState:
     frames: list[Frame]
-    seen_shares: dict[int, bytes]
+    seen_shares: set[int]
     seen_payloads: dict[int, ShardPayload] = field(default_factory=dict)
     expected_version: int | None = None
     expected_threshold: int | None = None
@@ -423,7 +432,7 @@ def _ingest_shard_frame(
             console.print("[subtitle]Duplicate shard ignored.[/subtitle]")
         return False
 
-    state.seen_shares[payload.share_index] = payload.share
+    state.seen_shares.add(payload.share_index)
     state.seen_payloads[payload.share_index] = payload
     state.frames.append(frame)
 
@@ -466,7 +475,7 @@ def _prompt_shard_fallback_paste(
     label: str = "Shard documents",
     stop_at_quorum: bool = True,
 ) -> list[Frame]:
-    state = state or _ShardPasteState(frames=[], seen_shares={})
+    state = state or _ShardPasteState(frames=[], seen_shares=set())
     if state.expected_threshold is not None:
         remaining = state.expected_threshold - len(state.seen_shares)
         if remaining <= 0 and stop_at_quorum:
@@ -558,7 +567,7 @@ def _prompt_shard_text_or_payloads_stdin(
     label: str = "Shard documents",
     stop_at_quorum: bool = True,
 ) -> list[Frame]:
-    state = state or _ShardPasteState(frames=[], seen_shares={})
+    state = state or _ShardPasteState(frames=[], seen_shares=set())
     first_line = prompt_required(
         "Shard recovery text or QR payload (first line or block)",
         help_text="Paste shard recovery text or a QR payload; we'll keep asking until it decodes.",
@@ -694,7 +703,7 @@ def _prompt_shard_payload_paste(
             "Paste one shard QR payload per line; after quorum you can add more shards from the "
             "same set."
         )
-    state = state or _ShardPasteState(frames=[], seen_shares={})
+    state = state or _ShardPasteState(frames=[], seen_shares=set())
     if state.expected_threshold is not None:
         remaining = state.expected_threshold - len(state.seen_shares)
         if remaining <= 0 and stop_at_quorum:

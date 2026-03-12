@@ -274,6 +274,49 @@ class TestMintFlow(unittest.TestCase):
 
         self.assertEqual(notes, ())
 
+    @mock.patch("ethernity.cli.flows.mint._replacement_payloads_from_frames")
+    @mock.patch("ethernity.cli.flows.mint._ensure_mint_output_dir", return_value="/tmp/minted")
+    @mock.patch("ethernity.cli.flows.mint.RenderService")
+    @mock.patch("ethernity.cli.flows.mint.split_passphrase", return_value=[])
+    @mock.patch("ethernity.cli.flows.mint.derive_public_key", return_value=b"p" * 32)
+    def test_mint_from_plan_skips_unused_shard_validation_for_fresh_mint(
+        self,
+        _derive_public_key: mock.MagicMock,
+        _split_passphrase: mock.MagicMock,
+        _render_service: mock.MagicMock,
+        _ensure_mint_output_dir: mock.MagicMock,
+        replacement_payloads_from_frames: mock.MagicMock,
+    ) -> None:
+        args = MintArgs(
+            shard_threshold=2,
+            shard_count=2,
+            mint_signing_key_shards=False,
+            quiet=True,
+        )
+        plan = SimpleNamespace(
+            ciphertext=b"ciphertext",
+            doc_id=b"d" * 16,
+            doc_hash=b"h" * 32,
+            passphrase="mint-passphrase",
+            auth_payload=SimpleNamespace(sign_pub=b"p" * 32),
+        )
+        config = SimpleNamespace(
+            cli_defaults=SimpleNamespace(backup=SimpleNamespace(qr_payload_codec="raw"))
+        )
+
+        result = mint_flow._mint_from_plan(
+            plan=plan,
+            config=config,
+            args=args,
+            passphrase_shard_frames=[mock.Mock(name="unused-passphrase-frame")],
+            signing_key_frames=[mock.Mock(name="unused-signing-frame")],
+            manifest_signing_seed=b"s" * 32,
+            debug=False,
+        )
+
+        self.assertEqual(result.notes, ())
+        replacement_payloads_from_frames.assert_not_called()
+
     @mock.patch("ethernity.cli.flows.mint._print_completion_actions")
     @mock.patch("ethernity.cli.flows.mint.print_mint_summary")
     @mock.patch(
