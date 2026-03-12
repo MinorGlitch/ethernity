@@ -4,18 +4,6 @@
   "qr_payload_codec": "base64",
   "scenarios": [
     {
-      "id": "file_no_shard",
-      "path": "file_no_shard/snapshot.json"
-    },
-    {
-      "id": "directory_no_shard",
-      "path": "directory_no_shard/snapshot.json"
-    },
-    {
-      "id": "mixed_no_shard",
-      "path": "mixed_no_shard/snapshot.json"
-    },
-    {
       "id": "sharded_embedded",
       "path": "sharded_embedded/snapshot.json"
     },

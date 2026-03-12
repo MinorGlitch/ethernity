@@ -1,15 +1,59 @@
 {
   "artifact_hashes": {
-    "main_payloads.bin": "b33fe4f3bef4a5ce184c53b545e6013b5c1ce1cd809899150159b78828b35400",
-    "main_payloads.txt": "25c888745df5be15efd7f8169ad42ec907b6a8d765d485b40c5d3910dd313362",
-    "qr_document.pdf": "3e6a3a2bc5cc099e8582d5bee98c3ce0f4a25a67c1b57febafa1f51a58e29f05",
-    "recovery_document.pdf": "95463ca44d9ce4673fde69f81306c09c0f85b930a0819d0985d9e109734fff52",
-    "recovery_kit_index.pdf": "eccf1f4a3933e9c1c9a8518418064cefc3a31689c8402b5a9b9f241b58ad0f29",
-    "shard-509578ada42b6560-1-of-3.pdf": "e81371090e77880a6a51078de83b66fca8604256e26f6b9d7f6dc4f202236e06",
-    "shard-509578ada42b6560-2-of-3.pdf": "91e69fe08f1ab49a61a7df4e815e240419729613a23e30d58139bd7e09bacaf0",
-    "shard-509578ada42b6560-3-of-3.pdf": "1523f097cb2ebde62d21b4b74ab24d4e7f1755d89499d0e8aaf4b9907b76148d",
-    "shard_payloads_threshold.bin": "64e245b0e9ecc258490befe9fbd8b834179283d10da4a1e84282eacaf4762f9a",
-    "shard_payloads_threshold.txt": "a8d1967acb6cc91075b3cf54837a7fe6b4dda52009cc104c69b46edaebe399bb"
+    "main_payloads.bin": "484bf54dd291019977cad422c09f645cc02058a82947547cd664411c37e45bdf",
+    "main_payloads.txt": "e956ac119d75662a3021e4d0571024f4e32d2d7877aa04832b642ff1456f3521",
+    "qr_document.pdf": "0b4b6e2f5d73db6a6984223c8fa579643f4ea2d67a04b9b72dfa824f9987e93d",
+    "recovery_document.pdf": "90d4c6d7e47d641237a4acca861ae39fb13f1c4403ea513e826ba4b897459a1d",
+    "recovery_kit_index.pdf": "917e744cb7c43739766b510ce50367c6b50fd4afbead62cf0f9ea7b30d428586",
+    "shard-ca02bd31bb534ac4-1-of-3.pdf": "110f596cf18395149285538e9a9a176244326e2f24b83e50721ae82234761e49",
+    "shard-ca02bd31bb534ac4-2-of-3.pdf": "c492a579bd50234909f3f3d46c25620da0e6da4da582502bd69fc8061a0bc53e",
+    "shard-ca02bd31bb534ac4-3-of-3.pdf": "380fbe385f082d408fba6fc2e3459f70606d667d644773b840eb9205dd198229",
+    "shard_payloads_threshold.bin": "84ebf3b55d761ec1fe42b88d1d84b460880f5fe6bc33b0bd97e733bb1e39470f",
+    "shard_payloads_threshold.txt": "3a171bf5a0d1c1740ee750deae595d066731023322ac5f6b76ec35d4c088373b"
+  },
+  "backup_shard_projections": {
+    "shard-ca02bd31bb534ac4-1-of-3.pdf": [
+      {
+        "doc_hash": "ca02bd31bb534ac48c4d81a13fe624e6bf3e7e05b3a89cbb55b16b8aa06be3d0",
+        "doc_id": "ca02bd31bb534ac4",
+        "key_type": "passphrase",
+        "secret_len": 29,
+        "set_id": "set-1",
+        "share_count": 3,
+        "share_index": 1,
+        "sign_pub": "c6c99685b18ea678ed9329a10f1a5f415c1b813b806daf3bcec41951cbb1a74f",
+        "threshold": 2,
+        "version": 2
+      }
+    ],
+    "shard-ca02bd31bb534ac4-2-of-3.pdf": [
+      {
+        "doc_hash": "ca02bd31bb534ac48c4d81a13fe624e6bf3e7e05b3a89cbb55b16b8aa06be3d0",
+        "doc_id": "ca02bd31bb534ac4",
+        "key_type": "passphrase",
+        "secret_len": 29,
+        "set_id": "set-1",
+        "share_count": 3,
+        "share_index": 2,
+        "sign_pub": "c6c99685b18ea678ed9329a10f1a5f415c1b813b806daf3bcec41951cbb1a74f",
+        "threshold": 2,
+        "version": 2
+      }
+    ],
+    "shard-ca02bd31bb534ac4-3-of-3.pdf": [
+      {
+        "doc_hash": "ca02bd31bb534ac48c4d81a13fe624e6bf3e7e05b3a89cbb55b16b8aa06be3d0",
+        "doc_id": "ca02bd31bb534ac4",
+        "key_type": "passphrase",
+        "secret_len": 29,
+        "set_id": "set-1",
+        "share_count": 3,
+        "share_index": 3,
+        "sign_pub": "c6c99685b18ea678ed9329a10f1a5f415c1b813b806daf3bcec41951cbb1a74f",
+        "threshold": 2,
+        "version": 2
+      }
+    ]
   },
   "expected_file_sha256": {
     "alpha.txt": "2f4b5a7d0ed3a982cf012f6af9d58168314e999c0eb3793f598978174928e20f",

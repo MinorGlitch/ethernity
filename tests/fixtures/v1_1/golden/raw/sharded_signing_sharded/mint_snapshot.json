@@ -4,100 +4,100 @@
       "expected_shard_pdfs": 4,
       "expected_signing_key_shard_pdfs": 3,
       "shard_projections": {
-        "shard-546914fb3c6c4980-1-of-4.pdf": [
+        "shard-a223e5f1daad6faa-1-of-4.pdf": [
           {
-            "doc_hash": "546914fb3c6c49802a0f9a2df454f12139b704f90e849375bf3d30e4d2a62698",
-            "doc_id": "546914fb3c6c4980",
+            "doc_hash": "a223e5f1daad6faadd00c05ba4d78bb35344194d6917e10642444b537b6c8735",
+            "doc_id": "a223e5f1daad6faa",
             "key_type": "passphrase",
             "secret_len": 29,
             "set_id": "set-1",
             "share_count": 4,
             "share_index": 1,
-            "sign_pub": "a15e1851ae3941ddaa8d9c22ca78309d76d0ebfc1f2044839aafabc88a5fd75a",
+            "sign_pub": "40e051a3cef43f445e65b420b51c20f1c64429991e66260fd3136dffa875575b",
             "threshold": 2,
             "version": 2
           }
         ],
-        "shard-546914fb3c6c4980-2-of-4.pdf": [
+        "shard-a223e5f1daad6faa-2-of-4.pdf": [
           {
-            "doc_hash": "546914fb3c6c49802a0f9a2df454f12139b704f90e849375bf3d30e4d2a62698",
-            "doc_id": "546914fb3c6c4980",
+            "doc_hash": "a223e5f1daad6faadd00c05ba4d78bb35344194d6917e10642444b537b6c8735",
+            "doc_id": "a223e5f1daad6faa",
             "key_type": "passphrase",
             "secret_len": 29,
             "set_id": "set-1",
             "share_count": 4,
             "share_index": 2,
-            "sign_pub": "a15e1851ae3941ddaa8d9c22ca78309d76d0ebfc1f2044839aafabc88a5fd75a",
+            "sign_pub": "40e051a3cef43f445e65b420b51c20f1c64429991e66260fd3136dffa875575b",
             "threshold": 2,
             "version": 2
           }
         ],
-        "shard-546914fb3c6c4980-3-of-4.pdf": [
+        "shard-a223e5f1daad6faa-3-of-4.pdf": [
           {
-            "doc_hash": "546914fb3c6c49802a0f9a2df454f12139b704f90e849375bf3d30e4d2a62698",
-            "doc_id": "546914fb3c6c4980",
+            "doc_hash": "a223e5f1daad6faadd00c05ba4d78bb35344194d6917e10642444b537b6c8735",
+            "doc_id": "a223e5f1daad6faa",
             "key_type": "passphrase",
             "secret_len": 29,
             "set_id": "set-1",
             "share_count": 4,
             "share_index": 3,
-            "sign_pub": "a15e1851ae3941ddaa8d9c22ca78309d76d0ebfc1f2044839aafabc88a5fd75a",
+            "sign_pub": "40e051a3cef43f445e65b420b51c20f1c64429991e66260fd3136dffa875575b",
             "threshold": 2,
             "version": 2
           }
         ],
-        "shard-546914fb3c6c4980-4-of-4.pdf": [
+        "shard-a223e5f1daad6faa-4-of-4.pdf": [
           {
-            "doc_hash": "546914fb3c6c49802a0f9a2df454f12139b704f90e849375bf3d30e4d2a62698",
-            "doc_id": "546914fb3c6c4980",
+            "doc_hash": "a223e5f1daad6faadd00c05ba4d78bb35344194d6917e10642444b537b6c8735",
+            "doc_id": "a223e5f1daad6faa",
             "key_type": "passphrase",
             "secret_len": 29,
             "set_id": "set-1",
             "share_count": 4,
             "share_index": 4,
-            "sign_pub": "a15e1851ae3941ddaa8d9c22ca78309d76d0ebfc1f2044839aafabc88a5fd75a",
+            "sign_pub": "40e051a3cef43f445e65b420b51c20f1c64429991e66260fd3136dffa875575b",
             "threshold": 2,
             "version": 2
           }
         ],
-        "signing-key-shard-546914fb3c6c4980-1-of-3.pdf": [
+        "signing-key-shard-a223e5f1daad6faa-1-of-3.pdf": [
           {
-            "doc_hash": "546914fb3c6c49802a0f9a2df454f12139b704f90e849375bf3d30e4d2a62698",
-            "doc_id": "546914fb3c6c4980",
+            "doc_hash": "a223e5f1daad6faadd00c05ba4d78bb35344194d6917e10642444b537b6c8735",
+            "doc_id": "a223e5f1daad6faa",
             "key_type": "signing-seed",
             "secret_len": 32,
             "set_id": "set-2",
             "share_count": 3,
             "share_index": 1,
-            "sign_pub": "a15e1851ae3941ddaa8d9c22ca78309d76d0ebfc1f2044839aafabc88a5fd75a",
+            "sign_pub": "40e051a3cef43f445e65b420b51c20f1c64429991e66260fd3136dffa875575b",
             "threshold": 1,
             "version": 2
           }
         ],
-        "signing-key-shard-546914fb3c6c4980-2-of-3.pdf": [
+        "signing-key-shard-a223e5f1daad6faa-2-of-3.pdf": [
           {
-            "doc_hash": "546914fb3c6c49802a0f9a2df454f12139b704f90e849375bf3d30e4d2a62698",
-            "doc_id": "546914fb3c6c4980",
+            "doc_hash": "a223e5f1daad6faadd00c05ba4d78bb35344194d6917e10642444b537b6c8735",
+            "doc_id": "a223e5f1daad6faa",
             "key_type": "signing-seed",
             "secret_len": 32,
             "set_id": "set-2",
             "share_count": 3,
             "share_index": 2,
-            "sign_pub": "a15e1851ae3941ddaa8d9c22ca78309d76d0ebfc1f2044839aafabc88a5fd75a",
+            "sign_pub": "40e051a3cef43f445e65b420b51c20f1c64429991e66260fd3136dffa875575b",
             "threshold": 1,
             "version": 2
           }
         ],
-        "signing-key-shard-546914fb3c6c4980-3-of-3.pdf": [
+        "signing-key-shard-a223e5f1daad6faa-3-of-3.pdf": [
           {
-            "doc_hash": "546914fb3c6c49802a0f9a2df454f12139b704f90e849375bf3d30e4d2a62698",
-            "doc_id": "546914fb3c6c4980",
+            "doc_hash": "a223e5f1daad6faadd00c05ba4d78bb35344194d6917e10642444b537b6c8735",
+            "doc_id": "a223e5f1daad6faa",
             "key_type": "signing-seed",
             "secret_len": 32,
             "set_id": "set-2",
             "share_count": 3,
             "share_index": 3,
-            "sign_pub": "a15e1851ae3941ddaa8d9c22ca78309d76d0ebfc1f2044839aafabc88a5fd75a",
+            "sign_pub": "40e051a3cef43f445e65b420b51c20f1c64429991e66260fd3136dffa875575b",
             "threshold": 1,
             "version": 2
           }
@@ -108,44 +108,44 @@
       "expected_shard_pdfs": 0,
       "expected_signing_key_shard_pdfs": 3,
       "shard_projections": {
-        "signing-key-shard-546914fb3c6c4980-1-of-3.pdf": [
+        "signing-key-shard-a223e5f1daad6faa-1-of-3.pdf": [
           {
-            "doc_hash": "546914fb3c6c49802a0f9a2df454f12139b704f90e849375bf3d30e4d2a62698",
-            "doc_id": "546914fb3c6c4980",
+            "doc_hash": "a223e5f1daad6faadd00c05ba4d78bb35344194d6917e10642444b537b6c8735",
+            "doc_id": "a223e5f1daad6faa",
             "key_type": "signing-seed",
             "secret_len": 32,
             "set_id": "set-1",
             "share_count": 3,
             "share_index": 1,
-            "sign_pub": "a15e1851ae3941ddaa8d9c22ca78309d76d0ebfc1f2044839aafabc88a5fd75a",
+            "sign_pub": "40e051a3cef43f445e65b420b51c20f1c64429991e66260fd3136dffa875575b",
             "threshold": 2,
             "version": 2
           }
         ],
-        "signing-key-shard-546914fb3c6c4980-2-of-3.pdf": [
+        "signing-key-shard-a223e5f1daad6faa-2-of-3.pdf": [
           {
-            "doc_hash": "546914fb3c6c49802a0f9a2df454f12139b704f90e849375bf3d30e4d2a62698",
-            "doc_id": "546914fb3c6c4980",
+            "doc_hash": "a223e5f1daad6faadd00c05ba4d78bb35344194d6917e10642444b537b6c8735",
+            "doc_id": "a223e5f1daad6faa",
             "key_type": "signing-seed",
             "secret_len": 32,
             "set_id": "set-1",
             "share_count": 3,
             "share_index": 2,
-            "sign_pub": "a15e1851ae3941ddaa8d9c22ca78309d76d0ebfc1f2044839aafabc88a5fd75a",
+            "sign_pub": "40e051a3cef43f445e65b420b51c20f1c64429991e66260fd3136dffa875575b",
             "threshold": 2,
             "version": 2
           }
         ],
-        "signing-key-shard-546914fb3c6c4980-3-of-3.pdf": [
+        "signing-key-shard-a223e5f1daad6faa-3-of-3.pdf": [
           {
-            "doc_hash": "546914fb3c6c49802a0f9a2df454f12139b704f90e849375bf3d30e4d2a62698",
-            "doc_id": "546914fb3c6c4980",
+            "doc_hash": "a223e5f1daad6faadd00c05ba4d78bb35344194d6917e10642444b537b6c8735",
+            "doc_id": "a223e5f1daad6faa",
             "key_type": "signing-seed",
             "secret_len": 32,
             "set_id": "set-1",
             "share_count": 3,
             "share_index": 3,
-            "sign_pub": "a15e1851ae3941ddaa8d9c22ca78309d76d0ebfc1f2044839aafabc88a5fd75a",
+            "sign_pub": "40e051a3cef43f445e65b420b51c20f1c64429991e66260fd3136dffa875575b",
             "threshold": 2,
             "version": 2
           }

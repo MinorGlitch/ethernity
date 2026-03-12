@@ -91,6 +91,50 @@ class FrozenProfileTestCase(unittest.TestCase):
                     )
                     self.assertEqual(self._sha256_file(artifact_path), expected_hash)
 
+    def test_frozen_backup_shards_match_semantic_snapshots(self) -> None:
+        expected_version = 2 if self.INCLUDE_SHARD_SET_FIELDS else 1
+        for scenario in self._scenarios():
+            with self.subTest(scenario=scenario["id"]):
+                snapshot = self._snapshot(scenario)
+                scenario_root = self._profile_root() / str(scenario["id"])
+                backup_shard_pdfs = self._backup_shard_pdfs(scenario_root)
+                expected_projections = cast(
+                    dict[str, list[dict[str, Any]]] | None,
+                    snapshot.get("backup_shard_projections"),
+                )
+                if expected_projections is not None:
+                    self.assertEqual(
+                        self._shard_projections_by_file(backup_shard_pdfs),
+                        expected_projections,
+                    )
+                self.assertEqual(
+                    len([path for path in backup_shard_pdfs if path.name.startswith("shard-")]),
+                    int(snapshot["expected_shard_pdfs"]),
+                )
+                self.assertEqual(
+                    len(
+                        [
+                            path
+                            for path in backup_shard_pdfs
+                            if path.name.startswith("signing-key-shard-")
+                        ]
+                    ),
+                    int(snapshot["expected_signing_key_shard_pdfs"]),
+                )
+                for pdf_path in backup_shard_pdfs:
+                    with self.subTest(scenario=scenario["id"], artifact=pdf_path.name):
+                        frames = self._valid_scanned_frames([pdf_path])
+                        self.assertGreaterEqual(
+                            len(frames), 1, msg=f"missing shard frames in {pdf_path}"
+                        )
+                        for frame in frames:
+                            payload = decode_shard_payload(frame.data)
+                            self.assertEqual(payload.version, expected_version)
+                            if self.INCLUDE_SHARD_SET_FIELDS:
+                                self.assertIsNotNone(payload.shard_set_id)
+                            else:
+                                self.assertIsNone(payload.shard_set_id)
+
     def test_recover_from_frozen_backups(self) -> None:
         for scenario in self._scenarios():
             with self.subTest(scenario=scenario["id"]):
@@ -158,6 +202,22 @@ class FrozenProfileTestCase(unittest.TestCase):
                 ]
                 projection = self._manifest_projection(payload_lines, self._passphrase)
                 self.assertEqual(projection, snapshot["manifest_projection"])
+
+    def test_shard_binary_payload_fixtures_decode_and_match_semantics(self) -> None:
+        expected_version = 2 if self.INCLUDE_SHARD_SET_FIELDS else 1
+        for scenario in self._scenarios():
+            with self.subTest(scenario=scenario["id"]):
+                scenario_root = self._profile_root() / str(scenario["id"])
+                self._assert_shard_binary_fixture_matches_pdfs(
+                    scenario_root / "shard_payloads_threshold.bin",
+                    sorted((scenario_root / "backup").glob("shard-*.pdf")),
+                    expected_version=expected_version,
+                )
+                self._assert_shard_binary_fixture_matches_pdfs(
+                    scenario_root / "signing_key_shard_payloads_threshold.bin",
+                    sorted((scenario_root / "backup").glob("signing-key-shard-*.pdf")),
+                    expected_version=expected_version,
+                )
 
     def test_new_backups_match_frozen_protocol_snapshots(self) -> None:
         for scenario in self._scenarios():
@@ -703,6 +763,12 @@ class FrozenProfileTestCase(unittest.TestCase):
     def _profile_root(self) -> Path:
         return self._golden_root() / self.PROFILE_NAME
 
+    def _backup_shard_pdfs(self, scenario_root: Path) -> list[Path]:
+        backup_dir = scenario_root / "backup"
+        return sorted(backup_dir.glob("shard-*.pdf")) + sorted(
+            backup_dir.glob("signing-key-shard-*.pdf")
+        )
+
     def _mint_args(self, case: MintFrozenCase, scenario_root: Path, output_dir: Path) -> list[str]:
         args = mint_cli_args(case, scenario_root, self._passphrase)
         output_index = args.index("--output-dir") + 1
@@ -846,6 +912,49 @@ class FrozenProfileTestCase(unittest.TestCase):
                 None if payload.shard_set_id is None else payload.shard_set_id.hex()
             )
         return projection
+
+    def _assert_shard_binary_fixture_matches_pdfs(
+        self,
+        binary_path: Path,
+        pdf_paths: list[Path],
+        *,
+        expected_version: int,
+    ) -> None:
+        if not binary_path.exists():
+            self.assertEqual(pdf_paths, [])
+            return
+        payloads = self._read_binary_payload_file(binary_path)
+        frames = [decode_frame(payload) for payload in payloads]
+        self.assertGreaterEqual(len(frames), 1, msg=f"missing shard payloads in {binary_path}")
+        self._assert_shard_frame_versions(frames, expected_version=expected_version)
+        expected_pdf_paths = pdf_paths[: len(frames)]
+        self.assertEqual(len(expected_pdf_paths), len(frames))
+        self.assertEqual(
+            self._shard_projections_from_frames(frames),
+            self._shard_projections_from_pdf_paths(expected_pdf_paths),
+        )
+
+    def _assert_shard_frame_versions(self, frames: list[Any], *, expected_version: int) -> None:
+        for frame in frames:
+            payload = decode_shard_payload(frame.data)
+            self.assertEqual(payload.version, expected_version)
+            if self.INCLUDE_SHARD_SET_FIELDS:
+                self.assertIsNotNone(payload.shard_set_id)
+            else:
+                self.assertIsNone(payload.shard_set_id)
+
+    def _shard_projections_from_frames(self, frames: list[Any]) -> list[dict[str, Any]]:
+        shard_set_labels: dict[str, str] = {}
+        return [
+            self._normalize_shard_projection(
+                self._frame_to_shard_projection(frame),
+                shard_set_labels=shard_set_labels,
+            )
+            for frame in frames
+        ]
+
+    def _shard_projections_from_pdf_paths(self, pdf_paths: list[Path]) -> list[dict[str, Any]]:
+        return self._shard_projections_from_frames(self._valid_scanned_frames(pdf_paths))
 
     @staticmethod
     def _required_int(value: int | None) -> int:

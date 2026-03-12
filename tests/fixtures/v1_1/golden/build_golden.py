@@ -46,6 +46,7 @@ PASS_PHRASE = "stable-v1_1-golden-passphrase"
 _BINARY_PAYLOADS_MAGIC = b"EQPB"
 _BINARY_PAYLOADS_VERSION = 1
 _FROZEN_PROFILES: tuple[tuple[str, str], ...] = (("base64", "base64"), ("raw", "raw"))
+_SHARD_SCENARIO_IDS: frozenset[str] = frozenset({"sharded_embedded", "sharded_signing_sharded"})
 
 
 def _mint_support() -> Any:
@@ -73,6 +74,10 @@ def _mint_cases_for_scenario(scenario_id: str) -> tuple[Any, ...]:
 
 def _mint_cli_args(case: Any, scenario_root: Path, passphrase: str) -> list[str]:
     return list(_mint_support().mint_cli_args(case, scenario_root, passphrase))
+
+
+def _include_scenario(scenario_id: str) -> bool:
+    return scenario_id in _SHARD_SCENARIO_IDS
 
 
 def _scenario_definitions(source_root: Path) -> list[dict[str, object]]:
@@ -308,6 +313,14 @@ def _shard_projections_by_file(pdf_paths: list[Path]) -> dict[str, list[dict[str
     return shard_projections
 
 
+def _required_threshold_from_shard_pdfs(pdf_paths: list[Path]) -> int:
+    if not pdf_paths:
+        return 0
+    for frame in _valid_scanned_frames(pdf_paths[0]):
+        return int(decode_shard_payload(frame.data).threshold)
+    raise RuntimeError(f"failed to decode shard threshold from {pdf_paths[0]}")
+
+
 def _file_sha256(path: Path) -> str:
     hasher = hashlib.sha256()
     hasher.update(path.read_bytes())
@@ -332,7 +345,8 @@ def _write_signing_key_payload_fixtures(scenario_root: Path) -> None:
         if binary_path.exists():
             binary_path.unlink()
         return
-    signing_key_payload_bytes = _scan_payload_bytes(signing_key_paths[:1])
+    threshold = _required_threshold_from_shard_pdfs(signing_key_paths)
+    signing_key_payload_bytes = _scan_payload_bytes(signing_key_paths[:threshold])
     _write_payloads_text_file(signing_key_payload_bytes, text_path)
     _write_payloads_binary_file(signing_key_payload_bytes, binary_path)
 
@@ -396,6 +410,8 @@ def _generate_mint_golden() -> None:
             profile_index = json.loads((profile_root / "index.json").read_text(encoding="utf-8"))
             for scenario in cast(list[dict[str, object]], profile_index["scenarios"]):
                 scenario_id = str(scenario["id"])
+                if not _include_scenario(scenario_id):
+                    continue
                 if not _mint_cases_for_scenario(scenario_id):
                     continue
                 scenario_root = profile_root / scenario_id
@@ -425,7 +441,11 @@ def _generate_full_golden() -> None:
         else:
             child.unlink()
 
-    scenarios = _scenario_definitions(source_root)
+    scenarios = [
+        scenario
+        for scenario in _scenario_definitions(source_root)
+        if _include_scenario(str(scenario["id"]))
+    ]
     index: dict[str, Any] = {
         "version": "1.1.0",
         "passphrase": PASS_PHRASE,
@@ -490,6 +510,7 @@ def _generate_full_golden() -> None:
                     if shard_payloads_binary_path.exists():
                         shard_payloads_binary_path.unlink()
                 _write_signing_key_payload_fixtures(scenario_root)
+                signing_key_paths = sorted(backup_dir.glob("signing-key-shard-*.pdf"))
 
                 artifact_hashes = {}
                 for artifact in sorted(backup_dir.glob("*.pdf")):
@@ -502,6 +523,14 @@ def _generate_full_golden() -> None:
                     )
                     artifact_hashes["shard_payloads_threshold.bin"] = _file_sha256(
                         shard_payloads_binary_path
+                    )
+                signing_key_binary_path = scenario_root / _signing_key_payloads_binary()
+                if signing_key_binary_path.exists():
+                    artifact_hashes[_signing_key_payloads_text()] = _file_sha256(
+                        scenario_root / _signing_key_payloads_text()
+                    )
+                    artifact_hashes[_signing_key_payloads_binary()] = _file_sha256(
+                        signing_key_binary_path
                     )
 
                 expected_files = {}
@@ -517,12 +546,13 @@ def _generate_full_golden() -> None:
                     "expected_relative_paths": expected_relative_paths,
                     "expected_file_sha256": expected_files,
                     "artifact_hashes": artifact_hashes,
+                    "backup_shard_projections": _shard_projections_by_file(
+                        shard_paths + signing_key_paths
+                    ),
                     "manifest_projection": _manifest_projection(main_payloads, PASS_PHRASE),
                     "shard_payload_count": shard_payload_count,
                     "expected_shard_pdfs": len(shard_paths),
-                    "expected_signing_key_shard_pdfs": len(
-                        list(backup_dir.glob("signing-key-shard-*.pdf"))
-                    ),
+                    "expected_signing_key_shard_pdfs": len(signing_key_paths),
                 }
                 (scenario_root / "snapshot.json").write_text(
                     json.dumps(snapshot, indent=2, sort_keys=True) + "\n",
