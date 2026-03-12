@@ -228,6 +228,18 @@ class TestPromptKeyMaterial(unittest.TestCase):
 
 
 class TestRecoveryWizardHelpers(unittest.TestCase):
+    @mock.patch("ethernity.cli.flows.recover_wizard._frames_from_shard_inputs")
+    def test_load_shard_frames_uses_preloaded_frames_for_interactive_files(
+        self,
+        frames_from_shard_inputs: mock.MagicMock,
+    ) -> None:
+        shard = _frame(FrameType.KEY_DOCUMENT)
+
+        result = wizard._load_shard_frames(["shard.txt"], [], [shard], quiet=True)
+
+        self.assertEqual(result, [shard])
+        frames_from_shard_inputs.assert_not_called()
+
     def test_build_review_rows_sharded_allow_unsigned(self) -> None:
         plan = SimpleNamespace(
             shard_frames=(_frame(FrameType.KEY_DOCUMENT),),

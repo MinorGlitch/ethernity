@@ -281,13 +281,37 @@ def _prompt_shard_inputs(
                 key_type=key_type,
                 stop_at_quorum=stop_at_quorum,
             ):
-                return [], [], state.frames
+                fallback_files, payload_files = _classify_shard_input_paths(paths)
+                return fallback_files, payload_files, state.frames
         if _should_finish_shard_collection(
             state,
             label=label,
             stop_at_quorum=stop_at_quorum,
         ):
-            return [], [], state.frames
+            fallback_files, payload_files = _classify_shard_input_paths(paths)
+            return fallback_files, payload_files, state.frames
+
+
+def _classify_shard_input_paths(paths: list[str]) -> tuple[list[str], list[str]]:
+    fallback_files: list[str] = []
+    payload_files: list[str] = []
+    for path in paths:
+        if _is_scan_path(path):
+            payload_files.append(path)
+            continue
+        lines = _read_text_lines(path)
+        try:
+            _frame_from_fallback_lines(lines, label="shard")
+        except ValueError:
+            _frames_from_payload_lines(
+                lines,
+                label="shard QR payloads",
+                source=path,
+            )
+            payload_files.append(path)
+            continue
+        fallback_files.append(path)
+    return fallback_files, payload_files
 
 
 @dataclass

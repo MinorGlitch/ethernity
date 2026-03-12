@@ -132,6 +132,30 @@ class TestCliFlowPrompts(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "No valid shard data found"):
                 prompts._frames_from_shard_text_or_payload_files(["payload.txt"])
 
+    def test_prompt_shard_inputs_preserves_selected_file_paths(self) -> None:
+        frame_one = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
+        frame_two = _build_shard_frame(share_index=2, share=b"\xbb" * 16)
+
+        with (
+            mock.patch.object(prompts, "prompt_paths_with_picker", return_value=["alpha.txt"]),
+            mock.patch.object(
+                prompts,
+                "_frames_from_shard_text_or_payload_files",
+                return_value=[frame_one, frame_two],
+            ),
+            mock.patch.object(
+                prompts,
+                "_classify_shard_input_paths",
+                return_value=(["alpha.txt"], []),
+            ),
+            mock.patch.object(prompts, "status", return_value=contextlib.nullcontext(None)),
+        ):
+            fallback_files, payload_files, frames = prompts._prompt_shard_inputs(quiet=True)
+
+        self.assertEqual(fallback_files, ["alpha.txt"])
+        self.assertEqual(payload_files, [])
+        self.assertEqual(frames, [frame_one, frame_two])
+
     def test_prompt_shard_payload_paste_paths(self) -> None:
         frame_one = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
         frame_two = _build_shard_frame(share_index=2, share=b"\xbb" * 16)
@@ -429,6 +453,11 @@ class TestCliFlowPrompts(unittest.TestCase):
             ),
             mock.patch.object(prompts, "status", return_value=contextlib.nullcontext(None)),
             mock.patch.object(prompts, "_format_shard_input_error", return_value="friendly error"),
+            mock.patch.object(
+                prompts,
+                "_classify_shard_input_paths",
+                return_value=([], ["shards.txt"]),
+            ),
             mock.patch.object(prompts.console_err, "print") as err_print,
         ):
             _scan, _text, frames = prompts._prompt_shard_inputs(quiet=True)
@@ -447,6 +476,11 @@ class TestCliFlowPrompts(unittest.TestCase):
                 side_effect=[[frame_one, frame_two], [frame_three]],
             ),
             mock.patch.object(prompts, "status", return_value=contextlib.nullcontext(None)),
+            mock.patch.object(
+                prompts,
+                "_classify_shard_input_paths",
+                side_effect=[([], ["batch-one.txt"]), ([], ["batch-two.txt"])],
+            ),
             mock.patch.object(prompts, "prompt_yes_no", return_value=True) as prompt_yes_no,
         ):
             _scan, _text, frames = prompts._prompt_shard_inputs(

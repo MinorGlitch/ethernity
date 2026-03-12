@@ -130,12 +130,12 @@ def _prompt_key_material(
 ) -> tuple[str | None, list[str], list[str], list[Frame]]:
     """Prompt for key material.
 
-    Returns (passphrase, shard_fallback_files, shard_payloads_file, pasted_shard_frames).
+    Returns (passphrase, shard_fallback_files, shard_payloads_file, shard_frames).
     """
     passphrase = args.passphrase
     shard_fallback_files = list(args.shard_fallback_file or [])
     shard_payloads_file = list(args.shard_payloads_file or [])
-    pasted_shard_frames: list[Frame] = []
+    shard_frames: list[Frame] = []
 
     if not shard_fallback_files and not shard_payloads_file and not passphrase:
         while True:
@@ -157,7 +157,7 @@ def _prompt_key_material(
             (
                 shard_fallback_files,
                 shard_payloads_file,
-                pasted_shard_frames,
+                shard_frames,
             ) = _prompt_shard_inputs(quiet=quiet, stop_at_quorum=not collect_all_shards)
             break
 
@@ -165,7 +165,7 @@ def _prompt_key_material(
         passphrase,
         shard_fallback_files,
         shard_payloads_file,
-        pasted_shard_frames,
+        shard_frames,
     )
 
 
@@ -253,7 +253,7 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
             passphrase = working_args.passphrase
             shard_fallback_files = list(working_args.shard_fallback_file or [])
             shard_payloads_file = list(working_args.shard_payloads_file or [])
-            pasted_shard_frames: list[Frame] = []
+            collected_shard_frames: list[Frame] = []
             plan: Any = None
             manifest: Any = None
             extracted: list[Any] = []
@@ -275,7 +275,7 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                             passphrase,
                             shard_fallback_files,
                             shard_payloads_file,
-                            pasted_shard_frames,
+                            collected_shard_frames,
                         ) = _prompt_key_material(working_args, quiet=quiet)
                         working_args.passphrase = passphrase
                         working_args.shard_fallback_file = list(shard_fallback_files)
@@ -287,7 +287,7 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                 shard_frames = _load_shard_frames(
                     shard_fallback_files,
                     shard_payloads_file,
-                    extra_frames=pasted_shard_frames,
+                    extra_frames=collected_shard_frames,
                     quiet=quiet,
                 )
                 plan = build_recovery_plan(
@@ -406,6 +406,8 @@ def _load_shard_frames(
     if not shard_fallback_files and not shard_payloads_file and not extra_frames:
         return []
     shard_frames = list(extra_frames or [])
+    if shard_frames and (shard_fallback_files or shard_payloads_file):
+        return shard_frames
     total_files = len(shard_fallback_files) + len(shard_payloads_file)
     if total_files:
         with status(f"Reading {total_files} shard file(s)...", quiet=quiet):

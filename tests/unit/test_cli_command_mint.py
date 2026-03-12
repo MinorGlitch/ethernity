@@ -612,6 +612,215 @@ class TestMintFlow(unittest.TestCase):
 
     @mock.patch("ethernity.cli.flows.mint._print_completion_actions")
     @mock.patch("ethernity.cli.flows.mint.print_mint_summary")
+    @mock.patch(
+        "ethernity.cli.flows.mint._mint_from_plan",
+        return_value=SimpleNamespace(
+            doc_id=b"d" * 16,
+            output_dir="mint-dd",
+            shard_paths=(),
+            signing_key_shard_paths=(),
+            signing_key_source="embedded signing seed",
+        ),
+    )
+    @mock.patch(
+        "ethernity.cli.flows.mint.decode_envelope",
+        return_value=(SimpleNamespace(signing_seed=b"s" * 32), b"payload"),
+    )
+    @mock.patch("ethernity.cli.flows.mint.decrypt_bytes", return_value=b"plaintext")
+    @mock.patch(
+        "ethernity.cli.flows.mint.build_recovery_plan",
+        return_value=SimpleNamespace(
+            ciphertext=b"ciphertext",
+            doc_id=b"d" * 16,
+            doc_hash=b"h" * 32,
+            passphrase="mint-passphrase",
+            auth_payload=SimpleNamespace(sign_pub=b"p" * 32),
+        ),
+    )
+    @mock.patch("ethernity.cli.flows.mint._prompt_key_material")
+    @mock.patch(
+        "ethernity.cli.flows.mint.prompt_recovery_input_interactive",
+        return_value=([], "QR payloads", "qr.txt"),
+    )
+    @mock.patch("ethernity.cli.flows.mint._prompt_quorum_choice")
+    @mock.patch("ethernity.cli.flows.mint.prompt_yes_no")
+    @mock.patch(
+        "ethernity.cli.flows.mint.apply_template_design", side_effect=lambda config, design: config
+    )
+    @mock.patch("ethernity.cli.flows.mint.load_app_config", return_value=SimpleNamespace())
+    @mock.patch(
+        "ethernity.cli.flows.mint.wizard_stage",
+        side_effect=lambda *_args, **_kwargs: contextlib.nullcontext(),
+    )
+    @mock.patch(
+        "ethernity.cli.flows.mint.wizard_flow",
+        side_effect=lambda *_args, **_kwargs: contextlib.nullcontext(),
+    )
+    @mock.patch(
+        "ethernity.cli.flows.mint.ui_screen_mode",
+        side_effect=lambda **_kwargs: contextlib.nullcontext(),
+    )
+    @mock.patch("ethernity.cli.flows.mint.sys.stdout.isatty", return_value=True)
+    @mock.patch("ethernity.cli.flows.mint.sys.stdin.isatty", return_value=True)
+    def test_run_mint_wizard_preserves_explicit_output_settings(
+        self,
+        _stdin_isatty: mock.MagicMock,
+        _stdout_isatty: mock.MagicMock,
+        _ui_screen_mode: mock.MagicMock,
+        _wizard_flow: mock.MagicMock,
+        _wizard_stage: mock.MagicMock,
+        _load_app_config: mock.MagicMock,
+        _apply_template_design: mock.MagicMock,
+        prompt_yes_no: mock.MagicMock,
+        prompt_quorum_choice: mock.MagicMock,
+        _prompt_recovery_input_interactive: mock.MagicMock,
+        prompt_key_material: mock.MagicMock,
+        _build_recovery_plan: mock.MagicMock,
+        _decrypt_bytes: mock.MagicMock,
+        _decode_envelope: mock.MagicMock,
+        mint_from_plan: mock.MagicMock,
+        print_mint_summary: mock.MagicMock,
+        print_completion_actions: mock.MagicMock,
+    ) -> None:
+        prompt_key_material.return_value = ("passphrase", [], [], [])
+
+        result = mint_flow.run_mint_wizard(
+            MintArgs(
+                quiet=True,
+                shard_threshold=4,
+                shard_count=5,
+                mint_signing_key_shards=False,
+            ),
+            debug=False,
+            show_header=False,
+        )
+
+        self.assertEqual(result, 0)
+        prompt_yes_no.assert_not_called()
+        prompt_quorum_choice.assert_not_called()
+        wizard_args = mint_from_plan.call_args.kwargs["args"]
+        self.assertEqual(wizard_args.shard_threshold, 4)
+        self.assertEqual(wizard_args.shard_count, 5)
+        self.assertFalse(wizard_args.mint_signing_key_shards)
+        print_mint_summary.assert_called_once()
+        print_completion_actions.assert_called_once()
+
+    @mock.patch("ethernity.cli.flows.mint._print_completion_actions")
+    @mock.patch("ethernity.cli.flows.mint.print_mint_summary")
+    @mock.patch(
+        "ethernity.cli.flows.mint._mint_from_plan",
+        return_value=SimpleNamespace(
+            doc_id=b"d" * 16,
+            output_dir="mint-dd",
+            shard_paths=(),
+            signing_key_shard_paths=(),
+            signing_key_source="signing-key shards",
+        ),
+    )
+    @mock.patch(
+        "ethernity.cli.flows.mint.decode_envelope",
+        return_value=(SimpleNamespace(signing_seed=None), b"payload"),
+    )
+    @mock.patch("ethernity.cli.flows.mint.decrypt_bytes", return_value=b"plaintext")
+    @mock.patch(
+        "ethernity.cli.flows.mint.build_recovery_plan",
+        return_value=SimpleNamespace(
+            ciphertext=b"ciphertext",
+            doc_id=b"d" * 16,
+            doc_hash=b"h" * 32,
+            passphrase="mint-passphrase",
+            auth_payload=SimpleNamespace(sign_pub=b"p" * 32),
+        ),
+    )
+    @mock.patch(
+        "ethernity.cli.flows.mint._replacement_payloads_from_frames",
+        return_value=mint_flow._ReplacementShardResolution(
+            payloads=(cast(Any, SimpleNamespace(threshold=2, share_count=3, share_index=1)),)
+        ),
+    )
+    @mock.patch("ethernity.cli.flows.mint._prompt_shard_inputs")
+    @mock.patch(
+        "ethernity.cli.flows.mint._signing_key_shard_frames_from_args",
+        return_value=[mock.Mock(name="signing-key-frame")],
+    )
+    @mock.patch("ethernity.cli.flows.mint._prompt_key_material")
+    @mock.patch(
+        "ethernity.cli.flows.mint.prompt_recovery_input_interactive",
+        return_value=([], "QR payloads", "qr.txt"),
+    )
+    @mock.patch("ethernity.cli.flows.mint._prompt_quorum_choice")
+    @mock.patch("ethernity.cli.flows.mint.prompt_yes_no")
+    @mock.patch(
+        "ethernity.cli.flows.mint.apply_template_design", side_effect=lambda config, design: config
+    )
+    @mock.patch("ethernity.cli.flows.mint.load_app_config", return_value=SimpleNamespace())
+    @mock.patch(
+        "ethernity.cli.flows.mint.wizard_stage",
+        side_effect=lambda *_args, **_kwargs: contextlib.nullcontext(),
+    )
+    @mock.patch(
+        "ethernity.cli.flows.mint.wizard_flow",
+        side_effect=lambda *_args, **_kwargs: contextlib.nullcontext(),
+    )
+    @mock.patch(
+        "ethernity.cli.flows.mint.ui_screen_mode",
+        side_effect=lambda **_kwargs: contextlib.nullcontext(),
+    )
+    @mock.patch("ethernity.cli.flows.mint.sys.stdout.isatty", return_value=True)
+    @mock.patch("ethernity.cli.flows.mint.sys.stdin.isatty", return_value=True)
+    def test_run_mint_wizard_reuses_preloaded_signing_key_shards_for_sealed_backup(
+        self,
+        _stdin_isatty: mock.MagicMock,
+        _stdout_isatty: mock.MagicMock,
+        _ui_screen_mode: mock.MagicMock,
+        _wizard_flow: mock.MagicMock,
+        _wizard_stage: mock.MagicMock,
+        _load_app_config: mock.MagicMock,
+        _apply_template_design: mock.MagicMock,
+        prompt_yes_no: mock.MagicMock,
+        prompt_quorum_choice: mock.MagicMock,
+        _prompt_recovery_input_interactive: mock.MagicMock,
+        prompt_key_material: mock.MagicMock,
+        signing_key_shard_frames_from_args: mock.MagicMock,
+        prompt_shard_inputs: mock.MagicMock,
+        _replacement_payloads_from_frames: mock.MagicMock,
+        _build_recovery_plan: mock.MagicMock,
+        _decrypt_bytes: mock.MagicMock,
+        _decode_envelope: mock.MagicMock,
+        mint_from_plan: mock.MagicMock,
+        print_mint_summary: mock.MagicMock,
+        print_completion_actions: mock.MagicMock,
+    ) -> None:
+        prompt_key_material.return_value = ("passphrase", [], [], [])
+
+        result = mint_flow.run_mint_wizard(
+            MintArgs(
+                quiet=True,
+                mint_passphrase_shards=False,
+                signing_key_replacement_count=1,
+                signing_key_shard_payloads_file=["signing.txt"],
+            ),
+            debug=False,
+            show_header=False,
+        )
+
+        self.assertEqual(result, 0)
+        prompt_yes_no.assert_not_called()
+        prompt_quorum_choice.assert_not_called()
+        prompt_shard_inputs.assert_not_called()
+        self.assertEqual(signing_key_shard_frames_from_args.call_count, 1)
+        wizard_args = mint_from_plan.call_args.kwargs["args"]
+        self.assertFalse(wizard_args.mint_passphrase_shards)
+        self.assertEqual(wizard_args.signing_key_replacement_count, 1)
+        self.assertEqual(
+            mint_from_plan.call_args.kwargs["signing_key_frames"],
+            signing_key_shard_frames_from_args.return_value,
+        )
+        print_mint_summary.assert_called_once()
+        print_completion_actions.assert_called_once()
+
+    @mock.patch("ethernity.cli.flows.mint._print_completion_actions")
+    @mock.patch("ethernity.cli.flows.mint.print_mint_summary")
     @mock.patch("ethernity.cli.flows.mint._print_legacy_replacement_warning")
     @mock.patch(
         "ethernity.cli.flows.mint._mint_from_plan",
