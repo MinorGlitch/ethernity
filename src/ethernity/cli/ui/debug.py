@@ -34,7 +34,7 @@ from ...core.models import DocumentPlan
 from ...encoding.zbase32 import encode_zbase32
 from ...formats.envelope_codec import encode_manifest
 from ...formats.envelope_types import EnvelopeManifest
-from ..api import build_kv_table, console, panel
+from ..api import build_kv_table, console, console_err, panel
 from ..core.types import InputFile
 from .state import isatty
 
@@ -64,7 +64,11 @@ def _resolve_render_options(*, max_bytes: int | None, reveal_secrets: bool) -> D
     )
 
 
-def _resolve_render_mode() -> RenderMode:
+def _resolve_render_mode(*, stderr: bool = False) -> RenderMode:
+    if stderr:
+        if isatty(sys.__stderr__, sys.stderr):
+            return "rich_tty"
+        return "plain"
     if isatty(sys.__stdout__, sys.stdout):
         return "rich_tty"
     return "plain"
@@ -351,83 +355,94 @@ def print_backup_debug(
     signing_seed_stored: bool | None = None,
     debug_max_bytes: int | None,
     reveal_secrets: bool = False,
+    stderr: bool = False,
 ) -> None:
+    global console
+
     options = _resolve_render_options(max_bytes=debug_max_bytes, reveal_secrets=reveal_secrets)
-    mode = _resolve_render_mode()
+    mode = _resolve_render_mode(stderr=stderr)
     manifest_bytes = (
         encode_manifest(manifest) if isinstance(manifest, EnvelopeManifest) else manifest
     )
+    selected_console = console_err if stderr else console
+    original_console = console
+    console = selected_console
 
-    _print_header("Backup", "Pre-encryption diagnostics", mode=mode)
-    if options.reveal_secrets:
-        _print_reveal_secrets_warning(mode=mode)
+    try:
+        _print_header("Backup", "Pre-encryption diagnostics", mode=mode)
+        if options.reveal_secrets:
+            _print_reveal_secrets_warning(mode=mode)
 
-    summary_rows: list[tuple[str, str]] = [
-        ("Mode", "backup"),
-        ("Input files", str(len(input_files))),
-        ("Payload bytes", str(len(payload))),
-        ("Envelope bytes", str(len(envelope))),
-        ("Sealed", "yes" if plan.sealed else "no"),
-    ]
-    if base_dir is not None:
-        summary_rows.append(("Base directory", str(base_dir)))
-    if plan.sharding is not None:
-        summary_rows.append(("Sharding", f"{plan.sharding.threshold} of {plan.sharding.shares}"))
-    _print_kv_section("Summary", summary_rows, mode=mode)
+        summary_rows: list[tuple[str, str]] = [
+            ("Mode", "backup"),
+            ("Input files", str(len(input_files))),
+            ("Payload bytes", str(len(payload))),
+            ("Envelope bytes", str(len(envelope))),
+            ("Sealed", "yes" if plan.sealed else "no"),
+        ]
+        if base_dir is not None:
+            summary_rows.append(("Base directory", str(base_dir)))
+        if plan.sharding is not None:
+            summary_rows.append(
+                ("Sharding", f"{plan.sharding.threshold} of {plan.sharding.shares}")
+            )
+        _print_kv_section("Summary", summary_rows, mode=mode)
 
-    secret_rows: list[tuple[str, str]] = []
-    if passphrase is not None:
-        passphrase_display = (
-            passphrase if options.reveal_secrets else _format_masked_text_secret(passphrase)
+        secret_rows: list[tuple[str, str]] = []
+        if passphrase is not None:
+            passphrase_display = (
+                passphrase if options.reveal_secrets else _format_masked_text_secret(passphrase)
+            )
+            secret_rows.append(("Passphrase", passphrase_display))
+        if signing_seed is not None:
+            signing_seed_display = (
+                "revealed in hex block below"
+                if options.reveal_secrets
+                else _format_masked_bytes_secret(signing_seed)
+            )
+            secret_rows.append(("Signing private key", signing_seed_display))
+        if not secret_rows:
+            secret_rows.append(("Secrets", "(none)"))
+        _print_kv_section("Secrets", secret_rows, mode=mode)
+
+        _print_manifest_section(manifest_bytes, mode=mode)
+
+        _print_text_section(
+            "Payload Preview (hex)",
+            _hexdump(payload, max_bytes=options.max_bytes),
+            mode=mode,
         )
-        secret_rows.append(("Passphrase", passphrase_display))
-    if signing_seed is not None:
-        signing_seed_display = (
-            "revealed in hex block below"
-            if options.reveal_secrets
-            else _format_masked_bytes_secret(signing_seed)
+        _print_text_section(
+            "Envelope Preview (hex)",
+            _hexdump(envelope, max_bytes=options.max_bytes),
+            mode=mode,
         )
-        secret_rows.append(("Signing private key", signing_seed_display))
-    if not secret_rows:
-        secret_rows.append(("Secrets", "(none)"))
-    _print_kv_section("Secrets", secret_rows, mode=mode)
-
-    _print_manifest_section(manifest_bytes, mode=mode)
-
-    _print_text_section(
-        "Payload Preview (hex)",
-        _hexdump(payload, max_bytes=options.max_bytes),
-        mode=mode,
-    )
-    _print_text_section(
-        "Envelope Preview (hex)",
-        _hexdump(envelope, max_bytes=options.max_bytes),
-        mode=mode,
-    )
-    payload_zbase = _format_zbase32_lines(payload, line_length=80, max_bytes=options.max_bytes)
-    _print_text_section(
-        "Payload Preview (z-base-32)",
-        "\n".join(payload_zbase) if payload_zbase else "(empty)",
-        mode=mode,
-    )
-
-    detail_rows: list[tuple[str, str]] = []
-    if signing_seed_stored is not None:
-        detail_rows.append(
-            ("Signing seed stored in envelope", "yes" if signing_seed_stored else "no")
+        payload_zbase = _format_zbase32_lines(payload, line_length=80, max_bytes=options.max_bytes)
+        _print_text_section(
+            "Payload Preview (z-base-32)",
+            "\n".join(payload_zbase) if payload_zbase else "(empty)",
+            mode=mode,
         )
-    if signing_pub is not None:
-        detail_rows.append(("Signing public key", "present (hex below)"))
-    else:
-        detail_rows.append(("Signing public key", "not available"))
-    _print_kv_section("Backup Details", detail_rows, mode=mode)
 
-    if signing_pub is not None:
-        signing_pub_hex = "\n".join(_format_hex_lines(signing_pub, line_length=80))
-        _print_text_section("Signing Public Key (hex)", signing_pub_hex, mode=mode)
-    if signing_seed is not None and options.reveal_secrets:
-        signing_seed_hex = "\n".join(_format_hex_lines(signing_seed, line_length=80))
-        _print_text_section("Signing Private Key (hex, revealed)", signing_seed_hex, mode=mode)
+        detail_rows: list[tuple[str, str]] = []
+        if signing_seed_stored is not None:
+            detail_rows.append(
+                ("Signing seed stored in envelope", "yes" if signing_seed_stored else "no")
+            )
+        if signing_pub is not None:
+            detail_rows.append(("Signing public key", "present (hex below)"))
+        else:
+            detail_rows.append(("Signing public key", "not available"))
+        _print_kv_section("Backup Details", detail_rows, mode=mode)
+
+        if signing_pub is not None:
+            signing_pub_hex = "\n".join(_format_hex_lines(signing_pub, line_length=80))
+            _print_text_section("Signing Public Key (hex)", signing_pub_hex, mode=mode)
+        if signing_seed is not None and options.reveal_secrets:
+            signing_seed_hex = "\n".join(_format_hex_lines(signing_seed, line_length=80))
+            _print_text_section("Signing Private Key (hex, revealed)", signing_seed_hex, mode=mode)
+    finally:
+        console = original_console
 
 
 def print_recover_debug(
@@ -441,56 +456,65 @@ def print_recover_debug(
     output_path: str | None,
     debug_max_bytes: int | None,
     reveal_secrets: bool = False,
+    stderr: bool = False,
 ) -> None:
+    global console
+
     options = _resolve_render_options(max_bytes=debug_max_bytes, reveal_secrets=reveal_secrets)
-    mode = _resolve_render_mode()
+    mode = _resolve_render_mode(stderr=stderr)
     manifest_bytes = encode_manifest(manifest)
+    selected_console = console_err if stderr else console
+    original_console = console
+    console = selected_console
 
-    _print_header("Recover", "Post-decryption diagnostics", mode=mode)
-    if options.reveal_secrets:
-        _print_reveal_secrets_warning(mode=mode)
+    try:
+        _print_header("Recover", "Post-decryption diagnostics", mode=mode)
+        if options.reveal_secrets:
+            _print_reveal_secrets_warning(mode=mode)
 
-    summary_rows = [
-        ("Mode", "recover"),
-        ("Ciphertext bytes", str(len(ciphertext))),
-        ("Extracted files", str(len(extracted))),
-        ("Auth status", auth_status),
-        ("Rescue mode", "enabled" if allow_unsigned else "disabled"),
-        ("Output target", output_path or "stdout"),
-    ]
-    _print_kv_section("Summary", summary_rows, mode=mode)
+        summary_rows = [
+            ("Mode", "recover"),
+            ("Ciphertext bytes", str(len(ciphertext))),
+            ("Extracted files", str(len(extracted))),
+            ("Auth status", auth_status),
+            ("Rescue mode", "enabled" if allow_unsigned else "disabled"),
+            ("Output target", output_path or "stdout"),
+        ]
+        _print_kv_section("Summary", summary_rows, mode=mode)
 
-    if passphrase is None:
-        secret_rows = [("Passphrase", "(none)")]
-    else:
-        passphrase_display = (
-            passphrase if options.reveal_secrets else _format_masked_text_secret(passphrase)
+        if passphrase is None:
+            secret_rows = [("Passphrase", "(none)")]
+        else:
+            passphrase_display = (
+                passphrase if options.reveal_secrets else _format_masked_text_secret(passphrase)
+            )
+            secret_rows = [("Passphrase", passphrase_display)]
+        _print_kv_section("Secrets", secret_rows, mode=mode)
+
+        _print_manifest_section(manifest_bytes, mode=mode)
+
+        if not extracted:
+            recovered_preview = "(no entries)"
+        else:
+            preview_count = min(3, len(extracted))
+            preview_lines: list[str] = []
+            for index, (entry, data) in enumerate(extracted[:preview_count], start=1):
+                preview_lines.append(f"entry {index}: {_entry_path(entry)}")
+                preview_lines.append(_hexdump(data, max_bytes=options.max_bytes))
+                if index < preview_count:
+                    preview_lines.append("")
+            if len(extracted) > preview_count:
+                remaining = len(extracted) - preview_count
+                preview_lines.append(f"... omitted previews for {remaining} more entries")
+            recovered_preview = "\n".join(preview_lines)
+        _print_text_section("Recovered Payload Preview (hex)", recovered_preview, mode=mode)
+
+        _print_text_section(
+            "Ciphertext Preview (hex)",
+            _hexdump(ciphertext, max_bytes=options.max_bytes),
+            mode=mode,
         )
-        secret_rows = [("Passphrase", passphrase_display)]
-    _print_kv_section("Secrets", secret_rows, mode=mode)
 
-    _print_manifest_section(manifest_bytes, mode=mode)
-
-    if not extracted:
-        recovered_preview = "(no entries)"
-    else:
-        preview_count = min(3, len(extracted))
-        preview_lines: list[str] = []
-        for index, (entry, data) in enumerate(extracted[:preview_count], start=1):
-            preview_lines.append(f"entry {index}: {_entry_path(entry)}")
-            preview_lines.append(_hexdump(data, max_bytes=options.max_bytes))
-            if index < preview_count:
-                preview_lines.append("")
-        if len(extracted) > preview_count:
-            remaining = len(extracted) - preview_count
-            preview_lines.append(f"... omitted previews for {remaining} more entries")
-        recovered_preview = "\n".join(preview_lines)
-    _print_text_section("Recovered Payload Preview (hex)", recovered_preview, mode=mode)
-
-    _print_text_section(
-        "Ciphertext Preview (hex)",
-        _hexdump(ciphertext, max_bytes=options.max_bytes),
-        mode=mode,
-    )
-
-    _print_recovered_entries_section(extracted, mode=mode)
+        _print_recovered_entries_section(extracted, mode=mode)
+    finally:
+        console = original_console

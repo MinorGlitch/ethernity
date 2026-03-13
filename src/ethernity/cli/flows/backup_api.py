@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ...core.models import SigningSeedMode
 from .. import api_codes
 from ..core.types import BackupArgs, BackupResult
 from ..events import active_event_sink, emit_artifact, emit_result
@@ -88,6 +89,21 @@ def run_backup_api_command(args: BackupArgs) -> int:
     sink = active_event_sink()
     prepared = prepare_backup_run(args, event_sink=sink)
     result = execute_prepared_backup(prepared, event_sink=sink)
+    effective_signing_key_mode = prepared.plan.signing_seed_mode.value
+    if prepared.plan.sealed and prepared.plan.signing_seed_mode == SigningSeedMode.SHARDED:
+        effective_signing_key_mode = SigningSeedMode.EMBEDDED.value
+    elif result.signing_key_shard_paths:
+        effective_signing_key_mode = SigningSeedMode.SHARDED.value
+    effective_signing_key_shard_threshold = (
+        prepared.plan.signing_seed_sharding.threshold
+        if result.signing_key_shard_paths and prepared.plan.signing_seed_sharding is not None
+        else None
+    )
+    effective_signing_key_shard_count = (
+        prepared.plan.signing_seed_sharding.shares
+        if result.signing_key_shard_paths and prepared.plan.signing_seed_sharding is not None
+        else None
+    )
 
     _emit_backup_artifacts(result)
     emit_result(
@@ -113,17 +129,9 @@ def run_backup_api_command(args: BackupArgs) -> int:
             "shard_count": (
                 prepared.plan.sharding.shares if prepared.plan.sharding is not None else None
             ),
-            "signing_key_mode": prepared.plan.signing_seed_mode.value,
-            "signing_key_shard_threshold": (
-                prepared.plan.signing_seed_sharding.threshold
-                if prepared.plan.signing_seed_sharding is not None
-                else None
-            ),
-            "signing_key_shard_count": (
-                prepared.plan.signing_seed_sharding.shares
-                if prepared.plan.signing_seed_sharding is not None
-                else None
-            ),
+            "signing_key_mode": effective_signing_key_mode,
+            "signing_key_shard_threshold": effective_signing_key_shard_threshold,
+            "signing_key_shard_count": effective_signing_key_shard_count,
         },
     )
     return 0

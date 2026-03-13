@@ -53,7 +53,7 @@ from ..constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
 from ..core.crypto import _doc_id_and_hash_from_ciphertext
 from ..core.log import _warn
 from ..core.types import BackupResult, InputFile
-from ..events import emit_phase, emit_progress
+from ..events import active_event_sink, emit_phase, emit_progress
 from ..io.outputs import _ensure_output_dir
 from ..ui.debug import (
     _append_signing_key_lines,
@@ -665,6 +665,7 @@ def run_backup(
             signing_seed_stored=store_signing_key,
             debug_max_bytes=_normalize_debug_max_bytes(debug_max_bytes),
             reveal_secrets=debug_reveal_secrets,
+            stderr=active_event_sink() is not None,
         )
 
     # Encrypt payload

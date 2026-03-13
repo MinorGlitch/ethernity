@@ -22,7 +22,7 @@ import unittest
 from functools import lru_cache
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest import mock
 
 from jsonschema import validators
@@ -33,6 +33,7 @@ from ethernity import cli
 from ethernity.cli import api_codes
 from ethernity.cli.core.types import BackupArgs, BackupResult, InputFile
 from ethernity.cli.flows.backup_api import run_backup_api_command
+from ethernity.cli.flows.recover_service import execute_recover_plan
 from ethernity.cli.ndjson import ndjson_session
 from ethernity.config import CliDefaults, RecoverDefaults, load_app_config
 from ethernity.core.models import DocumentPlan, SigningSeedMode
@@ -413,6 +414,61 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[5]["kind"], "signing_key_shard_document")
         self.assertEqual(events[6]["artifacts"]["qr_document"], result.qr_path)
 
+    def test_run_backup_api_command_reports_effective_signing_key_mode(self) -> None:
+        args = BackupArgs(
+            input=["input.txt"],
+            output_dir="/tmp/out",
+            passphrase="secret words",
+            quiet=True,
+        )
+        prepared = SimpleNamespace(
+            input_files=(
+                InputFile(
+                    source_path=Path("input.txt"),
+                    relative_path="input.txt",
+                    data=b"payload",
+                    mtime=123,
+                ),
+            ),
+            input_origin="file",
+            input_roots=(),
+            plan=DocumentPlan(
+                version=1,
+                sealed=True,
+                signing_seed_mode=SigningSeedMode.SHARDED,
+                sharding=None,
+            ),
+        )
+        result = BackupResult(
+            doc_id=b"\x01" * 8,
+            qr_path="/tmp/out/qr_document.pdf",
+            recovery_path="/tmp/out/recovery_document.pdf",
+            shard_paths=(),
+            signing_key_shard_paths=(),
+            passphrase_used="secret words",
+        )
+        buffer = io.StringIO()
+        with (
+            mock.patch(
+                "ethernity.cli.flows.backup_api.prepare_backup_run",
+                return_value=prepared,
+            ),
+            mock.patch(
+                "ethernity.cli.flows.backup_api.execute_prepared_backup",
+                return_value=result,
+            ),
+            mock.patch("pathlib.Path.exists", return_value=False),
+            ndjson_session(stream=buffer),
+        ):
+            exit_code = run_backup_api_command(args)
+
+        self.assertEqual(exit_code, 0)
+        events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(events[-1]["plan"]["signing_key_mode"], "embedded")
+        self.assertIsNone(events[-1]["plan"]["signing_key_shard_threshold"])
+        self.assertIsNone(events[-1]["plan"]["signing_key_shard_count"])
+
     def test_run_backup_emits_prepare_encrypt_and_render_progress(self) -> None:
         config = load_app_config(path=DEFAULT_CONFIG_PATH)
         input_file = InputFile(
@@ -462,6 +518,79 @@ class TestCliApi(unittest.TestCase):
         ]
         self.assertGreaterEqual(len(render_progress), 2)
         self.assertEqual(render_progress[-1]["current"], render_progress[-1]["total"])
+
+    def test_run_backup_debug_uses_stderr_during_ndjson_session(self) -> None:
+        config = load_app_config(path=DEFAULT_CONFIG_PATH)
+        input_file = InputFile(
+            source_path=Path("input.txt"),
+            relative_path="input.txt",
+            data=b"payload",
+            mtime=123,
+        )
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            mock.patch(
+                "ethernity.crypto.signing.generate_signing_keypair",
+                return_value=(b"s" * 32, b"p" * 32),
+            ),
+            mock.patch(
+                "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
+                return_value=(b"ciphertext", "stable passphrase"),
+            ),
+            mock.patch(
+                "ethernity.cli.flows.backup_flow.choose_frame_chunk_size",
+                return_value=128,
+            ),
+            mock.patch("ethernity.render.render_frames_to_pdf"),
+            mock.patch("ethernity.cli.flows.backup_flow.print_backup_debug") as debug_mock,
+            ndjson_session(stream=io.StringIO()),
+        ):
+            cli.run_backup(
+                input_files=[input_file],
+                base_dir=None,
+                output_dir=str(Path(tmpdir) / "out"),
+                plan=DocumentPlan(version=1, sealed=False, sharding=None),
+                passphrase="stable passphrase",
+                config=config,
+                quiet=True,
+                debug=True,
+            )
+
+        self.assertTrue(debug_mock.called)
+        self.assertTrue(debug_mock.call_args.kwargs["stderr"])
+
+    def test_execute_recover_plan_debug_uses_stderr_during_ndjson_session(self) -> None:
+        plan = SimpleNamespace(
+            ciphertext=b"ciphertext",
+            passphrase="stable passphrase",
+            auth_status="verified",
+            allow_unsigned=False,
+            output_path="/tmp/recovered.bin",
+        )
+        manifest = SimpleNamespace(input_origin="file", files=())
+        extracted = []
+        with (
+            mock.patch(
+                "ethernity.cli.flows.recover_service.decrypt_manifest_and_extract",
+                return_value=(manifest, extracted),
+            ),
+            mock.patch(
+                "ethernity.cli.flows.recover_service.write_recovered_outputs",
+                return_value=["/tmp/recovered.bin"],
+            ),
+            mock.patch("ethernity.cli.flows.recover_service.print_recover_debug") as debug_mock,
+            ndjson_session(stream=io.StringIO()),
+        ):
+            execute_recover_plan(
+                cast(Any, plan),
+                quiet=True,
+                debug=True,
+                debug_max_bytes=64,
+                debug_reveal_secrets=True,
+            )
+
+        self.assertTrue(debug_mock.called)
+        self.assertTrue(debug_mock.call_args.kwargs["stderr"])
 
 
 if __name__ == "__main__":
