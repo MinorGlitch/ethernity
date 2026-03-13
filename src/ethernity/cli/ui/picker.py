@@ -25,6 +25,7 @@ from rich.padding import Padding
 from ..core.paths import expanduser_cli_path
 from .prompts_core import (
     QUESTIONARY_STYLE,
+    _ask_question,
     _resolve_context,
     prompt_choice,
     prompt_choice_list,
@@ -92,7 +93,9 @@ def _run_picker_flow(
     *,
     selection_prompt: str,
     selection_help_text: str | None,
+    select_label: str = "Pick from list",
     manual_label: str,
+    default_mode: str = "select",
     directory_prompt: str,
     directory_help_text: str,
     picker_help_text: str,
@@ -104,10 +107,10 @@ def _run_picker_flow(
         input_mode = prompt_choice(
             selection_prompt,
             {
-                "select": "Pick from list",
+                "select": select_label,
                 "manual": manual_label,
             },
-            default="select",
+            default=default_mode,
             help_text=selection_help_text,
             context=context,
         )
@@ -162,12 +165,14 @@ def _prompt_select_entries(
     while True:
         if help_text:
             context.console.print(Padding(format_hint(help_text), (0, 0, 0, 1)))
-        values = questionary.checkbox(
-            prompt,
-            choices=choices,
-            qmark="",
-            style=QUESTIONARY_STYLE,
-        ).ask()
+        values = _ask_question(
+            questionary.checkbox(
+                prompt,
+                choices=choices,
+                qmark="",
+                style=QUESTIONARY_STYLE,
+            )
+        )
         if values is None:
             raise KeyboardInterrupt
         if values:
@@ -269,7 +274,9 @@ def prompt_path_with_picker(
     return _run_picker_flow(
         selection_prompt=selection_prompt,
         selection_help_text=selection_help_text,
+        select_label="Pick from list",
         manual_label="Enter path",
+        default_mode="select",
         directory_prompt=directory_prompt,
         directory_help_text=directory_help_text,
         picker_help_text=picker_help_text,
@@ -323,9 +330,11 @@ def prompt_optional_path_with_picker(
         )
 
     return _run_picker_flow(
-        selection_prompt=selection_prompt,
+        selection_prompt=("Enter path / Pick existing path" if allow_new else selection_prompt),
         selection_help_text=selection_help_text,
+        select_label="Pick existing path" if allow_new else "Pick from list",
         manual_label="Enter path",
+        default_mode="manual" if allow_new else "select",
         directory_prompt=directory_prompt,
         directory_help_text=directory_help_text,
         picker_help_text=picker_help_text,
@@ -518,7 +527,9 @@ def prompt_paths_with_picker(
     return _run_picker_flow(
         selection_prompt=selection_prompt,
         selection_help_text=selection_help_text,
+        select_label="Pick from list",
         manual_label="Enter paths",
+        default_mode="select",
         directory_prompt=directory_prompt,
         directory_help_text=directory_help_text,
         picker_help_text=picker_help_text,

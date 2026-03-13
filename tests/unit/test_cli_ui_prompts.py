@@ -21,7 +21,11 @@ from unittest import mock
 
 from rich.console import Console
 
-from ethernity.cli.ui import picker as picker_module, prompts as prompts_module
+from ethernity.cli.ui import (
+    picker as picker_module,
+    prompts as prompts_module,
+    prompts_core as prompts_core_module,
+)
 from ethernity.cli.ui.state import THEME, UIContext
 
 
@@ -33,6 +37,9 @@ class _Ask:
         if not self._values:
             return None
         return self._values.pop(0)
+
+    def unsafe_ask(self):
+        return self.ask()
 
 
 def _context() -> UIContext:
@@ -49,6 +56,14 @@ def _context() -> UIContext:
 
 
 class TestPromptPrimitives(unittest.TestCase):
+    def test_ask_question_prefers_unsafe_ask(self) -> None:
+        question = mock.Mock()
+        question.unsafe_ask.return_value = "value"
+        question.ask.return_value = "fallback"
+        self.assertEqual(prompts_core_module._ask_question(question), "value")
+        question.unsafe_ask.assert_called_once_with()
+        question.ask.assert_not_called()
+
     def test_print_prompt_header_compact_suppresses_repeated_headers(self) -> None:
         context = _context()
         context.compact_prompt_headers = True
@@ -172,17 +187,21 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "list of choices needs to be provided"):
             prompts_module.prompt_choice_list([], default=None)
 
-    @mock.patch("ethernity.cli.ui.prompts_core.questionary.select", return_value=_Ask([None]))
-    def test_prompt_choice_list_default_fallback(
+    @mock.patch(
+        "ethernity.cli.ui.prompts_core._select_with_initial_choice", return_value=_Ask([None])
+    )
+    def test_prompt_choice_list_cancellation_raises_keyboard_interrupt(
         self,
-        _select: mock.MagicMock,
+        _select_with_initial_choice: mock.MagicMock,
     ) -> None:
-        value = prompts_module.prompt_choice_list([("a", "A")], default="a")
-        self.assertEqual(value, "a")
+        with self.assertRaises(KeyboardInterrupt):
+            prompts_module.prompt_choice_list([("a", "A")], default="a")
         with self.assertRaises(KeyboardInterrupt):
             prompts_module.prompt_choice_list([("a", "A")], default=None)
 
-    @mock.patch("ethernity.cli.ui.prompts_core.questionary.select", return_value=_Ask(["chosen"]))
+    @mock.patch(
+        "ethernity.cli.ui.prompts_core._select_with_initial_choice", return_value=_Ask(["chosen"])
+    )
     def test_prompt_choice_list_uses_public_questionary_select(
         self,
         select_mock: mock.MagicMock,
@@ -196,6 +215,21 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
         )
         self.assertEqual(value, "chosen")
         select_mock.assert_called_once()
+        self.assertEqual(select_mock.call_args.kwargs["initial_choice"], "b")
+
+    def test_questionary_style_highlights_current_choice(self) -> None:
+        self.assertIn(("highlighted", "reverse"), prompts_core_module.QUESTIONARY_STYLE.style_rules)
+        self.assertNotIn(("selected", "reverse"), prompts_core_module.QUESTIONARY_STYLE.style_rules)
+
+    @mock.patch(
+        "ethernity.cli.ui.prompts_core._select_with_initial_choice", return_value=_Ask(["chosen"])
+    )
+    def test_prompt_choice_list_passes_unknown_default_as_initial_choice(
+        self,
+        select_mock: mock.MagicMock,
+    ) -> None:
+        prompts_module.prompt_choice_list([("a", "A")], default="missing", context=_context())
+        self.assertEqual(select_mock.call_args.kwargs["initial_choice"], "missing")
 
     def test_list_picker_entries_filters_and_errors(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -419,6 +453,20 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
         value = prompts_module.prompt_optional_path_with_picker("Path", kind="file")
         self.assertIsNone(value)
         run_picker_flow.assert_called_once()
+
+    @mock.patch("ethernity.cli.ui.picker._run_picker_flow", return_value=None)
+    def test_prompt_optional_path_with_picker_allow_new_defaults_to_manual(
+        self,
+        run_picker_flow: mock.MagicMock,
+    ) -> None:
+        prompts_module.prompt_optional_path_with_picker("Path", kind="dir", allow_new=True)
+        run_picker_flow.assert_called_once()
+        self.assertEqual(
+            run_picker_flow.call_args.kwargs["selection_prompt"],
+            "Enter path / Pick existing path",
+        )
+        self.assertEqual(run_picker_flow.call_args.kwargs["select_label"], "Pick existing path")
+        self.assertEqual(run_picker_flow.call_args.kwargs["default_mode"], "manual")
 
 
 class TestPathValidationFlows(unittest.TestCase):

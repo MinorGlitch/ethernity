@@ -108,17 +108,22 @@ def wizard_flow(
 
 @contextmanager
 def wizard_stage(
-    title: str, *, help_text: str | None = None, context: UIContext | None = None
+    title: str,
+    *,
+    help_text: str | None = None,
+    step_number: int | None = None,
+    context: UIContext | None = None,
 ) -> Generator[None, None, None]:
     context = _resolve_context(context)
     state = context.wizard_state
     context.stage_prompt_count = 0
     if state is not None and not state.quiet:
-        if state.step > 0:
+        display_step = step_number if step_number is not None else state.step + 1
+        if display_step > 1:
             clear_screen(context=context)
             context.console.print()
-        state.step += 1
-        step_label = f"Step {state.step}/{state.total_steps} - {title}"
+        state.step = display_step
+        step_label = f"Step {display_step}/{state.total_steps} - {title}"
         context.console.print(Rule(Text(step_label, style="title"), style="rule", align="left"))
         if help_text:
             context.console.print(Padding(format_hint(help_text), (0, 0, 0, 1)))

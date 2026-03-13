@@ -217,7 +217,6 @@ def recover(
         scan=list(scan or []),
         passphrase=passphrase,
         shard_fallback_file=shard_files,
-        shard_dir=shard_dir,
         shard_payloads_file=list(shard_payloads_file or []),
         auth_fallback_file=auth_fallback_file,
         auth_payloads_file=auth_payloads_file,

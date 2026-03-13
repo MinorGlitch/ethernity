@@ -1,0 +1,16 @@
+{
+  "passphrase": "stable-v1_1-golden-passphrase",
+  "profile": "base64",
+  "qr_payload_codec": "base64",
+  "scenarios": [
+    {
+      "id": "sharded_embedded",
+      "path": "sharded_embedded/snapshot.json"
+    },
+    {
+      "id": "sharded_signing_sharded",
+      "path": "sharded_signing_sharded/snapshot.json"
+    }
+  ],
+  "version": "1.1.0"
+}

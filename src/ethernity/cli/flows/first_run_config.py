@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 from ...config import (
     DEFAULT_TEMPLATE_STYLE,
@@ -301,7 +301,7 @@ def _prompt_qr_error_correction() -> QrErrorCorrection:
         ),
     )
     if selected in {"L", "M", "Q", "H"}:
-        return selected
+        return cast(QrErrorCorrection, selected)
     return "M"
 
 

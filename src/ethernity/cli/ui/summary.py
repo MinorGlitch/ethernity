@@ -19,9 +19,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from ...core.models import DocumentPlan
-from ..core.types import BackupResult
+from ..core.types import BackupResult, MintResult
 from . import (
     build_kv_table,
+    build_mint_outputs_tree,
     build_outputs_tree,
     build_recovered_tree,
     console,
@@ -82,6 +83,31 @@ def print_recover_summary(
     )
     if tree is not None:
         console_err.print(panel("Recovered files", tree))
+
+
+def print_mint_summary(result: MintResult, *, quiet: bool) -> None:
+    if quiet:
+        return
+    console.print()
+    console.print(
+        panel(
+            "Outputs",
+            build_mint_outputs_tree(result.shard_paths, result.signing_key_shard_paths),
+        )
+    )
+    console.print(
+        panel(
+            "Mint summary",
+            build_kv_table(
+                [
+                    ("Output", result.output_dir),
+                    ("Signing authority", result.signing_key_source),
+                ]
+            ),
+        )
+    )
+    if result.notes:
+        console.print(panel("Advisory", "\n".join(f"- {note}" for note in result.notes)))
 
 
 def format_auth_status(status: str, *, allow_unsigned: bool) -> str:

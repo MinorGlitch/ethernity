@@ -569,6 +569,7 @@ def run_wizard(
     """Run the guided backup wizard and execute the resulting backup."""
 
     assume_yes = bool(args.assume_yes) if args is not None else False
+    working_args = replace(args) if args is not None else BackupArgs(quiet=quiet)
     configured_fields = first_run_onboarding_configured_fields()
     offer_quick_mode = bool(
         configured_fields
@@ -588,85 +589,155 @@ def run_wizard(
                 console.print(
                     "[subtitle]Defaults favor recovery (2-of-3 shards, unsealed).[/subtitle]"
                 )
-
-            with wizard_stage("Encryption"):
-                quick_mode = _prompt_backup_setup_mode(offer_quick=offer_quick_mode and not quiet)
-                passphrase, passphrase_words = _prompt_encryption(args)
-
-            use_saved_sharding = quick_mode and ONBOARDING_FIELD_SHARDING in configured_fields
-            use_saved_page_size = quick_mode and ONBOARDING_FIELD_PAGE_SIZE in configured_fields
-            use_saved_template = (
-                quick_mode and ONBOARDING_FIELD_TEMPLATE_DESIGN in configured_fields
-            )
-            use_saved_output_dir = (
-                quick_mode and ONBOARDING_FIELD_BACKUP_OUTPUT_DIR in configured_fields
-            )
-
-            with wizard_stage("Recovery"):
-                sealed, debug, signing_seed_mode, sharding, signing_seed_sharding = (
-                    _prompt_recovery_options(
-                        args,
-                        debug_override,
-                        quiet,
-                        confirm_existing_quorums=not use_saved_sharding,
-                        prompt_sharding_when_missing=not use_saved_sharding,
-                        prompt_signing_sharding_when_missing=not use_saved_sharding,
-                    )
-                )
-
-            with wizard_stage("Layout"):
-                config_path, paper = _prompt_layout(
-                    config_path,
-                    paper_size,
-                    prompt_when_unset=not use_saved_page_size,
-                )
-                design = _prompt_design(
-                    args,
-                    prompt_when_unset=not use_saved_template,
-                )
-
+            quick_mode = False
+            passphrase: str | None = None
+            passphrase_words: int | None = None
+            sealed = False
+            debug = bool(debug_override)
+            signing_seed_mode = SigningSeedMode.EMBEDDED
+            sharding = None
+            signing_seed_sharding = None
+            paper = paper_size
+            design = args.design if args is not None else None
+            input_files: list[InputFile] = []
+            resolved_base: Path | None = None
+            output_dir: str | None = working_args.output_dir
+            input_origin = "file"
+            input_roots: list[str] = []
             plan = build_document_plan(
                 sealed=sealed,
                 signing_seed_mode=signing_seed_mode,
                 sharding=sharding,
                 signing_seed_sharding=signing_seed_sharding,
             )
-
             config = load_app_config(config_path, paper_size=paper)
             config = apply_template_design(config, design)
-            config = _apply_qr_chunk_size_override(config, args.qr_chunk_size if args else None)
+            config = _apply_qr_chunk_size_override(config, working_args.qr_chunk_size)
+            stage_index = 0
 
-            with wizard_stage("Inputs"):
-                input_files, resolved_base, output_dir, input_origin, input_roots = _prompt_inputs(
-                    args,
-                    quiet,
-                    debug,
-                    show_output_prompt=not use_saved_output_dir,
+            while stage_index < 5:
+                if stage_index == 0:
+                    with wizard_stage("Encryption", step_number=1):
+                        quick_mode = _prompt_backup_setup_mode(
+                            offer_quick=offer_quick_mode and not quiet
+                        )
+                        passphrase, passphrase_words = _prompt_encryption(working_args)
+                        working_args.passphrase = passphrase
+                        working_args.passphrase_words = passphrase_words
+                    stage_index += 1
+                    continue
+
+                use_saved_sharding = quick_mode and ONBOARDING_FIELD_SHARDING in configured_fields
+                use_saved_page_size = quick_mode and ONBOARDING_FIELD_PAGE_SIZE in configured_fields
+                use_saved_template = (
+                    quick_mode and ONBOARDING_FIELD_TEMPLATE_DESIGN in configured_fields
+                )
+                use_saved_output_dir = (
+                    quick_mode and ONBOARDING_FIELD_BACKUP_OUTPUT_DIR in configured_fields
                 )
 
-            review_rows = _build_review_rows(
-                passphrase,
-                passphrase_words,
-                plan,
-                input_files,
-                resolved_base,
-                output_dir,
-                config_path,
-                paper,
-                design,
-                config,
-                debug,
-            )
+                if stage_index == 1:
+                    with wizard_stage("Recovery", step_number=2):
+                        recovery_args = working_args
+                        if not use_saved_sharding:
+                            recovery_args = replace(
+                                working_args,
+                                shard_threshold=None,
+                                shard_count=None,
+                                signing_key_mode=None,
+                                signing_key_shard_threshold=None,
+                                signing_key_shard_count=None,
+                            )
+                        sealed, debug, signing_seed_mode, sharding, signing_seed_sharding = (
+                            _prompt_recovery_options(
+                                recovery_args,
+                                debug_override,
+                                quiet,
+                                confirm_existing_quorums=not use_saved_sharding,
+                                prompt_sharding_when_missing=not use_saved_sharding,
+                                prompt_signing_sharding_when_missing=not use_saved_sharding,
+                            )
+                        )
+                        working_args.sealed = sealed
+                        working_args.shard_threshold = sharding.threshold if sharding else None
+                        working_args.shard_count = sharding.shares if sharding else None
+                        working_args.signing_key_mode = signing_seed_mode.value
+                        working_args.signing_key_shard_threshold = (
+                            signing_seed_sharding.threshold if signing_seed_sharding else None
+                        )
+                        working_args.signing_key_shard_count = (
+                            signing_seed_sharding.shares if signing_seed_sharding else None
+                        )
+                    stage_index += 1
+                    continue
 
-            with wizard_stage("Review"):
-                console.print(panel("Review", build_review_table(review_rows)))
-                if not assume_yes and not prompt_yes_no(
-                    "Proceed with backup",
-                    default=True,
-                    help_text="Select no to cancel.",
-                ):
-                    console.print("Backup cancelled.")
-                    return 1
+                if stage_index == 2:
+                    with wizard_stage("Layout", step_number=3):
+                        config_path, paper = _prompt_layout(
+                            config_path,
+                            paper_size,
+                            prompt_when_unset=not use_saved_page_size,
+                        )
+                        design = _prompt_design(
+                            working_args,
+                            prompt_when_unset=not use_saved_template,
+                        )
+                        working_args.config = config_path
+                        working_args.paper = paper
+                        working_args.design = design
+                    stage_index += 1
+                    continue
+
+                if stage_index == 3:
+                    with wizard_stage("Inputs", step_number=4):
+                        input_files, resolved_base, output_dir, input_origin, input_roots = (
+                            _prompt_inputs(
+                                working_args,
+                                quiet,
+                                debug,
+                                show_output_prompt=not use_saved_output_dir,
+                            )
+                        )
+                        working_args.base_dir = (
+                            str(resolved_base) if resolved_base is not None else None
+                        )
+                        working_args.output_dir = output_dir
+                    stage_index += 1
+                    continue
+
+                plan = build_document_plan(
+                    sealed=sealed,
+                    signing_seed_mode=signing_seed_mode,
+                    sharding=sharding,
+                    signing_seed_sharding=signing_seed_sharding,
+                )
+                config = load_app_config(config_path, paper_size=paper)
+                config = apply_template_design(config, design)
+                config = _apply_qr_chunk_size_override(config, working_args.qr_chunk_size)
+                review_rows = _build_review_rows(
+                    passphrase,
+                    passphrase_words,
+                    plan,
+                    input_files,
+                    resolved_base,
+                    output_dir,
+                    config_path,
+                    paper,
+                    design,
+                    config,
+                    debug,
+                )
+
+                with wizard_stage("Review", step_number=5):
+                    console.print(panel("Review", build_review_table(review_rows)))
+                    if not assume_yes and not prompt_yes_no(
+                        "Proceed with backup",
+                        default=True,
+                        help_text="Select no to cancel.",
+                    ):
+                        console.print("Backup cancelled.")
+                        return 1
+                break
 
             if args is not None:
                 effective_args = replace(

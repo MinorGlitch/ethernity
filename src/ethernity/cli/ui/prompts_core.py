@@ -19,6 +19,15 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import questionary
+from prompt_toolkit.application import Application
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
+from questionary import utils
+from questionary.constants import DEFAULT_SELECTED_POINTER
+from questionary.prompts import common
+from questionary.prompts.common import InquirerControl
+from questionary.question import Question
+from questionary.styles import merge_styles_default
 from rich.padding import Padding
 from rich.rule import Rule
 
@@ -40,6 +49,14 @@ console_err = DEFAULT_CONTEXT.console_err
 
 def _resolve_context(context: UIContext | None) -> UIContext:
     return context or DEFAULT_CONTEXT
+
+
+def _ask_question(question: object):
+    unsafe_ask = getattr(question, "unsafe_ask", None)
+    if callable(unsafe_ask):
+        return unsafe_ask()
+    ask = getattr(question, "ask")
+    return ask()
 
 
 def print_prompt_header(
@@ -66,7 +83,7 @@ def prompt_optional_secret(
     context: UIContext | None = None,
 ) -> str | None:
     print_prompt_header(prompt, help_text, context=context)
-    value = questionary.password(prompt, qmark="", style=QUESTIONARY_STYLE).ask()
+    value = _ask_question(questionary.password(prompt, qmark="", style=QUESTIONARY_STYLE))
     if value is None:
         raise KeyboardInterrupt
     return value or None
@@ -81,7 +98,7 @@ def prompt_required_secret(
     context = _resolve_context(context)
     print_prompt_header(prompt, help_text, context=context)
     while True:
-        value = questionary.password(prompt, qmark="", style=QUESTIONARY_STYLE).ask()
+        value = _ask_question(questionary.password(prompt, qmark="", style=QUESTIONARY_STYLE))
         if value is None:
             raise KeyboardInterrupt
         if value:
@@ -115,12 +132,14 @@ def prompt_yes_no(
     context: UIContext | None = None,
 ) -> bool:
     print_prompt_header(prompt, help_text, context=context)
-    value = questionary.confirm(
-        prompt,
-        default=default,
-        qmark="",
-        style=QUESTIONARY_STYLE,
-    ).ask()
+    value = _ask_question(
+        questionary.confirm(
+            prompt,
+            default=default,
+            qmark="",
+            style=QUESTIONARY_STYLE,
+        )
+    )
     if value is None:
         raise KeyboardInterrupt
     return value
@@ -140,17 +159,94 @@ def prompt_choice_list(
         raise ValueError("A list of choices needs to be provided.")
     choices = [questionary.Choice(title=label, value=key) for key, label in items]
     print_prompt_header(title or "Select an option", help_text, context=context)
-    value = questionary.select(
+    value = _select_with_initial_choice(
         title or "Select an option",
         choices=choices,
+        initial_choice=default,
         qmark="",
         style=QUESTIONARY_STYLE,
-    ).ask()
+    )
+    value = _ask_question(value)
     if value is None:
-        if default is not None:
-            return default
         raise KeyboardInterrupt
     return value
+
+
+def _select_with_initial_choice(
+    message: str,
+    *,
+    choices: Sequence[questionary.Choice],
+    initial_choice: str | None,
+    qmark: str,
+    style,
+):
+    merged_style = merge_styles_default([style])
+    ic = InquirerControl(
+        choices,
+        default=None,
+        pointer=DEFAULT_SELECTED_POINTER,
+        use_indicator=False,
+        use_shortcuts=False,
+        show_selected=False,
+        show_description=True,
+        use_arrow_keys=True,
+        initial_choice=initial_choice,
+    )
+
+    def get_prompt_tokens():
+        tokens = [("class:qmark", qmark), ("class:question", f" {message} ")]
+        if ic.is_answered:
+            current = ic.get_pointed_at()
+            if isinstance(current.title, list):
+                tokens.append(("class:answer", "".join(token[1] for token in current.title)))
+            else:
+                tokens.append(("class:answer", current.title or ""))
+        else:
+            tokens.append(("class:instruction", "(Use arrow keys)"))
+        return tokens
+
+    layout = common.create_inquirer_layout(ic, get_prompt_tokens)
+    bindings = KeyBindings()
+
+    @bindings.add(Keys.ControlQ, eager=True)
+    @bindings.add(Keys.ControlC, eager=True)
+    def _cancel(event):
+        event.app.exit(exception=KeyboardInterrupt, style="class:aborting")
+
+    def move_cursor_down(event):
+        ic.select_next()
+        while not ic.is_selection_valid():
+            ic.select_next()
+
+    def move_cursor_up(event):
+        ic.select_previous()
+        while not ic.is_selection_valid():
+            ic.select_previous()
+
+    bindings.add(Keys.Down, eager=True)(move_cursor_down)
+    bindings.add(Keys.Up, eager=True)(move_cursor_up)
+    bindings.add("j", eager=True)(move_cursor_down)
+    bindings.add("k", eager=True)(move_cursor_up)
+    bindings.add(Keys.ControlN, eager=True)(move_cursor_down)
+    bindings.add(Keys.ControlP, eager=True)(move_cursor_up)
+
+    @bindings.add(Keys.ControlM, eager=True)
+    def _set_answer(event):
+        ic.is_answered = True
+        event.app.exit(result=ic.get_pointed_at().value)
+
+    @bindings.add(Keys.Any)
+    def _other(_event):
+        return None
+
+    return Question(
+        Application(
+            layout=layout,
+            key_bindings=bindings,
+            style=merged_style,
+            **utils.used_kwargs({}, Application.__init__),
+        )
+    )
 
 
 def prompt_int(
@@ -169,7 +265,7 @@ def prompt_int(
             help_text = f"Enter a whole number between {minimum} and {maximum}."
     print_prompt_header(prompt, help_text, context=context)
     while True:
-        raw = questionary.text(prompt, qmark="", style=QUESTIONARY_STYLE).ask()
+        raw = _ask_question(questionary.text(prompt, qmark="", style=QUESTIONARY_STYLE))
         if raw is None:
             raise KeyboardInterrupt
         if not raw.strip():
@@ -196,7 +292,7 @@ def prompt_optional(
     context: UIContext | None = None,
 ) -> str | None:
     print_prompt_header(prompt, help_text, context=context)
-    value = questionary.text(prompt, qmark="", style=QUESTIONARY_STYLE).ask()
+    value = _ask_question(questionary.text(prompt, qmark="", style=QUESTIONARY_STYLE))
     if value is None:
         raise KeyboardInterrupt
     return value.strip() or None
@@ -211,7 +307,7 @@ def prompt_required(
     context = _resolve_context(context)
     print_prompt_header(prompt, help_text, context=context)
     while True:
-        value = questionary.text(prompt, qmark="", style=QUESTIONARY_STYLE).ask()
+        value = _ask_question(questionary.text(prompt, qmark="", style=QUESTIONARY_STYLE))
         if value is None:
             raise KeyboardInterrupt
         if value.strip():
@@ -229,7 +325,7 @@ def prompt_multiline(
     print_prompt_header(prompt, help_text, context=context)
     items: list[str] = []
     while True:
-        line = questionary.text(prompt, qmark="", style=QUESTIONARY_STYLE).ask()
+        line = _ask_question(questionary.text(prompt, qmark="", style=QUESTIONARY_STYLE))
         if line is None:
             raise KeyboardInterrupt
         if not line:

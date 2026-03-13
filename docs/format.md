@@ -381,7 +381,9 @@ Verification requirements:
 Shard payload MUST be a CBOR map:
 
 Constants:
-- SHARD_VERSION = `1`
+- SHARD_VERSION = `2`
+- LEGACY_SHARD_VERSION = `1`
+- SHARD_SET_ID_LEN = `16`
 
 ```
 {
@@ -394,22 +396,24 @@ Constants:
   "share": share,
   "hash": doc_hash,
   "pub": sign_pub,
+  "set_id": shard_set_id,
   "sig": signature
 }
 ```
 
 Requirements:
-- `version`: int == SHARD_VERSION (1)
+- `version`: int == 1 or 2
 - `type`: "passphrase" or "signing-seed"
 - `threshold`/`share_count`/`share_index`/`length`: positive ints
 - `share`: bytes
 - `hash`: 32 bytes
 - `pub`: 32 bytes
+- `set_id`: 16 bytes when `version == 2`
 - `sig`: 64 bytes
 - Decoders MUST ignore unknown shard payload keys.
 - Unknown shard payload keys are extension data only and MUST NOT affect signature verification
   decisions, key reconstruction eligibility, or authenticated/rescue trust labeling.
-- Encoders SHOULD NOT emit unknown shard payload keys for `SHARD_VERSION = 1`.
+- Encoders SHOULD NOT emit unknown shard payload keys.
 
 Validation rules:
 - `threshold`: MUST satisfy 1 ≤ threshold ≤ share_count
@@ -421,6 +425,9 @@ Validation rules:
   - len(share) MUST equal `ceil(length/16) * 16`.
 - Type-specific length constraints:
   - If `type == "signing-seed"`, `length` MUST equal 32.
+- Version-specific constraints:
+  - If `version == 2`, `set_id` MUST be present and exactly 16 bytes.
+  - If `version == 1`, `set_id` MUST be absent or ignored for compatibility.
 
 Decoders MUST reject shard payloads that violate these bounds.
 
@@ -433,9 +440,12 @@ CBOR encoding requirements:
   before signature verification or semantic validation.
 
 Signature domain:
-- Let `signed_shard_payload` be a CBOR map containing exactly:
+- For `version == 1`, let `signed_shard_payload` be a CBOR map containing exactly:
   `version`, `type`, `threshold`, `share_count`, `share_index`, `length`, `share`, `hash`, and
   `pub`.
+- For `version == 2`, let `signed_shard_payload` be a CBOR map containing exactly:
+  `version`, `type`, `threshold`, `share_count`, `share_index`, `length`, `share`, `hash`, `pub`,
+  and `set_id`.
 - Message is `SHARD_DOMAIN + canonical_cbor(signed_shard_payload)`
 - SHARD_DOMAIN is defined in Section 2.1.
 
@@ -448,13 +458,20 @@ Verification requirements:
   shard structural/binding/consistency requirements before using shards for reconstruction.
 - In a shard reconstruction set, all shard payloads MUST share the same
   `hash`, `pub`, `type`, `threshold`, and `share_count`.
+- In a shard reconstruction set, all shard payloads MUST also share the same `version`.
+- If `version == 2`, all shard payloads in the reconstruction set MUST share the same `set_id`.
 - Duplicate `share_index` handling:
   - If the duplicated `share` bytes are identical, decoders SHOULD ignore the duplicate.
   - If the duplicated `share` bytes differ, decoders MUST reject.
 - Set-level consistency requirements for `hash`, `pub`, `type`, `threshold`, and `share_count`
   apply to the deduplicated reconstruction set after duplicate `share_index` resolution.
+- For `version == 2`, a mismatched `set_id` MUST be treated as an incompatible shard-set error even
+  when the input contains exactly `threshold` shares.
 - Decoders MAY perform stricter validation earlier (for example, rejecting duplicate entries that
   disagree on consistency fields even when `share` bytes match).
+- Decoders MAY accept legacy `version == 1` shard payloads for compatibility. Legacy shards do not
+  carry `set_id`, so mixed exact-quorum shard sets are only detectably incompatible when additional
+  shares permit cross-checking.
 
 A recovery set MAY contain multiple `KEY_DOCUMENT` frames for the same DOC_ID.
 Each shard payload MUST be encoded as a single frame (frame index=0, frame total=1).
@@ -532,12 +549,12 @@ Version markers:
 - Auth: AUTH_VERSION
 - Shards: SHARD_VERSION
 
-Current version values (Version 1):
+Current version values (stable v1 profile):
 - Envelope VERSION = `1`
 - Frame VERSION = `1`
 - MANIFEST_VERSION = `1`
 - AUTH_VERSION = `1`
-- SHARD_VERSION = `1`
+- SHARD_VERSION = `2`
 
 ### 12.1) Stable v1 Profile Baseline Contract
 
@@ -667,6 +684,7 @@ Each share in the shard payload contains:
 - `share_index`: 1 ≤ share_index ≤ share_count
 - `share`: bytes (same length as the padded secret; `ceil(length/16) * 16`)
 - `length`: original secret length in bytes (used to truncate the recovered padded secret)
+- `set_id`: a shard-set identifier when `version == 2`
 
 Decoders MUST reject shard payloads where `share` and `length` are inconsistent.
 
@@ -677,6 +695,8 @@ Input:
 - Reconstruction uses the deduplicated set from Section 9.
 - Decoders MAY use any subset of at least `threshold` distinct shares from that set (including all
   available shares).
+- For `version == 2`, exact-threshold reconstruction sets MUST share the same `set_id` before
+  reconstruction proceeds.
 
 Process:
 - Lagrange interpolation over GF(2^128)

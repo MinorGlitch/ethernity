@@ -46,6 +46,33 @@ Use this template for each change entry:
 
 ## Entries
 
+## 2026-03-11 - Add signed shard-set identifiers to shard payloads
+
+- Type: wire-format
+- Normative spec updated: yes
+- Sections changed: 9, 15.3, 15.4
+- Compatibility:
+  - Old decoders reading new artifacts: no (new shard payloads use version 2 and are rejected by
+    version-1-only decoders)
+  - New decoders reading old artifacts: partial (legacy version 1 shards remain readable, but they
+    do not carry `set_id` and therefore cannot guarantee exact-quorum mixed-set detection)
+- Version/profile bump required: yes (older decoders would otherwise miss a security-critical
+  shard-set consistency check)
+- Implementation refs:
+  - `src/ethernity/crypto/signing.py`
+  - `src/ethernity/crypto/sharding.py`
+  - `src/ethernity/cli/keys/recover_keys.py`
+  - `src/ethernity/cli/flows/prompts.py`
+- Test refs:
+  - `tests/unit/test_signing.py`
+  - `tests/unit/test_sharding.py`
+  - `tests/unit/test_recover_keys.py`
+  - `tests/unit/test_recover_shard_prompts.py`
+  - `tests/unit/test_cli_flow_prompts.py`
+- Security impact:
+  - Prevents version 2 shard payloads from silently accepting mixed exact-threshold shard sets
+    during recovery or replacement minting
+
 ## 2026-03-06 - Format change tracking structure introduced
 
 - Type: editorial

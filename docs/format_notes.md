@@ -44,6 +44,22 @@ Operational guidance:
   single generic failure message) to reduce oracle-style signal leakage.
 - `doc_id`/`doc_hash` enable correlation across artifacts; privacy/anonymity is not a goal.
 
+## Shard Set Identifier Rationale
+
+Shard payload version 2 adds a signed `set_id` to each shard in a shard set.
+
+Why this exists:
+- Distinct shard sets for the same `doc_hash` and signing key can otherwise look mutually valid.
+- With plain Shamir shares, any exact-threshold subset defines some polynomial, so mixed sets are
+  not reliably detectable from share math alone.
+- A signed `set_id` lets decoders reject mixed exact-threshold inputs before reconstruction or
+  replacement-minting.
+
+Operational guidance:
+- When rotating or re-minting shards for the same backup, treat `set_id` as the shard-set identity.
+- Do not mix custodial inventories across shard sets just because `doc_hash`, threshold, or share
+  count match.
+
 ## Encoder/CLI Convenience Notes
 
 Some implementations auto-resolve a base directory (for example, to the common parent) when none is

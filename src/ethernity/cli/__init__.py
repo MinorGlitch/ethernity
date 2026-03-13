@@ -32,6 +32,7 @@ from .flows.backup import (
     run_backup_command as run_backup_command,
     run_wizard as run_wizard,
 )
+from .flows.mint import run_mint_command as run_mint_command, run_mint_wizard as run_mint_wizard
 from .flows.recover import (
     run_recover_command as run_recover_command,
     run_recover_wizard as run_recover_wizard,
@@ -48,6 +49,8 @@ __all__ = [
     "main",
     "run_backup",
     "run_backup_command",
+    "run_mint_command",
+    "run_mint_wizard",
     "run_recover_command",
     "run_recover_wizard",
     "run_wizard",

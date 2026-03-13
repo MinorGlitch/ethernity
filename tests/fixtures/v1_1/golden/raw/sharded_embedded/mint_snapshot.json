@@ -1,0 +1,110 @@
+{
+  "mint_cases": {
+    "embedded_from_passphrase_shards_both": {
+      "expected_shard_pdfs": 4,
+      "expected_signing_key_shard_pdfs": 3,
+      "shard_projections": {
+        "shard-ca02bd31bb534ac4-1-of-4.pdf": [
+          {
+            "doc_hash": "ca02bd31bb534ac48c4d81a13fe624e6bf3e7e05b3a89cbb55b16b8aa06be3d0",
+            "doc_id": "ca02bd31bb534ac4",
+            "key_type": "passphrase",
+            "secret_len": 29,
+            "set_id": "set-1",
+            "share_count": 4,
+            "share_index": 1,
+            "sign_pub": "c6c99685b18ea678ed9329a10f1a5f415c1b813b806daf3bcec41951cbb1a74f",
+            "threshold": 2,
+            "version": 2
+          }
+        ],
+        "shard-ca02bd31bb534ac4-2-of-4.pdf": [
+          {
+            "doc_hash": "ca02bd31bb534ac48c4d81a13fe624e6bf3e7e05b3a89cbb55b16b8aa06be3d0",
+            "doc_id": "ca02bd31bb534ac4",
+            "key_type": "passphrase",
+            "secret_len": 29,
+            "set_id": "set-1",
+            "share_count": 4,
+            "share_index": 2,
+            "sign_pub": "c6c99685b18ea678ed9329a10f1a5f415c1b813b806daf3bcec41951cbb1a74f",
+            "threshold": 2,
+            "version": 2
+          }
+        ],
+        "shard-ca02bd31bb534ac4-3-of-4.pdf": [
+          {
+            "doc_hash": "ca02bd31bb534ac48c4d81a13fe624e6bf3e7e05b3a89cbb55b16b8aa06be3d0",
+            "doc_id": "ca02bd31bb534ac4",
+            "key_type": "passphrase",
+            "secret_len": 29,
+            "set_id": "set-1",
+            "share_count": 4,
+            "share_index": 3,
+            "sign_pub": "c6c99685b18ea678ed9329a10f1a5f415c1b813b806daf3bcec41951cbb1a74f",
+            "threshold": 2,
+            "version": 2
+          }
+        ],
+        "shard-ca02bd31bb534ac4-4-of-4.pdf": [
+          {
+            "doc_hash": "ca02bd31bb534ac48c4d81a13fe624e6bf3e7e05b3a89cbb55b16b8aa06be3d0",
+            "doc_id": "ca02bd31bb534ac4",
+            "key_type": "passphrase",
+            "secret_len": 29,
+            "set_id": "set-1",
+            "share_count": 4,
+            "share_index": 4,
+            "sign_pub": "c6c99685b18ea678ed9329a10f1a5f415c1b813b806daf3bcec41951cbb1a74f",
+            "threshold": 2,
+            "version": 2
+          }
+        ],
+        "signing-key-shard-ca02bd31bb534ac4-1-of-3.pdf": [
+          {
+            "doc_hash": "ca02bd31bb534ac48c4d81a13fe624e6bf3e7e05b3a89cbb55b16b8aa06be3d0",
+            "doc_id": "ca02bd31bb534ac4",
+            "key_type": "signing-seed",
+            "secret_len": 32,
+            "set_id": "set-2",
+            "share_count": 3,
+            "share_index": 1,
+            "sign_pub": "c6c99685b18ea678ed9329a10f1a5f415c1b813b806daf3bcec41951cbb1a74f",
+            "threshold": 2,
+            "version": 2
+          }
+        ],
+        "signing-key-shard-ca02bd31bb534ac4-2-of-3.pdf": [
+          {
+            "doc_hash": "ca02bd31bb534ac48c4d81a13fe624e6bf3e7e05b3a89cbb55b16b8aa06be3d0",
+            "doc_id": "ca02bd31bb534ac4",
+            "key_type": "signing-seed",
+            "secret_len": 32,
+            "set_id": "set-2",
+            "share_count": 3,
+            "share_index": 2,
+            "sign_pub": "c6c99685b18ea678ed9329a10f1a5f415c1b813b806daf3bcec41951cbb1a74f",
+            "threshold": 2,
+            "version": 2
+          }
+        ],
+        "signing-key-shard-ca02bd31bb534ac4-3-of-3.pdf": [
+          {
+            "doc_hash": "ca02bd31bb534ac48c4d81a13fe624e6bf3e7e05b3a89cbb55b16b8aa06be3d0",
+            "doc_id": "ca02bd31bb534ac4",
+            "key_type": "signing-seed",
+            "secret_len": 32,
+            "set_id": "set-2",
+            "share_count": 3,
+            "share_index": 3,
+            "sign_pub": "c6c99685b18ea678ed9329a10f1a5f415c1b813b806daf3bcec41951cbb1a74f",
+            "threshold": 2,
+            "version": 2
+          }
+        ]
+      }
+    }
+  },
+  "profile": "raw",
+  "scenario_id": "sharded_embedded"
+}

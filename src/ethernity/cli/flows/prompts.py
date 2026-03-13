@@ -17,10 +17,15 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from ...crypto.sharding import KEY_TYPE_PASSPHRASE, decode_shard_payload
+from ...crypto.sharding import (
+    KEY_TYPE_PASSPHRASE,
+    KEY_TYPE_SIGNING_SEED,
+    ShardPayload,
+    decode_shard_payload,
+)
 from ...encoding.framing import Frame, FrameType
 from ..api import (
     console,
@@ -29,6 +34,7 @@ from ..api import (
     prompt_optional_path_with_picker,
     prompt_paths_with_picker,
     prompt_required,
+    prompt_yes_no,
     status,
 )
 from ..core.text import format_qr_input_error
@@ -221,8 +227,16 @@ def _format_shard_payload_error(exc: Exception) -> str:
     )
 
 
-def _prompt_shard_inputs(*, quiet: bool) -> tuple[list[str], list[str], list[Frame]]:
-    state = _ShardPasteState(frames=[], seen_shares={})
+def _prompt_shard_inputs(
+    *,
+    quiet: bool,
+    key_type: str = KEY_TYPE_PASSPHRASE,
+    label: str = "Shard documents",
+    stop_at_quorum: bool = True,
+) -> tuple[list[str], list[str], list[Frame]]:
+    state = _ShardPasteState(frames=[], seen_shares=set())
+    fallback_files: list[str] = []
+    payload_files: list[str] = []
     manual_help_text = "Enter shard text, QR payloads, or scan file paths; enter '-' to paste."
     while True:
         if state.expected_threshold is not None:
@@ -244,7 +258,16 @@ def _prompt_shard_inputs(*, quiet: bool) -> tuple[list[str], list[str], list[Fra
             stdin_message="Enter '-' alone to paste shard text.",
         )
         if "-" in paths:
-            return [], [], _prompt_shard_text_or_payloads_stdin(state=state)
+            return (
+                fallback_files,
+                payload_files,
+                _prompt_shard_text_or_payloads_stdin(
+                    state=state,
+                    key_type=key_type,
+                    stop_at_quorum=stop_at_quorum,
+                    label=label,
+                ),
+            )
 
         try:
             with status("Reading shard files...", quiet=quiet):
@@ -252,25 +275,76 @@ def _prompt_shard_inputs(*, quiet: bool) -> tuple[list[str], list[str], list[Fra
         except ValueError as exc:
             console_err.print(f"[error]{_format_shard_input_error(exc)}[/error]")
             continue
+        batch_fallback_files, batch_payload_files = _classify_shard_input_paths(paths)
+        _extend_unique_paths(fallback_files, batch_fallback_files)
+        _extend_unique_paths(payload_files, batch_payload_files)
         for frame in frames:
-            if _ingest_shard_frame(frame=frame, state=state, label="Shard documents"):
-                return [], [], state.frames
-        if state.expected_threshold is not None:
-            if len(state.seen_shares) >= state.expected_threshold:
-                return [], [], state.frames
+            if _ingest_shard_frame(
+                frame=frame,
+                state=state,
+                label=label,
+                key_type=key_type,
+                stop_at_quorum=stop_at_quorum,
+            ):
+                return fallback_files, payload_files, state.frames
+        if _should_finish_shard_collection(
+            state,
+            label=label,
+            stop_at_quorum=stop_at_quorum,
+        ):
+            return fallback_files, payload_files, state.frames
+
+
+def _extend_unique_paths(destination: list[str], paths: list[str]) -> None:
+    for path in paths:
+        if path not in destination:
+            destination.append(path)
+
+
+def _classify_shard_input_paths(paths: list[str]) -> tuple[list[str], list[str]]:
+    fallback_files: list[str] = []
+    payload_files: list[str] = []
+    for path in paths:
+        if _is_scan_path(path):
+            payload_files.append(path)
+            continue
+        lines = _read_text_lines(path)
+        try:
+            _frame_from_fallback_lines(lines, label="shard")
+        except ValueError:
+            _frames_from_payload_lines(
+                lines,
+                label="shard QR payloads",
+                source=path,
+            )
+            payload_files.append(path)
+            continue
+        fallback_files.append(path)
+    return fallback_files, payload_files
 
 
 @dataclass
 class _ShardPasteState:
     frames: list[Frame]
-    seen_shares: dict[int, bytes]
+    seen_shares: set[int]
+    seen_payloads: dict[int, ShardPayload] = field(default_factory=dict)
+    expected_version: int | None = None
     expected_threshold: int | None = None
     expected_shares: int | None = None
+    expected_secret_len: int | None = None
     expected_doc_hash: bytes | None = None
     expected_sign_pub: bytes | None = None
+    expected_shard_set_id: bytes | None = None
 
 
-def _ingest_shard_frame(*, frame: Frame, state: _ShardPasteState, label: str) -> bool:
+def _ingest_shard_frame(
+    *,
+    frame: Frame,
+    state: _ShardPasteState,
+    label: str,
+    key_type: str = KEY_TYPE_PASSPHRASE,
+    stop_at_quorum: bool = True,
+) -> bool:
     if frame.frame_type != FrameType.KEY_DOCUMENT:
         console_err.print(
             "[error]That payload isn't a shard document. Use shard recovery text or QR "
@@ -288,29 +362,48 @@ def _ingest_shard_frame(*, frame: Frame, state: _ShardPasteState, label: str) ->
     except ValueError as exc:
         console_err.print(f"[error]{_format_shard_payload_error(exc)}[/error]")
         return False
-    if payload.key_type != KEY_TYPE_PASSPHRASE:
+    if payload.key_type != key_type:
+        expected_label = _key_type_label(key_type)
         console_err.print(
-            "[error]This shard isn't for the passphrase; "
-            "use passphrase shard documents only.[/error]"
+            f"[error]This shard isn't for the {expected_label}; "
+            f"use {expected_label} shard documents only.[/error]"
         )
         return False
 
     if state.expected_threshold is None:
+        state.expected_version = payload.version
         state.expected_threshold = payload.threshold
         state.expected_shares = payload.share_count
+        state.expected_secret_len = payload.secret_len
         state.expected_doc_hash = payload.doc_hash
         state.expected_sign_pub = payload.sign_pub
+        state.expected_shard_set_id = payload.shard_set_id
     else:
+        if state.expected_version is not None and payload.version != state.expected_version:
+            console_err.print(
+                "[error]This shard uses a different shard-payload version than the previous ones. "
+                "Use shards from one shard set.[/error]"
+            )
+            return False
         if payload.threshold != state.expected_threshold:
             console_err.print(
                 "[error]This shard has a different threshold than the previous ones. "
-                "Use shards from one quorum set.[/error]"
+                "Use shards from one shard set.[/error]"
             )
             return False
         if state.expected_shares is not None and payload.share_count != state.expected_shares:
             console_err.print(
                 "[error]This shard has a different share count than the previous ones. "
-                "Use shards from one quorum set.[/error]"
+                "Use shards from one shard set.[/error]"
+            )
+            return False
+        if (
+            state.expected_secret_len is not None
+            and payload.secret_len != state.expected_secret_len
+        ):
+            console_err.print(
+                "[error]This shard has a different secret length than the previous ones. "
+                "Use shards from one shard set.[/error]"
             )
             return False
         if state.expected_doc_hash is not None and payload.doc_hash != state.expected_doc_hash:
@@ -322,19 +415,25 @@ def _ingest_shard_frame(*, frame: Frame, state: _ShardPasteState, label: str) ->
         if state.expected_sign_pub is not None and payload.sign_pub != state.expected_sign_pub:
             console_err.print("[error]This shard is from a different signing key set.[/error]")
             return False
+        if payload.shard_set_id != state.expected_shard_set_id:
+            console_err.print(
+                "[error]This shard is from a different shard set than the previous ones.[/error]"
+            )
+            return False
 
-    existing_share = state.seen_shares.get(payload.share_index)
-    if existing_share is not None:
-        if existing_share != payload.share:
+    existing_payload = state.seen_payloads.get(payload.share_index)
+    if existing_payload is not None:
+        if existing_payload != payload:
             console_err.print(
                 "[error]This shard conflicts with one you've already provided. "
-                "Keep only one version per share index.[/error]"
+                "Keep only one shard per share index from the same shard set.[/error]"
             )
         else:
             console.print("[subtitle]Duplicate shard ignored.[/subtitle]")
         return False
 
-    state.seen_shares[payload.share_index] = payload.share
+    state.seen_shares.add(payload.share_index)
+    state.seen_payloads[payload.share_index] = payload
     state.frames.append(frame)
 
     if state.expected_threshold is None:
@@ -343,29 +442,65 @@ def _ingest_shard_frame(*, frame: Frame, state: _ShardPasteState, label: str) ->
     label_lower = label.lower()
     if remaining <= 0:
         console.print(f"[success]All required {label_lower} captured.[/success]")
-        return True
+        return stop_at_quorum
     return False
+
+
+def _should_finish_shard_collection(
+    state: _ShardPasteState,
+    *,
+    label: str,
+    stop_at_quorum: bool,
+) -> bool:
+    if state.expected_threshold is None:
+        return False
+    if len(state.seen_shares) < state.expected_threshold:
+        return False
+    if stop_at_quorum:
+        return True
+    if state.expected_shares is not None and len(state.seen_shares) >= state.expected_shares:
+        return True
+    return not prompt_yes_no(
+        f"Add more {label.lower()}",
+        default=False,
+        help_text="Select yes if you have more shard inputs from this same shard set.",
+    )
 
 
 def _prompt_shard_fallback_paste(
     *,
     initial_lines: list[str] | None = None,
     state: _ShardPasteState | None = None,
+    key_type: str = KEY_TYPE_PASSPHRASE,
+    label: str = "Shard documents",
+    stop_at_quorum: bool = True,
 ) -> list[Frame]:
-    state = state or _ShardPasteState(frames=[], seen_shares={})
+    state = state or _ShardPasteState(frames=[], seen_shares=set())
     if state.expected_threshold is not None:
         remaining = state.expected_threshold - len(state.seen_shares)
-        if remaining <= 0:
+        if remaining <= 0 and stop_at_quorum:
             return state.frames
-    console.print(
-        "[subtitle]"
-        "Paste shard recovery text in batches; we'll continue until enough shards are decoded."
-        "[/subtitle]"
-    )
-    help_text: str | None = (
-        "Paste shard recovery text (headers are ok). "
-        "We'll keep asking until it decodes and stop once enough shards are collected."
-    )
+    if stop_at_quorum:
+        console.print(
+            "[subtitle]"
+            "Paste shard recovery text in batches; we'll continue until enough shards are decoded."
+            "[/subtitle]"
+        )
+        help_text: str | None = (
+            "Paste shard recovery text (headers are ok). "
+            "We'll keep asking until it decodes and stop once enough shards are collected."
+        )
+    else:
+        console.print(
+            "[subtitle]"
+            "Paste shard recovery text in batches; after quorum you can add more shards "
+            "from the same set."
+            "[/subtitle]"
+        )
+        help_text = (
+            "Paste shard recovery text (headers are ok). "
+            "We'll keep asking until it decodes, then let you add more shards from the same set."
+        )
     first_lines = list(initial_lines or [])
     while True:
         prompt_label = "Paste shard recovery text"
@@ -381,7 +516,15 @@ def _prompt_shard_fallback_paste(
             prompt_label=prompt_label,
         )
         first_lines = []
-        if _ingest_shard_frame(frame=frame, state=state, label="Shard documents"):
+        if _ingest_shard_frame(
+            frame=frame,
+            state=state,
+            label=label,
+            key_type=key_type,
+            stop_at_quorum=stop_at_quorum,
+        ):
+            return state.frames
+        if _should_finish_shard_collection(state, label=label, stop_at_quorum=stop_at_quorum):
             return state.frames
         help_text = None
 
@@ -420,8 +563,11 @@ def _prompt_shard_fallback_until_complete(
 def _prompt_shard_text_or_payloads_stdin(
     *,
     state: _ShardPasteState | None = None,
+    key_type: str = KEY_TYPE_PASSPHRASE,
+    label: str = "Shard documents",
+    stop_at_quorum: bool = True,
 ) -> list[Frame]:
-    state = state or _ShardPasteState(frames=[], seen_shares={})
+    state = state or _ShardPasteState(frames=[], seen_shares=set())
     first_line = prompt_required(
         "Shard recovery text or QR payload (first line or block)",
         help_text="Paste shard recovery text or a QR payload; we'll keep asking until it decodes.",
@@ -434,7 +580,13 @@ def _prompt_shard_text_or_payloads_stdin(
     try:
         first_frame = _frame_from_payload_text(lines[0])
     except ValueError:
-        return _prompt_shard_fallback_paste(initial_lines=lines, state=state)
+        return _prompt_shard_fallback_paste(
+            initial_lines=lines,
+            state=state,
+            key_type=key_type,
+            label=label,
+            stop_at_quorum=stop_at_quorum,
+        )
 
     if len(lines) > 1:
         try:
@@ -445,10 +597,28 @@ def _prompt_shard_text_or_payloads_stdin(
             )
         except ValueError as exc:
             console_err.print(f"[error]{_format_shard_payload_error(exc)}[/error]")
-            return _prompt_shard_payload_paste(initial_frames=[first_frame], state=state)
-        return _prompt_shard_payload_paste(initial_frames=frames, state=state)
+            return _prompt_shard_payload_paste(
+                initial_frames=[first_frame],
+                state=state,
+                key_type=key_type,
+                label=label,
+                stop_at_quorum=stop_at_quorum,
+            )
+        return _prompt_shard_payload_paste(
+            initial_frames=frames,
+            state=state,
+            key_type=key_type,
+            label=label,
+            stop_at_quorum=stop_at_quorum,
+        )
 
-    return _prompt_shard_payload_paste(initial_frames=[first_frame], state=state)
+    return _prompt_shard_payload_paste(
+        initial_frames=[first_frame],
+        state=state,
+        key_type=key_type,
+        label=label,
+        stop_at_quorum=stop_at_quorum,
+    )
 
 
 def _frames_from_shard_text_or_payload_files(paths: list[str]) -> list[Frame]:
@@ -520,24 +690,49 @@ def _prompt_shard_payload_paste(
     *,
     initial_frames: list[Frame] | None = None,
     state: _ShardPasteState | None = None,
+    key_type: str = KEY_TYPE_PASSPHRASE,
+    label: str = "Shard payloads",
+    stop_at_quorum: bool = True,
 ) -> list[Frame]:
-    help_text: str | None = (
-        "Paste one shard QR payload per line; we'll stop once enough shards are collected."
-    )
-    state = state or _ShardPasteState(frames=[], seen_shares={})
+    if stop_at_quorum:
+        help_text: str | None = (
+            "Paste one shard QR payload per line; we'll stop once enough shards are collected."
+        )
+    else:
+        help_text = (
+            "Paste one shard QR payload per line; after quorum you can add more shards from the "
+            "same set."
+        )
+    state = state or _ShardPasteState(frames=[], seen_shares=set())
     if state.expected_threshold is not None:
         remaining = state.expected_threshold - len(state.seen_shares)
-        if remaining <= 0:
+        if remaining <= 0 and stop_at_quorum:
             return state.frames
-    console.print(
-        "[subtitle]"
-        "Paste one shard QR payload per line. We'll stop once the threshold is met."
-        "[/subtitle]"
-    )
+    if stop_at_quorum:
+        console.print(
+            "[subtitle]"
+            "Paste one shard QR payload per line. We'll stop once the threshold is met."
+            "[/subtitle]"
+        )
+    else:
+        console.print(
+            "[subtitle]"
+            "Paste one shard QR payload per line. After quorum, you can add more shards from the "
+            "same set."
+            "[/subtitle]"
+        )
 
     for frame in initial_frames or []:
-        if _ingest_shard_frame(frame=frame, state=state, label="Shard payloads"):
+        if _ingest_shard_frame(
+            frame=frame,
+            state=state,
+            label=label,
+            key_type=key_type,
+            stop_at_quorum=stop_at_quorum,
+        ):
             return state.frames
+    if _should_finish_shard_collection(state, label=label, stop_at_quorum=stop_at_quorum):
+        return state.frames
 
     while True:
         if state.expected_threshold is None:
@@ -558,5 +753,21 @@ def _prompt_shard_payload_paste(
             console_err.print(f"[error]{_format_shard_payload_error(exc)}[/error]")
             continue
 
-        if _ingest_shard_frame(frame=frame, state=state, label="Shard payloads"):
+        if _ingest_shard_frame(
+            frame=frame,
+            state=state,
+            label=label,
+            key_type=key_type,
+            stop_at_quorum=stop_at_quorum,
+        ):
             return state.frames
+        if _should_finish_shard_collection(state, label=label, stop_at_quorum=stop_at_quorum):
+            return state.frames
+
+
+def _key_type_label(key_type: str) -> str:
+    if key_type == KEY_TYPE_PASSPHRASE:
+        return "passphrase"
+    if key_type == KEY_TYPE_SIGNING_SEED:
+        return "signing key"
+    return "requested key"

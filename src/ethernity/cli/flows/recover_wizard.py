@@ -19,6 +19,8 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
+from typing import Any, cast
 
 from ...encoding.framing import Frame
 from ..api import (
@@ -41,8 +43,8 @@ from ..io.frames import (
     _auth_frames_from_payloads,
     _frames_from_fallback,
     _frames_from_payloads,
-    _frames_from_scan,
     _frames_from_shard_inputs,
+    _recovery_frames_from_scan,
 )
 from ..ui.debug import print_recover_debug
 from ..ui.summary import format_auth_status
@@ -110,7 +112,7 @@ def _prompt_recovery_input(
         input_label = "Scan"
         input_detail = ", ".join(args.scan)
         with status("Scanning QR images...", quiet=quiet):
-            frames = _frames_from_scan(args.scan)
+            frames = _recovery_frames_from_scan(args.scan, quiet=quiet)
     else:
         frames, input_label, input_detail = prompt_recovery_input_interactive(
             allow_unsigned=allow_unsigned,
@@ -124,15 +126,16 @@ def _prompt_key_material(
     args: RecoverArgs,
     *,
     quiet: bool,
+    collect_all_shards: bool = False,
 ) -> tuple[str | None, list[str], list[str], list[Frame]]:
     """Prompt for key material.
 
-    Returns (passphrase, shard_fallback_files, shard_payloads_file, pasted_shard_frames).
+    Returns (passphrase, shard_fallback_files, shard_payloads_file, shard_frames).
     """
     passphrase = args.passphrase
     shard_fallback_files = list(args.shard_fallback_file or [])
     shard_payloads_file = list(args.shard_payloads_file or [])
-    pasted_shard_frames: list[Frame] = []
+    shard_frames: list[Frame] = []
 
     if not shard_fallback_files and not shard_payloads_file and not passphrase:
         while True:
@@ -154,15 +157,15 @@ def _prompt_key_material(
             (
                 shard_fallback_files,
                 shard_payloads_file,
-                pasted_shard_frames,
-            ) = _prompt_shard_inputs(quiet=quiet)
+                shard_frames,
+            ) = _prompt_shard_inputs(quiet=quiet, stop_at_quorum=not collect_all_shards)
             break
 
     return (
         passphrase,
         shard_fallback_files,
         shard_payloads_file,
-        pasted_shard_frames,
+        shard_frames,
     )
 
 
@@ -223,11 +226,11 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
             and not sys.stdin.isatty()
         ):
             args.fallback_file = "-"
-        plan = plan_from_args(args)
-        if plan.allow_unsigned:
+        recovery_plan = plan_from_args(args)
+        if recovery_plan.allow_unsigned:
             _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
         return write_plan_outputs(
-            plan,
+            recovery_plan,
             quiet=quiet,
             debug=debug,
             debug_max_bytes=args.debug_max_bytes,
@@ -241,89 +244,122 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
 
         validate_recover_args(args)
         resolve_recover_config(args)
+        working_args = replace(args)
 
         with wizard_flow(name="Recovery", total_steps=4, quiet=quiet):
-            with wizard_stage("Input"):
-                frames, input_label, input_detail = _prompt_recovery_input(
-                    args, allow_unsigned, quiet
-                )
+            frames: list = []
+            input_label: str | None = None
+            input_detail: str | None = None
+            passphrase = working_args.passphrase
+            shard_fallback_files = list(working_args.shard_fallback_file or [])
+            shard_payloads_file = list(working_args.shard_payloads_file or [])
+            collected_shard_frames: list[Frame] = []
+            plan: Any = None
+            manifest: Any = None
+            extracted: list[Any] = []
+            output_path = working_args.output
+            stage_index = 0
 
-            extra_auth_frames = _load_extra_auth_frames(args, allow_unsigned, quiet)
+            while stage_index < 4:
+                if stage_index == 0:
+                    with wizard_stage("Input", step_number=1):
+                        frames, input_label, input_detail = _prompt_recovery_input(
+                            working_args, allow_unsigned, quiet
+                        )
+                    stage_index += 1
+                    continue
 
-            with wizard_stage("Keys"):
-                (
-                    passphrase,
+                if stage_index == 1:
+                    with wizard_stage("Keys", step_number=2):
+                        (
+                            passphrase,
+                            shard_fallback_files,
+                            shard_payloads_file,
+                            collected_shard_frames,
+                        ) = _prompt_key_material(working_args, quiet=quiet)
+                        working_args.passphrase = passphrase
+                        working_args.shard_fallback_file = list(shard_fallback_files)
+                        working_args.shard_payloads_file = list(shard_payloads_file)
+                    stage_index += 1
+                    continue
+
+                extra_auth_frames = _load_extra_auth_frames(working_args, allow_unsigned, quiet)
+                shard_frames = _load_shard_frames(
                     shard_fallback_files,
                     shard_payloads_file,
-                    pasted_shard_frames,
-                ) = _prompt_key_material(args, quiet=quiet)
-
-            shard_frames = _load_shard_frames(
-                shard_fallback_files,
-                shard_payloads_file,
-                extra_frames=pasted_shard_frames,
-                quiet=quiet,
-            )
-
-            plan = build_recovery_plan(
-                frames=frames,
-                extra_auth_frames=extra_auth_frames,
-                shard_frames=shard_frames,
-                passphrase=passphrase,
-                allow_unsigned=allow_unsigned,
-                input_label=input_label,
-                input_detail=input_detail,
-                shard_fallback_files=shard_fallback_files,
-                shard_payloads_file=shard_payloads_file,
-                output_path=args.output,
-                args=args,
-                quiet=quiet,
-            )
-            if plan.allow_unsigned:
-                _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
-
-            with wizard_stage("Review"):
-                review_rows = _build_recovery_review_rows(plan, args)
-                if not quiet:
-                    console.print(panel("Review", build_review_table(review_rows)))
-                if not assume_yes and not prompt_yes_no(
-                    "Proceed with recovery",
-                    default=True,
-                    help_text="Select no to cancel.",
-                ):
-                    console.print("Recovery cancelled.")
-                    return 1
-
-            manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
-            if debug:
-                print_recover_debug(
-                    manifest=manifest,
-                    extracted=extracted,
-                    ciphertext=plan.ciphertext,
-                    passphrase=plan.passphrase,
-                    auth_status=plan.auth_status,
-                    allow_unsigned=plan.allow_unsigned,
-                    output_path=args.output,
-                    debug_max_bytes=args.debug_max_bytes,
-                    reveal_secrets=args.debug_reveal_secrets,
+                    extra_frames=collected_shard_frames,
+                    quiet=quiet,
                 )
-
-            with wizard_stage("Output"):
-                output_path = _resolve_recover_output(
-                    extracted,
-                    args.output,
-                    interactive=True,
-                    doc_id=plan.doc_id,
-                    input_origin=manifest.input_origin,
-                    input_roots=manifest.input_roots,
+                plan = build_recovery_plan(
+                    frames=frames,
+                    extra_auth_frames=extra_auth_frames,
+                    shard_frames=shard_frames,
+                    passphrase=passphrase,
+                    allow_unsigned=allow_unsigned,
+                    input_label=input_label,
+                    input_detail=input_detail,
+                    shard_fallback_files=shard_fallback_files,
+                    shard_payloads_file=shard_payloads_file,
+                    output_path=working_args.output,
+                    args=working_args,
+                    quiet=quiet,
                 )
-                if not assume_yes and not prompt_yes_no(
-                    "Proceed with writing files",
-                    default=True,
-                    help_text="Select no to cancel.",
-                ):
-                    console.print("Recovery cancelled.")
-                    return 1
+                if plan.allow_unsigned:
+                    _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
+
+                if stage_index == 2:
+                    with wizard_stage("Review", step_number=3):
+                        review_rows = _build_recovery_review_rows(plan, working_args)
+                        if not quiet:
+                            console.print(panel("Review", build_review_table(review_rows)))
+                        if not assume_yes and not prompt_yes_no(
+                            "Proceed with recovery",
+                            default=True,
+                            help_text="Select no to cancel.",
+                        ):
+                            console.print("Recovery cancelled.")
+                            return 1
+                    manifest, extracted = decrypt_manifest_and_extract(
+                        plan, quiet=quiet, debug=debug
+                    )
+                    if debug:
+                        print_recover_debug(
+                            manifest=manifest,
+                            extracted=extracted,
+                            ciphertext=plan.ciphertext,
+                            passphrase=plan.passphrase,
+                            auth_status=plan.auth_status,
+                            allow_unsigned=plan.allow_unsigned,
+                            output_path=working_args.output,
+                            debug_max_bytes=args.debug_max_bytes,
+                            reveal_secrets=args.debug_reveal_secrets,
+                        )
+                    stage_index += 1
+                    continue
+
+                with wizard_stage("Output", step_number=4):
+                    plan = cast(Any, plan)
+                    manifest = cast(Any, manifest)
+                    output_path = _resolve_recover_output(
+                        extracted,
+                        working_args.output,
+                        interactive=True,
+                        doc_id=plan.doc_id,
+                        input_origin=manifest.input_origin,
+                        input_roots=manifest.input_roots,
+                    )
+                    working_args.output = output_path
+                    if not assume_yes and not prompt_yes_no(
+                        "Proceed with writing files",
+                        default=True,
+                        help_text="Select no to cancel.",
+                    ):
+                        console.print("Recovery cancelled.")
+                        return 1
+                break
+
+            plan = cast(Any, plan)
+            manifest = cast(Any, manifest)
 
             single_entry_output_is_directory = (
                 output_path is not None
@@ -370,6 +406,8 @@ def _load_shard_frames(
     if not shard_fallback_files and not shard_payloads_file and not extra_frames:
         return []
     shard_frames = list(extra_frames or [])
+    if shard_frames and (shard_fallback_files or shard_payloads_file):
+        return shard_frames
     total_files = len(shard_fallback_files) + len(shard_payloads_file)
     if total_files:
         with status(f"Reading {total_files} shard file(s)...", quiet=quiet):

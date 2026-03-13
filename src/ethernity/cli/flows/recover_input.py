@@ -36,8 +36,8 @@ from ..io.frames import (
     _frame_from_payload_text,
     _frames_from_fallback_lines,
     _frames_from_payload_lines,
-    _frames_from_scan,
     _read_text_lines,
+    _recovery_frames_from_scan,
     format_recovery_input_error,
 )
 
@@ -92,7 +92,7 @@ def prompt_recovery_input_interactive(
                 input_label = "Scan"
                 input_detail = path
                 with status("Scanning QR images...", quiet=quiet):
-                    frames = _frames_from_scan([path])
+                    frames = _recovery_frames_from_scan([path], quiet=quiet)
             return frames, input_label, input_detail
         except (OSError, ValueError) as exc:
             console_err.print(f"[error]{format_recovery_input_error(exc)}[/error]")

@@ -16,7 +16,13 @@
 
 from __future__ import annotations
 
-from .ui.home import HOME_BANNER, empty_recover_args, prompt_home_action, render_home_banner
+from .ui.home import (
+    HOME_BANNER,
+    empty_mint_args,
+    empty_recover_args,
+    prompt_home_action,
+    render_home_banner,
+)
 from .ui.prompts import (
     print_prompt_header,
     prompt_choice,
@@ -76,6 +82,7 @@ __all__ = [
     "configure_ui",
     "console",
     "console_err",
+    "empty_mint_args",
     "empty_recover_args",
     "format_hint",
     "panel",

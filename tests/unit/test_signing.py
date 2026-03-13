@@ -19,9 +19,10 @@ from typing import cast
 
 import cbor2
 
-from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE, SHARD_VERSION
+from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE, LEGACY_SHARD_VERSION, SHARD_VERSION
 from ethernity.crypto.signing import (
     AUTH_VERSION,
+    SHARD_SET_ID_LEN,
     decode_auth_payload,
     encode_auth_payload,
     generate_signing_keypair,
@@ -30,6 +31,8 @@ from ethernity.crypto.signing import (
     verify_auth,
     verify_shard,
 )
+
+TEST_SHARD_SET_ID = b"s" * SHARD_SET_ID_LEN
 
 
 class TestSigning(unittest.TestCase):
@@ -74,6 +77,7 @@ class TestSigning(unittest.TestCase):
             share_index=1,
             secret_len=9,
             share=share,
+            shard_set_id=TEST_SHARD_SET_ID,
             sign_pub=sign_pub,
             sign_priv=sign_priv,
         )
@@ -87,6 +91,7 @@ class TestSigning(unittest.TestCase):
                 share_index=1,
                 secret_len=9,
                 share=share,
+                shard_set_id=TEST_SHARD_SET_ID,
                 sign_pub=sign_pub,
                 signature=signature,
             )
@@ -99,6 +104,38 @@ class TestSigning(unittest.TestCase):
                 threshold=2,
                 share_count=3,
                 share_index=2,
+                secret_len=9,
+                share=share,
+                shard_set_id=TEST_SHARD_SET_ID,
+                sign_pub=sign_pub,
+                signature=signature,
+            )
+        )
+
+    def test_legacy_shard_sign_verify(self) -> None:
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        share = b"share-bytes"
+        signature = sign_shard(
+            doc_hash,
+            shard_version=LEGACY_SHARD_VERSION,
+            key_type=KEY_TYPE_PASSPHRASE,
+            threshold=2,
+            share_count=3,
+            share_index=1,
+            secret_len=9,
+            share=share,
+            sign_pub=sign_pub,
+            sign_priv=sign_priv,
+        )
+        self.assertTrue(
+            verify_shard(
+                doc_hash,
+                shard_version=LEGACY_SHARD_VERSION,
+                key_type=KEY_TYPE_PASSPHRASE,
+                threshold=2,
+                share_count=3,
+                share_index=1,
                 secret_len=9,
                 share=share,
                 sign_pub=sign_pub,
