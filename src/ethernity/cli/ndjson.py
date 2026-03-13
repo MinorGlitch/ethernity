@@ -74,12 +74,19 @@ def error_code_for_exception(exc: BaseException) -> str:
         return api_codes.RUNTIME_ERROR
     if isinstance(exc, OSError):
         return api_codes.IO_ERROR
-    return type(exc).__name__.upper()
+    return api_codes.RUNTIME_ERROR
 
 
 def error_details_for_exception(exc: BaseException) -> dict[str, Any]:
     if isinstance(exc, ApiCommandError):
         return dict(exc.details)
+    if isinstance(exc, OSError):
+        details: dict[str, Any] = {}
+        if exc.filename:
+            details["path"] = exc.filename
+        if exc.errno is not None:
+            details["errno"] = exc.errno
+        return details
     return {}
 
 

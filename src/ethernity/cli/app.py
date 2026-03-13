@@ -23,6 +23,7 @@ from typing import Annotated
 import typer
 
 from ..config import load_cli_defaults
+from ..config.installer import DEFAULT_CONFIG_PATH, resolve_api_defaults_config_path
 from . import command_registry
 from .api import (
     DEBUG_MAX_BYTES_DEFAULT,
@@ -41,6 +42,12 @@ from .flows.backup import run_wizard
 from .flows.first_run_config import run_first_run_config_wizard
 from .flows.mint import run_mint_wizard
 from .flows.recover import run_recover_wizard
+from .ndjson import (
+    emit_error,
+    error_code_for_exception,
+    error_details_for_exception,
+    ndjson_session,
+)
 from .startup import run_startup
 
 app = typer.Typer(add_completion=False, help="Ethernity CLI.")
@@ -82,6 +89,18 @@ def _should_run_first_run_onboarding(invoked_subcommand: str | None) -> bool:
     if invoked_subcommand is not None:
         return False
     return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _is_api_invocation(invoked_subcommand: str | None) -> bool:
+    return invoked_subcommand == "api"
+
+
+def _raise_api_bootstrap_error(exc: BaseException, *, exit_code: int = 2) -> None:
+    details = {"error_type": type(exc).__name__}
+    details.update(error_details_for_exception(exc))
+    with ndjson_session():
+        emit_error(code=error_code_for_exception(exc), message=str(exc), details=details)
+    raise typer.Exit(code=exit_code) from exc
 
 
 def _home_backup_wizard_args(
@@ -226,17 +245,21 @@ def cli(
     ] = False,
 ) -> None:
     _ = version
-    try:
-        should_exit = run_startup(
-            quiet=quiet,
-            no_color=no_color,
-            no_animations=no_animations,
-            debug=debug,
-            init_config=init_config,
-        )
-    except (OSError, RuntimeError, ValueError) as exc:
-        console_err.print(f"[red]Error:[/red] {exc}")
-        raise typer.Exit(code=2)
+    should_exit = False
+    if not _is_api_invocation(ctx.invoked_subcommand):
+        try:
+            should_exit = run_startup(
+                quiet=quiet,
+                no_color=no_color,
+                no_animations=no_animations,
+                debug=debug,
+                init_config=init_config,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            if _is_api_invocation(ctx.invoked_subcommand):
+                _raise_api_bootstrap_error(exc)
+            console_err.print(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(code=2)
     if should_exit:
         raise typer.Exit()
     try:
@@ -256,15 +279,21 @@ def cli(
         console_err.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(code=2)
 
-    config_path_for_defaults = config
-    if config_path_for_defaults is None and _should_use_subcommand_config_for_defaults(
+    explicit_config_path = config
+    if explicit_config_path is None and _should_use_subcommand_config_for_defaults(
         ctx.invoked_subcommand
     ):
-        config_path_for_defaults = _subcommand_config_override(sys.argv)
+        explicit_config_path = _subcommand_config_override(sys.argv)
+
+    config_path_for_defaults = explicit_config_path
+    if config_path_for_defaults is None and _is_api_invocation(ctx.invoked_subcommand):
+        config_path_for_defaults = str(resolve_api_defaults_config_path() or DEFAULT_CONFIG_PATH)
 
     try:
         cli_defaults = load_cli_defaults(path=config_path_for_defaults)
     except (OSError, RuntimeError, ValueError) as exc:
+        if _is_api_invocation(ctx.invoked_subcommand):
+            _raise_api_bootstrap_error(exc)
         console_err.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(code=2)
 
@@ -280,7 +309,10 @@ def cli(
     configure_ui(no_color=effective_no_color, no_animations=effective_no_animations)
 
     ctx.obj = CliContextState(
-        config=config,
+        config=explicit_config_path
+        if explicit_config_path is not None
+        else config_path_for_defaults,
+        config_explicit=explicit_config_path is not None,
         paper=paper,
         design=design,
         debug=debug,

@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
+from typing import Literal
 
 from ...formats.envelope_types import EnvelopeManifest, ManifestFile
 from ..core.paths import expanduser_cli_path
@@ -54,6 +55,7 @@ class RecoverExecutionResult:
     written_paths: tuple[str, ...]
     file_payloads: tuple[dict[str, object], ...]
     output_path: str
+    output_path_kind: Literal["file", "directory", "stdout"]
     single_entry_output_is_directory: bool
 
 
@@ -128,6 +130,7 @@ def execute_recover_plan(
     debug: bool = False,
     debug_max_bytes: int = 0,
     debug_reveal_secrets: bool = False,
+    emit_file_artifacts: bool = True,
     event_sink: EventSink | None = None,
 ) -> RecoverExecutionResult:
     with event_session(event_sink):
@@ -162,7 +165,8 @@ def execute_recover_plan(
                 label=f"Wrote recovered file {index} of {total}",
                 details={"output_path": written_path, "manifest_path": manifest_path},
             )
-            emit_artifact(kind="recovered_file", path=written_path, details=file_payload)
+            if emit_file_artifacts:
+                emit_artifact(kind="recovered_file", path=written_path, details=file_payload)
 
         emit_phase(phase="decrypt", label="Decrypting and extracting payload")
         manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
@@ -205,10 +209,13 @@ def execute_recover_plan(
         if written_paths:
             if len(written_paths) == 1 and not single_entry_output_is_directory:
                 emitted_output_path = written_paths[0]
+                output_path_kind: Literal["file", "directory", "stdout"] = "file"
             else:
                 emitted_output_path = str(Path(written_paths[0]).parent)
+                output_path_kind = "directory"
         else:
             emitted_output_path = plan.output_path or "-"
+            output_path_kind = "stdout"
         return RecoverExecutionResult(
             plan=plan,
             manifest=manifest,
@@ -216,6 +223,7 @@ def execute_recover_plan(
             written_paths=tuple(written_paths),
             file_payloads=tuple(file_payloads),
             output_path=emitted_output_path,
+            output_path_kind=output_path_kind,
             single_entry_output_is_directory=single_entry_output_is_directory,
         )
 

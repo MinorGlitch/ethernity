@@ -134,10 +134,26 @@ class MintResult:
 
 
 @dataclass
+class ConfigGetArgs:
+    """Typed container for API config get arguments."""
+
+    config: str | None = None
+
+
+@dataclass
+class ConfigSetArgs:
+    """Typed container for API config set arguments."""
+
+    config: str | None = None
+    input_json: str | None = None
+
+
+@dataclass
 class CliContextState:
     """Typed shared CLI state stored on `typer.Context.obj`."""
 
     config: str | None = None
+    config_explicit: bool = False
     paper: str | None = None
     design: str | None = None
     debug: bool = False

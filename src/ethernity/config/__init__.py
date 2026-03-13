@@ -15,6 +15,12 @@
 
 """Config loaders and installers."""
 
+from .api_config import (
+    ApiConfigSnapshot,
+    ConfigPatchError,
+    apply_api_config_patch,
+    get_api_config_snapshot,
+)
 from .installer import (
     DEFAULT_KIT_TEMPLATE_PATH,
     DEFAULT_PAPER_SIZE,
@@ -31,15 +37,19 @@ from .installer import (
     ONBOARDING_FIELD_QR_PAYLOAD_CODEC,
     ONBOARDING_FIELD_SHARDING,
     ONBOARDING_FIELD_TEMPLATE_DESIGN,
+    ONBOARDING_FIELDS,
     apply_first_run_defaults,
+    clear_first_run_onboarding_marker,
     first_run_onboarding_configured_fields,
     first_run_onboarding_marker_path,
     first_run_onboarding_needed,
     init_user_config,
     list_template_designs,
     mark_first_run_onboarding_complete,
+    resolve_api_defaults_config_path,
     resolve_config_path,
     resolve_template_design_path,
+    resolve_writable_config_path,
     user_config_needs_init,
 )
 from .loader import (
@@ -58,8 +68,10 @@ from .loader import (
 
 __all__ = [
     "AppConfig",
+    "ApiConfigSnapshot",
     "BackupDefaults",
     "CliDefaults",
+    "ConfigPatchError",
     "DEFAULT_KIT_TEMPLATE_PATH",
     "DEFAULT_PAPER_SIZE",
     "DEFAULT_RECOVERY_TEMPLATE_PATH",
@@ -67,6 +79,7 @@ __all__ = [
     "DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH",
     "DEFAULT_TEMPLATE_PATH",
     "DEFAULT_TEMPLATE_STYLE",
+    "ONBOARDING_FIELDS",
     "ONBOARDING_FIELD_BACKUP_OUTPUT_DIR",
     "ONBOARDING_FIELD_PAGE_SIZE",
     "ONBOARDING_FIELD_PAYLOAD_CODEC",
@@ -80,17 +93,22 @@ __all__ = [
     "RuntimeDefaults",
     "UiDefaults",
     "apply_first_run_defaults",
+    "apply_api_config_patch",
     "apply_template_design",
     "build_qr_config",
+    "clear_first_run_onboarding_marker",
     "first_run_onboarding_configured_fields",
     "first_run_onboarding_marker_path",
     "first_run_onboarding_needed",
+    "get_api_config_snapshot",
     "init_user_config",
     "list_template_designs",
     "load_app_config",
     "load_cli_defaults",
     "mark_first_run_onboarding_complete",
+    "resolve_api_defaults_config_path",
     "resolve_config_path",
+    "resolve_writable_config_path",
     "resolve_template_design_path",
     "user_config_needs_init",
 ]

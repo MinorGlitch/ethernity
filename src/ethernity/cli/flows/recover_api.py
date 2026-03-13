@@ -19,7 +19,7 @@ from __future__ import annotations
 from ...formats.envelope_types import EnvelopeManifest
 from .. import api_codes
 from ..core.types import RecoverArgs
-from ..events import active_event_sink, emit_result
+from ..events import active_event_sink, emit_artifact, emit_result
 from ..ndjson import SCHEMA_VERSION, ApiCommandError, emit_started
 from .recover_service import execute_recover_plan, prepare_recover_plan
 
@@ -36,6 +36,15 @@ def _manifest_payload(manifest: EnvelopeManifest) -> dict[str, object]:
     }
 
 
+def _emit_recovered_file_artifacts(file_payloads: tuple[dict[str, object], ...]) -> None:
+    for file_payload in file_payloads:
+        emit_artifact(
+            kind="recovered_file",
+            path=str(file_payload["output_path"]),
+            details=dict(file_payload),
+        )
+
+
 def run_recover_api_command(args: RecoverArgs, *, debug: bool = False) -> int:
     if not args.output:
         raise ApiCommandError(
@@ -47,6 +56,8 @@ def run_recover_api_command(args: RecoverArgs, *, debug: bool = False) -> int:
         command="recover",
         schema_version=SCHEMA_VERSION,
         args={
+            "config": args.config,
+            "paper": args.paper,
             "fallback_file": args.fallback_file,
             "payloads_file": args.payloads_file,
             "scan": list(args.scan or []),
@@ -57,6 +68,8 @@ def run_recover_api_command(args: RecoverArgs, *, debug: bool = False) -> int:
             "auth_payloads_file": args.auth_payloads_file,
             "output": args.output,
             "allow_unsigned": args.allow_unsigned,
+            "quiet": args.quiet,
+            "debug": debug,
         },
     )
 
@@ -68,12 +81,15 @@ def run_recover_api_command(args: RecoverArgs, *, debug: bool = False) -> int:
         debug=debug,
         debug_max_bytes=args.debug_max_bytes,
         debug_reveal_secrets=args.debug_reveal_secrets,
+        emit_file_artifacts=False,
         event_sink=sink,
     )
 
+    _emit_recovered_file_artifacts(execution.file_payloads)
     emit_result(
         command="recover",
         output_path=execution.output_path,
+        output_path_kind=execution.output_path_kind,
         doc_id=execution.plan.doc_id.hex(),
         auth_status=execution.plan.auth_status,
         input_label=execution.plan.input_label,

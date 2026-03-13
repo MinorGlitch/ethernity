@@ -774,7 +774,6 @@ def run_backup(
     if kit_index_template is not None:
         kit_index_path = str(output_dir_path / "recovery_kit_index.pdf")
     layout_debug_dir = _resolve_layout_debug_dir(layout_debug_dir)
-    layout_debug_dir = _resolve_layout_debug_dir(layout_debug_dir)
 
     render_service = RenderService(config)
     qr_payloads = render_service.build_qr_payloads(qr_frames, codec=qr_payload_codec_mode)

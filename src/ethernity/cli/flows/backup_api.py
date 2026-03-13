@@ -64,11 +64,7 @@ def _emit_backup_artifacts(result: BackupResult) -> None:
         )
 
 
-def _emit_layout_debug_artifacts(
-    *,
-    layout_debug_dir: str | None,
-    result: BackupResult,
-) -> None:
+def _emit_layout_debug_artifacts(*, layout_debug_dir: str | None, result: BackupResult) -> None:
     if layout_debug_dir is None or not layout_debug_dir.strip():
         return
     debug_dir = Path(layout_debug_dir).expanduser().resolve()
@@ -90,7 +86,9 @@ def _emit_layout_debug_artifacts(
     for path in candidates:
         if path.exists():
             emit_artifact(
-                kind="layout_debug_json", path=str(path), details=_artifact_details(str(path))
+                kind="layout_debug_json",
+                path=str(path),
+                details=_artifact_details(str(path)),
             )
 
 
@@ -105,10 +103,15 @@ def run_backup_api_command(args: BackupArgs) -> int:
         command="backup",
         schema_version=SCHEMA_VERSION,
         args={
+            "config": args.config,
+            "paper": args.paper,
+            "design": args.design,
             "input": list(args.input or []),
             "input_dir": list(args.input_dir or []),
             "base_dir": args.base_dir,
             "output_dir": args.output_dir,
+            "layout_debug_dir": args.layout_debug_dir,
+            "qr_chunk_size": args.qr_chunk_size,
             "has_passphrase": args.passphrase is not None,
             "passphrase_generate": args.passphrase is None,
             "passphrase_generate_requested": args.passphrase_generate,
@@ -119,6 +122,8 @@ def run_backup_api_command(args: BackupArgs) -> int:
             "signing_key_mode": args.signing_key_mode,
             "signing_key_shard_threshold": args.signing_key_shard_threshold,
             "signing_key_shard_count": args.signing_key_shard_count,
+            "quiet": args.quiet,
+            "debug": args.debug,
         },
     )
 
