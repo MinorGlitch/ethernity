@@ -38,7 +38,7 @@ class TestCliTyper(unittest.TestCase):
             {
                 "args": ["--help"],
                 "expected_exit_code": 0,
-                "contains": ("backup", "config", "recover"),
+                "contains": ("api", "backup", "config", "recover"),
             },
             {
                 "args": ["--version"],

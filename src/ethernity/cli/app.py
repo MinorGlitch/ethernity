@@ -45,7 +45,7 @@ from .startup import run_startup
 
 app = typer.Typer(add_completion=False, help="Ethernity CLI.")
 
-_DEFAULTS_BOOTSTRAP_SUBCOMMANDS = frozenset({"backup", "recover", "kit", "mint", "render"})
+_DEFAULTS_BOOTSTRAP_SUBCOMMANDS = frozenset({"api", "backup", "recover", "kit", "mint", "render"})
 
 
 def _subcommand_config_override(argv: Sequence[str]) -> str | None:

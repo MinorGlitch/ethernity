@@ -44,6 +44,7 @@ ethernity = "ethernity.cli:main"
 build = ["pyinstaller>=6.19.0"]
 dev = [
     "coverage>=7.13.4",
+    "jsonschema>=4.25.1",
     "mypy>=1.19.1",
     "pre-commit>=4.5.1",
     "pytest>=9.0.2",
@@ -117,6 +118,7 @@ show_missing = true
 [dependency-groups]
 dev = [
     "debugpy>=1.8.20",
+    "jsonschema>=4.25.1",
     "tkinterdnd2>=0.4.3",
     "twine>=6.2.0",
 ]

@@ -129,6 +129,37 @@ class TestCliApp(unittest.TestCase):
     @mock.patch("ethernity.cli.app.configure_ui")
     @mock.patch("ethernity.cli.app.run_startup", return_value=False)
     @mock.patch("ethernity.cli.app.load_cli_defaults", return_value=CliDefaults())
+    def test_cli_api_subcommand_bootstraps_defaults_from_config_override(
+        self,
+        load_cli_defaults: mock.MagicMock,
+        _run_startup: mock.MagicMock,
+        _configure_ui: mock.MagicMock,
+    ) -> None:
+        ctx = _Ctx(invoked_subcommand="api")
+        with mock.patch.object(
+            app_module.sys,
+            "argv",
+            ["ethernity", "api", "recover", "--config", "custom.toml"],
+        ):
+            app_module.cli(
+                ctx,
+                config=None,
+                paper=None,
+                design=None,
+                debug=False,
+                debug_max_bytes=1024,
+                debug_reveal_secrets=False,
+                quiet=False,
+                no_color=False,
+                no_animations=False,
+                init_config=False,
+                version=False,
+            )
+        load_cli_defaults.assert_called_once_with(path="custom.toml")
+
+    @mock.patch("ethernity.cli.app.configure_ui")
+    @mock.patch("ethernity.cli.app.run_startup", return_value=False)
+    @mock.patch("ethernity.cli.app.load_cli_defaults", return_value=CliDefaults())
     def test_cli_config_subcommand_does_not_bootstrap_defaults_from_argv_config(
         self,
         load_cli_defaults: mock.MagicMock,

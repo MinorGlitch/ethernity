@@ -25,6 +25,7 @@ from ...core.bounds import MAX_QR_PAYLOAD_CHARS, MAX_RECOVERY_TEXT_BYTES
 from ...encoding.framing import Frame, FrameType, decode_frame
 from ...encoding.qr_payloads import decode_qr_payload
 from ...qr.scan import QrScanError, scan_qr_payloads
+from .. import api_codes
 from ..core.log import _warn
 from ..core.paths import expanduser_cli_path, expanduser_cli_paths
 from ..core.text import format_qr_input_error
@@ -126,7 +127,12 @@ def _parse_fallback_section(
         return _frame_from_fallback_lines(section_lines, label=section_key, quiet=quiet)
     except ValueError as exc:
         if allow_invalid:
-            _warn(f"invalid {section_key} fallback ignored: {exc}", quiet=quiet)
+            _warn(
+                f"invalid {section_key} fallback ignored: {exc}",
+                quiet=quiet,
+                code=api_codes.FALLBACK_SECTION_INVALID,
+                details={"section": section_key, "reason": str(exc)},
+            )
             return None
         raise
 
@@ -152,7 +158,12 @@ def _frames_from_fallback_lines(
             frames.append(_frame_from_fallback_lines(sections["auth"], label="auth", quiet=quiet))
         except ValueError as exc:
             if allow_invalid_auth:
-                _warn(f"invalid auth fallback ignored: {exc}", quiet=quiet)
+                _warn(
+                    f"invalid auth fallback ignored: {exc}",
+                    quiet=quiet,
+                    code=api_codes.AUTH_FALLBACK_INVALID,
+                    details={"reason": str(exc)},
+                )
             else:
                 raise
     return frames
@@ -247,7 +258,12 @@ def _frame_from_fallback_lines(lines: list[str], *, label: str, quiet: bool = Fa
 
     frame, skipped = _parse_fallback_frame(lines, label=label)
     if skipped:
-        _warn(f"skipped {skipped} non-fallback lines ({label})", quiet=quiet)
+        _warn(
+            f"skipped {skipped} non-fallback lines ({label})",
+            quiet=quiet,
+            code=api_codes.NON_FALLBACK_LINES_SKIPPED,
+            details={"label": label, "skipped_lines": skipped},
+        )
     return frame
 
 
@@ -349,6 +365,8 @@ def _recovery_frames_from_scan(paths: list[str], *, quiet: bool = False) -> list
             f"ignored {ignored_shards} shard QR payload(s) while reading recovery input; "
             "provide shard documents separately",
             quiet=quiet,
+            code=api_codes.RECOVERY_SHARD_PAYLOADS_IGNORED,
+            details={"ignored_frames": ignored_shards},
         )
     return recovery_frames
 

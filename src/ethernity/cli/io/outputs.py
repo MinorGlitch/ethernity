@@ -89,7 +89,7 @@ def _safe_join(base: Path, relative: str) -> Path:
     return path
 
 
-def _write_output(path: str | None, data: bytes) -> None:
+def _write_output(path: str | None, data: bytes) -> str | None:
     """Write bytes to a file path or stdout when no path is provided."""
 
     if path:
@@ -97,8 +97,10 @@ def _write_output(path: str | None, data: bytes) -> None:
         with normalized.open("wb") as handle:
             handle.write(data)
         _harden_file_permissions(normalized)
-    else:
-        sys.stdout.buffer.write(data)
+        return str(normalized)
+
+    sys.stdout.buffer.write(data)
+    return None
 
 
 def _write_recovered_outputs(
@@ -106,23 +108,25 @@ def _write_recovered_outputs(
     entries: Sequence[tuple[object, bytes]],
     *,
     single_entry_output_is_directory: bool = False,
-) -> None:
+) -> list[str]:
     """Write recovered manifest entries to a file, directory, or stdout."""
 
     if not entries:
         raise ValueError("no payloads to write")
     if output_path:
         if len(entries) == 1 and not single_entry_output_is_directory:
-            _write_output(output_path, entries[0][1])
-            return
+            path = _write_output(output_path, entries[0][1])
+            return [path or output_path]
         base_dir = _ensure_directory(output_path, exist_ok=True)
+        written_paths: list[str] = []
         for entry, data in entries:
             path = _safe_join(base_dir, getattr(entry, "path", "payload.bin"))
-            _write_output(str(path), data)
-        return
+            written = _write_output(str(path), data)
+            written_paths.append(written or str(path))
+        return written_paths
 
     if len(entries) == 1:
         _write_output(None, entries[0][1])
-        return
+        return []
 
     raise ValueError("multiple files require --output to specify a directory")

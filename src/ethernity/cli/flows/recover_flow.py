@@ -23,7 +23,6 @@ from ...formats.envelope_codec import decode_envelope, extract_payloads
 from ...formats.envelope_types import EnvelopeManifest, ManifestFile
 from ..api import print_completion_panel, status
 from ..io.outputs import _write_recovered_outputs
-from ..ui.debug import print_recover_debug
 from ..ui.summary import format_auth_status, print_recover_summary
 from .recover_plan import RecoveryPlan
 
@@ -63,10 +62,10 @@ def write_recovered_outputs(
     allow_unsigned: bool,
     quiet: bool,
     single_entry_output_is_directory: bool = False,
-) -> None:
+) -> list[str]:
     """Write recovered outputs and print the post-recovery summary."""
 
-    _write_recovered_outputs(
+    written_paths = _write_recovered_outputs(
         output_path,
         extracted,
         single_entry_output_is_directory=single_entry_output_is_directory,
@@ -87,6 +86,7 @@ def write_recovered_outputs(
         else:
             actions.append("Save stdout output if you need to keep the recovered data.")
         print_completion_panel("Recovery complete", actions, quiet=quiet, use_err=True)
+    return written_paths
 
 
 def run_recover_plan(
@@ -98,31 +98,13 @@ def run_recover_plan(
     debug_reveal_secrets: bool = False,
 ) -> int:
     """Execute a prepared recovery plan end to end."""
+    from .recover_service import execute_recover_plan
 
-    manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
-    if debug:
-        print_recover_debug(
-            manifest=manifest,
-            extracted=extracted,
-            ciphertext=plan.ciphertext,
-            passphrase=plan.passphrase,
-            auth_status=plan.auth_status,
-            allow_unsigned=plan.allow_unsigned,
-            output_path=plan.output_path,
-            debug_max_bytes=debug_max_bytes,
-            reveal_secrets=debug_reveal_secrets,
-        )
-    single_entry_output_is_directory = (
-        plan.output_path is not None
-        and len(extracted) == 1
-        and manifest.input_origin in {"directory", "mixed"}
-    )
-    write_recovered_outputs(
-        extracted,
-        output_path=plan.output_path,
-        auth_status=plan.auth_status,
-        allow_unsigned=plan.allow_unsigned,
+    execute_recover_plan(
+        plan,
         quiet=quiet,
-        single_entry_output_is_directory=single_entry_output_is_directory,
+        debug=debug,
+        debug_max_bytes=debug_max_bytes,
+        debug_reveal_secrets=debug_reveal_secrets,
     )
     return 0

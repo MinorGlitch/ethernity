@@ -21,8 +21,12 @@ import sys
 from ..core.log import _warn
 from ..core.types import RecoverArgs
 from .recover_flow import run_recover_plan
-from .recover_plan import plan_from_args
+from .recover_service import prepare_recover_plan
 from .recover_wizard import run_recover_wizard as _run_recover_wizard
+
+
+def plan_from_args(args: RecoverArgs):
+    return prepare_recover_plan(args)
 
 
 def run_recover_command(args: RecoverArgs, *, debug: bool = False) -> int:
