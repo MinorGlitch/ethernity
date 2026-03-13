@@ -31,6 +31,7 @@ from ..core.paths import expanduser_cli_path, expanduser_cli_paths
 from ..core.text import format_qr_input_error
 from .fallback_parser import (
     contains_fallback_markers as _contains_fallback_markers,
+    format_fallback_error,
     filter_fallback_lines as _filter_fallback_lines,
     parse_fallback_frame as _parse_fallback_frame,
     split_fallback_sections as _split_fallback_sections,
@@ -306,19 +307,72 @@ def _auth_frames_from_payloads(path: str) -> list[Frame]:
     return frames
 
 
+def _frames_from_shard_text_or_payload_lines(
+    lines: list[str],
+    *,
+    source: str,
+    quiet: bool = False,
+) -> list[Frame]:
+    """Decode shard input lines as recovery text first, then as QR payload lines."""
+
+    errors: list[str] = []
+    try:
+        frame = _frame_from_fallback_lines(lines, label="shard", quiet=quiet)
+        return [frame]
+    except ValueError as exc:
+        errors.append(format_fallback_error(exc, context="Shard recovery text"))
+
+    try:
+        return _frames_from_payload_lines(
+            lines,
+            label="shard QR payloads",
+            source=source,
+        )
+    except ValueError as exc:
+        errors.append(str(exc))
+        detail = "; ".join(errors)
+        raise ValueError(
+            f"unable to parse shard recovery text or QR payloads from {source}: {detail}"
+        ) from exc
+
+
+def _is_scan_path(path: str) -> bool:
+    """Return whether a path should be treated as a scan source."""
+
+    return Path(path).suffix.lower() in {
+        ".pdf",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".tif",
+        ".tiff",
+        ".bmp",
+        ".gif",
+        ".webp",
+    }
+
+
 def _frames_from_shard_inputs(
     fallback_files: list[str],
     frame_files: list[str],
     *,
     quiet: bool = False,
 ) -> list[Frame]:
-    """Load shard frames from fallback files and payload files."""
+    """Load shard frames from recovery text, payload, and scan files."""
 
     frames: list[Frame] = []
-    for path in fallback_files:
-        frames.append(_frame_from_fallback(path, quiet=quiet))
-    for path in frame_files:
-        frames.extend(_frames_from_payloads(path, label="shard QR payloads"))
+    for path in [*fallback_files, *frame_files]:
+        if _is_scan_path(path):
+            frames.extend(_frames_from_scan([path]))
+            continue
+        lines = _read_text_lines(path)
+        frames.extend(
+            _frames_from_shard_text_or_payload_lines(
+                lines,
+                source=path,
+                quiet=quiet,
+            )
+        )
     return frames
 
 

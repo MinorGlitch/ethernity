@@ -28,12 +28,14 @@ from .. import api_codes
 from ..core.common import _ctx_state, _paper_callback, _resolve_config_and_paper
 from ..core.types import BackupArgs, RecoverArgs
 from ..flows.backup_api import run_backup_api_command
+from ..flows.kit_api import run_kit_api_command
 from ..flows.recover_api import run_recover_api_command
 from ..flows.recover_service import (
     RecoverShardDirError,
     apply_recover_stdin_default,
     expand_recover_shard_dir,
 )
+from ..flows.settings_api import run_settings_get_api_command, run_settings_set_api_command
 from ..ndjson import (
     ApiCommandError,
     emit_error,
@@ -57,11 +59,23 @@ _BACKUP_HELP = (
     "This command is intended for GUI or automation use."
 )
 
+_KIT_HELP = (
+    "Generate a recovery kit QR document and emit NDJSON progress/events.\n\n"
+    "This command is intended for GUI or automation use."
+)
+
+_SETTINGS_HELP = "Machine-readable settings surface for GUI integrations."
+
 
 def register(app: typer.Typer) -> None:
     api_app = typer.Typer(help=_API_HELP, add_completion=False)
     api_app.command(name="backup", help=_BACKUP_HELP)(backup)
+    api_app.command(name="kit", help=_KIT_HELP)(kit)
     api_app.command(name="recover", help=_RECOVER_HELP)(recover)
+    settings_app = typer.Typer(help=_SETTINGS_HELP, add_completion=False)
+    settings_app.command(name="get", help="Load GUI-managed settings.")(settings_get)
+    settings_app.command(name="set", help="Persist GUI-managed settings.")(settings_set)
+    api_app.add_typer(settings_app, name="settings")
     app.add_typer(api_app, name="api")
 
 
@@ -122,7 +136,10 @@ def recover(
     ] = None,
     shard_fallback_file: Annotated[
         list[str] | None,
-        typer.Option("--shard-fallback-file", help="Shard recovery text file (repeatable)."),
+        typer.Option(
+            "--shard-fallback-file",
+            help="Shard recovery text, QR payload, image, or PDF file (repeatable).",
+        ),
     ] = None,
     shard_dir: Annotated[
         str | None,
@@ -130,7 +147,10 @@ def recover(
     ] = None,
     shard_payloads_file: Annotated[
         list[str] | None,
-        typer.Option("--shard-payloads-file", help="Shard QR payload file (repeatable)."),
+        typer.Option(
+            "--shard-payloads-file",
+            help="Shard QR payload, image, or PDF file (repeatable).",
+        ),
     ] = None,
     auth_fallback_file: Annotated[
         str | None,
@@ -333,6 +353,146 @@ def backup(
             quiet=True,
         )
         return run_backup_api_command(args)
+
+    _run_ndjson_command(_run)
+
+
+def kit(
+    ctx: typer.Context,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Output PDF path."),
+    ] = None,
+    bundle: Annotated[
+        Path | None,
+        typer.Option("--bundle", "-b", help="Custom recovery kit HTML bundle."),
+    ] = None,
+    qr_chunk_size: Annotated[
+        int | None,
+        typer.Option("--qr-chunk-size", help="Payload bytes per QR chunk."),
+    ] = None,
+    variant: Annotated[
+        str,
+        typer.Option("--variant", help="Recovery kit variant: lean or scanner."),
+    ] = "lean",
+    config: Annotated[
+        str | None,
+        typer.Option("--config", help="Use a custom TOML configuration file."),
+    ] = None,
+    paper: Annotated[
+        str | None,
+        typer.Option("--paper", help="Paper size override (A4/Letter).", callback=_paper_callback),
+    ] = None,
+    design: Annotated[
+        str | None,
+        typer.Option("--design", help="Template design folder."),
+    ] = None,
+) -> None:
+    state = _ctx_state(ctx)
+
+    def _run() -> int:
+        config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
+        design_value = design or (state.design if state is not None else None)
+        return run_kit_api_command(
+            bundle=bundle,
+            output=output,
+            config_value=config_value,
+            paper_value=paper_value,
+            design_value=design_value,
+            variant_value=variant.strip().lower(),
+            qr_chunk_size=qr_chunk_size,
+        )
+
+    _run_ndjson_command(_run)
+
+
+def settings_get(
+    ctx: typer.Context,
+    config: Annotated[
+        str | None,
+        typer.Option("--config", help="Use this config file."),
+    ] = None,
+) -> None:
+    _ = ctx
+
+    def _run() -> int:
+        return run_settings_get_api_command(config_path=config)
+
+    _run_ndjson_command(_run)
+
+
+def settings_set(
+    ctx: typer.Context,
+    config: Annotated[
+        str | None,
+        typer.Option("--config", help="Use this config file."),
+    ] = None,
+    template_design: Annotated[
+        str,
+        typer.Option("--template-design", help="Template design folder."),
+    ] = "sentinel",
+    page_size: Annotated[
+        str,
+        typer.Option("--page-size", help="Page size override (A4/LETTER)."),
+    ] = "A4",
+    backup_output_dir: Annotated[
+        str,
+        typer.Option("--backup-output-dir", help="Default backup output directory."),
+    ] = "",
+    qr_chunk_size: Annotated[
+        int,
+        typer.Option("--qr-chunk-size", help="Default preferred QR chunk size."),
+    ] = 512,
+    backup_shard_threshold: Annotated[
+        int,
+        typer.Option("--backup-shard-threshold", help="Default backup shard threshold (0 clears)."),
+    ] = 0,
+    backup_shard_count: Annotated[
+        int,
+        typer.Option("--backup-shard-count", help="Default backup shard count (0 clears)."),
+    ] = 0,
+    signing_key_mode: Annotated[
+        str,
+        typer.Option(
+            "--signing-key-mode",
+            help="Default signing key mode: embedded, sharded, or empty to clear.",
+        ),
+    ] = "",
+    signing_key_shard_threshold: Annotated[
+        int,
+        typer.Option(
+            "--signing-key-shard-threshold",
+            help="Default signing-key shard threshold (0 clears).",
+        ),
+    ] = 0,
+    signing_key_shard_count: Annotated[
+        int,
+        typer.Option(
+            "--signing-key-shard-count",
+            help="Default signing-key shard count (0 clears).",
+        ),
+    ] = 0,
+    recover_output_dir: Annotated[
+        str,
+        typer.Option("--recover-output-dir", help="Default recover output directory."),
+    ] = "",
+) -> None:
+    _ = ctx
+
+    def _run() -> int:
+        return run_settings_set_api_command(
+            config_path=config,
+            design=template_design,
+            page_size=page_size,
+            backup_output_dir=backup_output_dir,
+            qr_chunk_size=qr_chunk_size,
+            backup_shard_threshold=backup_shard_threshold,
+            backup_shard_count=backup_shard_count,
+            signing_key_mode=signing_key_mode,
+            signing_key_shard_threshold=signing_key_shard_threshold,
+            signing_key_shard_count=signing_key_shard_count,
+            recover_output_dir=recover_output_dir,
+        )
 
     _run_ndjson_command(_run)
 

@@ -46,5 +46,14 @@
     "artifact",
     "artifact",
     "result"
+  ],
+  "kit_success_event_types": [
+    "started",
+    "phase",
+    "progress",
+    "phase",
+    "progress",
+    "artifact",
+    "result"
   ]
 }

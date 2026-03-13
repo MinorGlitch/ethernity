@@ -7,6 +7,9 @@ Current commands:
 
 - `ethernity api backup`
 - `ethernity api recover`
+- `ethernity api kit`
+- `ethernity api settings get`
+- `ethernity api settings set`
 
 These commands write newline-delimited JSON (NDJSON) to `stdout`. In API mode, treat `stdout` as
 reserved for event records only.
@@ -32,7 +35,7 @@ Fields:
 
 - `type`: `started`
 - `schema_version`: integer
-- `command`: `backup` or `recover`
+- `command`: `backup`, `recover`, or `kit`
 - `args`: sanitized argument summary
 
 ### `phase`
@@ -49,6 +52,7 @@ Current phases:
 
 - Backup: `plan`, `input`, `backup`, `prepare`, `encrypt`, `shard`, `render`
 - Recover: `plan`, `decrypt`, `write`
+- Recovery kit: `plan`, `render`
 
 ### `progress`
 
@@ -154,6 +158,7 @@ Current artifact kinds:
 - Backup: `qr_document`, `recovery_document`, `recovery_kit_index`, `shard_document`,
   `signing_key_shard_document`
 - Recover: `recovered_file`
+- Recovery kit: `recovery_kit_qr_document`
 
 ## Example
 
@@ -171,5 +176,8 @@ Current artifact kinds:
 - Parse events line-by-line as they arrive
 - Ignore unknown fields for forward compatibility
 - Handle unknown event codes as non-fatal unless the event type is `error`
+- For `recover`, the main recovery input still must be exactly one of `--fallback-file`,
+  `--payloads-file`, or `--scan`, but shard file inputs may be recovery text, QR payload text,
+  or shard PDFs/images under the existing shard file flags
 - Use artifact paths rather than assuming output filenames
 - Prefer `code` values for logic and `message` values for display

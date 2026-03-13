@@ -437,6 +437,167 @@ def apply_first_run_defaults(
     return config_path
 
 
+def apply_gui_defaults(
+    path: str | Path | None,
+    *,
+    design: str,
+    page_size: PageSize,
+    backup_output_dir: str | None,
+    qr_chunk_size: int,
+    backup_shard_threshold: int | None,
+    backup_shard_count: int | None,
+    signing_key_mode: SigningKeyMode | None,
+    signing_key_shard_threshold: int | None = None,
+    signing_key_shard_count: int | None = None,
+    recover_output_dir: str | None = None,
+) -> Path:
+    """Apply GUI-managed defaults into the resolved config file."""
+
+    _ = resolve_template_design_path(design)
+    if page_size not in {"A4", "LETTER"}:
+        raise ValueError("page_size must be 'A4' or 'LETTER'")
+    if qr_chunk_size <= 0:
+        raise ValueError("qr_chunk_size must be a positive integer")
+
+    if (backup_shard_threshold is None) != (backup_shard_count is None):
+        raise ValueError("backup_shard_threshold and backup_shard_count must be set together")
+    if backup_shard_threshold is not None and backup_shard_count is not None:
+        if backup_shard_threshold < 1:
+            raise ValueError("backup_shard_threshold must be >= 1")
+        if backup_shard_threshold > 255:
+            raise ValueError("backup_shard_threshold must be <= 255")
+        if backup_shard_count < backup_shard_threshold:
+            raise ValueError("backup_shard_count must be >= backup_shard_threshold")
+        if backup_shard_count > 255:
+            raise ValueError("backup_shard_count must be <= 255")
+
+    if signing_key_mode not in {None, "embedded", "sharded"}:
+        raise ValueError("signing_key_mode must be 'embedded', 'sharded', or None")
+    if signing_key_mode == "sharded" and (
+        backup_shard_threshold is None or backup_shard_count is None
+    ):
+        raise ValueError("signing_key_mode='sharded' requires backup sharding")
+    if (signing_key_shard_threshold is None) != (signing_key_shard_count is None):
+        raise ValueError(
+            "signing_key_shard_threshold and signing_key_shard_count must be set together"
+        )
+    if signing_key_shard_threshold is not None and signing_key_shard_count is not None:
+        if signing_key_mode != "sharded":
+            raise ValueError("signing key shard counts require signing_key_mode='sharded'")
+        if signing_key_shard_threshold < 1:
+            raise ValueError("signing_key_shard_threshold must be >= 1")
+        if signing_key_shard_threshold > 255:
+            raise ValueError("signing_key_shard_threshold must be <= 255")
+        if signing_key_shard_count < signing_key_shard_threshold:
+            raise ValueError("signing_key_shard_count must be >= signing_key_shard_threshold")
+        if signing_key_shard_count > 255:
+            raise ValueError("signing_key_shard_count must be <= 255")
+
+    config_path = resolve_config_path(path)
+    original = config_path.read_text(encoding="utf-8")
+    line_ending = "\r\n" if "\r\n" in original else "\n"
+
+    updated = original
+    updated = _upsert_table_key(updated, table="templates", key="default_name", value=f'"{design}"')
+    for section in (
+        "template",
+        "recovery_template",
+        "shard_template",
+        "signing_key_shard_template",
+        "kit_template",
+    ):
+        updated = _upsert_table_key(updated, table=section, key="name", value=f'"{design}"')
+    updated = _upsert_table_key(updated, table="page", key="size", value=f'"{page_size}"')
+    updated = _upsert_table_key(updated, table="qr", key="chunk_size", value=str(qr_chunk_size))
+    updated = _upsert_table_key(
+        updated,
+        table="defaults.backup",
+        key="output_dir",
+        value=_toml_quote(backup_output_dir or ""),
+    )
+    updated = _upsert_table_key(
+        updated,
+        table="defaults.recover",
+        key="output",
+        value=_toml_quote(recover_output_dir or ""),
+    )
+
+    if backup_shard_threshold is None or backup_shard_count is None:
+        updated = _upsert_table_key(
+            updated, table="defaults.backup", key="shard_threshold", value="0"
+        )
+        updated = _upsert_table_key(updated, table="defaults.backup", key="shard_count", value="0")
+        updated = _upsert_table_key(
+            updated,
+            table="defaults.backup",
+            key="signing_key_mode",
+            value='""',
+        )
+        updated = _upsert_table_key(
+            updated,
+            table="defaults.backup",
+            key="signing_key_shard_threshold",
+            value="0",
+        )
+        updated = _upsert_table_key(
+            updated,
+            table="defaults.backup",
+            key="signing_key_shard_count",
+            value="0",
+        )
+    else:
+        updated = _upsert_table_key(
+            updated,
+            table="defaults.backup",
+            key="shard_threshold",
+            value=str(backup_shard_threshold),
+        )
+        updated = _upsert_table_key(
+            updated,
+            table="defaults.backup",
+            key="shard_count",
+            value=str(backup_shard_count),
+        )
+        effective_signing_key_mode = signing_key_mode or "embedded"
+        updated = _upsert_table_key(
+            updated,
+            table="defaults.backup",
+            key="signing_key_mode",
+            value=_toml_quote(effective_signing_key_mode),
+        )
+        if effective_signing_key_mode != "sharded":
+            updated = _upsert_table_key(
+                updated,
+                table="defaults.backup",
+                key="signing_key_shard_threshold",
+                value="0",
+            )
+            updated = _upsert_table_key(
+                updated,
+                table="defaults.backup",
+                key="signing_key_shard_count",
+                value="0",
+            )
+        else:
+            updated = _upsert_table_key(
+                updated,
+                table="defaults.backup",
+                key="signing_key_shard_threshold",
+                value=str(signing_key_shard_threshold or 0),
+            )
+            updated = _upsert_table_key(
+                updated,
+                table="defaults.backup",
+                key="signing_key_shard_count",
+                value=str(signing_key_shard_count or 0),
+            )
+
+    if not updated.endswith(("\n", "\r\n")):
+        updated += line_ending
+    _write_text_atomic(config_path, updated)
+    return config_path
+
+
 def _write_text_atomic(path: Path, text: str) -> None:
     """Atomically replace a text file in place."""
 

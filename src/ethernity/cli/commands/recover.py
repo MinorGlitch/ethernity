@@ -91,7 +91,7 @@ def recover(
         list[str] | None,
         typer.Option(
             "--shard-fallback-file",
-            help="Shard recovery text file (repeatable).",
+            help="Shard recovery text, QR payload, image, or PDF file (repeatable).",
             rich_help_panel="Inputs",
         ),
     ] = None,
@@ -107,7 +107,7 @@ def recover(
         list[str] | None,
         typer.Option(
             "--shard-payloads-file",
-            help="Shard QR payload file (repeatable).",
+            help="Shard QR payload, image, or PDF file (repeatable).",
             rich_help_panel="Inputs",
         ),
     ] = None,

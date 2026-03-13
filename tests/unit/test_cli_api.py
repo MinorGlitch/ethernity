@@ -93,7 +93,9 @@ class TestCliApi(unittest.TestCase):
             )
         self.assertEqual(result.exit_code, 0)
         self.assertIn("backup", result.output)
+        self.assertIn("kit", result.output)
         self.assertIn("recover", result.output)
+        self.assertIn("settings", result.output)
 
     def test_api_backup_flag_values_reach_command(self) -> None:
         captured: dict[str, object] = {}
@@ -462,6 +464,108 @@ class TestCliApi(unittest.TestCase):
         ]
         self.assertGreaterEqual(len(render_progress), 2)
         self.assertEqual(render_progress[-1]["current"], render_progress[-1]["total"])
+
+    def test_api_kit_emits_ndjson_artifacts(self) -> None:
+        output_path = Path("/tmp/recovery_kit_qr.pdf")
+        with (
+            mock.patch("ethernity.cli.app.run_startup", return_value=False),
+            mock.patch(
+                "ethernity.cli.flows.kit_api.render_kit_qr_document",
+                return_value=SimpleNamespace(
+                    output_path=output_path,
+                    chunk_count=7,
+                    chunk_size=1200,
+                    bytes_total=4096,
+                    doc_id_hex="ab" * 8,
+                ),
+            ),
+        ):
+            result = self.runner.invoke(
+                cli.app,
+                ["api", "kit", "--output", str(output_path), "--variant", "lean"],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(
+            [event["type"] for event in events],
+            _contracts()["kit_success_event_types"],
+        )
+        self.assertEqual(events[-2]["kind"], "recovery_kit_qr_document")
+        self.assertEqual(events[-1]["command"], "kit")
+        self.assertEqual(events[-1]["output_path"], str(output_path))
+
+    def test_api_settings_get_emits_single_result(self) -> None:
+        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                ["--config", str(DEFAULT_CONFIG_PATH), "api", "settings", "get"],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["type"], "result")
+        self.assertEqual(events[0]["command"], "settings_get")
+        self.assertIn("settings", events[0])
+        self.assertIn("designs", events[0])
+
+    def test_api_settings_set_roundtrip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "config.toml"
+            config_path.write_text(
+                DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+
+            with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+                set_result = self.runner.invoke(
+                    cli.app,
+                    [
+                        "--config",
+                        str(config_path),
+                        "api",
+                        "settings",
+                        "set",
+                        "--template-design",
+                        "ledger",
+                        "--page-size",
+                        "LETTER",
+                        "--backup-output-dir",
+                        "/tmp/backups",
+                        "--qr-chunk-size",
+                        "768",
+                        "--backup-shard-threshold",
+                        "2",
+                        "--backup-shard-count",
+                        "3",
+                        "--signing-key-mode",
+                        "embedded",
+                        "--recover-output-dir",
+                        "/tmp/recovered",
+                    ],
+                )
+
+                get_result = self.runner.invoke(
+                    cli.app,
+                    ["--config", str(config_path), "api", "settings", "get"],
+                )
+
+        self.assertEqual(set_result.exit_code, 0, set_result.output)
+        self.assertEqual(get_result.exit_code, 0, get_result.output)
+        set_events = [json.loads(line) for line in set_result.output.splitlines() if line.strip()]
+        get_events = [json.loads(line) for line in get_result.output.splitlines() if line.strip()]
+        self._assert_valid_events(set_events)
+        self._assert_valid_events(get_events)
+        self.assertEqual(set_events[0]["command"], "settings_set")
+        self.assertEqual(set_events[0]["settings"]["template_design"], "ledger")
+        self.assertEqual(set_events[0]["settings"]["page_size"], "LETTER")
+        self.assertEqual(set_events[0]["settings"]["backup_output_dir"], "/tmp/backups")
+        self.assertEqual(set_events[0]["settings"]["recover_output_dir"], "/tmp/recovered")
+        self.assertEqual(get_events[0]["settings"]["template_design"], "ledger")
+        self.assertEqual(get_events[0]["settings"]["qr_chunk_size"], 768)
 
 
 if __name__ == "__main__":

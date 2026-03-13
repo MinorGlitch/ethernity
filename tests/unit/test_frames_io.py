@@ -293,21 +293,62 @@ class TestFramesIo(unittest.TestCase):
     def test_frames_from_shard_inputs_reads_fallback_and_payload_files(self) -> None:
         fallback_frame = self._frame(frame_type=FrameType.KEY_DOCUMENT, doc_id=b"\x34" * DOC_ID_LEN)
         payload_frame = self._frame(frame_type=FrameType.KEY_DOCUMENT, doc_id=b"\x35" * DOC_ID_LEN)
+
+        def _read_lines(path: str) -> list[str]:
+            if path == "fallback.txt":
+                return ["SHARD FALLBACK"]
+            if path == "payloads.txt":
+                return ["payload-line"]
+            raise AssertionError(f"unexpected path: {path}")
+
         with mock.patch(
-            "ethernity.cli.io.frames._frame_from_fallback",
-            return_value=fallback_frame,
-        ) as fallback_mock:
+            "ethernity.cli.io.frames._read_text_lines",
+            side_effect=_read_lines,
+        ) as read_mock:
             with mock.patch(
-                "ethernity.cli.io.frames._frames_from_payloads",
-                return_value=[payload_frame],
-            ) as payload_mock:
+                "ethernity.cli.io.frames._frames_from_shard_text_or_payload_lines",
+                side_effect=[[fallback_frame], [payload_frame]],
+            ) as shard_parse_mock:
                 frames = _frames_from_shard_inputs(
                     ["fallback.txt"],
                     ["payloads.txt"],
                 )
+
         self.assertEqual(frames, [fallback_frame, payload_frame])
-        fallback_mock.assert_called_once_with("fallback.txt", quiet=False)
-        payload_mock.assert_called_once_with("payloads.txt", label="shard QR payloads")
+        self.assertEqual(read_mock.call_args_list, [mock.call("fallback.txt"), mock.call("payloads.txt")])
+        self.assertEqual(
+            shard_parse_mock.call_args_list,
+            [
+                mock.call(["SHARD FALLBACK"], source="fallback.txt", quiet=False),
+                mock.call(["payload-line"], source="payloads.txt", quiet=False),
+            ],
+        )
+
+    def test_frames_from_shard_inputs_scans_document_paths_from_either_file_flag(self) -> None:
+        scanned_from_fallback = self._frame(
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=b"\x36" * DOC_ID_LEN,
+        )
+        scanned_from_payload = self._frame(
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=b"\x37" * DOC_ID_LEN,
+        )
+        with mock.patch(
+            "ethernity.cli.io.frames._frames_from_scan",
+            side_effect=[[scanned_from_fallback], [scanned_from_payload]],
+        ) as scan_mock:
+            with mock.patch("ethernity.cli.io.frames._read_text_lines") as read_mock:
+                frames = _frames_from_shard_inputs(
+                    ["shard-document.pdf"],
+                    ["shard-photo.png"],
+                )
+
+        self.assertEqual(frames, [scanned_from_fallback, scanned_from_payload])
+        self.assertEqual(
+            scan_mock.call_args_list,
+            [mock.call(["shard-document.pdf"]), mock.call(["shard-photo.png"])],
+        )
+        read_mock.assert_not_called()
 
     def test_frames_from_scan_reports_scan_failures(self) -> None:
         with mock.patch(

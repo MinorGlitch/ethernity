@@ -35,7 +35,10 @@
       "type": "string",
       "enum": [
         "backup",
-        "recover"
+        "recover",
+        "kit",
+        "settings_get",
+        "settings_set"
       ]
     },
     "metadataObject": {
@@ -511,6 +514,222 @@
         }
       }
     },
+    "kitResultEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "ok",
+        "command",
+        "output_path",
+        "variant",
+        "chunk_count",
+        "chunk_size",
+        "bytes_total",
+        "doc_id"
+      ],
+      "properties": {
+        "type": {
+          "const": "result"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "kit"
+        },
+        "output_path": {
+          "$ref": "#/$defs/pathString"
+        },
+        "variant": {
+          "type": "string",
+          "enum": [
+            "lean",
+            "scanner"
+          ]
+        },
+        "chunk_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "chunk_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "bytes_total": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "doc_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]+$"
+        }
+      }
+    },
+    "guiSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "template_design",
+        "page_size",
+        "backup_output_dir",
+        "qr_chunk_size",
+        "backup_shard_threshold",
+        "backup_shard_count",
+        "signing_key_mode",
+        "signing_key_shard_threshold",
+        "signing_key_shard_count",
+        "recover_output_dir"
+      ],
+      "properties": {
+        "template_design": {
+          "type": "string",
+          "minLength": 1
+        },
+        "page_size": {
+          "type": "string",
+          "enum": [
+            "A4",
+            "LETTER"
+          ]
+        },
+        "backup_output_dir": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "qr_chunk_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "backup_shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "backup_shard_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "signing_key_mode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "embedded",
+            "sharded",
+            null
+          ]
+        },
+        "signing_key_shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "signing_key_shard_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "recover_output_dir": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "settingsGetResultEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "ok",
+        "command",
+        "config_path",
+        "version",
+        "designs",
+        "settings"
+      ],
+      "properties": {
+        "type": {
+          "const": "result"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "settings_get"
+        },
+        "config_path": {
+          "$ref": "#/$defs/pathString"
+        },
+        "version": {
+          "type": "string"
+        },
+        "designs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "settings": {
+          "$ref": "#/$defs/guiSettings"
+        }
+      }
+    },
+    "settingsSetResultEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "ok",
+        "command",
+        "config_path",
+        "version",
+        "designs",
+        "settings"
+      ],
+      "properties": {
+        "type": {
+          "const": "result"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "settings_set"
+        },
+        "config_path": {
+          "$ref": "#/$defs/pathString"
+        },
+        "version": {
+          "type": "string"
+        },
+        "designs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "settings": {
+          "$ref": "#/$defs/guiSettings"
+        }
+      }
+    },
     "resultEvent": {
       "oneOf": [
         {
@@ -518,6 +737,15 @@
         },
         {
           "$ref": "#/$defs/recoverResultEvent"
+        },
+        {
+          "$ref": "#/$defs/kitResultEvent"
+        },
+        {
+          "$ref": "#/$defs/settingsGetResultEvent"
+        },
+        {
+          "$ref": "#/$defs/settingsSetResultEvent"
         }
       ]
     }

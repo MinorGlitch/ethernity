@@ -114,10 +114,16 @@ def _write_recovered_outputs(
     if not entries:
         raise ValueError("no payloads to write")
     if output_path:
+        normalized_output = Path(expanduser_cli_path(output_path, preserve_stdin=False) or "")
+        explicit_directory_hint = output_path.endswith(("/", "\\"))
+        if explicit_directory_hint:
+            single_entry_output_is_directory = True
+        if len(entries) == 1 and normalized_output.exists() and normalized_output.is_dir():
+            single_entry_output_is_directory = True
         if len(entries) == 1 and not single_entry_output_is_directory:
             path = _write_output(output_path, entries[0][1])
             return [path or output_path]
-        base_dir = _ensure_directory(output_path, exist_ok=True)
+        base_dir = _ensure_directory(normalized_output, exist_ok=True)
         written_paths: list[str] = []
         for entry, data in entries:
             path = _safe_join(base_dir, getattr(entry, "path", "payload.bin"))
