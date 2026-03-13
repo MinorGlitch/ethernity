@@ -83,7 +83,14 @@ def run_recover_api_command(args: RecoverArgs, *, debug: bool = False) -> int:
             quiet=args.quiet,
             code=api_codes.AUTH_CHECK_SKIPPED,
         )
-    execution = execute_recover_plan(plan, quiet=True, debug=debug, event_sink=sink)
+    execution = execute_recover_plan(
+        plan,
+        quiet=True,
+        debug=debug,
+        debug_max_bytes=args.debug_max_bytes,
+        debug_reveal_secrets=args.debug_reveal_secrets,
+        event_sink=sink,
+    )
 
     files: list[dict[str, object]] = []
     total_files = len(execution.written_paths)

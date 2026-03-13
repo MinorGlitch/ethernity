@@ -23,7 +23,7 @@ from typing import Annotated, Literal
 
 import typer
 
-from ...config import BackupDefaults, RecoverDefaults
+from ...config import BackupDefaults
 from .. import api_codes
 from ..core.common import _ctx_state, _paper_callback, _resolve_config_and_paper
 from ..core.types import BackupArgs, RecoverArgs
@@ -165,10 +165,6 @@ def recover(
 
     def _run() -> int:
         config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
-        defaults = state.recover_defaults if state is not None else None
-        if not isinstance(defaults, RecoverDefaults):
-            defaults = RecoverDefaults()
-        output_value = output if output is not None else defaults.output
         fallback_value = apply_recover_stdin_default(
             fallback_file,
             payloads_file,
@@ -190,7 +186,7 @@ def recover(
             shard_payloads_file=list(shard_payloads_file or []),
             auth_fallback_file=auth_fallback_file,
             auth_payloads_file=auth_payloads_file,
-            output=output_value,
+            output=output,
             allow_unsigned=allow_unsigned,
             assume_yes=True,
             debug_max_bytes=state.debug_max_bytes if state is not None else 0,

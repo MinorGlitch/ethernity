@@ -34,7 +34,7 @@ from ethernity.cli import api_codes
 from ethernity.cli.core.types import BackupArgs, BackupResult, InputFile
 from ethernity.cli.flows.backup_api import run_backup_api_command
 from ethernity.cli.ndjson import ndjson_session
-from ethernity.config import load_app_config
+from ethernity.config import CliDefaults, RecoverDefaults, load_app_config
 from ethernity.core.models import DocumentPlan, SigningSeedMode
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -221,6 +221,30 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[0]["code"], "OUTPUT_REQUIRED")
         self.assertIn("--output is required", events[0]["message"])
 
+    def test_api_recover_without_output_ignores_config_default(self) -> None:
+        payloads_file = V1_FIXTURE_ROOT / "main_payloads.txt"
+        defaults = CliDefaults(recover=RecoverDefaults(output="/tmp/stale-output.bin"))
+        with (
+            mock.patch("ethernity.cli.app.run_startup", return_value=False),
+            mock.patch("ethernity.cli.app.load_cli_defaults", return_value=defaults),
+        ):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "api",
+                    "recover",
+                    "--payloads-file",
+                    str(payloads_file),
+                    "--passphrase",
+                    FIXTURE_PASSPHRASE,
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 2)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(events[0]["code"], "OUTPUT_REQUIRED")
+
     def test_api_recover_missing_shard_dir_emits_structured_error_code(self) -> None:
         with mock.patch("ethernity.cli.app.run_startup", return_value=False):
             result = self.runner.invoke(
@@ -245,6 +269,73 @@ class TestCliApi(unittest.TestCase):
         events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
         self._assert_valid_events(events)
         self.assertEqual(events[0]["code"], "SHARD_DIR_NOT_FOUND")
+
+    def test_api_recover_forwards_debug_limits(self) -> None:
+        payloads_file = V1_FIXTURE_ROOT / "main_payloads.txt"
+        output_path = "/tmp/recovered.bin"
+        captured: dict[str, object] = {}
+
+        def _capture_execute(plan, **kwargs):
+            captured["debug_max_bytes"] = kwargs["debug_max_bytes"]
+            captured["debug_reveal_secrets"] = kwargs["debug_reveal_secrets"]
+            captured["quiet"] = kwargs["quiet"]
+            captured["debug"] = kwargs["debug"]
+            return SimpleNamespace(
+                plan=SimpleNamespace(
+                    output_path=output_path,
+                    doc_id=b"\x11" * 8,
+                    auth_status="verified",
+                    input_label="QR payloads",
+                    input_detail=str(payloads_file),
+                ),
+                manifest=SimpleNamespace(
+                    format_version=1,
+                    input_origin="file",
+                    input_roots=(),
+                    sealed=False,
+                    payload_codec="raw",
+                    payload_raw_len=7,
+                    files=(),
+                ),
+                extracted=(),
+                written_paths=(),
+            )
+
+        with (
+            mock.patch("ethernity.cli.app.run_startup", return_value=False),
+            mock.patch(
+                "ethernity.cli.flows.recover_api.prepare_recover_plan",
+                return_value=SimpleNamespace(allow_unsigned=False),
+            ),
+            mock.patch(
+                "ethernity.cli.flows.recover_api.execute_recover_plan",
+                side_effect=_capture_execute,
+            ),
+        ):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "--debug",
+                    "--debug-max-bytes",
+                    "32",
+                    "api",
+                    "recover",
+                    "--payloads-file",
+                    str(payloads_file),
+                    "--passphrase",
+                    FIXTURE_PASSPHRASE,
+                    "--output",
+                    output_path,
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(captured["debug_max_bytes"], 32)
+        self.assertFalse(captured["debug_reveal_secrets"])
+        self.assertTrue(captured["debug"])
+        self.assertTrue(captured["quiet"])
 
     def test_api_backup_without_inputs_emits_structured_error(self) -> None:
         with mock.patch("ethernity.cli.app.run_startup", return_value=False):
