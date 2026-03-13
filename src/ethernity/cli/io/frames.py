@@ -373,6 +373,26 @@ def _recovery_frames_from_scan(paths: list[str], *, quiet: bool = False) -> list
     return recovery_frames
 
 
+def _shard_frames_from_scan(paths: list[str], *, quiet: bool = False) -> list[Frame]:
+    """Scan shard input and keep only KEY_DOCUMENT frames."""
+
+    frames = _frames_from_scan(paths)
+    shard_frames = [frame for frame in frames if frame.frame_type == FrameType.KEY_DOCUMENT]
+    ignored_non_shards = len(frames) - len(shard_frames)
+    if not shard_frames:
+        raise ValueError(
+            "scan input did not contain shard QR payloads; provide shard documents, "
+            "shard payload files, or shard recovery text"
+        )
+    if ignored_non_shards:
+        _warn(
+            f"ignored {ignored_non_shards} non-shard QR payload(s) while reading shard input",
+            quiet=quiet,
+            details={"ignored_frames": ignored_non_shards},
+        )
+    return shard_frames
+
+
 def _dedupe_frames(frames: list[Frame]) -> list[Frame]:
     """Deduplicate frames by type/index/doc_id, rejecting conflicts."""
 

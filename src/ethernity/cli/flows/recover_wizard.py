@@ -197,6 +197,8 @@ def _build_recovery_review_rows(
             shard_sources.append(f"{len(plan.shard_fallback_files)} fallback file(s)")
         if plan.shard_payloads_file:
             shard_sources.append(f"{len(plan.shard_payloads_file)} payload file(s)")
+        if plan.shard_scan:
+            shard_sources.append(f"{len(plan.shard_scan)} scan path(s)")
         shard_label = ", ".join(shard_sources) if shard_sources else "provided"
         review_rows.append(("Shard inputs", f"{len(plan.shard_frames)} payload(s), {shard_label}"))
 
@@ -300,6 +302,7 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                     input_detail=input_detail,
                     shard_fallback_files=shard_fallback_files,
                     shard_payloads_file=shard_payloads_file,
+                    shard_scan=list(working_args.shard_scan or []),
                     output_path=working_args.output,
                     args=working_args,
                     quiet=quiet,

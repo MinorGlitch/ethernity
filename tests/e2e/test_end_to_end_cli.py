@@ -433,6 +433,79 @@ class TestEndToEndCli(unittest.TestCase):
             self.assertEqual(events[-1]["output_path_kind"], "file")
             self.assertEqual(output_path.read_bytes(), payload)
 
+    def test_api_recover_cli_supports_scanned_shard_pdfs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            input_path = tmp_path / "input.txt"
+            input_path.write_text("recover via shard scan", encoding="utf-8")
+            output_dir = tmp_path / "backup"
+            recovered_path = tmp_path / "recovered.bin"
+            repo_root = Path(__file__).resolve().parents[2]
+            config_path = repo_root / "src" / "ethernity" / "config" / "config.toml"
+
+            env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
+            backup = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(config_path),
+                    "backup",
+                    "--input",
+                    str(input_path),
+                    "--output-dir",
+                    str(output_dir),
+                    "--passphrase",
+                    "scan-shards-passphrase",
+                    "--shard-threshold",
+                    "2",
+                    "--shard-count",
+                    "3",
+                    "--quiet",
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(backup.returncode, 0, backup.stderr)
+
+            qr_document = output_dir / "qr_document.pdf"
+            shard_paths = sorted(output_dir.glob("shard-*.pdf"))
+            self.assertGreaterEqual(len(shard_paths), 2)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "api",
+                    "recover",
+                    "--scan",
+                    str(qr_document),
+                    "--shard-scan",
+                    str(shard_paths[0]),
+                    "--shard-scan",
+                    str(shard_paths[1]),
+                    "--output",
+                    str(recovered_path),
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stderr, "")
+            events = self._parse_ndjson_events(result.stdout)
+            self.assertEqual(events[-1]["command"], "recover")
+            self.assertEqual(events[-1]["output_path_kind"], "file")
+            self.assertEqual(recovered_path.read_text(encoding="utf-8"), "recover via shard scan")
+
     def test_backup_cli_signing_key_shards(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)

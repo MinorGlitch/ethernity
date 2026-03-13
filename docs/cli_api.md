@@ -354,6 +354,18 @@ Example onboarding patch:
 {"type":"result","ok":true,"command":"config","operation":"get","path":"/home/user/.config/ethernity/config.toml","source":"user","values":{"page":{"size":"A4"}},"options":{"page_sizes":["A4","LETTER"]},"onboarding":{"needed":true,"configured_fields":[],"available_fields":["page_size"]}}
 ```
 
+Recover can also scan QR payloads directly from PDFs, images, or directories by using `--scan`:
+
+```bash
+ethernity api recover --scan "/path/to/recovery_document.pdf" --passphrase "correct horse battery staple" --output "/tmp/recovered.bin"
+```
+
+Passphrase shard PDFs/images can be scanned separately with `--shard-scan`:
+
+```bash
+ethernity api recover --scan "/path/to/qr_document.pdf" --shard-scan "/path/to/shard-01.pdf" --shard-scan "/path/to/shard-02.pdf" --output "/tmp/recovered.bin"
+```
+
 ## Client Guidance
 
 - Parse events line-by-line as they arrive

@@ -273,6 +273,10 @@ def recover(
         list[str] | None,
         typer.Option("--shard-payloads-file", help="Shard QR payload file (repeatable)."),
     ] = None,
+    shard_scan: Annotated[
+        list[str] | None,
+        typer.Option("--shard-scan", help="Shard scan path (image/PDF/dir, repeatable)."),
+    ] = None,
     auth_fallback_file: Annotated[
         str | None,
         typer.Option("--auth-fallback-file", help="Auth recovery text (fallback, z-base-32)."),
@@ -318,6 +322,7 @@ def recover(
             passphrase=passphrase,
             shard_fallback_file=shard_files,
             shard_payloads_file=list(shard_payloads_file or []),
+            shard_scan=list(shard_scan or []),
             auth_fallback_file=auth_fallback_file,
             auth_payloads_file=auth_payloads_file,
             output=output,

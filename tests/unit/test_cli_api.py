@@ -1270,6 +1270,43 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(captured["shard_fallback_file"], [str(shard_path)])
 
+    def test_api_recover_passes_shard_scan_inputs(self) -> None:
+        captured: dict[str, object] = {}
+
+        def _capture_args(args, **_kwargs) -> int:
+            captured["shard_scan"] = list(args.shard_scan or [])
+            return 0
+
+        with (
+            mock.patch("ethernity.cli.app.run_startup", return_value=False),
+            mock.patch(
+                "ethernity.cli.commands.api.run_recover_api_command",
+                side_effect=_capture_args,
+            ),
+        ):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "recover",
+                    "--fallback-file",
+                    str(V1_FIXTURE_ROOT / "main_fallback.txt"),
+                    "--passphrase",
+                    FIXTURE_PASSPHRASE,
+                    "--output",
+                    "/tmp/recovered.bin",
+                    "--shard-scan",
+                    "scan-a.pdf",
+                    "--shard-scan",
+                    "scan-b.pdf",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(captured["shard_scan"], ["scan-a.pdf", "scan-b.pdf"])
+
     def test_run_backup_emits_prepare_encrypt_and_render_progress(self) -> None:
         config = load_app_config(path=DEFAULT_CONFIG_PATH)
         input_file = InputFile(

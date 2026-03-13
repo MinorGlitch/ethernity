@@ -128,9 +128,11 @@ def execute_mint(
             allow_unsigned=False,
             quiet=args.quiet,
         )
-        shard_frames, shard_fallback_files, shard_payloads_file = _shard_frames_from_args(
-            recover_args,
-            quiet=args.quiet,
+        shard_frames, shard_fallback_files, shard_payloads_file, shard_scan = (
+            _shard_frames_from_args(
+                recover_args,
+                quiet=args.quiet,
+            )
         )
         recovery_shard_frames, recovery_shard_fallback_files, recovery_shard_payloads_file = (
             _recovery_shard_inputs_for_plan(
@@ -150,6 +152,7 @@ def execute_mint(
             input_detail=input_detail,
             shard_fallback_files=recovery_shard_fallback_files,
             shard_payloads_file=recovery_shard_payloads_file,
+            shard_scan=shard_scan,
             output_path=None,
             args=recover_args,
             quiet=args.quiet,
@@ -306,6 +309,7 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                     input_detail=input_detail,
                     shard_fallback_files=recovery_shard_fallback_files,
                     shard_payloads_file=recovery_shard_payloads_file,
+                    shard_scan=list(recover_args.shard_scan or []),
                     output_path=None,
                     args=recover_args,
                     quiet=quiet,
@@ -988,7 +992,10 @@ def _signing_key_shard_frames_from_args(args: MintArgs, *, quiet: bool) -> list[
         shard_payloads_file=payload_files,
         quiet=quiet,
     )
-    frames, _fallback_files, _payload_files = _shard_frames_from_args(temp_args, quiet=quiet)
+    frames, _fallback_files, _payload_files, _scan_files = _shard_frames_from_args(
+        temp_args,
+        quiet=quiet,
+    )
     return frames
 
 

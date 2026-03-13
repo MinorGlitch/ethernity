@@ -46,6 +46,8 @@ def register(app: typer.Typer) -> None:
             "Recover data from QR payloads or recovery text (fallback).\n\n"
             "Examples:\n"
             "  ethernity recover --scan ./scans\n"
+            "  ethernity recover --scan qr_document.pdf --shard-scan shard-01.pdf "
+            "--shard-scan shard-02.pdf --output recovered.bin\n"
             "  ethernity recover --fallback-file recovery.txt --output recovered.bin\n"
             "  ethernity recover --payloads-file qr_payloads.txt\n"
         )
@@ -108,6 +110,14 @@ def recover(
         typer.Option(
             "--shard-payloads-file",
             help="Shard QR payload file (repeatable).",
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
+    shard_scan: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--shard-scan",
+            help="Shard scan path (image/PDF/dir, repeatable).",
             rich_help_panel="Inputs",
         ),
     ] = None,
@@ -217,6 +227,7 @@ def recover(
         passphrase=passphrase,
         shard_fallback_file=shard_files,
         shard_payloads_file=list(shard_payloads_file or []),
+        shard_scan=list(shard_scan or []),
         auth_fallback_file=auth_fallback_file,
         auth_payloads_file=auth_payloads_file,
         output=output_value,
