@@ -18,6 +18,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from ...crypto import decrypt_bytes
 from ...formats.envelope_codec import decode_envelope, extract_payloads
 from ...formats.envelope_types import EnvelopeManifest, ManifestFile
@@ -63,6 +65,7 @@ def write_recovered_outputs(
     allow_unsigned: bool,
     quiet: bool,
     single_entry_output_is_directory: bool = False,
+    on_file_written: Callable[[object, bytes, str, int, int], None] | None = None,
 ) -> list[str]:
     """Write recovered outputs and print the post-recovery summary."""
 
@@ -70,6 +73,7 @@ def write_recovered_outputs(
         output_path,
         extracted,
         single_entry_output_is_directory=single_entry_output_is_directory,
+        on_entry_written=on_file_written,
     )
     auth_label = format_auth_status(auth_status, allow_unsigned=allow_unsigned)
     print_recover_summary(

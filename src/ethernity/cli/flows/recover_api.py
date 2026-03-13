@@ -16,27 +16,12 @@
 
 from __future__ import annotations
 
-from hashlib import sha256
-
-from ...formats.envelope_types import EnvelopeManifest, ManifestFile
+from ...formats.envelope_types import EnvelopeManifest
 from .. import api_codes
-from ..core.log import _warn
 from ..core.types import RecoverArgs
-from ..events import active_event_sink, emit_artifact, emit_progress, emit_result
+from ..events import active_event_sink, emit_result
 from ..ndjson import SCHEMA_VERSION, ApiCommandError, emit_started
 from .recover_service import execute_recover_plan, prepare_recover_plan
-
-
-def _result_file_payload(
-    entry: ManifestFile, *, written_path: str, data: bytes
-) -> dict[str, object]:
-    return {
-        "manifest_path": entry.path,
-        "output_path": written_path,
-        "size": len(data),
-        "sha256": sha256(data).hexdigest(),
-        "mtime": entry.mtime,
-    }
 
 
 def _manifest_payload(manifest: EnvelopeManifest) -> dict[str, object]:
@@ -77,12 +62,6 @@ def run_recover_api_command(args: RecoverArgs, *, debug: bool = False) -> int:
 
     sink = active_event_sink()
     plan = prepare_recover_plan(args, event_sink=sink)
-    if plan.allow_unsigned:
-        _warn(
-            "Authentication check skipped - ensure you trust the source",
-            quiet=args.quiet,
-            code=api_codes.AUTH_CHECK_SKIPPED,
-        )
     execution = execute_recover_plan(
         plan,
         quiet=True,
@@ -92,33 +71,15 @@ def run_recover_api_command(args: RecoverArgs, *, debug: bool = False) -> int:
         event_sink=sink,
     )
 
-    files: list[dict[str, object]] = []
-    total_files = len(execution.written_paths)
-    for index, ((entry, data), written_path) in enumerate(
-        zip(execution.extracted, execution.written_paths, strict=True),
-        start=1,
-    ):
-        file_payload = _result_file_payload(entry, written_path=written_path, data=data)
-        files.append(file_payload)
-        emit_progress(
-            phase="write",
-            current=index,
-            total=total_files,
-            unit="files",
-            label=f"Wrote recovered file {index} of {total_files}",
-            details={"output_path": written_path, "manifest_path": entry.path},
-        )
-        emit_artifact(kind="recovered_file", path=written_path, details=file_payload)
-
     emit_result(
         command="recover",
-        output_path=execution.plan.output_path,
+        output_path=execution.output_path,
         doc_id=execution.plan.doc_id.hex(),
         auth_status=execution.plan.auth_status,
         input_label=execution.plan.input_label,
         input_detail=execution.plan.input_detail,
         manifest=_manifest_payload(execution.manifest),
-        files=files,
+        files=list(execution.file_payloads),
     )
     return 0
 

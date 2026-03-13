@@ -94,7 +94,7 @@ def _load_input_files(
     for raw in input_dirs:
         path = Path(expanduser_cli_path(raw, preserve_stdin=False) or "")
         if not path.exists():
-            raise ValueError(f"input dir not found: {path}")
+            raise FileNotFoundError(f"input dir not found: {path}")
         if not path.is_dir():
             raise ValueError(f"input dir is not a directory: {path}")
         has_directory_source = True
@@ -127,7 +127,7 @@ def _load_input_files(
     read = 0
     for path in paths:
         if not path.exists():
-            raise ValueError(f"input file not found: {path}")
+            raise FileNotFoundError(f"input file not found: {path}")
         if not path.is_file():
             raise ValueError(f"input path is not a file: {path}")
         abs_path = path.resolve()
@@ -186,7 +186,7 @@ def _load_input_files(
 
 def _walk_directory(path: Path, *, on_file: Callable[[], None] | None = None) -> list[Path]:
     if not path.exists():
-        raise ValueError(f"input dir not found: {path}")
+        raise FileNotFoundError(f"input dir not found: {path}")
     if not path.is_dir():
         raise ValueError(f"input dir is not a directory: {path}")
     files: list[Path] = []
@@ -202,7 +202,7 @@ def _resolve_base_dir(paths: list[Path], base_dir: str | None) -> Path | None:
     if base_dir:
         resolved = Path(expanduser_cli_path(base_dir, preserve_stdin=False) or "").resolve()
         if not resolved.exists():
-            raise ValueError(f"base dir not found: {resolved}")
+            raise FileNotFoundError(f"base dir not found: {resolved}")
         if not resolved.is_dir():
             raise ValueError(f"base dir is not a directory: {resolved}")
         return resolved

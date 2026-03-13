@@ -86,9 +86,11 @@ def _read_text_lines(path: str) -> list[str]:
                 "If this is a PDF or image, scan it for QR payloads instead."
             ) from exc
         except FileNotFoundError as exc:
-            raise ValueError(f"file not found: {file_path}") from exc
+            raise FileNotFoundError(f"file not found: {file_path}") from exc
+        except PermissionError as exc:
+            raise PermissionError(f"unable to read file: {file_path}") from exc
         except OSError as exc:
-            raise ValueError(f"unable to read file: {file_path}") from exc
+            raise OSError(f"unable to read file: {file_path}") from exc
         text_bytes = len(text.encode("utf-8"))
         if text_bytes > MAX_RECOVERY_TEXT_BYTES:
             raise ValueError(

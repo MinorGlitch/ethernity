@@ -16,10 +16,9 @@
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 
 import typer
 
@@ -31,7 +30,6 @@ from ..flows.backup_api import run_backup_api_command
 from ..flows.recover_api import run_recover_api_command
 from ..flows.recover_service import (
     RecoverShardDirError,
-    apply_recover_stdin_default,
     expand_recover_shard_dir,
 )
 from ..ndjson import (
@@ -56,6 +54,8 @@ _BACKUP_HELP = (
     "Create backup documents and emit NDJSON progress/events.\n\n"
     "This command is intended for GUI or automation use."
 )
+
+SigningKeyMode = Literal["embedded", "sharded"]
 
 
 def register(app: typer.Typer) -> None:
@@ -113,6 +113,32 @@ def _resolve_api_config_and_paper(
     except typer.BadParameter as exc:
         raise ApiCommandError(code=api_codes.INVALID_INPUT, message=str(exc)) from exc
     return config_value, paper_value
+
+
+def _parse_api_int_option(name: str, value: str | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value, 10)
+    except ValueError as exc:
+        raise ApiCommandError(
+            code=api_codes.INVALID_INPUT,
+            message=f"{name} must be an integer",
+            details={"option": name, "value": value},
+        ) from exc
+
+
+def _parse_signing_key_mode(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized not in {"embedded", "sharded"}:
+        raise ApiCommandError(
+            code=api_codes.INVALID_INPUT,
+            message="--signing-key-mode must be 'embedded' or 'sharded'",
+            details={"option": "--signing-key-mode", "value": value},
+        )
+    return normalized
 
 
 def recover(
@@ -178,20 +204,13 @@ def recover(
 
     def _run() -> int:
         config_value, paper_value = _resolve_api_config_and_paper(ctx, config, paper)
-        fallback_value = apply_recover_stdin_default(
-            fallback_file,
-            payloads_file,
-            list(scan or []),
-            stdin_is_tty=sys.stdin.isatty(),
-        )
-
         shard_files = list(shard_fallback_file or [])
         shard_files.extend(_expand_shard_dir(shard_dir))
 
         args = RecoverArgs(
             config=config_value,
             paper=paper_value,
-            fallback_file=fallback_value,
+            fallback_file=fallback_file,
             payloads_file=payloads_file,
             scan=list(scan or []),
             passphrase=passphrase,
@@ -231,7 +250,7 @@ def backup(
         typer.Option("--output-dir", "-o", help="Where to write PDFs (default: backup-<doc_id>)."),
     ] = None,
     qr_chunk_size: Annotated[
-        int | None,
+        str | None,
         typer.Option("--qr-chunk-size", help="Preferred ciphertext bytes per QR frame."),
     ] = None,
     passphrase: Annotated[
@@ -245,7 +264,7 @@ def backup(
         ),
     ] = False,
     passphrase_words: Annotated[
-        int | None,
+        str | None,
         typer.Option("--passphrase-words", help="Mnemonic word count for generated passphrases."),
     ] = None,
     sealed: Annotated[
@@ -253,23 +272,23 @@ def backup(
         typer.Option("--sealed", help="Seal backup (no new shards later)."),
     ] = False,
     shard_threshold: Annotated[
-        int | None,
+        str | None,
         typer.Option("--shard-threshold", help="Minimum shards needed to recover."),
     ] = None,
     shard_count: Annotated[
-        int | None,
+        str | None,
         typer.Option("--shard-count", help="Total shard documents to create."),
     ] = None,
     signing_key_mode: Annotated[
-        Literal["embedded", "sharded"] | None,
+        str | None,
         typer.Option("--signing-key-mode", help="Signing key handling for sharded backups."),
     ] = None,
     signing_key_shard_threshold: Annotated[
-        int | None,
+        str | None,
         typer.Option("--signing-key-shard-threshold", help="Signing-key shard threshold."),
     ] = None,
     signing_key_shard_count: Annotated[
-        int | None,
+        str | None,
         typer.Option("--signing-key-shard-count", help="Signing-key shard count."),
     ] = None,
     layout_debug_dir: Annotated[
@@ -300,23 +319,37 @@ def backup(
         if not isinstance(defaults, BackupDefaults):
             defaults = BackupDefaults()
 
+        qr_chunk_size_value = _parse_api_int_option("--qr-chunk-size", qr_chunk_size)
+        passphrase_words_value = _parse_api_int_option("--passphrase-words", passphrase_words)
+        shard_threshold_cli = _parse_api_int_option("--shard-threshold", shard_threshold)
+        shard_count_cli = _parse_api_int_option("--shard-count", shard_count)
+        signing_key_mode_cli = _parse_signing_key_mode(signing_key_mode)
+        signing_key_shard_threshold_cli = _parse_api_int_option(
+            "--signing-key-shard-threshold",
+            signing_key_shard_threshold,
+        )
+        signing_key_shard_count_cli = _parse_api_int_option(
+            "--signing-key-shard-count",
+            signing_key_shard_count,
+        )
+
         output_dir_value = output_dir if output_dir is not None else defaults.output_dir
         base_dir_value = base_dir if base_dir is not None else defaults.base_dir
         shard_threshold_value = (
-            shard_threshold if shard_threshold is not None else defaults.shard_threshold
+            shard_threshold_cli if shard_threshold_cli is not None else defaults.shard_threshold
         )
-        shard_count_value = shard_count if shard_count is not None else defaults.shard_count
+        shard_count_value = shard_count_cli if shard_count_cli is not None else defaults.shard_count
         signing_key_mode_value = (
-            signing_key_mode if signing_key_mode is not None else defaults.signing_key_mode
+            signing_key_mode_cli if signing_key_mode_cli is not None else defaults.signing_key_mode
         )
         signing_key_shard_threshold_value = (
-            signing_key_shard_threshold
-            if signing_key_shard_threshold is not None
+            signing_key_shard_threshold_cli
+            if signing_key_shard_threshold_cli is not None
             else defaults.signing_key_shard_threshold
         )
         signing_key_shard_count_value = (
-            signing_key_shard_count
-            if signing_key_shard_count is not None
+            signing_key_shard_count_cli
+            if signing_key_shard_count_cli is not None
             else defaults.signing_key_shard_count
         )
 
@@ -329,14 +362,14 @@ def backup(
             base_dir=base_dir_value,
             output_dir=output_dir_value,
             layout_debug_dir=layout_debug_dir,
-            qr_chunk_size=qr_chunk_size,
+            qr_chunk_size=qr_chunk_size_value,
             passphrase=passphrase,
             passphrase_generate=passphrase_generate,
-            passphrase_words=passphrase_words,
+            passphrase_words=passphrase_words_value,
             sealed=sealed,
             shard_threshold=shard_threshold_value,
             shard_count=shard_count_value,
-            signing_key_mode=signing_key_mode_value,
+            signing_key_mode=cast(SigningKeyMode | None, signing_key_mode_value),
             signing_key_shard_threshold=signing_key_shard_threshold_value,
             signing_key_shard_count=signing_key_shard_count_value,
             debug=state.debug if state is not None else False,

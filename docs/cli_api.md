@@ -11,6 +11,9 @@ Current commands:
 These commands write newline-delimited JSON (NDJSON) to `stdout`. In API mode, treat `stdout` as
 reserved for event records only.
 
+`ethernity api recover` does not implicitly read stdin. To recover from stdin, pass
+`--fallback-file -` explicitly.
+
 ## Contract
 
 - Schema version: `1`
@@ -34,6 +37,9 @@ Fields:
 - `schema_version`: integer
 - `command`: `backup` or `recover`
 - `args`: sanitized argument summary
+
+For `backup`, `args.passphrase_generate` reflects whether the command will generate a passphrase,
+not only whether `--generate-passphrase` was explicitly provided.
 
 ### `phase`
 
@@ -83,7 +89,7 @@ Fields:
 
 - `type`: `artifact`
 - `kind`: stable artifact kind
-- `path`: absolute or user-requested output path
+- `path`: normalized filesystem path for the emitted artifact
 - `details`: optional metadata such as filename, size, hashes, or manifest path
 
 ### `result`
@@ -95,6 +101,11 @@ Fields:
 - `type`: `result`
 - `ok`: `true`
 - command-specific payload
+
+Backup results expose `generated_passphrase` only when Ethernity generated the passphrase for the
+run. Caller-supplied passphrases are not echoed back into NDJSON output.
+
+Result path fields use the same normalized path form as the corresponding artifact events.
 
 ### `error`
 
@@ -132,7 +143,6 @@ Current generic error codes:
 
 Current warning codes emitted by backup/recover flows:
 
-- `AUTH_CHECK_SKIPPED`
 - `AUTH_PAYLOAD_MISSING`
 - `AUTH_PAYLOAD_INVALID`
 - `AUTH_DOC_HASH_MISMATCH`
@@ -152,8 +162,11 @@ remain stable once documented here.
 Current artifact kinds:
 
 - Backup: `qr_document`, `recovery_document`, `recovery_kit_index`, `shard_document`,
-  `signing_key_shard_document`
+  `signing_key_shard_document`, `layout_debug_json`
 - Recover: `recovered_file`
+
+When `ethernity api backup --layout-debug-dir <dir>` is used, each generated layout sidecar is
+emitted as an `artifact` event with kind `layout_debug_json`.
 
 ## Example
 
@@ -173,3 +186,4 @@ Current artifact kinds:
 - Handle unknown event codes as non-fatal unless the event type is `error`
 - Use artifact paths rather than assuming output filenames
 - Prefer `code` values for logic and `message` values for display
+- Treat stdin as opt-in for `api recover`; pass `--fallback-file -` when piping recovery text

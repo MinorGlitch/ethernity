@@ -155,6 +155,25 @@ class TestOutputFiles(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unsafe output path"):
                 _write_recovered_outputs(str(out_dir), entries)
 
+    def test_write_recovered_outputs_stdout_invokes_callback(self) -> None:
+        fake_stdout = types.SimpleNamespace(buffer=io.BytesIO())
+        calls: list[tuple[str, str, int, int]] = []
+
+        def _capture(
+            entry: object, _data: bytes, written_path: str, index: int, total: int
+        ) -> None:
+            calls.append((getattr(entry, "path", ""), written_path, index, total))
+
+        with mock.patch("sys.stdout", new=fake_stdout):
+            _write_recovered_outputs(
+                None,
+                [(types.SimpleNamespace(path="stdout.bin"), b"stdout-bytes")],
+                on_entry_written=_capture,
+            )
+
+        self.assertEqual(fake_stdout.buffer.getvalue(), b"stdout-bytes")
+        self.assertEqual(calls, [("stdout.bin", "-", 1, 1)])
+
     def test_ensure_output_dir_expands_user_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
