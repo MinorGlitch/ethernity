@@ -22,7 +22,7 @@ from pathlib import Path
 from ...formats.envelope_types import EnvelopeManifest, ManifestFile
 from ..core.paths import expanduser_cli_path
 from ..core.types import RecoverArgs
-from ..events import EventSink, emit_phase, emit_progress, event_session
+from ..events import EventSink, active_event_sink, emit_phase, emit_progress, event_session
 from ..ui.debug import print_recover_debug
 from .recover_flow import decrypt_manifest_and_extract, write_recovered_outputs
 from .recover_plan import RecoveryPlan, plan_from_args
@@ -139,6 +139,7 @@ def execute_recover_plan(
                 output_path=plan.output_path,
                 debug_max_bytes=debug_max_bytes,
                 reveal_secrets=debug_reveal_secrets,
+                stderr=active_event_sink() is not None,
             )
 
         single_entry_output_is_directory = (
