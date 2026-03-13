@@ -103,6 +103,24 @@ def _write_output(path: str | None, data: bytes) -> str | None:
     return None
 
 
+def _single_entry_uses_directory_output(
+    output_path: str | None,
+    *,
+    single_entry_output_is_directory: bool = False,
+) -> bool:
+    """Return whether a single recovered file should be written under a directory."""
+
+    if output_path is None:
+        return False
+    if single_entry_output_is_directory:
+        return True
+    normalized = Path(expanduser_cli_path(output_path, preserve_stdin=False) or "")
+    try:
+        return normalized.is_dir()
+    except OSError:
+        return False
+
+
 def _write_recovered_outputs(
     output_path: str | None,
     entries: Sequence[tuple[object, bytes]],
@@ -115,7 +133,11 @@ def _write_recovered_outputs(
     if not entries:
         raise ValueError("no payloads to write")
     if output_path:
-        if len(entries) == 1 and not single_entry_output_is_directory:
+        directory_mode = _single_entry_uses_directory_output(
+            output_path,
+            single_entry_output_is_directory=single_entry_output_is_directory,
+        )
+        if len(entries) == 1 and not directory_mode:
             path = _write_output(output_path, entries[0][1])
             if on_entry_written is not None:
                 resolved_path = path or output_path

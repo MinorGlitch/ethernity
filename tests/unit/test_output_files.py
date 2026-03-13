@@ -134,6 +134,16 @@ class TestOutputFiles(unittest.TestCase):
             )
             self.assertEqual((out_dir / "nested" / "file.txt").read_bytes(), b"single")
 
+    def test_write_recovered_outputs_single_entry_existing_directory_writes_under_directory(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "vault"
+            out_dir.mkdir()
+            entries = [(types.SimpleNamespace(path="payload.bin"), b"single")]
+            _write_recovered_outputs(str(out_dir), entries)
+            self.assertEqual((out_dir / "payload.bin").read_bytes(), b"single")
+
     def test_write_recovered_outputs_multiple_entries_writes_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "recovered"

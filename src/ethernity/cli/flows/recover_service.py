@@ -32,6 +32,7 @@ from ..events import (
     emit_progress,
     event_session,
 )
+from ..io.outputs import _single_entry_uses_directory_output
 from ..ui.debug import print_recover_debug
 from .recover_flow import decrypt_manifest_and_extract, write_recovered_outputs
 from .recover_plan import RecoveryPlan, plan_from_args
@@ -195,6 +196,10 @@ def execute_recover_plan(
             plan.output_path is not None
             and len(extracted) == 1
             and manifest.input_origin in {"directory", "mixed"}
+        )
+        single_entry_output_is_directory = _single_entry_uses_directory_output(
+            plan.output_path,
+            single_entry_output_is_directory=single_entry_output_is_directory,
         )
         emit_phase(phase="write", label="Writing recovered files")
         written_paths = write_recovered_outputs(

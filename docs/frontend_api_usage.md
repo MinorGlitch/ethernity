@@ -76,6 +76,8 @@ Use `ethernity api recover` in one of these ways:
 Important:
 
 - `api recover` requires explicit `--output`
+- if `--output` points to an existing directory, a single recovered file is written inside that
+  directory using its manifest filename
 - `stdout` stays reserved for NDJSON, so recovered content is always written to disk
 
 ## Recovery From PDFs

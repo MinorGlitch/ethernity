@@ -1231,6 +1231,43 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(execution.output_path_kind, "directory")
         self.assertEqual(execution.output_path, tmpdir)
 
+    def test_execute_recover_plan_treats_existing_output_directory_as_directory(self) -> None:
+        manifest = EnvelopeManifest(
+            format_version=1,
+            created_at=0.0,
+            input_origin="file",
+            input_roots=("payload.bin",),
+            sealed=True,
+            signing_seed=None,
+            payload_codec="raw",
+            payload_raw_len=3,
+            files=(ManifestFile(path="payload.bin", size=3, sha256=b"\x00" * 32, mtime=1),),
+        )
+        extracted = [(manifest.files[0], b"one")]
+        plan = SimpleNamespace(
+            ciphertext=b"ciphertext",
+            passphrase="stable passphrase",
+            auth_status="verified",
+            allow_unsigned=False,
+            output_path=None,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with mock.patch(
+                "ethernity.cli.flows.recover_service.decrypt_manifest_and_extract",
+                return_value=(manifest, extracted),
+            ):
+                plan.output_path = tmpdir
+                execution = execute_recover_plan(
+                    cast(Any, plan),
+                    quiet=True,
+                    emit_file_artifacts=False,
+                )
+
+        self.assertEqual(execution.output_path_kind, "directory")
+        self.assertEqual(execution.output_path, tmpdir)
+        self.assertEqual(execution.written_paths, (str(Path(tmpdir) / "payload.bin"),))
+
     def test_api_recover_accepts_uppercase_shard_extensions(self) -> None:
         captured: dict[str, object] = {}
 

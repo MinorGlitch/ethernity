@@ -433,6 +433,69 @@ class TestEndToEndCli(unittest.TestCase):
             self.assertEqual(events[-1]["output_path_kind"], "file")
             self.assertEqual(output_path.read_bytes(), payload)
 
+    def test_api_recover_cli_writes_single_file_under_existing_output_directory(self) -> None:
+        payload = b"recover to existing directory"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            repo_root = Path(__file__).resolve().parents[2]
+            manifest = build_single_file_manifest(
+                "payload.bin",
+                payload,
+                signing_seed=TEST_SIGNING_SEED,
+            )
+            envelope = encode_envelope(payload, manifest)
+            ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
+            self.assertIsNotNone(passphrase)
+            doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
+            doc_id = doc_hash[:DOC_ID_LEN]
+            frames = chunk_payload(
+                ciphertext,
+                doc_id=doc_id,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                chunk_size=10,
+            )
+            frames_path = tmp_path / "frames.txt"
+            payload_lines = []
+            for frame in frames:
+                encoded = encode_qr_payload(encode_frame(frame))
+                payload_lines.append(
+                    encoded.decode("ascii") if isinstance(encoded, bytes) else encoded
+                )
+            frames_path.write_text("\n".join(payload_lines), encoding="utf-8")
+            output_dir = tmp_path / "gui-backups"
+            output_dir.mkdir()
+
+            env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "api",
+                    "recover",
+                    "--payloads-file",
+                    str(frames_path),
+                    "--passphrase",
+                    str(passphrase),
+                    "--skip-auth-check",
+                    "--output",
+                    str(output_dir),
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stderr, "")
+            events = self._parse_ndjson_events(result.stdout)
+            self.assertEqual(events[-1]["type"], "result")
+            self.assertEqual(events[-1]["output_path_kind"], "directory")
+            self.assertEqual(events[-1]["output_path"], str(output_dir))
+            self.assertEqual((output_dir / "payload.bin").read_bytes(), payload)
+
     def test_api_recover_cli_supports_scanned_shard_pdfs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)

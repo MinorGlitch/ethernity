@@ -125,7 +125,8 @@ run. Caller-supplied passphrases are not echoed back into NDJSON output.
 Result path fields use the same normalized path form as the corresponding artifact events.
 
 Recover results include `output_path_kind` so clients can distinguish a single recovered file from
-an output directory path.
+an output directory path. When `--output` points to an existing directory, single-file recovery is
+written inside that directory using the manifest filename.
 
 Mint results include `signing_key_source` and a stable `artifacts` object for minted shard paths.
 

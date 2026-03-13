@@ -46,6 +46,7 @@ from ..io.frames import (
     _frames_from_shard_inputs,
     _recovery_frames_from_scan,
 )
+from ..io.outputs import _single_entry_uses_directory_output
 from ..ui.debug import print_recover_debug
 from ..ui.summary import format_auth_status
 from .prompts import _prompt_shard_inputs, _resolve_recover_output
@@ -369,6 +370,10 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                 and len(extracted) == 1
                 and manifest.input_origin in {"directory", "mixed"}
             )
+            single_entry_output_is_directory = _single_entry_uses_directory_output(
+                output_path,
+                single_entry_output_is_directory=single_entry_output_is_directory,
+            )
             write_recovered_outputs(
                 extracted,
                 output_path=output_path,
@@ -460,6 +465,10 @@ def write_plan_outputs(
         plan.output_path is not None
         and len(extracted) == 1
         and manifest.input_origin in {"directory", "mixed"}
+    )
+    single_entry_output_is_directory = _single_entry_uses_directory_output(
+        plan.output_path,
+        single_entry_output_is_directory=single_entry_output_is_directory,
     )
     write_recovered_outputs(
         extracted,

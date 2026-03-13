@@ -24,7 +24,7 @@ from ...crypto import decrypt_bytes
 from ...formats.envelope_codec import decode_envelope, extract_payloads
 from ...formats.envelope_types import EnvelopeManifest, ManifestFile
 from ..api import print_completion_panel, status
-from ..io.outputs import _write_recovered_outputs
+from ..io.outputs import _single_entry_uses_directory_output, _write_recovered_outputs
 from ..ui.debug import print_recover_debug
 from ..ui.summary import format_auth_status, print_recover_summary
 from .recover_plan import RecoveryPlan
@@ -120,6 +120,10 @@ def run_recover_plan(
         plan.output_path is not None
         and len(extracted) == 1
         and manifest.input_origin in {"directory", "mixed"}
+    )
+    single_entry_output_is_directory = _single_entry_uses_directory_output(
+        plan.output_path,
+        single_entry_output_is_directory=single_entry_output_is_directory,
     )
     write_recovered_outputs(
         extracted,
