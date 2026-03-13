@@ -322,7 +322,7 @@
         "input_origin",
         "input_roots",
         "input_count",
-        "passphrase",
+        "generated_passphrase",
         "artifacts",
         "plan"
       ],
@@ -362,7 +362,7 @@
           "type": "integer",
           "minimum": 1
         },
-        "passphrase": {
+        "generated_passphrase": {
           "type": [
             "string",
             "null"

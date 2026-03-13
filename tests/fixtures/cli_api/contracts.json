@@ -15,7 +15,6 @@
     "IO_ERROR"
   ],
   "stable_warning_codes": [
-    "AUTH_CHECK_SKIPPED",
     "AUTH_PAYLOAD_MISSING",
     "AUTH_PAYLOAD_INVALID",
     "AUTH_DOC_HASH_MISMATCH",

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from ...core.validation import normalize_path
@@ -108,6 +108,7 @@ def _write_recovered_outputs(
     entries: Sequence[tuple[object, bytes]],
     *,
     single_entry_output_is_directory: bool = False,
+    on_entry_written: Callable[[object, bytes, str, int, int], None] | None = None,
 ) -> list[str]:
     """Write recovered manifest entries to a file, directory, or stdout."""
 
@@ -122,17 +123,26 @@ def _write_recovered_outputs(
             single_entry_output_is_directory = True
         if len(entries) == 1 and not single_entry_output_is_directory:
             path = _write_output(output_path, entries[0][1])
+            if on_entry_written is not None:
+                resolved_path = path or output_path
+                on_entry_written(entries[0][0], entries[0][1], resolved_path, 1, 1)
             return [path or output_path]
         base_dir = _ensure_directory(normalized_output, exist_ok=True)
         written_paths: list[str] = []
-        for entry, data in entries:
+        total = len(entries)
+        for index, (entry, data) in enumerate(entries, start=1):
             path = _safe_join(base_dir, getattr(entry, "path", "payload.bin"))
             written = _write_output(str(path), data)
-            written_paths.append(written or str(path))
+            resolved_path = written or str(path)
+            written_paths.append(resolved_path)
+            if on_entry_written is not None:
+                on_entry_written(entry, data, resolved_path, index, total)
         return written_paths
 
     if len(entries) == 1:
         _write_output(None, entries[0][1])
+        if on_entry_written is not None:
+            on_entry_written(entries[0][0], entries[0][1], "-", 1, 1)
         return []
 
     raise ValueError("multiple files require --output to specify a directory")

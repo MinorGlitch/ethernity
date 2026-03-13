@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from ...core.models import SigningSeedMode
@@ -24,6 +25,10 @@ from ..core.types import BackupArgs, BackupResult
 from ..events import active_event_sink, emit_artifact, emit_result
 from ..ndjson import SCHEMA_VERSION, ApiCommandError, emit_started
 from .backup_service import execute_prepared_backup, prepare_backup_run
+
+_SHARD_LAYOUT_PATTERN = re.compile(
+    r"^(?P<prefix>shard|signing-key-shard)-[0-9a-f]+-(?P<index>\d+)-of-(?P<count>\d+)\.pdf$"
+)
 
 
 def _artifact_details(path: str) -> dict[str, object]:
@@ -59,6 +64,36 @@ def _emit_backup_artifacts(result: BackupResult) -> None:
         )
 
 
+def _emit_layout_debug_artifacts(
+    *,
+    layout_debug_dir: str | None,
+    result: BackupResult,
+) -> None:
+    if layout_debug_dir is None or not layout_debug_dir.strip():
+        return
+    debug_dir = Path(layout_debug_dir).expanduser().resolve()
+    candidates = [
+        debug_dir / "qr_document.layout.json",
+        debug_dir / "recovery_document.layout.json",
+    ]
+    if result.kit_index_path is not None:
+        candidates.append(debug_dir / "recovery_kit_index.layout.json")
+    for shard_path in [*result.shard_paths, *result.signing_key_shard_paths]:
+        match = _SHARD_LAYOUT_PATTERN.match(Path(shard_path).name)
+        if match is None:
+            continue
+        prefix = match.group("prefix")
+        index = int(match.group("index"))
+        count = int(match.group("count"))
+        candidates.append(debug_dir / f"{prefix}-{index:02d}-of-{count:02d}.layout.json")
+
+    for path in candidates:
+        if path.exists():
+            emit_artifact(
+                kind="layout_debug_json", path=str(path), details=_artifact_details(str(path))
+            )
+
+
 def run_backup_api_command(args: BackupArgs) -> int:
     if not args.input and not args.input_dir:
         raise ApiCommandError(
@@ -75,7 +110,8 @@ def run_backup_api_command(args: BackupArgs) -> int:
             "base_dir": args.base_dir,
             "output_dir": args.output_dir,
             "has_passphrase": args.passphrase is not None,
-            "passphrase_generate": args.passphrase_generate,
+            "passphrase_generate": args.passphrase is None,
+            "passphrase_generate_requested": args.passphrase_generate,
             "passphrase_words": args.passphrase_words,
             "sealed": args.sealed,
             "shard_threshold": args.shard_threshold,
@@ -106,6 +142,7 @@ def run_backup_api_command(args: BackupArgs) -> int:
     )
 
     _emit_backup_artifacts(result)
+    _emit_layout_debug_artifacts(layout_debug_dir=prepared.args.layout_debug_dir, result=result)
     emit_result(
         command="backup",
         doc_id=result.doc_id.hex(),
@@ -113,7 +150,7 @@ def run_backup_api_command(args: BackupArgs) -> int:
         input_origin=prepared.input_origin,
         input_roots=list(prepared.input_roots),
         input_count=len(prepared.input_files),
-        passphrase=result.passphrase_used,
+        generated_passphrase=(result.passphrase_used if args.passphrase is None else None),
         artifacts={
             "qr_document": result.qr_path,
             "recovery_document": result.recovery_path,

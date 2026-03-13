@@ -17,12 +17,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 
 from ...formats.envelope_types import EnvelopeManifest, ManifestFile
 from ..core.paths import expanduser_cli_path
 from ..core.types import RecoverArgs
-from ..events import EventSink, active_event_sink, emit_phase, emit_progress, event_session
+from ..events import (
+    EventSink,
+    active_event_sink,
+    emit_artifact,
+    emit_phase,
+    emit_progress,
+    event_session,
+)
 from ..ui.debug import print_recover_debug
 from .recover_flow import decrypt_manifest_and_extract, write_recovered_outputs
 from .recover_plan import RecoveryPlan, plan_from_args
@@ -44,6 +52,8 @@ class RecoverExecutionResult:
     manifest: EnvelopeManifest
     extracted: tuple[tuple[ManifestFile, bytes], ...]
     written_paths: tuple[str, ...]
+    file_payloads: tuple[dict[str, object], ...]
+    output_path: str
     single_entry_output_is_directory: bool
 
 
@@ -65,7 +75,9 @@ def expand_recover_shard_dir(shard_dir: str | None) -> list[str]:
             path=shard_dir,
             message=f"shard-dir must be a directory: {shard_dir}",
         )
-    files = sorted(path.glob("*.txt"))
+    files = sorted(
+        child for child in path.iterdir() if child.is_file() and child.suffix.lower() == ".txt"
+    )
     if not files:
         raise RecoverShardDirError(
             reason="empty",
@@ -119,6 +131,39 @@ def execute_recover_plan(
     event_sink: EventSink | None = None,
 ) -> RecoverExecutionResult:
     with event_session(event_sink):
+        file_payloads: list[dict[str, object]] = []
+
+        def _on_file_written(
+            entry: object,
+            data: bytes,
+            written_path: str,
+            index: int,
+            total: int,
+        ) -> None:
+            manifest_entry = entry if isinstance(entry, ManifestFile) else None
+            manifest_path = (
+                manifest_entry.path
+                if manifest_entry is not None
+                else getattr(entry, "path", "payload.bin")
+            )
+            file_payload = {
+                "manifest_path": manifest_path,
+                "output_path": written_path,
+                "size": len(data),
+                "sha256": sha256(data).hexdigest(),
+                "mtime": getattr(manifest_entry, "mtime", getattr(entry, "mtime", None)),
+            }
+            file_payloads.append(file_payload)
+            emit_progress(
+                phase="write",
+                current=index,
+                total=total,
+                unit="files",
+                label=f"Wrote recovered file {index} of {total}",
+                details={"output_path": written_path, "manifest_path": manifest_path},
+            )
+            emit_artifact(kind="recovered_file", path=written_path, details=file_payload)
+
         emit_phase(phase="decrypt", label="Decrypting and extracting payload")
         manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
         emit_progress(
@@ -155,12 +200,22 @@ def execute_recover_plan(
             allow_unsigned=plan.allow_unsigned,
             quiet=quiet,
             single_entry_output_is_directory=single_entry_output_is_directory,
+            on_file_written=_on_file_written,
         )
+        if written_paths:
+            if len(written_paths) == 1 and not single_entry_output_is_directory:
+                emitted_output_path = written_paths[0]
+            else:
+                emitted_output_path = str(Path(written_paths[0]).parent)
+        else:
+            emitted_output_path = plan.output_path or "-"
         return RecoverExecutionResult(
             plan=plan,
             manifest=manifest,
             extracted=tuple(extracted),
             written_paths=tuple(written_paths),
+            file_payloads=tuple(file_payloads),
+            output_path=emitted_output_path,
             single_entry_output_is_directory=single_entry_output_is_directory,
         )
 
