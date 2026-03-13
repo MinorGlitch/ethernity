@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import copy
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -29,6 +30,7 @@ from .installer import (
     _write_text_atomic,
     clear_first_run_onboarding_marker,
     first_run_onboarding_configured_fields,
+    first_run_onboarding_marker_path,
     first_run_onboarding_needed,
     list_template_designs,
     mark_first_run_onboarding_complete,
@@ -66,6 +68,12 @@ class ApiConfigSnapshot:
     onboarding: dict[str, object]
 
 
+@dataclass(frozen=True)
+class OnboardingPatchPlan:
+    mark_complete: bool
+    configured_fields: frozenset[str]
+
+
 def get_api_config_snapshot(path: str | Path | None = None) -> ApiConfigSnapshot:
     target_path, source = _resolve_config_target(path)
     return _snapshot_from_path(target_path, source=source)
@@ -77,6 +85,7 @@ def apply_api_config_patch(
 ) -> ApiConfigSnapshot:
     target_path, source = _resolve_config_target(path)
     _validate_patch_shape(patch)
+    onboarding_plan = _build_onboarding_patch_plan(patch.get("onboarding"), source=source)
 
     current = _snapshot_from_path(target_path, source=source)
     current_values = copy.deepcopy(current.values)
@@ -93,12 +102,20 @@ def apply_api_config_patch(
     validated_values = _validate_config_values(current_values)
     original = target_path.read_text(encoding="utf-8")
     updated = _apply_values_to_text(original, validated_values)
-    if updated != original:
-        _write_text_atomic(target_path, updated)
+    config_changed = updated != original
+    marker_state = _read_marker_state() if onboarding_plan is not None else None
 
-    onboarding_patch = patch.get("onboarding")
-    if onboarding_patch is not None:
-        _apply_onboarding_patch(onboarding_patch, source=source)
+    try:
+        if config_changed:
+            _write_text_atomic(target_path, updated)
+        if onboarding_plan is not None:
+            _apply_onboarding_plan(onboarding_plan)
+    except Exception:
+        if onboarding_plan is not None:
+            _restore_marker_state(marker_state)
+        if config_changed:
+            _write_text_atomic(target_path, original)
+        raise
 
     return _snapshot_from_path(target_path, source=source)
 
@@ -115,6 +132,14 @@ def _snapshot_from_path(path: Path, *, source: ConfigTargetSource) -> ApiConfigS
     values = {
         "templates": {
             "default_name": _raw_default_design(raw),
+            "template_name": _raw_section_design(raw, section="template"),
+            "recovery_template_name": _raw_section_design(raw, section="recovery_template"),
+            "shard_template_name": _raw_section_design(raw, section="shard_template"),
+            "signing_key_shard_template_name": _raw_section_design(
+                raw,
+                section="signing_key_shard_template",
+            ),
+            "kit_template_name": _raw_section_design(raw, section="kit_template"),
         },
         "page": {
             "size": config.paper_size,
@@ -156,11 +181,7 @@ def _snapshot_from_path(path: Path, *, source: ConfigTargetSource) -> ApiConfigS
         source=source,
         values=cast(dict[str, object], values),
         options=_config_options(),
-        onboarding={
-            "needed": first_run_onboarding_needed(),
-            "configured_fields": sorted(first_run_onboarding_configured_fields()),
-            "available_fields": list(ONBOARDING_FIELDS),
-        },
+        onboarding=_snapshot_onboarding(source=source),
     )
 
 
@@ -171,6 +192,30 @@ def _raw_default_design(raw: dict[str, object]) -> str:
         if isinstance(value, str) and value.strip():
             return value.strip()
     return DEFAULT_TEMPLATE_STYLE
+
+
+def _raw_section_design(raw: dict[str, object], *, section: str) -> str | None:
+    section_data = raw.get(section)
+    if not isinstance(section_data, dict):
+        return None
+    value = section_data.get("name")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _snapshot_onboarding(*, source: ConfigTargetSource) -> dict[str, object]:
+    if source != "user":
+        return {
+            "needed": False,
+            "configured_fields": [],
+            "available_fields": list(ONBOARDING_FIELDS),
+        }
+    return {
+        "needed": first_run_onboarding_needed(),
+        "configured_fields": sorted(first_run_onboarding_configured_fields()),
+        "available_fields": list(ONBOARDING_FIELDS),
+    }
 
 
 def _config_options() -> dict[str, object]:
@@ -237,6 +282,25 @@ def _validate_config_values(values: dict[str, object]) -> dict[str, object]:
 
     template_design = _validate_design_name(
         templates.get("default_name"), field="values.templates.default_name"
+    )
+    template_name = _validate_optional_design_name(
+        templates.get("template_name"), field="values.templates.template_name"
+    )
+    recovery_template_name = _validate_optional_design_name(
+        templates.get("recovery_template_name"),
+        field="values.templates.recovery_template_name",
+    )
+    shard_template_name = _validate_optional_design_name(
+        templates.get("shard_template_name"),
+        field="values.templates.shard_template_name",
+    )
+    signing_key_shard_template_name = _validate_optional_design_name(
+        templates.get("signing_key_shard_template_name"),
+        field="values.templates.signing_key_shard_template_name",
+    )
+    kit_template_name = _validate_optional_design_name(
+        templates.get("kit_template_name"),
+        field="values.templates.kit_template_name",
     )
     page_size = _validate_enum(page.get("size"), field="values.page.size", allowed=_PAGE_SIZES)
     qr_error = _validate_enum(qr.get("error"), field="values.qr.error", allowed=_QR_ERROR_LEVELS)
@@ -326,6 +390,11 @@ def _validate_config_values(values: dict[str, object]) -> dict[str, object]:
     return {
         "templates": {
             "default_name": template_design,
+            "template_name": template_name,
+            "recovery_template_name": recovery_template_name,
+            "shard_template_name": shard_template_name,
+            "signing_key_shard_template_name": signing_key_shard_template_name,
+            "kit_template_name": kit_template_name,
         },
         "page": {
             "size": page_size,
@@ -416,6 +485,14 @@ def _validate_design_name(value: object, *, field: str) -> str:
             details={"field": field, "value": value},
         )
     return normalized
+
+
+def _validate_optional_design_name(value: object, *, field: str) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    return _validate_design_name(value, field=field)
 
 
 def _validate_enum(value: object, *, field: str, allowed: tuple[str, ...]) -> str:
@@ -540,14 +617,36 @@ def _apply_values_to_text(original: str, values: dict[str, object]) -> str:
     updated = _upsert_table_key(
         updated, table="templates", key="default_name", value=_toml_quote(design)
     )
-    for section in (
-        "template",
-        "recovery_template",
-        "shard_template",
-        "signing_key_shard_template",
-        "kit_template",
-    ):
-        updated = _upsert_table_key(updated, table=section, key="name", value=_toml_quote(design))
+    updated = _write_optional_design_key(
+        updated,
+        table="template",
+        key="name",
+        value=cast(str | None, templates["template_name"]),
+    )
+    updated = _write_optional_design_key(
+        updated,
+        table="recovery_template",
+        key="name",
+        value=cast(str | None, templates["recovery_template_name"]),
+    )
+    updated = _write_optional_design_key(
+        updated,
+        table="shard_template",
+        key="name",
+        value=cast(str | None, templates["shard_template_name"]),
+    )
+    updated = _write_optional_design_key(
+        updated,
+        table="signing_key_shard_template",
+        key="name",
+        value=cast(str | None, templates["signing_key_shard_template_name"]),
+    )
+    updated = _write_optional_design_key(
+        updated,
+        table="kit_template",
+        key="name",
+        value=cast(str | None, templates["kit_template_name"]),
+    )
 
     updated = _upsert_table_key(
         updated,
@@ -675,7 +774,70 @@ def _apply_values_to_text(original: str, values: dict[str, object]) -> str:
     return updated
 
 
-def _apply_onboarding_patch(onboarding: object, *, source: ConfigTargetSource) -> None:
+def _write_optional_design_key(text: str, *, table: str, key: str, value: str | None) -> str:
+    if value is None:
+        return _delete_table_key(text, table=table, key=key)
+    return _upsert_table_key(text, table=table, key=key, value=_toml_quote(value))
+
+
+def _delete_table_key(text: str, *, table: str, key: str) -> str:
+    line_ending = "\r\n" if "\r\n" in text else "\n"
+    lines = text.splitlines()
+
+    dotted_key = f"{table}.{key}"
+    dotted_key_pattern = re.compile(rf"^\s*{re.escape(dotted_key)}\s*=.*$")
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("#") or stripped.startswith(";"):
+            continue
+        if dotted_key_pattern.match(line) is not None:
+            del lines[index]
+            return line_ending.join(lines) + line_ending
+
+    table_index: int | None = None
+    table_end = len(lines)
+    for index, line in enumerate(lines):
+        header_name = _table_header_name(line)
+        if header_name is None:
+            continue
+        if table_index is None and header_name == table:
+            table_index = index
+            continue
+        if table_index is not None:
+            table_end = index
+            break
+
+    if table_index is None:
+        return line_ending.join(lines) + line_ending
+
+    key_pattern = re.compile(rf"^\s*{re.escape(key)}\s*=.*$")
+    for index in range(table_index + 1, table_end):
+        line = lines[index]
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or stripped.startswith(";"):
+            continue
+        if key_pattern.match(line) is not None:
+            del lines[index]
+            return line_ending.join(lines) + line_ending
+    return line_ending.join(lines) + line_ending
+
+
+def _table_header_name(line: str) -> str | None:
+    stripped = line.strip()
+    if not stripped.startswith("[") or not stripped.endswith("]"):
+        return None
+    if stripped.startswith("[["):
+        return None
+    return stripped[1:-1].strip()
+
+
+def _build_onboarding_patch_plan(
+    onboarding: object,
+    *,
+    source: ConfigTargetSource,
+) -> OnboardingPatchPlan | None:
+    if onboarding is None:
+        return None
     if source != "user":
         raise ConfigPatchError(
             code="CONFIG_CONFLICT",
@@ -728,7 +890,11 @@ def _apply_onboarding_patch(onboarding: object, *, source: ConfigTargetSource) -
     if mark_complete is None and normalized_fields is None:
         return
     if mark_complete is None:
-        mark_complete = True
+        raise ConfigPatchError(
+            code="CONFIG_INVALID_VALUE",
+            message="onboarding.mark_complete is required when onboarding is provided",
+            details={"field": "onboarding.mark_complete"},
+        )
     if not isinstance(mark_complete, bool):
         raise ConfigPatchError(
             code="CONFIG_INVALID_VALUE",
@@ -742,10 +908,35 @@ def _apply_onboarding_patch(onboarding: object, *, source: ConfigTargetSource) -
             details={"field": "onboarding.configured_fields"},
         )
 
-    if mark_complete:
-        mark_first_run_onboarding_complete(configured_fields=normalized_fields)
+    return OnboardingPatchPlan(
+        mark_complete=mark_complete,
+        configured_fields=frozenset()
+        if normalized_fields is None
+        else frozenset(normalized_fields),
+    )
+
+
+def _apply_onboarding_plan(plan: OnboardingPatchPlan) -> None:
+    if plan.mark_complete:
+        mark_first_run_onboarding_complete(configured_fields=set(plan.configured_fields))
         return
     clear_first_run_onboarding_marker()
+
+
+def _read_marker_state() -> str | None:
+    marker_path = first_run_onboarding_marker_path()
+    if not marker_path.exists():
+        return None
+    return marker_path.read_text(encoding="utf-8")
+
+
+def _restore_marker_state(marker_state: str | None) -> None:
+    marker_path = first_run_onboarding_marker_path()
+    if marker_state is None:
+        clear_first_run_onboarding_marker()
+        return
+    marker_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_text_atomic(marker_path, marker_state)
 
 
 def _toml_bool(value: bool) -> str:

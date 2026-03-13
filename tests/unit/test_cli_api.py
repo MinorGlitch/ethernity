@@ -130,7 +130,14 @@ class TestCliApi(unittest.TestCase):
 
     def test_run_config_get_api_command_emits_snapshot(self) -> None:
         values = {
-            "templates": {"default_name": "sentinel"},
+            "templates": {
+                "default_name": "sentinel",
+                "template_name": None,
+                "recovery_template_name": None,
+                "shard_template_name": None,
+                "signing_key_shard_template_name": None,
+                "kit_template_name": None,
+            },
             "page": {"size": "A4"},
             "qr": {"error": "Q", "chunk_size": 768},
             "defaults": {
@@ -191,7 +198,14 @@ class TestCliApi(unittest.TestCase):
 
     def test_run_config_set_api_command_reads_stdin_patch(self) -> None:
         values = {
-            "templates": {"default_name": "sentinel"},
+            "templates": {
+                "default_name": "sentinel",
+                "template_name": None,
+                "recovery_template_name": None,
+                "shard_template_name": None,
+                "signing_key_shard_template_name": None,
+                "kit_template_name": None,
+            },
             "page": {"size": "LETTER"},
             "qr": {"error": "Q", "chunk_size": 768},
             "defaults": {

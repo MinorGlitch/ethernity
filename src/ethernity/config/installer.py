@@ -235,6 +235,8 @@ def resolve_api_defaults_config_path() -> Path:
 
     paths = _build_paths()
     if paths.user_config_path.exists():
+        if not _ensure_user_config(paths):
+            raise OSError(f"unable to refresh user config at {paths.user_config_path}")
         return paths.user_config_path
     return DEFAULT_CONFIG_PATH
 
@@ -248,35 +250,16 @@ def first_run_onboarding_marker_path() -> Path:
 def first_run_onboarding_needed() -> bool:
     """Return whether first-run onboarding should be offered."""
 
-    return not first_run_onboarding_marker_path().exists()
+    return _read_first_run_onboarding_marker_payload() is None
 
 
 def first_run_onboarding_configured_fields() -> frozenset[str]:
     """Return onboarding-configured field identifiers from marker metadata."""
 
-    marker_path = first_run_onboarding_marker_path()
-    if not marker_path.exists():
+    payload = _read_first_run_onboarding_marker_payload()
+    if payload is None:
         return frozenset()
-    try:
-        payload = marker_path.read_text(encoding="utf-8").strip()
-    except OSError:
-        return frozenset()
-    if not payload:
-        return frozenset()
-    try:
-        parsed = json.loads(payload)
-    except json.JSONDecodeError:
-        return frozenset()
-    if not isinstance(parsed, dict):
-        return frozenset()
-    values = parsed.get("configured_fields")
-    if not isinstance(values, list):
-        return frozenset()
-    configured: set[str] = set()
-    for value in values:
-        if isinstance(value, str) and value.strip():
-            configured.add(value.strip())
-    return frozenset(configured)
+    return payload["configured_fields"]
 
 
 def mark_first_run_onboarding_complete(*, configured_fields: set[str] | None = None) -> Path:
@@ -284,15 +267,12 @@ def mark_first_run_onboarding_complete(*, configured_fields: set[str] | None = N
 
     marker_path = first_run_onboarding_marker_path()
     marker_path.parent.mkdir(parents=True, exist_ok=True)
-    existing_fields = set(first_run_onboarding_configured_fields())
-    merged_fields = (
-        existing_fields if configured_fields is None else existing_fields | configured_fields
-    )
+    normalized_fields = sorted(_normalize_onboarding_fields(configured_fields or set()))
     payload = {
         "version": _FIRST_RUN_ONBOARDING_MARKER_VERSION,
-        "configured_fields": sorted(merged_fields),
+        "configured_fields": normalized_fields,
     }
-    marker_path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+    _write_text_atomic(marker_path, json.dumps(payload, sort_keys=True) + "\n")
     return marker_path
 
 
@@ -304,6 +284,40 @@ def clear_first_run_onboarding_marker() -> None:
         marker_path.unlink()
     except FileNotFoundError:
         return
+
+
+def _read_first_run_onboarding_marker_payload() -> dict[str, object] | None:
+    marker_path = first_run_onboarding_marker_path()
+    if not marker_path.exists():
+        return None
+    try:
+        payload = marker_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not payload:
+        return None
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return {
+        "configured_fields": _normalize_onboarding_fields(parsed.get("configured_fields")),
+    }
+
+
+def _normalize_onboarding_fields(values: object) -> frozenset[str]:
+    if not isinstance(values, set | frozenset | list | tuple):
+        return frozenset()
+    configured: set[str] = set()
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        normalized = value.strip()
+        if normalized in ONBOARDING_FIELDS:
+            configured.add(normalized)
+    return frozenset(configured)
 
 
 def apply_first_run_defaults(

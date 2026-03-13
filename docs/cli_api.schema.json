@@ -1298,11 +1298,51 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "default_name"
+            "default_name",
+            "template_name",
+            "recovery_template_name",
+            "shard_template_name",
+            "signing_key_shard_template_name",
+            "kit_template_name"
           ],
           "properties": {
             "default_name": {
               "type": "string",
+              "minLength": 1
+            },
+            "template_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "recovery_template_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "shard_template_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "signing_key_shard_template_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "kit_template_name": {
+              "type": [
+                "string",
+                "null"
+              ],
               "minLength": 1
             }
           }

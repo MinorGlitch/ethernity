@@ -226,6 +226,9 @@ emitted as an `artifact` event with kind `layout_debug_json`.
 `api config get` and `api config set` expose a structured editable config model with these sections:
 
 - `templates.default_name`
+- `templates.template_name`, `templates.recovery_template_name`,
+  `templates.shard_template_name`, `templates.signing_key_shard_template_name`,
+  `templates.kit_template_name`
 - `page.size`
 - `qr.error`, `qr.chunk_size`
 - `defaults.backup.*`
@@ -256,7 +259,8 @@ Config results also expose onboarding metadata:
 ```
 
 Unknown patch fields are rejected. `defaults.recover.output` remains an editable config value even
-though `ethernity api recover` still requires explicit `--output`.
+though `ethernity api recover` still requires explicit `--output`. When `onboarding` is supplied,
+`onboarding.mark_complete` must be set explicitly.
 
 ## GUI Onboarding Procedure
 
@@ -274,6 +278,10 @@ Recommended procedure:
    your GUI actually collected during onboarding.
 6. Optionally call `ethernity api config get` again to confirm the saved state.
 
+If the GUI reads an explicit config file with `--config`, onboarding metadata is not considered
+applicable to that file. The result will report `onboarding.needed = false` and an empty
+`onboarding.configured_fields` list.
+
 Current onboarding field identifiers map to config values like this:
 
 - `template_design` -> `templates.default_name`
@@ -289,6 +297,8 @@ Current onboarding field identifiers map to config values like this:
 
 The onboarding marker is separate from the TOML config file. `onboarding.configured_fields`
 describes what the GUI asked the user during onboarding, not every value present in the config.
+When onboarding is marked complete again, the stored `configured_fields` set is replaced with the
+new list from the patch.
 
 Example onboarding patch:
 

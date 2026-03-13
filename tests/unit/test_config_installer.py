@@ -76,6 +76,80 @@ class TestConfigInstaller(unittest.TestCase):
                     ),
                 )
 
+    def test_first_run_onboarding_marker_replaces_configured_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_root = Path(tmpdir) / "config"
+            with mock.patch.object(installer, "user_config_dir_path", return_value=config_root):
+                installer.mark_first_run_onboarding_complete(
+                    configured_fields={installer.ONBOARDING_FIELD_TEMPLATE_DESIGN}
+                )
+                installer.mark_first_run_onboarding_complete(
+                    configured_fields={installer.ONBOARDING_FIELD_SHARDING}
+                )
+                self.assertEqual(
+                    installer.first_run_onboarding_configured_fields(),
+                    frozenset({installer.ONBOARDING_FIELD_SHARDING}),
+                )
+
+    def test_invalid_first_run_onboarding_marker_requires_onboarding(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_root = Path(tmpdir) / "config"
+            marker = config_root / ".first_run_onboarding_v1.done"
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text("{not-json}\n", encoding="utf-8")
+            with mock.patch.object(installer, "user_config_dir_path", return_value=config_root):
+                self.assertTrue(installer.first_run_onboarding_needed())
+                self.assertEqual(installer.first_run_onboarding_configured_fields(), frozenset())
+
+    def test_first_run_onboarding_filters_unknown_marker_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_root = Path(tmpdir) / "config"
+            marker = config_root / ".first_run_onboarding_v1.done"
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "configured_fields": [
+                            installer.ONBOARDING_FIELD_PAGE_SIZE,
+                            "unknown_field",
+                        ],
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(installer, "user_config_dir_path", return_value=config_root):
+                self.assertFalse(installer.first_run_onboarding_needed())
+                self.assertEqual(
+                    installer.first_run_onboarding_configured_fields(),
+                    frozenset({installer.ONBOARDING_FIELD_PAGE_SIZE}),
+                )
+
+    def test_resolve_api_defaults_config_path_refreshes_existing_user_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_root = Path(tmpdir) / "config"
+            paths = installer.ConfigPaths(
+                user_config_dir=config_root,
+                user_templates_root=config_root / "templates",
+                user_templates_dir=config_root / "templates" / "sentinel",
+                user_config_path=config_root / "config.toml",
+                user_template_paths={},
+                user_required_files=(),
+            )
+            paths.user_config_path.parent.mkdir(parents=True, exist_ok=True)
+            paths.user_config_path.write_text("[ui]\nquiet = false\n", encoding="utf-8")
+            with (
+                mock.patch.object(installer, "_build_paths", return_value=paths),
+                mock.patch.object(
+                    installer, "_ensure_user_config", return_value=True
+                ) as ensure_user,
+            ):
+                resolved = installer.resolve_api_defaults_config_path()
+
+        self.assertEqual(resolved, paths.user_config_path)
+        ensure_user.assert_called_once_with(paths)
+
     def test_apply_first_run_defaults_updates_existing_config(self) -> None:
         initial = (
             """

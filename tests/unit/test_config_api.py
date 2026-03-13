@@ -43,10 +43,12 @@ class TestApiConfigService(unittest.TestCase):
             ):
                 snapshot = api_config.get_api_config_snapshot()
 
+        templates = cast(dict[str, Any], snapshot.values["templates"])
         self.assertEqual(snapshot.source, "user")
         self.assertTrue(snapshot.path.endswith("config.toml"))
         self.assertIn("template_designs", snapshot.options)
         self.assertIn("available_fields", snapshot.onboarding)
+        self.assertIn("template_name", templates)
 
     def test_apply_api_config_patch_updates_values_and_onboarding_marker(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -64,6 +66,7 @@ class TestApiConfigService(unittest.TestCase):
                     None,
                     {
                         "values": {
+                            "templates": {"template_name": "ledger"},
                             "page": {"size": "LETTER"},
                             "defaults": {"backup": {"output_dir": "/tmp/backups"}},
                         },
@@ -76,7 +79,9 @@ class TestApiConfigService(unittest.TestCase):
                 parsed = tomllib.loads(Path(snapshot.path).read_text(encoding="utf-8"))
 
         defaults = snapshot.values["defaults"]
+        templates = cast(dict[str, Any], snapshot.values["templates"])
         self.assertEqual(snapshot.values["page"], {"size": "LETTER"})
+        self.assertEqual(templates["template_name"], "ledger")
         self.assertIsInstance(defaults, dict)
         backup = cast(dict[str, Any], defaults)["backup"]
         self.assertIsInstance(backup, dict)
@@ -87,7 +92,111 @@ class TestApiConfigService(unittest.TestCase):
             ["backup_output_dir", "page_size"],
         )
         self.assertEqual(parsed["page"]["size"], "LETTER")
+        self.assertEqual(parsed["template"]["name"], "ledger")
         self.assertEqual(parsed["defaults"]["backup"]["output_dir"], "/tmp/backups")
+
+    def test_apply_api_config_patch_preserves_existing_template_overrides(self) -> None:
+        initial = DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")
+        initial = initial.replace(
+            '[template]\nname = "sentinel"',
+            '[template]\nname = "ledger"',
+            1,
+        )
+        initial = initial.replace(
+            '[recovery_template]\nname = "sentinel"',
+            '[recovery_template]\nname = "forge"',
+            1,
+        )
+        with tempfile.NamedTemporaryFile(suffix=".toml") as handle:
+            path = Path(handle.name)
+            path.write_text(initial, encoding="utf-8")
+            snapshot = api_config.apply_api_config_patch(
+                path,
+                {"values": {"ui": {"quiet": True}}},
+            )
+            parsed = tomllib.loads(path.read_text(encoding="utf-8"))
+
+        templates = cast(dict[str, Any], snapshot.values["templates"])
+        self.assertEqual(templates["template_name"], "ledger")
+        self.assertEqual(templates["recovery_template_name"], "forge")
+        self.assertEqual(parsed["template"]["name"], "ledger")
+        self.assertEqual(parsed["recovery_template"]["name"], "forge")
+
+    def test_apply_api_config_patch_reverts_config_when_marker_write_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_root = Path(tmpdir) / "config"
+            with mock.patch.multiple(
+                installer,
+                user_config_dir_path=mock.Mock(return_value=config_root),
+                user_config_file_path=mock.Mock(side_effect=lambda name: config_root / name),
+                user_templates_root_path=mock.Mock(return_value=config_root / "templates"),
+                user_templates_design_path=mock.Mock(
+                    side_effect=lambda design: config_root / "templates" / design
+                ),
+            ):
+                config_path = installer.resolve_writable_config_path(None)
+                original = config_path.read_text(encoding="utf-8")
+                original_write_text_atomic = installer._write_text_atomic
+
+                def _fail_on_marker(path: Path, text: str) -> None:
+                    if path.name == ".first_run_onboarding_v1.done":
+                        raise OSError("marker write failed")
+                    original_write_text_atomic(path, text)
+
+                with (
+                    mock.patch(
+                        "ethernity.config.api_config._write_text_atomic",
+                        side_effect=_fail_on_marker,
+                    ),
+                    mock.patch.object(installer, "_write_text_atomic", side_effect=_fail_on_marker),
+                ):
+                    with self.assertRaises(OSError):
+                        api_config.apply_api_config_patch(
+                            None,
+                            {
+                                "values": {"page": {"size": "LETTER"}},
+                                "onboarding": {"mark_complete": True, "configured_fields": []},
+                            },
+                        )
+
+                self.assertEqual(config_path.read_text(encoding="utf-8"), original)
+
+    def test_get_api_config_snapshot_for_explicit_config_hides_onboarding_state(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".toml") as handle:
+            path = Path(handle.name)
+            path.write_text(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+            with mock.patch(
+                "ethernity.config.api_config.first_run_onboarding_configured_fields",
+                return_value=frozenset({installer.ONBOARDING_FIELD_PAGE_SIZE}),
+            ):
+                snapshot = api_config.get_api_config_snapshot(path)
+
+        self.assertEqual(snapshot.source, "explicit")
+        self.assertFalse(snapshot.onboarding["needed"])
+        self.assertEqual(snapshot.onboarding["configured_fields"], [])
+
+    def test_apply_api_config_patch_requires_explicit_onboarding_mark_complete(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_root = Path(tmpdir) / "config"
+            with mock.patch.multiple(
+                installer,
+                user_config_dir_path=mock.Mock(return_value=config_root),
+                user_config_file_path=mock.Mock(side_effect=lambda name: config_root / name),
+                user_templates_root_path=mock.Mock(return_value=config_root / "templates"),
+                user_templates_design_path=mock.Mock(
+                    side_effect=lambda design: config_root / "templates" / design
+                ),
+            ):
+                with self.assertRaises(api_config.ConfigPatchError) as raised:
+                    api_config.apply_api_config_patch(
+                        None,
+                        {
+                            "values": {"page": {"size": "LETTER"}},
+                            "onboarding": {"configured_fields": []},
+                        },
+                    )
+
+        self.assertEqual(raised.exception.code, "CONFIG_INVALID_VALUE")
 
     def test_apply_api_config_patch_rejects_unknown_field(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".toml") as handle:
