@@ -102,6 +102,19 @@ def _expand_shard_dir(shard_dir: str | None) -> list[str]:
         raise ApiCommandError(code=code, message=exc.message, details={"path": exc.path}) from exc
 
 
+def _resolve_api_config_and_paper(
+    ctx: typer.Context,
+    config: str | None,
+    paper: str | None,
+) -> tuple[str | None, str | None]:
+    config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
+    try:
+        paper_value = _paper_callback(paper_value)
+    except typer.BadParameter as exc:
+        raise ApiCommandError(code=api_codes.INVALID_INPUT, message=str(exc)) from exc
+    return config_value, paper_value
+
+
 def recover(
     ctx: typer.Context,
     fallback_file: Annotated[
@@ -158,13 +171,13 @@ def recover(
     ] = None,
     paper: Annotated[
         str | None,
-        typer.Option("--paper", help="Paper size override (A4/Letter).", callback=_paper_callback),
+        typer.Option("--paper", help="Paper size override (A4/Letter)."),
     ] = None,
 ) -> None:
     state = _ctx_state(ctx)
 
     def _run() -> int:
-        config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
+        config_value, paper_value = _resolve_api_config_and_paper(ctx, config, paper)
         fallback_value = apply_recover_stdin_default(
             fallback_file,
             payloads_file,
@@ -271,7 +284,7 @@ def backup(
     ] = None,
     paper: Annotated[
         str | None,
-        typer.Option("--paper", help="Paper size override (A4/Letter).", callback=_paper_callback),
+        typer.Option("--paper", help="Paper size override (A4/Letter)."),
     ] = None,
     design: Annotated[
         str | None,
@@ -281,7 +294,7 @@ def backup(
     state = _ctx_state(ctx)
 
     def _run() -> int:
-        config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
+        config_value, paper_value = _resolve_api_config_and_paper(ctx, config, paper)
         design_value = design or (state.design if state is not None else None)
         defaults = state.backup_defaults if state is not None else None
         if not isinstance(defaults, BackupDefaults):

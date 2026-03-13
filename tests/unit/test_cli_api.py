@@ -271,6 +271,34 @@ class TestCliApi(unittest.TestCase):
         self._assert_valid_events(events)
         self.assertEqual(events[0]["code"], "SHARD_DIR_NOT_FOUND")
 
+    def test_api_recover_invalid_paper_emits_ndjson_error(self) -> None:
+        payloads_file = V1_FIXTURE_ROOT / "main_payloads.txt"
+        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "recover",
+                    "--paper",
+                    "legal",
+                    "--payloads-file",
+                    str(payloads_file),
+                    "--passphrase",
+                    FIXTURE_PASSPHRASE,
+                    "--output",
+                    "/tmp/recovered.bin",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 2)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(events[0]["type"], "error")
+        self.assertEqual(events[0]["code"], api_codes.INVALID_INPUT)
+        self.assertIn("paper must be A4 or LETTER", events[0]["message"])
+
     def test_api_recover_forwards_debug_limits(self) -> None:
         payloads_file = V1_FIXTURE_ROOT / "main_payloads.txt"
         output_path = "/tmp/recovered.bin"
@@ -349,6 +377,30 @@ class TestCliApi(unittest.TestCase):
         events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
         self._assert_valid_events(events)
         self.assertEqual(events[0]["code"], "INPUT_REQUIRED")
+
+    def test_api_backup_invalid_paper_emits_ndjson_error(self) -> None:
+        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "backup",
+                    "--paper",
+                    "legal",
+                    "--input",
+                    "-",
+                ],
+                input="payload",
+            )
+
+        self.assertEqual(result.exit_code, 2)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(events[0]["type"], "error")
+        self.assertEqual(events[0]["code"], api_codes.INVALID_INPUT)
+        self.assertIn("paper must be A4 or LETTER", events[0]["message"])
 
     def test_run_backup_api_command_emits_ndjson_artifacts(self) -> None:
         args = BackupArgs(
