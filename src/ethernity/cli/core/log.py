@@ -16,10 +16,23 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+from .. import api_codes
+from ..events import active_event_sink, emit_warning
 from ..ui.runtime import console_err
 
 
-def _warn(message: str, *, quiet: bool) -> None:
+def _warn(
+    message: str,
+    *,
+    quiet: bool,
+    code: str = api_codes.WARNING,
+    details: dict[str, Any] | None = None,
+) -> None:
+    if active_event_sink() is not None:
+        emit_warning(code=code, message=message, details=details)
+        return
     if quiet:
         return
     console_err.print(f"[yellow]Warning:[/yellow] {message}")

@@ -29,6 +29,7 @@ from ...crypto.sharding import (
 )
 from ...crypto.signing import decode_auth_payload, verify_auth, verify_shard
 from ...encoding.framing import Frame, FrameType
+from .. import api_codes
 from ..core.log import _warn
 from ..core.types import RecoverArgs
 
@@ -73,7 +74,11 @@ def _resolve_auth_payload(
                 "to skip verification"
             )
         if allow_unsigned:
-            _warn("no auth payload provided; skipping auth verification", quiet=quiet)
+            _warn(
+                "no auth payload provided; skipping auth verification",
+                quiet=quiet,
+                code=api_codes.AUTH_PAYLOAD_MISSING,
+            )
             return None, "skipped"
         return None, "missing"
     if len(auth_frames) > 1:
@@ -87,17 +92,30 @@ def _resolve_auth_payload(
         payload = decode_auth_payload(frame.data)
     except ValueError as exc:
         if allow_unsigned:
-            _warn(f"invalid auth payload; verification skipped: {exc}", quiet=quiet)
+            _warn(
+                f"invalid auth payload; verification skipped: {exc}",
+                quiet=quiet,
+                code=api_codes.AUTH_PAYLOAD_INVALID,
+                details={"reason": str(exc)},
+            )
             return None, "invalid"
         raise
     if not hmac.compare_digest(payload.doc_hash, doc_hash):
         if allow_unsigned:
-            _warn("auth doc_hash mismatch; verification skipped", quiet=quiet)
+            _warn(
+                "auth doc_hash mismatch; verification skipped",
+                quiet=quiet,
+                code=api_codes.AUTH_DOC_HASH_MISMATCH,
+            )
             return None, "ignored"
         raise ValueError("auth doc_hash does not match ciphertext")
     if not verify_auth(doc_hash, sign_pub=payload.sign_pub, signature=payload.signature):
         if allow_unsigned:
-            _warn("auth signature verification failed; verification skipped", quiet=quiet)
+            _warn(
+                "auth signature verification failed; verification skipped",
+                quiet=quiet,
+                code=api_codes.AUTH_SIGNATURE_INVALID,
+            )
             return None, "ignored"
         raise ValueError("invalid auth signature")
     return payload, "verified"

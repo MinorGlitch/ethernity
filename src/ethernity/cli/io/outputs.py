@@ -19,8 +19,10 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
-from collections.abc import Sequence
+import tempfile
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from ...core.validation import normalize_path
@@ -62,10 +64,18 @@ def _ensure_directory(path: str | Path, *, exist_ok: bool) -> Path:
     return directory
 
 
-def _ensure_output_dir(output_dir: str | None, doc_id_hex: str) -> str:
+def _ensure_output_dir(
+    output_dir: str | None,
+    doc_id_hex: str,
+    *,
+    existing_directory_is_parent: bool = False,
+) -> str:
     """Create a fresh backup output directory or raise if it already exists."""
 
     directory = expanduser_cli_path(output_dir, preserve_stdin=False) or f"backup-{doc_id_hex}"
+    normalized = Path(directory)
+    if existing_directory_is_parent and normalized.is_dir():
+        directory = str(normalized / f"backup-{doc_id_hex}")
     try:
         _ensure_directory(directory, exist_ok=False)
     except FileExistsError as exc:
@@ -74,6 +84,50 @@ def _ensure_output_dir(output_dir: str | None, doc_id_hex: str) -> str:
             "use a different --output-dir path or remove the existing directory"
         ) from exc
     return directory
+
+
+def _prepare_output_dir(
+    output_dir: str | None,
+    doc_id_hex: str,
+    *,
+    prefix: str,
+    existing_directory_is_parent: bool = False,
+) -> tuple[str, str]:
+    """Prepare sibling staging and final output directories."""
+
+    final_dir = expanduser_cli_path(output_dir, preserve_stdin=False) or f"{prefix}-{doc_id_hex}"
+    normalized = Path(final_dir)
+    if existing_directory_is_parent and normalized.is_dir():
+        normalized = normalized / f"{prefix}-{doc_id_hex}"
+        final_dir = str(normalized)
+    if normalized.exists():
+        raise ValueError(
+            f"output directory already exists: {final_dir}; "
+            "use a different --output-dir path or remove the existing directory"
+        )
+    _ensure_directory(normalized.parent, exist_ok=True)
+    staging_dir = Path(
+        tempfile.mkdtemp(prefix=f".{normalized.name}.tmp-", dir=str(normalized.parent))
+    )
+    _harden_dir_permissions(staging_dir)
+    return str(normalized), str(staging_dir)
+
+
+def _commit_prepared_output_dir(staging_dir: str | Path, final_dir: str | Path) -> str:
+    """Promote a staged output directory into place."""
+
+    staging_path = Path(staging_dir)
+    final_path = Path(final_dir)
+    staging_path.replace(final_path)
+    return str(final_path)
+
+
+def _discard_prepared_output_dir(staging_dir: str | Path | None) -> None:
+    """Remove a staged output directory when a render fails."""
+
+    if staging_dir is None:
+        return
+    shutil.rmtree(staging_dir, ignore_errors=True)
 
 
 def _safe_join(base: Path, relative: str) -> Path:
@@ -89,16 +143,36 @@ def _safe_join(base: Path, relative: str) -> Path:
     return path
 
 
-def _write_output(path: str | None, data: bytes) -> None:
+def _write_output(path: str | None, data: bytes) -> str | None:
     """Write bytes to a file path or stdout when no path is provided."""
 
     if path:
         normalized = Path(expanduser_cli_path(path, preserve_stdin=False) or "")
-        with normalized.open("wb") as handle:
-            handle.write(data)
-        _harden_file_permissions(normalized)
-    else:
-        sys.stdout.buffer.write(data)
+        normalized.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        _harden_dir_permissions(normalized.parent)
+        _write_atomic_file(normalized, data)
+        return str(normalized)
+
+    sys.stdout.buffer.write(data)
+    return None
+
+
+def _single_entry_uses_directory_output(
+    output_path: str | None,
+    *,
+    single_entry_output_is_directory: bool = False,
+) -> bool:
+    """Return whether a single recovered file should be written under a directory."""
+
+    if output_path is None:
+        return False
+    if single_entry_output_is_directory:
+        return True
+    normalized = Path(expanduser_cli_path(output_path, preserve_stdin=False) or "")
+    try:
+        return normalized.is_dir()
+    except OSError:
+        return False
 
 
 def _write_recovered_outputs(
@@ -106,23 +180,152 @@ def _write_recovered_outputs(
     entries: Sequence[tuple[object, bytes]],
     *,
     single_entry_output_is_directory: bool = False,
-) -> None:
+    on_entry_written: Callable[[object, bytes, str, int, int], None] | None = None,
+) -> list[str]:
     """Write recovered manifest entries to a file, directory, or stdout."""
 
     if not entries:
         raise ValueError("no payloads to write")
     if output_path:
-        if len(entries) == 1 and not single_entry_output_is_directory:
-            _write_output(output_path, entries[0][1])
-            return
-        base_dir = _ensure_directory(output_path, exist_ok=True)
-        for entry, data in entries:
-            path = _safe_join(base_dir, getattr(entry, "path", "payload.bin"))
-            _write_output(str(path), data)
-        return
+        directory_mode = _single_entry_uses_directory_output(
+            output_path,
+            single_entry_output_is_directory=single_entry_output_is_directory,
+        )
+        if len(entries) == 1 and not directory_mode:
+            path = _write_output(output_path, entries[0][1])
+            if on_entry_written is not None:
+                resolved_path = path or output_path
+                on_entry_written(entries[0][0], entries[0][1], resolved_path, 1, 1)
+            return [path or output_path]
+        base_dir = Path(expanduser_cli_path(output_path, preserve_stdin=False) or "")
+        return _write_recovered_directory_outputs(
+            base_dir,
+            entries,
+            on_entry_written=on_entry_written,
+        )
 
     if len(entries) == 1:
         _write_output(None, entries[0][1])
-        return
+        if on_entry_written is not None:
+            on_entry_written(entries[0][0], entries[0][1], "-", 1, 1)
+        return []
 
     raise ValueError("multiple files require --output to specify a directory")
+
+
+def _write_atomic_file(path: Path, data: bytes) -> None:
+    """Write a file atomically in place."""
+
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.tmp-", dir=str(path.parent))
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        _harden_file_permissions(temp_path)
+        temp_path.replace(path)
+        _harden_file_permissions(path)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
+def _write_recovered_directory_outputs(
+    base_dir: Path,
+    entries: Sequence[tuple[object, bytes]],
+    *,
+    on_entry_written: Callable[[object, bytes, str, int, int], None] | None,
+) -> list[str]:
+    """Write recovered directory-style outputs via staging with rollback."""
+
+    destination_exists = base_dir.exists()
+    if destination_exists and not base_dir.is_dir():
+        raise ValueError(f"output path is not a directory: {base_dir}")
+    _ensure_directory(base_dir.parent, exist_ok=True)
+    staging_dir = Path(
+        tempfile.mkdtemp(prefix=f".{base_dir.name or 'recover'}.tmp-", dir=str(base_dir.parent))
+    )
+    _harden_dir_permissions(staging_dir)
+    staged_records: list[tuple[object, bytes, str, Path]] = []
+    total = len(entries)
+    try:
+        for entry, data in entries:
+            relative_path = getattr(entry, "path", "payload.bin")
+            staged_path = _safe_join(staging_dir, relative_path)
+            _write_atomic_file(staged_path, data)
+            staged_records.append((entry, data, relative_path, staged_path))
+        if not destination_exists:
+            staging_dir.replace(base_dir)
+            written_paths = [
+                str(base_dir / relative_path)
+                for _entry, _data, relative_path, _path in staged_records
+            ]
+            if on_entry_written is not None:
+                for index, (entry, data, _relative_path, _path) in enumerate(
+                    staged_records, start=1
+                ):
+                    on_entry_written(entry, data, written_paths[index - 1], index, total)
+            return written_paths
+        return _commit_recovered_directory_outputs(
+            base_dir,
+            staged_records,
+            total=total,
+            on_entry_written=on_entry_written,
+        )
+    finally:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+
+
+def _commit_recovered_directory_outputs(
+    base_dir: Path,
+    staged_records: Sequence[tuple[object, bytes, str, Path]],
+    *,
+    total: int,
+    on_entry_written: Callable[[object, bytes, str, int, int], None] | None,
+) -> list[str]:
+    """Move staged recovered files into the destination with rollback."""
+
+    backups: list[tuple[Path, Path]] = []
+    created_targets: list[Path] = []
+    committed_records: list[tuple[object, bytes, str]] = []
+    written_paths: list[str] = []
+    try:
+        for entry, data, relative_path, staged_path in staged_records:
+            target_path = _safe_join(base_dir, relative_path)
+            backup_path: Path | None = None
+            if target_path.exists():
+                if target_path.is_dir():
+                    raise ValueError(f"output path is a directory: {target_path}")
+                fd, backup_name = tempfile.mkstemp(
+                    prefix=f".{target_path.name}.bak-",
+                    dir=str(target_path.parent),
+                )
+                os.close(fd)
+                backup_path = Path(backup_name)
+                backup_path.unlink(missing_ok=True)
+                target_path.replace(backup_path)
+                backups.append((target_path, backup_path))
+            else:
+                created_targets.append(target_path)
+            try:
+                staged_path.replace(target_path)
+            except Exception:
+                if backup_path is not None and backup_path.exists():
+                    backup_path.replace(target_path)
+                raise
+            committed_records.append((entry, data, str(target_path)))
+            written_paths.append(str(target_path))
+        for target_path, backup_path in backups:
+            backup_path.unlink(missing_ok=True)
+        if on_entry_written is not None:
+            for index, (entry, data, written_path) in enumerate(committed_records, start=1):
+                on_entry_written(entry, data, written_path, index, total)
+        return written_paths
+    except Exception:
+        for target_path, backup_path in reversed(backups):
+            if backup_path.exists():
+                backup_path.replace(target_path)
+            elif target_path.exists():
+                target_path.unlink(missing_ok=True)
+        for target_path in reversed(created_targets):
+            target_path.unlink(missing_ok=True)
+        raise

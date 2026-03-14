@@ -20,9 +20,11 @@ import sys
 from collections.abc import Sequence
 from typing import Annotated
 
+import click
 import typer
 
-from ..config import load_cli_defaults
+from ..config import CliDefaults, load_cli_defaults
+from ..config.installer import DEFAULT_CONFIG_PATH, resolve_api_defaults_config_path
 from . import command_registry
 from .api import (
     DEBUG_MAX_BYTES_DEFAULT,
@@ -41,11 +43,18 @@ from .flows.backup import run_wizard
 from .flows.first_run_config import run_first_run_config_wizard
 from .flows.mint import run_mint_wizard
 from .flows.recover import run_recover_wizard
+from .ndjson import (
+    emit_error,
+    error_code_for_exception,
+    error_details_for_exception,
+    ndjson_session,
+)
 from .startup import run_startup
 
 app = typer.Typer(add_completion=False, help="Ethernity CLI.")
 
-_DEFAULTS_BOOTSTRAP_SUBCOMMANDS = frozenset({"backup", "recover", "kit", "mint", "render"})
+_DEFAULTS_BOOTSTRAP_SUBCOMMANDS = frozenset({"api", "backup", "recover", "kit", "mint", "render"})
+_GLOBAL_OPTIONS_WITH_VALUES = frozenset({"--config", "--paper", "--design", "--debug-max-bytes"})
 
 
 def _subcommand_config_override(argv: Sequence[str]) -> str | None:
@@ -82,6 +91,61 @@ def _should_run_first_run_onboarding(invoked_subcommand: str | None) -> bool:
     if invoked_subcommand is not None:
         return False
     return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _is_api_invocation(invoked_subcommand: str | None) -> bool:
+    return invoked_subcommand == "api"
+
+
+def _api_argv_path(argv: Sequence[str]) -> tuple[str, ...]:
+    """Return the nested API command path from argv when present."""
+
+    args = list(argv)[1:]
+    idx = 0
+    while idx < len(args):
+        arg = args[idx]
+        if arg == "--":
+            return ()
+        if arg.startswith("--"):
+            if "=" in arg:
+                idx += 1
+                continue
+            idx += 2 if arg in _GLOBAL_OPTIONS_WITH_VALUES else 1
+            continue
+        break
+    if idx >= len(args) or args[idx] != "api":
+        return ()
+    idx += 1
+    path: list[str] = []
+    while idx < len(args):
+        arg = args[idx]
+        if arg == "--" or arg.startswith("-"):
+            break
+        path.append(arg)
+        idx += 1
+    return tuple(path)
+
+
+def _is_api_config_invocation(argv: Sequence[str]) -> bool:
+    path = _api_argv_path(argv)
+    return len(path) >= 2 and path[0] == "config" and path[1] in {"get", "set"}
+
+
+def _raise_api_bootstrap_error(exc: BaseException, *, exit_code: int = 2) -> None:
+    details = {"error_type": type(exc).__name__}
+    details.update(error_details_for_exception(exc))
+    with ndjson_session():
+        emit_error(code=error_code_for_exception(exc), message=str(exc), details=details)
+    raise typer.Exit(code=exit_code) from exc
+
+
+def _raise_api_parse_error(exc: BaseException, *, exit_code: int = 2) -> None:
+    message = exc.format_message() if isinstance(exc, click.ClickException) else str(exc)
+    details = {"error_type": type(exc).__name__}
+    details.update(error_details_for_exception(exc))
+    with ndjson_session():
+        emit_error(code=error_code_for_exception(exc), message=message, details=details)
+    raise SystemExit(exit_code) from exc
 
 
 def _home_backup_wizard_args(
@@ -226,17 +290,21 @@ def cli(
     ] = False,
 ) -> None:
     _ = version
-    try:
-        should_exit = run_startup(
-            quiet=quiet,
-            no_color=no_color,
-            no_animations=no_animations,
-            debug=debug,
-            init_config=init_config,
-        )
-    except (OSError, RuntimeError, ValueError) as exc:
-        console_err.print(f"[red]Error:[/red] {exc}")
-        raise typer.Exit(code=2)
+    should_exit = False
+    if not _is_api_invocation(ctx.invoked_subcommand):
+        try:
+            should_exit = run_startup(
+                quiet=quiet,
+                no_color=no_color,
+                no_animations=no_animations,
+                debug=debug,
+                init_config=init_config,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            if _is_api_invocation(ctx.invoked_subcommand):
+                _raise_api_bootstrap_error(exc)
+            console_err.print(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(code=2)
     if should_exit:
         raise typer.Exit()
     try:
@@ -256,17 +324,30 @@ def cli(
         console_err.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(code=2)
 
-    config_path_for_defaults = config
-    if config_path_for_defaults is None and _should_use_subcommand_config_for_defaults(
+    explicit_config_path = config
+    if explicit_config_path is None and _should_use_subcommand_config_for_defaults(
         ctx.invoked_subcommand
     ):
-        config_path_for_defaults = _subcommand_config_override(sys.argv)
+        explicit_config_path = _subcommand_config_override(sys.argv)
 
-    try:
-        cli_defaults = load_cli_defaults(path=config_path_for_defaults)
-    except (OSError, RuntimeError, ValueError) as exc:
-        console_err.print(f"[red]Error:[/red] {exc}")
-        raise typer.Exit(code=2)
+    config_path_for_defaults = explicit_config_path
+    api_config_invocation = _is_api_config_invocation(sys.argv)
+    if config_path_for_defaults is None and _is_api_invocation(ctx.invoked_subcommand):
+        if not api_config_invocation:
+            config_path_for_defaults = str(
+                resolve_api_defaults_config_path() or DEFAULT_CONFIG_PATH
+            )
+
+    if api_config_invocation:
+        cli_defaults = CliDefaults()
+    else:
+        try:
+            cli_defaults = load_cli_defaults(path=config_path_for_defaults)
+        except (OSError, RuntimeError, ValueError) as exc:
+            if _is_api_invocation(ctx.invoked_subcommand):
+                _raise_api_bootstrap_error(exc)
+            console_err.print(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(code=2)
 
     effective_quiet = quiet or cli_defaults.ui.quiet
     effective_no_color = no_color or cli_defaults.ui.no_color
@@ -280,7 +361,10 @@ def cli(
     configure_ui(no_color=effective_no_color, no_animations=effective_no_animations)
 
     ctx.obj = CliContextState(
-        config=config,
+        config=explicit_config_path
+        if explicit_config_path is not None
+        else config_path_for_defaults,
+        config_explicit=explicit_config_path is not None,
         paper=paper,
         design=design,
         debug=debug,
@@ -361,4 +445,17 @@ command_registry.register(app)
 
 
 def main() -> None:
-    app()
+    if not _api_argv_path(sys.argv):
+        app()
+        return
+    result: object | None = None
+    try:
+        result = app(standalone_mode=False)
+    except click.Abort as exc:
+        _raise_api_parse_error(exc, exit_code=130)
+    except click.ClickException as exc:
+        _raise_api_parse_error(exc, exit_code=exc.exit_code)
+    except click.exceptions.Exit as exc:
+        raise SystemExit(exc.exit_code) from exc
+    if isinstance(result, int):
+        raise SystemExit(result)

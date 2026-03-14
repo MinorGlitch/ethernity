@@ -84,6 +84,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
             auth_fallback_file="~/auth.txt",
             shard_fallback_file=["~/s1.txt"],
             shard_payloads_file=["~/s2.txt"],
+            shard_scan=["~/s3.pdf"],
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             home = Path(tmpdir) / "home"
@@ -104,24 +105,31 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
                     "_frames_from_shard_inputs",
                     return_value=["shard"],
                 ) as shard_mock:
-                    shard_frames, shard_fallback, shard_payloads = (
-                        recover_plan._shard_frames_from_args(
-                            args,
-                            quiet=True,
+                    with mock.patch.object(
+                        recover_plan,
+                        "_shard_frames_from_scan",
+                        return_value=["scan-shard"],
+                    ) as shard_scan_mock:
+                        shard_frames, shard_fallback, shard_payloads, shard_scan = (
+                            recover_plan._shard_frames_from_args(
+                                args,
+                                quiet=True,
+                            )
                         )
-                    )
         self.assertEqual(auth_frames, ["auth"])
         auth_mock.assert_called_once_with(
             str(home / "auth.txt"), allow_invalid_auth=False, quiet=True
         )
-        self.assertEqual(shard_frames, ["shard"])
+        self.assertEqual(shard_frames, ["shard", "scan-shard"])
         self.assertEqual(shard_fallback, [str(home / "s1.txt")])
         self.assertEqual(shard_payloads, [str(home / "s2.txt")])
+        self.assertEqual(shard_scan, [str(home / "s3.pdf")])
         shard_mock.assert_called_once_with(
             [str(home / "s1.txt")],
             [str(home / "s2.txt")],
             quiet=True,
         )
+        shard_scan_mock.assert_called_once_with([str(home / "s3.pdf")], quiet=True)
 
     def test_plan_from_args_expands_output_path(self) -> None:
         args = RecoverArgs(output="~/recovered")
@@ -145,7 +153,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
                                 with mock.patch.object(
                                     recover_plan,
                                     "_shard_frames_from_args",
-                                    return_value=([], [], []),
+                                    return_value=([], [], [], []),
                                 ):
                                     with mock.patch.object(
                                         recover_plan,

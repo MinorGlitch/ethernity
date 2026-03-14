@@ -393,7 +393,7 @@ class TestMintFlow(unittest.TestCase):
     )
     @mock.patch(
         "ethernity.cli.flows.mint._shard_frames_from_args",
-        return_value=([mock.Mock()], ["old-shard.txt"], ["old-shard.payload"]),
+        return_value=([mock.Mock()], ["old-shard.txt"], ["old-shard.payload"], []),
     )
     @mock.patch("ethernity.cli.flows.mint._extra_auth_frames_from_args", return_value=[])
     @mock.patch(
@@ -454,7 +454,7 @@ class TestMintFlow(unittest.TestCase):
             auth_payload=SimpleNamespace(sign_pub=b"p" * 32),
         ),
     )
-    @mock.patch("ethernity.cli.flows.mint._shard_frames_from_args", return_value=([], [], []))
+    @mock.patch("ethernity.cli.flows.mint._shard_frames_from_args", return_value=([], [], [], []))
     @mock.patch("ethernity.cli.flows.mint._extra_auth_frames_from_args", return_value=[])
     @mock.patch(
         "ethernity.cli.flows.mint._frames_from_args", return_value=([], "QR payloads", "qr.txt")

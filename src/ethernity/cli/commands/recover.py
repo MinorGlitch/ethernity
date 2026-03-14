@@ -18,31 +18,26 @@ from __future__ import annotations
 
 import functools
 import sys
-from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from ...config import RecoverDefaults
 from ..core.common import _ctx_state, _paper_callback, _resolve_config_and_paper, _run_cli
-from ..core.paths import expanduser_cli_path
 from ..core.types import RecoverArgs
 from ..flows.recover import _should_use_wizard_for_recover, run_recover_command, run_recover_wizard
+from ..flows.recover_service import (
+    RecoverShardDirError,
+    apply_recover_stdin_default,
+    expand_recover_shard_dir,
+)
 
 
 def _expand_shard_dir(shard_dir: str | None) -> list[str]:
-    """Expand shard directory to list of .txt files."""
-    if not shard_dir:
-        return []
-    path = Path(expanduser_cli_path(shard_dir, preserve_stdin=False) or "")
-    if not path.exists():
-        raise typer.BadParameter(f"shard directory not found: {shard_dir}")
-    if not path.is_dir():
-        raise typer.BadParameter(f"shard-dir must be a directory: {shard_dir}")
-    files = sorted(path.glob("*.txt"))
-    if not files:
-        raise typer.BadParameter(f"no .txt files found in shard directory: {shard_dir}")
-    return [str(f) for f in files]
+    try:
+        return expand_recover_shard_dir(shard_dir)
+    except RecoverShardDirError as exc:
+        raise typer.BadParameter(exc.message) from exc
 
 
 def register(app: typer.Typer) -> None:
@@ -51,6 +46,8 @@ def register(app: typer.Typer) -> None:
             "Recover data from QR payloads or recovery text (fallback).\n\n"
             "Examples:\n"
             "  ethernity recover --scan ./scans\n"
+            "  ethernity recover --scan qr_document.pdf --shard-scan shard-01.pdf "
+            "--shard-scan shard-02.pdf --output recovered.bin\n"
             "  ethernity recover --fallback-file recovery.txt --output recovered.bin\n"
             "  ethernity recover --payloads-file qr_payloads.txt\n"
         )
@@ -113,6 +110,14 @@ def recover(
         typer.Option(
             "--shard-payloads-file",
             help="Shard QR payload file (repeatable).",
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
+    shard_scan: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--shard-scan",
+            help="Shard scan path (image/PDF/dir, repeatable).",
             rich_help_panel="Inputs",
         ),
     ] = None,
@@ -202,8 +207,12 @@ def recover(
     debug_max_value = state.debug_max_bytes if state is not None else 0
     debug_reveal_value = state.debug_reveal_secrets if state is not None else False
 
-    if not fallback_file and not payloads_file and not (scan or []) and not sys.stdin.isatty():
-        fallback_file = "-"
+    fallback_file = apply_recover_stdin_default(
+        fallback_file,
+        payloads_file,
+        list(scan or []),
+        stdin_is_tty=sys.stdin.isatty(),
+    )
 
     # Expand shard_dir to individual files and combine with explicit files
     shard_files = list(shard_fallback_file or [])
@@ -218,6 +227,7 @@ def recover(
         passphrase=passphrase,
         shard_fallback_file=shard_files,
         shard_payloads_file=list(shard_payloads_file or []),
+        shard_scan=list(shard_scan or []),
         auth_fallback_file=auth_fallback_file,
         auth_payloads_file=auth_payloads_file,
         output=output_value,

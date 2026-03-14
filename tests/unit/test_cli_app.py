@@ -129,6 +129,113 @@ class TestCliApp(unittest.TestCase):
     @mock.patch("ethernity.cli.app.configure_ui")
     @mock.patch("ethernity.cli.app.run_startup", return_value=False)
     @mock.patch("ethernity.cli.app.load_cli_defaults", return_value=CliDefaults())
+    def test_cli_api_subcommand_bootstraps_defaults_from_config_override(
+        self,
+        load_cli_defaults: mock.MagicMock,
+        run_startup: mock.MagicMock,
+        _configure_ui: mock.MagicMock,
+    ) -> None:
+        ctx = _Ctx(invoked_subcommand="api")
+        with mock.patch.object(
+            app_module.sys,
+            "argv",
+            ["ethernity", "api", "recover", "--config", "custom.toml"],
+        ):
+            app_module.cli(
+                ctx,
+                config=None,
+                paper=None,
+                design=None,
+                debug=False,
+                debug_max_bytes=1024,
+                debug_reveal_secrets=False,
+                quiet=False,
+                no_color=False,
+                no_animations=False,
+                init_config=False,
+                version=False,
+            )
+        load_cli_defaults.assert_called_once_with(path="custom.toml")
+        run_startup.assert_not_called()
+        state = ctx.obj
+        if state is None:
+            self.fail("expected CLI context state")
+        self.assertEqual(state.config, "custom.toml")
+        self.assertTrue(state.config_explicit)
+
+    @mock.patch("ethernity.cli.app.configure_ui")
+    @mock.patch("ethernity.cli.app.run_startup", return_value=False)
+    @mock.patch("ethernity.cli.app.load_cli_defaults", return_value=CliDefaults())
+    @mock.patch(
+        "ethernity.cli.app.resolve_api_defaults_config_path",
+        return_value=app_module.DEFAULT_CONFIG_PATH,
+    )
+    def test_cli_api_subcommand_uses_package_default_config_without_explicit_override(
+        self,
+        _resolve_api_defaults_config_path: mock.MagicMock,
+        load_cli_defaults: mock.MagicMock,
+        run_startup: mock.MagicMock,
+        _configure_ui: mock.MagicMock,
+    ) -> None:
+        ctx = _Ctx(invoked_subcommand="api")
+        with mock.patch.object(app_module.sys, "argv", ["ethernity", "api", "backup", "--help"]):
+            app_module.cli(
+                ctx,
+                config=None,
+                paper=None,
+                design=None,
+                debug=False,
+                debug_max_bytes=1024,
+                debug_reveal_secrets=False,
+                quiet=False,
+                no_color=False,
+                no_animations=False,
+                init_config=False,
+                version=False,
+            )
+        load_cli_defaults.assert_called_once_with(path=str(app_module.DEFAULT_CONFIG_PATH))
+        run_startup.assert_not_called()
+        state = ctx.obj
+        if state is None:
+            self.fail("expected CLI context state")
+        self.assertEqual(state.config, str(app_module.DEFAULT_CONFIG_PATH))
+        self.assertFalse(state.config_explicit)
+
+    @mock.patch("ethernity.cli.app.configure_ui")
+    @mock.patch("ethernity.cli.app.run_startup", return_value=False)
+    @mock.patch("ethernity.cli.app.load_cli_defaults", return_value=CliDefaults())
+    def test_cli_api_config_get_skips_defaults_bootstrap(
+        self,
+        load_cli_defaults: mock.MagicMock,
+        run_startup: mock.MagicMock,
+        _configure_ui: mock.MagicMock,
+    ) -> None:
+        ctx = _Ctx(invoked_subcommand="api")
+        with mock.patch.object(app_module.sys, "argv", ["ethernity", "api", "config", "get"]):
+            app_module.cli(
+                ctx,
+                config=None,
+                paper=None,
+                design=None,
+                debug=False,
+                debug_max_bytes=1024,
+                debug_reveal_secrets=False,
+                quiet=False,
+                no_color=False,
+                no_animations=False,
+                init_config=False,
+                version=False,
+            )
+        load_cli_defaults.assert_not_called()
+        run_startup.assert_not_called()
+        state = ctx.obj
+        if state is None:
+            self.fail("expected CLI context state")
+        self.assertIsNone(state.config)
+
+    @mock.patch("ethernity.cli.app.configure_ui")
+    @mock.patch("ethernity.cli.app.run_startup", return_value=False)
+    @mock.patch("ethernity.cli.app.load_cli_defaults", return_value=CliDefaults())
     def test_cli_config_subcommand_does_not_bootstrap_defaults_from_argv_config(
         self,
         load_cli_defaults: mock.MagicMock,

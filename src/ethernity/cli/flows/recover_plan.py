@@ -38,6 +38,7 @@ from ..io.frames import (
     _frames_from_payloads,
     _frames_from_shard_inputs,
     _recovery_frames_from_scan,
+    _shard_frames_from_scan,
     _split_main_and_auth_frames,
     format_recovery_input_error,
 )
@@ -67,6 +68,7 @@ class RecoveryPlan:
     shard_frames: tuple[Frame, ...]
     shard_fallback_files: tuple[str, ...]
     shard_payloads_file: tuple[str, ...]
+    shard_scan: tuple[str, ...]
 
 
 def resolve_recover_config(args: RecoverArgs) -> object:
@@ -105,7 +107,7 @@ def plan_from_args(args: RecoverArgs) -> RecoveryPlan:
         allow_unsigned=allow_unsigned,
         quiet=quiet,
     )
-    shard_frames, shard_fallback_files, shard_payloads_file = _shard_frames_from_args(
+    shard_frames, shard_fallback_files, shard_payloads_file, shard_scan = _shard_frames_from_args(
         args,
         quiet=quiet,
     )
@@ -119,6 +121,7 @@ def plan_from_args(args: RecoverArgs) -> RecoveryPlan:
         input_detail=input_detail,
         shard_fallback_files=shard_fallback_files,
         shard_payloads_file=shard_payloads_file,
+        shard_scan=shard_scan,
         output_path=expanduser_cli_path(args.output),
         args=args,
         quiet=quiet,
@@ -136,6 +139,7 @@ def build_recovery_plan(
     input_detail: str | None,
     shard_fallback_files: list[str],
     shard_payloads_file: list[str],
+    shard_scan: list[str],
     output_path: str | None,
     args: RecoverArgs | None,
     quiet: bool,
@@ -191,6 +195,7 @@ def build_recovery_plan(
         shard_frames=tuple(shard_frames),
         shard_fallback_files=tuple(shard_fallback_files),
         shard_payloads_file=tuple(shard_payloads_file),
+        shard_scan=tuple(shard_scan),
     )
 
 
@@ -309,11 +314,12 @@ def _shard_frames_from_args(
     args: RecoverArgs,
     *,
     quiet: bool,
-) -> tuple[list[Frame], list[str], list[str]]:
+) -> tuple[list[Frame], list[str], list[str], list[str]]:
     """Load shard frames from shard fallback and payload inputs."""
 
     shard_fallback_files = expanduser_cli_paths(list(args.shard_fallback_file or []))
     shard_payloads_file = expanduser_cli_paths(list(args.shard_payloads_file or []))
+    shard_scan = expanduser_cli_paths(list(args.shard_scan or []))
     shard_frames: list[Frame] = []
     if shard_fallback_files or shard_payloads_file:
         try:
@@ -324,6 +330,11 @@ def _shard_frames_from_args(
             )
         except ValueError as exc:
             raise ValueError(format_fallback_error(exc, context="Shard recovery text")) from exc
-        if not shard_frames:
-            raise ValueError("no shard payloads found; check shard inputs and try again")
-    return shard_frames, shard_fallback_files, shard_payloads_file
+    if shard_scan:
+        try:
+            shard_frames.extend(_shard_frames_from_scan(shard_scan, quiet=quiet))
+        except ValueError as exc:
+            raise ValueError(format_recovery_input_error(exc)) from exc
+    if (shard_fallback_files or shard_payloads_file or shard_scan) and not shard_frames:
+        raise ValueError("no shard payloads found; check shard inputs and try again")
+    return shard_frames, shard_fallback_files, shard_payloads_file, shard_scan

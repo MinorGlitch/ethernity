@@ -46,6 +46,7 @@ from ..io.frames import (
     _frames_from_shard_inputs,
     _recovery_frames_from_scan,
 )
+from ..io.outputs import _single_entry_uses_directory_output
 from ..ui.debug import print_recover_debug
 from ..ui.summary import format_auth_status
 from .prompts import _prompt_shard_inputs, _resolve_recover_output
@@ -197,6 +198,8 @@ def _build_recovery_review_rows(
             shard_sources.append(f"{len(plan.shard_fallback_files)} fallback file(s)")
         if plan.shard_payloads_file:
             shard_sources.append(f"{len(plan.shard_payloads_file)} payload file(s)")
+        if plan.shard_scan:
+            shard_sources.append(f"{len(plan.shard_scan)} scan path(s)")
         shard_label = ", ".join(shard_sources) if shard_sources else "provided"
         review_rows.append(("Shard inputs", f"{len(plan.shard_frames)} payload(s), {shard_label}"))
 
@@ -300,6 +303,7 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                     input_detail=input_detail,
                     shard_fallback_files=shard_fallback_files,
                     shard_payloads_file=shard_payloads_file,
+                    shard_scan=list(working_args.shard_scan or []),
                     output_path=working_args.output,
                     args=working_args,
                     quiet=quiet,
@@ -365,6 +369,10 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                 output_path is not None
                 and len(extracted) == 1
                 and manifest.input_origin in {"directory", "mixed"}
+            )
+            single_entry_output_is_directory = _single_entry_uses_directory_output(
+                output_path,
+                single_entry_output_is_directory=single_entry_output_is_directory,
             )
             write_recovered_outputs(
                 extracted,
@@ -457,6 +465,10 @@ def write_plan_outputs(
         plan.output_path is not None
         and len(extracted) == 1
         and manifest.input_origin in {"directory", "mixed"}
+    )
+    single_entry_output_is_directory = _single_entry_uses_directory_output(
+        plan.output_path,
+        single_entry_output_is_directory=single_entry_output_is_directory,
     )
     write_recovered_outputs(
         extracted,

@@ -1,0 +1,57 @@
+{
+  "stable_command_error_codes": [
+    "INPUT_REQUIRED",
+    "OUTPUT_REQUIRED",
+    "CONFIG_INPUT_REQUIRED",
+    "CONFIG_JSON_INVALID",
+    "CONFIG_UNKNOWN_FIELD",
+    "CONFIG_INVALID_VALUE",
+    "CONFIG_CONFLICT",
+    "SHARD_DIR_NOT_FOUND",
+    "SHARD_DIR_INVALID",
+    "SHARD_DIR_EMPTY",
+    "SIGNING_KEY_SHARD_DIR_NOT_FOUND",
+    "SIGNING_KEY_SHARD_DIR_INVALID",
+    "SIGNING_KEY_SHARD_DIR_EMPTY"
+  ],
+  "stable_generic_error_codes": [
+    "CANCELLED",
+    "NOT_FOUND",
+    "PERMISSION_DENIED",
+    "INVALID_INPUT",
+    "RUNTIME_ERROR",
+    "IO_ERROR"
+  ],
+  "stable_warning_codes": [
+    "AUTH_PAYLOAD_MISSING",
+    "AUTH_PAYLOAD_INVALID",
+    "AUTH_DOC_HASH_MISMATCH",
+    "AUTH_SIGNATURE_INVALID",
+    "AUTH_FALLBACK_INVALID",
+    "FALLBACK_SECTION_INVALID",
+    "NON_FALLBACK_LINES_SKIPPED",
+    "RECOVERY_SHARD_PAYLOADS_IGNORED",
+    "BACKUP_SIGNING_KEY_SHARDING_DISABLED",
+    "BACKUP_QR_CHUNK_SIZE_REDUCED"
+  ],
+  "recover_success_event_types": [
+    "started",
+    "phase",
+    "progress",
+    "phase",
+    "progress",
+    "phase",
+    "progress",
+    "artifact",
+    "result"
+  ],
+  "backup_mocked_event_types": [
+    "started",
+    "artifact",
+    "artifact",
+    "artifact",
+    "artifact",
+    "artifact",
+    "result"
+  ]
+}

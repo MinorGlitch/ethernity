@@ -143,6 +143,33 @@ class TestRecoverCommand(unittest.TestCase):
         "ethernity.cli.commands.recover._resolve_config_and_paper", return_value=("cfg", "A4")
     )
     @mock.patch("ethernity.cli.commands.recover.sys.stdin.isatty", return_value=True)
+    def test_recover_nonwizard_path_passes_shard_scan_inputs(
+        self,
+        _stdin_tty: mock.MagicMock,
+        _resolve_config_and_paper: mock.MagicMock,
+        _expand_shard_dir: mock.MagicMock,
+        _should_use_wizard_for_recover: mock.MagicMock,
+        _run_cli: mock.MagicMock,
+        run_recover_command: mock.MagicMock,
+    ) -> None:
+        ctx = self._ctx(quiet=False, debug=False)
+        self._call_recover(
+            ctx,
+            fallback_file="recovery.txt",
+            output="out.bin",
+            shard_scan=["shard-a.pdf", "shard-b.pdf"],
+        )
+        args = run_recover_command.call_args.args[0]
+        self.assertEqual(args.shard_scan, ["shard-a.pdf", "shard-b.pdf"])
+
+    @mock.patch("ethernity.cli.commands.recover.run_recover_command", return_value=0)
+    @mock.patch("ethernity.cli.commands.recover._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch("ethernity.cli.commands.recover._should_use_wizard_for_recover", return_value=False)
+    @mock.patch("ethernity.cli.commands.recover._expand_shard_dir", return_value=[])
+    @mock.patch(
+        "ethernity.cli.commands.recover._resolve_config_and_paper", return_value=("cfg", "A4")
+    )
+    @mock.patch("ethernity.cli.commands.recover.sys.stdin.isatty", return_value=True)
     def test_recover_uses_operator_default_output_when_unset(
         self,
         _stdin_tty: mock.MagicMock,
@@ -247,6 +274,7 @@ class TestRecoverFlow(unittest.TestCase):
         self.assertFalse(
             recover_flow._should_use_wizard_for_recover(RecoverArgs(shard_fallback_file=["x"]))
         )
+        self.assertFalse(recover_flow._should_use_wizard_for_recover(RecoverArgs(shard_scan=["x"])))
 
         with mock.patch("ethernity.cli.flows.recover.sys.stdin.isatty", return_value=False):
             self.assertFalse(recover_flow._should_use_wizard_for_recover(RecoverArgs()))

@@ -19,7 +19,9 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any, cast
 
 from ...config import apply_template_design, load_app_config
@@ -51,7 +53,12 @@ from ..api import (
     wizard_stage,
 )
 from ..core.types import MintArgs, MintResult, RecoverArgs
-from ..io.outputs import _ensure_directory
+from ..events import EventSink, emit_phase, emit_progress, event_session
+from ..io.outputs import (
+    _commit_prepared_output_dir,
+    _discard_prepared_output_dir,
+    _ensure_directory,
+)
 from ..keys.recover_keys import (
     InsufficientShardError,
     _signing_seed_from_shard_frames,
@@ -96,63 +103,95 @@ class _ReplacementShardResolution:
 def run_mint_command(args: MintArgs, *, debug: bool = False) -> int:
     """Mint fresh shard documents from an existing backup."""
 
-    _validate_mint_args(args)
-    config = load_app_config(args.config, paper_size=args.paper)
-    config = apply_template_design(config, args.design)
-    recover_args = _recover_args_from_mint_args(args)
-
-    frames, input_label, input_detail = _frames_from_args(
-        recover_args,
-        allow_unsigned=False,
-        quiet=args.quiet,
-    )
-    extra_auth_frames = _extra_auth_frames_from_args(
-        recover_args,
-        allow_unsigned=False,
-        quiet=args.quiet,
-    )
-    shard_frames, shard_fallback_files, shard_payloads_file = _shard_frames_from_args(
-        recover_args,
-        quiet=args.quiet,
-    )
-    recovery_shard_frames, recovery_shard_fallback_files, recovery_shard_payloads_file = (
-        _recovery_shard_inputs_for_plan(
-            passphrase=args.passphrase,
-            shard_frames=shard_frames,
-            shard_fallback_files=shard_fallback_files,
-            shard_payloads_file=shard_payloads_file,
-        )
-    )
-    plan = build_recovery_plan(
-        frames=frames,
-        extra_auth_frames=extra_auth_frames,
-        shard_frames=recovery_shard_frames,
-        passphrase=args.passphrase,
-        allow_unsigned=False,
-        input_label=input_label,
-        input_detail=input_detail,
-        shard_fallback_files=recovery_shard_fallback_files,
-        shard_payloads_file=recovery_shard_payloads_file,
-        output_path=None,
-        args=recover_args,
-        quiet=args.quiet,
-    )
-    if plan.auth_payload is None:
-        raise ValueError("minting requires an authenticated backup input with an AUTH payload")
-
-    signing_key_frames = _signing_key_shard_frames_from_args(args, quiet=args.quiet)
-    result = _mint_from_plan(
-        plan=plan,
-        config=config,
-        args=args,
-        passphrase_shard_frames=shard_frames,
-        signing_key_frames=signing_key_frames,
-        manifest_signing_seed=_UNSET,
-        debug=debug,
-    )
+    result = execute_mint(args, debug=debug)
     print_mint_summary(result, quiet=args.quiet)
     _print_completion_actions(result, quiet=args.quiet)
     return 0
+
+
+def execute_mint(
+    args: MintArgs,
+    *,
+    debug: bool = False,
+    event_sink: EventSink | None = None,
+) -> MintResult:
+    """Mint fresh shard documents from an existing backup and return the result."""
+
+    with event_session(event_sink):
+        _validate_mint_args(args)
+        emit_phase(phase="plan", label="Resolving mint inputs")
+        config = load_app_config(args.config, paper_size=args.paper)
+        config = apply_template_design(config, args.design)
+        recover_args = _recover_args_from_mint_args(args)
+
+        frames, input_label, input_detail = _frames_from_args(
+            recover_args,
+            allow_unsigned=False,
+            quiet=args.quiet,
+        )
+        extra_auth_frames = _extra_auth_frames_from_args(
+            recover_args,
+            allow_unsigned=False,
+            quiet=args.quiet,
+        )
+        shard_frames, shard_fallback_files, shard_payloads_file, shard_scan = (
+            _shard_frames_from_args(
+                recover_args,
+                quiet=args.quiet,
+            )
+        )
+        recovery_shard_frames, recovery_shard_fallback_files, recovery_shard_payloads_file = (
+            _recovery_shard_inputs_for_plan(
+                passphrase=args.passphrase,
+                shard_frames=shard_frames,
+                shard_fallback_files=shard_fallback_files,
+                shard_payloads_file=shard_payloads_file,
+            )
+        )
+        plan = build_recovery_plan(
+            frames=frames,
+            extra_auth_frames=extra_auth_frames,
+            shard_frames=recovery_shard_frames,
+            passphrase=args.passphrase,
+            allow_unsigned=False,
+            input_label=input_label,
+            input_detail=input_detail,
+            shard_fallback_files=recovery_shard_fallback_files,
+            shard_payloads_file=recovery_shard_payloads_file,
+            shard_scan=shard_scan,
+            output_path=None,
+            args=recover_args,
+            quiet=args.quiet,
+        )
+        if plan.auth_payload is None:
+            raise ValueError("minting requires an authenticated backup input with an AUTH payload")
+
+        signing_key_frames = _signing_key_shard_frames_from_args(args, quiet=args.quiet)
+        emit_progress(
+            phase="plan",
+            current=1,
+            total=1,
+            unit="step",
+            details={
+                "input_label": input_label,
+                "input_detail": input_detail,
+                "main_frame_count": len(getattr(plan, "main_frames", frames)),
+                "auth_frame_count": len(getattr(plan, "auth_frames", extra_auth_frames)),
+                "shard_frame_count": len(shard_frames),
+                "signing_key_shard_frame_count": len(signing_key_frames),
+            },
+        )
+
+        emit_phase(phase="mint", label="Generating minted shard payloads")
+        return _mint_from_plan(
+            plan=plan,
+            config=config,
+            args=args,
+            passphrase_shard_frames=shard_frames,
+            signing_key_frames=signing_key_frames,
+            manifest_signing_seed=_UNSET,
+            debug=debug,
+        )
 
 
 def _should_use_wizard_for_mint(args: MintArgs) -> bool:
@@ -276,6 +315,7 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                     input_detail=input_detail,
                     shard_fallback_files=recovery_shard_fallback_files,
                     shard_payloads_file=recovery_shard_payloads_file,
+                    shard_scan=list(recover_args.shard_scan or []),
                     output_path=None,
                     args=recover_args,
                     quiet=quiet,
@@ -854,47 +894,93 @@ def _mint_from_plan(
                 sign_pub=sign_pub,
             )
 
-    output_dir = _ensure_mint_output_dir(args.output_dir, plan.doc_id.hex())
+    output_dir = _ensure_mint_output_dir(
+        args.output_dir,
+        plan.doc_id.hex(),
+        existing_directory_is_parent=args.output_dir_existing_parent,
+    )
+    staging_output_dir = _prepare_mint_staging_dir(output_dir)
     layout_debug_dir = _resolve_layout_debug_dir(args.layout_debug_dir)
     render_service = RenderService(config)
     qr_payload_codec = config.cli_defaults.backup.qr_payload_codec
+    total_documents = len(shard_payloads) + len(signing_key_payloads)
+    rendered_documents = 0
+
+    emit_progress(
+        phase="mint",
+        current=1,
+        total=1,
+        unit="step",
+        details={
+            "passphrase_shard_count": len(shard_payloads),
+            "signing_key_shard_count": len(signing_key_payloads),
+            "signing_key_source": signing_key_source,
+        },
+    )
+    emit_phase(phase="render", label="Rendering minted shard documents")
 
     shard_paths: list[str] = []
-    for shard in sorted(shard_payloads, key=lambda item: item.share_index):
-        shard_paths.append(
-            _render_shard(
-                shard,
-                doc_id=plan.doc_id,
-                output_dir=output_dir,
-                render_service=render_service,
-                filename_prefix="shard",
-                template_path=config.shard_template_path,
-                layout_debug_json_path=_layout_debug_json_path(
-                    layout_debug_dir,
-                    f"shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
-                ),
-                qr_payload_codec=qr_payload_codec,
-            )
-        )
-
     signing_key_shard_paths: list[str] = []
-    for shard in sorted(signing_key_payloads, key=lambda item: item.share_index):
-        signing_key_shard_paths.append(
-            _render_shard(
-                shard,
-                doc_id=plan.doc_id,
-                output_dir=output_dir,
-                render_service=render_service,
-                filename_prefix="signing-key-shard",
-                template_path=config.signing_key_shard_template_path,
-                doc_type=DOC_TYPE_SIGNING_KEY_SHARD,
-                layout_debug_json_path=_layout_debug_json_path(
-                    layout_debug_dir,
-                    f"signing-key-shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
-                ),
-                qr_payload_codec=qr_payload_codec,
+    try:
+        for shard in sorted(shard_payloads, key=lambda item: item.share_index):
+            shard_paths.append(
+                _render_shard(
+                    shard,
+                    doc_id=plan.doc_id,
+                    output_dir=staging_output_dir,
+                    render_service=render_service,
+                    filename_prefix="shard",
+                    template_path=config.shard_template_path,
+                    layout_debug_json_path=_layout_debug_json_path(
+                        layout_debug_dir,
+                        f"shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
+                    ),
+                    qr_payload_codec=qr_payload_codec,
+                )
             )
-        )
+            rendered_documents += 1
+            emit_progress(
+                phase="render",
+                current=rendered_documents,
+                total=total_documents,
+                unit="documents",
+                label=f"Rendered passphrase shard {shard.share_index} of {shard.share_count}",
+                details={"path": shard_paths[-1], "kind": "shard_document"},
+            )
+
+        for shard in sorted(signing_key_payloads, key=lambda item: item.share_index):
+            signing_key_shard_paths.append(
+                _render_shard(
+                    shard,
+                    doc_id=plan.doc_id,
+                    output_dir=staging_output_dir,
+                    render_service=render_service,
+                    filename_prefix="signing-key-shard",
+                    template_path=config.signing_key_shard_template_path,
+                    doc_type=DOC_TYPE_SIGNING_KEY_SHARD,
+                    layout_debug_json_path=_layout_debug_json_path(
+                        layout_debug_dir,
+                        f"signing-key-shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
+                    ),
+                    qr_payload_codec=qr_payload_codec,
+                )
+            )
+            rendered_documents += 1
+            emit_progress(
+                phase="render",
+                current=rendered_documents,
+                total=total_documents,
+                unit="documents",
+                label=f"Rendered signing-key shard {shard.share_index} of {shard.share_count}",
+                details={
+                    "path": signing_key_shard_paths[-1],
+                    "kind": "signing_key_shard_document",
+                },
+            )
+        _commit_prepared_output_dir(staging_output_dir, output_dir)
+    except Exception:
+        _discard_prepared_output_dir(staging_output_dir)
+        raise
 
     notes = _legacy_replacement_notes(
         passphrase_resolution=passphrase_resolution,
@@ -902,11 +988,17 @@ def _mint_from_plan(
         args=args,
     )
 
+    final_output_dir = Path(output_dir)
+    final_shard_paths = tuple(str(final_output_dir / Path(path).name) for path in shard_paths)
+    final_signing_key_shard_paths = tuple(
+        str(final_output_dir / Path(path).name) for path in signing_key_shard_paths
+    )
+
     return MintResult(
         doc_id=plan.doc_id,
         output_dir=output_dir,
-        shard_paths=tuple(shard_paths),
-        signing_key_shard_paths=tuple(signing_key_shard_paths),
+        shard_paths=final_shard_paths,
+        signing_key_shard_paths=final_signing_key_shard_paths,
         signing_key_source=signing_key_source,
         notes=notes,
     )
@@ -922,7 +1014,10 @@ def _signing_key_shard_frames_from_args(args: MintArgs, *, quiet: bool) -> list[
         shard_payloads_file=payload_files,
         quiet=quiet,
     )
-    frames, _fallback_files, _payload_files = _shard_frames_from_args(temp_args, quiet=quiet)
+    frames, _fallback_files, _payload_files, _scan_files = _shard_frames_from_args(
+        temp_args,
+        quiet=quiet,
+    )
     return frames
 
 
@@ -1125,16 +1220,31 @@ def _required_int(value: int | None, *, label: str) -> int:
     return value
 
 
-def _ensure_mint_output_dir(output_dir: str | None, doc_id_hex: str) -> str:
+def _ensure_mint_output_dir(
+    output_dir: str | None,
+    doc_id_hex: str,
+    *,
+    existing_directory_is_parent: bool = False,
+) -> str:
     directory = output_dir or f"mint-{doc_id_hex}"
-    try:
-        resolved = _ensure_directory(directory, exist_ok=False)
-    except FileExistsError as exc:
+    resolved = Path(directory).expanduser()
+    if existing_directory_is_parent and resolved.is_dir():
+        resolved = resolved / f"mint-{doc_id_hex}"
+    if resolved.exists():
         raise ValueError(
-            f"output directory already exists: {directory}; "
+            f"output directory already exists: {resolved}; "
             "use a different --output-dir path or remove the existing directory"
-        ) from exc
+        )
+    _ensure_directory(resolved.parent, exist_ok=True)
     return str(resolved)
+
+
+def _prepare_mint_staging_dir(output_dir: str) -> str:
+    output_path = Path(output_dir)
+    staging_dir = Path(
+        tempfile.mkdtemp(prefix=f".{output_path.name}.tmp-", dir=str(output_path.parent))
+    )
+    return str(staging_dir)
 
 
 def _print_completion_actions(result: MintResult, *, quiet: bool) -> None:

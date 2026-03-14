@@ -25,6 +25,7 @@ from ...core.bounds import MAX_QR_PAYLOAD_CHARS, MAX_RECOVERY_TEXT_BYTES
 from ...encoding.framing import Frame, FrameType, decode_frame
 from ...encoding.qr_payloads import decode_qr_payload
 from ...qr.scan import QrScanError, scan_qr_payloads
+from .. import api_codes
 from ..core.log import _warn
 from ..core.paths import expanduser_cli_path, expanduser_cli_paths
 from ..core.text import format_qr_input_error
@@ -85,9 +86,11 @@ def _read_text_lines(path: str) -> list[str]:
                 "If this is a PDF or image, scan it for QR payloads instead."
             ) from exc
         except FileNotFoundError as exc:
-            raise ValueError(f"file not found: {file_path}") from exc
+            raise FileNotFoundError(f"file not found: {file_path}") from exc
+        except PermissionError as exc:
+            raise PermissionError(f"unable to read file: {file_path}") from exc
         except OSError as exc:
-            raise ValueError(f"unable to read file: {file_path}") from exc
+            raise OSError(f"unable to read file: {file_path}") from exc
         text_bytes = len(text.encode("utf-8"))
         if text_bytes > MAX_RECOVERY_TEXT_BYTES:
             raise ValueError(
@@ -126,7 +129,12 @@ def _parse_fallback_section(
         return _frame_from_fallback_lines(section_lines, label=section_key, quiet=quiet)
     except ValueError as exc:
         if allow_invalid:
-            _warn(f"invalid {section_key} fallback ignored: {exc}", quiet=quiet)
+            _warn(
+                f"invalid {section_key} fallback ignored: {exc}",
+                quiet=quiet,
+                code=api_codes.FALLBACK_SECTION_INVALID,
+                details={"section": section_key, "reason": str(exc)},
+            )
             return None
         raise
 
@@ -152,7 +160,12 @@ def _frames_from_fallback_lines(
             frames.append(_frame_from_fallback_lines(sections["auth"], label="auth", quiet=quiet))
         except ValueError as exc:
             if allow_invalid_auth:
-                _warn(f"invalid auth fallback ignored: {exc}", quiet=quiet)
+                _warn(
+                    f"invalid auth fallback ignored: {exc}",
+                    quiet=quiet,
+                    code=api_codes.AUTH_FALLBACK_INVALID,
+                    details={"reason": str(exc)},
+                )
             else:
                 raise
     return frames
@@ -247,7 +260,12 @@ def _frame_from_fallback_lines(lines: list[str], *, label: str, quiet: bool = Fa
 
     frame, skipped = _parse_fallback_frame(lines, label=label)
     if skipped:
-        _warn(f"skipped {skipped} non-fallback lines ({label})", quiet=quiet)
+        _warn(
+            f"skipped {skipped} non-fallback lines ({label})",
+            quiet=quiet,
+            code=api_codes.NON_FALLBACK_LINES_SKIPPED,
+            details={"label": label, "skipped_lines": skipped},
+        )
     return frame
 
 
@@ -349,8 +367,30 @@ def _recovery_frames_from_scan(paths: list[str], *, quiet: bool = False) -> list
             f"ignored {ignored_shards} shard QR payload(s) while reading recovery input; "
             "provide shard documents separately",
             quiet=quiet,
+            code=api_codes.RECOVERY_SHARD_PAYLOADS_IGNORED,
+            details={"ignored_frames": ignored_shards},
         )
     return recovery_frames
+
+
+def _shard_frames_from_scan(paths: list[str], *, quiet: bool = False) -> list[Frame]:
+    """Scan shard input and keep only KEY_DOCUMENT frames."""
+
+    frames = _frames_from_scan(paths)
+    shard_frames = [frame for frame in frames if frame.frame_type == FrameType.KEY_DOCUMENT]
+    ignored_non_shards = len(frames) - len(shard_frames)
+    if not shard_frames:
+        raise ValueError(
+            "scan input did not contain shard QR payloads; provide shard documents, "
+            "shard payload files, or shard recovery text"
+        )
+    if ignored_non_shards:
+        _warn(
+            f"ignored {ignored_non_shards} non-shard QR payload(s) while reading shard input",
+            quiet=quiet,
+            details={"ignored_frames": ignored_non_shards},
+        )
+    return shard_frames
 
 
 def _dedupe_frames(frames: list[Frame]) -> list[Frame]:

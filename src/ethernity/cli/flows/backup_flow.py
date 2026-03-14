@@ -47,12 +47,18 @@ from ...render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
 from ...render.recovery_meta import build_recovery_meta
 from ...render.service import RenderService
 from ...render.types import RenderInputs
+from .. import api_codes
 from ..api import progress, status
 from ..constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
 from ..core.crypto import _doc_id_and_hash_from_ciphertext
 from ..core.log import _warn
 from ..core.types import BackupResult, InputFile
-from ..io.outputs import _ensure_output_dir
+from ..events import active_event_sink, emit_phase, emit_progress
+from ..io.outputs import (
+    _commit_prepared_output_dir,
+    _discard_prepared_output_dir,
+    _prepare_output_dir,
+)
 from ..ui.debug import (
     _append_signing_key_lines,
     _normalize_debug_max_bytes,
@@ -373,21 +379,48 @@ def _render_with_progress(
     """Render documents with progress bar."""
     shard_paths: list[str] = []
     signing_key_shard_paths: list[str] = []
+    rendered = 0
+
+    def _advance_render(label: str, *, kind: str, path: str | Path | None = None) -> None:
+        nonlocal rendered
+        rendered += 1
+        details = {"kind": kind}
+        if path is not None:
+            details["path"] = str(path)
+        emit_progress(
+            phase="render",
+            current=rendered,
+            total=render_total,
+            unit="documents",
+            label=label,
+            details=details,
+        )
 
     task_id = progress_bar.add_task("Rendering documents...", total=render_total)
 
     progress_bar.update(task_id, description="Rendering QR document...")
     render_module.render_frames_to_pdf(qr_inputs)
     progress_bar.advance(task_id)
+    _advance_render("Rendered QR document", kind="qr_document", path=qr_inputs.output_path)
 
     progress_bar.update(task_id, description="Rendering recovery document...")
     render_module.render_frames_to_pdf(recovery_inputs)
     progress_bar.advance(task_id)
+    _advance_render(
+        "Rendered recovery document",
+        kind="recovery_document",
+        path=recovery_inputs.output_path,
+    )
 
     if kit_index_inputs is not None:
         progress_bar.update(task_id, description="Rendering recovery kit index...")
         render_module.render_frames_to_pdf(kit_index_inputs)
         progress_bar.advance(task_id)
+        _advance_render(
+            "Rendered recovery kit index",
+            kind="recovery_kit_index",
+            path=kit_index_inputs.output_path,
+        )
 
     if shard_payloads:
         sorted_shards = sorted(shard_payloads, key=lambda shard: shard.share_index)
@@ -411,6 +444,11 @@ def _render_with_progress(
             )
             shard_paths.append(shard_path)
             progress_bar.advance(task_id)
+            _advance_render(
+                f"Rendered shard document {idx} of {total_shards}",
+                kind="shard_document",
+                path=shard_path,
+            )
 
     if signing_key_shard_payloads:
         sorted_shards = sorted(signing_key_shard_payloads, key=lambda shard: shard.share_index)
@@ -435,6 +473,11 @@ def _render_with_progress(
             )
             signing_key_shard_paths.append(shard_path)
             progress_bar.advance(task_id)
+            _advance_render(
+                f"Rendered signing-key shard {idx} of {total_shards}",
+                kind="signing_key_shard_document",
+                path=shard_path,
+            )
 
     return shard_paths, signing_key_shard_paths
 
@@ -457,16 +500,48 @@ def _render_without_progress(
     """Render documents without progress bar (using status messages)."""
     shard_paths: list[str] = []
     signing_key_shard_paths: list[str] = []
+    rendered = 0
+
+    def _advance_render(label: str, *, kind: str, path: str | Path | None = None) -> None:
+        nonlocal rendered
+        rendered += 1
+        details = {"kind": kind}
+        if path is not None:
+            details["path"] = str(path)
+        emit_progress(
+            phase="render",
+            current=rendered,
+            total=(
+                2
+                + (1 if kit_index_inputs is not None else 0)
+                + len(shard_payloads)
+                + len(signing_key_shard_payloads)
+            ),
+            unit="documents",
+            label=label,
+            details=details,
+        )
 
     with status("Rendering QR document...", quiet=status_quiet):
         render_module.render_frames_to_pdf(qr_inputs)
+    _advance_render("Rendered QR document", kind="qr_document", path=qr_inputs.output_path)
 
     with status("Rendering recovery document...", quiet=status_quiet):
         render_module.render_frames_to_pdf(recovery_inputs)
+    _advance_render(
+        "Rendered recovery document",
+        kind="recovery_document",
+        path=recovery_inputs.output_path,
+    )
 
     if kit_index_inputs is not None:
         with status("Rendering recovery kit index...", quiet=status_quiet):
             render_module.render_frames_to_pdf(kit_index_inputs)
+        _advance_render(
+            "Rendered recovery kit index",
+            kind="recovery_kit_index",
+            path=kit_index_inputs.output_path,
+        )
 
     if shard_payloads:
         with status("Rendering shard documents...", quiet=status_quiet):
@@ -486,6 +561,11 @@ def _render_without_progress(
                     qr_payload_codec=qr_payload_codec,
                 )
                 shard_paths.append(shard_path)
+                _advance_render(
+                    (f"Rendered shard document {shard.share_index} of {shard.share_count}"),
+                    kind="shard_document",
+                    path=shard_path,
+                )
 
     if signing_key_shard_payloads:
         with status("Rendering signing key shards...", quiet=status_quiet):
@@ -506,6 +586,11 @@ def _render_without_progress(
                     qr_payload_codec=qr_payload_codec,
                 )
                 signing_key_shard_paths.append(shard_path)
+                _advance_render(
+                    (f"Rendered signing-key shard {shard.share_index} of {shard.share_count}"),
+                    kind="signing_key_shard_document",
+                    path=shard_path,
+                )
 
     return shard_paths, signing_key_shard_paths
 
@@ -515,6 +600,7 @@ def run_backup(
     input_files: list[InputFile],
     base_dir: Path | None,
     output_dir: str | None,
+    output_dir_existing_parent: bool = False,
     layout_debug_dir: str | None = None,
     input_origin: str = "file",
     input_roots: list[str] | None = None,
@@ -546,6 +632,7 @@ def run_backup(
 
     # Prepare envelope and handle debug output
     with status("Preparing payload...", quiet=status_quiet):
+        emit_phase(phase="prepare", label="Preparing payload")
         payload_codec_mode = config.cli_defaults.backup.payload_codec
         qr_payload_codec_mode = config.cli_defaults.backup.qr_payload_codec
         envelope, payload = _prepare_envelope(
@@ -557,6 +644,17 @@ def run_backup(
             payload_codec_mode=payload_codec_mode,
         )
         manifest = envelope_codec_module.decode_envelope(envelope)[0]
+        emit_progress(
+            phase="prepare",
+            current=1,
+            total=1,
+            unit="step",
+            details={
+                "input_count": len(input_files),
+                "manifest_file_count": len(manifest.files),
+                "payload_bytes": len(payload),
+            },
+        )
 
     if debug:
         print_backup_debug(
@@ -572,13 +670,22 @@ def run_backup(
             signing_seed_stored=store_signing_key,
             debug_max_bytes=_normalize_debug_max_bytes(debug_max_bytes),
             reveal_secrets=debug_reveal_secrets,
+            stderr=active_event_sink() is not None,
         )
 
     # Encrypt payload
     with status("Encrypting payload...", quiet=status_quiet):
+        emit_phase(phase="encrypt", label="Encrypting payload")
         ciphertext, passphrase_used = encrypt_bytes_with_passphrase(
             envelope, passphrase=passphrase, passphrase_words=passphrase_words
         )
+    emit_progress(
+        phase="encrypt",
+        current=1,
+        total=1,
+        unit="step",
+        details={"ciphertext_bytes": len(ciphertext)},
+    )
     if len(ciphertext) > MAX_CIPHERTEXT_BYTES:
         raise ValueError(
             f"ciphertext exceeds MAX_CIPHERTEXT_BYTES ({MAX_CIPHERTEXT_BYTES}): "
@@ -611,8 +718,19 @@ def run_backup(
     # Create shard payloads if sharding is enabled
     if plan_sharding is not None and passphrase_final is None:
         raise ValueError("passphrase is required for sharding")
+    emit_phase(phase="shard", label="Preparing shard documents")
     shard_payloads, signing_key_shard_payloads = _create_shard_payloads(
         plan, passphrase_final or "", doc_hash, sign_priv, sign_pub, shard_signing_key, status_quiet
+    )
+    emit_progress(
+        phase="shard",
+        current=len(shard_payloads) + len(signing_key_shard_payloads),
+        total=len(shard_payloads) + len(signing_key_shard_payloads),
+        unit="documents",
+        details={
+            "passphrase_shards": len(shard_payloads),
+            "signing_key_shards": len(signing_key_shard_payloads),
+        },
     )
 
     _append_signing_key_lines(
@@ -639,6 +757,11 @@ def run_backup(
                 f"{main_chunk_size} bytes to fit current QR settings."
             ),
             quiet=quiet,
+            code=api_codes.BACKUP_QR_CHUNK_SIZE_REDUCED,
+            details={
+                "requested_chunk_size": config.qr_chunk_size,
+                "effective_chunk_size": main_chunk_size,
+            },
         )
     frames = chunk_payload(
         ciphertext,
@@ -647,15 +770,19 @@ def run_backup(
         chunk_size=main_chunk_size,
     )
     qr_frames = [*frames, auth_frame]
-    output_dir = _ensure_output_dir(output_dir, doc_id.hex())
-    output_dir_path = Path(output_dir)
+    output_dir, staging_output_dir = _prepare_output_dir(
+        output_dir,
+        doc_id.hex(),
+        prefix="backup",
+        existing_directory_is_parent=output_dir_existing_parent,
+    )
+    output_dir_path = Path(staging_output_dir)
     qr_path = str(output_dir_path / "qr_document.pdf")
     recovery_path = str(output_dir_path / "recovery_document.pdf")
     kit_index_template = _resolve_kit_index_template_path(config)
     kit_index_path = None
     if kit_index_template is not None:
         kit_index_path = str(output_dir_path / "recovery_kit_index.pdf")
-    layout_debug_dir = _resolve_layout_debug_dir(layout_debug_dir)
     layout_debug_dir = _resolve_layout_debug_dir(layout_debug_dir)
 
     render_service = RenderService(config)
@@ -708,28 +835,44 @@ def run_backup(
         layout_debug_json_path=_layout_debug_json_path(layout_debug_dir, "recovery_document"),
     )
 
-    # Render all documents
-    shard_paths, signing_key_shard_paths = _render_all_documents(
-        qr_inputs=qr_inputs,
-        recovery_inputs=recovery_inputs,
-        kit_index_inputs=kit_index_inputs,
-        shard_payloads=shard_payloads,
-        signing_key_shard_payloads=signing_key_shard_payloads,
-        doc_id=doc_id,
-        output_dir=output_dir,
-        render_service=render_service,
-        config=config,
-        status_quiet=status_quiet,
-        layout_debug_dir=layout_debug_dir,
-        qr_payload_codec=qr_payload_codec_mode,
+    try:
+        emit_phase(phase="render", label="Rendering backup documents")
+        shard_paths, signing_key_shard_paths = _render_all_documents(
+            qr_inputs=qr_inputs,
+            recovery_inputs=recovery_inputs,
+            kit_index_inputs=kit_index_inputs,
+            shard_payloads=shard_payloads,
+            signing_key_shard_payloads=signing_key_shard_payloads,
+            doc_id=doc_id,
+            output_dir=staging_output_dir,
+            render_service=render_service,
+            config=config,
+            status_quiet=status_quiet,
+            layout_debug_dir=layout_debug_dir,
+            qr_payload_codec=qr_payload_codec_mode,
+        )
+        _commit_prepared_output_dir(staging_output_dir, output_dir)
+    except Exception:
+        _discard_prepared_output_dir(staging_output_dir)
+        raise
+
+    final_output_dir = Path(output_dir)
+    final_qr_path = str(final_output_dir / Path(qr_path).name)
+    final_recovery_path = str(final_output_dir / Path(recovery_path).name)
+    final_kit_index_path = (
+        None if kit_index_path is None else str(final_output_dir / Path(kit_index_path).name)
+    )
+    final_shard_paths = tuple(str(final_output_dir / Path(path).name) for path in shard_paths)
+    final_signing_key_shard_paths = tuple(
+        str(final_output_dir / Path(path).name) for path in signing_key_shard_paths
     )
 
     return BackupResult(
         doc_id=doc_id,
-        qr_path=qr_path,
-        recovery_path=recovery_path,
-        kit_index_path=kit_index_path,
-        shard_paths=tuple(shard_paths),
-        signing_key_shard_paths=tuple(signing_key_shard_paths),
+        qr_path=final_qr_path,
+        recovery_path=final_recovery_path,
+        kit_index_path=final_kit_index_path,
+        shard_paths=final_shard_paths,
+        signing_key_shard_paths=final_signing_key_shard_paths,
         passphrase_used=passphrase_used,
     )

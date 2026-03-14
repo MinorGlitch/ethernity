@@ -53,6 +53,7 @@ class BackupArgs:
     input_dir: list[str] | None = None
     base_dir: str | None = None
     output_dir: str | None = None
+    output_dir_existing_parent: bool = False
     layout_debug_dir: str | None = None
     qr_chunk_size: int | None = None
     passphrase: str | None = None
@@ -83,6 +84,7 @@ class RecoverArgs:
     passphrase: str | None = None
     shard_fallback_file: list[str] | None = None
     shard_payloads_file: list[str] | None = None
+    shard_scan: list[str] | None = None
     auth_fallback_file: str | None = None
     auth_payloads_file: str | None = None
     output: str | None = None
@@ -111,6 +113,7 @@ class MintArgs:
     signing_key_shard_fallback_file: list[str] | None = None
     signing_key_shard_payloads_file: list[str] | None = None
     output_dir: str | None = None
+    output_dir_existing_parent: bool = False
     layout_debug_dir: str | None = None
     shard_threshold: int | None = None
     shard_count: int | None = None
@@ -134,10 +137,26 @@ class MintResult:
 
 
 @dataclass
+class ConfigGetArgs:
+    """Typed container for API config get arguments."""
+
+    config: str | None = None
+
+
+@dataclass
+class ConfigSetArgs:
+    """Typed container for API config set arguments."""
+
+    config: str | None = None
+    input_json: str | None = None
+
+
+@dataclass
 class CliContextState:
     """Typed shared CLI state stored on `typer.Context.obj`."""
 
     config: str | None = None
+    config_explicit: bool = False
     paper: str | None = None
     design: str | None = None
     debug: bool = False

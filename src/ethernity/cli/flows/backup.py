@@ -60,13 +60,17 @@ from ..api import (
     wizard_flow,
     wizard_stage,
 )
-from ..core.log import _warn
 from ..core.plan import _validate_backup_args, _validate_passphrase_words
 from ..core.types import BackupArgs, BackupResult, InputFile
 from ..io.inputs import _load_input_files
 from ..ui.summary import print_backup_summary
 from .backup_flow import run_backup as _run_backup
-from .backup_plan import build_document_plan, plan_from_args
+from .backup_plan import build_document_plan
+from .backup_service import (
+    apply_qr_chunk_size_override as _apply_qr_chunk_size_override_service,
+    execute_prepared_backup,
+    prepare_backup_run,
+)
 from .backup_wizard import (
     prompt_passphrase_words,
     resolve_passphrase_sharding,
@@ -353,9 +357,7 @@ def _prompt_inputs(
 def _apply_qr_chunk_size_override(config: AppConfig, qr_chunk_size: int | None) -> AppConfig:
     """Override the configured preferred QR chunk size when requested."""
 
-    if qr_chunk_size is None:
-        return config
-    return replace(config, qr_chunk_size=qr_chunk_size)
+    return _apply_qr_chunk_size_override_service(config, qr_chunk_size)
 
 
 def _build_review_rows(
@@ -793,54 +795,16 @@ def _should_use_wizard_for_backup(args: BackupArgs) -> bool:
 def run_backup_command(args: BackupArgs) -> int:
     """Execute the non-interactive backup command path."""
 
-    config = load_app_config(args.config, paper_size=args.paper)
-    config = apply_template_design(config, args.design)
-    config = _apply_qr_chunk_size_override(config, args.qr_chunk_size)
-    inputs = list(args.input or [])
-    input_dirs = list(args.input_dir or [])
-
-    _validate_backup_args(args)
-
-    plan = plan_from_args(args)
-    if plan.sealed and plan.signing_seed_mode == SigningSeedMode.SHARDED:
-        _warn(
-            "Signing-key sharding is disabled for sealed backups.",
-            quiet=args.quiet,
-        )
-
-    passphrase = args.passphrase
-    passphrase_words = args.passphrase_words
     quiet = args.quiet
     debug = args.debug
-    debug_max_bytes = args.debug_max_bytes
-    debug_reveal_secrets = args.debug_reveal_secrets
-    output_dir = args.output_dir
     status_quiet = quiet or debug
     with progress(quiet=status_quiet) as progress_bar:
-        input_files, resolved_base, input_origin, input_roots = _load_input_files(
-            inputs,
-            input_dirs,
-            args.base_dir,
-            allow_stdin=True,
-            progress=progress_bar,
+        prepared = prepare_backup_run(
+            args,
+            input_progress=progress_bar,
         )
-    result = run_backup(
-        input_files=input_files,
-        base_dir=resolved_base,
-        output_dir=output_dir,
-        layout_debug_dir=args.layout_debug_dir,
-        input_origin=input_origin,
-        input_roots=input_roots,
-        plan=plan,
-        passphrase=passphrase,
-        passphrase_words=passphrase_words,
-        config=config,
-        debug=debug,
-        debug_max_bytes=debug_max_bytes,
-        debug_reveal_secrets=debug_reveal_secrets,
-        quiet=quiet,
-    )
-    print_backup_summary(result, plan, passphrase, quiet=quiet)
+    result = execute_prepared_backup(prepared)
+    print_backup_summary(result, prepared.plan, prepared.args.passphrase, quiet=quiet)
     _print_completion_actions(result, quiet)
     return 0
 

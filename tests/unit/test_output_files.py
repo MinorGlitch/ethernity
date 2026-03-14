@@ -49,6 +49,18 @@ class TestOutputFiles(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "already exists"):
                 _ensure_output_dir(str(existing), "deadbeef")
 
+    def test_ensure_output_dir_uses_existing_directory_as_parent_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            parent = Path(tmpdir) / "backups"
+            parent.mkdir()
+            created = _ensure_output_dir(
+                str(parent),
+                "deadbeef",
+                existing_directory_is_parent=True,
+            )
+            self.assertEqual(created, str(parent / "backup-deadbeef"))
+            self.assertTrue((parent / "backup-deadbeef").is_dir())
+
     def test_safe_join_rejects_unsafe_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
@@ -134,6 +146,16 @@ class TestOutputFiles(unittest.TestCase):
             )
             self.assertEqual((out_dir / "nested" / "file.txt").read_bytes(), b"single")
 
+    def test_write_recovered_outputs_single_entry_existing_directory_writes_under_directory(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "vault"
+            out_dir.mkdir()
+            entries = [(types.SimpleNamespace(path="payload.bin"), b"single")]
+            _write_recovered_outputs(str(out_dir), entries)
+            self.assertEqual((out_dir / "payload.bin").read_bytes(), b"single")
+
     def test_write_recovered_outputs_multiple_entries_writes_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "recovered"
@@ -154,6 +176,25 @@ class TestOutputFiles(unittest.TestCase):
             ]
             with self.assertRaisesRegex(ValueError, "unsafe output path"):
                 _write_recovered_outputs(str(out_dir), entries)
+
+    def test_write_recovered_outputs_stdout_invokes_callback(self) -> None:
+        fake_stdout = types.SimpleNamespace(buffer=io.BytesIO())
+        calls: list[tuple[str, str, int, int]] = []
+
+        def _capture(
+            entry: object, _data: bytes, written_path: str, index: int, total: int
+        ) -> None:
+            calls.append((getattr(entry, "path", ""), written_path, index, total))
+
+        with mock.patch("sys.stdout", new=fake_stdout):
+            _write_recovered_outputs(
+                None,
+                [(types.SimpleNamespace(path="stdout.bin"), b"stdout-bytes")],
+                on_entry_written=_capture,
+            )
+
+        self.assertEqual(fake_stdout.buffer.getvalue(), b"stdout-bytes")
+        self.assertEqual(calls, [("stdout.bin", "-", 1, 1)])
 
     def test_ensure_output_dir_expands_user_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

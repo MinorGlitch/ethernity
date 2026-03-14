@@ -812,18 +812,15 @@ class TestCliBackup(unittest.TestCase):
             output_dir="out",
             base_dir="/base",
         )
-        config = load_app_config(path=DEFAULT_CONFIG_PATH)
         plan = DocumentPlan(
             version=1,
             sealed=True,
             signing_seed_mode=SigningSeedMode.SHARDED,
             sharding=ShardingConfig(threshold=2, shares=3),
         )
-        input_file = cli.InputFile(
-            source_path=Path("input.bin"),
-            relative_path="input.bin",
-            data=b"payload",
-            mtime=None,
+        prepared = SimpleNamespace(
+            plan=plan,
+            args=args,
         )
         result = cli.BackupResult(
             doc_id=b"\x11" * 16,
@@ -835,59 +832,32 @@ class TestCliBackup(unittest.TestCase):
         )
 
         with (
-            mock.patch("ethernity.cli.flows.backup.load_app_config", return_value=config),
-            mock.patch("ethernity.cli.flows.backup.apply_template_design", return_value=config),
-            mock.patch("ethernity.cli.flows.backup._validate_backup_args") as validate_args,
-            mock.patch("ethernity.cli.flows.backup.plan_from_args", return_value=plan),
-            mock.patch("ethernity.cli.flows.backup._warn") as warn_mock,
             mock.patch(
                 "ethernity.cli.flows.backup.progress",
                 return_value=contextlib.nullcontext(None),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup._load_input_files",
-                return_value=([input_file], Path("/resolved"), "file", []),
-            ),
+                "ethernity.cli.flows.backup.prepare_backup_run",
+                return_value=prepared,
+            ) as prepare_mock,
             mock.patch(
-                "ethernity.cli.flows.backup.run_backup", return_value=result
-            ) as run_backup_mock,
+                "ethernity.cli.flows.backup.execute_prepared_backup",
+                return_value=result,
+            ),
             mock.patch("ethernity.cli.flows.backup.print_backup_summary") as summary_mock,
             mock.patch("ethernity.cli.flows.backup._print_completion_actions") as completion_mock,
         ):
             exit_code = cli.run_backup_command(args)
 
         self.assertEqual(exit_code, 0)
-        validate_args.assert_called_once_with(args)
-        warn_mock.assert_called_once()
-        run_backup_mock.assert_called_once_with(
-            input_files=[input_file],
-            base_dir=Path("/resolved"),
-            output_dir="out",
-            layout_debug_dir=None,
-            input_origin="file",
-            input_roots=[],
-            plan=plan,
-            passphrase="manual-pass",
-            passphrase_words=15,
-            config=config,
-            debug=False,
-            debug_max_bytes=0,
-            debug_reveal_secrets=False,
-            quiet=False,
-        )
+        prepare_mock.assert_called_once_with(args, input_progress=None)
         summary_mock.assert_called_once_with(result, plan, "manual-pass", quiet=False)
         completion_mock.assert_called_once_with(result, False)
 
     def test_run_backup_command_no_warning_when_not_sealed_sharded(self) -> None:
         args = BackupArgs(input=["input.bin"])
-        config = load_app_config(path=DEFAULT_CONFIG_PATH)
         plan = DocumentPlan(version=1, sealed=False, signing_seed_mode=SigningSeedMode.EMBEDDED)
-        input_file = cli.InputFile(
-            source_path=Path("input.bin"),
-            relative_path="input.bin",
-            data=b"payload",
-            mtime=None,
-        )
+        prepared = SimpleNamespace(plan=plan, args=args)
         result = cli.BackupResult(
             doc_id=b"\x11" * 16,
             qr_path="/tmp/out/qr_document.pdf",
@@ -897,27 +867,21 @@ class TestCliBackup(unittest.TestCase):
             passphrase_used=None,
         )
         with (
-            mock.patch("ethernity.cli.flows.backup.load_app_config", return_value=config),
-            mock.patch("ethernity.cli.flows.backup.apply_template_design", return_value=config),
-            mock.patch("ethernity.cli.flows.backup._validate_backup_args"),
-            mock.patch("ethernity.cli.flows.backup.plan_from_args", return_value=plan),
-            mock.patch("ethernity.cli.flows.backup._warn") as warn_mock,
             mock.patch(
                 "ethernity.cli.flows.backup.progress",
                 return_value=contextlib.nullcontext(None),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup._load_input_files",
-                return_value=([input_file], None, "file", []),
+                "ethernity.cli.flows.backup.prepare_backup_run",
+                return_value=prepared,
             ),
             mock.patch("ethernity.cli.flows.backup.ui_screen_mode") as screen_mode,
-            mock.patch("ethernity.cli.flows.backup.run_backup", return_value=result),
+            mock.patch("ethernity.cli.flows.backup.execute_prepared_backup", return_value=result),
             mock.patch("ethernity.cli.flows.backup.print_backup_summary"),
             mock.patch("ethernity.cli.flows.backup._print_completion_actions"),
         ):
             exit_code = cli.run_backup_command(args)
         self.assertEqual(exit_code, 0)
-        warn_mock.assert_not_called()
         screen_mode.assert_not_called()
 
 

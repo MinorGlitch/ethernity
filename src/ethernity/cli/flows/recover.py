@@ -21,8 +21,12 @@ import sys
 from ..core.log import _warn
 from ..core.types import RecoverArgs
 from .recover_flow import run_recover_plan
-from .recover_plan import plan_from_args
+from .recover_service import prepare_recover_plan
 from .recover_wizard import run_recover_wizard as _run_recover_wizard
+
+
+def plan_from_args(args: RecoverArgs):
+    return prepare_recover_plan(args)
 
 
 def run_recover_command(args: RecoverArgs, *, debug: bool = False) -> int:
@@ -45,7 +49,7 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False) -> int:
 def _should_use_wizard_for_recover(args: RecoverArgs) -> bool:
     if args.fallback_file or args.payloads_file or args.scan:
         return False
-    if args.shard_fallback_file or args.shard_payloads_file:
+    if args.shard_fallback_file or args.shard_payloads_file or args.shard_scan:
         return False
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         return False

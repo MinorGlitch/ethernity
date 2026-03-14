@@ -19,6 +19,7 @@ from __future__ import annotations
 import typer
 
 from .commands import (
+    api as api_command,
     backup as backup_command,
     config as config_command,
     kit as kit_command,
@@ -29,6 +30,7 @@ from .commands import (
 
 
 def register(app: typer.Typer) -> None:
+    api_command.register(app)
     backup_command.register(app)
     config_command.register(app)
     kit_command.register(app)
