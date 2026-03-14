@@ -49,6 +49,18 @@ class TestOutputFiles(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "already exists"):
                 _ensure_output_dir(str(existing), "deadbeef")
 
+    def test_ensure_output_dir_uses_existing_directory_as_parent_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            parent = Path(tmpdir) / "backups"
+            parent.mkdir()
+            created = _ensure_output_dir(
+                str(parent),
+                "deadbeef",
+                existing_directory_is_parent=True,
+            )
+            self.assertEqual(created, str(parent / "backup-deadbeef"))
+            self.assertTrue((parent / "backup-deadbeef").is_dir())
+
     def test_safe_join_rejects_unsafe_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)

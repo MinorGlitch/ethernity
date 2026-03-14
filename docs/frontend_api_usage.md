@@ -63,6 +63,12 @@ This document gives the frontend team a practical plan for integrating the machi
 4. Stream `phase`, `progress`, `warning`, `artifact`, and `result` into the UI.
 5. Use the final `result.artifacts` object as the source of truth for generated files.
 
+Backup output rule for the GUI:
+
+- if `api backup --output-dir` points to an existing directory, Ethernity treats it as a parent
+  directory and creates `backup-<doc_id>` inside it
+- if the path does not exist, Ethernity creates that exact directory and writes the backup there
+
 ### Recovery Flow
 
 Use `ethernity api recover` in one of these ways:

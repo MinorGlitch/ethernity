@@ -261,6 +261,50 @@ class TestEndToEndCli(unittest.TestCase):
             self.assertTrue((output_dir / "qr_document.pdf").exists())
             self.assertTrue((output_dir / "recovery_document.pdf").exists())
 
+    def test_api_backup_existing_output_directory_is_treated_as_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            input_path = tmp_path / "input.txt"
+            input_path.write_text("backup cli payload", encoding="utf-8")
+            parent_dir = tmp_path / "gui-backups"
+            parent_dir.mkdir()
+            repo_root = Path(__file__).resolve().parents[2]
+            config_path = repo_root / "src" / "ethernity" / "config" / "config.toml"
+
+            env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(config_path),
+                    "api",
+                    "backup",
+                    "--input",
+                    str(input_path),
+                    "--output-dir",
+                    str(parent_dir),
+                    "--passphrase",
+                    "api backup passphrase",
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stderr, "")
+            events = self._parse_ndjson_events(result.stdout)
+            self.assertEqual(events[-1]["command"], "backup")
+            actual_output_dir = Path(str(events[-1]["output_dir"]))
+            self.assertEqual(actual_output_dir.parent, parent_dir)
+            self.assertTrue(actual_output_dir.name.startswith("backup-"))
+            self.assertTrue((actual_output_dir / "qr_document.pdf").exists())
+            self.assertTrue((actual_output_dir / "recovery_document.pdf").exists())
+
     def test_api_backup_missing_input_emits_structured_ndjson_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)

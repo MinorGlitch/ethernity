@@ -62,10 +62,18 @@ def _ensure_directory(path: str | Path, *, exist_ok: bool) -> Path:
     return directory
 
 
-def _ensure_output_dir(output_dir: str | None, doc_id_hex: str) -> str:
+def _ensure_output_dir(
+    output_dir: str | None,
+    doc_id_hex: str,
+    *,
+    existing_directory_is_parent: bool = False,
+) -> str:
     """Create a fresh backup output directory or raise if it already exists."""
 
     directory = expanduser_cli_path(output_dir, preserve_stdin=False) or f"backup-{doc_id_hex}"
+    normalized = Path(directory)
+    if existing_directory_is_parent and normalized.is_dir():
+        directory = str(normalized / f"backup-{doc_id_hex}")
     try:
         _ensure_directory(directory, exist_ok=False)
     except FileExistsError as exc:

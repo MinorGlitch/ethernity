@@ -53,6 +53,7 @@ class BackupArgs:
     input_dir: list[str] | None = None
     base_dir: str | None = None
     output_dir: str | None = None
+    output_dir_existing_parent: bool = False
     layout_debug_dir: str | None = None
     qr_chunk_size: int | None = None
     passphrase: str | None = None

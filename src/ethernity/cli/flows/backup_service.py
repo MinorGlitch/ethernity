@@ -110,6 +110,7 @@ def execute_prepared_backup(
             input_files=list(prepared.input_files),
             base_dir=prepared.base_dir,
             output_dir=prepared.args.output_dir,
+            output_dir_existing_parent=prepared.args.output_dir_existing_parent,
             layout_debug_dir=prepared.args.layout_debug_dir,
             input_origin=prepared.input_origin,
             input_roots=list(prepared.input_roots),

@@ -350,6 +350,7 @@ class TestCliApi(unittest.TestCase):
         def _capture_args(args: BackupArgs) -> int:
             captured["input"] = list(args.input or [])
             captured["output_dir"] = args.output_dir
+            captured["output_dir_existing_parent"] = args.output_dir_existing_parent
             captured["shard_threshold"] = args.shard_threshold
             return 0
 
@@ -378,6 +379,7 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(captured["input"], ["-"])
         self.assertEqual(captured["output_dir"], "./api-out")
+        self.assertTrue(captured["output_dir_existing_parent"])
         self.assertEqual(captured["shard_threshold"], 2)
 
     def test_api_recover_emits_ndjson_and_writes_output(self) -> None:

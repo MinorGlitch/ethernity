@@ -596,6 +596,7 @@ def run_backup(
     input_files: list[InputFile],
     base_dir: Path | None,
     output_dir: str | None,
+    output_dir_existing_parent: bool = False,
     layout_debug_dir: str | None = None,
     input_origin: str = "file",
     input_roots: list[str] | None = None,
@@ -765,7 +766,11 @@ def run_backup(
         chunk_size=main_chunk_size,
     )
     qr_frames = [*frames, auth_frame]
-    output_dir = _ensure_output_dir(output_dir, doc_id.hex())
+    output_dir = _ensure_output_dir(
+        output_dir,
+        doc_id.hex(),
+        existing_directory_is_parent=output_dir_existing_parent,
+    )
     output_dir_path = Path(output_dir)
     qr_path = str(output_dir_path / "qr_document.pdf")
     recovery_path = str(output_dir_path / "recovery_document.pdf")

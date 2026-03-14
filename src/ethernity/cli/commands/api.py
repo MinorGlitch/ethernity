@@ -354,7 +354,14 @@ def backup(
     ] = None,
     output_dir: Annotated[
         str | None,
-        typer.Option("--output-dir", "-o", help="Where to write PDFs (default: backup-<doc_id>)."),
+        typer.Option(
+            "--output-dir",
+            "-o",
+            help=(
+                "Where to write PDFs. Existing directories are treated as parent folders; "
+                "new paths are created exactly."
+            ),
+        ),
     ] = None,
     qr_chunk_size: Annotated[
         str | None,
@@ -468,6 +475,7 @@ def backup(
             input_dir=[str(path) for path in (input_dir or [])],
             base_dir=base_dir_value,
             output_dir=output_dir_value,
+            output_dir_existing_parent=True,
             layout_debug_dir=layout_debug_dir,
             qr_chunk_size=qr_chunk_size_value,
             passphrase=passphrase,

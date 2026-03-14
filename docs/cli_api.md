@@ -128,6 +128,10 @@ Recover results include `output_path_kind` so clients can distinguish a single r
 an output directory path. When `--output` points to an existing directory, single-file recovery is
 written inside that directory using the manifest filename.
 
+For `api backup`, if `--output-dir` points to an existing directory, it is treated as a parent
+directory and Ethernity creates `backup-<doc_id>` inside it. If the path does not exist, Ethernity
+creates that exact directory.
+
 Mint results include `signing_key_source` and a stable `artifacts` object for minted shard paths.
 
 Config results include the resolved config path, normalized editable values, supported option
