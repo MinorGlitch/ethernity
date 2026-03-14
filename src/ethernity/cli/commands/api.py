@@ -672,6 +672,7 @@ def mint(
             signing_key_shard_fallback_file=signing_key_shard_files,
             signing_key_shard_payloads_file=list(signing_key_shard_payloads_file or []),
             output_dir=output_dir,
+            output_dir_existing_parent=True,
             layout_debug_dir=layout_debug_dir,
             shard_threshold=_parse_api_int_option("--shard-threshold", shard_threshold),
             shard_count=_parse_api_int_option("--shard-count", shard_count),

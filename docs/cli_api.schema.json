@@ -517,8 +517,7 @@
           "type": "string",
           "enum": [
             "file",
-            "directory",
-            "stdout"
+            "directory"
           ]
         },
         "doc_id": {
@@ -1681,7 +1680,9 @@
         "operation",
         "path",
         "source",
+        "status",
         "values",
+        "errors",
         "options",
         "onboarding"
       ],
@@ -1712,6 +1713,45 @@
         },
         "onboarding": {
           "$ref": "#/$defs/configOnboarding"
+        },
+        "status": {
+          "$ref": "#/$defs/configStatus"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/configError"
+          }
+        }
+      }
+    },
+    "configStatus": {
+      "type": "string",
+      "enum": [
+        "valid",
+        "invalid_toml",
+        "invalid_values"
+      ]
+    },
+    "configError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message",
+        "details"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "$ref": "#/$defs/metadataObject"
         }
       }
     }

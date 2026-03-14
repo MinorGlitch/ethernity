@@ -54,7 +54,11 @@ from ..core.crypto import _doc_id_and_hash_from_ciphertext
 from ..core.log import _warn
 from ..core.types import BackupResult, InputFile
 from ..events import active_event_sink, emit_phase, emit_progress
-from ..io.outputs import _ensure_output_dir
+from ..io.outputs import (
+    _commit_prepared_output_dir,
+    _discard_prepared_output_dir,
+    _prepare_output_dir,
+)
 from ..ui.debug import (
     _append_signing_key_lines,
     _normalize_debug_max_bytes,
@@ -766,12 +770,13 @@ def run_backup(
         chunk_size=main_chunk_size,
     )
     qr_frames = [*frames, auth_frame]
-    output_dir = _ensure_output_dir(
+    output_dir, staging_output_dir = _prepare_output_dir(
         output_dir,
         doc_id.hex(),
+        prefix="backup",
         existing_directory_is_parent=output_dir_existing_parent,
     )
-    output_dir_path = Path(output_dir)
+    output_dir_path = Path(staging_output_dir)
     qr_path = str(output_dir_path / "qr_document.pdf")
     recovery_path = str(output_dir_path / "recovery_document.pdf")
     kit_index_template = _resolve_kit_index_template_path(config)
@@ -830,29 +835,44 @@ def run_backup(
         layout_debug_json_path=_layout_debug_json_path(layout_debug_dir, "recovery_document"),
     )
 
-    # Render all documents
-    emit_phase(phase="render", label="Rendering backup documents")
-    shard_paths, signing_key_shard_paths = _render_all_documents(
-        qr_inputs=qr_inputs,
-        recovery_inputs=recovery_inputs,
-        kit_index_inputs=kit_index_inputs,
-        shard_payloads=shard_payloads,
-        signing_key_shard_payloads=signing_key_shard_payloads,
-        doc_id=doc_id,
-        output_dir=output_dir,
-        render_service=render_service,
-        config=config,
-        status_quiet=status_quiet,
-        layout_debug_dir=layout_debug_dir,
-        qr_payload_codec=qr_payload_codec_mode,
+    try:
+        emit_phase(phase="render", label="Rendering backup documents")
+        shard_paths, signing_key_shard_paths = _render_all_documents(
+            qr_inputs=qr_inputs,
+            recovery_inputs=recovery_inputs,
+            kit_index_inputs=kit_index_inputs,
+            shard_payloads=shard_payloads,
+            signing_key_shard_payloads=signing_key_shard_payloads,
+            doc_id=doc_id,
+            output_dir=staging_output_dir,
+            render_service=render_service,
+            config=config,
+            status_quiet=status_quiet,
+            layout_debug_dir=layout_debug_dir,
+            qr_payload_codec=qr_payload_codec_mode,
+        )
+        _commit_prepared_output_dir(staging_output_dir, output_dir)
+    except Exception:
+        _discard_prepared_output_dir(staging_output_dir)
+        raise
+
+    final_output_dir = Path(output_dir)
+    final_qr_path = str(final_output_dir / Path(qr_path).name)
+    final_recovery_path = str(final_output_dir / Path(recovery_path).name)
+    final_kit_index_path = (
+        None if kit_index_path is None else str(final_output_dir / Path(kit_index_path).name)
+    )
+    final_shard_paths = tuple(str(final_output_dir / Path(path).name) for path in shard_paths)
+    final_signing_key_shard_paths = tuple(
+        str(final_output_dir / Path(path).name) for path in signing_key_shard_paths
     )
 
     return BackupResult(
         doc_id=doc_id,
-        qr_path=qr_path,
-        recovery_path=recovery_path,
-        kit_index_path=kit_index_path,
-        shard_paths=tuple(shard_paths),
-        signing_key_shard_paths=tuple(signing_key_shard_paths),
+        qr_path=final_qr_path,
+        recovery_path=final_recovery_path,
+        kit_index_path=final_kit_index_path,
+        shard_paths=final_shard_paths,
+        signing_key_shard_paths=final_signing_key_shard_paths,
         passphrase_used=passphrase_used,
     )

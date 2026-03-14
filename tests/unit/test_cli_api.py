@@ -170,6 +170,8 @@ class TestCliApi(unittest.TestCase):
         snapshot = SimpleNamespace(
             path="/tmp/config.toml",
             source="user",
+            status="valid",
+            errors=(),
             values=values,
             options=options,
             onboarding={
@@ -194,6 +196,8 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["command"], "config")
         self.assertEqual(events[-1]["operation"], "get")
         self.assertEqual(events[-1]["path"], snapshot.path)
+        self.assertEqual(events[-1]["status"], "valid")
+        self.assertEqual(events[-1]["errors"], [])
         self.assertEqual(events[-1]["onboarding"]["needed"], True)
 
     def test_run_config_set_api_command_reads_stdin_patch(self) -> None:
@@ -238,6 +242,8 @@ class TestCliApi(unittest.TestCase):
         snapshot = SimpleNamespace(
             path="/tmp/config.toml",
             source="user",
+            status="valid",
+            errors=(),
             values=values,
             options=options,
             onboarding={
@@ -280,6 +286,32 @@ class TestCliApi(unittest.TestCase):
         events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
         self._assert_valid_events(events)
         self.assertEqual(events[-1]["code"], api_codes.CONFIG_JSON_INVALID)
+
+    def test_api_config_set_rejects_non_object_json(self) -> None:
+        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                ["api", "config", "set", "--input-json", "-"],
+                input='["not-an-object"]',
+            )
+
+        self.assertEqual(result.exit_code, 2)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(events[-1]["code"], api_codes.CONFIG_JSON_INVALID)
+
+    def test_api_config_set_missing_patch_file_emits_io_error(self) -> None:
+        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                ["api", "config", "set", "--input-json", "/no/such/patch.json"],
+            )
+
+        self.assertEqual(result.exit_code, 2)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(events[-1]["code"], api_codes.IO_ERROR)
+        self.assertEqual(events[-1]["details"]["path"], "/no/such/patch.json")
 
     def test_api_command_does_not_run_startup(self) -> None:
         with (
@@ -559,6 +591,36 @@ class TestCliApi(unittest.TestCase):
         self.assertIsNone(captured["fallback_file"])
         self.assertIsNone(captured["payloads_file"])
         self.assertEqual(captured["scan"], [])
+
+    def test_api_recover_explicit_stdin_payloads_succeeds(self) -> None:
+        payload_text = (V1_FIXTURE_ROOT / "main_payloads.txt").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "recovered.bin"
+            with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+                result = self.runner.invoke(
+                    cli.app,
+                    [
+                        "--config",
+                        str(DEFAULT_CONFIG_PATH),
+                        "api",
+                        "recover",
+                        "--payloads-file",
+                        "-",
+                        "--passphrase",
+                        FIXTURE_PASSPHRASE,
+                        "--output",
+                        str(output_path),
+                    ],
+                    input=payload_text,
+                )
+
+            recovered = output_path.read_bytes()
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(events[-1]["command"], "recover")
+        self.assertTrue(recovered)
 
     def test_api_recover_missing_shard_dir_emits_structured_error_code(self) -> None:
         with mock.patch("ethernity.cli.app.run_startup", return_value=False):

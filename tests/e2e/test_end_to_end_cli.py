@@ -102,6 +102,59 @@ class TestEndToEndCli(unittest.TestCase):
             self.assertEqual(result.stderr, "")
             self.assertFalse(xdg_config_home.exists())
 
+    def test_api_config_get_does_not_initialize_user_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            repo_root = Path(__file__).resolve().parents[2]
+            xdg_config_home = tmp_path / "xdg"
+
+            env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(xdg_config_home)})
+            result = subprocess.run(
+                [sys.executable, "-m", "ethernity.cli", "api", "config", "get"],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stderr, "")
+            events = self._parse_ndjson_events(result.stdout)
+            self.assertEqual(events[-1]["command"], "config")
+            self.assertEqual(events[-1]["status"], "valid")
+            self.assertFalse(xdg_config_home.exists())
+
+    def test_api_parse_errors_emit_ndjson(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            repo_root = Path(__file__).resolve().parents[2]
+            env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--paper",
+                    "bogus",
+                    "api",
+                    "backup",
+                    "--input",
+                    str(tmp_path / "missing.txt"),
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.stderr, "")
+            events = self._parse_ndjson_events(result.stdout)
+            self.assertEqual(events[-1]["type"], "error")
+            self.assertEqual(events[-1]["code"], "INVALID_INPUT")
+
     def test_api_config_get_and_set_drive_backup_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
@@ -150,7 +203,7 @@ class TestEndToEndCli(unittest.TestCase):
             self.assertEqual(get_result_event["command"], "config")
             self.assertEqual(get_result_event["operation"], "get")
             self.assertTrue(str(get_result_event["path"]).endswith("config.toml"))
-            self.assertTrue(Path(str(get_result_event["path"])).exists())
+            self.assertFalse(Path(str(get_result_event["path"])).exists())
 
             set_result = subprocess.run(
                 [
@@ -413,6 +466,78 @@ class TestEndToEndCli(unittest.TestCase):
             self.assertEqual(events[-1]["command"], "mint")
             self.assertEqual(events[-1]["output_dir"], str(minted_dir))
             self.assertEqual(len(list(minted_dir.glob("shard-*.pdf"))), 3)
+
+    def test_api_mint_existing_output_directory_is_treated_as_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            input_path = tmp_path / "input.txt"
+            input_path.write_text("mint cli payload", encoding="utf-8")
+            output_dir = tmp_path / "backup"
+            minted_parent = tmp_path / "mint-parent"
+            minted_parent.mkdir()
+            main_payloads = tmp_path / "main_payloads.txt"
+            repo_root = Path(__file__).resolve().parents[2]
+            config_path = repo_root / "src" / "ethernity" / "config" / "config.toml"
+
+            env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
+            backup = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(config_path),
+                    "backup",
+                    "--input",
+                    str(input_path),
+                    "--output-dir",
+                    str(output_dir),
+                    "--passphrase",
+                    "mint-api-passphrase",
+                    "--quiet",
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(backup.returncode, 0, backup.stderr)
+            self._write_scanned_payloads([output_dir / "qr_document.pdf"], main_payloads)
+
+            mint = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(config_path),
+                    "api",
+                    "mint",
+                    "--payloads-file",
+                    str(main_payloads),
+                    "--passphrase",
+                    "mint-api-passphrase",
+                    "--shard-threshold",
+                    "2",
+                    "--shard-count",
+                    "3",
+                    "--output-dir",
+                    str(minted_parent),
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(mint.returncode, 0, mint.stderr)
+            events = self._parse_ndjson_events(mint.stdout)
+            actual_output_dir = Path(str(events[-1]["output_dir"]))
+            self.assertEqual(actual_output_dir.parent, minted_parent)
+            self.assertTrue(actual_output_dir.name.startswith("mint-"))
+            self.assertEqual(len(list(actual_output_dir.glob("shard-*.pdf"))), 3)
 
     def test_api_recover_cli_emits_ndjson_only_stdout(self) -> None:
         payload = b"recover cli payload"

@@ -19,8 +19,9 @@ When `--config` is omitted in API mode, command behavior depends on the surface:
 - `api backup`, `api mint`, and `api recover` load defaults from the existing user config when it
   already exists, otherwise they fall back to the packaged config without creating user config
   files.
-- `api config get` and `api config set` target the user config by default and will initialize it if
-  needed.
+- `api config get` targets the user config path by default but does not initialize it just to read
+  settings.
+- `api config set` targets the user config path by default and will initialize it if needed.
 
 `ethernity api recover` does not implicitly read stdin. To recover from stdin, pass
 `--fallback-file -` explicitly.
@@ -132,10 +133,15 @@ For `api backup`, if `--output-dir` points to an existing directory, it is treat
 directory and Ethernity creates `backup-<doc_id>` inside it. If the path does not exist, Ethernity
 creates that exact directory.
 
+For `api mint`, if `--output-dir` points to an existing directory, it is treated as a parent
+directory and Ethernity creates `mint-<doc_id>` inside it. If the path does not exist, Ethernity
+creates that exact directory.
+
 Mint results include `signing_key_source` and a stable `artifacts` object for minted shard paths.
 
 Config results include the resolved config path, normalized editable values, supported option
-lists, and onboarding metadata so a GUI can build its own onboarding flow.
+lists, onboarding metadata, and a config validity status so a GUI can build its own onboarding flow
+and repair invalid config files.
 
 ### `error`
 
@@ -267,6 +273,14 @@ Unknown patch fields are rejected. `defaults.recover.output` remains an editable
 though `ethernity api recover` still requires explicit `--output`. When `onboarding` is supplied,
 `onboarding.mark_complete` must be set explicitly.
 
+Config results also include:
+
+- `status`: `valid`, `invalid_toml`, or `invalid_values`
+- `errors`: structured load problems for the current config snapshot
+
+When `status` is not `valid`, `values` still contain a schema-valid snapshot derived from defaults
+and any parseable settings so the GUI can offer repair UX.
+
 ## GUI Onboarding Procedure
 
 The GUI should build its own onboarding flow on top of `api config get` and `api config set`.
@@ -345,18 +359,18 @@ Example onboarding patch:
 ## Example
 
 ```json
-{"type":"started","schema_version":1,"command":"recover","args":{"payloads_file":"main_payloads.txt","has_passphrase":true}}
+{"type":"started","schema_version":1,"command":"recover","args":{"config":null,"paper":null,"fallback_file":null,"payloads_file":"main_payloads.txt","scan":[],"has_passphrase":true,"shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"output":"/tmp/out/secret.txt","allow_unsigned":false,"quiet":true,"debug":false}}
 {"type":"phase","id":"plan","label":"Resolving recovery inputs"}
 {"type":"progress","phase":"plan","current":1,"total":1,"unit":"step","details":{"main_frame_count":2,"auth_frame_count":1,"shard_frame_count":0}}
 {"type":"phase","id":"decrypt","label":"Decrypting and extracting payload"}
 {"type":"artifact","kind":"recovered_file","path":"/tmp/out/secret.txt","details":{"manifest_path":"secret.txt","size":42}}
-{"type":"result","ok":true,"command":"recover","output_path":"/tmp/out/secret.txt","output_path_kind":"file"}
+{"type":"result","ok":true,"command":"recover","output_path":"/tmp/out/secret.txt","output_path_kind":"file","doc_id":"deadbeef","auth_status":"verified","input_label":"QR payloads","input_detail":"main_payloads.txt","manifest":{"format_version":1,"input_origin":"file","input_roots":["secret.txt"],"sealed":true,"file_count":1,"payload_codec":"raw","payload_raw_len":42,"signing_seed_present":false},"files":[{"manifest_path":"secret.txt","output_path":"/tmp/out/secret.txt","size":42,"sha256":"0123","mtime":0}]}
 ```
 
 ```json
 {"type":"started","schema_version":1,"command":"config","args":{"operation":"get","config":null,"input_json":null}}
 {"type":"phase","id":"load","label":"Loading config"}
-{"type":"result","ok":true,"command":"config","operation":"get","path":"/home/user/.config/ethernity/config.toml","source":"user","values":{"page":{"size":"A4"}},"options":{"page_sizes":["A4","LETTER"]},"onboarding":{"needed":true,"configured_fields":[],"available_fields":["page_size"]}}
+{"type":"result","ok":true,"command":"config","operation":"get","path":"/home/user/.config/ethernity/config.toml","source":"user","status":"valid","errors":[],"values":{"templates":{"default_name":"sentinel","template_name":null,"recovery_template_name":null,"shard_template_name":null,"signing_key_shard_template_name":null,"kit_template_name":null},"page":{"size":"A4"},"qr":{"error":"Q","chunk_size":768},"defaults":{"backup":{"base_dir":null,"output_dir":null,"shard_threshold":null,"shard_count":null,"signing_key_mode":null,"signing_key_shard_threshold":null,"signing_key_shard_count":null,"payload_codec":"auto","qr_payload_codec":"raw"},"recover":{"output":null}},"ui":{"quiet":false,"no_color":false,"no_animations":false},"debug":{"max_bytes":null},"runtime":{"render_jobs":null}},"options":{"template_designs":["sentinel"],"page_sizes":["A4","LETTER"],"qr_error_correction":["L","M","Q","H"],"payload_codecs":["auto","raw","gzip"],"qr_payload_codecs":["raw","base64"],"signing_key_modes":["embedded","sharded"],"onboarding_fields":["page_size"]},"onboarding":{"needed":true,"configured_fields":[],"available_fields":["page_size"]}}
 ```
 
 Recover can also scan QR payloads directly from PDFs, images, or directories by using `--scan`:

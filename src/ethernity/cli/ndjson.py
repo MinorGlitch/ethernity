@@ -23,6 +23,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, TextIO
 
+import click
+
 from . import api_codes
 from .events import (
     CommandError as ApiCommandError,
@@ -64,6 +66,10 @@ def error_code_for_exception(exc: BaseException) -> str:
         return exc.code
     if isinstance(exc, KeyboardInterrupt):
         return api_codes.CANCELLED
+    if isinstance(exc, click.Abort):
+        return api_codes.CANCELLED
+    if isinstance(exc, click.ClickException):
+        return api_codes.INVALID_INPUT
     if isinstance(exc, FileNotFoundError):
         return api_codes.NOT_FOUND
     if isinstance(exc, PermissionError):
@@ -80,6 +86,11 @@ def error_code_for_exception(exc: BaseException) -> str:
 def error_details_for_exception(exc: BaseException) -> dict[str, Any]:
     if isinstance(exc, ApiCommandError):
         return dict(exc.details)
+    if isinstance(exc, click.BadParameter):
+        details: dict[str, Any] = {}
+        if exc.param is not None and exc.param.name is not None:
+            details["field"] = exc.param.name
+        return details
     if isinstance(exc, OSError):
         details: dict[str, Any] = {}
         if exc.filename:

@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import tempfile
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -228,6 +229,18 @@ def resolve_writable_config_path(path: str | Path | None = None) -> Path:
     if not _ensure_user_config(paths) or not paths.user_config_path.exists():
         raise OSError(f"unable to initialize user config at {paths.user_config_path}")
     return paths.user_config_path
+
+
+def resolve_config_snapshot_path(path: str | Path | None = None) -> Path:
+    """Resolve the config path used by read-only config inspection."""
+
+    if path:
+        resolved = Path(path).expanduser()
+        if not resolved.exists():
+            raise FileNotFoundError(f"config file not found: {resolved}")
+        return resolved
+
+    return _build_paths().user_config_path
 
 
 def resolve_api_defaults_config_path() -> Path:
@@ -498,9 +511,21 @@ def apply_first_run_defaults(
 def _write_text_atomic(path: Path, text: str) -> None:
     """Atomically replace a text file in place."""
 
-    temp_path = path.with_name(f"{path.name}.tmp")
-    temp_path.write_text(text, encoding="utf-8")
-    temp_path.replace(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=path.parent,
+        prefix=f".{path.name}.tmp-",
+        delete=False,
+    ) as handle:
+        handle.write(text)
+        temp_path = Path(handle.name)
+    try:
+        temp_path.replace(path)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
 
 
 def _toml_quote(value: str) -> str:

@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from .installer import (
+    DEFAULT_CONFIG_PATH,
     DEFAULT_TEMPLATE_STYLE,
     ONBOARDING_FIELDS,
     _toml_quote,
@@ -34,6 +35,7 @@ from .installer import (
     first_run_onboarding_needed,
     list_template_designs,
     mark_first_run_onboarding_complete,
+    resolve_config_snapshot_path,
     resolve_writable_config_path,
 )
 from .loader import _load_toml, load_app_config, load_cli_defaults
@@ -63,6 +65,8 @@ class ConfigPatchError(ValueError):
 class ApiConfigSnapshot:
     path: str
     source: ConfigTargetSource
+    status: Literal["valid", "invalid_toml", "invalid_values"]
+    errors: tuple[dict[str, object], ...]
     values: dict[str, object]
     options: dict[str, object]
     onboarding: dict[str, object]
@@ -75,7 +79,7 @@ class OnboardingPatchPlan:
 
 
 def get_api_config_snapshot(path: str | Path | None = None) -> ApiConfigSnapshot:
-    target_path, source = _resolve_config_target(path)
+    target_path, source = _resolve_config_target(path, for_write=False)
     return _snapshot_from_path(target_path, source=source)
 
 
@@ -83,10 +87,11 @@ def apply_api_config_patch(
     path: str | Path | None,
     patch: dict[str, object],
 ) -> ApiConfigSnapshot:
-    target_path, source = _resolve_config_target(path)
+    target_path, source = _resolve_config_target(path, for_write=True)
     _validate_patch_shape(patch)
     onboarding_plan = _build_onboarding_patch_plan(patch.get("onboarding"), source=source)
 
+    original_text = target_path.read_text(encoding="utf-8")
     current = _snapshot_from_path(target_path, source=source)
     current_values = copy.deepcopy(current.values)
     patch_values = patch.get("values")
@@ -100,9 +105,13 @@ def apply_api_config_patch(
         _merge_values_patch(current_values, patch_values, prefix=("values",))
 
     validated_values = _validate_config_values(current_values)
-    original = target_path.read_text(encoding="utf-8")
-    updated = _apply_values_to_text(original, validated_values)
-    config_changed = updated != original
+    base_text = (
+        original_text
+        if current.status != "invalid_toml"
+        else DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")
+    )
+    updated = _apply_values_to_text(base_text, validated_values)
+    config_changed = updated != original_text
     marker_state = _read_marker_state() if onboarding_plan is not None else None
 
     try:
@@ -114,71 +123,61 @@ def apply_api_config_patch(
         if onboarding_plan is not None:
             _restore_marker_state(marker_state)
         if config_changed:
-            _write_text_atomic(target_path, original)
+            _write_text_atomic(target_path, original_text)
         raise
 
     return _snapshot_from_path(target_path, source=source)
 
 
-def _resolve_config_target(path: str | Path | None) -> tuple[Path, ConfigTargetSource]:
+def _resolve_config_target(
+    path: str | Path | None,
+    *,
+    for_write: bool,
+) -> tuple[Path, ConfigTargetSource]:
     source: ConfigTargetSource = "explicit" if path else "user"
-    return resolve_writable_config_path(path), source
+    if for_write:
+        return resolve_writable_config_path(path), source
+    return resolve_config_snapshot_path(path), source
 
 
 def _snapshot_from_path(path: Path, *, source: ConfigTargetSource) -> ApiConfigSnapshot:
-    raw = _load_toml(path)
-    config = load_app_config(path)
-    cli_defaults = load_cli_defaults(path)
-    values = {
-        "templates": {
-            "default_name": _raw_default_design(raw),
-            "template_name": _raw_section_design(raw, section="template"),
-            "recovery_template_name": _raw_section_design(raw, section="recovery_template"),
-            "shard_template_name": _raw_section_design(raw, section="shard_template"),
-            "signing_key_shard_template_name": _raw_section_design(
-                raw,
-                section="signing_key_shard_template",
-            ),
-            "kit_template_name": _raw_section_design(raw, section="kit_template"),
-        },
-        "page": {
-            "size": config.paper_size,
-        },
-        "qr": {
-            "error": config.qr_config.error,
-            "chunk_size": config.qr_chunk_size,
-        },
-        "defaults": {
-            "backup": {
-                "base_dir": cli_defaults.backup.base_dir,
-                "output_dir": cli_defaults.backup.output_dir,
-                "shard_threshold": cli_defaults.backup.shard_threshold,
-                "shard_count": cli_defaults.backup.shard_count,
-                "signing_key_mode": cli_defaults.backup.signing_key_mode,
-                "signing_key_shard_threshold": cli_defaults.backup.signing_key_shard_threshold,
-                "signing_key_shard_count": cli_defaults.backup.signing_key_shard_count,
-                "payload_codec": cli_defaults.backup.payload_codec,
-                "qr_payload_codec": cli_defaults.backup.qr_payload_codec,
-            },
-            "recover": {
-                "output": cli_defaults.recover.output,
-            },
-        },
-        "ui": {
-            "quiet": cli_defaults.ui.quiet,
-            "no_color": cli_defaults.ui.no_color,
-            "no_animations": cli_defaults.ui.no_animations,
-        },
-        "debug": {
-            "max_bytes": cli_defaults.debug.max_bytes,
-        },
-        "runtime": {
-            "render_jobs": cli_defaults.runtime.render_jobs,
-        },
-    }
+    if not path.exists():
+        return ApiConfigSnapshot(
+            path=str(path),
+            source=source,
+            status="valid",
+            errors=(),
+            values=cast(dict[str, object], _default_snapshot_values()),
+            options=_config_options(),
+            onboarding=_snapshot_onboarding(source=source),
+        )
+
+    status: Literal["valid", "invalid_toml", "invalid_values"] = "valid"
+    errors: list[dict[str, object]] = []
+    raw: dict[str, object] = {}
+    try:
+        raw = _load_toml(path)
+    except (OSError, ValueError) as exc:
+        status = "invalid_toml"
+        errors.append(_config_load_error(exc, code="CONFIG_TOML_INVALID"))
+
+    if status == "valid":
+        try:
+            config = load_app_config(path)
+            cli_defaults = load_cli_defaults(path)
+            values = _snapshot_values_from_loaded(raw, config=config, cli_defaults=cli_defaults)
+        except (OSError, RuntimeError, ValueError) as exc:
+            status = "invalid_values"
+            errors.append(_config_load_error(exc, code="CONFIG_INVALID_CURRENT"))
+            values = _snapshot_values_from_raw(raw)
+    else:
+        values = _snapshot_values_from_raw(raw)
+
     return ApiConfigSnapshot(
         path=str(path),
         source=source,
+        status=status,
+        errors=tuple(errors),
         values=cast(dict[str, object], values),
         options=_config_options(),
         onboarding=_snapshot_onboarding(source=source),
@@ -216,6 +215,212 @@ def _snapshot_onboarding(*, source: ConfigTargetSource) -> dict[str, object]:
         "configured_fields": sorted(first_run_onboarding_configured_fields()),
         "available_fields": list(ONBOARDING_FIELDS),
     }
+
+
+def _config_load_error(exc: BaseException, *, code: str) -> dict[str, object]:
+    return {
+        "code": code,
+        "message": str(exc),
+        "details": {"error_type": type(exc).__name__},
+    }
+
+
+def _default_snapshot_values() -> dict[str, object]:
+    config = load_app_config(DEFAULT_CONFIG_PATH)
+    cli_defaults = load_cli_defaults(DEFAULT_CONFIG_PATH)
+    return _snapshot_values_from_loaded({}, config=config, cli_defaults=cli_defaults)
+
+
+def _snapshot_values_from_loaded(
+    raw: dict[str, object],
+    *,
+    config,
+    cli_defaults,
+) -> dict[str, object]:
+    return {
+        "templates": {
+            "default_name": _raw_default_design(raw),
+            "template_name": _raw_section_design(raw, section="template"),
+            "recovery_template_name": _raw_section_design(raw, section="recovery_template"),
+            "shard_template_name": _raw_section_design(raw, section="shard_template"),
+            "signing_key_shard_template_name": _raw_section_design(
+                raw,
+                section="signing_key_shard_template",
+            ),
+            "kit_template_name": _raw_section_design(raw, section="kit_template"),
+        },
+        "page": {"size": config.paper_size},
+        "qr": {"error": config.qr_config.error, "chunk_size": config.qr_chunk_size},
+        "defaults": {
+            "backup": {
+                "base_dir": cli_defaults.backup.base_dir,
+                "output_dir": cli_defaults.backup.output_dir,
+                "shard_threshold": cli_defaults.backup.shard_threshold,
+                "shard_count": cli_defaults.backup.shard_count,
+                "signing_key_mode": cli_defaults.backup.signing_key_mode,
+                "signing_key_shard_threshold": cli_defaults.backup.signing_key_shard_threshold,
+                "signing_key_shard_count": cli_defaults.backup.signing_key_shard_count,
+                "payload_codec": cli_defaults.backup.payload_codec,
+                "qr_payload_codec": cli_defaults.backup.qr_payload_codec,
+            },
+            "recover": {"output": cli_defaults.recover.output},
+        },
+        "ui": {
+            "quiet": cli_defaults.ui.quiet,
+            "no_color": cli_defaults.ui.no_color,
+            "no_animations": cli_defaults.ui.no_animations,
+        },
+        "debug": {"max_bytes": cli_defaults.debug.max_bytes},
+        "runtime": {"render_jobs": cli_defaults.runtime.render_jobs},
+    }
+
+
+def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
+    values = copy.deepcopy(_default_snapshot_values())
+    templates = cast(dict[str, object], values["templates"])
+    page = cast(dict[str, object], values["page"])
+    qr = cast(dict[str, object], values["qr"])
+    defaults = cast(dict[str, object], values["defaults"])
+    backup = cast(dict[str, object], defaults["backup"])
+    recover = cast(dict[str, object], defaults["recover"])
+    ui = cast(dict[str, object], values["ui"])
+    debug = cast(dict[str, object], values["debug"])
+    runtime = cast(dict[str, object], values["runtime"])
+
+    templates["default_name"] = _raw_default_design(raw)
+    templates["template_name"] = _raw_section_design(raw, section="template")
+    templates["recovery_template_name"] = _raw_section_design(raw, section="recovery_template")
+    templates["shard_template_name"] = _raw_section_design(raw, section="shard_template")
+    templates["signing_key_shard_template_name"] = _raw_section_design(
+        raw,
+        section="signing_key_shard_template",
+    )
+    templates["kit_template_name"] = _raw_section_design(raw, section="kit_template")
+
+    page_table = _raw_table(raw, "page")
+    qr_table = _raw_table(raw, "qr")
+    backup_table = _raw_table(_raw_table(raw, "defaults"), "backup")
+    recover_table = _raw_table(_raw_table(raw, "defaults"), "recover")
+    ui_table = _raw_table(raw, "ui")
+    debug_table = _raw_table(raw, "debug")
+    runtime_table = _raw_table(raw, "runtime")
+
+    page["size"] = _coerce_enum(page_table.get("size"), allowed=_PAGE_SIZES, fallback=page["size"])
+    qr["error"] = _coerce_enum(
+        qr_table.get("error"), allowed=_QR_ERROR_LEVELS, fallback=qr["error"]
+    )
+    qr["chunk_size"] = _coerce_optional_positive_int(
+        qr_table.get("chunk_size"), fallback=qr["chunk_size"]
+    )
+
+    backup["base_dir"] = _coerce_optional_string(
+        backup_table.get("base_dir"), fallback=backup["base_dir"]
+    )
+    backup["output_dir"] = _coerce_optional_string(
+        backup_table.get("output_dir"), fallback=backup["output_dir"]
+    )
+    backup["shard_threshold"] = _coerce_optional_positive_int(
+        backup_table.get("shard_threshold"), fallback=backup["shard_threshold"]
+    )
+    backup["shard_count"] = _coerce_optional_positive_int(
+        backup_table.get("shard_count"), fallback=backup["shard_count"]
+    )
+    backup["signing_key_mode"] = _coerce_optional_enum(
+        backup_table.get("signing_key_mode"),
+        allowed=_SIGNING_KEY_MODES,
+        fallback=backup["signing_key_mode"],
+    )
+    backup["signing_key_shard_threshold"] = _coerce_optional_positive_int(
+        backup_table.get("signing_key_shard_threshold"),
+        fallback=backup["signing_key_shard_threshold"],
+    )
+    backup["signing_key_shard_count"] = _coerce_optional_positive_int(
+        backup_table.get("signing_key_shard_count"),
+        fallback=backup["signing_key_shard_count"],
+    )
+    backup["payload_codec"] = _coerce_enum(
+        backup_table.get("payload_codec"),
+        allowed=_PAYLOAD_CODECS,
+        fallback=backup["payload_codec"],
+    )
+    backup["qr_payload_codec"] = _coerce_enum(
+        backup_table.get("qr_payload_codec"),
+        allowed=_QR_PAYLOAD_CODECS,
+        fallback=backup["qr_payload_codec"],
+    )
+    recover["output"] = _coerce_optional_string(
+        recover_table.get("output"), fallback=recover["output"]
+    )
+    ui["quiet"] = _coerce_bool(ui_table.get("quiet"), fallback=ui["quiet"])
+    ui["no_color"] = _coerce_bool(ui_table.get("no_color"), fallback=ui["no_color"])
+    ui["no_animations"] = _coerce_bool(ui_table.get("no_animations"), fallback=ui["no_animations"])
+    debug["max_bytes"] = _coerce_optional_positive_int(
+        debug_table.get("max_bytes"), fallback=debug["max_bytes"]
+    )
+    runtime["render_jobs"] = _coerce_render_jobs(
+        runtime_table.get("render_jobs"), fallback=runtime["render_jobs"]
+    )
+    return values
+
+
+def _raw_table(raw: dict[str, object], key: str) -> dict[str, object]:
+    value = raw.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _coerce_enum(value: object, *, allowed: tuple[str, ...], fallback: object) -> object:
+    if not isinstance(value, str):
+        return fallback
+    text = value.strip()
+    if not text:
+        return fallback
+    normalized = text.upper() if allowed in {_PAGE_SIZES, _QR_ERROR_LEVELS} else text.lower()
+    return normalized if normalized in allowed else fallback
+
+
+def _coerce_optional_enum(value: object, *, allowed: tuple[str, ...], fallback: object) -> object:
+    if value is None:
+        return fallback
+    if isinstance(value, str) and not value.strip():
+        return None
+    return _coerce_enum(value, allowed=allowed, fallback=fallback)
+
+
+def _coerce_optional_positive_int(value: object, *, fallback: object) -> object:
+    if value is None:
+        return fallback
+    if isinstance(value, int) and not isinstance(value, bool):
+        if value == 0:
+            return None
+        return value if value > 0 else fallback
+    return fallback
+
+
+def _coerce_optional_string(value: object, *, fallback: object) -> object:
+    if value is None:
+        return fallback
+    if not isinstance(value, str):
+        return fallback
+    normalized = value.strip()
+    return normalized or None
+
+
+def _coerce_bool(value: object, *, fallback: object) -> object:
+    return value if isinstance(value, bool) else fallback
+
+
+def _coerce_render_jobs(value: object, *, fallback: object) -> object:
+    if value is None:
+        return fallback
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if not normalized:
+            return None
+        if normalized == "auto":
+            return normalized
+    return fallback
 
 
 def _config_options() -> dict[str, object]:

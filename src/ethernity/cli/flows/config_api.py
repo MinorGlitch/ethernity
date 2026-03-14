@@ -111,6 +111,8 @@ def _emit_config_result(*, operation: str, snapshot) -> None:
         operation=operation,
         path=snapshot.path,
         source=snapshot.source,
+        status=snapshot.status,
+        errors=list(snapshot.errors),
         values=snapshot.values,
         options=snapshot.options,
         onboarding=snapshot.onboarding,

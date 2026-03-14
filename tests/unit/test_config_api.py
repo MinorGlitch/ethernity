@@ -45,6 +45,8 @@ class TestApiConfigService(unittest.TestCase):
 
         templates = cast(dict[str, Any], snapshot.values["templates"])
         self.assertEqual(snapshot.source, "user")
+        self.assertEqual(snapshot.status, "valid")
+        self.assertEqual(snapshot.errors, ())
         self.assertTrue(snapshot.path.endswith("config.toml"))
         self.assertIn("template_designs", snapshot.options)
         self.assertIn("available_fields", snapshot.onboarding)
@@ -94,6 +96,80 @@ class TestApiConfigService(unittest.TestCase):
         self.assertEqual(parsed["page"]["size"], "LETTER")
         self.assertEqual(parsed["template"]["name"], "ledger")
         self.assertEqual(parsed["defaults"]["backup"]["output_dir"], "/tmp/backups")
+
+    def test_get_api_config_snapshot_reports_invalid_toml_and_defaults(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".toml") as handle:
+            path = Path(handle.name)
+            path.write_text('[defaults.backup\noutput_dir = "oops"\n', encoding="utf-8")
+            snapshot = api_config.get_api_config_snapshot(path)
+
+        page = cast(dict[str, Any], snapshot.values["page"])
+        self.assertEqual(snapshot.status, "invalid_toml")
+        self.assertTrue(snapshot.errors)
+        self.assertEqual(page["size"], "A4")
+
+    def test_apply_api_config_patch_repairs_invalid_current_values(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".toml") as handle:
+            path = Path(handle.name)
+            path.write_text(
+                DEFAULT_CONFIG_PATH.read_text(encoding="utf-8").replace(
+                    'size = "A4"',
+                    'size = "Letter"',
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            snapshot = api_config.apply_api_config_patch(
+                path,
+                {"values": {"ui": {"quiet": True}}},
+            )
+            parsed = tomllib.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(snapshot.status, "valid")
+        self.assertEqual(parsed["page"]["size"], "LETTER")
+        self.assertEqual(parsed["ui"]["quiet"], True)
+
+    def test_apply_api_config_patch_repairs_invalid_toml(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".toml") as handle:
+            path = Path(handle.name)
+            path.write_text('[defaults.backup\noutput_dir = "oops"\n', encoding="utf-8")
+            snapshot = api_config.apply_api_config_patch(
+                path,
+                {"values": {"page": {"size": "LETTER"}}},
+            )
+            parsed = tomllib.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(snapshot.status, "valid")
+        self.assertEqual(parsed["page"]["size"], "LETTER")
+
+    def test_apply_api_config_patch_resets_onboarding_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_root = Path(tmpdir) / "config"
+            with mock.patch.multiple(
+                installer,
+                user_config_dir_path=mock.Mock(return_value=config_root),
+                user_config_file_path=mock.Mock(side_effect=lambda name: config_root / name),
+                user_templates_root_path=mock.Mock(return_value=config_root / "templates"),
+                user_templates_design_path=mock.Mock(
+                    side_effect=lambda design: config_root / "templates" / design
+                ),
+            ):
+                api_config.apply_api_config_patch(
+                    None,
+                    {
+                        "onboarding": {
+                            "mark_complete": True,
+                            "configured_fields": ["page_size"],
+                        }
+                    },
+                )
+                snapshot = api_config.apply_api_config_patch(
+                    None,
+                    {"onboarding": {"mark_complete": False}},
+                )
+
+        self.assertTrue(snapshot.onboarding["needed"])
+        self.assertEqual(snapshot.onboarding["configured_fields"], [])
 
     def test_apply_api_config_patch_preserves_existing_template_overrides(self) -> None:
         initial = DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")

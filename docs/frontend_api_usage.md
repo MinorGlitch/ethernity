@@ -31,9 +31,12 @@ This document gives the frontend team a practical plan for integrating the machi
 ### App Startup
 
 1. Run `ethernity api config get`.
-2. Read the final `result.values`, `result.options`, and `result.onboarding` payloads.
-3. If `result.onboarding.needed` is `true`, show the GUI onboarding flow.
-4. Otherwise, load the normal settings screen using `result.values`.
+2. Read the final `result.status`, `result.errors`, `result.values`, `result.options`, and
+   `result.onboarding` payloads.
+3. If `result.status` is not `valid`, show repair UX using `result.values` plus the reported
+   `result.errors`.
+4. If `result.onboarding.needed` is `true`, show the GUI onboarding flow.
+5. Otherwise, load the normal settings screen using `result.values`.
 
 ### GUI Onboarding
 
@@ -42,6 +45,7 @@ This document gives the frontend team a practical plan for integrating the machi
    - `result.values` for current defaults
    - `result.options` for allowed choices
    - `result.onboarding.available_fields` for marker field ids
+   - `result.errors` if the current config needs repair
 3. When the user finishes, send a partial patch with `ethernity api config set --input-json ...`.
 4. Include:
    - the values the user chose
@@ -54,6 +58,9 @@ This document gives the frontend team a practical plan for integrating the machi
 2. Save only changed fields with `ethernity api config set`.
 3. Do not send onboarding metadata from the normal settings UI unless the screen is intentionally
    completing or resetting onboarding.
+
+`api config get` is read-only: when the default user config does not exist yet, it reports the
+future user config path and default values without creating the file.
 
 ### Backup Flow
 
@@ -68,6 +75,12 @@ Backup output rule for the GUI:
 - if `api backup --output-dir` points to an existing directory, Ethernity treats it as a parent
   directory and creates `backup-<doc_id>` inside it
 - if the path does not exist, Ethernity creates that exact directory and writes the backup there
+
+Mint output rule for the GUI:
+
+- if `api mint --output-dir` points to an existing directory, Ethernity treats it as a parent
+  directory and creates `mint-<doc_id>` inside it
+- if the path does not exist, Ethernity creates that exact directory and writes the minted shards there
 
 ### Recovery Flow
 

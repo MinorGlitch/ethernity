@@ -113,6 +113,7 @@ class MintArgs:
     signing_key_shard_fallback_file: list[str] | None = None
     signing_key_shard_payloads_file: list[str] | None = None
     output_dir: str | None = None
+    output_dir_existing_parent: bool = False
     layout_debug_dir: str | None = None
     shard_threshold: int | None = None
     shard_count: int | None = None
