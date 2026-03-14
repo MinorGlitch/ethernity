@@ -300,6 +300,23 @@ class TestCliApi(unittest.TestCase):
         self._assert_valid_events(events)
         self.assertEqual(events[-1]["code"], api_codes.CONFIG_JSON_INVALID)
 
+    def test_api_config_set_invalid_patch_does_not_create_user_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "ethernity" / "config.toml"
+            with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+                result = self.runner.invoke(
+                    cli.app,
+                    ["api", "config", "set", "--input-json", "-"],
+                    input='{"values":"not-an-object"}',
+                    env={"XDG_CONFIG_HOME": tmpdir},
+                )
+
+        self.assertEqual(result.exit_code, 2)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(events[-1]["code"], "CONFIG_INVALID_VALUE")
+        self.assertFalse(config_path.exists())
+
     def test_api_config_set_missing_patch_file_emits_io_error(self) -> None:
         with mock.patch("ethernity.cli.app.run_startup", return_value=False):
             result = self.runner.invoke(
@@ -870,6 +887,35 @@ class TestCliApi(unittest.TestCase):
         self._assert_valid_events(events)
         self.assertEqual(events[0]["code"], api_codes.INVALID_INPUT)
         self.assertIn("--shard-threshold must be an integer", events[0]["message"])
+
+    def test_api_backup_rejects_empty_passphrase(self) -> None:
+        with self.runner.isolated_filesystem():
+            input_path = Path("payload.bin")
+            input_path.write_bytes(b"payload")
+
+            with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+                result = self.runner.invoke(
+                    cli.app,
+                    [
+                        "--config",
+                        str(DEFAULT_CONFIG_PATH),
+                        "api",
+                        "backup",
+                        "--input",
+                        str(input_path),
+                        "--output-dir",
+                        "out",
+                        "--passphrase",
+                        "",
+                    ],
+                )
+
+            self.assertEqual(result.exit_code, 2)
+            events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+            self._assert_valid_events(events)
+            self.assertEqual(events[-1]["code"], api_codes.INVALID_INPUT)
+            self.assertIn("passphrase cannot be empty", events[-1]["message"])
+            self.assertFalse(Path("out").exists())
 
     def test_run_backup_api_command_emits_ndjson_artifacts(self) -> None:
         args = BackupArgs(

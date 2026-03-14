@@ -274,6 +274,42 @@ class TestApiConfigService(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, "CONFIG_INVALID_VALUE")
 
+    def test_apply_api_config_patch_rejects_empty_onboarding_object(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_root = Path(tmpdir) / "config"
+            with mock.patch.multiple(
+                installer,
+                user_config_dir_path=mock.Mock(return_value=config_root),
+                user_config_file_path=mock.Mock(side_effect=lambda name: config_root / name),
+                user_templates_root_path=mock.Mock(return_value=config_root / "templates"),
+                user_templates_design_path=mock.Mock(
+                    side_effect=lambda design: config_root / "templates" / design
+                ),
+            ):
+                with self.assertRaises(api_config.ConfigPatchError) as raised:
+                    api_config.apply_api_config_patch(None, {"onboarding": {}})
+
+        self.assertEqual(raised.exception.code, "CONFIG_INVALID_VALUE")
+
+    def test_apply_api_config_patch_invalid_values_do_not_initialize_user_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_root = Path(tmpdir) / "config"
+            config_path = config_root / "config.toml"
+            with mock.patch.multiple(
+                installer,
+                user_config_dir_path=mock.Mock(return_value=config_root),
+                user_config_file_path=mock.Mock(side_effect=lambda name: config_root / name),
+                user_templates_root_path=mock.Mock(return_value=config_root / "templates"),
+                user_templates_design_path=mock.Mock(
+                    side_effect=lambda design: config_root / "templates" / design
+                ),
+            ):
+                with self.assertRaises(api_config.ConfigPatchError) as raised:
+                    api_config.apply_api_config_patch(None, {"values": "not-an-object"})
+
+        self.assertEqual(raised.exception.code, "CONFIG_INVALID_VALUE")
+        self.assertFalse(config_path.exists())
+
     def test_apply_api_config_patch_rejects_unknown_field(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".toml") as handle:
             path = Path(handle.name)
