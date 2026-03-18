@@ -20,9 +20,17 @@ import re
 from pathlib import Path
 
 from ..core.types import MintArgs, MintResult
-from ..events import active_event_sink, emit_artifact, emit_result
+from ..events import (
+    active_event_sink,
+    emit_artifact,
+    emit_phase,
+    emit_progress,
+    emit_result,
+    event_session,
+)
 from ..ndjson import SCHEMA_VERSION, emit_started
-from .mint import execute_mint
+from .mint import execute_mint, inspect_mint_inputs
+from .recover_api import _ForwardingWarningCollector
 
 _SHARD_LAYOUT_PATTERN = re.compile(
     r"^(?P<prefix>shard|signing-key-shard)-[0-9a-f]+-(?P<index>\d+)-of-(?P<count>\d+)\.pdf$"
@@ -71,37 +79,50 @@ def _emit_layout_debug_artifacts(*, layout_debug_dir: str | None, result: MintRe
             )
 
 
+def _mint_started_args(
+    args: MintArgs,
+    *,
+    debug: bool,
+    operation: str | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "config": args.config,
+        "paper": args.paper,
+        "design": args.design,
+        "fallback_file": args.fallback_file,
+        "payloads_file": args.payloads_file,
+        "scan": list(args.scan or []),
+        "has_passphrase": args.passphrase is not None,
+        "shard_fallback_file": list(args.shard_fallback_file or []),
+        "shard_payloads_file": list(args.shard_payloads_file or []),
+        "auth_fallback_file": args.auth_fallback_file,
+        "auth_payloads_file": args.auth_payloads_file,
+        "signing_key_shard_fallback_file": list(args.signing_key_shard_fallback_file or []),
+        "signing_key_shard_payloads_file": list(args.signing_key_shard_payloads_file or []),
+        "layout_debug_dir": args.layout_debug_dir,
+        "shard_threshold": args.shard_threshold,
+        "shard_count": args.shard_count,
+        "signing_key_shard_threshold": args.signing_key_shard_threshold,
+        "signing_key_shard_count": args.signing_key_shard_count,
+        "passphrase_replacement_count": args.passphrase_replacement_count,
+        "signing_key_replacement_count": args.signing_key_replacement_count,
+        "mint_passphrase_shards": args.mint_passphrase_shards,
+        "mint_signing_key_shards": args.mint_signing_key_shards,
+        "quiet": args.quiet,
+        "debug": debug,
+    }
+    if operation is not None:
+        payload["operation"] = operation
+    else:
+        payload["output_dir"] = args.output_dir
+    return payload
+
+
 def run_mint_api_command(args: MintArgs, *, debug: bool = False) -> int:
     emit_started(
         command="mint",
         schema_version=SCHEMA_VERSION,
-        args={
-            "config": args.config,
-            "paper": args.paper,
-            "design": args.design,
-            "fallback_file": args.fallback_file,
-            "payloads_file": args.payloads_file,
-            "scan": list(args.scan or []),
-            "has_passphrase": args.passphrase is not None,
-            "shard_fallback_file": list(args.shard_fallback_file or []),
-            "shard_payloads_file": list(args.shard_payloads_file or []),
-            "auth_fallback_file": args.auth_fallback_file,
-            "auth_payloads_file": args.auth_payloads_file,
-            "signing_key_shard_fallback_file": list(args.signing_key_shard_fallback_file or []),
-            "signing_key_shard_payloads_file": list(args.signing_key_shard_payloads_file or []),
-            "output_dir": args.output_dir,
-            "layout_debug_dir": args.layout_debug_dir,
-            "shard_threshold": args.shard_threshold,
-            "shard_count": args.shard_count,
-            "signing_key_shard_threshold": args.signing_key_shard_threshold,
-            "signing_key_shard_count": args.signing_key_shard_count,
-            "passphrase_replacement_count": args.passphrase_replacement_count,
-            "signing_key_replacement_count": args.signing_key_replacement_count,
-            "mint_passphrase_shards": args.mint_passphrase_shards,
-            "mint_signing_key_shards": args.mint_signing_key_shards,
-            "quiet": args.quiet,
-            "debug": debug,
-        },
+        args=_mint_started_args(args, debug=debug),
     )
 
     sink = active_event_sink()
@@ -122,4 +143,67 @@ def run_mint_api_command(args: MintArgs, *, debug: bool = False) -> int:
     return 0
 
 
-__all__ = ["run_mint_api_command"]
+def run_mint_inspect_api_command(args: MintArgs, *, debug: bool = False) -> int:
+    emit_started(
+        command="mint",
+        schema_version=SCHEMA_VERSION,
+        args=_mint_started_args(args, debug=debug, operation="inspect"),
+    )
+
+    sink = _ForwardingWarningCollector(active_event_sink())
+    with event_session(sink):
+        emit_phase(phase="plan", label="Resolving mint inputs")
+        inspection = inspect_mint_inputs(args, debug=debug)
+        emit_progress(
+            phase="plan",
+            current=1,
+            total=1,
+            unit="step",
+            details={
+                "input_label": inspection.recovery.input_label,
+                "input_detail": inspection.recovery.input_detail,
+                "main_frame_count": len(inspection.recovery.main_frames),
+                "auth_frame_count": len(inspection.recovery.auth_frames),
+                "shard_frame_count": len(inspection.recovery.shard_frames),
+                "signing_key_shard_frame_count": inspection.signing_key_validated_shard_count,
+            },
+        )
+        emit_result(
+            command="mint",
+            operation="inspect",
+            doc_id=inspection.recovery.doc_id.hex(),
+            auth_status=inspection.recovery.auth_status,
+            input_label=inspection.recovery.input_label,
+            input_detail=inspection.recovery.input_detail,
+            source_summary=inspection.source_summary,
+            frame_counts={
+                "main": len(inspection.recovery.main_frames),
+                "auth": len(inspection.recovery.auth_frames),
+                "shard": len(inspection.recovery.shard_frames),
+                "signing_key_shard": inspection.signing_key_validated_shard_count,
+            },
+            unlock={
+                "validated_passphrase_shard_count": (
+                    inspection.recovery.unlock.validated_shard_count
+                ),
+                "required_passphrase_threshold": (
+                    inspection.recovery.unlock.required_shard_threshold
+                ),
+                "satisfied": (
+                    inspection.recovery.unlock.satisfied and inspection.manifest is not None
+                ),
+            },
+            signing_key={
+                "validated_shard_count": inspection.signing_key_validated_shard_count,
+                "required_threshold": inspection.signing_key_required_threshold,
+                "satisfied": inspection.signing_key_satisfied,
+                "source": inspection.signing_key_source,
+            },
+            mint_capabilities=dict(inspection.mint_capabilities),
+            blocking_issues=[dict(item) for item in inspection.blocking_issues],
+            warnings=list(sink.warning_records),
+        )
+    return 0
+
+
+__all__ = ["run_mint_api_command", "run_mint_inspect_api_command"]

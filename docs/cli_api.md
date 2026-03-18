@@ -8,6 +8,8 @@ Current commands:
 - `ethernity api backup`
 - `ethernity api config get`
 - `ethernity api config set`
+- `ethernity api inspect mint`
+- `ethernity api inspect recover`
 - `ethernity api mint`
 - `ethernity api recover`
 
@@ -24,7 +26,7 @@ When `--config` is omitted in API mode, command behavior depends on the surface:
 - `api config set` targets the user config path by default and will initialize it if needed.
 
 `ethernity api recover` does not implicitly read stdin. To recover from stdin, pass
-`--fallback-file -` explicitly.
+`--fallback-file -` for fallback text or `--payloads-file -` for QR payload lines.
 
 ## Contract
 
@@ -33,6 +35,7 @@ When `--config` is omitted in API mode, command behavior depends on the surface:
 - Transport: one JSON object per line on `stdout`
 - Encoding: UTF-8 text
 - Files and large artifacts: written to disk, then referenced by path in emitted events
+- Inspect commands do not write files and never emit `artifact` events
 - Exit code `0`: success
 - Exit code `2`: validation, input, configuration, or runtime failure
 - Exit code `130`: cancelled by user
@@ -56,6 +59,9 @@ not only whether `--generate-passphrase` was explicitly provided.
 The `args` payload is command-specific and schema-validated in `docs/cli_api.schema.json`.
 
 For `config`, `args.operation` is `get` or `set`.
+
+For `api inspect recover` and `api inspect mint`, `args.operation` is `inspect` while `command`
+remains `recover` or `mint`.
 
 ### `phase`
 
@@ -139,6 +145,12 @@ creates that exact directory.
 
 Mint results include `signing_key_source` and a stable `artifacts` object for minted shard paths.
 
+Inspect results include `operation: "inspect"`, never include artifacts, and report readiness as a
+success-shaped payload: `ok: true` plus any `blocking_issues`.
+
+Decrypt-dependent `source_summary` fields may be `null` until auth or unlock requirements are
+satisfied.
+
 Config results include the resolved config path, normalized editable values, supported option
 lists, onboarding metadata, and a config validity status so a GUI can build its own onboarding flow
 and repair invalid config files.
@@ -210,6 +222,8 @@ Current artifact kinds:
 - Mint: `shard_document`, `signing_key_shard_document`, `layout_debug_json`
 - Recover: `recovered_file`
 
+Inspect commands never emit `artifact` events.
+
 ## Phase IDs
 
 Stable phase ids currently emitted by the API:
@@ -228,6 +242,26 @@ Stable recover `result.auth_status` values:
 - `missing`
 - `invalid`
 - `ignored`
+
+## Inspect Surfaces
+
+`ethernity api inspect recover` reports:
+
+- `doc_id`, `input_label`, `input_detail`, `auth_status`
+- `source_summary` when decryption is possible, otherwise `null`
+- `frame_counts.main|auth|shard`
+- `unlock.mode|passphrase_provided|validated_shard_count|required_shard_threshold|satisfied`
+- `blocking_issues` and `warnings`
+
+`ethernity api inspect mint` reports:
+
+- `doc_id`, `input_label`, `input_detail`, `auth_status`
+- `source_summary` when decryption is possible, otherwise `null`
+- `frame_counts.main|auth|shard|signing_key_shard`
+- `unlock.validated_passphrase_shard_count|required_passphrase_threshold|satisfied`
+- `signing_key.validated_shard_count|required_threshold|satisfied|source`
+- `mint_capabilities.can_mint_passphrase_shards|can_mint_signing_key_shards`
+- `blocking_issues` and `warnings`
 
 When `ethernity api backup --layout-debug-dir <dir>` is used, each generated layout sidecar is
 emitted as an `artifact` event with kind `layout_debug_json`.
@@ -364,7 +398,13 @@ Example onboarding patch:
 {"type":"progress","phase":"plan","current":1,"total":1,"unit":"step","details":{"main_frame_count":2,"auth_frame_count":1,"shard_frame_count":0}}
 {"type":"phase","id":"decrypt","label":"Decrypting and extracting payload"}
 {"type":"artifact","kind":"recovered_file","path":"/tmp/out/secret.txt","details":{"manifest_path":"secret.txt","size":42}}
-{"type":"result","ok":true,"command":"recover","output_path":"/tmp/out/secret.txt","output_path_kind":"file","doc_id":"deadbeef","auth_status":"verified","input_label":"QR payloads","input_detail":"main_payloads.txt","manifest":{"format_version":1,"input_origin":"file","input_roots":["secret.txt"],"sealed":true,"file_count":1,"payload_codec":"raw","payload_raw_len":42,"signing_seed_present":false},"files":[{"manifest_path":"secret.txt","output_path":"/tmp/out/secret.txt","size":42,"sha256":"0123","mtime":0}]}
+{"type":"result","ok":true,"command":"recover","output_path":"/tmp/out/secret.txt","output_path_kind":"file","doc_id":"deadbeef","auth_status":"verified","input_label":"QR payloads","input_detail":"main_payloads.txt","manifest":{"format_version":1,"input_origin":"file","input_roots":["secret.txt"],"sealed":true,"file_count":1,"payload_codec":"raw","payload_raw_len":42},"files":[{"manifest_path":"secret.txt","output_path":"/tmp/out/secret.txt","size":42,"sha256":"0123","mtime":0}]}
+```
+
+```json
+{"type":"started","schema_version":1,"command":"recover","args":{"operation":"inspect","config":null,"paper":null,"fallback_file":null,"payloads_file":"main_payloads.txt","scan":[],"has_passphrase":false,"shard_fallback_file":["shard-1.txt"],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"allow_unsigned":false,"quiet":true,"debug":false}}
+{"type":"phase","id":"plan","label":"Resolving recovery inputs"}
+{"type":"result","ok":true,"command":"recover","operation":"inspect","doc_id":"deadbeef","auth_status":"missing","input_label":"QR payloads","input_detail":"main_payloads.txt","source_summary":null,"frame_counts":{"main":2,"auth":0,"shard":1},"unlock":{"mode":"shards","passphrase_provided":false,"validated_shard_count":1,"required_shard_threshold":2,"satisfied":false},"blocking_issues":[{"code":"PASSPHRASE_SHARDS_UNDER_QUORUM","message":"need at least 2 shard(s) to recover passphrase","details":{"provided_count":1,"required_threshold":2}}],"warnings":[]}
 ```
 
 ```json
@@ -393,7 +433,9 @@ ethernity api recover --scan "/path/to/qr_document.pdf" --shard-scan "/path/to/s
 - Treat artifact events as success-only notifications; a failed command may still have written files
 - Use artifact paths rather than assuming output filenames
 - Use `output_path_kind` to distinguish file outputs from directory outputs
+- Treat inspect `blocking_issues` as readiness guidance, not command failure
 - Use `api config get/set` for GUI settings management and onboarding state
 - Expect `api backup` / `api mint` / `api recover` to use the existing user config when present
+- Expect `api inspect recover` / `api inspect mint` to avoid file writes and artifact events
 - Prefer `code` values for logic and `message` values for display
-- Treat stdin as opt-in for `api recover`; pass `--fallback-file -` when piping recovery text
+- Treat stdin as opt-in for `api recover`; pass `--fallback-file -` for recovery text or `--payloads-file -` for QR payload lines

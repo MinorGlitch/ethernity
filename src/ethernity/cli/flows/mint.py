@@ -39,6 +39,7 @@ from ...crypto.sharding import (
 from ...crypto.signing import derive_public_key
 from ...encoding.framing import Frame
 from ...formats.envelope_codec import decode_envelope
+from ...formats.envelope_types import EnvelopeManifest
 from ...render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
 from ...render.service import RenderService
 from ..api import (
@@ -72,10 +73,12 @@ from .backup_wizard import (
 from .prompts import _prompt_shard_inputs
 from .recover_input import prompt_recovery_input_interactive
 from .recover_plan import (
+    RecoveryInspection,
     _extra_auth_frames_from_args,
     _frames_from_args,
     _shard_frames_from_args,
     build_recovery_plan,
+    inspect_recovery_inputs,
     validate_recover_args,
 )
 from .recover_wizard import _load_shard_frames, _prompt_key_material
@@ -100,6 +103,34 @@ class _ReplacementShardResolution:
         return self.shard_version == LEGACY_SHARD_VERSION
 
 
+@dataclass(frozen=True)
+class _MintInputState:
+    config: Any
+    recover_args: RecoverArgs
+    frames: tuple[Frame, ...]
+    extra_auth_frames: tuple[Frame, ...]
+    shard_frames: tuple[Frame, ...]
+    shard_fallback_files: tuple[str, ...]
+    shard_payloads_file: tuple[str, ...]
+    shard_scan: tuple[str, ...]
+    signing_key_frames: tuple[Frame, ...]
+    input_label: str | None
+    input_detail: str | None
+
+
+@dataclass(frozen=True)
+class MintInspectionState:
+    recovery: RecoveryInspection
+    manifest: EnvelopeManifest | None
+    source_summary: dict[str, object] | None
+    signing_key_validated_shard_count: int
+    signing_key_required_threshold: int | None
+    signing_key_satisfied: bool
+    signing_key_source: str | None
+    mint_capabilities: dict[str, bool]
+    blocking_issues: tuple[dict[str, Any], ...]
+
+
 def run_mint_command(args: MintArgs, *, debug: bool = False) -> int:
     """Mint fresh shard documents from an existing backup."""
 
@@ -118,80 +149,152 @@ def execute_mint(
     """Mint fresh shard documents from an existing backup and return the result."""
 
     with event_session(event_sink):
-        _validate_mint_args(args)
         emit_phase(phase="plan", label="Resolving mint inputs")
-        config = load_app_config(args.config, paper_size=args.paper)
-        config = apply_template_design(config, args.design)
-        recover_args = _recover_args_from_mint_args(args)
-
-        frames, input_label, input_detail = _frames_from_args(
-            recover_args,
-            allow_unsigned=False,
-            quiet=args.quiet,
-        )
-        extra_auth_frames = _extra_auth_frames_from_args(
-            recover_args,
-            allow_unsigned=False,
-            quiet=args.quiet,
-        )
-        shard_frames, shard_fallback_files, shard_payloads_file, shard_scan = (
-            _shard_frames_from_args(
-                recover_args,
-                quiet=args.quiet,
-            )
-        )
+        state = _load_mint_input_state(args)
+        shard_frames = list(state.shard_frames)
         recovery_shard_frames, recovery_shard_fallback_files, recovery_shard_payloads_file = (
             _recovery_shard_inputs_for_plan(
                 passphrase=args.passphrase,
                 shard_frames=shard_frames,
-                shard_fallback_files=shard_fallback_files,
-                shard_payloads_file=shard_payloads_file,
+                shard_fallback_files=list(state.shard_fallback_files),
+                shard_payloads_file=list(state.shard_payloads_file),
             )
         )
         plan = build_recovery_plan(
-            frames=frames,
-            extra_auth_frames=extra_auth_frames,
+            frames=list(state.frames),
+            extra_auth_frames=list(state.extra_auth_frames),
             shard_frames=recovery_shard_frames,
             passphrase=args.passphrase,
             allow_unsigned=False,
-            input_label=input_label,
-            input_detail=input_detail,
+            input_label=state.input_label,
+            input_detail=state.input_detail,
             shard_fallback_files=recovery_shard_fallback_files,
             shard_payloads_file=recovery_shard_payloads_file,
-            shard_scan=shard_scan,
+            shard_scan=list(state.shard_scan),
             output_path=None,
-            args=recover_args,
+            args=state.recover_args,
             quiet=args.quiet,
         )
         if plan.auth_payload is None:
             raise ValueError("minting requires an authenticated backup input with an AUTH payload")
 
-        signing_key_frames = _signing_key_shard_frames_from_args(args, quiet=args.quiet)
         emit_progress(
             phase="plan",
             current=1,
             total=1,
             unit="step",
             details={
-                "input_label": input_label,
-                "input_detail": input_detail,
-                "main_frame_count": len(getattr(plan, "main_frames", frames)),
-                "auth_frame_count": len(getattr(plan, "auth_frames", extra_auth_frames)),
+                "input_label": state.input_label,
+                "input_detail": state.input_detail,
+                "main_frame_count": len(plan.main_frames),
+                "auth_frame_count": len(plan.auth_frames),
                 "shard_frame_count": len(shard_frames),
-                "signing_key_shard_frame_count": len(signing_key_frames),
+                "signing_key_shard_frame_count": len(state.signing_key_frames),
             },
         )
 
         emit_phase(phase="mint", label="Generating minted shard payloads")
         return _mint_from_plan(
             plan=plan,
-            config=config,
+            config=state.config,
             args=args,
             passphrase_shard_frames=shard_frames,
-            signing_key_frames=signing_key_frames,
+            signing_key_frames=list(state.signing_key_frames),
             manifest_signing_seed=_UNSET,
             debug=debug,
         )
+
+
+def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectionState:
+    state = _load_mint_input_state(args, require_output_configuration=False)
+    recovery_shard_frames, recovery_shard_fallback_files, recovery_shard_payloads_file = (
+        _recovery_shard_inputs_for_plan(
+            passphrase=args.passphrase,
+            shard_frames=list(state.shard_frames),
+            shard_fallback_files=list(state.shard_fallback_files),
+            shard_payloads_file=list(state.shard_payloads_file),
+        )
+    )
+    recovery = inspect_recovery_inputs(
+        frames=list(state.frames),
+        extra_auth_frames=list(state.extra_auth_frames),
+        shard_frames=recovery_shard_frames,
+        passphrase=args.passphrase,
+        allow_unsigned=False,
+        input_label=state.input_label,
+        input_detail=state.input_detail,
+        shard_fallback_files=recovery_shard_fallback_files,
+        shard_payloads_file=recovery_shard_payloads_file,
+        shard_scan=list(state.shard_scan),
+        quiet=args.quiet,
+    )
+
+    blocking_issues = [dict(item) for item in recovery.blocking_issues]
+    if recovery.auth_payload is None:
+        blocking_issues.append(
+            _mint_blocking_issue(
+                "AUTH_REQUIRED",
+                "minting requires an authenticated backup input with an AUTH payload",
+            )
+        )
+
+    manifest: EnvelopeManifest | None = None
+    source_summary: dict[str, object] | None = None
+    if recovery.unlock.satisfied and recovery.unlock.resolved_passphrase is not None:
+        try:
+            plaintext = decrypt_bytes(
+                recovery.ciphertext,
+                passphrase=recovery.unlock.resolved_passphrase,
+                debug=debug,
+            )
+            manifest, _payload = decode_envelope(plaintext)
+            source_summary = _mint_source_summary(manifest)
+        except Exception as exc:
+            blocking_issues.append(
+                _mint_blocking_issue("UNLOCK_FAILED", str(exc), details={"stage": "decrypt"})
+            )
+
+    (
+        signing_key_validated_shard_count,
+        signing_key_required_threshold,
+        signing_key_satisfied,
+        signing_key_source,
+        signing_key_issues,
+    ) = _inspect_mint_signing_key_state(
+        manifest=manifest,
+        recovery=recovery,
+        signing_key_frames=list(state.signing_key_frames),
+    )
+    blocking_issues.extend(signing_key_issues)
+    blocking_issues.extend(
+        _inspect_mint_replacement_blockers(
+            args=args,
+            recovery=recovery,
+            passphrase_shard_frames=list(state.shard_frames),
+            signing_key_frames=list(state.signing_key_frames),
+        )
+    )
+
+    ready_to_mint = (
+        recovery.auth_payload is not None
+        and recovery.unlock.satisfied
+        and manifest is not None
+        and signing_key_satisfied
+    )
+    return MintInspectionState(
+        recovery=recovery,
+        manifest=manifest,
+        source_summary=source_summary,
+        signing_key_validated_shard_count=signing_key_validated_shard_count,
+        signing_key_required_threshold=signing_key_required_threshold,
+        signing_key_satisfied=signing_key_satisfied,
+        signing_key_source=signing_key_source,
+        mint_capabilities={
+            "can_mint_passphrase_shards": ready_to_mint,
+            "can_mint_signing_key_shards": ready_to_mint,
+        },
+        blocking_issues=tuple(blocking_issues),
+    )
 
 
 def _should_use_wizard_for_mint(args: MintArgs) -> bool:
@@ -593,6 +696,195 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
     return 0
 
 
+def _mint_blocking_issue(
+    code: str,
+    message: str,
+    *,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "code": code,
+        "message": message,
+        "details": details or {},
+    }
+
+
+def _mint_source_summary(manifest: EnvelopeManifest) -> dict[str, object]:
+    return {
+        "format_version": manifest.format_version,
+        "input_origin": manifest.input_origin,
+        "input_roots": list(manifest.input_roots),
+        "sealed": manifest.sealed,
+        "payload_codec": manifest.payload_codec,
+        "payload_raw_len": manifest.payload_raw_len,
+        "file_count": len(manifest.files),
+    }
+
+
+def _load_mint_input_state(
+    args: MintArgs,
+    *,
+    require_output_configuration: bool = True,
+) -> _MintInputState:
+    _validate_mint_args(args, require_output_configuration=require_output_configuration)
+    config = load_app_config(args.config, paper_size=args.paper)
+    config = apply_template_design(config, args.design)
+    recover_args = _recover_args_from_mint_args(args)
+    frames, input_label, input_detail = _frames_from_args(
+        recover_args,
+        allow_unsigned=False,
+        quiet=args.quiet,
+    )
+    extra_auth_frames = _extra_auth_frames_from_args(
+        recover_args,
+        allow_unsigned=False,
+        quiet=args.quiet,
+    )
+    shard_frames, shard_fallback_files, shard_payloads_file, shard_scan = _shard_frames_from_args(
+        recover_args,
+        quiet=args.quiet,
+    )
+    signing_key_frames = _signing_key_shard_frames_from_args(args, quiet=args.quiet)
+    return _MintInputState(
+        config=config,
+        recover_args=recover_args,
+        frames=tuple(frames),
+        extra_auth_frames=tuple(extra_auth_frames),
+        shard_frames=tuple(shard_frames),
+        shard_fallback_files=tuple(shard_fallback_files),
+        shard_payloads_file=tuple(shard_payloads_file),
+        shard_scan=tuple(shard_scan),
+        signing_key_frames=tuple(signing_key_frames),
+        input_label=input_label,
+        input_detail=input_detail,
+    )
+
+
+def _inspect_mint_signing_key_state(
+    *,
+    manifest: EnvelopeManifest | None,
+    recovery: RecoveryInspection,
+    signing_key_frames: list[Frame],
+) -> tuple[int, int | None, bool, str | None, list[dict[str, Any]]]:
+    if manifest is None:
+        return 0, None, False, None, []
+    if manifest.signing_seed is not None:
+        return 0, None, True, "embedded signing seed", []
+
+    source = "signing-key shards"
+    if recovery.auth_payload is None:
+        return (
+            0,
+            None,
+            False,
+            source,
+            [
+                _mint_blocking_issue(
+                    "AUTH_REQUIRED",
+                    "minting requires an authenticated backup input with an AUTH payload",
+                )
+            ],
+        )
+    if not signing_key_frames:
+        return (
+            0,
+            None,
+            False,
+            source,
+            [
+                _mint_blocking_issue(
+                    "SIGNING_KEY_SHARDS_REQUIRED",
+                    (
+                        "backup is sealed; provide signing-key shard inputs "
+                        "to mint new shard documents"
+                    ),
+                )
+            ],
+        )
+    try:
+        payloads = _validated_shard_payloads_from_frames(
+            signing_key_frames,
+            expected_doc_id=recovery.doc_id,
+            expected_doc_hash=recovery.doc_hash,
+            expected_sign_pub=recovery.auth_payload.sign_pub,
+            allow_unsigned=False,
+            key_type=KEY_TYPE_SIGNING_SEED,
+            secret_label="signing key",
+        )
+    except InsufficientShardError as exc:
+        return (
+            exc.provided_count,
+            exc.threshold,
+            False,
+            source,
+            [
+                _mint_blocking_issue(
+                    "SIGNING_KEY_SHARDS_UNDER_QUORUM",
+                    f"need at least {exc.threshold} shard(s) to recover signing key",
+                    details={
+                        "provided_count": exc.provided_count,
+                        "required_threshold": exc.threshold,
+                    },
+                )
+            ],
+        )
+    except ValueError as exc:
+        return (
+            0,
+            None,
+            False,
+            source,
+            [_mint_blocking_issue("SIGNING_KEY_SHARDS_INVALID", str(exc))],
+        )
+    return (
+        len(payloads),
+        payloads[0].threshold if payloads else None,
+        True,
+        source,
+        [],
+    )
+
+
+def _inspect_mint_replacement_blockers(
+    *,
+    args: MintArgs,
+    recovery: RecoveryInspection,
+    passphrase_shard_frames: list[Frame],
+    signing_key_frames: list[Frame],
+) -> list[dict[str, Any]]:
+    if recovery.auth_payload is None:
+        return []
+
+    blockers: list[dict[str, Any]] = []
+    if args.passphrase_replacement_count is not None:
+        resolution = _replacement_payloads_from_frames(
+            passphrase_shard_frames,
+            doc_id=recovery.doc_id,
+            doc_hash=recovery.doc_hash,
+            sign_pub=recovery.auth_payload.sign_pub,
+            key_type=KEY_TYPE_PASSPHRASE,
+            secret_label="passphrase",
+        )
+        try:
+            _require_replacement_payloads(resolution, secret_label="passphrase")
+        except ValueError as exc:
+            blockers.append(_mint_blocking_issue("PASSPHRASE_REPLACEMENT_NOT_READY", str(exc)))
+    if args.signing_key_replacement_count is not None:
+        resolution = _replacement_payloads_from_frames(
+            signing_key_frames,
+            doc_id=recovery.doc_id,
+            doc_hash=recovery.doc_hash,
+            sign_pub=recovery.auth_payload.sign_pub,
+            key_type=KEY_TYPE_SIGNING_SEED,
+            secret_label="signing key",
+        )
+        try:
+            _require_replacement_payloads(resolution, secret_label="signing key")
+        except ValueError as exc:
+            blockers.append(_mint_blocking_issue("SIGNING_KEY_REPLACEMENT_NOT_READY", str(exc)))
+    return blockers
+
+
 def _recover_args_from_mint_args(args: MintArgs) -> RecoverArgs:
     recover_args = RecoverArgs(
         config=args.config,
@@ -614,14 +906,26 @@ def _recover_args_from_mint_args(args: MintArgs) -> RecoverArgs:
     return recover_args
 
 
-def _validate_mint_args(args: MintArgs) -> None:
-    if not args.mint_passphrase_shards and not args.mint_signing_key_shards:
+def _validate_mint_args(args: MintArgs, *, require_output_configuration: bool = True) -> None:
+    if (
+        require_output_configuration
+        and not args.mint_passphrase_shards
+        and not args.mint_signing_key_shards
+    ):
         raise ValueError("mint must create at least one shard document type")
-    if args.passphrase_replacement_count is not None and not args.mint_passphrase_shards:
+    if (
+        require_output_configuration
+        and args.passphrase_replacement_count is not None
+        and not args.mint_passphrase_shards
+    ):
         raise ValueError(
             "cannot request passphrase replacement shards when passphrase output is off"
         )
-    if args.signing_key_replacement_count is not None and not args.mint_signing_key_shards:
+    if (
+        require_output_configuration
+        and args.signing_key_replacement_count is not None
+        and not args.mint_signing_key_shards
+    ):
         raise ValueError(
             "cannot request signing-key replacement shards when signing-key output is off"
         )
@@ -629,14 +933,22 @@ def _validate_mint_args(args: MintArgs) -> None:
         raise ValueError("passphrase replacement count must be >= 1")
     if args.signing_key_replacement_count is not None and args.signing_key_replacement_count < 1:
         raise ValueError("signing key replacement count must be >= 1")
-    if args.passphrase_replacement_count is not None and not _has_existing_shard_inputs(
-        args.shard_fallback_file,
-        args.shard_payloads_file,
+    if (
+        require_output_configuration
+        and args.passphrase_replacement_count is not None
+        and not _has_existing_shard_inputs(
+            args.shard_fallback_file,
+            args.shard_payloads_file,
+        )
     ):
         raise ValueError("passphrase replacement minting requires existing passphrase shard inputs")
-    if args.signing_key_replacement_count is not None and not _has_existing_shard_inputs(
-        args.signing_key_shard_fallback_file,
-        args.signing_key_shard_payloads_file,
+    if (
+        require_output_configuration
+        and args.signing_key_replacement_count is not None
+        and not _has_existing_shard_inputs(
+            args.signing_key_shard_fallback_file,
+            args.signing_key_shard_payloads_file,
+        )
     ):
         raise ValueError(
             "signing-key replacement minting requires existing signing-key shard inputs"
@@ -648,7 +960,11 @@ def _validate_mint_args(args: MintArgs) -> None:
         threshold_label="shard threshold",
         count_label="shard count",
         pair_label="--shard-threshold and --shard-count",
-        required=args.mint_passphrase_shards and args.passphrase_replacement_count is None,
+        required=(
+            require_output_configuration
+            and args.mint_passphrase_shards
+            and args.passphrase_replacement_count is None
+        ),
     )
     _validate_quorum_pair(
         args.signing_key_shard_threshold,
@@ -658,7 +974,7 @@ def _validate_mint_args(args: MintArgs) -> None:
         pair_label=("--signing-key-shard-threshold and --signing-key-shard-count"),
         required=False,
     )
-    if args.mint_signing_key_shards:
+    if require_output_configuration and args.mint_signing_key_shards:
         if args.signing_key_replacement_count is not None:
             return
         has_explicit_signing_quorum = (

@@ -42,7 +42,7 @@ from ethernity.cli.core.types import (
 )
 from ethernity.cli.flows.backup_api import run_backup_api_command
 from ethernity.cli.flows.config_api import run_config_get_api_command, run_config_set_api_command
-from ethernity.cli.flows.mint_api import run_mint_api_command
+from ethernity.cli.flows.mint_api import run_mint_api_command, run_mint_inspect_api_command
 from ethernity.cli.flows.recover_service import execute_recover_plan
 from ethernity.cli.ndjson import ndjson_session
 from ethernity.config import CliDefaults, RecoverDefaults, load_app_config
@@ -51,10 +51,15 @@ from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 V1_FIXTURE_ROOT = REPO_ROOT / "tests" / "fixtures" / "v1_0" / "golden" / "base64" / "file_no_shard"
+V1_1_BASE64_ROOT = REPO_ROOT / "tests" / "fixtures" / "v1_1" / "golden" / "base64"
+V1_1_RAW_ROOT = REPO_ROOT / "tests" / "fixtures" / "v1_1" / "golden" / "raw"
+V1_1_SHARDED_EMBEDDED_FIXTURE_ROOT = V1_1_BASE64_ROOT / "sharded_embedded"
+V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT = V1_1_RAW_ROOT / "sharded_signing_sharded"
 DEFAULT_CONFIG_PATH = REPO_ROOT / "src" / "ethernity" / "config" / "config.toml"
 CLI_API_SCHEMA_PATH = REPO_ROOT / "docs" / "cli_api.schema.json"
 CLI_API_CONTRACTS_PATH = REPO_ROOT / "tests" / "fixtures" / "cli_api" / "contracts.json"
 FIXTURE_PASSPHRASE = "stable-v1-baseline-passphrase"
+FIXTURE_V1_1_PASSPHRASE = "stable-v1_1-golden-passphrase"
 
 
 @lru_cache(maxsize=1)
@@ -107,6 +112,7 @@ class TestCliApi(unittest.TestCase):
         run_startup.assert_not_called()
         self.assertIn("backup", result.output)
         self.assertIn("config", result.output)
+        self.assertIn("inspect", result.output)
         self.assertIn("mint", result.output)
         self.assertIn("recover", result.output)
 
@@ -572,6 +578,107 @@ class TestCliApi(unittest.TestCase):
         events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
         self._assert_valid_events(events)
         self.assertEqual(events[0]["code"], "OUTPUT_REQUIRED")
+
+    def test_api_inspect_recover_accepts_input_flags_without_output(self) -> None:
+        captured: dict[str, object] = {}
+
+        def _capture_args(args, **_kwargs) -> int:
+            captured["payloads_file"] = args.payloads_file
+            captured["passphrase"] = args.passphrase
+            captured["output"] = args.output
+            return 0
+
+        with (
+            mock.patch("ethernity.cli.app.run_startup", return_value=False),
+            mock.patch(
+                "ethernity.cli.commands.api.run_recover_inspect_api_command",
+                side_effect=_capture_args,
+            ),
+        ):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "inspect",
+                    "recover",
+                    "--payloads-file",
+                    str(V1_FIXTURE_ROOT / "main_payloads.txt"),
+                    "--passphrase",
+                    FIXTURE_PASSPHRASE,
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(captured["payloads_file"], str(V1_FIXTURE_ROOT / "main_payloads.txt"))
+        self.assertEqual(captured["passphrase"], FIXTURE_PASSPHRASE)
+        self.assertIsNone(captured["output"])
+
+    def test_api_inspect_recover_emits_ndjson_without_artifacts(self) -> None:
+        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "inspect",
+                    "recover",
+                    "--payloads-file",
+                    str(V1_FIXTURE_ROOT / "main_payloads.txt"),
+                    "--passphrase",
+                    FIXTURE_PASSPHRASE,
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(
+            [event["type"] for event in events],
+            ["started", "phase", "progress", "phase", "progress", "result"],
+        )
+        self.assertEqual(events[-1]["command"], "recover")
+        self.assertEqual(events[-1]["operation"], "inspect")
+        self.assertEqual(events[-1]["unlock"]["satisfied"], True)
+        self.assertIsNotNone(events[-1]["source_summary"])
+        self.assertEqual([event for event in events if event["type"] == "artifact"], [])
+
+    def test_api_inspect_recover_under_quorum_returns_blocking_issue(self) -> None:
+        threshold_payloads = (
+            V1_1_SHARDED_EMBEDDED_FIXTURE_ROOT / "shard_payloads_threshold.txt"
+        ).read_text(encoding="utf-8")
+        first_line = next(line for line in threshold_payloads.splitlines() if line.strip())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            shard_payloads_path = Path(tmpdir) / "single-shard.txt"
+            shard_payloads_path.write_text(first_line + "\n", encoding="utf-8")
+            with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+                result = self.runner.invoke(
+                    cli.app,
+                    [
+                        "--config",
+                        str(DEFAULT_CONFIG_PATH),
+                        "api",
+                        "inspect",
+                        "recover",
+                        "--payloads-file",
+                        str(V1_1_SHARDED_EMBEDDED_FIXTURE_ROOT / "main_payloads.txt"),
+                        "--shard-payloads-file",
+                        str(shard_payloads_path),
+                    ],
+                )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(events[-1]["operation"], "inspect")
+        self.assertIsNone(events[-1]["source_summary"])
+        self.assertEqual(events[-1]["unlock"]["validated_shard_count"], 1)
+        self.assertEqual(events[-1]["unlock"]["required_shard_threshold"], 2)
+        self.assertEqual(events[-1]["unlock"]["satisfied"], False)
+        self.assertTrue(events[-1]["blocking_issues"])
+        self.assertEqual([event for event in events if event["type"] == "artifact"], [])
 
     def test_api_recover_does_not_implicitly_read_stdin(self) -> None:
         captured: dict[str, object] = {}
@@ -1181,6 +1288,161 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["artifacts"]["shard_documents"], list(result.shard_paths))
         self.assertEqual(events[-1]["signing_key_source"], result.signing_key_source)
         self.assertEqual(events[-1]["notes"], list(result.notes))
+
+    def test_api_inspect_mint_accepts_input_flags_without_output_dir(self) -> None:
+        captured: dict[str, object] = {}
+
+        def _capture_args(args, **_kwargs) -> int:
+            captured["payloads_file"] = args.payloads_file
+            captured["output_dir"] = args.output_dir
+            captured["signing_key_shard_payloads_file"] = list(
+                args.signing_key_shard_payloads_file or []
+            )
+            return 0
+
+        with (
+            mock.patch("ethernity.cli.app.run_startup", return_value=False),
+            mock.patch(
+                "ethernity.cli.commands.api.run_mint_inspect_api_command",
+                side_effect=_capture_args,
+            ),
+        ):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "inspect",
+                    "mint",
+                    "--payloads-file",
+                    str(V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT / "main_payloads.txt"),
+                    "--signing-key-shard-payloads-file",
+                    str(
+                        V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT
+                        / "signing_key_shard_payloads_threshold.txt"
+                    ),
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(
+            captured["payloads_file"],
+            str(V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT / "main_payloads.txt"),
+        )
+        self.assertIsNone(captured["output_dir"])
+        self.assertEqual(
+            captured["signing_key_shard_payloads_file"],
+            [
+                str(
+                    V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT
+                    / "signing_key_shard_payloads_threshold.txt"
+                )
+            ],
+        )
+
+    def test_api_inspect_mint_emits_success_with_valid_inputs(self) -> None:
+        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "inspect",
+                    "mint",
+                    "--payloads-file",
+                    str(V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT / "main_payloads.txt"),
+                    "--shard-payloads-file",
+                    str(V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT / "shard_payloads_threshold.txt"),
+                    "--signing-key-shard-payloads-file",
+                    str(
+                        V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT
+                        / "signing_key_shard_payloads_threshold.txt"
+                    ),
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(
+            [event["type"] for event in events],
+            ["started", "phase", "progress", "result"],
+        )
+        self.assertEqual(events[-1]["command"], "mint")
+        self.assertEqual(events[-1]["operation"], "inspect")
+        self.assertEqual(events[-1]["unlock"]["validated_passphrase_shard_count"], 2)
+        self.assertEqual(events[-1]["unlock"]["required_passphrase_threshold"], 2)
+        self.assertEqual(events[-1]["unlock"]["satisfied"], True)
+        self.assertEqual(events[-1]["signing_key"]["validated_shard_count"], 0)
+        self.assertIsNone(events[-1]["signing_key"]["required_threshold"])
+        self.assertEqual(events[-1]["signing_key"]["satisfied"], True)
+        self.assertEqual(events[-1]["signing_key"]["source"], "embedded signing seed")
+        self.assertEqual(events[-1]["mint_capabilities"]["can_mint_passphrase_shards"], True)
+        self.assertEqual(events[-1]["mint_capabilities"]["can_mint_signing_key_shards"], True)
+        self.assertIsNotNone(events[-1]["source_summary"])
+        self.assertEqual([event for event in events if event["type"] == "artifact"], [])
+
+    def test_run_mint_inspect_api_command_returns_blocking_issue_for_missing_auth(self) -> None:
+        args = MintArgs(
+            payloads_file="main.txt",
+            shard_payloads_file=["shards.txt"],
+            quiet=True,
+        )
+        inspection = SimpleNamespace(
+            recovery=SimpleNamespace(
+                doc_id=b"\x02" * 8,
+                auth_status="missing",
+                input_label="QR payloads",
+                input_detail="main.txt",
+                main_frames=(object(), object()),
+                auth_frames=(),
+                shard_frames=(object(), object()),
+                unlock=SimpleNamespace(
+                    validated_shard_count=2,
+                    required_shard_threshold=2,
+                    satisfied=True,
+                ),
+            ),
+            manifest=None,
+            source_summary=None,
+            signing_key_validated_shard_count=0,
+            signing_key_required_threshold=None,
+            signing_key_satisfied=False,
+            signing_key_source=None,
+            mint_capabilities={
+                "can_mint_passphrase_shards": False,
+                "can_mint_signing_key_shards": False,
+            },
+            blocking_issues=(
+                {
+                    "code": "AUTH_REQUIRED",
+                    "message": (
+                        "minting requires an authenticated backup input with an AUTH payload"
+                    ),
+                    "details": {},
+                },
+            ),
+        )
+        buffer = io.StringIO()
+        with (
+            mock.patch("ethernity.cli.flows.mint_api.inspect_mint_inputs", return_value=inspection),
+            ndjson_session(stream=buffer),
+        ):
+            exit_code = run_mint_inspect_api_command(args)
+
+        self.assertEqual(exit_code, 0)
+        events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(
+            [event["type"] for event in events],
+            ["started", "phase", "progress", "result"],
+        )
+        self.assertEqual(events[-1]["operation"], "inspect")
+        self.assertEqual(events[-1]["auth_status"], "missing")
+        self.assertEqual(events[-1]["blocking_issues"][0]["code"], "AUTH_REQUIRED")
+        self.assertEqual([event for event in events if event["type"] == "artifact"], [])
 
     def test_api_mint_signing_key_shard_dir_error_is_structured(self) -> None:
         with mock.patch("ethernity.cli.app.run_startup", return_value=False):
