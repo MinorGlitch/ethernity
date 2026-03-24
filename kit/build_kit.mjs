@@ -17,7 +17,7 @@
 
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 const BASE91_ALPHABET =
@@ -360,7 +360,7 @@ async function ensureTrailingNewline(path) {
 const kitDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const inputPath = resolve(kitDir, process.argv[2] ?? "recovery_kit.html");
 const distDir = resolve(kitDir, "dist");
-const packageDir = resolve(kitDir, "..", "src", "ethernity", "kit");
+const packageDir = resolve(kitDir, "..", "src", "ethernity", "resources", "kit");
 const html = await readFile(inputPath, "utf8");
 const scriptTagRe = /<script\b[^>]*>[\s\S]*?<\/script>/g;
 const entryPoint = resolve(kitDir, "app", "index.jsx");

@@ -207,9 +207,9 @@ h1,h2,h3 { margin: 0; font-weight: 700; }
   display: grid;
   gap: var(--sp-2);
   padding: var(--sp-3);
-  border: 1px solid #efc0c0;
+  border: 1px solid var(--guard-confirm-border);
   border-radius: var(--r);
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--guard-confirm-bg);
 }
 .offline-guard-confirm-title {
   font-size: var(--fs-base);
@@ -392,13 +392,13 @@ button:disabled {
   color: var(--disabled-text);
 }
 button:disabled.secondary {
-  background: #e8ecf2;
-  color: #7a8594;
-  border-color: #d0d7e2;
+  background: var(--disabled-secondary-bg);
+  color: var(--disabled-secondary-text);
+  border-color: var(--disabled-secondary-border);
 }
 button:disabled.ghost {
   background: transparent;
-  color: #7b8698;
+  color: var(--disabled-ghost-text);
   border-color: transparent;
 }
 
