@@ -57,7 +57,12 @@ export function downloadZip(dispatch, getState) {
   try {
     const zipBlob = makeZip(next.extractedFiles);
     downloadBlob(zipBlob, "recovered_files.zip");
-    setLineStatus(next, "extractStatus", `Downloaded ${next.extractedFiles.length} file(s) as ZIP.`, "ok");
+    setLineStatus(
+      next,
+      "extractStatus",
+      `Downloaded ${next.extractedFiles.length} file(s) as ZIP.`,
+      "ok",
+    );
   } catch (err) {
     setErrorStatus(next, "extractStatus", err);
   }

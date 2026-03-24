@@ -36,16 +36,16 @@ export function validateManifestPath(path, label = "manifest file path") {
     throw new Error(`${label} must use POSIX separators ('/')`);
   }
   const segments = normalized.split("/");
-  if (segments.some(segment => segment.length === 0)) {
+  if (segments.some((segment) => segment.length === 0)) {
     throw new Error(`${label} must not contain empty path segments`);
   }
-  if (segments.some(segment => segment === "." || segment === "..")) {
+  if (segments.some((segment) => segment === "." || segment === "..")) {
     throw new Error(`${label} must not contain '.' or '..' path segments`);
   }
   const pathBytes = utf8ByteLength(normalized);
   if (pathBytes > MAX_PATH_BYTES) {
     throw new Error(
-      `${label} exceeds MAX_PATH_BYTES (${MAX_PATH_BYTES} bytes): ${pathBytes} bytes`
+      `${label} exceeds MAX_PATH_BYTES (${MAX_PATH_BYTES} bytes): ${pathBytes} bytes`,
     );
   }
   return normalized;

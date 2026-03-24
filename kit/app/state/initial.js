@@ -59,6 +59,8 @@ export function createBaseState() {
     agePassphrase: "",
     decryptStatus: { lines: [], type: "" },
     isDecrypting: false,
+    isAddingFrames: false,
+    isAddingShards: false,
     recoveryComplete: false,
   };
 }

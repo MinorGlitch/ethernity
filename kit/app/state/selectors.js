@@ -51,9 +51,7 @@ function describeMissingFrames(state) {
   const missingList = listMissing(state.total, state.mainFrames);
   const preview = missingList.slice(0, 8);
   const extra = missingList.length - preview.length;
-  const detail = preview.length
-    ? `${preview.join(", ")}${extra > 0 ? ` +${extra}` : ""}`
-    : "";
+  const detail = preview.length ? `${preview.join(", ")}${extra > 0 ? ` +${extra}` : ""}` : "";
   return {
     value: `${missingCount} missing`,
     detail,
@@ -77,7 +75,13 @@ export function selectFrameDiagnostics(state) {
     diagItem("Errors", `${state.errors}`, countTone(state.errors, TONE_ERR)),
     diagItem("Duplicates", `${state.duplicates}`, countTone(state.duplicates)),
     diagItem("Ignored", `${state.ignored}`, countTone(state.ignored)),
-    diagItem("Doc ID", state.docIdHex ?? "(unknown)", state.docIdHex ? TONE_OK : TONE_IDLE, undefined, true),
+    diagItem(
+      "Doc ID",
+      state.docIdHex ?? "(unknown)",
+      state.docIdHex ? TONE_OK : TONE_IDLE,
+      undefined,
+      true,
+    ),
   ];
 }
 
@@ -115,7 +119,11 @@ export function selectShardInputs(state) {
 export function selectShardDiagnostics(state) {
   const shardKeyLabel = selectShardKeyLabel(state);
   return [
-    diagItem("Key type", shardKeyLabel === "-" ? "Unknown" : shardKeyLabel, shardKeyLabel === "-" ? TONE_IDLE : TONE_OK),
+    diagItem(
+      "Key type",
+      shardKeyLabel === "-" ? "Unknown" : shardKeyLabel,
+      shardKeyLabel === "-" ? TONE_IDLE : TONE_OK,
+    ),
     diagItem("Conflicts", `${state.shardConflicts}`, countTone(state.shardConflicts, TONE_ERR)),
     diagItem("Errors", `${state.shardErrors}`, countTone(state.shardErrors, TONE_ERR)),
     diagItem("Duplicates", `${state.shardDuplicates}`, countTone(state.shardDuplicates)),
@@ -124,10 +132,13 @@ export function selectShardDiagnostics(state) {
 
 export function selectCiphertextSource(state) {
   const hasConflicts = state.conflicts > 0;
-  const available = !hasConflicts
-    && (Boolean(state.ciphertext) || (state.total && state.mainFrames.size === state.total));
+  const available =
+    !hasConflicts &&
+    (Boolean(state.ciphertext) || (state.total && state.mainFrames.size === state.total));
   const size = available
-    ? (state.ciphertext ? state.ciphertext.length : sumFrameBytes(state.mainFrames))
+    ? state.ciphertext
+      ? state.ciphertext.length
+      : sumFrameBytes(state.mainFrames)
     : 0;
   let detail = `Frames ${state.mainFrames.size}/${state.total ?? "?"}`;
   if (hasConflicts) {
@@ -145,9 +156,7 @@ export function selectCiphertextSource(state) {
 export function selectOutputSummary(state) {
   const count = state.extractedFiles.length;
   const totalBytes = state.extractedFiles.reduce((sum, file) => sum + file.data.length, 0);
-  const subtitle = count
-    ? `${count} file(s) | ${formatBytes(totalBytes)}`
-    : "No files extracted";
+  const subtitle = count ? `${count} file(s) | ${formatBytes(totalBytes)}` : "No files extracted";
   return { count, totalBytes, subtitle };
 }
 
@@ -155,7 +164,8 @@ export function selectActionState(state) {
   const ciphertextSource = selectCiphertextSource(state);
   const hasEnvelope = Boolean(state.decryptedEnvelope);
   return {
-    canDownloadCipher: state.total && state.mainFrames.size === state.total && state.conflicts === 0,
+    canDownloadCipher:
+      state.total && state.mainFrames.size === state.total && state.conflicts === 0,
     canDecryptCiphertext: state.agePassphrase.trim().length > 0 && ciphertextSource.available,
     canExtractEnvelope: hasEnvelope,
     canDownloadEnvelope: hasEnvelope,

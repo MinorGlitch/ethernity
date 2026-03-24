@@ -50,7 +50,7 @@ function decodeEnvelope(bytes) {
   idx = manifestLenRes.offset;
   if (manifestLen > MAX_MANIFEST_CBOR_BYTES) {
     throw new Error(
-      `manifest exceeds MAX_MANIFEST_CBOR_BYTES (${MAX_MANIFEST_CBOR_BYTES}): ${manifestLen}`
+      `manifest exceeds MAX_MANIFEST_CBOR_BYTES (${MAX_MANIFEST_CBOR_BYTES}): ${manifestLen}`,
     );
   }
 
@@ -150,7 +150,7 @@ function parseManifest(manifest) {
   }
   if (files.length > MAX_MANIFEST_FILES) {
     throw new Error(
-      `manifest files exceed MAX_MANIFEST_FILES (${MAX_MANIFEST_FILES}): ${files.length}`
+      `manifest files exceed MAX_MANIFEST_FILES (${MAX_MANIFEST_FILES}): ${files.length}`,
     );
   }
 
@@ -201,7 +201,7 @@ function parseManifest(manifest) {
     }
     if (payloadRawLen > MAX_DECOMPRESSED_PAYLOAD_BYTES) {
       throw new Error(
-        `manifest payload_raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES (${MAX_DECOMPRESSED_PAYLOAD_BYTES}): ${payloadRawLen}`
+        `manifest payload_raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES (${MAX_DECOMPRESSED_PAYLOAD_BYTES}): ${payloadRawLen}`,
       );
     }
     if (payloadRawLen !== expectedRawLen) {
@@ -344,7 +344,10 @@ async function gunzipBytesBounded(bytes, maxLength) {
     } catch {
       // Ignore cancellation failures while surfacing the primary decode error.
     }
-    if (err instanceof Error && err.message === "decoded payload exceeds manifest payload_raw_len") {
+    if (
+      err instanceof Error &&
+      err.message === "decoded payload exceeds manifest payload_raw_len"
+    ) {
       throw err;
     }
     throw new Error("invalid gzip payload");
@@ -374,7 +377,7 @@ async function decodePayloadFromManifest(parsedManifest, payload) {
   }
   if (expectedLen > MAX_DECOMPRESSED_PAYLOAD_BYTES) {
     throw new Error(
-      `manifest payload_raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES (${MAX_DECOMPRESSED_PAYLOAD_BYTES}): ${expectedLen}`
+      `manifest payload_raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES (${MAX_DECOMPRESSED_PAYLOAD_BYTES}): ${expectedLen}`,
     );
   }
   const decoded = await gunzipBytesBounded(payload, expectedLen);

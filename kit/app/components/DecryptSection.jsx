@@ -15,7 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { ActionsRow, Card, Field, StatusBlock } from "./common.jsx";
+import { ActionsRow, Field, StatusBlock } from "./common.jsx";
 
 export function DecryptSection({
   passphrase,
@@ -36,7 +36,9 @@ export function DecryptSection({
       label: isDecrypting ? "Unlocking..." : "Unlock & extract",
       onClick: onDecrypt,
       disabled: !canDecrypt || isDecrypting,
-      disabledReason: passphrase.trim() ? "Add backup data first (Step 1)." : "Enter your passphrase to unlock.",
+      disabledReason: passphrase.trim()
+        ? "Add backup data first (Step 1)."
+        : "Enter your passphrase to unlock.",
     },
   ];
   const envelopeActions = [
@@ -56,9 +58,8 @@ export function DecryptSection({
   ];
   return (
     <div class="step-layout">
-      <Card
-        title="Enter passphrase"
-        className={isComplete && !passphrase.trim() ? "step-input input-collapsed" : "step-input"}
+      <div
+        class={isComplete && !passphrase.trim() ? "step-section input-collapsed" : "step-section"}
       >
         <Field
           id="passphrase-input"
@@ -67,16 +68,17 @@ export function DecryptSection({
           placeholder="Enter your passphrase here..."
           onInput={onPassphraseChange}
           type="password"
+          autoComplete="off"
+          spellCheck="false"
         />
         <ActionsRow actions={decryptActions} />
-      </Card>
-      <Card title="Decryption status" className="step-status">
+      </div>
+      <div class="step-section">
+        <div class="step-section-label">Status</div>
         <ActionsRow actions={envelopeActions} className="actions-secondary" />
         <StatusBlock status={decryptStatus} />
-      </Card>
-      <div class="step-output">
-        {children}
       </div>
+      <div class="step-section">{children}</div>
     </div>
   );
 }

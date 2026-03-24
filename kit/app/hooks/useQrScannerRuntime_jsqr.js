@@ -25,7 +25,10 @@ function cameraSupportState() {
     return { ok: false, reason: "Camera API is not available. Paste text instead." };
   }
   if (window.isSecureContext === false) {
-    return { ok: false, reason: "Camera scanning requires HTTPS or localhost. Paste text instead." };
+    return {
+      ok: false,
+      reason: "Camera scanning requires HTTPS or localhost. Paste text instead.",
+    };
   }
   return { ok: true, reason: "" };
 }
@@ -90,9 +93,12 @@ export function useQrScannerRuntime(onScanPayload) {
   };
   stopRef.current = stopScanner;
 
-  useEffect(() => () => {
-    stopRef.current?.();
-  }, []);
+  useEffect(
+    () => () => {
+      stopRef.current?.();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!active) return;
@@ -151,7 +157,7 @@ export function useQrScannerRuntime(onScanPayload) {
           const scannedPayload = detectWithJsQr(
             videoRef.current,
             canvasRef.current,
-            canvasCtxRef.current
+            canvasCtxRef.current,
           );
           if (sessionRef.current !== sessionId || !streamRef.current || !videoRef.current) {
             return;

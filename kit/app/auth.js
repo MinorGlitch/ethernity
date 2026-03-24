@@ -27,13 +27,9 @@ async function verifyAuthSignature(docHash, signPub, signature) {
     return null;
   }
   try {
-    const key = await crypto.subtle.importKey(
-      "raw",
-      signPub,
-      { name: "Ed25519" },
-      false,
-      ["verify"]
-    );
+    const key = await crypto.subtle.importKey("raw", signPub, { name: "Ed25519" }, false, [
+      "verify",
+    ]);
     const signedPayload = { version: AUTH_VERSION, hash: docHash, pub: signPub };
     const signedBytes = encodeCbor(signedPayload);
     const message = concatBytes(textEncoder.encode(AUTH_DOMAIN), signedBytes);
@@ -84,7 +80,7 @@ export async function updateAuthStatus(state) {
     const verified = await verifyAuthSignature(
       docHash,
       state.authPayload.signPub,
-      state.authPayload.signature
+      state.authPayload.signature,
     );
     if (verified === true) {
       state.authStatus = "verified";

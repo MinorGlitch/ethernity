@@ -48,7 +48,7 @@ test("encoding primitives enforce strict payload and varint rules", () => {
   assert.throws(() => readUvarint(Uint8Array.of(0x80), 0), /truncated varint/);
   assert.throws(
     () => readUvarint(Uint8Array.of(0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02), 0),
-    /varint too large/
+    /varint too large/,
   );
   assert.deepEqual(readUvarint(Uint8Array.of(0x81, 0x01), 0), { value: 129, offset: 2 });
 
@@ -107,7 +107,7 @@ test("path validation and zip creation enforce safe relative paths", async () =>
   assert.deepEqual(Array.from(zipBytes.slice(0, 4)), [0x50, 0x4b, 0x03, 0x04]);
   assert.deepEqual(
     Array.from(zipBytes.slice(zipBytes.length - 22, zipBytes.length - 18)),
-    [0x50, 0x4b, 0x05, 0x06]
+    [0x50, 0x4b, 0x05, 0x06],
   );
 
   assert.throws(() => makeZip([{ path: "docs/file.txt", data: "not-bytes" }]), /must be bytes/);

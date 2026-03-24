@@ -23,7 +23,9 @@ This document gives the frontend team a practical plan for integrating the machi
 - Settings + onboarding state: `ethernity api config get`
 - Save settings + onboarding completion: `ethernity api config set`
 - Create backup artifacts: `ethernity api backup`
-- Recover from PDFs/images/text inputs: `ethernity api recover`
+- Inspect recovery readiness from PDFs/images/text inputs: `ethernity api inspect recover`
+- Recover files from PDFs/images/text inputs: `ethernity api recover`
+- Inspect mint readiness from an existing backup: `ethernity api inspect mint`
 - Mint new shard PDFs from an existing backup: `ethernity api mint`
 
 ## Recommended Frontend Flows
@@ -82,9 +84,23 @@ Mint output rule for the GUI:
   directory and creates `mint-<doc_id>` inside it
 - if the path does not exist, Ethernity creates that exact directory and writes the minted shards there
 
+Mint preflight rule for the GUI:
+
+- use `api inspect mint` before asking for an output directory when the UI only needs readiness,
+  shard quorum, signing-key status, or mint capability metadata
+- use `api mint` only for the write-producing step after the user confirms generation
+
 ### Recovery Flow
 
-Use `ethernity api recover` in one of these ways:
+Use `ethernity api inspect recover` first when the UI needs readiness data without writing files:
+
+- validate shard quorum before enabling recovery
+- validate AUTH presence or report `auth_status`
+- inspect `source_summary`, `frame_counts`, `unlock`, `blocking_issues`, and `warnings`
+
+Use `ethernity api recover` for the actual extraction step.
+
+Both commands accept the same recovery input flags in one of these ways:
 
 - `--scan <pdf-or-image-or-dir>` for QR scanning from recovery PDFs, image files, or folders
 - `--shard-scan <pdf-or-image-or-dir>` for QR scanning from passphrase shard PDFs, image files, or folders
@@ -94,10 +110,21 @@ Use `ethernity api recover` in one of these ways:
 
 Important:
 
+- `api inspect recover` is read-only and does not require `--output`
+- `api inspect recover` does not emit `artifact` events
 - `api recover` requires explicit `--output`
 - if `--output` points to an existing directory, a single recovered file is written inside that
   directory using its manifest filename
 - `stdout` stays reserved for NDJSON, so recovered content is always written to disk
+
+### Recovery Preflight Example
+
+```bash
+uv run python -m ethernity.cli api inspect recover \
+  --scan "/path/to/recovery_document.pdf" \
+  --shard-scan "/path/to/shard-01.pdf" \
+  --shard-scan "/path/to/shard-02.pdf"
+```
 
 ## Recovery From PDFs
 
@@ -139,6 +166,21 @@ uv run python -m ethernity.cli api recover \
   --shard-scan "/path/to/shard-02.pdf" \
   --output "/tmp/recovered.bin"
 ```
+
+### Mint Preflight Example
+
+```bash
+uv run python -m ethernity.cli api inspect mint \
+  --scan "/path/to/recovery_document.pdf" \
+  --shard-payloads-file "/path/to/passphrase_shards.txt" \
+  --signing-key-shard-payloads-file "/path/to/signing_key_shards.txt"
+```
+
+Use the final `result.blocking_issues`, `result.unlock`, `result.signing_key`, and
+`result.mint_capabilities` fields to decide whether the UI should offer minting yet.
+Treat the two `mint_capabilities` flags independently; they reflect both readiness and the output
+types currently enabled for this request, so one shard type can be ready while the other is
+blocked or disabled.
 
 ## Config Patch Shape
 
@@ -190,8 +232,9 @@ uv run python -m ethernity.cli api config set --input-json "/path/to/config_patc
 - `phase`: update the current step label
 - `progress`: update progress text and counters
 - `warning`: show non-blocking inline warnings
-- `artifact`: append generated files to the output panel
-- `result`: finalize success state and enable open/reveal actions
+- `artifact`: append generated files to the output panel for write-producing commands only
+- `result`: finalize success state and enable open/reveal actions, or update readiness state for
+  inspect commands
 - `error`: finalize failure state and show the stable `code`
 
 ## Error Handling
@@ -207,16 +250,19 @@ uv run python -m ethernity.cli api config set --input-json "/path/to/config_patc
 - Use a streaming line reader for NDJSON.
 - Do not parse partial lines.
 - Always wait for the terminal `result` or `error` event.
-- Keep a command-specific parser for `result.command`.
+- Keep a command-specific parser for `result.command` and `result.operation`.
 - Use `result.options` from `api config get` to populate selects.
 - Prefer explicit flags over relying on defaults when the UI is intentionally setting a value.
 - Use `--scan` for PDF recovery support.
+- Do not wait for `artifact` events from `api inspect recover` or `api inspect mint`.
 
 ## Suggested Rollout Order
 
 1. Integrate `api config get` for app startup.
 2. Build GUI onboarding on top of `api config set`.
 3. Add backup flow.
-4. Add recovery from PDF with `--scan`.
-5. Add advanced recovery inputs for auth/shards.
-6. Add mint flow.
+4. Add recovery preflight with `api inspect recover`.
+5. Add recovery execution from PDF with `api recover --scan ... --output ...`.
+6. Add advanced recovery inputs for auth/shards.
+7. Add mint preflight with `api inspect mint`.
+8. Add mint execution flow.

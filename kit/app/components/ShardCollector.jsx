@@ -16,9 +16,8 @@
  */
 
 import { useState } from "microact/hooks";
-
-import { DiagnosticsList, Field, StatusBlock } from "./common.jsx";
 import { CollectorStep } from "./CollectorStep.jsx";
+import { DiagnosticsList, Field, StatusBlock } from "./common.jsx";
 import { QrScannerPanel } from "./QrScannerPanel.jsx";
 
 export function ShardCollector({
@@ -36,12 +35,16 @@ export function ShardCollector({
   onCopyResult,
   canCopyResult,
   isComplete,
+  isAdding,
 }) {
   const showDetails = shardDiagnostics.some((item) => item.tone === "error");
   const [pasteHint, setPasteHint] = useState("");
   const handlePaste = (event) => {
     const text = event.clipboardData?.getData("text/plain") ?? "";
-    const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
     if (lines.length) {
       setPasteHint(`Pasted ${lines.length} line(s). Click Add.`);
     }
@@ -79,7 +82,6 @@ export function ShardCollector({
     setPasteHint(`Scanned ${lines.length} line(s). Click Add.`);
   };
   const input = {
-    title: "Recovery shares",
     body: (
       <>
         <Field
@@ -90,13 +92,20 @@ export function ShardCollector({
           onInput={handleShardChange}
           onPaste={handlePaste}
           as="textarea"
+          spellCheck="false"
         />
         <QrScannerPanel onScanPayload={handleScanPayload} />
         {pasteHint ? <div class="hint">{pasteHint}</div> : null}
-        <div class="hint">Skip if you already have the full passphrase.</div>
+        <div class="hint">Skip if you have the full passphrase.</div>
       </>
     ),
-    actions: [{ label: "Add shares", onClick: handleAddShards }],
+    actions: [
+      {
+        label: isAdding ? "Adding..." : "Add shares",
+        onClick: handleAddShards,
+        disabled: isAdding,
+      },
+    ],
     className: isComplete && !shardPayloadText.trim() ? "input-collapsed" : "",
   };
   const status = {
@@ -159,6 +168,11 @@ export function ShardCollector({
     ],
   };
   return (
-    <CollectorStep className="step-layout--status-right" input={input} status={status} output={output} />
+    <CollectorStep
+      className="step-layout--status-right"
+      input={input}
+      status={status}
+      output={output}
+    />
   );
 }

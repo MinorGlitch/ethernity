@@ -17,16 +17,6 @@
 
 import { formatBytes } from "../format.js";
 
-export function Card({ title, children, className }) {
-  const classes = className ? `card ${className}` : "card";
-  return (
-    <section class={classes}>
-      {title ? <h3>{title}</h3> : null}
-      {children}
-    </section>
-  );
-}
-
 export function ActionsRow({ actions, className }) {
   if (!actions || !actions.length) return null;
   const classes = className ? `row ${className}` : "row";
@@ -58,6 +48,8 @@ export function Field({
   type = "text",
   as = "input",
   className,
+  autoComplete,
+  spellCheck,
 }) {
   const Tag = as === "textarea" ? "textarea" : "input";
   const tagProps = {
@@ -72,9 +64,17 @@ export function Field({
   if (Tag === "input") {
     tagProps.type = type;
   }
+  if (autoComplete !== undefined) {
+    tagProps.autoComplete = autoComplete;
+  }
+  if (spellCheck !== undefined) {
+    tagProps.spellcheck = spellCheck;
+  }
   return (
     <>
-      <label class="label" htmlFor={id}>{label}</label>
+      <label class="label" htmlFor={id}>
+        {label}
+      </label>
       <Tag {...tagProps} />
     </>
   );
@@ -101,14 +101,10 @@ export function DiagnosticsList({ items, compact = false }) {
     <div class="diag-list">
       {rows.map((item, index) => {
         const rowClass = item.tone ? `diag-row ${item.tone}` : "diag-row";
-        const valueClass = item.code ? "diag-value code" : "diag-value";
         return (
           <div key={`${item.label}-${index}`} class={rowClass}>
             <div class="diag-label">{item.label}</div>
-            <div class={valueClass}>
-              <div class="diag-main">{item.value ?? "-"}</div>
-              {item.detail ? <div class="diag-detail">{item.detail}</div> : null}
-            </div>
+            <div class="diag-value">{item.value ?? "-"}</div>
           </div>
         );
       })}
@@ -133,7 +129,7 @@ export function OutputTable({ files, onDownloadFile }) {
           <td>{file.path}</td>
           <td>{formatBytes(file.data.length)}</td>
           <td>
-            <button class="secondary" onClick={() => onDownloadFile(index)}>
+            <button type="button" class="secondary" onClick={() => onDownloadFile(index)}>
               Download
             </button>
           </td>

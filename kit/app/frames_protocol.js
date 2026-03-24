@@ -90,13 +90,13 @@ export function decodeFrame(payload) {
   if (frameType === FRAME_TYPE_MAIN) {
     if (total > MAX_MAIN_FRAME_TOTAL) {
       throw new Error(
-        `MAIN_DOCUMENT total exceeds MAX_MAIN_FRAME_TOTAL (${MAX_MAIN_FRAME_TOTAL}): ${total}`
+        `MAIN_DOCUMENT total exceeds MAX_MAIN_FRAME_TOTAL (${MAX_MAIN_FRAME_TOTAL}): ${total}`,
       );
     }
     if (dataLen > MAX_MAIN_FRAME_DATA_BYTES) {
       throw new Error(
         "MAIN_DOCUMENT data exceeds " +
-          `MAX_MAIN_FRAME_DATA_BYTES (${MAX_MAIN_FRAME_DATA_BYTES}): ${dataLen} bytes`
+          `MAX_MAIN_FRAME_DATA_BYTES (${MAX_MAIN_FRAME_DATA_BYTES}): ${dataLen} bytes`,
       );
     }
   } else if (frameType === FRAME_TYPE_AUTH) {
@@ -105,7 +105,7 @@ export function decodeFrame(payload) {
     }
     if (dataLen > MAX_AUTH_CBOR_BYTES) {
       throw new Error(
-        `AUTH data exceeds MAX_AUTH_CBOR_BYTES (${MAX_AUTH_CBOR_BYTES}): ${dataLen} bytes`
+        `AUTH data exceeds MAX_AUTH_CBOR_BYTES (${MAX_AUTH_CBOR_BYTES}): ${dataLen} bytes`,
       );
     }
   } else if (frameType === FRAME_TYPE_KEY) {
@@ -114,18 +114,18 @@ export function decodeFrame(payload) {
     }
     if (dataLen > MAX_SHARD_CBOR_BYTES) {
       throw new Error(
-        `KEY_DOCUMENT data exceeds MAX_SHARD_CBOR_BYTES (${MAX_SHARD_CBOR_BYTES}): ${dataLen} bytes`
+        `KEY_DOCUMENT data exceeds MAX_SHARD_CBOR_BYTES (${MAX_SHARD_CBOR_BYTES}): ${dataLen} bytes`,
       );
     }
   }
   const data = payload.slice(idx, idx + dataLen);
   idx += dataLen;
-  const crcExpected = (
-    (payload[idx] << 24) |
-    (payload[idx + 1] << 16) |
-    (payload[idx + 2] << 8) |
-    payload[idx + 3]
-  ) >>> 0;
+  const crcExpected =
+    ((payload[idx] << 24) |
+      (payload[idx + 1] << 16) |
+      (payload[idx + 2] << 8) |
+      payload[idx + 3]) >>>
+    0;
   const crcActual = crc32(payload.slice(0, idx));
   if (crcExpected !== crcActual) {
     throw new Error("crc mismatch");

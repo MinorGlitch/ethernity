@@ -15,17 +15,6 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { updateAuthStatus } from "./auth.js";
-import {
-  parseAutoPayload,
-  parseAutoShard,
-  parseScannedPayload,
-  parseScannedShard,
-} from "./frames_parse.js";
-import { syncCollectedCiphertext } from "./frames_cipher.js";
-import { verifyCollectedShardSignatures } from "./shard_auth.js";
-import { autoRecoverShardSecret } from "./shards.js";
-import { cloneState, setStatus } from "./state/initial.js";
 import {
   copyAuthAndCipherFields,
   copyShardAsyncFields,
@@ -34,6 +23,17 @@ import {
   dispatchState,
   parseTextWithErrors,
 } from "./actions_common.js";
+import { updateAuthStatus } from "./auth.js";
+import { syncCollectedCiphertext } from "./frames_cipher.js";
+import {
+  parseAutoPayload,
+  parseAutoShard,
+  parseScannedPayload,
+  parseScannedShard,
+} from "./frames_parse.js";
+import { verifyCollectedShardSignatures } from "./shard_auth.js";
+import { autoRecoverShardSecret } from "./shards.js";
+import { cloneState, setStatus } from "./state/initial.js";
 
 function parsedMainAccepted(base, before, added) {
   return (
@@ -126,6 +126,7 @@ export function resetAll(dispatch) {
 
 export async function addPayloads(dispatch, getState) {
   const base = cloneState(getState());
+  if (base.isAddingFrames) return;
   const before = {
     errors: base.errors,
     conflicts: base.conflicts,
@@ -138,16 +139,24 @@ export async function addPayloads(dispatch, getState) {
   if (fullyAccepted) {
     base.payloadText = "";
   }
+  base.isAddingFrames = true;
   setStatus(base, "frameStatus", [
     `Added ${added} frame(s).`,
     base.total ? "Collect all frames to download." : "Waiting for more frames.",
   ]);
   dispatchState(dispatch, base);
-  await runMainAsyncFollowups(dispatch, base);
+  try {
+    await runMainAsyncFollowups(dispatch, base);
+  } finally {
+    const latest = cloneState(getState());
+    latest.isAddingFrames = false;
+    dispatchState(dispatch, latest);
+  }
 }
 
 export async function addScannedPayload(dispatch, getState, scanned) {
   const base = cloneState(getState());
+  if (base.isAddingFrames) return;
   const before = {
     errors: base.errors,
     conflicts: base.conflicts,
@@ -160,26 +169,34 @@ export async function addScannedPayload(dispatch, getState, scanned) {
   if (fullyAccepted) {
     base.payloadText = "";
   }
+  base.isAddingFrames = true;
   setStatus(base, "frameStatus", [
     `Added ${added} frame(s).`,
     base.total ? "Collect all frames to download." : "Waiting for more frames.",
   ]);
   dispatchState(dispatch, base);
-  await runMainAsyncFollowups(dispatch, base);
+  try {
+    await runMainAsyncFollowups(dispatch, base);
+  } finally {
+    const latest = cloneState(getState());
+    latest.isAddingFrames = false;
+    dispatchState(dispatch, latest);
+  }
 }
 
 export async function addShardPayloads(dispatch, getState) {
-  let added = 0;
   const parsed = cloneState(getState());
+  if (parsed.isAddingShards) return;
   const before = {
     shardErrors: parsed.shardErrors,
     shardConflicts: parsed.shardConflicts,
   };
-  added = parseTextWithErrors(parsed, parsed.shardPayloadText, parseAutoShard, "shardErrors");
+  const added = parseTextWithErrors(parsed, parsed.shardPayloadText, parseAutoShard, "shardErrors");
   const fullyAccepted = parsedShardAccepted(parsed, before, added);
   if (fullyAccepted) {
     parsed.shardPayloadText = "";
   }
+  parsed.isAddingShards = true;
   const baseStatusLines = [
     `Added ${added} shard frame(s).`,
     parsed.shardThreshold
@@ -188,11 +205,18 @@ export async function addShardPayloads(dispatch, getState) {
   ];
   setStatus(parsed, "shardStatus", baseStatusLines);
   dispatchState(dispatch, parsed);
-  await runShardAsyncFollowups(dispatch, parsed, baseStatusLines);
+  try {
+    await runShardAsyncFollowups(dispatch, parsed, baseStatusLines);
+  } finally {
+    const latest = cloneState(getState());
+    latest.isAddingShards = false;
+    dispatchState(dispatch, latest);
+  }
 }
 
 export async function addScannedShardPayload(dispatch, getState, scanned) {
   const parsed = cloneState(getState());
+  if (parsed.isAddingShards) return;
   const before = {
     shardErrors: parsed.shardErrors,
     shardConflicts: parsed.shardConflicts,
@@ -202,6 +226,7 @@ export async function addScannedShardPayload(dispatch, getState, scanned) {
   if (fullyAccepted) {
     parsed.shardPayloadText = "";
   }
+  parsed.isAddingShards = true;
   const baseStatusLines = [
     `Added ${added} shard frame(s).`,
     parsed.shardThreshold
@@ -210,7 +235,13 @@ export async function addScannedShardPayload(dispatch, getState, scanned) {
   ];
   setStatus(parsed, "shardStatus", baseStatusLines);
   dispatchState(dispatch, parsed);
-  await runShardAsyncFollowups(dispatch, parsed, baseStatusLines);
+  try {
+    await runShardAsyncFollowups(dispatch, parsed, baseStatusLines);
+  } finally {
+    const latest = cloneState(getState());
+    latest.isAddingShards = false;
+    dispatchState(dispatch, latest);
+  }
 }
 
 export async function copyRecoveredSecret(dispatch, getState) {

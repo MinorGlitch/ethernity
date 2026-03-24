@@ -15,11 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import {
-  decodePayloadString,
-  decodeZBase32,
-  filterZBase32Lines,
-} from "../lib/encoding.js";
+import { decodePayloadString, decodeZBase32, filterZBase32Lines } from "../lib/encoding.js";
 import {
   FRAME_TYPE_KEY,
   MAX_FALLBACK_LINES,
@@ -83,7 +79,10 @@ function getScannedBytes(input) {
 }
 
 function nonEmptyLines(text) {
-  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 function hasMarker(lines, markers) {
@@ -147,13 +146,13 @@ function normalizedZbaseChars(lines) {
 function enforceFallbackLimits(lines, label) {
   if (lines.length > MAX_FALLBACK_LINES) {
     throw new Error(
-      `${label} fallback exceeds MAX_FALLBACK_LINES (${MAX_FALLBACK_LINES}): ${lines.length} lines`
+      `${label} fallback exceeds MAX_FALLBACK_LINES (${MAX_FALLBACK_LINES}): ${lines.length} lines`,
     );
   }
   const normalizedChars = normalizedZbaseChars(lines);
   if (normalizedChars > MAX_FALLBACK_NORMALIZED_CHARS) {
     throw new Error(
-      `${label} fallback exceeds MAX_FALLBACK_NORMALIZED_CHARS (${MAX_FALLBACK_NORMALIZED_CHARS}): ${normalizedChars} chars`
+      `${label} fallback exceeds MAX_FALLBACK_NORMALIZED_CHARS (${MAX_FALLBACK_NORMALIZED_CHARS}): ${normalizedChars} chars`,
     );
   }
 }
@@ -224,7 +223,7 @@ function enforceRecoveryTextLimit(text) {
   const textBytes = new TextEncoder().encode(text).length;
   if (textBytes > MAX_RECOVERY_TEXT_BYTES) {
     throw new Error(
-      `recovery text exceeds MAX_RECOVERY_TEXT_BYTES (${MAX_RECOVERY_TEXT_BYTES}): ${textBytes} bytes`
+      `recovery text exceeds MAX_RECOVERY_TEXT_BYTES (${MAX_RECOVERY_TEXT_BYTES}): ${textBytes} bytes`,
     );
   }
 }

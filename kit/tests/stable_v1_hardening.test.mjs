@@ -26,7 +26,7 @@ import { decodePayloadString, readUvarint } from "../lib/encoding.js";
 import { makeZip } from "../lib/zip.js";
 
 if (typeof globalThis.atob !== "function") {
-  globalThis.atob = value => Buffer.from(value, "base64").toString("binary");
+  globalThis.atob = (value) => Buffer.from(value, "base64").toString("binary");
 }
 
 function encodeUvarint(value) {
@@ -72,7 +72,13 @@ function buildEnvelope(manifest, payload) {
   ]);
 }
 
-function buildFrame({ frameType, data, index = 0, total = 1, docId = Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8) }) {
+function buildFrame({
+  frameType,
+  data,
+  index = 0,
+  total = 1,
+  docId = Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8),
+}) {
   const body = concatBytes([
     Uint8Array.from(FRAME_MAGIC),
     encodeUvarint(FRAME_VERSION),
@@ -112,7 +118,7 @@ function nonCanonicalVersionMap(canonicalBytes) {
 }
 
 function buildDirectManifestEntries(files) {
-  return files.map(file => [file.path, file.data.length, sha256(file.data), null]);
+  return files.map((file) => [file.path, file.data.length, sha256(file.data), null]);
 }
 
 test("extractFiles supports stable-v1 direct manifest entries", async () => {
@@ -120,7 +126,7 @@ test("extractFiles supports stable-v1 direct manifest entries", async () => {
     { path: "docs/a.txt", data: new Uint8Array([1, 2, 3]) },
     { path: "docs/b.txt", data: new Uint8Array([4, 5]) },
   ];
-  const payload = concatBytes(files.map(file => file.data));
+  const payload = concatBytes(files.map((file) => file.data));
   const manifest = {
     version: 1,
     created: 1_700_000_000,
@@ -163,8 +169,8 @@ test("extractFiles supports stable-v1 prefix_table manifest entries", async () =
 
   const extracted = await extractFiles(buildEnvelope(manifest, payload));
   assert.deepEqual(
-    extracted.files.map(file => file.path),
-    ["docs/a.txt", "docs/sub/b.txt"]
+    extracted.files.map((file) => file.path),
+    ["docs/a.txt", "docs/sub/b.txt"],
   );
 });
 
@@ -186,14 +192,7 @@ test("extractFiles rejects legacy map-style file entries", async () => {
 });
 
 test("extractFiles rejects non-canonical envelope varints", async () => {
-  const envelope = Uint8Array.of(
-    ENVELOPE_MAGIC[0],
-    ENVELOPE_MAGIC[1],
-    0x81,
-    0x00,
-    0x00,
-    0x00
-  );
+  const envelope = Uint8Array.of(ENVELOPE_MAGIC[0], ENVELOPE_MAGIC[1], 0x81, 0x00, 0x00, 0x00);
   await assert.rejects(() => extractFiles(envelope), /non-canonical varint/);
 });
 
@@ -228,7 +227,7 @@ test("parseAutoPayload rejects frames above MAX_MAIN_FRAME_TOTAL", () => {
   const payload = toUnpaddedBase64(frame);
   assert.throws(
     () => parseAutoPayload(state, payload),
-    /input is neither valid QR payloads nor valid fallback text/
+    /input is neither valid QR payloads nor valid fallback text/,
   );
 });
 
@@ -342,10 +341,7 @@ test("parseAutoPayload rejects fallback input above MAX_FALLBACK_LINES", () => {
   const state = createInitialState();
   const fallbackLines = Array.from({ length: MAX_FALLBACK_LINES + 1 }, () => "yy");
   const text = `MAIN FRAME\n${fallbackLines.join("\n")}`;
-  assert.throws(
-    () => parseAutoPayload(state, text),
-    /fallback exceeds MAX_FALLBACK_LINES/
-  );
+  assert.throws(() => parseAutoPayload(state, text), /fallback exceeds MAX_FALLBACK_LINES/);
 });
 
 test("parseAutoShard rejects fallback input above MAX_FALLBACK_NORMALIZED_CHARS", () => {
@@ -356,7 +352,7 @@ test("parseAutoShard rejects fallback input above MAX_FALLBACK_NORMALIZED_CHARS"
   const text = `SHARD FRAME\n${fallbackLines.join("\n")}`;
   assert.throws(
     () => parseAutoShard(state, text),
-    /fallback exceeds MAX_FALLBACK_NORMALIZED_CHARS/
+    /fallback exceeds MAX_FALLBACK_NORMALIZED_CHARS/,
   );
 });
 
@@ -389,6 +385,6 @@ test("autoRecoverShardSecret rejects shard/doc hash mismatch before reconstructi
 test("makeZip rejects unsafe traversal paths", () => {
   assert.throws(
     () => makeZip([{ path: "../escape.txt", data: Uint8Array.of(1, 2, 3) }]),
-    /must not contain '\.' or '\.\.'/
+    /must not contain '\.' or '\.\.'/,
   );
 });

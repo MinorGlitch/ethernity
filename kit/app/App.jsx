@@ -26,14 +26,19 @@ import {
   resetAll,
   updateField,
 } from "./actions_collect.js";
+import {
+  downloadCipher,
+  downloadEnvelope,
+  downloadExtract,
+  downloadZip,
+} from "./actions_export.js";
 import { clearOutput, decryptCiphertext, extractEnvelope } from "./actions_recover.js";
-import { downloadCipher, downloadEnvelope, downloadExtract, downloadZip } from "./actions_export.js";
 import { DecryptSection } from "./components/DecryptSection.jsx";
 import { FrameCollector } from "./components/FrameCollector.jsx";
 import { RecoveredFiles } from "./components/RecoveredFiles.jsx";
 import { ShardCollector } from "./components/ShardCollector.jsx";
 import { StepShell } from "./components/StepShell.jsx";
-import { reducer, initialState } from "./state/reducer.js";
+import { initialState, reducer } from "./state/reducer.js";
 import {
   selectActionState,
   selectFrameDiagnostics,
@@ -140,7 +145,11 @@ export function App() {
                     <button type="button" class="ghost" onClick={() => setOnlineOverrideStep(0)}>
                       Cancel
                     </button>
-                    <button type="button" class="secondary" onClick={() => setOnlineOverrideStep(2)}>
+                    <button
+                      type="button"
+                      class="secondary"
+                      onClick={() => setOnlineOverrideStep(2)}
+                    >
                       I understand the risk
                     </button>
                   </div>
@@ -174,7 +183,7 @@ export function App() {
       <header class="app-header">
         <div class="app-title-block">
           <h1 class="app-title">Recovery Kit</h1>
-          <p class="app-subtitle">Offline recovery tool for decryption and extraction.</p>
+          <p class="app-subtitle">Offline decryption and file extraction.</p>
         </div>
       </header>
       {onlineOverrideActive ? (
@@ -192,10 +201,7 @@ export function App() {
         </section>
       ) : null}
       <section class="workspace">
-        <StepShell
-          title="Enter backup data"
-          summary="Paste backup text or scanned QR payloads. Include AUTH if available."
-        >
+        <StepShell title="Collect backup" summary="Paste backup text or scan QR payloads.">
           <FrameCollector
             payloadText={state.payloadText}
             frameStatus={state.frameStatus}
@@ -207,11 +213,12 @@ export function App() {
             onReset={handleReset}
             onDownloadCipher={handleDownloadCipher}
             canDownloadCipher={actionState.canDownloadCipher}
+            isAdding={state.isAddingFrames}
           />
         </StepShell>
         <StepShell
-          title="Combine recovery shares"
-          summary="Paste shard documents to reconstruct a split passphrase, or skip if you have it."
+          title="Recover passphrase"
+          summary="Paste shares to reconstruct a split passphrase, or skip."
         >
           <ShardCollector
             shardPayloadText={state.shardPayloadText}
@@ -228,11 +235,12 @@ export function App() {
             isComplete={Boolean(state.recoveredShardSecret)}
             onCopyResult={handleCopyResult}
             canCopyResult={actionState.canCopyResult}
+            isAdding={state.isAddingShards}
           />
         </StepShell>
         <StepShell
           title="Unlock & download"
-          summary="Enter your passphrase to unlock and download recovered files."
+          summary="Enter your passphrase to unlock and download."
         >
           <DecryptSection
             passphrase={state.agePassphrase}
