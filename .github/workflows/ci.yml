@@ -25,6 +25,9 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - "ethernity.spec"
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
 
 permissions:
   contents: read
@@ -35,6 +38,7 @@ concurrency:
 
 jobs:
   lint:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -46,6 +50,7 @@ jobs:
         run: uv run ruff check src tests
 
   format:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -57,6 +62,7 @@ jobs:
         run: uv run ruff format --check src tests
 
   mypy:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -67,7 +73,67 @@ jobs:
       - name: Mypy
         run: uv run mypy src
 
+  pyright:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+      - name: Pyright
+        run: uv run pyright
+
+  schema:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+      - name: Validate CLI API schema
+        run: uv run check-jsonschema --check-metaschema docs/cli_api.schema.json
+
+  typos:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+      - name: Typos
+        run: uv run typos .
+
+  kit-lint:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Setup Node.js
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: kit/package-lock.json
+      - name: Install kit dependencies
+        working-directory: kit
+        run: npm ci
+      - name: Biome lint
+        working-directory: kit
+        run: npm run lint
+      - name: Biome format check
+        working-directory: kit
+        run: npm run format:check
+
   test:
+    if: github.event_name != 'schedule'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -105,6 +171,7 @@ jobs:
         run: uv run pytest tests/integration -v
 
   e2e:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -116,6 +183,7 @@ jobs:
         run: uv run pytest tests/e2e -v
 
   coverage:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -140,6 +208,7 @@ jobs:
             --cov-fail-under=85
 
   kit-verify:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -156,8 +225,8 @@ jobs:
       - name: Verify committed bundles exist
         run: |
           for BUNDLE in \
-            src/ethernity/kit/recovery_kit.bundle.html \
-            src/ethernity/kit/recovery_kit.scanner.bundle.html
+            src/ethernity/resources/kit/recovery_kit.bundle.html \
+            src/ethernity/resources/kit/recovery_kit.scanner.bundle.html
           do
             if [ ! -f "$BUNDLE" ]; then
               echo "ERROR: No committed bundle found at $BUNDLE"
@@ -202,12 +271,24 @@ jobs:
       - name: Verify build output
         run: |
           echo "Build completed successfully"
-          ls -la src/ethernity/kit/recovery_kit.bundle.html
-          ls -la src/ethernity/kit/recovery_kit.scanner.bundle.html
+          ls -la src/ethernity/resources/kit/recovery_kit.bundle.html
+          ls -la src/ethernity/resources/kit/recovery_kit.scanner.bundle.html
           ls -la kit/dist/
 
       - name: Verify bundles are up to date
         run: |
           git diff --exit-code -- \
-            src/ethernity/kit/recovery_kit.bundle.html \
-            src/ethernity/kit/recovery_kit.scanner.bundle.html
+            src/ethernity/resources/kit/recovery_kit.bundle.html \
+            src/ethernity/resources/kit/recovery_kit.scanner.bundle.html
+
+  pip-audit:
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+      - name: Pip audit
+        run: uv run pip-audit

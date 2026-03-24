@@ -21,14 +21,14 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Sequence
 
-from .doc_types import (
+from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
     DOC_TYPE_MAIN,
     DOC_TYPE_RECOVERY,
     DOC_TYPE_SIGNING_KEY_SHARD,
     DOC_TYPES,
 )
-from .utils import int_value as _int_value
+from ethernity.render.utils import int_value as _int_value
 
 
 @dataclass(frozen=True)

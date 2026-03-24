@@ -22,10 +22,11 @@ from pathlib import Path
 from typing import Any, cast
 from unittest import mock
 
-from ethernity.config import api_config, installer
+import ethernity.config.api_patch as api_config
+import ethernity.config.install as installer
+from ethernity.config.paths import DEFAULT_CONFIG_PATH
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG_PATH = REPO_ROOT / "src" / "ethernity" / "config" / "config.toml"
 
 
 class TestApiConfigService(unittest.TestCase):
@@ -221,7 +222,7 @@ class TestApiConfigService(unittest.TestCase):
 
                 with (
                     mock.patch(
-                        "ethernity.config.api_config._write_text_atomic",
+                        "ethernity.config.api_patch._write_text_atomic",
                         side_effect=_fail_on_marker,
                     ),
                     mock.patch.object(installer, "_write_text_atomic", side_effect=_fail_on_marker),
@@ -242,7 +243,7 @@ class TestApiConfigService(unittest.TestCase):
             path = Path(handle.name)
             path.write_text(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"), encoding="utf-8")
             with mock.patch(
-                "ethernity.config.api_config.first_run_onboarding_configured_fields",
+                "ethernity.config.api_patch.first_run_onboarding_configured_fields",
                 return_value=frozenset({installer.ONBOARDING_FIELD_PAGE_SIZE}),
             ):
                 snapshot = api_config.get_api_config_snapshot(path)

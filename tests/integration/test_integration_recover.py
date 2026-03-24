@@ -24,8 +24,8 @@ import zxingcpp  # noqa: F401
 from PIL import Image  # noqa: F401
 
 from ethernity.cli import run_recover_command
-from ethernity.cli.core.types import RecoverArgs
-from ethernity.config.installer import DEFAULT_CONFIG_PATH
+from ethernity.cli.shared.types import RecoverArgs
+from ethernity.config.install import DEFAULT_CONFIG_PATH
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
 from ethernity.crypto.signing import generate_signing_keypair

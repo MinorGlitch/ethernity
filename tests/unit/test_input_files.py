@@ -19,7 +19,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.io.inputs import _directory_root_label, _load_input_files
+from ethernity.cli.shared.io.inputs import _directory_root_label, _load_input_files
 
 
 class _FakeProgress:
@@ -105,7 +105,7 @@ class TestInputFiles(unittest.TestCase):
             _load_input_files([], [], None, allow_stdin=False)
 
     def test_input_dir_not_found(self) -> None:
-        with self.assertRaisesRegex(ValueError, "input dir not found"):
+        with self.assertRaisesRegex(FileNotFoundError, "input dir not found"):
             _load_input_files([], ["/no/such/dir"], None, allow_stdin=False)
 
     def test_input_dir_not_directory(self) -> None:
@@ -116,7 +116,7 @@ class TestInputFiles(unittest.TestCase):
                 _load_input_files([], [str(path)], None, allow_stdin=False)
 
     def test_input_file_not_found(self) -> None:
-        with self.assertRaisesRegex(ValueError, "input file not found"):
+        with self.assertRaisesRegex(FileNotFoundError, "input file not found"):
             _load_input_files(["/no/such/file"], [], None, allow_stdin=False)
 
     def test_input_path_not_a_file(self) -> None:
@@ -127,7 +127,7 @@ class TestInputFiles(unittest.TestCase):
                     _load_input_files([str(path)], [], None, allow_stdin=False)
 
     def test_empty_stdin_rejected(self) -> None:
-        with mock.patch("ethernity.cli.io.inputs.sys.stdin", new=io.StringIO("")):
+        with mock.patch("ethernity.cli.shared.io.inputs.sys.stdin", new=io.StringIO("")):
             with self.assertRaisesRegex(ValueError, "stdin input is empty"):
                 _load_input_files(["-"], [], None, allow_stdin=True)
 
@@ -135,7 +135,9 @@ class TestInputFiles(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             file_path = Path(tmpdir) / "data.txt"
             file_path.write_text("file", encoding="utf-8")
-            with mock.patch("ethernity.cli.io.inputs.sys.stdin", new=io.StringIO("stdin-data")):
+            with mock.patch(
+                "ethernity.cli.shared.io.inputs.sys.stdin", new=io.StringIO("stdin-data")
+            ):
                 with self.assertRaisesRegex(ValueError, "duplicate relative path 'data.txt'"):
                     _load_input_files([str(file_path), "-"], [], None, allow_stdin=True)
 
@@ -183,7 +185,7 @@ class TestInputFiles(unittest.TestCase):
             left.write_text("left", encoding="utf-8")
             right.write_text("right", encoding="utf-8")
             with mock.patch(
-                "ethernity.cli.io.inputs.os.path.commonpath",
+                "ethernity.cli.shared.io.inputs.os.path.commonpath",
                 side_effect=ValueError("different drives"),
             ):
                 with self.assertRaisesRegex(ValueError, "different roots"):
@@ -194,7 +196,7 @@ class TestInputFiles(unittest.TestCase):
             path = Path(tmpdir) / "file.txt"
             path.write_bytes(b"data")
             with mock.patch(
-                "ethernity.cli.io.inputs.normalize_path",
+                "ethernity.cli.shared.io.inputs.normalize_path",
                 side_effect=ValueError("invalid utf8"),
             ):
                 with self.assertRaisesRegex(ValueError, "not valid UTF-8"):

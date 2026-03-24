@@ -24,7 +24,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.io.outputs import (
+from ethernity.cli.shared.io.outputs import (
     _ensure_output_dir,
     _safe_join,
     _write_output,
@@ -103,7 +103,7 @@ class TestOutputFiles(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "secure"
             out_file = out_dir / "payload.bin"
-            with mock.patch("ethernity.cli.io.outputs._is_posix", return_value=True):
+            with mock.patch("ethernity.cli.shared.io.outputs._is_posix", return_value=True):
                 with mock.patch("pathlib.Path.chmod", side_effect=OSError("denied")):
                     _ensure_output_dir(str(out_dir), "deadbeef")
                     _write_output(str(out_file), b"payload")

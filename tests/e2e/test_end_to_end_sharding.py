@@ -19,7 +19,8 @@ import unittest
 from pathlib import Path
 
 from ethernity.cli import run_recover_command
-from ethernity.cli.core.types import RecoverArgs
+from ethernity.cli.shared.types import RecoverArgs
+from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
 from ethernity.crypto.signing import generate_signing_keypair
@@ -32,7 +33,7 @@ from ethernity.render.fallback_text import format_zbase32_lines
 from tests.test_support import suppress_output
 
 TEST_SIGNING_SEED = b"\x11" * 32
-_CONFIG_PATH = Path(__file__).resolve().parents[2] / "src" / "ethernity" / "config" / "config.toml"
+_CONFIG_PATH = DEFAULT_CONFIG_PATH
 
 
 class TestEndToEndSharding(unittest.TestCase):

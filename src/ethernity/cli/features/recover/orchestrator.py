@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+# Copyright (C) 2026 Alex Stoyanov
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with this program.
+# If not, see <https://www.gnu.org/licenses/>.
+
+from __future__ import annotations
+
+import sys
+
+from ethernity.cli.features.recover.execution import run_recover_plan
+from ethernity.cli.features.recover.service import prepare_recover_plan
+from ethernity.cli.features.recover.wizard import run_recover_wizard as _run_recover_wizard
+from ethernity.cli.shared.log import _warn
+from ethernity.cli.shared.types import RecoverArgs
+
+
+def plan_from_args(args: RecoverArgs):
+    return prepare_recover_plan(args)
+
+
+def run_recover_command(args: RecoverArgs, *, debug: bool = False) -> int:
+    plan = plan_from_args(args)
+    if plan.allow_unsigned:
+        _warn("Authentication check skipped - ensure you trust the source", quiet=args.quiet)
+    return run_recover_plan(
+        plan,
+        quiet=args.quiet,
+        debug=debug,
+        debug_max_bytes=args.debug_max_bytes,
+        debug_reveal_secrets=args.debug_reveal_secrets,
+    )
+
+
+def run_recover_wizard(args: RecoverArgs, *, debug: bool = False) -> int:
+    return _run_recover_wizard(args, debug=debug)
+
+
+def _should_use_wizard_for_recover(args: RecoverArgs) -> bool:
+    if args.fallback_file or args.payloads_file or args.scan:
+        return False
+    if args.shard_fallback_file or args.shard_payloads_file or args.shard_scan:
+        return False
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        return False
+    return True

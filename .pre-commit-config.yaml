@@ -1,18 +1,52 @@
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.2
-    hooks:
-      - id: ruff
-        args: [--fix]
-      - id: ruff-format
-
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+      - id: check-toml
       - id: check-added-large-files
-        args: ['--maxkb=5000']
+        args: ["--maxkb=5000"]
         exclude: '^src/ethernity/kit/recovery_kit\.bundle\.html$'
       - id: check-merge-conflict
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.2
+    hooks:
+      - id: ruff
+      - id: ruff-format
+        args: ["--check"]
+
+  - repo: local
+    hooks:
+      - id: pyright
+        name: pyright
+        entry: uv run pyright
+        language: system
+        pass_filenames: false
+      - id: check-jsonschema-cli-api
+        name: check-jsonschema cli api
+        entry: uv run check-jsonschema --check-metaschema docs/cli_api.schema.json
+        language: system
+        pass_filenames: false
+      - id: typos
+        name: typos
+        entry: uv run typos .
+        language: system
+        pass_filenames: false
+      - id: unit-contract-slice
+        name: unit contract slice
+        entry: uv run pytest tests/unit/test_cbor.py tests/unit/test_framing.py tests/unit/test_qr_payloads.py tests/unit/test_fallback_parser.py tests/unit/test_tooling_hypothesis.py -q
+        language: system
+        pass_filenames: false
+      - id: biome-lint
+        name: biome lint
+        entry: npm --prefix kit run lint
+        language: system
+        pass_filenames: false
+      - id: biome-format-check
+        name: biome format check
+        entry: npm --prefix kit run format:check
+        language: system
+        pass_filenames: false

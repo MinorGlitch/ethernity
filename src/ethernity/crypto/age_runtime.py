@@ -23,7 +23,7 @@ from dataclasses import dataclass
 import pyrage
 from pyrage import passphrase as pyrage_passphrase
 
-from .passphrases import DEFAULT_PASSPHRASE_WORDS, generate_passphrase
+from ethernity.crypto.passphrases import DEFAULT_PASSPHRASE_WORDS, generate_passphrase
 
 
 @dataclass

@@ -17,7 +17,7 @@ import hashlib
 import os
 import unittest
 
-from ethernity.cli.flows.backup_flow import (
+from ethernity.cli.features.backup.execution import (
     _create_auth_frame,
     _prepare_envelope,
 )
@@ -191,9 +191,9 @@ class TestRecoverFlow(unittest.TestCase):
 
     def test_decrypt_and_extract_integration(self) -> None:
         """Test decrypt_and_extract with real encryption using full RecoveryPlan."""
-        from ethernity.cli.core.crypto import _doc_id_and_hash_from_ciphertext
-        from ethernity.cli.flows.recover_flow import decrypt_and_extract
-        from ethernity.cli.flows.recover_plan import RecoveryPlan
+        from ethernity.cli.features.recover.execution import decrypt_and_extract
+        from ethernity.cli.features.recover.planning import RecoveryPlan
+        from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
         from ethernity.crypto import encrypt_bytes_with_passphrase
         from ethernity.formats.envelope_codec import (
             build_manifest_and_payload,
@@ -235,6 +235,7 @@ class TestRecoverFlow(unittest.TestCase):
             shard_frames=(),
             shard_fallback_files=(),
             shard_payloads_file=(),
+            shard_scan=(),
         )
 
         # Decrypt and extract

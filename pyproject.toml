@@ -43,14 +43,19 @@ ethernity = "ethernity.cli:main"
 [project.optional-dependencies]
 build = ["pyinstaller>=6.19.0"]
 dev = [
+    "check-jsonschema>=0.37.0",
     "coverage>=7.13.4",
+    "hypothesis>=6.151.9",
     "jsonschema>=4.25.1",
     "mypy>=1.19.1",
+    "pip-audit>=2.10.0",
     "pre-commit>=4.5.1",
+    "pyright>=1.1.408",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
     "ruff>=0.15.2",
     "tkinterdnd2>=0.4.3",
+    "typos>=1.44.0",
 ]
 
 [build-system]
@@ -66,18 +71,18 @@ include = ["ethernity", "ethernity.*"]
 
 [tool.setuptools.package-data]
 ethernity = [
-    "templates/*/*.html.j2",
-    "templates/_shared/*.html.j2",
-    "templates/_shared/*.j2",
-    "templates/_shared/partials/*.j2",
-    "templates/_shared/assets/*.js",
-    "templates/_shared/assets/*.ttf",
-    "templates/*/style.json",
-    "storage/*.html.j2",
-    "storage/*.png",
-    "config/*.toml",
-    "kit/*.html",
-    "crypto/bip39_wordlist.txt",
+    "resources/templates/*/*.html.j2",
+    "resources/templates/_shared/*.html.j2",
+    "resources/templates/_shared/*.j2",
+    "resources/templates/_shared/partials/*.j2",
+    "resources/templates/_shared/assets/*.js",
+    "resources/templates/_shared/assets/*.ttf",
+    "resources/templates/*/style.json",
+    "resources/storage/*.html.j2",
+    "resources/storage/*.png",
+    "resources/config/*.toml",
+    "resources/kit/*.html",
+    "resources/crypto/bip39_wordlist.txt",
     "py.typed",
 ]
 

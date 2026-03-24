@@ -19,21 +19,17 @@
 from __future__ import annotations
 
 import math
-from pathlib import Path
 from typing import Sequence
 
 from fpdf import FPDF
 
-from ..encoding.chunking import reassemble_payload
-from ..encoding.framing import VERSION, Frame, FrameType, encode_frame
-from ..encoding.zbase32 import encode_zbase32
-from .doc_types import DOC_TYPE_RECOVERY, DOC_TYPE_SHARD, DOC_TYPE_SIGNING_KEY_SHARD
-from .fallback import (
-    fallback_lines_from_sections,
-    label_line_height_fallback,
-)
-from .fallback_text import format_zbase32_lines
-from .geometry import (
+from ethernity.encoding.chunking import reassemble_payload
+from ethernity.encoding.framing import VERSION, Frame, FrameType, encode_frame
+from ethernity.encoding.zbase32 import encode_zbase32
+from ethernity.render.doc_types import DOC_TYPE_RECOVERY, DOC_TYPE_SHARD, DOC_TYPE_SIGNING_KEY_SHARD
+from ethernity.render.fallback import fallback_lines_from_sections, label_line_height_fallback
+from ethernity.render.fallback_text import format_zbase32_lines
+from ethernity.render.geometry import (
     adjust_rows_for_fallback,
     calc_cells,
     fallback_lines_per_page,
@@ -42,16 +38,16 @@ from .geometry import (
     line_length_from_groups,
     max_groups_for_width,
 )
-from .layout_policy import (
+from ethernity.render.layout_policy import (
     adjust_layout_fallback_capacity,
     fallback_text_width_override_mm,
     max_rows_override_for_template,
     resolve_layout_capabilities,
     should_force_max_rows,
 )
-from .spec import DocumentSpec
-from .template_style import TemplateCapabilities
-from .text import (
+from ethernity.render.spec import DocumentSpec
+from ethernity.render.template_style import TemplateCapabilities
+from ethernity.render.text import (
     header_height,
     instructions_height,
     is_fallback_label_line,
@@ -59,7 +55,7 @@ from .text import (
     text_block_width,
     wrap_lines_to_width,
 )
-from .types import Layout, RenderInputs
+from ethernity.render.types import Layout, RenderInputs
 
 __all__ = ["compute_layout"]
 
@@ -327,27 +323,31 @@ def compute_layout(
         )
     )
     normalized_doc_type = inputs.doc_type.strip().lower()
-    template_design = Path(inputs.template_path).parent.name.strip().lower()
-    if template_design == "archive" and normalized_doc_type in {
-        DOC_TYPE_SHARD,
-        DOC_TYPE_SIGNING_KEY_SHARD,
-    }:
+    if normalized_doc_type == DOC_TYPE_RECOVERY:
+        recovery_line_groups_bonus = capabilities.recovery_line_groups_bonus
+        if inputs.recovery_meta is not None and inputs.recovery_meta.quorum_value is None:
+            recovery_line_groups_bonus += capabilities.recovery_quorumless_line_groups_bonus
+        if recovery_line_groups_bonus > 0:
+            base_groups = groups_from_line_length(line_length, group_size)
+            line_length = line_length_from_groups(
+                base_groups + recovery_line_groups_bonus,
+                group_size,
+            )
+    elif normalized_doc_type == DOC_TYPE_SHARD and capabilities.shard_line_groups_bonus > 0:
         base_groups = groups_from_line_length(line_length, group_size)
-        line_length = line_length_from_groups(base_groups + 10, group_size)
-    if template_design == "forge" and normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD:
-        base_groups = groups_from_line_length(line_length, group_size)
-        line_length = line_length_from_groups(base_groups + 2, group_size)
-    if template_design == "sentinel" and normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD:
-        base_groups = groups_from_line_length(line_length, group_size)
-        line_length = line_length_from_groups(base_groups + 3, group_size)
-    if (
-        template_design == "sentinel"
-        and normalized_doc_type == DOC_TYPE_RECOVERY
-        and inputs.recovery_meta is not None
-        and inputs.recovery_meta.quorum_value is None
+        line_length = line_length_from_groups(
+            base_groups + capabilities.shard_line_groups_bonus,
+            group_size,
+        )
+    elif (
+        normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD
+        and capabilities.signing_key_shard_line_groups_bonus > 0
     ):
         base_groups = groups_from_line_length(line_length, group_size)
-        line_length = line_length_from_groups(base_groups + 1, group_size)
+        line_length = line_length_from_groups(
+            base_groups + capabilities.signing_key_shard_line_groups_bonus,
+            group_size,
+        )
 
     # Build fallback lines
     fallback_lines = _build_fallback_lines(inputs, group_size, line_length)
@@ -393,11 +393,13 @@ def compute_layout(
         recovery_meta_lines_extra=int(spec.header.meta_lines_extra),
         include_instructions=include_instructions,
     )
-    if template_design == "forge" and include_instructions:
+    if include_instructions:
         if normalized_doc_type == DOC_TYPE_SHARD:
-            fallback_lines_per_page_val += 1
+            fallback_lines_per_page_val += capabilities.shard_first_page_estimate_bonus_lines
         elif normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD:
-            fallback_lines_per_page_val += 3
+            fallback_lines_per_page_val += (
+                capabilities.signing_key_shard_first_page_estimate_bonus_lines
+            )
 
     # Calculate total pages
     frames_pages = (

@@ -29,7 +29,9 @@ import tempfile
 from pathlib import Path
 from typing import Any, cast
 
-from ethernity.cli.startup import ensure_playwright_browsers as _ensure_playwright_browsers
+from ethernity.cli.bootstrap.startup import (
+    ensure_playwright_browsers as _ensure_playwright_browsers,
+)
 from ethernity.crypto import decrypt_bytes
 from ethernity.crypto.sharding import decode_shard_payload
 from ethernity.encoding.chunking import reassemble_payload

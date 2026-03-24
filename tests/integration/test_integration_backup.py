@@ -18,7 +18,8 @@ import unittest
 from pathlib import Path
 
 from ethernity.cli import run_backup_command
-from ethernity.cli.core.types import BackupArgs
+from ethernity.cli.shared.types import BackupArgs
+from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from tests.test_support import ensure_playwright_browsers, suppress_output, temp_env
 
 
@@ -31,8 +32,7 @@ class TestIntegrationBackup(unittest.TestCase):
         payload = b"backup integration payload"
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
-            repo_root = Path(__file__).resolve().parents[2]
-            config_path = repo_root / "src" / "ethernity" / "config" / "config.toml"
+            config_path = DEFAULT_CONFIG_PATH
             env_overrides = {
                 "XDG_CONFIG_HOME": str(tmp_path / "xdg"),
             }

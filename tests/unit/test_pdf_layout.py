@@ -117,6 +117,7 @@ class TestPdfLayout(unittest.TestCase):
                     Path(__file__).resolve().parents[2]
                     / "src"
                     / "ethernity"
+                    / "resources"
                     / "templates"
                     / design
                     / "main_document.html.j2"
@@ -215,6 +216,7 @@ class TestPdfLayout(unittest.TestCase):
                     Path(__file__).resolve().parents[2]
                     / "src"
                     / "ethernity"
+                    / "resources"
                     / "templates"
                     / design
                     / "recovery_document.html.j2"
@@ -298,6 +300,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "ledger"
             / "main_document.html.j2"
@@ -332,6 +335,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "forge"
             / "main_document.html.j2"
@@ -366,6 +370,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "forge"
             / "main_document.html.j2"
@@ -401,6 +406,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "forge"
             / "main_document.html.j2"
@@ -465,6 +471,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "ledger"
             / "main_document.html.j2"
@@ -497,6 +504,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "forge"
             / "recovery_document.html.j2"
@@ -531,6 +539,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "forge"
             / "recovery_document.html.j2"
@@ -582,6 +591,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "sentinel"
             / "recovery_document.html.j2"
@@ -628,6 +638,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "sentinel"
             / "recovery_document.html.j2"
@@ -686,6 +697,7 @@ class TestPdfLayout(unittest.TestCase):
                 Path(__file__).resolve().parents[2]
                 / "src"
                 / "ethernity"
+                / "resources"
                 / "templates"
                 / "forge"
                 / "recovery_document.html.j2"
@@ -703,6 +715,7 @@ class TestPdfLayout(unittest.TestCase):
                 Path(__file__).resolve().parents[2]
                 / "src"
                 / "ethernity"
+                / "resources"
                 / "templates"
                 / "sentinel"
                 / "recovery_document.html.j2"
@@ -756,6 +769,7 @@ class TestPdfLayout(unittest.TestCase):
                 Path(__file__).resolve().parents[2]
                 / "src"
                 / "ethernity"
+                / "resources"
                 / "templates"
                 / "sentinel"
                 / "recovery_document.html.j2"
@@ -815,6 +829,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "sentinel"
             / "recovery_document.html.j2"
@@ -908,6 +923,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "forge"
             / "recovery_document.html.j2"
@@ -963,6 +979,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "forge"
             / "shard_document.html.j2"
@@ -999,6 +1016,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "forge"
             / "shard_document.html.j2"
@@ -1025,6 +1043,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "sentinel"
             / "shard_document.html.j2"
@@ -1065,6 +1084,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "ledger"
             / "shard_document.html.j2"
@@ -1108,6 +1128,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "forge"
             / "shard_document.html.j2"
@@ -1157,6 +1178,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "forge"
             / "signing_key_shard_document.html.j2"
@@ -1193,6 +1215,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "forge"
             / "signing_key_shard_document.html.j2"
@@ -1219,6 +1242,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "sentinel"
             / "signing_key_shard_document.html.j2"
@@ -1259,6 +1283,7 @@ class TestPdfLayout(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "forge"
             / "signing_key_shard_document.html.j2"

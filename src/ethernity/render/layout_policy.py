@@ -18,21 +18,21 @@
 
 from __future__ import annotations
 
-from .doc_types import (
+from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
     DOC_TYPE_MAIN,
     DOC_TYPE_RECOVERY,
     DOC_TYPE_SHARD,
     DOC_TYPE_SIGNING_KEY_SHARD,
 )
-from .spec import DocumentSpec
-from .template_style import (
+from ethernity.render.spec import DocumentSpec
+from ethernity.render.template_style import (
     RecoveryFallbackLayout,
     ShardFallbackLayout,
     TemplateCapabilities,
     load_template_style,
 )
-from .types import Layout, RenderInputs
+from ethernity.render.types import Layout, RenderInputs
 
 _MAIN_MAX_ROWS_CAP = 3
 _MAIN_FIRST_PAGE_ROWS_CAP = 2

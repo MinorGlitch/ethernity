@@ -24,7 +24,7 @@ from typing import Any, cast
 from Crypto.PublicKey import ECC
 from Crypto.Signature import eddsa
 
-from ..core.validation import (
+from ethernity.core.validation import (
     require_bytes,
     require_dict,
     require_int,
@@ -35,7 +35,7 @@ from ..core.validation import (
     require_non_negative_int,
     require_positive_int,
 )
-from ..encoding.cbor import dumps_canonical, loads_canonical
+from ethernity.encoding.cbor import dumps_canonical, loads_canonical
 
 AUTH_VERSION = 1
 AUTH_DOMAIN = b"ETHERNITY-AUTH-V1"

@@ -20,7 +20,8 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-const BASE91_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~\"";
+const BASE91_ALPHABET =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~"';
 const STYLE_TAG_RE = /<style\b[^>]*>([\s\S]*?)<\/style>/i;
 const CSS_CLASS_RE = /\.([A-Za-z_-][A-Za-z0-9_-]*)/g;
 const CLASS_TOKEN_RE = /[a-z0-9_-]+/g;
@@ -88,7 +89,11 @@ function buildClassMap(css) {
   const names = new Set();
   CSS_CLASS_RE.lastIndex = 0;
   let match = null;
-  while ((match = CSS_CLASS_RE.exec(css))) {
+  while (true) {
+    match = CSS_CLASS_RE.exec(css);
+    if (!match) {
+      break;
+    }
     const name = match[1];
     if (!PRESERVE_CLASS_TOKENS.has(name)) {
       names.add(name);
@@ -155,7 +160,7 @@ function readTemplateExpression(source, start) {
   let out = "";
   while (i < source.length) {
     const ch = source[i];
-    if (ch === "'" || ch === "\"") {
+    if (ch === "'" || ch === '"') {
       const parsed = readStringLiteral(source, i);
       out += parsed.text;
       i = parsed.end;
@@ -241,7 +246,7 @@ function replaceClassNamesInJs(source, map, classTokens) {
   let i = 0;
   while (i < source.length) {
     const ch = source[i];
-    if (ch === "'" || ch === "\"") {
+    if (ch === "'" || ch === '"') {
       const parsed = readStringLiteral(source, i, map, classTokens);
       out += parsed.text;
       i = parsed.end;
@@ -314,11 +319,9 @@ async function gzipWithLibdeflate(rawBundle, tmpBase) {
   if (!Number.isInteger(level) || level < 1 || level > 12) {
     throw new Error(`invalid ETHERNITY_KIT_LIBDEFLATE_LEVEL: ${levelRaw}`);
   }
-  const result = spawnSync(
-    "libdeflate-gzip",
-    [`-${level}`, "-c", inputPath],
-    { stdio: ["ignore", "pipe", "pipe"] }
-  );
+  const result = spawnSync("libdeflate-gzip", [`-${level}`, "-c", inputPath], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   if (result.error && result.error.code === "ENOENT") {
     return null;
   }
@@ -337,7 +340,7 @@ async function gzipBundlePayload(rawBundle, tmpBase) {
   const requested = (process.env.ETHERNITY_KIT_GZIP_COMPRESSOR ?? "libdeflate").toLowerCase();
   if (requested !== "libdeflate") {
     throw new Error(
-      "ETHERNITY_KIT_GZIP_COMPRESSOR must be 'libdeflate' (other compressors are not supported)"
+      "ETHERNITY_KIT_GZIP_COMPRESSOR must be 'libdeflate' (other compressors are not supported)",
     );
   }
   const libdeflateBytes = await gzipWithLibdeflate(rawBundle, tmpBase);
@@ -395,7 +398,8 @@ async function buildBundleVariant(variant) {
   const packagePath = resolve(packageDir, variant.bundleName);
   const tmpBase = resolve(tmpdir(), `ethernity-kit-${variant.id}-${Date.now()}`);
   const tmpOut = `${tmpBase}.min.js`;
-  const scannerHookPath = variant.scannerMode === "jsqr" ? scannerHookJsqrPath : scannerHookLeanPath;
+  const scannerHookPath =
+    variant.scannerMode === "jsqr" ? scannerHookJsqrPath : scannerHookLeanPath;
 
   const esbuildArgs = [
     entryPoint,
@@ -408,7 +412,7 @@ async function buildBundleVariant(variant) {
     "--minify",
     "--tree-shaking=true",
     "--legal-comments=none",
-    "--define:process.env.NODE_ENV=\"production\"",
+    '--define:process.env.NODE_ENV="production"',
     `--alias:microact=${microactIndexPath}`,
     `--alias:microact/hooks=${microactHooksPath}`,
     `--alias:microact/jsx-runtime=${microactJsxRuntimePath}`,
@@ -468,7 +472,7 @@ async function buildBundleVariant(variant) {
   const loaderResult = spawnSync(
     "npx",
     ["--no-install", "html-minifier-terser", ...loaderMinArgs],
-    { stdio: "inherit" }
+    { stdio: "inherit" },
   );
   if (loaderResult.status !== 0) {
     process.exit(loaderResult.status ?? 1);

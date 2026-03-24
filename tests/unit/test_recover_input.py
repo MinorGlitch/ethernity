@@ -22,7 +22,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.flows.recover_input import (
+from ethernity.cli.features.recover.input_collection import (
     _PayloadCollectionState,
     collect_fallback_frames,
     collect_payload_frames,
@@ -30,7 +30,11 @@ from ethernity.cli.flows.recover_input import (
     prompt_recovery_input_interactive,
     prompt_text_or_payloads_stdin,
 )
-from ethernity.cli.io.frames import _frame_from_payload_text, _frames_from_scan, _read_text_lines
+from ethernity.cli.shared.io.frames import (
+    _frame_from_payload_text,
+    _frames_from_scan,
+    _read_text_lines,
+)
 from ethernity.core.bounds import MAX_QR_PAYLOAD_CHARS
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
@@ -251,7 +255,7 @@ class TestRecoverInput(unittest.TestCase):
     def test_frames_from_scan_rejects_qr_payload_char_limit_overflow(self) -> None:
         oversized_payload = "A" * (MAX_QR_PAYLOAD_CHARS + 1)
         with mock.patch(
-            "ethernity.cli.io.frames.scan_qr_payloads",
+            "ethernity.cli.shared.io.frames.scan_qr_payloads",
             return_value=[oversized_payload],
         ):
             with self.assertRaisesRegex(ValueError, "MAX_QR_PAYLOAD_CHARS"):
@@ -261,13 +265,13 @@ class TestRecoverInput(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "recovery.txt"
             path.write_text("x" * 11, encoding="utf-8")
-            with mock.patch("ethernity.cli.io.frames.MAX_RECOVERY_TEXT_BYTES", 10):
+            with mock.patch("ethernity.cli.shared.io.frames.MAX_RECOVERY_TEXT_BYTES", 10):
                 with self.assertRaisesRegex(ValueError, "MAX_RECOVERY_TEXT_BYTES"):
                     _read_text_lines(str(path))
 
     def test_read_text_lines_rejects_recovery_text_stdin_size_overflow(self) -> None:
-        with mock.patch("ethernity.cli.io.frames.MAX_RECOVERY_TEXT_BYTES", 10):
-            with mock.patch("ethernity.cli.io.frames.sys.stdin", new=io.StringIO("x" * 11)):
+        with mock.patch("ethernity.cli.shared.io.frames.MAX_RECOVERY_TEXT_BYTES", 10):
+            with mock.patch("ethernity.cli.shared.io.frames.sys.stdin", new=io.StringIO("x" * 11)):
                 with self.assertRaisesRegex(ValueError, "MAX_RECOVERY_TEXT_BYTES"):
                     _read_text_lines("-")
 
@@ -275,7 +279,7 @@ class TestRecoverInput(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "recovery.txt"
             path.write_text("x" * 10, encoding="utf-8")
-            with mock.patch("ethernity.cli.io.frames.MAX_RECOVERY_TEXT_BYTES", 10):
+            with mock.patch("ethernity.cli.shared.io.frames.MAX_RECOVERY_TEXT_BYTES", 10):
                 lines = _read_text_lines(str(path))
         self.assertEqual(lines, ["x" * 10])
 
@@ -340,7 +344,9 @@ class TestRecoverInput(unittest.TestCase):
             total=1,
             data=b"same",
         )
-        with mock.patch("ethernity.cli.flows.recover_input.console.print") as print_mock:
+        with mock.patch(
+            "ethernity.cli.features.recover.input_collection.console.print"
+        ) as print_mock:
             self.assertTrue(state.ingest(frame))
             self.assertFalse(state.ingest(frame))
         self.assertTrue(
@@ -361,7 +367,9 @@ class TestRecoverInput(unittest.TestCase):
 
     def test_payload_collection_waiting_message_when_no_main_seen(self) -> None:
         state = _PayloadCollectionState(allow_unsigned=False, quiet=False)
-        with mock.patch("ethernity.cli.flows.recover_input.console.print") as print_mock:
+        with mock.patch(
+            "ethernity.cli.features.recover.input_collection.console.print"
+        ) as print_mock:
             self.assertFalse(state._is_complete())
         print_mock.assert_not_called()
 
@@ -375,14 +383,15 @@ class TestRecoverInput(unittest.TestCase):
             data=b"payload",
         )
         with mock.patch(
-            "ethernity.cli.flows.recover_input.prompt_required", return_value="bad input"
+            "ethernity.cli.features.recover.input_collection.prompt_required",
+            return_value="bad input",
         ):
             with mock.patch(
-                "ethernity.cli.flows.recover_input._detect_recovery_input_mode",
+                "ethernity.cli.features.recover.input_collection._detect_recovery_input_mode",
                 side_effect=ValueError("bad"),
             ):
                 with mock.patch(
-                    "ethernity.cli.flows.recover_input.collect_fallback_frames",
+                    "ethernity.cli.features.recover.input_collection.collect_fallback_frames",
                     return_value=[frame],
                 ) as collect_mock:
                     frames, label = prompt_text_or_payloads_stdin(
@@ -403,18 +412,19 @@ class TestRecoverInput(unittest.TestCase):
             data=b"payload",
         )
         with mock.patch(
-            "ethernity.cli.flows.recover_input.prompt_required", return_value="payload"
+            "ethernity.cli.features.recover.input_collection.prompt_required",
+            return_value="payload",
         ):
             with mock.patch(
-                "ethernity.cli.flows.recover_input._detect_recovery_input_mode",
+                "ethernity.cli.features.recover.input_collection._detect_recovery_input_mode",
                 return_value="payload",
             ):
                 with mock.patch(
-                    "ethernity.cli.flows.recover_input._frame_from_payload_text",
+                    "ethernity.cli.features.recover.input_collection._frame_from_payload_text",
                     return_value=first_frame,
                 ):
                     with mock.patch(
-                        "ethernity.cli.flows.recover_input.collect_payload_frames",
+                        "ethernity.cli.features.recover.input_collection.collect_payload_frames",
                         return_value=[first_frame],
                     ) as collect_mock:
                         frames, label = prompt_text_or_payloads_stdin(
@@ -435,19 +445,19 @@ class TestRecoverInput(unittest.TestCase):
             data=b"payload",
         )
         with mock.patch(
-            "ethernity.cli.flows.recover_input._frames_from_fallback_lines",
+            "ethernity.cli.features.recover.input_collection._frames_from_fallback_lines",
             side_effect=[ValueError("bad"), [frame]],
         ):
             with mock.patch(
-                "ethernity.cli.flows.recover_input.prompt_multiline",
+                "ethernity.cli.features.recover.input_collection.prompt_multiline",
                 return_value=["ybndr fghj"],
             ):
                 with mock.patch(
-                    "ethernity.cli.flows.recover_input.status",
+                    "ethernity.cli.features.recover.input_collection.status",
                     return_value=contextlib.nullcontext(),
                 ):
                     with mock.patch(
-                        "ethernity.cli.flows.recover_input.console.print"
+                        "ethernity.cli.features.recover.input_collection.console.print"
                     ) as print_mock:
                         frames = collect_fallback_frames(
                             allow_unsigned=True,
@@ -472,14 +482,16 @@ class TestRecoverInput(unittest.TestCase):
             data=b"payload",
         )
         with mock.patch(
-            "ethernity.cli.flows.recover_input.prompt_required",
+            "ethernity.cli.features.recover.input_collection.prompt_required",
             side_effect=["bad", "good"],
         ):
             with mock.patch(
-                "ethernity.cli.flows.recover_input._frame_from_payload_text",
+                "ethernity.cli.features.recover.input_collection._frame_from_payload_text",
                 side_effect=[ValueError("bad"), frame],
             ):
-                with mock.patch("ethernity.cli.flows.recover_input.console.print") as print_mock:
+                with mock.patch(
+                    "ethernity.cli.features.recover.input_collection.console.print"
+                ) as print_mock:
                     frames = collect_payload_frames(allow_unsigned=True, quiet=False)
         self.assertEqual(frames, [frame])
         self.assertTrue(
@@ -503,9 +515,11 @@ class TestRecoverInput(unittest.TestCase):
             total=1,
             data=b"auth",
         )
-        with mock.patch("ethernity.cli.flows.recover_input.prompt_required", return_value="auth"):
+        with mock.patch(
+            "ethernity.cli.features.recover.input_collection.prompt_required", return_value="auth"
+        ):
             with mock.patch(
-                "ethernity.cli.flows.recover_input._frame_from_payload_text",
+                "ethernity.cli.features.recover.input_collection._frame_from_payload_text",
                 return_value=auth_frame,
             ):
                 frames = collect_payload_frames(
@@ -527,12 +541,15 @@ class TestRecoverInput(unittest.TestCase):
             total=1,
             data=b"payload",
         )
-        with mock.patch("ethernity.cli.flows.recover_input.prompt_choice", return_value="text"):
+        with mock.patch(
+            "ethernity.cli.features.recover.input_collection.prompt_choice", return_value="text"
+        ):
             with mock.patch(
-                "ethernity.cli.flows.recover_input.prompt_path_with_picker", return_value="-"
+                "ethernity.cli.features.recover.input_collection.prompt_path_with_picker",
+                return_value="-",
             ):
                 with mock.patch(
-                    "ethernity.cli.flows.recover_input.prompt_text_or_payloads_stdin",
+                    "ethernity.cli.features.recover.input_collection.prompt_text_or_payloads_stdin",
                     return_value=([frame], "Recovery text"),
                 ):
                     frames, label, detail = prompt_recovery_input_interactive(
@@ -552,17 +569,19 @@ class TestRecoverInput(unittest.TestCase):
             total=1,
             data=b"payload",
         )
-        with mock.patch("ethernity.cli.flows.recover_input.prompt_choice", return_value="scan"):
+        with mock.patch(
+            "ethernity.cli.features.recover.input_collection.prompt_choice", return_value="scan"
+        ):
             with mock.patch(
-                "ethernity.cli.flows.recover_input.prompt_path_with_picker",
+                "ethernity.cli.features.recover.input_collection.prompt_path_with_picker",
                 return_value="scan.png",
             ):
                 with mock.patch(
-                    "ethernity.cli.flows.recover_input._recovery_frames_from_scan",
+                    "ethernity.cli.features.recover.input_collection._recovery_frames_from_scan",
                     return_value=[frame],
                 ) as recovery_scan:
                     with mock.patch(
-                        "ethernity.cli.flows.recover_input.status",
+                        "ethernity.cli.features.recover.input_collection.status",
                         return_value=contextlib.nullcontext(),
                     ):
                         frames, label, detail = prompt_recovery_input_interactive(
@@ -584,19 +603,19 @@ class TestRecoverInput(unittest.TestCase):
             data=b"payload",
         )
         with mock.patch(
-            "ethernity.cli.flows.recover_input.prompt_choice",
+            "ethernity.cli.features.recover.input_collection.prompt_choice",
             return_value="scan",
         ):
             with mock.patch(
-                "ethernity.cli.flows.recover_input.prompt_path_with_picker",
+                "ethernity.cli.features.recover.input_collection.prompt_path_with_picker",
                 return_value="backup-dir",
             ):
                 with mock.patch(
-                    "ethernity.cli.flows.recover_input._recovery_frames_from_scan",
+                    "ethernity.cli.features.recover.input_collection._recovery_frames_from_scan",
                     return_value=[main],
                 ) as recovery_scan:
                     with mock.patch(
-                        "ethernity.cli.flows.recover_input.status",
+                        "ethernity.cli.features.recover.input_collection.status",
                         return_value=contextlib.nullcontext(),
                     ):
                         frames, label, detail = prompt_recovery_input_interactive(
@@ -618,23 +637,23 @@ class TestRecoverInput(unittest.TestCase):
             data=b"payload",
         )
         with mock.patch(
-            "ethernity.cli.flows.recover_input.prompt_choice",
+            "ethernity.cli.features.recover.input_collection.prompt_choice",
             side_effect=["text", "scan"],
         ):
             with mock.patch(
-                "ethernity.cli.flows.recover_input.prompt_path_with_picker",
+                "ethernity.cli.features.recover.input_collection.prompt_path_with_picker",
                 side_effect=["recovery.txt", "scan.png"],
             ):
                 with mock.patch(
-                    "ethernity.cli.flows.recover_input._read_text_lines",
+                    "ethernity.cli.features.recover.input_collection._read_text_lines",
                     side_effect=[ValueError("bad"), ["line"]],
                 ):
                     with mock.patch(
-                        "ethernity.cli.flows.recover_input._recovery_frames_from_scan",
+                        "ethernity.cli.features.recover.input_collection._recovery_frames_from_scan",
                         return_value=[frame],
                     ):
                         with mock.patch(
-                            "ethernity.cli.flows.recover_input.status",
+                            "ethernity.cli.features.recover.input_collection.status",
                             return_value=contextlib.nullcontext(),
                         ):
                             frames, label, detail = prompt_recovery_input_interactive(

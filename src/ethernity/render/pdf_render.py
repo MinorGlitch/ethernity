@@ -29,22 +29,32 @@ from typing import Any, Callable, Literal, Sequence, cast
 
 from fpdf import FPDF
 
-from ..encoding.framing import encode_frame
-from ..qr.codec import QrConfig, qr_bytes
-from ..version import get_ethernity_version
-from .copy_catalog import build_copy_bundle
-from .doc_types import DOC_TYPE_KIT, DOC_TYPE_MAIN, DOC_TYPE_RECOVERY
-from .fallback import FallbackConsumerState, FallbackSectionData, build_fallback_sections_data
-from .html_to_pdf import render_html_to_pdf
-from .layout import compute_layout
-from .pages import build_pages
-from .recovery_meta import recovery_meta_lines_extra
-from .spec import DocumentSpec, document_spec
-from .template_model import DocModel, InstructionsModel, RecoveryModel, TemplateContext
-from .template_style import TemplateCapabilities, load_template_style
-from .templating import render_template
-from .text import page_format
-from .types import RenderInputs
+from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
+from ethernity.encoding.framing import encode_frame
+from ethernity.qr.codec import QrConfig, qr_bytes
+from ethernity.render.copy_catalog import build_copy_bundle
+from ethernity.render.doc_types import DOC_TYPE_KIT, DOC_TYPE_MAIN, DOC_TYPE_RECOVERY
+from ethernity.render.fallback import (
+    FallbackConsumerState,
+    FallbackSectionData,
+    build_fallback_sections_data,
+)
+from ethernity.render.html_to_pdf import render_html_to_pdf
+from ethernity.render.layout import compute_layout
+from ethernity.render.pages import build_pages
+from ethernity.render.recovery_meta import recovery_meta_lines_extra
+from ethernity.render.spec import DocumentSpec, document_spec
+from ethernity.render.template_model import (
+    DocModel,
+    InstructionsModel,
+    RecoveryModel,
+    TemplateContext,
+)
+from ethernity.render.template_style import TemplateCapabilities, load_template_style
+from ethernity.render.templating import render_template
+from ethernity.render.text import page_format
+from ethernity.render.types import RenderInputs
+from ethernity.version import get_ethernity_version
 
 _QR_URL_PREFIX = "https://ethernity.local/qr/"
 _ASSET_URL_PREFIX = "https://ethernity.local/assets/"
@@ -52,8 +62,7 @@ _RENDER_JOBS_ENV = "ETHERNITY_RENDER_JOBS"
 _DEFAULT_QR_WORKERS_CAP = 8
 _MIN_QR_TASKS_PER_WORKER = 4
 _CONTEXT_PASSTHROUGH_KEYS = ("inventory_rows",)
-_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-_TEMPLATE_ASSETS_DIR = _PACKAGE_ROOT / "templates" / "_shared" / "assets"
+_TEMPLATE_ASSETS_DIR = TEMPLATES_RESOURCE_ROOT / "_shared" / "assets"
 
 
 @dataclass(frozen=True)

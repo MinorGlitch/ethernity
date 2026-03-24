@@ -1,0 +1,43 @@
+{
+  "name": "sentinel",
+  "header": {
+    "meta_row_gap_mm": 1.2,
+    "stack_gap_mm": 1.2,
+    "divider_thickness_mm": 0.5
+  },
+  "content_offset": {
+    "divider_gap_extra_mm": 0.0,
+    "doc_types": []
+  },
+  "capabilities": {
+    "repeat_primary_qr_on_shard_continuation": true,
+    "advanced_fallback_layout": true,
+    "extra_main_first_page_qr_slot": true,
+    "recovery_quorumless_line_groups_bonus": 1,
+    "recovery_quorumless_first_page_bonus_lines": 5,
+    "recovery_quorumless_continuation_bonus_lines": 2,
+    "signing_key_shard_line_groups_bonus": 3,
+    "fallback_layout": {
+      "recovery": {
+        "line_height_floor_mm": 5.8,
+        "first_page_footer_reserve_mm": 35.4,
+        "continuation_footer_reserve_mm": 0.0,
+        "meta_baseline_lines": 3,
+        "meta_extra_line_mm": 8.0,
+        "meta_section_overhead_mm": 12.0,
+        "first_page_text_width_bonus_mm": 58.0,
+        "continuation_text_width_bonus_mm": 150.0
+      },
+      "shard": {
+        "line_height_floor_mm": 4.8,
+        "first_page_payload_zone_height_mm": 48.0,
+        "continuation_payload_zone_height_mm": 52.8
+      },
+      "signing_key_shard": {
+        "line_height_floor_mm": 4.2,
+        "first_page_payload_zone_height_mm": 71.4,
+        "continuation_payload_zone_height_mm": 46.2
+      }
+    }
+  }
+}

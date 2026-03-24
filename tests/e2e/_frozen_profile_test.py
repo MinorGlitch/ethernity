@@ -25,6 +25,7 @@ import unittest
 from pathlib import Path
 from typing import Any, cast
 
+from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.crypto import decrypt_bytes
 from ethernity.crypto.sharding import decode_shard_payload
 from ethernity.encoding.chunking import reassemble_payload
@@ -45,7 +46,7 @@ from tests.e2e._mint_fixture_support import (
 from tests.test_support import build_cli_env, ensure_playwright_browsers
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_CONFIG_PATH = _REPO_ROOT / "src" / "ethernity" / "config" / "config.toml"
+_CONFIG_PATH = DEFAULT_CONFIG_PATH
 _BINARY_PAYLOADS_MAGIC = b"EQPB"
 _BINARY_PAYLOADS_VERSION = 1
 

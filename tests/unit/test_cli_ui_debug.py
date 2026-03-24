@@ -22,21 +22,21 @@ from rich.panel import Panel
 from rich.rule import Rule
 from rich.table import Table
 
-from ethernity.cli.core.types import InputFile
-from ethernity.cli.ui import debug as debug_module
+from ethernity.cli.shared.types import InputFile
+from ethernity.cli.shared.ui import debug as debug_module
 from ethernity.core.models import DocumentPlan, ShardingConfig
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
 
 
 class TestUIDebugHelpers(unittest.TestCase):
-    @mock.patch("ethernity.cli.ui.debug.isatty", return_value=True)
+    @mock.patch("ethernity.cli.shared.ui.debug.isatty", return_value=True)
     def test_resolve_render_mode_prefers_rich_when_tty(
         self,
         _isatty: mock.MagicMock,
     ) -> None:
         self.assertEqual(debug_module._resolve_render_mode(), "rich_tty")
 
-    @mock.patch("ethernity.cli.ui.debug.isatty", return_value=False)
+    @mock.patch("ethernity.cli.shared.ui.debug.isatty", return_value=False)
     def test_resolve_render_mode_falls_back_to_plain_when_not_tty(
         self,
         _isatty: mock.MagicMock,
@@ -179,8 +179,8 @@ class TestDebugRenderers(unittest.TestCase):
     def _renderables(console_print: mock.MagicMock) -> list[object]:
         return [call.args[0] for call in console_print.call_args_list if call.args]
 
-    @mock.patch("ethernity.cli.ui.debug._resolve_render_mode", return_value="plain")
-    @mock.patch("ethernity.cli.ui.debug.console.print")
+    @mock.patch("ethernity.cli.shared.ui.debug._resolve_render_mode", return_value="plain")
+    @mock.patch("ethernity.cli.shared.ui.debug.console.print")
     def test_print_backup_debug_plain_masks_secrets_by_default(
         self,
         console_print: mock.MagicMock,
@@ -230,8 +230,8 @@ class TestDebugRenderers(unittest.TestCase):
         self.assertGreaterEqual(len(literal_calls), 10)
         self.assertTrue(any("00000000" in str(call.args[0]) for call in literal_calls if call.args))
 
-    @mock.patch("ethernity.cli.ui.debug._resolve_render_mode", return_value="plain")
-    @mock.patch("ethernity.cli.ui.debug.console.print")
+    @mock.patch("ethernity.cli.shared.ui.debug._resolve_render_mode", return_value="plain")
+    @mock.patch("ethernity.cli.shared.ui.debug.console.print")
     def test_print_backup_debug_plain_reveals_secrets_when_requested(
         self,
         console_print: mock.MagicMock,
@@ -261,9 +261,9 @@ class TestDebugRenderers(unittest.TestCase):
         self.assertNotIn("<masked chars=", rendered)
         self.assertIn('"path_encoding": "direct"', rendered)
 
-    @mock.patch("ethernity.cli.ui.debug._resolve_render_mode", return_value="plain")
-    @mock.patch("ethernity.cli.ui.debug._decode_manifest_raw", return_value=None)
-    @mock.patch("ethernity.cli.ui.debug.console.print")
+    @mock.patch("ethernity.cli.shared.ui.debug._resolve_render_mode", return_value="plain")
+    @mock.patch("ethernity.cli.shared.ui.debug._decode_manifest_raw", return_value=None)
+    @mock.patch("ethernity.cli.shared.ui.debug.console.print")
     def test_print_backup_debug_plain_decode_failure_message(
         self,
         console_print: mock.MagicMock,
@@ -289,8 +289,8 @@ class TestDebugRenderers(unittest.TestCase):
         self.assertIn("(unable to decode manifest CBOR map)", rendered)
         self.assertIn("- Signing seed stored in envelope: no", rendered)
 
-    @mock.patch("ethernity.cli.ui.debug._resolve_render_mode", return_value="rich_tty")
-    @mock.patch("ethernity.cli.ui.debug.console.print")
+    @mock.patch("ethernity.cli.shared.ui.debug._resolve_render_mode", return_value="rich_tty")
+    @mock.patch("ethernity.cli.shared.ui.debug.console.print")
     def test_print_backup_debug_rich_tty_uses_panel_table_and_rules(
         self,
         console_print: mock.MagicMock,
@@ -322,8 +322,8 @@ class TestDebugRenderers(unittest.TestCase):
         ]
         self.assertTrue(manifest_panels)
 
-    @mock.patch("ethernity.cli.ui.debug._resolve_render_mode", return_value="plain")
-    @mock.patch("ethernity.cli.ui.debug.console.print")
+    @mock.patch("ethernity.cli.shared.ui.debug._resolve_render_mode", return_value="plain")
+    @mock.patch("ethernity.cli.shared.ui.debug.console.print")
     def test_print_recover_debug_plain_masks_passphrase_and_shows_entries(
         self,
         console_print: mock.MagicMock,
@@ -357,8 +357,8 @@ class TestDebugRenderers(unittest.TestCase):
         self.assertIn("Manifest CBOR map JSON:", rendered)
         self.assertIn('"path_encoding": "prefix_table"', rendered)
 
-    @mock.patch("ethernity.cli.ui.debug._resolve_render_mode", return_value="plain")
-    @mock.patch("ethernity.cli.ui.debug.console.print")
+    @mock.patch("ethernity.cli.shared.ui.debug._resolve_render_mode", return_value="plain")
+    @mock.patch("ethernity.cli.shared.ui.debug.console.print")
     def test_print_recover_debug_plain_reveals_passphrase_and_handles_no_entries(
         self,
         console_print: mock.MagicMock,
@@ -382,8 +382,8 @@ class TestDebugRenderers(unittest.TestCase):
         self.assertIn("- Passphrase: open sesame", rendered)
         self.assertIn("(no entries)", rendered)
 
-    @mock.patch("ethernity.cli.ui.debug._resolve_render_mode", return_value="rich_tty")
-    @mock.patch("ethernity.cli.ui.debug.console.print")
+    @mock.patch("ethernity.cli.shared.ui.debug._resolve_render_mode", return_value="rich_tty")
+    @mock.patch("ethernity.cli.shared.ui.debug.console.print")
     def test_print_recover_debug_rich_tty_uses_entries_table(
         self,
         console_print: mock.MagicMock,

@@ -205,7 +205,6 @@ Current warning codes emitted by backup/recover flows:
 - `AUTH_SIGNATURE_INVALID`
 - `AUTH_FALLBACK_INVALID`
 - `FALLBACK_SECTION_INVALID`
-- `NON_FALLBACK_LINES_SKIPPED`
 - `RECOVERY_SHARD_PAYLOADS_IGNORED`
 - `BACKUP_SIGNING_KEY_SHARDING_DISABLED`
 - `BACKUP_QR_CHUNK_SIZE_REDUCED`
@@ -262,6 +261,10 @@ Stable recover `result.auth_status` values:
 - `signing_key.validated_shard_count|required_threshold|satisfied|source`
 - `mint_capabilities.can_mint_passphrase_shards|can_mint_signing_key_shards`
 - `blocking_issues` and `warnings`
+
+`mint_capabilities` is per output type and reflects both readiness and the currently enabled
+output toggles. A replacement-shard blocker can disable one capability while leaving the other
+available.
 
 When `ethernity api backup --layout-debug-dir <dir>` is used, each generated layout sidecar is
 emitted as an `artifact` event with kind `layout_debug_json`.

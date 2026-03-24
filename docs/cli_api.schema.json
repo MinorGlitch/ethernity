@@ -896,7 +896,6 @@
         "AUTH_SIGNATURE_INVALID",
         "AUTH_FALLBACK_INVALID",
         "FALLBACK_SECTION_INVALID",
-        "NON_FALLBACK_LINES_SKIPPED",
         "RECOVERY_SHARD_PAYLOADS_IGNORED",
         "BACKUP_SIGNING_KEY_SHARDING_DISABLED",
         "BACKUP_QR_CHUNK_SIZE_REDUCED"
@@ -1484,7 +1483,6 @@
         "auth_payloads_file",
         "signing_key_shard_fallback_file",
         "signing_key_shard_payloads_file",
-        "layout_debug_dir",
         "shard_threshold",
         "shard_count",
         "signing_key_shard_threshold",
@@ -1585,13 +1583,6 @@
           "items": {
             "$ref": "#/$defs/pathString"
           }
-        },
-        "layout_debug_dir": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "minLength": 1
         },
         "shard_threshold": {
           "type": [

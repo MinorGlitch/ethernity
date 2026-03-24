@@ -22,6 +22,7 @@ import unittest
 from pathlib import Path
 from typing import Any, cast
 
+from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.encoding.chunking import chunk_payload
 from ethernity.encoding.framing import DOC_ID_LEN, FrameType, decode_frame, encode_frame
@@ -45,7 +46,7 @@ class TestEndToEndCli(unittest.TestCase):
             input_path.write_text("backup cli payload", encoding="utf-8")
             output_dir = tmp_path / "backup"
             repo_root = Path(__file__).resolve().parents[2]
-            config_path = repo_root / "src" / "ethernity" / "config" / "config.toml"
+            config_path = DEFAULT_CONFIG_PATH
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
             result = subprocess.run(
@@ -279,7 +280,7 @@ class TestEndToEndCli(unittest.TestCase):
             input_path.write_text("backup cli payload", encoding="utf-8")
             output_dir = tmp_path / "backup"
             repo_root = Path(__file__).resolve().parents[2]
-            config_path = repo_root / "src" / "ethernity" / "config" / "config.toml"
+            config_path = DEFAULT_CONFIG_PATH
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
             result = subprocess.run(
@@ -322,7 +323,7 @@ class TestEndToEndCli(unittest.TestCase):
             parent_dir = tmp_path / "gui-backups"
             parent_dir.mkdir()
             repo_root = Path(__file__).resolve().parents[2]
-            config_path = repo_root / "src" / "ethernity" / "config" / "config.toml"
+            config_path = DEFAULT_CONFIG_PATH
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
             result = subprocess.run(
@@ -362,7 +363,7 @@ class TestEndToEndCli(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             repo_root = Path(__file__).resolve().parents[2]
-            config_path = repo_root / "src" / "ethernity" / "config" / "config.toml"
+            config_path = DEFAULT_CONFIG_PATH
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
             result = subprocess.run(
@@ -403,7 +404,7 @@ class TestEndToEndCli(unittest.TestCase):
             minted_dir = tmp_path / "minted"
             main_payloads = tmp_path / "main_payloads.txt"
             repo_root = Path(__file__).resolve().parents[2]
-            config_path = repo_root / "src" / "ethernity" / "config" / "config.toml"
+            config_path = DEFAULT_CONFIG_PATH
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
             backup = subprocess.run(
@@ -477,7 +478,7 @@ class TestEndToEndCli(unittest.TestCase):
             minted_parent.mkdir()
             main_payloads = tmp_path / "main_payloads.txt"
             repo_root = Path(__file__).resolve().parents[2]
-            config_path = repo_root / "src" / "ethernity" / "config" / "config.toml"
+            config_path = DEFAULT_CONFIG_PATH
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
             backup = subprocess.run(
@@ -673,7 +674,7 @@ class TestEndToEndCli(unittest.TestCase):
             output_dir = tmp_path / "backup"
             recovered_path = tmp_path / "recovered.bin"
             repo_root = Path(__file__).resolve().parents[2]
-            config_path = repo_root / "src" / "ethernity" / "config" / "config.toml"
+            config_path = DEFAULT_CONFIG_PATH
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
             backup = subprocess.run(
@@ -745,7 +746,7 @@ class TestEndToEndCli(unittest.TestCase):
             input_path.write_text("backup cli payload", encoding="utf-8")
             output_dir = tmp_path / "backup"
             repo_root = Path(__file__).resolve().parents[2]
-            config_path = repo_root / "src" / "ethernity" / "config" / "config.toml"
+            config_path = DEFAULT_CONFIG_PATH
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
             result = subprocess.run(
@@ -849,7 +850,7 @@ class TestEndToEndCli(unittest.TestCase):
             input_path.write_text("sealed mint payload", encoding="utf-8")
             output_dir = tmp_path / "backup"
             repo_root = Path(__file__).resolve().parents[2]
-            config_path = repo_root / "src" / "ethernity" / "config" / "config.toml"
+            config_path = DEFAULT_CONFIG_PATH
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
             backup = subprocess.run(

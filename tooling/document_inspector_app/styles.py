@@ -43,51 +43,51 @@ class ThemePalette:
 
 LIGHT_PALETTE = ThemePalette(
     name="light",
-    bg="#eef3fb",
-    hero="#e4edf9",
-    hero_panel="#f6f9ff",
-    panel="#fbfdff",
-    panel_alt="#f2f7fd",
-    panel_subtle="#e9f1fb",
-    border="#ced9e8",
-    border_strong="#b8c8dd",
-    text="#132033",
-    muted="#5f7288",
-    accent="#0f766e",
-    accent_active="#0b5f5a",
-    accent_soft="#d9f2ef",
-    accent_soft_text="#0d4f4b",
-    selection="#dcecff",
+    bg="#f3f4f6",
+    hero="#ffffff",
+    hero_panel="#f9fafb",
+    panel="#ffffff",
+    panel_alt="#f5f6f8",
+    panel_subtle="#ebedf1",
+    border="#e5e7eb",
+    border_strong="#d1d5db",
+    text="#111827",
+    muted="#6b7280",
+    accent="#0d9488",
+    accent_active="#0f766e",
+    accent_soft="#ccfbf1",
+    accent_soft_text="#115e59",
+    selection="#dbeafe",
     input_bg="#ffffff",
-    text_bg="#fdfefe",
-    status_bg="#edf8f6",
-    status_fg="#0d5c56",
-    scrollbar="#b9c8dc",
+    text_bg="#f9fafb",
+    status_bg="#f9fafb",
+    status_fg="#115e59",
+    scrollbar="#d1d5db",
 )
 
 
 DARK_PALETTE = ThemePalette(
     name="dark",
-    bg="#0d1522",
-    hero="#111c2c",
-    hero_panel="#172437",
-    panel="#132031",
-    panel_alt="#1a2a3d",
-    panel_subtle="#20344a",
-    border="#2d445d",
-    border_strong="#3b5875",
-    text="#edf4ff",
-    muted="#9db0c8",
-    accent="#58c7bb",
-    accent_active="#46aea3",
-    accent_soft="#1d4b4a",
-    accent_soft_text="#aaf1e9",
-    selection="#274a67",
-    input_bg="#0f1a29",
-    text_bg="#0d1928",
-    status_bg="#173631",
-    status_fg="#9de9de",
-    scrollbar="#46637f",
+    bg="#0f1117",
+    hero="#181b23",
+    hero_panel="#1f232d",
+    panel="#181b23",
+    panel_alt="#1f232d",
+    panel_subtle="#282d38",
+    border="#303643",
+    border_strong="#434b5e",
+    text="#e5e7eb",
+    muted="#9ca3af",
+    accent="#2dd4bf",
+    accent_active="#14b8a6",
+    accent_soft="#1a3a38",
+    accent_soft_text="#5eead4",
+    selection="#1e3a5f",
+    input_bg="#13161d",
+    text_bg="#14171f",
+    status_bg="#181b23",
+    status_fg="#5eead4",
+    scrollbar="#3d4452",
 )
 
 
@@ -210,8 +210,8 @@ class ThemeController:
             "highlightbackground": palette.border,
             "highlightcolor": palette.accent,
             "relief": "flat",
-            "padx": 14,
-            "pady": 12,
+            "padx": 10,
+            "pady": 8,
             "spacing1": 2,
             "spacing3": 2,
         }
@@ -238,15 +238,15 @@ class ThemeController:
         root = self.root
         style = self.style
 
-        default_font = (self.default_font_family, 12)
-        label_font = (self.default_font_family, 11)
-        title_font = (self.title_font_family, 13, "bold")
+        default_font = (self.default_font_family, 11)
+        label_font = (self.default_font_family, 10)
+        title_font = (self.title_font_family, 12, "bold")
         section_font = (self.title_font_family, 11, "bold")
         hero_title_font = (self.title_font_family, 25, "bold")
         hero_body_font = (self.default_font_family, 12)
         badge_font = (self.default_font_family, 10, "bold")
-        status_font = (self.default_font_family, 11, "bold")
-        notebook_font = (self.default_font_family, 11, "bold")
+        status_font = (self.default_font_family, 10)
+        notebook_font = (self.default_font_family, 10, "bold")
         heading_font = (self.title_font_family, 10, "bold")
 
         root.configure(background=palette.bg)
@@ -256,6 +256,7 @@ class ThemeController:
         root.option_add("*TCombobox*Listbox.selectBackground", palette.selection)
         root.option_add("*TCombobox*Listbox.selectForeground", palette.text)
 
+        # ── Frame styles ──────────────────────────────────────────
         style.configure("TFrame", background=palette.bg)
         style.configure("App.TFrame", background=palette.bg)
         style.configure("Hero.TFrame", background=palette.hero)
@@ -288,7 +289,35 @@ class ThemeController:
             borderwidth=1,
             relief="solid",
         )
+        style.configure(
+            "Header.TFrame",
+            background=palette.hero,
+            bordercolor=palette.border,
+            lightcolor=palette.border,
+            darkcolor=palette.border,
+            borderwidth=0,
+            relief="flat",
+        )
+        style.configure(
+            "ActionBar.TFrame",
+            background=palette.panel_alt,
+            bordercolor=palette.border,
+            lightcolor=palette.border,
+            darkcolor=palette.border,
+            borderwidth=0,
+            relief="flat",
+        )
+        style.configure(
+            "StatusBar.TFrame",
+            background=palette.status_bg,
+            bordercolor=palette.border,
+            lightcolor=palette.border,
+            darkcolor=palette.border,
+            borderwidth=1,
+            relief="flat",
+        )
 
+        # ── Label styles ──────────────────────────────────────────
         style.configure("TLabel", background=palette.bg, foreground=palette.text, font=default_font)
         style.configure(
             "Card.TLabel",
@@ -360,9 +389,58 @@ class ThemeController:
             "SectionTitle.TLabel",
             background=palette.panel,
             foreground=palette.text,
+            font=(self.title_font_family, 13, "bold"),
+        )
+        style.configure(
+            "BarTitle.TLabel",
+            background=palette.panel_alt,
+            foreground=palette.text,
+            font=(self.title_font_family, 13, "bold"),
+        )
+        style.configure(
+            "HeaderTitle.TLabel",
+            background=palette.hero,
+            foreground=palette.text,
             font=(self.title_font_family, 14, "bold"),
         )
+        style.configure(
+            "HeaderSession.TLabel",
+            background=palette.hero,
+            foreground=palette.accent,
+            font=(self.title_font_family, 11, "bold"),
+        )
+        style.configure(
+            "HeaderMeta.TLabel",
+            background=palette.hero,
+            foreground=palette.muted,
+            font=(self.default_font_family, 10),
+        )
+        style.configure(
+            "ActionBar.TLabel",
+            background=palette.panel_alt,
+            foreground=palette.muted,
+            font=(self.default_font_family, 10),
+        )
+        style.configure(
+            "StatusBar.TLabel",
+            background=palette.status_bg,
+            foreground=palette.muted,
+            font=(self.default_font_family, 10),
+        )
+        style.configure(
+            "StatusSession.TLabel",
+            background=palette.status_bg,
+            foreground=palette.accent_active,
+            font=(self.title_font_family, 10, "bold"),
+        )
+        style.configure(
+            "StatusMeta.TLabel",
+            background=palette.status_bg,
+            foreground=palette.muted,
+            font=(self.default_font_family, 10),
+        )
 
+        # ── LabelFrame styles ────────────────────────────────────
         style.configure(
             "ToolbarCard.TLabelframe",
             background=palette.panel,
@@ -380,6 +458,7 @@ class ThemeController:
             font=section_font,
         )
 
+        # ── Button styles ────────────────────────────────────────
         style.configure(
             "TButton",
             background=palette.panel_alt,
@@ -390,7 +469,7 @@ class ThemeController:
             focusthickness=0,
             focuscolor=palette.panel_alt,
             relief="flat",
-            padding=(14, 9),
+            padding=(10, 6),
         )
         style.map(
             "TButton",
@@ -413,8 +492,8 @@ class ThemeController:
             focuscolor=palette.accent,
             focusthickness=0,
             relief="flat",
-            padding=(16, 9),
-            font=(self.title_font_family, 11, "bold"),
+            padding=(12, 6),
+            font=(self.title_font_family, 10, "bold"),
         )
         style.map(
             "Primary.TButton",
@@ -436,7 +515,7 @@ class ThemeController:
             bordercolor=palette.border,
             lightcolor=palette.border,
             darkcolor=palette.border,
-            padding=(14, 9),
+            padding=(10, 6),
             arrowcolor=palette.accent_active,
             relief="flat",
         )
@@ -447,6 +526,7 @@ class ThemeController:
             arrowcolor=[("active", palette.accent)],
         )
 
+        # ── Input styles ─────────────────────────────────────────
         style.configure(
             "TEntry",
             fieldbackground=palette.input_bg,
@@ -455,7 +535,7 @@ class ThemeController:
             bordercolor=palette.border,
             lightcolor=palette.border,
             darkcolor=palette.border,
-            padding=8,
+            padding=5,
             relief="flat",
         )
         style.map(
@@ -474,7 +554,7 @@ class ThemeController:
             lightcolor=palette.border,
             darkcolor=palette.border,
             arrowcolor=palette.accent_active,
-            padding=8,
+            padding=5,
             relief="flat",
         )
         style.map(
@@ -485,6 +565,7 @@ class ThemeController:
             arrowcolor=[("active", palette.accent)],
         )
 
+        # ── Notebook styles ──────────────────────────────────────
         style.configure(
             "TNotebook",
             background=palette.panel,
@@ -495,7 +576,7 @@ class ThemeController:
             "TNotebook.Tab",
             background=palette.panel_alt,
             foreground=palette.muted,
-            padding=(16, 10),
+            padding=(12, 7),
             font=notebook_font,
             borderwidth=0,
         )
@@ -505,6 +586,7 @@ class ThemeController:
             foreground=[("selected", palette.accent_active), ("active", palette.text)],
         )
 
+        # ── Treeview styles ──────────────────────────────────────
         style.configure(
             "Treeview",
             background=palette.text_bg,
@@ -513,7 +595,7 @@ class ThemeController:
             bordercolor=palette.border,
             lightcolor=palette.border,
             darkcolor=palette.border,
-            rowheight=30,
+            rowheight=26,
             relief="flat",
         )
         style.map(
@@ -530,12 +612,14 @@ class ThemeController:
             lightcolor=palette.border,
             darkcolor=palette.border,
             relief="flat",
-            padding=(10, 9),
+            padding=(8, 6),
         )
         style.map("Treeview.Heading", background=[("active", palette.panel_subtle)])
 
+        # ── Misc styles ──────────────────────────────────────────
         style.configure("TPanedwindow", background=palette.bg)
-        style.configure("Sash", background=palette.border, sashthickness=10)
+        style.configure("Sash", background=palette.border, sashthickness=6)
+        style.configure("TSeparator", background=palette.border)
 
         for widget in list(self._text_widgets):
             self._apply_text_widget(widget)

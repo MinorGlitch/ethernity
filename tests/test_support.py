@@ -18,7 +18,9 @@ import os
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from unittest import mock
 
-from ethernity.cli.startup import ensure_playwright_browsers as _ensure_playwright_browsers
+from ethernity.cli.bootstrap.startup import (
+    ensure_playwright_browsers as _ensure_playwright_browsers,
+)
 
 # =============================================================================
 # Environment Helpers

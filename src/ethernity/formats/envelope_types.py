@@ -20,8 +20,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
-from ..core.validation import (
+from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
+from ethernity.core.validation import (
     normalize_manifest_path,
     normalize_path,
     require_bool,
@@ -35,7 +35,7 @@ from ..core.validation import (
     require_non_negative_int,
     require_str,
 )
-from ..encoding.cbor import dumps_canonical
+from ethernity.encoding.cbor import dumps_canonical
 
 MANIFEST_VERSION = 1
 SIGNING_SEED_LEN = 32

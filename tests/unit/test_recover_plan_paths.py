@@ -19,8 +19,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.core.types import RecoverArgs
-from ethernity.cli.flows import recover_plan
+from ethernity.cli.features.recover import planning as recover_plan
+from ethernity.cli.shared.types import RecoverArgs
 
 
 def _home_env(home: Path) -> dict[str, str]:

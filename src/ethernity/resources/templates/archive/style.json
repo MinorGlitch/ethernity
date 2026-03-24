@@ -1,0 +1,23 @@
+{
+  "name": "archive",
+  "header": {
+    "meta_row_gap_mm": 1.2,
+    "stack_gap_mm": 1.2,
+    "divider_thickness_mm": 0.5
+  },
+  "content_offset": {
+    "divider_gap_extra_mm": 2.8,
+    "doc_types": [
+      "main"
+    ]
+  },
+  "capabilities": {
+    "main_qr_grid_size_mm": 58.6,
+    "recovery_line_groups_bonus": 5,
+    "recovery_first_page_bonus_lines": 13,
+    "recovery_first_page_bonus_lines_per_extra_section": 2,
+    "recovery_continuation_bonus_lines": 16,
+    "shard_line_groups_bonus": 10,
+    "signing_key_shard_line_groups_bonus": 10
+  }
+}

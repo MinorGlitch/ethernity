@@ -16,7 +16,7 @@
 import unittest
 from unittest import mock
 
-from ethernity.cli.flows.prompts import _resolve_recover_output
+from ethernity.cli.shared.recovery_prompts import _resolve_recover_output
 
 
 class _ManifestEntry:
@@ -26,8 +26,8 @@ class _ManifestEntry:
 
 
 class TestResolveRecoverOutput(unittest.TestCase):
-    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
-    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
     def test_single_file_defaults_to_inferred_manifest_name(
         self,
         mock_prompt_choice: mock.MagicMock,
@@ -48,8 +48,8 @@ class TestResolveRecoverOutput(unittest.TestCase):
         self.assertEqual(resolved, "final-name.tar.gz")
         mock_prompt_optional_path_with_picker.assert_not_called()
 
-    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
-    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
     def test_single_file_custom_blank_falls_back_to_inferred_name(
         self,
         mock_prompt_choice: mock.MagicMock,
@@ -71,8 +71,8 @@ class TestResolveRecoverOutput(unittest.TestCase):
         self.assertEqual(resolved, "report.pdf")
         mock_prompt_optional_path_with_picker.assert_called_once()
 
-    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
-    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
     def test_single_file_stdout_bypasses_filename_prompt(
         self,
         mock_prompt_choice: mock.MagicMock,
@@ -92,8 +92,8 @@ class TestResolveRecoverOutput(unittest.TestCase):
         self.assertIsNone(resolved)
         mock_prompt_optional_path_with_picker.assert_not_called()
 
-    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
-    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
     def test_single_file_missing_manifest_path_uses_bin_fallback(
         self,
         mock_prompt_choice: mock.MagicMock,
@@ -113,8 +113,8 @@ class TestResolveRecoverOutput(unittest.TestCase):
         self.assertEqual(resolved, "recovered.bin")
         mock_prompt_optional_path_with_picker.assert_not_called()
 
-    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
-    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
     def test_multi_file_default_directory_unchanged(
         self,
         mock_prompt_choice: mock.MagicMock,
@@ -173,8 +173,8 @@ class TestResolveRecoverOutput(unittest.TestCase):
             )
         )
 
-    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
-    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
     def test_multi_file_without_doc_id_uses_recovered_output_default(
         self,
         mock_prompt_choice: mock.MagicMock,
@@ -193,8 +193,8 @@ class TestResolveRecoverOutput(unittest.TestCase):
         self.assertEqual(resolved, "recovered-output")
         mock_prompt_optional_path_with_picker.assert_not_called()
 
-    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
-    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
     def test_inferred_filename_trims_to_basename(
         self,
         mock_prompt_choice: mock.MagicMock,
@@ -213,8 +213,8 @@ class TestResolveRecoverOutput(unittest.TestCase):
         self.assertEqual(resolved, "archive.zip")
         mock_prompt_optional_path_with_picker.assert_not_called()
 
-    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
-    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
     def test_single_entry_directory_origin_uses_directory_prompt(
         self,
         mock_prompt_choice: mock.MagicMock,
@@ -236,8 +236,8 @@ class TestResolveRecoverOutput(unittest.TestCase):
         mock_prompt_choice.assert_called_once()
         mock_prompt_optional_path_with_picker.assert_not_called()
 
-    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
-    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
     def test_single_entry_directory_origin_with_prefixed_entry_uses_fallback(
         self,
         mock_prompt_choice: mock.MagicMock,
@@ -258,8 +258,8 @@ class TestResolveRecoverOutput(unittest.TestCase):
         mock_prompt_choice.assert_called_once()
         mock_prompt_optional_path_with_picker.assert_not_called()
 
-    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
-    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
     def test_single_entry_directory_origin_rejects_parent_dot_segment_root(
         self,
         mock_prompt_choice: mock.MagicMock,
@@ -280,8 +280,8 @@ class TestResolveRecoverOutput(unittest.TestCase):
         mock_prompt_choice.assert_called_once()
         mock_prompt_optional_path_with_picker.assert_not_called()
 
-    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
-    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
     def test_single_entry_directory_origin_rejects_current_dot_segment_root(
         self,
         mock_prompt_choice: mock.MagicMock,
@@ -302,8 +302,8 @@ class TestResolveRecoverOutput(unittest.TestCase):
         mock_prompt_choice.assert_called_once()
         mock_prompt_optional_path_with_picker.assert_not_called()
 
-    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
-    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
     def test_single_entry_mixed_origin_uses_directory_prompt(
         self,
         mock_prompt_choice: mock.MagicMock,
@@ -325,8 +325,8 @@ class TestResolveRecoverOutput(unittest.TestCase):
         mock_prompt_choice.assert_called_once()
         mock_prompt_optional_path_with_picker.assert_called_once()
 
-    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
-    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
     def test_mixed_origin_ignores_roots_and_uses_fallback_directory(
         self,
         mock_prompt_choice: mock.MagicMock,
@@ -350,8 +350,8 @@ class TestResolveRecoverOutput(unittest.TestCase):
         mock_prompt_choice.assert_called_once()
         mock_prompt_optional_path_with_picker.assert_not_called()
 
-    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
-    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
     def test_directory_origin_with_multiple_roots_uses_fallback_directory(
         self,
         mock_prompt_choice: mock.MagicMock,
@@ -375,8 +375,8 @@ class TestResolveRecoverOutput(unittest.TestCase):
         mock_prompt_choice.assert_called_once()
         mock_prompt_optional_path_with_picker.assert_not_called()
 
-    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
-    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
     def test_directory_origin_multi_file_with_prefixed_paths_uses_fallback_directory(
         self,
         mock_prompt_choice: mock.MagicMock,
@@ -400,8 +400,8 @@ class TestResolveRecoverOutput(unittest.TestCase):
         mock_prompt_choice.assert_called_once()
         mock_prompt_optional_path_with_picker.assert_not_called()
 
-    @mock.patch("ethernity.cli.flows.prompts.prompt_optional_path_with_picker")
-    @mock.patch("ethernity.cli.flows.prompts.prompt_choice")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_optional_path_with_picker")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
     def test_multi_file_custom_blank_directory_falls_back_to_inferred_default(
         self,
         mock_prompt_choice: mock.MagicMock,

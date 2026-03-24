@@ -25,13 +25,25 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest import mock
 
+import click
 from jsonschema import validators
 from jsonschema.exceptions import ValidationError
 from typer.testing import CliRunner
 
 from ethernity import cli
-from ethernity.cli import api_codes
-from ethernity.cli.core.types import (
+from ethernity.cli.features.backup.api_handlers import run_backup_api_command
+from ethernity.cli.features.config.api_handlers import (
+    run_config_get_api_command,
+    run_config_set_api_command,
+)
+from ethernity.cli.features.mint.api_handlers import (
+    run_mint_api_command,
+    run_mint_inspect_api_command,
+)
+from ethernity.cli.features.recover.service import execute_recover_plan
+from ethernity.cli.shared import api_codes
+from ethernity.cli.shared.ndjson import ndjson_session
+from ethernity.cli.shared.types import (
     BackupArgs,
     BackupResult,
     ConfigGetArgs,
@@ -40,12 +52,8 @@ from ethernity.cli.core.types import (
     MintArgs,
     MintResult,
 )
-from ethernity.cli.flows.backup_api import run_backup_api_command
-from ethernity.cli.flows.config_api import run_config_get_api_command, run_config_set_api_command
-from ethernity.cli.flows.mint_api import run_mint_api_command, run_mint_inspect_api_command
-from ethernity.cli.flows.recover_service import execute_recover_plan
-from ethernity.cli.ndjson import ndjson_session
 from ethernity.config import CliDefaults, RecoverDefaults, load_app_config
+from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.core.models import DocumentPlan, SigningSeedMode
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
 
@@ -55,7 +63,6 @@ V1_1_BASE64_ROOT = REPO_ROOT / "tests" / "fixtures" / "v1_1" / "golden" / "base6
 V1_1_RAW_ROOT = REPO_ROOT / "tests" / "fixtures" / "v1_1" / "golden" / "raw"
 V1_1_SHARDED_EMBEDDED_FIXTURE_ROOT = V1_1_BASE64_ROOT / "sharded_embedded"
 V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT = V1_1_RAW_ROOT / "sharded_signing_sharded"
-DEFAULT_CONFIG_PATH = REPO_ROOT / "src" / "ethernity" / "config" / "config.toml"
 CLI_API_SCHEMA_PATH = REPO_ROOT / "docs" / "cli_api.schema.json"
 CLI_API_CONTRACTS_PATH = REPO_ROOT / "tests" / "fixtures" / "cli_api" / "contracts.json"
 FIXTURE_PASSPHRASE = "stable-v1-baseline-passphrase"
@@ -103,7 +110,9 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(list(api_codes.STABLE_WARNING_CODES), contracts["stable_warning_codes"])
 
     def test_api_help_lists_recover(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False) as run_startup:
+        with mock.patch(
+            "ethernity.cli.bootstrap.app.run_startup", return_value=False
+        ) as run_startup:
             result = self.runner.invoke(
                 cli.app,
                 ["--config", str(DEFAULT_CONFIG_PATH), "api", "--help"],
@@ -124,7 +133,7 @@ class TestCliApi(unittest.TestCase):
             return 0
 
         with mock.patch(
-            "ethernity.cli.commands.api.run_config_get_api_command", side_effect=_capture
+            "ethernity.cli.features.api.command.run_config_get_api_command", side_effect=_capture
         ):
             result = self.runner.invoke(
                 cli.app,
@@ -189,7 +198,8 @@ class TestCliApi(unittest.TestCase):
         buffer = io.StringIO()
         with (
             mock.patch(
-                "ethernity.cli.flows.config_api.get_api_config_snapshot", return_value=snapshot
+                "ethernity.cli.features.config.api_handlers.get_api_config_snapshot",
+                return_value=snapshot,
             ),
             ndjson_session(stream=buffer),
         ):
@@ -261,11 +271,12 @@ class TestCliApi(unittest.TestCase):
         buffer = io.StringIO()
         with (
             mock.patch(
-                "ethernity.cli.flows.config_api.apply_api_config_patch", return_value=snapshot
+                "ethernity.cli.features.config.api_handlers.apply_api_config_patch",
+                return_value=snapshot,
             ) as apply_patch,
             ndjson_session(stream=buffer),
             mock.patch(
-                "ethernity.cli.flows.config_api.sys.stdin",
+                "ethernity.cli.features.config.api_handlers.sys.stdin",
                 io.StringIO('{"values":{"page":{"size":"LETTER"}}}'),
             ),
         ):
@@ -281,7 +292,7 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["operation"], "set")
 
     def test_api_config_set_invalid_json_emits_structured_error(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 cli.app,
                 ["api", "config", "set", "--input-json", "-"],
@@ -294,7 +305,7 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["code"], api_codes.CONFIG_JSON_INVALID)
 
     def test_api_config_set_rejects_non_object_json(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 cli.app,
                 ["api", "config", "set", "--input-json", "-"],
@@ -309,7 +320,7 @@ class TestCliApi(unittest.TestCase):
     def test_api_config_set_invalid_patch_does_not_create_user_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "ethernity" / "config.toml"
-            with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
                 result = self.runner.invoke(
                     cli.app,
                     ["api", "config", "set", "--input-json", "-"],
@@ -323,8 +334,28 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["code"], "CONFIG_INVALID_VALUE")
         self.assertFalse(config_path.exists())
 
+    def test_api_config_set_invalid_values_do_not_emit_write_phase(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+                result = self.runner.invoke(
+                    cli.app,
+                    ["api", "config", "set", "--input-json", "-"],
+                    input='{"values":{"page":{"size":"LEGAL"}}}',
+                    env={"XDG_CONFIG_HOME": tmpdir},
+                )
+
+        self.assertEqual(result.exit_code, 2)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual([event["type"] for event in events], ["started", "phase", "error"])
+        self.assertEqual(
+            [event["id"] for event in events if event["type"] == "phase"],
+            ["validate"],
+        )
+        self.assertEqual(events[-1]["code"], api_codes.CONFIG_INVALID_VALUE)
+
     def test_api_config_set_missing_patch_file_emits_io_error(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 cli.app,
                 ["api", "config", "set", "--input-json", "/no/such/patch.json"],
@@ -339,9 +370,10 @@ class TestCliApi(unittest.TestCase):
     def test_api_command_does_not_run_startup(self) -> None:
         with (
             mock.patch(
-                "ethernity.cli.app.run_startup", side_effect=AssertionError("startup-called")
+                "ethernity.cli.bootstrap.app.run_startup",
+                side_effect=AssertionError("startup-called"),
             ) as run_startup,
-            mock.patch("ethernity.cli.commands.api.run_backup_api_command", return_value=0),
+            mock.patch("ethernity.cli.features.api.command.run_backup_api_command", return_value=0),
         ):
             result = self.runner.invoke(
                 cli.app,
@@ -355,7 +387,8 @@ class TestCliApi(unittest.TestCase):
     def test_api_defaults_load_failure_emits_ndjson_error(self) -> None:
         with (
             mock.patch(
-                "ethernity.cli.app.load_cli_defaults", side_effect=ValueError("defaults-failed")
+                "ethernity.cli.bootstrap.app.load_cli_defaults",
+                side_effect=ValueError("defaults-failed"),
             ),
         ):
             result = self.runner.invoke(
@@ -378,11 +411,11 @@ class TestCliApi(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.app.run_startup",
+                "ethernity.cli.bootstrap.app.run_startup",
                 side_effect=AssertionError("startup-called"),
             ) as run_startup,
             mock.patch(
-                "ethernity.cli.commands.api.run_backup_api_command",
+                "ethernity.cli.features.api.command.run_backup_api_command",
                 side_effect=CustomFailure("boom"),
             ),
         ):
@@ -399,6 +432,26 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["code"], api_codes.RUNTIME_ERROR)
         self.assertEqual(events[-1]["details"]["error_type"], "CustomFailure")
 
+    def test_api_click_abort_emits_cancelled_and_exit_130(self) -> None:
+        with (
+            mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False),
+            mock.patch(
+                "ethernity.cli.features.api.command.run_backup_api_command",
+                side_effect=click.Abort(),
+            ),
+        ):
+            result = self.runner.invoke(
+                cli.app,
+                ["--config", str(DEFAULT_CONFIG_PATH), "api", "backup", "--input", "-"],
+                input="payload",
+            )
+
+        self.assertEqual(result.exit_code, 130)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(events[-1]["type"], "error")
+        self.assertEqual(events[-1]["code"], api_codes.CANCELLED)
+
     def test_api_backup_flag_values_reach_command(self) -> None:
         captured: dict[str, object] = {}
 
@@ -409,9 +462,9 @@ class TestCliApi(unittest.TestCase):
             captured["shard_threshold"] = args.shard_threshold
             return 0
 
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             with mock.patch(
-                "ethernity.cli.commands.api.run_backup_api_command",
+                "ethernity.cli.features.api.command.run_backup_api_command",
                 side_effect=_capture_args,
             ):
                 result = self.runner.invoke(
@@ -441,7 +494,7 @@ class TestCliApi(unittest.TestCase):
         payloads_file = V1_FIXTURE_ROOT / "main_payloads.txt"
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "recovered.bin"
-            with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
                 result = self.runner.invoke(
                     cli.app,
                     [
@@ -478,7 +531,7 @@ class TestCliApi(unittest.TestCase):
     def test_api_recover_result_uses_same_normalized_path_as_artifact(self) -> None:
         payloads_file = V1_FIXTURE_ROOT / "main_payloads.txt"
         with self.runner.isolated_filesystem():
-            with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
                 result = self.runner.invoke(
                     cli.app,
                     [
@@ -506,7 +559,7 @@ class TestCliApi(unittest.TestCase):
         payloads_file = V1_FIXTURE_ROOT / "main_payloads.txt"
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "recovered.bin"
-            with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
                 result = self.runner.invoke(
                     cli.app,
                     [
@@ -532,7 +585,7 @@ class TestCliApi(unittest.TestCase):
 
     def test_api_recover_without_output_emits_structured_error(self) -> None:
         payloads_file = V1_FIXTURE_ROOT / "main_payloads.txt"
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 cli.app,
                 [
@@ -559,8 +612,8 @@ class TestCliApi(unittest.TestCase):
         payloads_file = V1_FIXTURE_ROOT / "main_payloads.txt"
         defaults = CliDefaults(recover=RecoverDefaults(output="/tmp/stale-output.bin"))
         with (
-            mock.patch("ethernity.cli.app.run_startup", return_value=False),
-            mock.patch("ethernity.cli.app.load_cli_defaults", return_value=defaults),
+            mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False),
+            mock.patch("ethernity.cli.bootstrap.app.load_cli_defaults", return_value=defaults),
         ):
             result = self.runner.invoke(
                 cli.app,
@@ -589,9 +642,9 @@ class TestCliApi(unittest.TestCase):
             return 0
 
         with (
-            mock.patch("ethernity.cli.app.run_startup", return_value=False),
+            mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False),
             mock.patch(
-                "ethernity.cli.commands.api.run_recover_inspect_api_command",
+                "ethernity.cli.features.api.command.run_recover_inspect_api_command",
                 side_effect=_capture_args,
             ),
         ):
@@ -616,7 +669,7 @@ class TestCliApi(unittest.TestCase):
         self.assertIsNone(captured["output"])
 
     def test_api_inspect_recover_emits_ndjson_without_artifacts(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 cli.app,
                 [
@@ -653,7 +706,7 @@ class TestCliApi(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             shard_payloads_path = Path(tmpdir) / "single-shard.txt"
             shard_payloads_path.write_text(first_line + "\n", encoding="utf-8")
-            with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
                 result = self.runner.invoke(
                     cli.app,
                     [
@@ -690,9 +743,9 @@ class TestCliApi(unittest.TestCase):
             return 0
 
         with (
-            mock.patch("ethernity.cli.app.run_startup", return_value=False),
+            mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False),
             mock.patch(
-                "ethernity.cli.commands.api.run_recover_api_command",
+                "ethernity.cli.features.api.command.run_recover_api_command",
                 side_effect=_capture_args,
             ),
         ):
@@ -720,7 +773,7 @@ class TestCliApi(unittest.TestCase):
         payload_text = (V1_FIXTURE_ROOT / "main_payloads.txt").read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "recovered.bin"
-            with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
                 result = self.runner.invoke(
                     cli.app,
                     [
@@ -747,7 +800,7 @@ class TestCliApi(unittest.TestCase):
         self.assertTrue(recovered)
 
     def test_api_recover_missing_shard_dir_emits_structured_error_code(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 cli.app,
                 [
@@ -772,7 +825,7 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[0]["code"], "SHARD_DIR_NOT_FOUND")
 
     def test_api_recover_missing_payload_file_emits_not_found(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 cli.app,
                 [
@@ -796,7 +849,7 @@ class TestCliApi(unittest.TestCase):
 
     def test_api_recover_invalid_paper_emits_ndjson_error(self) -> None:
         payloads_file = V1_FIXTURE_ROOT / "main_payloads.txt"
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 cli.app,
                 [
@@ -858,13 +911,13 @@ class TestCliApi(unittest.TestCase):
             )
 
         with (
-            mock.patch("ethernity.cli.app.run_startup", return_value=False),
+            mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False),
             mock.patch(
-                "ethernity.cli.flows.recover_api.prepare_recover_plan",
+                "ethernity.cli.features.recover.api_handlers.prepare_recover_plan",
                 return_value=SimpleNamespace(allow_unsigned=False),
             ),
             mock.patch(
-                "ethernity.cli.flows.recover_api.execute_recover_plan",
+                "ethernity.cli.features.recover.api_handlers.execute_recover_plan",
                 side_effect=_capture_execute,
             ),
         ):
@@ -895,7 +948,7 @@ class TestCliApi(unittest.TestCase):
         self.assertTrue(captured["quiet"])
 
     def test_api_backup_without_inputs_emits_structured_error(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 cli.app,
                 ["--config", str(DEFAULT_CONFIG_PATH), "api", "backup"],
@@ -907,7 +960,7 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[0]["code"], "INPUT_REQUIRED")
 
     def test_api_backup_missing_input_file_emits_not_found(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 cli.app,
                 [
@@ -926,7 +979,7 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["code"], api_codes.NOT_FOUND)
 
     def test_api_backup_invalid_paper_emits_ndjson_error(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 cli.app,
                 [
@@ -950,7 +1003,7 @@ class TestCliApi(unittest.TestCase):
         self.assertIn("paper must be A4 or LETTER", events[0]["message"])
 
     def test_api_backup_invalid_signing_key_mode_emits_ndjson_error(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 cli.app,
                 [
@@ -973,7 +1026,7 @@ class TestCliApi(unittest.TestCase):
         self.assertIn("--signing-key-mode", events[0]["message"])
 
     def test_api_backup_invalid_integer_option_emits_ndjson_error(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 cli.app,
                 [
@@ -1000,7 +1053,7 @@ class TestCliApi(unittest.TestCase):
             input_path = Path("payload.bin")
             input_path.write_bytes(b"payload")
 
-            with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+            with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
                 result = self.runner.invoke(
                     cli.app,
                     [
@@ -1065,11 +1118,11 @@ class TestCliApi(unittest.TestCase):
         )
         with (
             mock.patch(
-                "ethernity.cli.flows.backup_api.prepare_backup_run",
+                "ethernity.cli.features.backup.api_handlers.prepare_backup_run",
                 return_value=prepared,
             ),
             mock.patch(
-                "ethernity.cli.flows.backup_api.execute_prepared_backup",
+                "ethernity.cli.features.backup.api_handlers.execute_prepared_backup",
                 return_value=result,
             ),
             mock.patch(
@@ -1129,11 +1182,11 @@ class TestCliApi(unittest.TestCase):
         buffer = io.StringIO()
         with (
             mock.patch(
-                "ethernity.cli.flows.backup_api.prepare_backup_run",
+                "ethernity.cli.features.backup.api_handlers.prepare_backup_run",
                 return_value=prepared,
             ),
             mock.patch(
-                "ethernity.cli.flows.backup_api.execute_prepared_backup",
+                "ethernity.cli.features.backup.api_handlers.execute_prepared_backup",
                 return_value=result,
             ),
             mock.patch("pathlib.Path.exists", return_value=False),
@@ -1184,11 +1237,11 @@ class TestCliApi(unittest.TestCase):
         buffer = io.StringIO()
         with (
             mock.patch(
-                "ethernity.cli.flows.backup_api.prepare_backup_run",
+                "ethernity.cli.features.backup.api_handlers.prepare_backup_run",
                 return_value=prepared,
             ),
             mock.patch(
-                "ethernity.cli.flows.backup_api.execute_prepared_backup",
+                "ethernity.cli.features.backup.api_handlers.execute_prepared_backup",
                 return_value=result,
             ),
             mock.patch("pathlib.Path.exists", return_value=False),
@@ -1234,11 +1287,11 @@ class TestCliApi(unittest.TestCase):
         buffer = io.StringIO()
         with (
             mock.patch(
-                "ethernity.cli.flows.backup_api.prepare_backup_run",
+                "ethernity.cli.features.backup.api_handlers.prepare_backup_run",
                 return_value=prepared,
             ),
             mock.patch(
-                "ethernity.cli.flows.backup_api.execute_prepared_backup",
+                "ethernity.cli.features.backup.api_handlers.execute_prepared_backup",
                 return_value=result,
             ),
             mock.patch("pathlib.Path.exists", return_value=False),
@@ -1270,7 +1323,9 @@ class TestCliApi(unittest.TestCase):
         )
         buffer = io.StringIO()
         with (
-            mock.patch("ethernity.cli.flows.mint_api.execute_mint", return_value=result),
+            mock.patch(
+                "ethernity.cli.features.mint.api_handlers.execute_mint", return_value=result
+            ),
             mock.patch("pathlib.Path.exists", return_value=False),
             ndjson_session(stream=buffer),
         ):
@@ -1301,9 +1356,9 @@ class TestCliApi(unittest.TestCase):
             return 0
 
         with (
-            mock.patch("ethernity.cli.app.run_startup", return_value=False),
+            mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False),
             mock.patch(
-                "ethernity.cli.commands.api.run_mint_inspect_api_command",
+                "ethernity.cli.features.api.command.run_mint_inspect_api_command",
                 side_effect=_capture_args,
             ),
         ):
@@ -1341,8 +1396,29 @@ class TestCliApi(unittest.TestCase):
             ],
         )
 
+    def test_api_inspect_mint_rejects_layout_debug_dir_option(self) -> None:
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "inspect",
+                    "mint",
+                    "--payloads-file",
+                    str(V1_FIXTURE_ROOT / "main_payloads.txt"),
+                    "--layout-debug-dir",
+                    "/tmp/layout",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 2)
+        self.assertIn("No such option", result.output)
+        self.assertIn("--layout-debug-dir", result.output)
+
     def test_api_inspect_mint_emits_success_with_valid_inputs(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 cli.app,
                 [
@@ -1370,6 +1446,7 @@ class TestCliApi(unittest.TestCase):
             [event["type"] for event in events],
             ["started", "phase", "progress", "result"],
         )
+        self.assertNotIn("layout_debug_dir", events[0]["args"])
         self.assertEqual(events[-1]["command"], "mint")
         self.assertEqual(events[-1]["operation"], "inspect")
         self.assertEqual(events[-1]["unlock"]["validated_passphrase_shard_count"], 2)
@@ -1383,6 +1460,130 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["mint_capabilities"]["can_mint_signing_key_shards"], True)
         self.assertIsNotNone(events[-1]["source_summary"])
         self.assertEqual([event for event in events if event["type"] == "artifact"], [])
+
+    def test_api_inspect_mint_disables_passphrase_capability_when_replacement_inputs_missing(
+        self,
+    ) -> None:
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "inspect",
+                    "mint",
+                    "--payloads-file",
+                    str(V1_FIXTURE_ROOT / "main_payloads.txt"),
+                    "--passphrase",
+                    FIXTURE_PASSPHRASE,
+                    "--passphrase-replacement-count",
+                    "1",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(
+            events[-1]["blocking_issues"][0]["code"],
+            "PASSPHRASE_REPLACEMENT_NOT_READY",
+        )
+        self.assertFalse(events[-1]["mint_capabilities"]["can_mint_passphrase_shards"])
+        self.assertTrue(events[-1]["mint_capabilities"]["can_mint_signing_key_shards"])
+
+    def test_api_inspect_mint_disables_signing_key_capability_when_replacement_inputs_missing(
+        self,
+    ) -> None:
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "inspect",
+                    "mint",
+                    "--payloads-file",
+                    str(V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT / "main_payloads.txt"),
+                    "--shard-payloads-file",
+                    str(V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT / "shard_payloads_threshold.txt"),
+                    "--signing-key-replacement-count",
+                    "1",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(
+            events[-1]["blocking_issues"][0]["code"],
+            "SIGNING_KEY_REPLACEMENT_NOT_READY",
+        )
+        self.assertTrue(events[-1]["mint_capabilities"]["can_mint_passphrase_shards"])
+        self.assertFalse(events[-1]["mint_capabilities"]["can_mint_signing_key_shards"])
+
+    def test_api_inspect_mint_disables_passphrase_capability_when_output_flag_disabled(
+        self,
+    ) -> None:
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "inspect",
+                    "mint",
+                    "--payloads-file",
+                    str(V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT / "main_payloads.txt"),
+                    "--shard-payloads-file",
+                    str(V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT / "shard_payloads_threshold.txt"),
+                    "--signing-key-shard-payloads-file",
+                    str(
+                        V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT
+                        / "signing_key_shard_payloads_threshold.txt"
+                    ),
+                    "--no-passphrase-shards",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertFalse(events[-1]["mint_capabilities"]["can_mint_passphrase_shards"])
+        self.assertTrue(events[-1]["mint_capabilities"]["can_mint_signing_key_shards"])
+
+    def test_api_inspect_mint_disables_signing_key_capability_when_output_flag_disabled(
+        self,
+    ) -> None:
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "inspect",
+                    "mint",
+                    "--payloads-file",
+                    str(V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT / "main_payloads.txt"),
+                    "--shard-payloads-file",
+                    str(V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT / "shard_payloads_threshold.txt"),
+                    "--signing-key-shard-payloads-file",
+                    str(
+                        V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT
+                        / "signing_key_shard_payloads_threshold.txt"
+                    ),
+                    "--no-signing-key-shards",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertTrue(events[-1]["mint_capabilities"]["can_mint_passphrase_shards"])
+        self.assertFalse(events[-1]["mint_capabilities"]["can_mint_signing_key_shards"])
 
     def test_run_mint_inspect_api_command_returns_blocking_issue_for_missing_auth(self) -> None:
         args = MintArgs(
@@ -1427,7 +1628,10 @@ class TestCliApi(unittest.TestCase):
         )
         buffer = io.StringIO()
         with (
-            mock.patch("ethernity.cli.flows.mint_api.inspect_mint_inputs", return_value=inspection),
+            mock.patch(
+                "ethernity.cli.features.mint.api_handlers.inspect_mint_inputs",
+                return_value=inspection,
+            ),
             ndjson_session(stream=buffer),
         ):
             exit_code = run_mint_inspect_api_command(args)
@@ -1445,7 +1649,7 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual([event for event in events if event["type"] == "artifact"], [])
 
     def test_api_mint_signing_key_shard_dir_error_is_structured(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 cli.app,
                 [
@@ -1505,11 +1709,11 @@ class TestCliApi(unittest.TestCase):
             (layout_dir / "shard-01-of-01.layout.json").write_text("{}", encoding="utf-8")
             with (
                 mock.patch(
-                    "ethernity.cli.flows.backup_api.prepare_backup_run",
+                    "ethernity.cli.features.backup.api_handlers.prepare_backup_run",
                     return_value=prepared,
                 ),
                 mock.patch(
-                    "ethernity.cli.flows.backup_api.execute_prepared_backup",
+                    "ethernity.cli.features.backup.api_handlers.execute_prepared_backup",
                     return_value=result,
                 ),
                 ndjson_session(stream=buffer),
@@ -1552,7 +1756,7 @@ class TestCliApi(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             mock.patch(
-                "ethernity.cli.flows.recover_service.decrypt_manifest_and_extract",
+                "ethernity.cli.features.recover.service.decrypt_manifest_and_extract",
                 return_value=(manifest, extracted),
             ),
             ndjson_session(stream=buffer),
@@ -1592,7 +1796,7 @@ class TestCliApi(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with mock.patch(
-                "ethernity.cli.flows.recover_service.decrypt_manifest_and_extract",
+                "ethernity.cli.features.recover.service.decrypt_manifest_and_extract",
                 return_value=(manifest, extracted),
             ):
                 plan.output_path = tmpdir
@@ -1626,7 +1830,7 @@ class TestCliApi(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with mock.patch(
-                "ethernity.cli.flows.recover_service.decrypt_manifest_and_extract",
+                "ethernity.cli.features.recover.service.decrypt_manifest_and_extract",
                 return_value=(manifest, extracted),
             ):
                 plan.output_path = tmpdir
@@ -1652,9 +1856,9 @@ class TestCliApi(unittest.TestCase):
             shard_path = shard_dir / "SHARD-01.TXT"
             shard_path.write_text("abcd", encoding="utf-8")
             with (
-                mock.patch("ethernity.cli.app.run_startup", return_value=False),
+                mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False),
                 mock.patch(
-                    "ethernity.cli.commands.api.run_recover_api_command",
+                    "ethernity.cli.features.api.command.run_recover_api_command",
                     side_effect=_capture_args,
                 ),
             ):
@@ -1687,9 +1891,9 @@ class TestCliApi(unittest.TestCase):
             return 0
 
         with (
-            mock.patch("ethernity.cli.app.run_startup", return_value=False),
+            mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False),
             mock.patch(
-                "ethernity.cli.commands.api.run_recover_api_command",
+                "ethernity.cli.features.api.command.run_recover_api_command",
                 side_effect=_capture_args,
             ),
         ):
@@ -1732,11 +1936,11 @@ class TestCliApi(unittest.TestCase):
                 return_value=(b"s" * 32, b"p" * 32),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
+                "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                 return_value=(b"ciphertext", "stable passphrase"),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup_flow.choose_frame_chunk_size",
+                "ethernity.cli.features.backup.execution.choose_frame_chunk_size",
                 return_value=128,
             ),
             mock.patch("ethernity.render.render_frames_to_pdf"),
@@ -1791,11 +1995,11 @@ class TestCliApi(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.flows.backup_api.prepare_backup_run",
+                "ethernity.cli.features.backup.api_handlers.prepare_backup_run",
                 return_value=prepared,
             ),
             mock.patch(
-                "ethernity.cli.flows.backup_api.execute_prepared_backup",
+                "ethernity.cli.features.backup.api_handlers.execute_prepared_backup",
                 side_effect=RuntimeError("render failed"),
             ),
             ndjson_session(stream=buffer),
@@ -1823,15 +2027,15 @@ class TestCliApi(unittest.TestCase):
                 return_value=(b"s" * 32, b"p" * 32),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
+                "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                 return_value=(b"ciphertext", "stable passphrase"),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup_flow.choose_frame_chunk_size",
+                "ethernity.cli.features.backup.execution.choose_frame_chunk_size",
                 return_value=128,
             ),
             mock.patch("ethernity.render.render_frames_to_pdf"),
-            mock.patch("ethernity.cli.flows.backup_flow.print_backup_debug") as debug_mock,
+            mock.patch("ethernity.cli.features.backup.execution.print_backup_debug") as debug_mock,
             ndjson_session(stream=io.StringIO()),
         ):
             cli.run_backup(
@@ -1860,14 +2064,14 @@ class TestCliApi(unittest.TestCase):
         extracted = []
         with (
             mock.patch(
-                "ethernity.cli.flows.recover_service.decrypt_manifest_and_extract",
+                "ethernity.cli.features.recover.service.decrypt_manifest_and_extract",
                 return_value=(manifest, extracted),
             ),
             mock.patch(
-                "ethernity.cli.flows.recover_service.write_recovered_outputs",
+                "ethernity.cli.features.recover.service.write_recovered_outputs",
                 return_value=["/tmp/recovered.bin"],
             ),
-            mock.patch("ethernity.cli.flows.recover_service.print_recover_debug") as debug_mock,
+            mock.patch("ethernity.cli.features.recover.service.print_recover_debug") as debug_mock,
             ndjson_session(stream=io.StringIO()),
         ):
             execute_recover_plan(

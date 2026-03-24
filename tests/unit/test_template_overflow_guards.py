@@ -27,14 +27,18 @@ _ETHERNITY_ROOT = _PROJECT_ROOT / "src" / "ethernity"
 
 class TestTemplateOverflowGuards(unittest.TestCase):
     def test_sentinel_recovery_template_removes_capacity_compensation_logic(self) -> None:
-        template_path = _ETHERNITY_ROOT / "templates" / "sentinel" / "recovery_document.html.j2"
+        template_path = (
+            _ETHERNITY_ROOT / "resources" / "templates" / "sentinel" / "recovery_document.html.j2"
+        )
         source = template_path.read_text(encoding="utf-8")
 
         self.assertNotIn("capacity_bonus_rows", source)
         self.assertNotIn("visual_trim_rows", source)
 
     def test_sentinel_recovery_template_uses_mm_row_height_tokens(self) -> None:
-        template_path = _ETHERNITY_ROOT / "templates" / "sentinel" / "recovery_document.html.j2"
+        template_path = (
+            _ETHERNITY_ROOT / "resources" / "templates" / "sentinel" / "recovery_document.html.j2"
+        )
         context: dict[str, object] = {
             "page_size_css": "A4",
             "page_width_mm": 210.0,

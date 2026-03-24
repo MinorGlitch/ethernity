@@ -19,7 +19,7 @@ import contextlib
 import unittest
 from unittest import mock
 
-from ethernity.cli.flows import first_run_config
+from ethernity.cli.features.config import onboarding as first_run_config
 
 
 class TestFirstRunConfig(unittest.TestCase):
@@ -101,7 +101,7 @@ class TestFirstRunConfig(unittest.TestCase):
             ),
             mock.patch.object(first_run_config, "build_review_table", return_value="rows"),
             mock.patch.object(first_run_config, "panel", return_value="panel"),
-            mock.patch("ethernity.cli.flows.first_run_config.console.print"),
+            mock.patch("ethernity.cli.features.config.onboarding.console.print"),
             mock.patch.object(
                 first_run_config, "mark_first_run_onboarding_complete"
             ) as mark_complete,
@@ -164,7 +164,7 @@ class TestFirstRunConfig(unittest.TestCase):
             ),
             mock.patch.object(first_run_config, "build_review_table", return_value="rows"),
             mock.patch.object(first_run_config, "panel", return_value="panel"),
-            mock.patch("ethernity.cli.flows.first_run_config.console.print"),
+            mock.patch("ethernity.cli.features.config.onboarding.console.print"),
             mock.patch.object(
                 first_run_config, "mark_first_run_onboarding_complete"
             ) as mark_complete,

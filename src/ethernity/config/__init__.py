@@ -13,22 +13,15 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Config loaders and installers."""
+"""Config loaders, path resolution, and installer helpers."""
 
-from .api_config import (
+from ethernity.config.api_patch import (
     ApiConfigSnapshot,
     ConfigPatchError,
     apply_api_config_patch,
     get_api_config_snapshot,
 )
-from .installer import (
-    DEFAULT_KIT_TEMPLATE_PATH,
-    DEFAULT_PAPER_SIZE,
-    DEFAULT_RECOVERY_TEMPLATE_PATH,
-    DEFAULT_SHARD_TEMPLATE_PATH,
-    DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
-    DEFAULT_TEMPLATE_PATH,
-    DEFAULT_TEMPLATE_STYLE,
+from ethernity.config.install import (
     ONBOARDING_FIELD_BACKUP_OUTPUT_DIR,
     ONBOARDING_FIELD_PAGE_SIZE,
     ONBOARDING_FIELD_PAYLOAD_CODEC,
@@ -53,18 +46,34 @@ from .installer import (
     resolve_writable_config_path,
     user_config_needs_init,
 )
-from .loader import (
-    AppConfig,
-    BackupDefaults,
-    CliDefaults,
-    DebugDefaults,
-    RecoverDefaults,
-    RuntimeDefaults,
-    UiDefaults,
+from ethernity.config.load import (
     apply_template_design,
     build_qr_config,
     load_app_config,
     load_cli_defaults,
+)
+from ethernity.config.paths import (
+    DEFAULT_KIT_TEMPLATE_PATH,
+    DEFAULT_PAPER_SIZE,
+    DEFAULT_RECOVERY_TEMPLATE_PATH,
+    DEFAULT_SHARD_TEMPLATE_PATH,
+    DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
+    DEFAULT_TEMPLATE_PATH,
+    DEFAULT_TEMPLATE_STYLE,
+)
+from ethernity.config.types import (
+    AppConfig,
+    BackupDefaults,
+    CliDefaults,
+    DebugDefaults,
+    PageSize,
+    PayloadCodec,
+    QrErrorCorrection,
+    QrPayloadCodec,
+    RecoverDefaults,
+    RuntimeDefaults,
+    SigningKeyMode,
+    UiDefaults,
 )
 
 __all__ = [
@@ -73,6 +82,15 @@ __all__ = [
     "BackupDefaults",
     "CliDefaults",
     "ConfigPatchError",
+    "DebugDefaults",
+    "PageSize",
+    "PayloadCodec",
+    "QrErrorCorrection",
+    "QrPayloadCodec",
+    "RecoverDefaults",
+    "RuntimeDefaults",
+    "SigningKeyMode",
+    "UiDefaults",
     "DEFAULT_KIT_TEMPLATE_PATH",
     "DEFAULT_PAPER_SIZE",
     "DEFAULT_RECOVERY_TEMPLATE_PATH",
@@ -80,6 +98,11 @@ __all__ = [
     "DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH",
     "DEFAULT_TEMPLATE_PATH",
     "DEFAULT_TEMPLATE_STYLE",
+    "resolve_api_defaults_config_path",
+    "resolve_config_snapshot_path",
+    "resolve_config_path",
+    "resolve_template_design_path",
+    "resolve_writable_config_path",
     "ONBOARDING_FIELDS",
     "ONBOARDING_FIELD_BACKUP_OUTPUT_DIR",
     "ONBOARDING_FIELD_PAGE_SIZE",
@@ -89,28 +112,19 @@ __all__ = [
     "ONBOARDING_FIELD_QR_PAYLOAD_CODEC",
     "ONBOARDING_FIELD_SHARDING",
     "ONBOARDING_FIELD_TEMPLATE_DESIGN",
-    "DebugDefaults",
-    "RecoverDefaults",
-    "RuntimeDefaults",
-    "UiDefaults",
     "apply_first_run_defaults",
-    "apply_api_config_patch",
-    "apply_template_design",
-    "build_qr_config",
     "clear_first_run_onboarding_marker",
     "first_run_onboarding_configured_fields",
     "first_run_onboarding_marker_path",
     "first_run_onboarding_needed",
-    "get_api_config_snapshot",
     "init_user_config",
     "list_template_designs",
+    "mark_first_run_onboarding_complete",
+    "user_config_needs_init",
+    "apply_api_config_patch",
+    "apply_template_design",
+    "build_qr_config",
+    "get_api_config_snapshot",
     "load_app_config",
     "load_cli_defaults",
-    "mark_first_run_onboarding_complete",
-    "resolve_api_defaults_config_path",
-    "resolve_config_snapshot_path",
-    "resolve_config_path",
-    "resolve_writable_config_path",
-    "resolve_template_design_path",
-    "user_config_needs_init",
 ]

@@ -22,22 +22,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
-from ..config import AppConfig
-from ..core.bounds import MAX_QR_PAYLOAD_CHARS
-from ..encoding.framing import Frame, encode_frame
-from ..encoding.qr_payloads import (
+from ethernity.config import AppConfig
+from ethernity.core.bounds import MAX_QR_PAYLOAD_CHARS
+from ethernity.encoding.framing import Frame, encode_frame
+from ethernity.encoding.qr_payloads import (
     QR_PAYLOAD_CODEC_BASE64,
     QrPayloadCodec,
     encode_qr_payload,
 )
-from .doc_types import (
+from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
     DOC_TYPE_MAIN,
     DOC_TYPE_RECOVERY,
     DOC_TYPE_SHARD,
 )
-from .recovery_meta import RecoveryMeta
-from .types import FallbackSection, RenderInputs
+from ethernity.render.recovery_meta import RecoveryMeta
+from ethernity.render.types import FallbackSection, RenderInputs
 
 
 @dataclass(frozen=True)

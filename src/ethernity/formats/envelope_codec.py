@@ -23,21 +23,21 @@ import os
 import time
 from pathlib import Path
 
-from ..core.bounds import MAX_MANIFEST_CBOR_BYTES
-from ..core.validation import normalize_manifest_path, normalize_path
-from ..encoding.cbor import dumps_canonical, loads_canonical
-from ..encoding.varint import (
+from ethernity.core.bounds import MAX_MANIFEST_CBOR_BYTES
+from ethernity.core.validation import normalize_manifest_path, normalize_path
+from ethernity.encoding.cbor import dumps_canonical, loads_canonical
+from ethernity.encoding.varint import (
     decode_uvarint as _decode_uvarint,
     encode_uvarint as _encode_uvarint,
 )
-from .envelope_types import (
+from ethernity.formats.envelope_types import (
     MANIFEST_VERSION,
     SIGNING_SEED_LEN,
     EnvelopeManifest,
     ManifestFile,
     PayloadPart,
 )
-from .payload_codec import decode_payload_from_manifest
+from ethernity.formats.payload_codec import decode_payload_from_manifest
 
 MAGIC = b"AY"
 VERSION = 1

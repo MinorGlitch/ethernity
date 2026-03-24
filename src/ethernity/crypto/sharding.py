@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 from Crypto.Protocol.SecretSharing import Shamir
 
-from ..core.validation import (
+from ethernity.core.validation import (
     require_bytes,
     require_dict,
     require_int,
@@ -32,9 +32,8 @@ from ..core.validation import (
     require_length,
     require_positive_int,
 )
-from ..encoding.cbor import dumps_canonical, loads_canonical
-from ._shamir_compat import BLOCK_SIZE, interpolate_share_blocks
-from .signing import (
+from ethernity.crypto._shamir_compat import BLOCK_SIZE, interpolate_share_blocks
+from ethernity.crypto.signing import (
     DOC_HASH_LEN,
     ED25519_PUB_LEN,
     ED25519_SEED_LEN,
@@ -43,6 +42,7 @@ from .signing import (
     derive_public_key,
     sign_shard,
 )
+from ethernity.encoding.cbor import dumps_canonical, loads_canonical
 
 LEGACY_SHARD_VERSION = 1
 SHARD_VERSION = 2

@@ -23,7 +23,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.config import installer
+import ethernity.config.install as installer
 from ethernity.core import app_paths
 
 
@@ -309,16 +309,15 @@ qr_payload_codec = "raw"
 
     def test_list_template_designs_handles_missing_and_filters_entries(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            package_root = Path(tmpdir) / "package"
+            templates_root = Path(tmpdir) / "package-templates"
             user_cfg = Path(tmpdir) / "usercfg"
-            with mock.patch.object(installer, "PACKAGE_ROOT", package_root):
+            with mock.patch.object(installer, "TEMPLATES_RESOURCE_ROOT", templates_root):
                 with mock.patch.object(installer, "user_config_dir_path", return_value=user_cfg):
                     with mock.patch.object(
                         installer, "user_templates_root_path", return_value=user_cfg / "templates"
                     ):
                         self.assertEqual(installer.list_template_designs(), {})
 
-                        templates_root = package_root / "templates"
                         templates_root.mkdir(parents=True, exist_ok=True)
 
                         _create_design(templates_root, "ledger")
@@ -336,7 +335,7 @@ qr_payload_codec = "raw"
 
         self.assertEqual(set(result.keys()), {"ledger", "maritime"})
         self.assertEqual(result["ledger"], user_ledger)
-        self.assertEqual(result["maritime"], package_root / "templates" / "maritime")
+        self.assertEqual(result["maritime"], templates_root / "maritime")
         self.assertNotIn("archive_stack", result)
         self.assertNotIn("maritime_ledger", result)
         self.assertNotIn("shadow_archive", result)
@@ -594,8 +593,7 @@ qr_payload_codec = "raw"
     def test_copy_template_designs_shared_and_design_copy_behavior(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            package_root = root / "package"
-            templates_root = package_root / "templates"
+            templates_root = root / "package-templates"
             shared = templates_root / "_shared"
             shared.mkdir(parents=True, exist_ok=True)
             (shared / "a.txt").write_text("a", encoding="utf-8")
@@ -617,7 +615,7 @@ qr_payload_codec = "raw"
                 user_template_paths={},
                 user_required_files=(),
             )
-            with mock.patch.object(installer, "PACKAGE_ROOT", package_root):
+            with mock.patch.object(installer, "TEMPLATES_RESOURCE_ROOT", templates_root):
                 installer._copy_template_designs(paths)
             self.assertTrue((paths.user_templates_root / "_shared" / "a.txt").is_file())
             self.assertTrue((paths.user_templates_root / "_shared" / "nested" / "b.txt").is_file())
@@ -629,8 +627,7 @@ qr_payload_codec = "raw"
     def test_copy_template_designs_overwrite_flag_controls_replacement(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            package_root = root / "package"
-            templates_root = package_root / "templates"
+            templates_root = root / "package-templates"
 
             _create_design(templates_root, "ledger")
 
@@ -648,7 +645,7 @@ qr_payload_codec = "raw"
             existing_path.parent.mkdir(parents=True, exist_ok=True)
             existing_path.write_text("custom-user-template", encoding="utf-8")
 
-            with mock.patch.object(installer, "PACKAGE_ROOT", package_root):
+            with mock.patch.object(installer, "TEMPLATES_RESOURCE_ROOT", templates_root):
                 installer._copy_template_designs(paths, overwrite=False)
                 self.assertEqual(existing_path.read_text(encoding="utf-8"), "custom-user-template")
 
@@ -669,7 +666,9 @@ qr_payload_codec = "raw"
                 user_template_paths={},
                 user_required_files=(),
             )
-            with mock.patch.object(installer, "PACKAGE_ROOT", root / "missing-package"):
+            with mock.patch.object(
+                installer, "TEMPLATES_RESOURCE_ROOT", root / "missing-templates"
+            ):
                 installer._copy_template_designs(paths)
             self.assertFalse(paths.user_templates_root.exists())
 

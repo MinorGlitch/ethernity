@@ -352,20 +352,27 @@ uv run playwright install chromium
 Core checks:
 
 ```sh
-uv run pytest tests/unit tests/integration -q
+uv run pre-commit run --all-files
 uv run ruff check src tests
 uv run ruff format --check src tests
 uv run mypy src
+uv run pyright
+uv run check-jsonschema --check-metaschema docs/cli_api.schema.json
+uv run typos .
+uv run pytest tests/unit tests/integration -q
 cd kit
 npm ci
+npm run lint
+npm run format:check
+npm test
 # Requires libdeflate-gzip (for example: apt install libdeflate-tools)
 node build_kit.mjs
 cd ..
 ```
 
 This rebuild emits both recovery kit variants:
-- `src/ethernity/kit/recovery_kit.bundle.html` (lean, default)
-- `src/ethernity/kit/recovery_kit.scanner.bundle.html` (jsQR scanner variant)
+- `src/ethernity/resources/kit/recovery_kit.bundle.html` (lean, default)
+- `src/ethernity/resources/kit/recovery_kit.scanner.bundle.html` (jsQR scanner variant)
 
 Use [`CONTRIBUTING.md`](CONTRIBUTING.md) for workflow policy, expectations, and quality gates.
 

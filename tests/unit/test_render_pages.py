@@ -13,9 +13,11 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+import json
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
 from ethernity.render.fallback import FallbackConsumerState, FallbackSectionData
@@ -90,6 +92,37 @@ def _spec() -> DocumentSpec:
     )
 
 
+def _write_template(
+    root: Path,
+    folder: str,
+    *,
+    capabilities: dict[str, object] | None = None,
+) -> Path:
+    template_dir = root / folder
+    template_dir.mkdir(parents=True, exist_ok=True)
+    (template_dir / "style.json").write_text(
+        json.dumps(
+            {
+                "name": "custom",
+                "header": {
+                    "meta_row_gap_mm": 1.2,
+                    "stack_gap_mm": 1.0,
+                    "divider_thickness_mm": 0.5,
+                },
+                "content_offset": {
+                    "divider_gap_extra_mm": 0.0,
+                    "doc_types": [],
+                },
+                "capabilities": capabilities or {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    template_path = template_dir / "recovery_document.html.j2"
+    template_path.write_text("", encoding="utf-8")
+    return template_path
+
+
 class TestBuildPages(unittest.TestCase):
     def test_kit_doc_type_is_case_insensitive_for_instruction_visibility(self) -> None:
         frames = [
@@ -106,6 +139,7 @@ class TestBuildPages(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "forge"
             / "kit_document.html.j2"
@@ -150,6 +184,7 @@ class TestBuildPages(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "ledger"
             / "main_document.html.j2"
@@ -196,6 +231,7 @@ class TestBuildPages(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "sentinel"
             / "main_document.html.j2"
@@ -250,6 +286,7 @@ class TestBuildPages(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "sentinel"
             / "main_document.html.j2"
@@ -295,6 +332,7 @@ class TestBuildPages(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "ledger"
             / "main_document.html.j2"
@@ -348,6 +386,7 @@ class TestBuildPages(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "ledger"
             / "main_document.html.j2"
@@ -397,6 +436,7 @@ class TestBuildPages(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "ledger"
             / "main_document.html.j2"
@@ -448,6 +488,7 @@ class TestBuildPages(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "forge"
             / "shard_document.html.j2"
@@ -500,6 +541,7 @@ class TestBuildPages(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "forge"
             / "signing_key_shard_document.html.j2"
@@ -552,6 +594,7 @@ class TestBuildPages(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "ledger"
             / "shard_document.html.j2"
@@ -603,6 +646,7 @@ class TestBuildPages(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "forge"
             / "recovery_document.html.j2"
@@ -653,6 +697,7 @@ class TestBuildPages(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "forge"
             / "recovery_document.html.j2"
@@ -705,6 +750,7 @@ class TestBuildPages(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "forge"
             / "recovery_document.html.j2"
@@ -757,6 +803,7 @@ class TestBuildPages(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "ledger"
             / "main_document.html.j2"
@@ -802,6 +849,7 @@ class TestBuildPages(unittest.TestCase):
             Path(__file__).resolve().parents[2]
             / "src"
             / "ethernity"
+            / "resources"
             / "templates"
             / "ledger"
             / "main_document.html.j2"
@@ -833,7 +881,7 @@ class TestBuildPages(unittest.TestCase):
                 fallback_state=None,
             )
 
-    def test_archive_recovery_extra_rows_do_not_apply_to_other_templates(self) -> None:
+    def test_recovery_capability_bonus_applies_only_when_explicit(self) -> None:
         frames = [
             Frame(
                 version=1,
@@ -844,40 +892,6 @@ class TestBuildPages(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        archive_template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "archive"
-            / "recovery_document.html.j2"
-        )
-        ledger_template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "ledger"
-            / "recovery_document.html.j2"
-        )
-        archive_inputs = RenderInputs(
-            frames=frames,
-            template_path=archive_template_path,
-            output_path="out.pdf",
-            context={},
-            doc_type="recovery",
-            render_qr=False,
-            render_fallback=True,
-        )
-        ledger_inputs = RenderInputs(
-            frames=frames,
-            template_path=ledger_template_path,
-            output_path="out.pdf",
-            context={},
-            doc_type="recovery",
-            render_qr=False,
-            render_fallback=True,
-        )
         sections = [
             FallbackSectionData(
                 title="MAIN FRAME",
@@ -898,33 +912,63 @@ class TestBuildPages(unittest.TestCase):
             line_length=10,
         )
 
-        archive_pages = build_pages(
-            inputs=archive_inputs,
-            spec=_spec(),
-            layout=layout,
-            layout_rest=layout,
-            fallback_lines=["L1"],
-            qr_image_builder=lambda idx: f"qr:{idx}",
-            fallback_sections_data=sections,
-            fallback_state=FallbackConsumerState(),
-        )
-        ledger_pages = build_pages(
-            inputs=ledger_inputs,
-            spec=_spec(),
-            layout=layout,
-            layout_rest=layout,
-            fallback_lines=["L1"],
-            qr_image_builder=lambda idx: f"qr:{idx}",
-            fallback_sections_data=sections,
-            fallback_state=FallbackConsumerState(),
-        )
+        with TemporaryDirectory() as temp_dir:
+            template_root = Path(temp_dir)
+            bonus_template = _write_template(
+                template_root,
+                "bonus",
+                capabilities={
+                    "recovery_line_groups_bonus": 5,
+                    "recovery_first_page_bonus_lines": 13,
+                    "recovery_first_page_bonus_lines_per_extra_section": 2,
+                    "recovery_continuation_bonus_lines": 16,
+                },
+            )
+            baseline_template = _write_template(template_root, "baseline")
 
-        self.assertEqual(len(archive_pages), 1)
-        self.assertEqual(len(ledger_pages), 3)
-        self.assertEqual(len(archive_pages[0].fallback_blocks[0].lines), 5)
-        self.assertEqual(len(ledger_pages[0].fallback_blocks[0].lines), 1)
+            bonus_pages = build_pages(
+                inputs=RenderInputs(
+                    frames=frames,
+                    template_path=bonus_template,
+                    output_path="out.pdf",
+                    context={},
+                    doc_type="recovery",
+                    render_qr=False,
+                    render_fallback=True,
+                ),
+                spec=_spec(),
+                layout=layout,
+                layout_rest=layout,
+                fallback_lines=["L1"],
+                qr_image_builder=lambda idx: f"qr:{idx}",
+                fallback_sections_data=sections,
+                fallback_state=FallbackConsumerState(),
+            )
+            baseline_pages = build_pages(
+                inputs=RenderInputs(
+                    frames=frames,
+                    template_path=baseline_template,
+                    output_path="out.pdf",
+                    context={},
+                    doc_type="recovery",
+                    render_qr=False,
+                    render_fallback=True,
+                ),
+                spec=_spec(),
+                layout=layout,
+                layout_rest=layout,
+                fallback_lines=["L1"],
+                qr_image_builder=lambda idx: f"qr:{idx}",
+                fallback_sections_data=sections,
+                fallback_state=FallbackConsumerState(),
+            )
 
-    def test_archive_recovery_continuation_pages_use_extra_rows(self) -> None:
+        self.assertEqual(len(bonus_pages), 1)
+        self.assertEqual(len(baseline_pages), 3)
+        self.assertEqual(len(bonus_pages[0].fallback_blocks[0].lines), 5)
+        self.assertEqual(len(baseline_pages[0].fallback_blocks[0].lines), 1)
+
+    def test_recovery_continuation_bonus_pages_use_extra_rows(self) -> None:
         frames = [
             Frame(
                 version=1,
@@ -935,40 +979,6 @@ class TestBuildPages(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        archive_template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "archive"
-            / "recovery_document.html.j2"
-        )
-        ledger_template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "ledger"
-            / "recovery_document.html.j2"
-        )
-        archive_inputs = RenderInputs(
-            frames=frames,
-            template_path=archive_template_path,
-            output_path="out.pdf",
-            context={},
-            doc_type="recovery",
-            render_qr=False,
-            render_fallback=True,
-        )
-        ledger_inputs = RenderInputs(
-            frames=frames,
-            template_path=ledger_template_path,
-            output_path="out.pdf",
-            context={},
-            doc_type="recovery",
-            render_qr=False,
-            render_fallback=True,
-        )
         sections = [
             FallbackSectionData(
                 title="MAIN FRAME",
@@ -983,36 +993,66 @@ class TestBuildPages(unittest.TestCase):
             line_length=10,
         )
 
-        archive_pages = build_pages(
-            inputs=archive_inputs,
-            spec=_spec(),
-            layout=layout,
-            layout_rest=layout,
-            fallback_lines=["L1"],
-            qr_image_builder=lambda idx: f"qr:{idx}",
-            fallback_sections_data=sections,
-            fallback_state=FallbackConsumerState(),
-        )
-        ledger_pages = build_pages(
-            inputs=ledger_inputs,
-            spec=_spec(),
-            layout=layout,
-            layout_rest=layout,
-            fallback_lines=["L1"],
-            qr_image_builder=lambda idx: f"qr:{idx}",
-            fallback_sections_data=sections,
-            fallback_state=FallbackConsumerState(),
-        )
+        with TemporaryDirectory() as temp_dir:
+            template_root = Path(temp_dir)
+            bonus_template = _write_template(
+                template_root,
+                "bonus",
+                capabilities={
+                    "recovery_line_groups_bonus": 5,
+                    "recovery_first_page_bonus_lines": 13,
+                    "recovery_first_page_bonus_lines_per_extra_section": 2,
+                    "recovery_continuation_bonus_lines": 16,
+                },
+            )
+            baseline_template = _write_template(template_root, "baseline")
 
-        self.assertGreaterEqual(len(archive_pages), 2)
-        self.assertGreaterEqual(len(ledger_pages), 2)
-        archive_continuation_lines = len(archive_pages[1].fallback_blocks[0].lines)
-        ledger_continuation_lines = len(ledger_pages[1].fallback_blocks[0].lines)
-        self.assertGreater(archive_continuation_lines, ledger_continuation_lines)
-        self.assertEqual(archive_continuation_lines, 5)
-        self.assertEqual(ledger_continuation_lines, 3)
+            bonus_pages = build_pages(
+                inputs=RenderInputs(
+                    frames=frames,
+                    template_path=bonus_template,
+                    output_path="out.pdf",
+                    context={},
+                    doc_type="recovery",
+                    render_qr=False,
+                    render_fallback=True,
+                ),
+                spec=_spec(),
+                layout=layout,
+                layout_rest=layout,
+                fallback_lines=["L1"],
+                qr_image_builder=lambda idx: f"qr:{idx}",
+                fallback_sections_data=sections,
+                fallback_state=FallbackConsumerState(),
+            )
+            baseline_pages = build_pages(
+                inputs=RenderInputs(
+                    frames=frames,
+                    template_path=baseline_template,
+                    output_path="out.pdf",
+                    context={},
+                    doc_type="recovery",
+                    render_qr=False,
+                    render_fallback=True,
+                ),
+                spec=_spec(),
+                layout=layout,
+                layout_rest=layout,
+                fallback_lines=["L1"],
+                qr_image_builder=lambda idx: f"qr:{idx}",
+                fallback_sections_data=sections,
+                fallback_state=FallbackConsumerState(),
+            )
 
-    def test_archive_recovery_uses_wider_group_wrapping_and_reduces_page_count(
+        self.assertGreaterEqual(len(bonus_pages), 2)
+        self.assertGreaterEqual(len(baseline_pages), 2)
+        bonus_continuation_lines = len(bonus_pages[1].fallback_blocks[0].lines)
+        baseline_continuation_lines = len(baseline_pages[1].fallback_blocks[0].lines)
+        self.assertGreater(bonus_continuation_lines, baseline_continuation_lines)
+        self.assertEqual(bonus_continuation_lines, 5)
+        self.assertEqual(baseline_continuation_lines, 3)
+
+    def test_recovery_group_wrapping_bonus_reduces_page_count(
         self,
     ) -> None:
         frames = [
@@ -1025,40 +1065,6 @@ class TestBuildPages(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        archive_template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "archive"
-            / "recovery_document.html.j2"
-        )
-        ledger_template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "ledger"
-            / "recovery_document.html.j2"
-        )
-        archive_inputs = RenderInputs(
-            frames=frames,
-            template_path=archive_template_path,
-            output_path="out.pdf",
-            context={},
-            doc_type="recovery",
-            render_qr=False,
-            render_fallback=True,
-        )
-        ledger_inputs = RenderInputs(
-            frames=frames,
-            template_path=ledger_template_path,
-            output_path="out.pdf",
-            context={},
-            doc_type="recovery",
-            render_qr=False,
-            render_fallback=True,
-        )
         sections = [
             FallbackSectionData(
                 title="MAIN FRAME",
@@ -1073,32 +1079,149 @@ class TestBuildPages(unittest.TestCase):
             line_length=10,
         )
 
-        archive_pages = build_pages(
-            inputs=archive_inputs,
-            spec=_spec(),
-            layout=layout,
-            layout_rest=layout,
-            fallback_lines=["L1"],
-            qr_image_builder=lambda idx: f"qr:{idx}",
-            fallback_sections_data=sections,
-            fallback_state=FallbackConsumerState(),
-        )
-        ledger_pages = build_pages(
-            inputs=ledger_inputs,
-            spec=_spec(),
-            layout=layout,
-            layout_rest=layout,
-            fallback_lines=["L1"],
-            qr_image_builder=lambda idx: f"qr:{idx}",
-            fallback_sections_data=sections,
-            fallback_state=FallbackConsumerState(),
+        with TemporaryDirectory() as temp_dir:
+            template_root = Path(temp_dir)
+            bonus_template = _write_template(
+                template_root,
+                "bonus",
+                capabilities={
+                    "recovery_line_groups_bonus": 5,
+                    "recovery_first_page_bonus_lines": 13,
+                    "recovery_first_page_bonus_lines_per_extra_section": 2,
+                    "recovery_continuation_bonus_lines": 16,
+                },
+            )
+            baseline_template = _write_template(template_root, "baseline")
+
+            bonus_pages = build_pages(
+                inputs=RenderInputs(
+                    frames=frames,
+                    template_path=bonus_template,
+                    output_path="out.pdf",
+                    context={},
+                    doc_type="recovery",
+                    render_qr=False,
+                    render_fallback=True,
+                ),
+                spec=_spec(),
+                layout=layout,
+                layout_rest=layout,
+                fallback_lines=["L1"],
+                qr_image_builder=lambda idx: f"qr:{idx}",
+                fallback_sections_data=sections,
+                fallback_state=FallbackConsumerState(),
+            )
+            baseline_pages = build_pages(
+                inputs=RenderInputs(
+                    frames=frames,
+                    template_path=baseline_template,
+                    output_path="out.pdf",
+                    context={},
+                    doc_type="recovery",
+                    render_qr=False,
+                    render_fallback=True,
+                ),
+                spec=_spec(),
+                layout=layout,
+                layout_rest=layout,
+                fallback_lines=["L1"],
+                qr_image_builder=lambda idx: f"qr:{idx}",
+                fallback_sections_data=sections,
+                fallback_state=FallbackConsumerState(),
+            )
+
+        self.assertEqual(len(bonus_pages), 1)
+        self.assertGreaterEqual(len(baseline_pages), 2)
+        bonus_first_groups = len(bonus_pages[0].fallback_blocks[0].lines[0].split())
+        baseline_first_groups = len(baseline_pages[0].fallback_blocks[0].lines[0].split())
+        self.assertGreater(bonus_first_groups, baseline_first_groups)
+
+    def test_recovery_behavior_does_not_depend_on_template_directory_name(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\xdd" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        sections = [
+            FallbackSectionData(
+                title="MAIN FRAME",
+                tokens=tuple(f"{idx:010d}" for idx in range(1, 21)),
+                group_size=1,
+            ),
+        ]
+        layout = replace(
+            _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=10),
+            content_start_y=97.0,
+            line_height=1.0,
+            line_length=10,
         )
 
-        self.assertEqual(len(archive_pages), 1)
-        self.assertGreaterEqual(len(ledger_pages), 2)
-        archive_first_groups = len(archive_pages[0].fallback_blocks[0].lines[0].split())
-        ledger_first_groups = len(ledger_pages[0].fallback_blocks[0].lines[0].split())
-        self.assertGreater(archive_first_groups, ledger_first_groups)
+        capabilities = {
+            "recovery_line_groups_bonus": 5,
+            "recovery_first_page_bonus_lines": 13,
+            "recovery_first_page_bonus_lines_per_extra_section": 2,
+            "recovery_continuation_bonus_lines": 16,
+        }
+        with TemporaryDirectory() as temp_dir:
+            template_root = Path(temp_dir)
+            alpha_template = _write_template(
+                template_root,
+                "renamed-alpha",
+                capabilities=capabilities,
+            )
+            bravo_template = _write_template(
+                template_root,
+                "renamed-bravo",
+                capabilities=capabilities,
+            )
+
+            alpha_pages = build_pages(
+                inputs=RenderInputs(
+                    frames=frames,
+                    template_path=alpha_template,
+                    output_path="out.pdf",
+                    context={},
+                    doc_type="recovery",
+                    render_qr=False,
+                    render_fallback=True,
+                ),
+                spec=_spec(),
+                layout=layout,
+                layout_rest=layout,
+                fallback_lines=["L1"],
+                qr_image_builder=lambda idx: f"qr:{idx}",
+                fallback_sections_data=sections,
+                fallback_state=FallbackConsumerState(),
+            )
+            bravo_pages = build_pages(
+                inputs=RenderInputs(
+                    frames=frames,
+                    template_path=bravo_template,
+                    output_path="out.pdf",
+                    context={},
+                    doc_type="recovery",
+                    render_qr=False,
+                    render_fallback=True,
+                ),
+                spec=_spec(),
+                layout=layout,
+                layout_rest=layout,
+                fallback_lines=["L1"],
+                qr_image_builder=lambda idx: f"qr:{idx}",
+                fallback_sections_data=sections,
+                fallback_state=FallbackConsumerState(),
+            )
+
+        self.assertEqual(len(alpha_pages), len(bravo_pages))
+        self.assertEqual(
+            alpha_pages[0].fallback_blocks[0].lines,
+            bravo_pages[0].fallback_blocks[0].lines,
+        )
 
 
 if __name__ == "__main__":

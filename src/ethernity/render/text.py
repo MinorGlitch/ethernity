@@ -20,7 +20,7 @@ from typing import Sequence
 
 from fpdf import FPDF
 
-from .spec import HeaderSpec, PageSpec, TextBlockSpec
+from ethernity.render.spec import HeaderSpec, PageSpec, TextBlockSpec
 
 
 def page_format(page_cfg: PageSpec) -> str | tuple[float, float]:

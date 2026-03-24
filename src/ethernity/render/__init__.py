@@ -13,9 +13,9 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-from .pdf_render import render_frames_to_pdf
-from .service import RenderService
-from .types import FallbackSection, RenderInputs
+from ethernity.render.pdf_render import render_frames_to_pdf
+from ethernity.render.service import RenderService
+from ethernity.render.types import FallbackSection, RenderInputs
 
 __all__ = [
     "FallbackSection",

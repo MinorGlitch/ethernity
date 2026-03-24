@@ -21,7 +21,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from ethernity.cli import startup
+from ethernity.cli.bootstrap import startup
 
 
 class TestCliStartup(unittest.TestCase):

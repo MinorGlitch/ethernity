@@ -4,15 +4,15 @@ import hmac
 import json
 from collections.abc import Sequence
 
-from ethernity.cli.core.crypto import _doc_id_and_hash_from_ciphertext
-from ethernity.cli.io.frames import (
+from ethernity.cli.features.recover.key_recovery import (
+    InsufficientShardError,
+    _validated_shard_payloads_from_frames,
+)
+from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
+from ethernity.cli.shared.io.frames import (
     _detect_recovery_input_mode,
     _frames_from_fallback_lines,
     _frames_from_payload_lines,
-)
-from ethernity.cli.keys.recover_keys import (
-    InsufficientShardError,
-    _validated_shard_payloads_from_frames,
 )
 from ethernity.crypto import decrypt_bytes
 from ethernity.crypto.sharding import (

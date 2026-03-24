@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from .utils import int_value as _int_value
+from ethernity.render.utils import int_value as _int_value
 
 _TEMPLATE_COPY_BUILDERS: dict[str, str] = {
     "main_document.html.j2": "main_document",

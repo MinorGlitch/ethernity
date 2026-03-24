@@ -20,7 +20,7 @@ import unicodedata
 from collections.abc import Iterable
 from typing import Any, TypeVar
 
-from .bounds import MAX_PATH_BYTES
+from ethernity.core.bounds import MAX_PATH_BYTES
 
 T = TypeVar("T")
 

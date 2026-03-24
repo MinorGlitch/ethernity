@@ -26,8 +26,8 @@ from unittest import mock
 from typer.testing import CliRunner
 
 from ethernity import cli
-from ethernity.cli.core.types import BackupArgs
-from ethernity.cli.io.inputs import _load_input_files
+from ethernity.cli.shared.io.inputs import _load_input_files
+from ethernity.cli.shared.types import BackupArgs
 from ethernity.config import (
     BackupDefaults,
     CliDefaults,
@@ -37,14 +37,15 @@ from ethernity.config import (
     UiDefaults,
     load_app_config,
 )
+from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
 from ethernity.core.models import DocumentPlan, ShardingConfig, SigningSeedMode
 from ethernity.encoding.framing import Frame
 from ethernity.formats import envelope_codec as envelope_codec_module
 from ethernity.render.recovery_meta import RecoveryMeta
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG_PATH = REPO_ROOT / "src" / "ethernity" / "config" / "config.toml"
+_BACKUP_ORCHESTRATOR_MODULE = "ethernity.cli.features.backup.orchestrator"
+_UNSET = object()
 
 
 class _CaptureBuild:
@@ -81,7 +82,7 @@ def _run_backup_with_plan(
             ):
                 with mock.patch("ethernity.render.render_frames_to_pdf"):
                     with mock.patch(
-                        "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
+                        "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                         return_value=(b"ciphertext", "auto-pass"),
                     ):
                         with mock.patch(
@@ -98,6 +99,75 @@ def _run_backup_with_plan(
                             )
 
     return captured.get("signing_seed")
+
+
+def _patch_backup_orchestrator(name: str, *args, **kwargs):
+    return mock.patch(f"{_BACKUP_ORCHESTRATOR_MODULE}.{name}", *args, **kwargs)
+
+
+def _enter_backup_wizard_patches(
+    stack: contextlib.ExitStack,
+    *,
+    input_file: cli.InputFile,
+    onboarding_fields: frozenset[str] = frozenset(),
+    prompt_backup_setup_mode: object = _UNSET,
+    recovery_options: tuple[object, ...] = (
+        False,
+        False,
+        SigningSeedMode.EMBEDDED,
+        None,
+        None,
+    ),
+    prompt_yes_no: object = _UNSET,
+    run_backup_result: object = _UNSET,
+    include_validate_args: bool = False,
+    include_print_summary: bool = False,
+    include_print_actions: bool = False,
+    include_console_print: bool = False,
+    include_wizard_flow: bool = False,
+    include_wizard_stage: bool = False,
+) -> dict[str, mock.MagicMock]:
+    handles: dict[str, mock.MagicMock] = {}
+
+    def _enter(name: str, *args, **kwargs) -> mock.MagicMock:
+        handle = stack.enter_context(_patch_backup_orchestrator(name, *args, **kwargs))
+        handles[name] = handle
+        return handle
+
+    _enter(
+        "first_run_onboarding_configured_fields",
+        return_value=onboarding_fields,
+    )
+    if prompt_backup_setup_mode is not _UNSET:
+        _enter("_prompt_backup_setup_mode", return_value=prompt_backup_setup_mode)
+    _enter("_prompt_encryption", return_value=("pass", 12))
+    _enter("_prompt_recovery_options", return_value=recovery_options)
+    _enter("_prompt_layout", return_value=(None, "A4"))
+    _enter("_prompt_design", return_value=None)
+    _enter("load_app_config", return_value=object())
+    _enter("apply_template_design", return_value=object())
+    _enter("_prompt_inputs", return_value=([input_file], None, None, "file", []))
+    _enter("_build_review_rows", return_value=[("Inputs", None)])
+
+    if prompt_yes_no is not _UNSET:
+        _enter("prompt_yes_no", return_value=prompt_yes_no)
+    if include_validate_args:
+        _enter("_validate_backup_args")
+    if run_backup_result is not _UNSET:
+        _enter("run_backup", return_value=run_backup_result)
+    if include_print_summary:
+        _enter("print_backup_summary")
+    if include_print_actions:
+        _enter("_print_completion_actions")
+    if include_console_print:
+        _enter("console.print")
+    if include_wizard_flow:
+        _enter("wizard_flow", return_value=contextlib.nullcontext())
+    if include_wizard_stage:
+        _enter("wizard_stage", return_value=contextlib.nullcontext())
+
+    _enter("ui_screen_mode", return_value=contextlib.nullcontext())
+    return handles
 
 
 class TestCliBackup(unittest.TestCase):
@@ -142,15 +212,15 @@ class TestCliBackup(unittest.TestCase):
                     output_dir = Path(tmpdir) / "out"
                     ciphertext = b"c" * size
                     with mock.patch(
-                        "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
+                        "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                         return_value=(ciphertext, "auto-pass"),
                     ):
                         with mock.patch(
-                            "ethernity.cli.flows.backup_flow.chunk_payload",
+                            "ethernity.cli.features.backup.execution.chunk_payload",
                             side_effect=_fake_chunk,
                         ) as chunk_mock:
                             with mock.patch(
-                                "ethernity.cli.flows.backup_flow.choose_frame_chunk_size",
+                                "ethernity.cli.features.backup.execution.choose_frame_chunk_size",
                                 return_value=256,
                             ):
                                 with mock.patch("ethernity.render.render_frames_to_pdf"):
@@ -200,14 +270,14 @@ class TestCliBackup(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "out"
             with mock.patch(
-                "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
+                "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                 return_value=(b"ciphertext", "auto-pass"),
             ):
                 with mock.patch(
-                    "ethernity.cli.flows.backup_flow.choose_frame_chunk_size",
+                    "ethernity.cli.features.backup.execution.choose_frame_chunk_size",
                     return_value=512,
                 ):
-                    with mock.patch("ethernity.cli.flows.backup_flow._warn") as warn_mock:
+                    with mock.patch("ethernity.cli.features.backup.execution._warn") as warn_mock:
                         with mock.patch("ethernity.render.render_frames_to_pdf"):
                             cli.run_backup(
                                 input_files=[input_file],
@@ -242,14 +312,14 @@ class TestCliBackup(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "out"
             with mock.patch(
-                "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
+                "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                 return_value=(b"ciphertext", "auto-pass"),
             ):
                 with mock.patch(
-                    "ethernity.cli.flows.backup_flow.choose_frame_chunk_size",
+                    "ethernity.cli.features.backup.execution.choose_frame_chunk_size",
                     return_value=1024,
                 ):
-                    with mock.patch("ethernity.cli.flows.backup_flow._warn") as warn_mock:
+                    with mock.patch("ethernity.cli.features.backup.execution._warn") as warn_mock:
                         with mock.patch("ethernity.render.render_frames_to_pdf"):
                             cli.run_backup(
                                 input_files=[input_file],
@@ -287,7 +357,7 @@ class TestCliBackup(unittest.TestCase):
             kit_template.write_text("{{ doc.title }}", encoding="utf-8")
             config = replace(config, kit_template_path=kit_template)
             with mock.patch(
-                "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
+                "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                 return_value=(b"ciphertext", "auto-pass"),
             ) as encrypt_mock:
                 with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
@@ -345,7 +415,7 @@ class TestCliBackup(unittest.TestCase):
             config = replace(config, kit_template_path=kit_template)
 
             with mock.patch(
-                "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
+                "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                 return_value=(b"ciphertext", "auto-pass"),
             ):
                 with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
@@ -394,8 +464,8 @@ class TestCliBackup(unittest.TestCase):
             kit_template.write_text("{{ doc.title }}", encoding="utf-8")
             config = replace(config, kit_template_path=kit_template)
 
-            package_root = Path(tmpdir) / "package"
-            package_design_dir = package_root / "templates" / "forge"
+            templates_root = Path(tmpdir) / "package-templates"
+            package_design_dir = templates_root / "forge"
             package_design_dir.mkdir(parents=True, exist_ok=True)
             packaged_kit_index = package_design_dir / "kit_index_document.html.j2"
             packaged_kit_index.write_text(
@@ -403,9 +473,12 @@ class TestCliBackup(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with mock.patch("ethernity.cli.flows.backup_flow.PACKAGE_ROOT", package_root):
+            with mock.patch(
+                "ethernity.cli.features.backup.execution.TEMPLATES_RESOURCE_ROOT",
+                templates_root,
+            ):
                 with mock.patch(
-                    "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
+                    "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                     return_value=(b"ciphertext", "auto-pass"),
                 ):
                     with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
@@ -453,8 +526,8 @@ class TestCliBackup(unittest.TestCase):
             stale_kit_index.write_text("stale template without marker", encoding="utf-8")
             config = replace(config, kit_template_path=kit_template)
 
-            package_root = Path(tmpdir) / "package"
-            package_design_dir = package_root / "templates" / "forge"
+            templates_root = Path(tmpdir) / "package-templates"
+            package_design_dir = templates_root / "forge"
             package_design_dir.mkdir(parents=True, exist_ok=True)
             packaged_kit_index = package_design_dir / "kit_index_document.html.j2"
             packaged_kit_index.write_text(
@@ -462,9 +535,12 @@ class TestCliBackup(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with mock.patch("ethernity.cli.flows.backup_flow.PACKAGE_ROOT", package_root):
+            with mock.patch(
+                "ethernity.cli.features.backup.execution.TEMPLATES_RESOURCE_ROOT",
+                templates_root,
+            ):
                 with mock.patch(
-                    "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
+                    "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                     return_value=(b"ciphertext", "auto-pass"),
                 ):
                     with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
@@ -507,10 +583,13 @@ class TestCliBackup(unittest.TestCase):
             stale_kit_index.write_text("stale template without marker", encoding="utf-8")
             config = replace(config, kit_template_path=kit_template)
 
-            package_root = Path(tmpdir) / "package"
-            with mock.patch("ethernity.cli.flows.backup_flow.PACKAGE_ROOT", package_root):
+            templates_root = Path(tmpdir) / "package-templates"
+            with mock.patch(
+                "ethernity.cli.features.backup.execution.TEMPLATES_RESOURCE_ROOT",
+                templates_root,
+            ):
                 with mock.patch(
-                    "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
+                    "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                     return_value=(b"ciphertext", "auto-pass"),
                 ):
                     with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
@@ -561,7 +640,7 @@ class TestCliBackup(unittest.TestCase):
             config = replace(config, kit_template_path=kit_template)
 
             with mock.patch(
-                "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
+                "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                 return_value=(b"ciphertext", "auto-pass"),
             ):
                 with mock.patch(
@@ -623,7 +702,7 @@ class TestCliBackup(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "out"
             with mock.patch(
-                "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
+                "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                 return_value=(ciphertext, "auto-pass"),
             ):
                 with mock.patch(
@@ -690,7 +769,7 @@ class TestCliBackup(unittest.TestCase):
                     side_effect=capture_build,
                 ):
                     with mock.patch(
-                        "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
+                        "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                         return_value=(b"ciphertext", "auto-pass"),
                     ):
                         with mock.patch(
@@ -770,7 +849,7 @@ class TestCliBackup(unittest.TestCase):
                     side_effect=capture_build,
                 ):
                     with mock.patch(
-                        "ethernity.cli.flows.backup_flow.encrypt_bytes_with_passphrase",
+                        "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                         return_value=(b"ciphertext", "auto-pass"),
                     ):
                         with mock.patch(
@@ -833,19 +912,23 @@ class TestCliBackup(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.flows.backup.progress",
+                "ethernity.cli.features.backup.orchestrator.progress",
                 return_value=contextlib.nullcontext(None),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup.prepare_backup_run",
+                "ethernity.cli.features.backup.orchestrator.prepare_backup_run",
                 return_value=prepared,
             ) as prepare_mock,
             mock.patch(
-                "ethernity.cli.flows.backup.execute_prepared_backup",
+                "ethernity.cli.features.backup.orchestrator.execute_prepared_backup",
                 return_value=result,
             ),
-            mock.patch("ethernity.cli.flows.backup.print_backup_summary") as summary_mock,
-            mock.patch("ethernity.cli.flows.backup._print_completion_actions") as completion_mock,
+            mock.patch(
+                "ethernity.cli.features.backup.orchestrator.print_backup_summary"
+            ) as summary_mock,
+            mock.patch(
+                "ethernity.cli.features.backup.orchestrator._print_completion_actions"
+            ) as completion_mock,
         ):
             exit_code = cli.run_backup_command(args)
 
@@ -868,17 +951,20 @@ class TestCliBackup(unittest.TestCase):
         )
         with (
             mock.patch(
-                "ethernity.cli.flows.backup.progress",
+                "ethernity.cli.features.backup.orchestrator.progress",
                 return_value=contextlib.nullcontext(None),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup.prepare_backup_run",
+                "ethernity.cli.features.backup.orchestrator.prepare_backup_run",
                 return_value=prepared,
             ),
-            mock.patch("ethernity.cli.flows.backup.ui_screen_mode") as screen_mode,
-            mock.patch("ethernity.cli.flows.backup.execute_prepared_backup", return_value=result),
-            mock.patch("ethernity.cli.flows.backup.print_backup_summary"),
-            mock.patch("ethernity.cli.flows.backup._print_completion_actions"),
+            mock.patch("ethernity.cli.features.backup.orchestrator.ui_screen_mode") as screen_mode,
+            mock.patch(
+                "ethernity.cli.features.backup.orchestrator.execute_prepared_backup",
+                return_value=result,
+            ),
+            mock.patch("ethernity.cli.features.backup.orchestrator.print_backup_summary"),
+            mock.patch("ethernity.cli.features.backup.orchestrator._print_completion_actions"),
         ):
             exit_code = cli.run_backup_command(args)
         self.assertEqual(exit_code, 0)
@@ -889,20 +975,20 @@ class TestCliBackupUx(unittest.TestCase):
     def setUp(self) -> None:
         self.runner = CliRunner()
         self._load_defaults_patcher = mock.patch(
-            "ethernity.cli.app.load_cli_defaults",
+            "ethernity.cli.bootstrap.app.load_cli_defaults",
             return_value=CliDefaults(),
         )
         self._load_defaults_patcher.start()
         self.addCleanup(self._load_defaults_patcher.stop)
 
     def test_load_input_files_rejects_empty_stdin(self) -> None:
-        with mock.patch("ethernity.cli.io.inputs.sys.stdin", new=io.StringIO("")):
+        with mock.patch("ethernity.cli.shared.io.inputs.sys.stdin", new=io.StringIO("")):
             with self.assertRaises(ValueError) as ctx:
                 _load_input_files(["-"], [], None, allow_stdin=True)
         self.assertIn("stdin input is empty", str(ctx.exception))
 
     def test_load_input_files_accepts_non_empty_stdin(self) -> None:
-        with mock.patch("ethernity.cli.io.inputs.sys.stdin", new=io.StringIO("payload")):
+        with mock.patch("ethernity.cli.shared.io.inputs.sys.stdin", new=io.StringIO("payload")):
             entries, base, input_origin, input_roots = _load_input_files(
                 ["-"], [], None, allow_stdin=True
             )
@@ -914,7 +1000,7 @@ class TestCliBackupUx(unittest.TestCase):
         self.assertEqual(entries[0].data, b"payload")
 
     def test_backup_empty_stdin_requires_explicit_input_flag(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(cli.app, ["backup"])
         self.assertEqual(result.exit_code, 2)
         self.assertIn("--input -", result.output)
@@ -926,9 +1012,9 @@ class TestCliBackupUx(unittest.TestCase):
             captured["input"] = list(args.input or [])
             return 0
 
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             with mock.patch(
-                "ethernity.cli.commands.backup.run_backup_command",
+                "ethernity.cli.features.backup.command.run_backup_command",
                 side_effect=_capture_args,
             ):
                 result = self.runner.invoke(
@@ -946,9 +1032,9 @@ class TestCliBackupUx(unittest.TestCase):
             captured["qr_chunk_size"] = args.qr_chunk_size
             return 0
 
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             with mock.patch(
-                "ethernity.cli.commands.backup.run_backup_command",
+                "ethernity.cli.features.backup.command.run_backup_command",
                 side_effect=_capture_args,
             ):
                 result = self.runner.invoke(
@@ -966,9 +1052,9 @@ class TestCliBackupUx(unittest.TestCase):
             captured["assume_yes"] = args.assume_yes
             return 0
 
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             with mock.patch(
-                "ethernity.cli.commands.backup.run_backup_command",
+                "ethernity.cli.features.backup.command.run_backup_command",
                 side_effect=_capture_args,
             ):
                 result = self.runner.invoke(
@@ -1008,10 +1094,10 @@ class TestCliBackupUx(unittest.TestCase):
             runtime=RuntimeDefaults(),
         )
 
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
-            with mock.patch("ethernity.cli.app.load_cli_defaults", return_value=defaults):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            with mock.patch("ethernity.cli.bootstrap.app.load_cli_defaults", return_value=defaults):
                 with mock.patch(
-                    "ethernity.cli.commands.backup.run_backup_command",
+                    "ethernity.cli.features.backup.command.run_backup_command",
                     side_effect=_capture_args,
                 ):
                     result = self.runner.invoke(
@@ -1045,10 +1131,10 @@ class TestCliBackupUx(unittest.TestCase):
             runtime=RuntimeDefaults(),
         )
 
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
-            with mock.patch("ethernity.cli.app.load_cli_defaults", return_value=defaults):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            with mock.patch("ethernity.cli.bootstrap.app.load_cli_defaults", return_value=defaults):
                 with mock.patch(
-                    "ethernity.cli.commands.backup.run_backup_command",
+                    "ethernity.cli.features.backup.command.run_backup_command",
                     side_effect=_capture_args,
                 ):
                     result = self.runner.invoke(
@@ -1076,57 +1162,17 @@ class TestCliBackupUx(unittest.TestCase):
             data=b"payload",
             mtime=None,
         )
-        with (
-            mock.patch(
-                "ethernity.cli.flows.backup.first_run_onboarding_configured_fields",
-                return_value=frozenset(),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_encryption",
-                return_value=("pass", 12),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_recovery_options",
-                return_value=(False, False, SigningSeedMode.EMBEDDED, None, None),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_layout",
-                return_value=(None, "A4"),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_design",
-                return_value=None,
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup.load_app_config",
-                return_value=object(),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup.apply_template_design",
-                return_value=object(),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_inputs",
-                return_value=([input_file], None, None, "file", []),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._build_review_rows",
-                return_value=[("Inputs", None)],
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup.prompt_yes_no",
-                return_value=False,
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup.ui_screen_mode",
-                return_value=contextlib.nullcontext(),
-            ) as screen_mode,
-            mock.patch("ethernity.cli.flows.backup.console.print") as print_mock,
-        ):
+        with contextlib.ExitStack() as stack:
+            handles = _enter_backup_wizard_patches(
+                stack,
+                input_file=input_file,
+                prompt_yes_no=False,
+                include_console_print=True,
+            )
             result = cli.run_wizard(quiet=True)
         self.assertEqual(result, 1)
-        screen_mode.assert_called_once_with(quiet=True)
-        self.assertIn(mock.call("Backup cancelled."), print_mock.mock_calls)
+        handles["ui_screen_mode"].assert_called_once_with(quiet=True)
+        self.assertIn(mock.call("Backup cancelled."), handles["console.print"].mock_calls)
 
     def test_backup_assume_yes_skips_review_confirmation(self) -> None:
         input_file = cli.InputFile(
@@ -1143,68 +1189,30 @@ class TestCliBackupUx(unittest.TestCase):
             signing_key_shard_paths=(),
             passphrase_used="pass",
         )
-        with (
-            mock.patch(
-                "ethernity.cli.flows.backup.first_run_onboarding_configured_fields",
-                return_value=frozenset(),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_encryption",
-                return_value=("pass", 12),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_recovery_options",
-                return_value=(False, False, SigningSeedMode.EMBEDDED, None, None),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_layout",
-                return_value=(None, "A4"),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_design",
-                return_value=None,
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup.load_app_config",
-                return_value=object(),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup.apply_template_design",
-                return_value=object(),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_inputs",
-                return_value=([input_file], None, None, "file", []),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._build_review_rows",
-                return_value=[("Inputs", None)],
-            ),
-            mock.patch("ethernity.cli.flows.backup.prompt_yes_no") as prompt_yes_no,
-            mock.patch("ethernity.cli.flows.backup._validate_backup_args") as validate_args,
-            mock.patch(
-                "ethernity.cli.flows.backup.run_backup",
-                return_value=backup_result,
-            ) as run_backup,
-            mock.patch("ethernity.cli.flows.backup.print_backup_summary") as print_summary,
-            mock.patch("ethernity.cli.flows.backup._print_completion_actions") as print_actions,
-            mock.patch(
-                "ethernity.cli.flows.backup.ui_screen_mode",
-                return_value=contextlib.nullcontext(),
-            ),
-        ):
+        with contextlib.ExitStack() as stack:
+            handles = _enter_backup_wizard_patches(
+                stack,
+                input_file=input_file,
+                prompt_yes_no=True,
+                run_backup_result=backup_result,
+                include_validate_args=True,
+                include_print_summary=True,
+                include_print_actions=True,
+            )
             result = cli.run_wizard(
                 quiet=True,
                 args=BackupArgs(assume_yes=True, quiet=True, layout_debug_dir="/tmp/layout-debug"),
             )
 
         self.assertEqual(result, 0)
-        prompt_yes_no.assert_not_called()
-        validate_args.assert_called_once()
-        run_backup.assert_called_once()
-        self.assertEqual(run_backup.call_args.kwargs["layout_debug_dir"], "/tmp/layout-debug")
-        print_summary.assert_called_once()
-        print_actions.assert_called_once()
+        handles["prompt_yes_no"].assert_not_called()
+        handles["_validate_backup_args"].assert_called_once()
+        handles["run_backup"].assert_called_once()
+        self.assertEqual(
+            handles["run_backup"].call_args.kwargs["layout_debug_dir"], "/tmp/layout-debug"
+        )
+        handles["print_backup_summary"].assert_called_once()
+        handles["_print_completion_actions"].assert_called_once()
 
     def test_backup_wizard_validates_effective_interactive_plan(self) -> None:
         input_file = cli.InputFile(
@@ -1221,61 +1229,22 @@ class TestCliBackupUx(unittest.TestCase):
             signing_key_shard_paths=(),
             passphrase_used="pass",
         )
-        with (
-            mock.patch(
-                "ethernity.cli.flows.backup.first_run_onboarding_configured_fields",
-                return_value=frozenset(),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_encryption",
-                return_value=("pass", 12),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_recovery_options",
-                return_value=(
+        with contextlib.ExitStack() as stack:
+            handles = _enter_backup_wizard_patches(
+                stack,
+                input_file=input_file,
+                recovery_options=(
                     False,
                     True,
                     SigningSeedMode.SHARDED,
                     ShardingConfig(threshold=2, shares=3),
                     None,
                 ),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_layout",
-                return_value=(None, "A4"),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_design",
-                return_value=None,
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup.load_app_config",
-                return_value=object(),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup.apply_template_design",
-                return_value=object(),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_inputs",
-                return_value=([input_file], None, None, "file", []),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._build_review_rows",
-                return_value=[("Inputs", None)],
-            ),
-            mock.patch("ethernity.cli.flows.backup.prompt_yes_no") as prompt_yes_no,
-            mock.patch(
-                "ethernity.cli.flows.backup.run_backup",
-                return_value=backup_result,
-            ) as run_backup,
-            mock.patch("ethernity.cli.flows.backup.print_backup_summary"),
-            mock.patch("ethernity.cli.flows.backup._print_completion_actions"),
-            mock.patch(
-                "ethernity.cli.flows.backup.ui_screen_mode",
-                return_value=contextlib.nullcontext(),
-            ),
-        ):
+                prompt_yes_no=True,
+                run_backup_result=backup_result,
+                include_print_summary=True,
+                include_print_actions=True,
+            )
             result = cli.run_wizard(
                 quiet=True,
                 args=BackupArgs(
@@ -1288,8 +1257,8 @@ class TestCliBackupUx(unittest.TestCase):
             )
 
         self.assertEqual(result, 0)
-        prompt_yes_no.assert_not_called()
-        run_backup.assert_called_once()
+        handles["prompt_yes_no"].assert_not_called()
+        handles["run_backup"].assert_called_once()
 
     def test_backup_wizard_quick_mode_hides_only_onboarded_sections(self) -> None:
         input_file = cli.InputFile(
@@ -1306,10 +1275,11 @@ class TestCliBackupUx(unittest.TestCase):
             signing_key_shard_paths=(),
             passphrase_used="pass",
         )
-        with (
-            mock.patch(
-                "ethernity.cli.flows.backup.first_run_onboarding_configured_fields",
-                return_value=frozenset(
+        with contextlib.ExitStack() as stack:
+            handles = _enter_backup_wizard_patches(
+                stack,
+                input_file=input_file,
+                onboarding_fields=frozenset(
                     {
                         "sharding",
                         "page_size",
@@ -1317,57 +1287,14 @@ class TestCliBackupUx(unittest.TestCase):
                         "backup_output_dir",
                     }
                 ),
-            ),
-            mock.patch("ethernity.cli.flows.backup._prompt_backup_setup_mode", return_value=True),
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_encryption",
-                return_value=("pass", 12),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_recovery_options",
-                return_value=(False, False, SigningSeedMode.EMBEDDED, None, None),
-            ) as prompt_recovery_options,
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_layout",
-                return_value=(None, "A4"),
-            ) as prompt_layout,
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_design",
-                return_value=None,
-            ) as prompt_design,
-            mock.patch(
-                "ethernity.cli.flows.backup.load_app_config",
-                return_value=object(),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup.apply_template_design",
-                return_value=object(),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup._prompt_inputs",
-                return_value=([input_file], None, None, "file", []),
-            ) as prompt_inputs,
-            mock.patch(
-                "ethernity.cli.flows.backup._build_review_rows",
-                return_value=[("Inputs", None)],
-            ),
-            mock.patch("ethernity.cli.flows.backup.run_backup", return_value=backup_result),
-            mock.patch("ethernity.cli.flows.backup.print_backup_summary"),
-            mock.patch("ethernity.cli.flows.backup._print_completion_actions"),
-            mock.patch(
-                "ethernity.cli.flows.backup.ui_screen_mode",
-                return_value=contextlib.nullcontext(),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup.wizard_flow",
-                return_value=contextlib.nullcontext(),
-            ),
-            mock.patch(
-                "ethernity.cli.flows.backup.wizard_stage",
-                return_value=contextlib.nullcontext(),
-            ),
-            mock.patch("ethernity.cli.flows.backup.console.print"),
-        ):
+                prompt_backup_setup_mode=True,
+                run_backup_result=backup_result,
+                include_print_summary=True,
+                include_print_actions=True,
+                include_wizard_flow=True,
+                include_wizard_stage=True,
+                include_console_print=True,
+            )
             result = cli.run_wizard(
                 quiet=False,
                 args=BackupArgs(assume_yes=True, quiet=False, output_dir="/tmp/saved-out"),
@@ -1375,18 +1302,21 @@ class TestCliBackupUx(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertEqual(
-            prompt_recovery_options.call_args.kwargs["confirm_existing_quorums"], False
+            handles["_prompt_recovery_options"].call_args.kwargs["confirm_existing_quorums"], False
         )
         self.assertEqual(
-            prompt_recovery_options.call_args.kwargs["prompt_sharding_when_missing"], False
-        )
-        self.assertEqual(
-            prompt_recovery_options.call_args.kwargs["prompt_signing_sharding_when_missing"],
+            handles["_prompt_recovery_options"].call_args.kwargs["prompt_sharding_when_missing"],
             False,
         )
-        self.assertEqual(prompt_layout.call_args.kwargs["prompt_when_unset"], False)
-        self.assertEqual(prompt_design.call_args.kwargs["prompt_when_unset"], False)
-        self.assertEqual(prompt_inputs.call_args.kwargs["show_output_prompt"], False)
+        self.assertEqual(
+            handles["_prompt_recovery_options"].call_args.kwargs[
+                "prompt_signing_sharding_when_missing"
+            ],
+            False,
+        )
+        self.assertEqual(handles["_prompt_layout"].call_args.kwargs["prompt_when_unset"], False)
+        self.assertEqual(handles["_prompt_design"].call_args.kwargs["prompt_when_unset"], False)
+        self.assertEqual(handles["_prompt_inputs"].call_args.kwargs["show_output_prompt"], False)
 
     def test_backup_wizard_advanced_mode_keeps_all_sections_visible(self) -> None:
         input_file = cli.InputFile(
@@ -1405,7 +1335,7 @@ class TestCliBackupUx(unittest.TestCase):
         )
         with (
             mock.patch(
-                "ethernity.cli.flows.backup.first_run_onboarding_configured_fields",
+                "ethernity.cli.features.backup.orchestrator.first_run_onboarding_configured_fields",
                 return_value=frozenset(
                     {
                         "sharding",
@@ -1415,55 +1345,60 @@ class TestCliBackupUx(unittest.TestCase):
                     }
                 ),
             ),
-            mock.patch("ethernity.cli.flows.backup._prompt_backup_setup_mode", return_value=False),
             mock.patch(
-                "ethernity.cli.flows.backup._prompt_encryption",
+                "ethernity.cli.features.backup.orchestrator._prompt_backup_setup_mode",
+                return_value=False,
+            ),
+            mock.patch(
+                "ethernity.cli.features.backup.orchestrator._prompt_encryption",
                 return_value=("pass", 12),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup._prompt_recovery_options",
+                "ethernity.cli.features.backup.orchestrator._prompt_recovery_options",
                 return_value=(False, False, SigningSeedMode.EMBEDDED, None, None),
             ) as prompt_recovery_options,
             mock.patch(
-                "ethernity.cli.flows.backup._prompt_layout",
+                "ethernity.cli.features.backup.orchestrator._prompt_layout",
                 return_value=(None, "A4"),
             ) as prompt_layout,
             mock.patch(
-                "ethernity.cli.flows.backup._prompt_design",
+                "ethernity.cli.features.backup.orchestrator._prompt_design",
                 return_value=None,
             ) as prompt_design,
             mock.patch(
-                "ethernity.cli.flows.backup.load_app_config",
+                "ethernity.cli.features.backup.orchestrator.load_app_config",
                 return_value=object(),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup.apply_template_design",
+                "ethernity.cli.features.backup.orchestrator.apply_template_design",
                 return_value=object(),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup._prompt_inputs",
+                "ethernity.cli.features.backup.orchestrator._prompt_inputs",
                 return_value=([input_file], None, None, "file", []),
             ) as prompt_inputs,
             mock.patch(
-                "ethernity.cli.flows.backup._build_review_rows",
+                "ethernity.cli.features.backup.orchestrator._build_review_rows",
                 return_value=[("Inputs", None)],
             ),
-            mock.patch("ethernity.cli.flows.backup.run_backup", return_value=backup_result),
-            mock.patch("ethernity.cli.flows.backup.print_backup_summary"),
-            mock.patch("ethernity.cli.flows.backup._print_completion_actions"),
             mock.patch(
-                "ethernity.cli.flows.backup.ui_screen_mode",
+                "ethernity.cli.features.backup.orchestrator.run_backup", return_value=backup_result
+            ),
+            mock.patch("ethernity.cli.features.backup.orchestrator.print_backup_summary"),
+            mock.patch("ethernity.cli.features.backup.orchestrator._print_completion_actions"),
+            mock.patch(
+                "ethernity.cli.features.backup.orchestrator.ui_screen_mode",
                 return_value=contextlib.nullcontext(),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup.wizard_flow",
+                "ethernity.cli.features.backup.orchestrator.wizard_flow",
                 return_value=contextlib.nullcontext(),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup.wizard_stage",
+                "ethernity.cli.features.backup.orchestrator.wizard_stage",
                 return_value=contextlib.nullcontext(),
             ),
-            mock.patch("ethernity.cli.flows.backup.console.print"),
+            mock.patch("ethernity.cli.features.backup.orchestrator.console.print"),
         ):
             result = cli.run_wizard(
                 quiet=False,
@@ -1500,7 +1435,7 @@ class TestCliBackupUx(unittest.TestCase):
         )
         with (
             mock.patch(
-                "ethernity.cli.flows.backup.first_run_onboarding_configured_fields",
+                "ethernity.cli.features.backup.orchestrator.first_run_onboarding_configured_fields",
                 return_value=frozenset(
                     {
                         "sharding",
@@ -1510,55 +1445,60 @@ class TestCliBackupUx(unittest.TestCase):
                     }
                 ),
             ),
-            mock.patch("ethernity.cli.flows.backup._prompt_backup_setup_mode", return_value=False),
             mock.patch(
-                "ethernity.cli.flows.backup._prompt_encryption",
+                "ethernity.cli.features.backup.orchestrator._prompt_backup_setup_mode",
+                return_value=False,
+            ),
+            mock.patch(
+                "ethernity.cli.features.backup.orchestrator._prompt_encryption",
                 return_value=("pass", 12),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup._prompt_recovery_options",
+                "ethernity.cli.features.backup.orchestrator._prompt_recovery_options",
                 return_value=(False, False, SigningSeedMode.EMBEDDED, None, None),
             ) as prompt_recovery_options,
             mock.patch(
-                "ethernity.cli.flows.backup._prompt_layout",
+                "ethernity.cli.features.backup.orchestrator._prompt_layout",
                 return_value=(None, "A4"),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup._prompt_design",
+                "ethernity.cli.features.backup.orchestrator._prompt_design",
                 return_value=None,
             ),
             mock.patch(
-                "ethernity.cli.flows.backup.load_app_config",
+                "ethernity.cli.features.backup.orchestrator.load_app_config",
                 return_value=object(),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup.apply_template_design",
+                "ethernity.cli.features.backup.orchestrator.apply_template_design",
                 return_value=object(),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup._prompt_inputs",
+                "ethernity.cli.features.backup.orchestrator._prompt_inputs",
                 return_value=([input_file], None, None, "file", []),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup._build_review_rows",
+                "ethernity.cli.features.backup.orchestrator._build_review_rows",
                 return_value=[("Inputs", None)],
             ),
-            mock.patch("ethernity.cli.flows.backup.run_backup", return_value=backup_result),
-            mock.patch("ethernity.cli.flows.backup.print_backup_summary"),
-            mock.patch("ethernity.cli.flows.backup._print_completion_actions"),
             mock.patch(
-                "ethernity.cli.flows.backup.ui_screen_mode",
+                "ethernity.cli.features.backup.orchestrator.run_backup", return_value=backup_result
+            ),
+            mock.patch("ethernity.cli.features.backup.orchestrator.print_backup_summary"),
+            mock.patch("ethernity.cli.features.backup.orchestrator._print_completion_actions"),
+            mock.patch(
+                "ethernity.cli.features.backup.orchestrator.ui_screen_mode",
                 return_value=contextlib.nullcontext(),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup.wizard_flow",
+                "ethernity.cli.features.backup.orchestrator.wizard_flow",
                 return_value=contextlib.nullcontext(),
             ),
             mock.patch(
-                "ethernity.cli.flows.backup.wizard_stage",
+                "ethernity.cli.features.backup.orchestrator.wizard_stage",
                 return_value=contextlib.nullcontext(),
             ),
-            mock.patch("ethernity.cli.flows.backup.console.print"),
+            mock.patch("ethernity.cli.features.backup.orchestrator.console.print"),
         ):
             result = cli.run_wizard(
                 quiet=False,

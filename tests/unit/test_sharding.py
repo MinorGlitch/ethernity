@@ -19,7 +19,7 @@ import unittest
 
 import cbor2
 
-from ethernity.cli.keys.recover_keys import _passphrase_from_shard_frames
+from ethernity.cli.features.recover.key_recovery import _passphrase_from_shard_frames
 from ethernity.crypto.sharding import (
     KEY_TYPE_PASSPHRASE,
     KEY_TYPE_SIGNING_SEED,

@@ -1,0 +1,12 @@
+[files]
+extend-exclude = [
+  "kit/dist",
+  "kit/lib",
+  "src/ethernity/resources/kit/recovery_kit.bundle.html",
+  "src/ethernity/resources/kit/recovery_kit.scanner.bundle.html",
+  "src/ethernity/resources/templates/_shared/assets/tailwindcss-playcdn-forms-container-queries.js",
+]
+
+[default.extend-words]
+caf = "caf"
+datas = "datas"

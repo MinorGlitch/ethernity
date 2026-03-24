@@ -1,0 +1,846 @@
+#!/usr/bin/env python3
+# Copyright (C) 2026 Alex Stoyanov
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with this program.
+# If not, see <https://www.gnu.org/licenses/>.
+
+"""Interactive and non-interactive backup command orchestration."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import replace
+from pathlib import Path
+
+from ethernity.cli.features.backup.execution import run_backup as _run_backup
+from ethernity.cli.features.backup.planning import build_document_plan
+from ethernity.cli.features.backup.service import (
+    apply_qr_chunk_size_override as _apply_qr_chunk_size_override_service,
+    execute_prepared_backup,
+    prepare_backup_run,
+)
+from ethernity.cli.features.backup.wizard import (
+    prompt_passphrase_words,
+    resolve_passphrase_sharding,
+    resolve_signing_seed_mode,
+    resolve_signing_seed_sharding,
+)
+from ethernity.cli.shared.io.inputs import _load_input_files
+from ethernity.cli.shared.plan import _validate_backup_args, _validate_passphrase_words
+from ethernity.cli.shared.types import BackupArgs, BackupResult, InputFile
+from ethernity.cli.shared.ui.summary import print_backup_summary
+from ethernity.cli.shared.ui_api import (
+    DEBUG_MAX_BYTES_DEFAULT,
+    build_review_table,
+    console,
+    console_err,
+    panel,
+    print_completion_panel,
+    progress,
+    prompt_choice,
+    prompt_optional,
+    prompt_optional_secret,
+    prompt_path_with_picker,
+    prompt_paths_with_picker,
+    prompt_yes_no,
+    ui_screen_mode,
+    wizard_flow,
+    wizard_stage,
+)
+from ethernity.config import (
+    DEFAULT_PAPER_SIZE,
+    DEFAULT_TEMPLATE_STYLE,
+    ONBOARDING_FIELD_BACKUP_OUTPUT_DIR,
+    ONBOARDING_FIELD_PAGE_SIZE,
+    ONBOARDING_FIELD_SHARDING,
+    ONBOARDING_FIELD_TEMPLATE_DESIGN,
+    AppConfig,
+    apply_template_design,
+    first_run_onboarding_configured_fields,
+    list_template_designs,
+    load_app_config,
+)
+from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
+from ethernity.core.models import DocumentPlan, ShardingConfig, SigningSeedMode
+from ethernity.formats import (
+    envelope_codec as envelope_codec_module,
+    payload_codec as payload_codec_module,
+)
+from ethernity.formats.envelope_types import SIGNING_SEED_LEN, PayloadPart
+
+_KIT_INDEX_TEMPLATE_MARKER = "kit_index_inventory_artifacts_v3"
+
+
+def _format_backup_input_error(exc: Exception) -> str:
+    """Rewrite input-loading errors into user-facing guidance."""
+
+    message = str(exc)
+    lowered = message.lower()
+    if "input file not found" in lowered or "input dir not found" in lowered:
+        return f"{message} Check the path and try again."
+    if "input paths are on different roots" in lowered:
+        return (
+            "Inputs are on different drives or roots. Provide --base-dir to set a common "
+            "base folder."
+        )
+    if "no input files found" in lowered:
+        return "No input files found. Select files or folders to back up."
+    return message
+
+
+def _prompt_encryption(
+    args: BackupArgs | None,
+) -> tuple[str | None, int | None]:
+    """Prompt for encryption settings. Returns (passphrase, passphrase_words)."""
+    passphrase = args.passphrase if args is not None else None
+    passphrase_generate = args.passphrase_generate if args is not None else False
+    passphrase_words = args.passphrase_words if args is not None else None
+
+    if passphrase is not None:
+        entered = prompt_optional_secret(
+            "Enter passphrase",
+            help_text="Leave blank to keep the passphrase provided via flags.",
+        )
+        if entered is not None:
+            passphrase = entered
+    else:
+        help_text = "Leave blank to auto-generate a strong passphrase."
+        if passphrase_generate:
+            help_text = "Leave blank to auto-generate a strong passphrase (as requested)."
+        passphrase = prompt_optional_secret("Enter passphrase", help_text=help_text)
+        if passphrase is None:
+            if passphrase_words is None:
+                passphrase_words = prompt_passphrase_words()
+            else:
+                _validate_passphrase_words(passphrase_words)
+
+    return passphrase, passphrase_words
+
+
+def _prompt_recovery_options(
+    args: BackupArgs | None,
+    debug_override: bool | None,
+    quiet: bool,
+    *,
+    confirm_existing_quorums: bool = True,
+    prompt_sharding_when_missing: bool = True,
+    prompt_signing_sharding_when_missing: bool = True,
+) -> tuple[
+    bool,
+    bool,
+    SigningSeedMode,
+    ShardingConfig | None,
+    ShardingConfig | None,
+]:
+    """Prompt for recovery options.
+
+    Returns (sealed, debug, signing_seed_mode, sharding, signing_seed_sharding).
+    """
+    sharding = resolve_passphrase_sharding(
+        args=args,
+        confirm_existing=confirm_existing_quorums,
+        prompt_when_missing=prompt_sharding_when_missing,
+    )
+
+    if sharding is None:
+        sealed = bool(args.sealed) if args is not None else False
+    elif args is not None and args.sealed:
+        sealed = True
+    else:
+        sealed = prompt_yes_no(
+            "Seal backup (disallow new shards)",
+            default=False,
+            help_text="Sealed backups prevent creating new shard docs later.",
+        )
+
+    if debug_override is None:
+        debug = prompt_yes_no(
+            "Show pre-encryption debug output",
+            default=False,
+            help_text="Includes plaintext details; use only for troubleshooting.",
+        )
+    else:
+        debug = debug_override
+
+    if sharding is not None:
+        signing_seed_mode = resolve_signing_seed_mode(
+            args=args,
+            sealed=sealed,
+            quiet=quiet,
+        )
+        signing_seed_sharding = resolve_signing_seed_sharding(
+            args=args,
+            signing_seed_mode=signing_seed_mode,
+            passphrase_sharding=sharding,
+            confirm_existing=confirm_existing_quorums,
+            prompt_when_missing=prompt_signing_sharding_when_missing,
+        )
+    else:
+        signing_seed_mode = SigningSeedMode.EMBEDDED
+        signing_seed_sharding = None
+
+    return sealed, debug, signing_seed_mode, sharding, signing_seed_sharding
+
+
+def _prompt_layout(
+    config_path: str | None,
+    paper_size: str | None,
+    *,
+    prompt_when_unset: bool = True,
+) -> tuple[str | None, str | None]:
+    """Prompt for layout settings. Returns (config_path, paper_size override)."""
+    paper = paper_size
+    if config_path is None and not paper and prompt_when_unset:
+        layout_choices = {
+            "a4": "A4",
+            "letter": "Letter",
+            "custom": "Custom config file (TOML)",
+        }
+        layout_choice = prompt_choice(
+            "Paper size",
+            layout_choices,
+            default=DEFAULT_PAPER_SIZE.lower(),
+            help_text="Choose a paper size or select a custom TOML config.",
+        )
+        if layout_choice == "custom":
+            config_path = prompt_path_with_picker(
+                "Config file path",
+                kind="file",
+                help_text="Provide a TOML config file.",
+                picker_prompt="Select a config file",
+            )
+        else:
+            paper = layout_choice.upper()
+    elif paper:
+        paper = paper.upper()
+    return config_path, paper
+
+
+def _resolve_design_name(design: str | None, designs: dict[str, Path]) -> str | None:
+    """Resolve a user-provided design name with case-insensitive matching."""
+
+    if not design:
+        return None
+    if design in designs:
+        return design
+    lowered = design.lower()
+    for name in designs:
+        if name.lower() == lowered:
+            return name
+    return None
+
+
+def _preferred_design_order(names: list[str]) -> list[str]:
+    """Return design names with sentinel first, then alphabetical."""
+
+    return sorted(
+        names,
+        key=lambda name: (0 if name.lower() == "sentinel" else 1, name.lower()),
+    )
+
+
+def _prompt_design(args: BackupArgs | None, *, prompt_when_unset: bool = True) -> str | None:
+    """Prompt for a template design, honoring valid CLI-provided values."""
+
+    designs = list_template_designs()
+    if not designs:
+        return None
+    requested = args.design if args is not None else None
+    resolved = _resolve_design_name(requested, designs)
+    if requested and resolved is None:
+        console_err.print(f"[error]Unknown template design: {requested}[/error]")
+    if resolved:
+        return resolved
+    if not prompt_when_unset:
+        return None
+    design_names = _preferred_design_order(list(designs.keys()))
+    if len(design_names) == 1:
+        return design_names[0]
+    default = DEFAULT_TEMPLATE_STYLE if DEFAULT_TEMPLATE_STYLE in designs else design_names[0]
+    choices = {
+        name: "sentinel (recommended)" if name.lower() == "sentinel" else name
+        for name in design_names
+    }
+    return prompt_choice(
+        "Template design",
+        choices,
+        default=default,
+        help_text="Design folders are discovered from packaged templates (copied to user config).",
+    )
+
+
+def _prompt_backup_setup_mode(*, offer_quick: bool) -> bool:
+    """Return True when operator chooses quick setup mode."""
+
+    if not offer_quick:
+        return False
+    mode = prompt_choice(
+        "Backup setup mode",
+        {
+            "quick": "Quick run (use saved onboarding defaults)",
+            "advanced": "Advanced (review all backup options)",
+        },
+        default="quick",
+        help_text=(
+            "Quick mode skips prompts for options configured during onboarding. "
+            "Choose Advanced to customize everything for this run."
+        ),
+    )
+    return mode == "quick"
+
+
+def _prompt_inputs(
+    args: BackupArgs | None,
+    quiet: bool,
+    debug: bool,
+    *,
+    show_output_prompt: bool = True,
+) -> tuple[list, Path | None, str | None, str, list[str]]:
+    """Prompt for input files.
+
+    Returns (input_files, resolved_base, output_dir, input_origin, input_roots).
+    """
+    while True:
+        input_values = prompt_paths_with_picker(
+            "Input paths (files or directories, blank to finish)",
+            picker_prompt="Select files or folders",
+            kind="path",
+            manual_help_text="Enter file or directory paths; blank line to finish.",
+            picker_help_text="Use space to toggle, Enter to confirm.",
+            empty_message="At least one input path is required.",
+            stdin_message="Stdin input is not supported in the wizard.",
+        )
+        base_dir = args.base_dir if args is not None else None
+        output_dir = args.output_dir if args is not None else None
+        if show_output_prompt:
+            output_help = (
+                "Press Enter to keep the saved default output directory, or enter a different "
+                "folder for this run."
+                if output_dir
+                else "Creates a backup-<id> folder in current directory."
+            )
+            selected_output_dir = prompt_optional(
+                "Output folder (press Enter for default)",
+                help_text=output_help,
+            )
+            if selected_output_dir is not None:
+                output_dir = selected_output_dir
+
+        status_quiet = quiet or debug
+        try:
+            with progress(quiet=status_quiet) as progress_bar:
+                input_files, resolved_base, input_origin, input_roots = _load_input_files(
+                    input_values,
+                    [],
+                    base_dir,
+                    allow_stdin=False,
+                    progress=progress_bar,
+                )
+        except ValueError as exc:
+            console_err.print(f"[error]{_format_backup_input_error(exc)}[/error]")
+            continue
+        break
+
+    return input_files, resolved_base, output_dir, input_origin, input_roots
+
+
+def _apply_qr_chunk_size_override(config: AppConfig, qr_chunk_size: int | None) -> AppConfig:
+    """Override the configured preferred QR chunk size when requested."""
+
+    return _apply_qr_chunk_size_override_service(config, qr_chunk_size)
+
+
+def _build_review_rows(
+    passphrase: str | None,
+    passphrase_words: int | None,
+    plan: DocumentPlan,
+    input_files: list[InputFile],
+    resolved_base: Path | None,
+    output_dir: str | None,
+    config_path: str | None,
+    paper: str | None,
+    design: str | None,
+    config: AppConfig,
+    debug: bool,
+) -> list[tuple[str, str | None]]:
+    """Build the review table rows."""
+    review_rows: list[tuple[str, str | None]] = []
+    payload_codec_label, compression_ratio = _build_payload_review_details(
+        input_files=input_files,
+        plan=plan,
+        config=config,
+    )
+    review_rows.append(("Keys", None))
+    if passphrase:
+        review_rows.append(("Passphrase", "provided"))
+    else:
+        review_rows.append(("Passphrase", "auto-generated"))
+        if passphrase_words:
+            review_rows.append(("Passphrase length", f"{passphrase_words} words"))
+
+    plan_sharding = plan.sharding
+    if plan_sharding is not None:
+        review_rows.append(("Sharding", f"{plan_sharding.threshold} of {plan_sharding.shares}"))
+        review_rows.append(("Shard documents", str(plan_sharding.shares)))
+        if plan.sealed:
+            signing_label = "not stored (sealed backup)"
+        elif plan.signing_seed_mode == SigningSeedMode.EMBEDDED:
+            signing_label = "embedded in main document"
+        else:
+            signing_label = "separate signing-key shard documents"
+        review_rows.append(("Signing key handling", signing_label))
+        if plan.signing_seed_mode == SigningSeedMode.SHARDED:
+            if plan.signing_seed_sharding:
+                signing_seed_sharding = plan.signing_seed_sharding
+                review_rows.append(
+                    (
+                        "Signing-key shards",
+                        f"{signing_seed_sharding.threshold} of {signing_seed_sharding.shares}",
+                    )
+                )
+            else:
+                review_rows.append(("Signing-key shards", "same as passphrase"))
+    else:
+        review_rows.append(("Sharding", "disabled"))
+        review_rows.append(("Signing key handling", "not applicable"))
+
+    review_rows.append(("Sealed", "yes" if plan.sealed else "no"))
+    review_rows.append(("Inputs", None))
+    review_rows.append(("Input files", f"{len(input_files)} file(s)"))
+    review_rows.append(("Payload codec", payload_codec_label))
+    if compression_ratio is not None:
+        review_rows.append(("Compression ratio", compression_ratio))
+    if resolved_base:
+        review_rows.append(("Base dir", str(resolved_base)))
+    if config_path:
+        review_rows.append(("Config", config_path))
+    else:
+        review_rows.append(("Config", "default"))
+    review_rows.append(("Paper size", paper or str(config.paper_size)))
+    review_rows.append(("QR chunk size (preferred)", f"{config.qr_chunk_size} bytes"))
+    if design:
+        review_rows.append(("Template design", design))
+    review_rows.append(("Output", None))
+    if output_dir:
+        review_rows.append(("Output dir", output_dir))
+    else:
+        review_rows.append(("Output dir", "default (backup-<doc_id>)"))
+    review_rows.append(("Debug output", "enabled" if debug else "disabled"))
+    review_rows.append(("QR template", str(config.template_path)))
+    review_rows.append(("Recovery template", str(config.recovery_template_path)))
+    kit_index_template = _resolve_kit_index_template_path(config)
+    if kit_index_template is not None:
+        review_rows.append(("Recovery kit index template", str(kit_index_template)))
+    if plan.sharding is not None:
+        review_rows.append(("Shard template", str(config.shard_template_path)))
+    if (
+        plan.sharding is not None
+        and not plan.sealed
+        and plan.signing_seed_mode == SigningSeedMode.SHARDED
+    ):
+        review_rows.append(
+            ("Signing-key shard template", str(config.signing_key_shard_template_path))
+        )
+    return review_rows
+
+
+def _build_payload_review_details(
+    *,
+    input_files: list[InputFile],
+    plan: DocumentPlan,
+    config: AppConfig,
+) -> tuple[str, str | None]:
+    """Return payload codec review text and optional gzip compression ratio."""
+
+    payload_codec_mode = config.cli_defaults.backup.payload_codec
+    if payload_codec_mode == payload_codec_module.PAYLOAD_CODEC_RAW:
+        return payload_codec_mode, None
+
+    try:
+        payload_parts = [
+            PayloadPart(path=item.relative_path, data=item.data, mtime=item.mtime)
+            for item in input_files
+        ]
+        signing_seed = None if plan.sealed else (b"\x00" * SIGNING_SEED_LEN)
+        _manifest, payload = envelope_codec_module.build_manifest_and_payload(
+            payload_parts,
+            sealed=plan.sealed,
+            signing_seed=signing_seed,
+            input_origin="file",
+            input_roots=(),
+        )
+        encoded_payload, actual_codec, payload_raw_len = (
+            payload_codec_module.encode_payload_for_manifest(
+                payload,
+                mode=payload_codec_mode,
+            )
+        )
+    except ValueError:
+        return str(payload_codec_mode), "unavailable (computed during backup)"
+
+    codec_label = actual_codec
+    if payload_codec_mode == payload_codec_module.PAYLOAD_ENCODING_AUTO:
+        codec_label = f"auto -> {actual_codec}"
+
+    if actual_codec != payload_codec_module.PAYLOAD_CODEC_GZIP or payload_raw_len is None:
+        return codec_label, None
+
+    compressed_len = len(encoded_payload)
+    ratio = compressed_len / payload_raw_len
+    delta = (1 - ratio) * 100
+    if delta >= 0:
+        ratio_label = (
+            f"{compressed_len:,}/{payload_raw_len:,} bytes "
+            f"({ratio * 100:.1f}% of original, {delta:.1f}% smaller)"
+        )
+    else:
+        ratio_label = (
+            f"{compressed_len:,}/{payload_raw_len:,} bytes "
+            f"({ratio * 100:.1f}% of original, {abs(delta):.1f}% larger)"
+        )
+    return codec_label, ratio_label
+
+
+def _resolve_kit_index_template_path(config: AppConfig) -> Path | None:
+    """Return the kit index template path candidate for the active design."""
+
+    kit_template_path = config.kit_template_path
+    candidate = kit_template_path.with_name("kit_index_document.html.j2")
+    if candidate.is_file() and _is_compatible_kit_index_template(candidate):
+        return candidate
+    package_candidate = (
+        TEMPLATES_RESOURCE_ROOT / kit_template_path.parent.name / "kit_index_document.html.j2"
+    )
+    if package_candidate.is_file() and _is_compatible_kit_index_template(package_candidate):
+        return package_candidate
+    return None
+
+
+def _is_compatible_kit_index_template(path: Path) -> bool:
+    """Return whether a kit index template has the expected marker."""
+
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return _KIT_INDEX_TEMPLATE_MARKER in content
+
+
+def _print_completion_actions(result: BackupResult, quiet: bool) -> None:
+    """Print the completion panel with next actions."""
+    if quiet:
+        return
+    output_dir = str(Path(result.qr_path).parent)
+    actions = [
+        f"Saved to {output_dir}",
+        "Print the QR document and store it securely.",
+        "Store the recovery document separately.",
+    ]
+    if result.kit_index_path:
+        actions.append("Store the recovery kit index separately.")
+    if result.shard_paths:
+        actions.append(f"Store {len(result.shard_paths)} shard documents in different locations.")
+    if result.signing_key_shard_paths:
+        actions.append(
+            f"Store {len(result.signing_key_shard_paths)} signing-key shard documents separately."
+        )
+    actions.append("Run `ethernity recover` to verify the backup.")
+    print_completion_panel("Backup complete", actions, quiet=quiet)
+
+
+def run_wizard(
+    *,
+    debug_override: bool | None = None,
+    debug_max_bytes: int = DEBUG_MAX_BYTES_DEFAULT,
+    debug_reveal_secrets: bool = False,
+    config_path: str | None = None,
+    paper_size: str | None = None,
+    quiet: bool = False,
+    args: BackupArgs | None = None,
+) -> int:
+    """Run the guided backup wizard and execute the resulting backup."""
+
+    assume_yes = bool(args.assume_yes) if args is not None else False
+    working_args = replace(args) if args is not None else BackupArgs(quiet=quiet)
+    configured_fields = first_run_onboarding_configured_fields()
+    offer_quick_mode = bool(
+        configured_fields
+        & {
+            ONBOARDING_FIELD_SHARDING,
+            ONBOARDING_FIELD_PAGE_SIZE,
+            ONBOARDING_FIELD_TEMPLATE_DESIGN,
+            ONBOARDING_FIELD_BACKUP_OUTPUT_DIR,
+        }
+    )
+
+    with ui_screen_mode(quiet=quiet):
+        with wizard_flow(name="Backup", total_steps=5, quiet=quiet):
+            if not quiet:
+                console.print("[title]Ethernity backup wizard[/title]")
+                console.print("[subtitle]Guided setup for backup documents.[/subtitle]")
+                console.print(
+                    "[subtitle]Defaults favor recovery (2-of-3 shards, unsealed).[/subtitle]"
+                )
+            quick_mode = False
+            passphrase: str | None = None
+            passphrase_words: int | None = None
+            sealed = False
+            debug = bool(debug_override)
+            signing_seed_mode = SigningSeedMode.EMBEDDED
+            sharding = None
+            signing_seed_sharding = None
+            paper = paper_size
+            design = args.design if args is not None else None
+            input_files: list[InputFile] = []
+            resolved_base: Path | None = None
+            output_dir: str | None = working_args.output_dir
+            input_origin = "file"
+            input_roots: list[str] = []
+            plan = build_document_plan(
+                sealed=sealed,
+                signing_seed_mode=signing_seed_mode,
+                sharding=sharding,
+                signing_seed_sharding=signing_seed_sharding,
+            )
+            config = load_app_config(config_path, paper_size=paper)
+            config = apply_template_design(config, design)
+            config = _apply_qr_chunk_size_override(config, working_args.qr_chunk_size)
+            stage_index = 0
+
+            while stage_index < 5:
+                if stage_index == 0:
+                    with wizard_stage("Encryption", step_number=1):
+                        quick_mode = _prompt_backup_setup_mode(
+                            offer_quick=offer_quick_mode and not quiet
+                        )
+                        passphrase, passphrase_words = _prompt_encryption(working_args)
+                        working_args.passphrase = passphrase
+                        working_args.passphrase_words = passphrase_words
+                    stage_index += 1
+                    continue
+
+                use_saved_sharding = quick_mode and ONBOARDING_FIELD_SHARDING in configured_fields
+                use_saved_page_size = quick_mode and ONBOARDING_FIELD_PAGE_SIZE in configured_fields
+                use_saved_template = (
+                    quick_mode and ONBOARDING_FIELD_TEMPLATE_DESIGN in configured_fields
+                )
+                use_saved_output_dir = (
+                    quick_mode and ONBOARDING_FIELD_BACKUP_OUTPUT_DIR in configured_fields
+                )
+
+                if stage_index == 1:
+                    with wizard_stage("Recovery", step_number=2):
+                        recovery_args = working_args
+                        if not use_saved_sharding:
+                            recovery_args = replace(
+                                working_args,
+                                shard_threshold=None,
+                                shard_count=None,
+                                signing_key_mode=None,
+                                signing_key_shard_threshold=None,
+                                signing_key_shard_count=None,
+                            )
+                        sealed, debug, signing_seed_mode, sharding, signing_seed_sharding = (
+                            _prompt_recovery_options(
+                                recovery_args,
+                                debug_override,
+                                quiet,
+                                confirm_existing_quorums=not use_saved_sharding,
+                                prompt_sharding_when_missing=not use_saved_sharding,
+                                prompt_signing_sharding_when_missing=not use_saved_sharding,
+                            )
+                        )
+                        working_args.sealed = sealed
+                        working_args.shard_threshold = sharding.threshold if sharding else None
+                        working_args.shard_count = sharding.shares if sharding else None
+                        working_args.signing_key_mode = signing_seed_mode.value
+                        working_args.signing_key_shard_threshold = (
+                            signing_seed_sharding.threshold if signing_seed_sharding else None
+                        )
+                        working_args.signing_key_shard_count = (
+                            signing_seed_sharding.shares if signing_seed_sharding else None
+                        )
+                    stage_index += 1
+                    continue
+
+                if stage_index == 2:
+                    with wizard_stage("Layout", step_number=3):
+                        config_path, paper = _prompt_layout(
+                            config_path,
+                            paper_size,
+                            prompt_when_unset=not use_saved_page_size,
+                        )
+                        design = _prompt_design(
+                            working_args,
+                            prompt_when_unset=not use_saved_template,
+                        )
+                        working_args.config = config_path
+                        working_args.paper = paper
+                        working_args.design = design
+                    stage_index += 1
+                    continue
+
+                if stage_index == 3:
+                    with wizard_stage("Inputs", step_number=4):
+                        input_files, resolved_base, output_dir, input_origin, input_roots = (
+                            _prompt_inputs(
+                                working_args,
+                                quiet,
+                                debug,
+                                show_output_prompt=not use_saved_output_dir,
+                            )
+                        )
+                        working_args.base_dir = (
+                            str(resolved_base) if resolved_base is not None else None
+                        )
+                        working_args.output_dir = output_dir
+                    stage_index += 1
+                    continue
+
+                plan = build_document_plan(
+                    sealed=sealed,
+                    signing_seed_mode=signing_seed_mode,
+                    sharding=sharding,
+                    signing_seed_sharding=signing_seed_sharding,
+                )
+                config = load_app_config(config_path, paper_size=paper)
+                config = apply_template_design(config, design)
+                config = _apply_qr_chunk_size_override(config, working_args.qr_chunk_size)
+                review_rows = _build_review_rows(
+                    passphrase,
+                    passphrase_words,
+                    plan,
+                    input_files,
+                    resolved_base,
+                    output_dir,
+                    config_path,
+                    paper,
+                    design,
+                    config,
+                    debug,
+                )
+
+                with wizard_stage("Review", step_number=5):
+                    console.print(panel("Review", build_review_table(review_rows)))
+                    if not assume_yes and not prompt_yes_no(
+                        "Proceed with backup",
+                        default=True,
+                        help_text="Select no to cancel.",
+                    ):
+                        console.print("Backup cancelled.")
+                        return 1
+                break
+
+            if args is not None:
+                effective_args = replace(
+                    args,
+                    shard_threshold=plan.sharding.threshold if plan.sharding else None,
+                    shard_count=plan.sharding.shares if plan.sharding else None,
+                    signing_key_mode=plan.signing_seed_mode.value,
+                    signing_key_shard_threshold=(
+                        plan.signing_seed_sharding.threshold
+                        if plan.signing_seed_sharding is not None
+                        else None
+                    ),
+                    signing_key_shard_count=(
+                        plan.signing_seed_sharding.shares
+                        if plan.signing_seed_sharding is not None
+                        else None
+                    ),
+                    passphrase_words=passphrase_words,
+                )
+                _validate_backup_args(effective_args)
+
+            result = run_backup(
+                input_files=input_files,
+                base_dir=resolved_base,
+                output_dir=output_dir,
+                layout_debug_dir=args.layout_debug_dir if args is not None else None,
+                input_origin=input_origin,
+                input_roots=input_roots,
+                plan=plan,
+                passphrase=passphrase,
+                passphrase_words=passphrase_words,
+                config=config,
+                debug=debug,
+                debug_max_bytes=debug_max_bytes,
+                debug_reveal_secrets=debug_reveal_secrets,
+                quiet=quiet,
+            )
+            print_backup_summary(result, plan, passphrase, quiet=quiet)
+            _print_completion_actions(result, quiet)
+    return 0
+
+
+def _should_use_wizard_for_backup(args: BackupArgs) -> bool:
+    """Return whether backup should default to the interactive wizard."""
+
+    if args.input or args.input_dir:
+        return False
+    if not os.isatty(0) or not os.isatty(1):
+        return False
+    return True
+
+
+def run_backup_command(args: BackupArgs) -> int:
+    """Execute the non-interactive backup command path."""
+
+    quiet = args.quiet
+    debug = args.debug
+    status_quiet = quiet or debug
+    with progress(quiet=status_quiet) as progress_bar:
+        prepared = prepare_backup_run(
+            args,
+            input_progress=progress_bar,
+        )
+    result = execute_prepared_backup(prepared)
+    print_backup_summary(result, prepared.plan, prepared.args.passphrase, quiet=quiet)
+    _print_completion_actions(result, quiet)
+    return 0
+
+
+def run_backup(
+    *,
+    input_files: list[InputFile],
+    base_dir: Path | None,
+    output_dir: str | None,
+    layout_debug_dir: str | None = None,
+    input_origin: str = "file",
+    input_roots: list[str] | None = None,
+    plan: DocumentPlan,
+    passphrase: str | None,
+    passphrase_words: int | None = None,
+    config: AppConfig,
+    debug: bool = False,
+    debug_max_bytes: int | None = None,
+    debug_reveal_secrets: bool = False,
+    quiet: bool = False,
+) -> BackupResult:
+    """Run the backup flow with preloaded inputs and resolved config."""
+
+    return _run_backup(
+        input_files=input_files,
+        base_dir=base_dir,
+        output_dir=output_dir,
+        layout_debug_dir=layout_debug_dir,
+        input_origin=input_origin,
+        input_roots=input_roots,
+        plan=plan,
+        passphrase=passphrase,
+        passphrase_words=passphrase_words,
+        config=config,
+        debug=debug,
+        debug_max_bytes=debug_max_bytes,
+        debug_reveal_secrets=debug_reveal_secrets,
+        quiet=quiet,
+    )

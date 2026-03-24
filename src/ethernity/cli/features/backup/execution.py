@@ -1,0 +1,878 @@
+#!/usr/bin/env python3
+# Copyright (C) 2026 Alex Stoyanov
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with this program.
+# If not, see <https://www.gnu.org/licenses/>.
+
+"""Backup document generation flow for QR, recovery, and shard PDFs."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+
+from rich.progress import Progress
+
+from ethernity import render as render_module
+from ethernity.cli.shared import api_codes
+from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
+from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
+from ethernity.cli.shared.events import active_event_sink, emit_phase, emit_progress
+from ethernity.cli.shared.io.outputs import (
+    _commit_prepared_output_dir,
+    _discard_prepared_output_dir,
+    _prepare_output_dir,
+)
+from ethernity.cli.shared.log import _warn
+from ethernity.cli.shared.types import BackupResult, InputFile
+from ethernity.cli.shared.ui.debug import (
+    _append_signing_key_lines,
+    _normalize_debug_max_bytes,
+    print_backup_debug,
+)
+from ethernity.cli.shared.ui_api import progress, status
+from ethernity.config import AppConfig
+from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
+from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
+from ethernity.core.models import DocumentPlan, SigningSeedMode
+from ethernity.crypto import (
+    encrypt_bytes_with_passphrase,
+    sharding as sharding_module,
+    signing as signing_module,
+)
+from ethernity.crypto.sharding import ShardPayload
+from ethernity.encoding.chunking import chunk_payload
+from ethernity.encoding.framing import VERSION, Frame, FrameType
+from ethernity.encoding.qr_payloads import QR_PAYLOAD_CODEC_RAW, QrPayloadCodec
+from ethernity.formats import (
+    envelope_codec as envelope_codec_module,
+    payload_codec as payload_codec_module,
+)
+from ethernity.formats.envelope_types import PayloadPart
+from ethernity.qr.capacity import choose_frame_chunk_size
+from ethernity.render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
+from ethernity.render.recovery_meta import build_recovery_meta
+from ethernity.render.service import RenderService
+from ethernity.render.types import RenderInputs
+
+_KIT_INDEX_TEMPLATE_NAME = "kit_index_document.html.j2"
+_KIT_INDEX_TEMPLATE_MARKER = "kit_index_inventory_artifacts_v3"
+
+
+def _resolve_layout_debug_dir(path: str | None) -> str | None:
+    if path is None or not path.strip():
+        return None
+    resolved = Path(path).expanduser().resolve()
+    resolved.mkdir(parents=True, exist_ok=True)
+    return str(resolved)
+
+
+def _layout_debug_json_path(layout_debug_dir: str | None, stem: str) -> str | None:
+    if layout_debug_dir is None:
+        return None
+    return str(Path(layout_debug_dir) / f"{stem}.layout.json")
+
+
+def _is_compatible_kit_index_template(path: Path) -> bool:
+    """Return whether a kit index template contains the expected compatibility marker."""
+
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return _KIT_INDEX_TEMPLATE_MARKER in content
+
+
+def _resolve_kit_index_template_path(config: AppConfig) -> Path | None:
+    """Resolve an optional compatible recovery-kit index template for the active design."""
+
+    kit_template_path = Path(config.kit_template_path)
+    candidate = kit_template_path.with_name(_KIT_INDEX_TEMPLATE_NAME)
+    package_candidate = (
+        TEMPLATES_RESOURCE_ROOT / kit_template_path.parent.name / _KIT_INDEX_TEMPLATE_NAME
+    )
+
+    if candidate.is_file() and _is_compatible_kit_index_template(candidate):
+        return candidate
+
+    if package_candidate.is_file() and _is_compatible_kit_index_template(package_candidate):
+        return package_candidate
+
+    return None
+
+
+def _build_kit_index_inventory_rows(
+    *,
+    shard_payloads: list[ShardPayload],
+    signing_key_shard_payloads: list[ShardPayload],
+) -> list[dict[str, str]]:
+    """Build inventory rows for the optional recovery kit index document."""
+
+    rows = [
+        {
+            "component_id": "QR-DOC-01",
+            "detail": "Encrypted payload and auth QR frames",
+            "status": "Generated",
+        },
+        {
+            "component_id": "RECOVERY-DOC-01",
+            "detail": "Recovery keys and full fallback text",
+            "status": "Generated",
+        },
+    ]
+
+    if shard_payloads:
+        for shard in sorted(shard_payloads, key=lambda item: item.share_index):
+            rows.append(
+                {
+                    "component_id": f"SHARD-{shard.share_index:02d}",
+                    "detail": (f"Passphrase shard {shard.share_index} of {shard.share_count}"),
+                    "status": "Generated",
+                }
+            )
+
+    if signing_key_shard_payloads:
+        for shard in sorted(signing_key_shard_payloads, key=lambda item: item.share_index):
+            rows.append(
+                {
+                    "component_id": f"SIGNING-SHARD-{shard.share_index:02d}",
+                    "detail": (f"Signing-key shard {shard.share_index} of {shard.share_count}"),
+                    "status": "Generated",
+                }
+            )
+
+    return rows
+
+
+def _render_shard(
+    shard: ShardPayload,
+    *,
+    doc_id: bytes,
+    output_dir: str,
+    render_service: RenderService,
+    filename_prefix: str,
+    template_path: str | Path,
+    doc_type: str | None = None,
+    layout_debug_json_path: str | None = None,
+    qr_payload_codec: QrPayloadCodec = QR_PAYLOAD_CODEC_RAW,
+) -> str:
+    """Render a single shard document to PDF and return the output path."""
+    shard_frame = Frame(
+        version=VERSION,
+        frame_type=FrameType.KEY_DOCUMENT,
+        doc_id=doc_id,
+        index=0,
+        total=1,
+        data=sharding_module.encode_shard_payload(shard),
+    )
+    shard_path = str(
+        Path(output_dir)
+        / f"{filename_prefix}-{doc_id.hex()}-{shard.share_index}-of-{shard.share_count}.pdf"
+    )
+    shard_inputs = render_service.shard_inputs(
+        shard_frame,
+        shard_path,
+        shard_index=shard.share_index,
+        shard_total=shard.share_count,
+        shard_threshold=shard.threshold,
+        qr_payloads=render_service.build_qr_payloads([shard_frame], codec=qr_payload_codec),
+        template_path=template_path,
+        doc_type=doc_type,
+        layout_debug_json_path=layout_debug_json_path,
+    )
+    render_module.render_frames_to_pdf(shard_inputs)
+    return shard_path
+
+
+def _prepare_envelope(
+    input_files: list[InputFile],
+    plan: DocumentPlan,
+    sign_priv: bytes,
+    input_origin: str,
+    input_roots: list[str],
+    payload_codec_mode: payload_codec_module.PayloadEncodingMode = (
+        payload_codec_module.PAYLOAD_ENCODING_AUTO
+    ),
+) -> tuple[bytes, bytes]:
+    """Prepare the envelope from input files. Returns (envelope, payload)."""
+    parts = [
+        PayloadPart(path=item.relative_path, data=item.data, mtime=item.mtime)
+        for item in input_files
+    ]
+    manifest, payload = envelope_codec_module.build_manifest_and_payload(
+        parts,
+        sealed=plan.sealed,
+        signing_seed=sign_priv if not plan.sealed else None,
+        input_origin=input_origin,
+        input_roots=input_roots,
+    )
+    encoded_payload, payload_codec, payload_raw_len = (
+        payload_codec_module.encode_payload_for_manifest(
+            payload,
+            mode=payload_codec_mode,
+        )
+    )
+    manifest = replace(
+        manifest,
+        payload_codec=payload_codec,
+        payload_raw_len=payload_raw_len,
+    )
+    envelope = envelope_codec_module.encode_envelope(encoded_payload, manifest)
+    return envelope, payload
+
+
+def _create_auth_frame(
+    doc_id: bytes,
+    doc_hash: bytes,
+    sign_priv: bytes,
+    sign_pub: bytes,
+) -> Frame:
+    """Create the authentication frame."""
+    auth_signature = signing_module.sign_auth(doc_hash, sign_pub=sign_pub, sign_priv=sign_priv)
+    auth_payload = signing_module.encode_auth_payload(
+        doc_hash,
+        sign_pub=sign_pub,
+        signature=auth_signature,
+    )
+    return Frame(
+        version=VERSION,
+        frame_type=FrameType.AUTH,
+        doc_id=doc_id,
+        index=0,
+        total=1,
+        data=auth_payload,
+    )
+
+
+def _create_shard_payloads(
+    plan: DocumentPlan,
+    passphrase: str,
+    doc_hash: bytes,
+    sign_priv: bytes,
+    sign_pub: bytes,
+    shard_signing_key: bool,
+    status_quiet: bool,
+) -> tuple[list[ShardPayload], list[ShardPayload]]:
+    """Create shard payloads for passphrase and signing key.
+
+    Returns (shard_payloads, signing_key_shard_payloads).
+    """
+    plan_sharding = plan.sharding
+    signing_key_sharding = plan.signing_seed_sharding or plan.sharding
+    shard_payloads: list[ShardPayload] = []
+    signing_key_shard_payloads: list[ShardPayload] = []
+
+    if plan_sharding is not None:
+        with status("Creating shard payloads...", quiet=status_quiet):
+            shard_payloads = sharding_module.split_passphrase(
+                passphrase,
+                threshold=plan_sharding.threshold,
+                shares=plan_sharding.shares,
+                doc_hash=doc_hash,
+                sign_priv=sign_priv,
+                sign_pub=sign_pub,
+            )
+        if shard_signing_key:
+            if signing_key_sharding is None:
+                raise ValueError("signing key sharding requires a shard quorum")
+            with status("Creating signing key shard payloads...", quiet=status_quiet):
+                signing_key_shard_payloads = sharding_module.split_signing_seed(
+                    sign_priv,
+                    threshold=signing_key_sharding.threshold,
+                    shares=signing_key_sharding.shares,
+                    doc_hash=doc_hash,
+                    sign_priv=sign_priv,
+                    sign_pub=sign_pub,
+                )
+
+    return shard_payloads, signing_key_shard_payloads
+
+
+def _render_all_documents(
+    *,
+    qr_inputs: RenderInputs,
+    recovery_inputs: RenderInputs,
+    kit_index_inputs: RenderInputs | None,
+    shard_payloads: list[ShardPayload],
+    signing_key_shard_payloads: list[ShardPayload],
+    doc_id: bytes,
+    output_dir: str,
+    render_service: RenderService,
+    config: AppConfig,
+    status_quiet: bool,
+    layout_debug_dir: str | None,
+    qr_payload_codec: QrPayloadCodec,
+) -> tuple[list[str], list[str]]:
+    """Render all PDF documents. Returns (shard_paths, signing_key_shard_paths)."""
+    shard_paths: list[str] = []
+    signing_key_shard_paths: list[str] = []
+
+    render_total = (
+        2
+        + (1 if kit_index_inputs is not None else 0)
+        + (len(shard_payloads) if shard_payloads else 0)
+        + (len(signing_key_shard_payloads) if signing_key_shard_payloads else 0)
+    )
+
+    with progress(quiet=status_quiet) as progress_bar:
+        if progress_bar:
+            shard_paths, signing_key_shard_paths = _render_with_progress(
+                progress_bar=progress_bar,
+                render_total=render_total,
+                qr_inputs=qr_inputs,
+                recovery_inputs=recovery_inputs,
+                kit_index_inputs=kit_index_inputs,
+                shard_payloads=shard_payloads,
+                signing_key_shard_payloads=signing_key_shard_payloads,
+                doc_id=doc_id,
+                output_dir=output_dir,
+                render_service=render_service,
+                config=config,
+                layout_debug_dir=layout_debug_dir,
+                qr_payload_codec=qr_payload_codec,
+            )
+        else:
+            shard_paths, signing_key_shard_paths = _render_without_progress(
+                qr_inputs=qr_inputs,
+                recovery_inputs=recovery_inputs,
+                kit_index_inputs=kit_index_inputs,
+                shard_payloads=shard_payloads,
+                signing_key_shard_payloads=signing_key_shard_payloads,
+                doc_id=doc_id,
+                output_dir=output_dir,
+                render_service=render_service,
+                config=config,
+                status_quiet=status_quiet,
+                layout_debug_dir=layout_debug_dir,
+                qr_payload_codec=qr_payload_codec,
+            )
+
+    return shard_paths, signing_key_shard_paths
+
+
+def _render_with_progress(
+    *,
+    progress_bar: Progress,
+    render_total: int,
+    qr_inputs: RenderInputs,
+    recovery_inputs: RenderInputs,
+    kit_index_inputs: RenderInputs | None,
+    shard_payloads: list[ShardPayload],
+    signing_key_shard_payloads: list[ShardPayload],
+    doc_id: bytes,
+    output_dir: str,
+    render_service: RenderService,
+    config: AppConfig,
+    layout_debug_dir: str | None,
+    qr_payload_codec: QrPayloadCodec,
+) -> tuple[list[str], list[str]]:
+    """Render documents with progress bar."""
+    shard_paths: list[str] = []
+    signing_key_shard_paths: list[str] = []
+    rendered = 0
+
+    def _advance_render(label: str, *, kind: str, path: str | Path | None = None) -> None:
+        nonlocal rendered
+        rendered += 1
+        details = {"kind": kind}
+        if path is not None:
+            details["path"] = str(path)
+        emit_progress(
+            phase="render",
+            current=rendered,
+            total=render_total,
+            unit="documents",
+            label=label,
+            details=details,
+        )
+
+    task_id = progress_bar.add_task("Rendering documents...", total=render_total)
+
+    progress_bar.update(task_id, description="Rendering QR document...")
+    render_module.render_frames_to_pdf(qr_inputs)
+    progress_bar.advance(task_id)
+    _advance_render("Rendered QR document", kind="qr_document", path=qr_inputs.output_path)
+
+    progress_bar.update(task_id, description="Rendering recovery document...")
+    render_module.render_frames_to_pdf(recovery_inputs)
+    progress_bar.advance(task_id)
+    _advance_render(
+        "Rendered recovery document",
+        kind="recovery_document",
+        path=recovery_inputs.output_path,
+    )
+
+    if kit_index_inputs is not None:
+        progress_bar.update(task_id, description="Rendering recovery kit index...")
+        render_module.render_frames_to_pdf(kit_index_inputs)
+        progress_bar.advance(task_id)
+        _advance_render(
+            "Rendered recovery kit index",
+            kind="recovery_kit_index",
+            path=kit_index_inputs.output_path,
+        )
+
+    if shard_payloads:
+        sorted_shards = sorted(shard_payloads, key=lambda shard: shard.share_index)
+        total_shards = len(sorted_shards)
+        for idx, shard in enumerate(sorted_shards, start=1):
+            progress_bar.update(
+                task_id, description=f"Rendering shard documents... ({idx}/{total_shards})"
+            )
+            shard_path = _render_shard(
+                shard,
+                doc_id=doc_id,
+                output_dir=output_dir,
+                render_service=render_service,
+                filename_prefix="shard",
+                template_path=config.shard_template_path,
+                layout_debug_json_path=_layout_debug_json_path(
+                    layout_debug_dir,
+                    f"shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
+                ),
+                qr_payload_codec=qr_payload_codec,
+            )
+            shard_paths.append(shard_path)
+            progress_bar.advance(task_id)
+            _advance_render(
+                f"Rendered shard document {idx} of {total_shards}",
+                kind="shard_document",
+                path=shard_path,
+            )
+
+    if signing_key_shard_payloads:
+        sorted_shards = sorted(signing_key_shard_payloads, key=lambda shard: shard.share_index)
+        total_shards = len(sorted_shards)
+        for idx, shard in enumerate(sorted_shards, start=1):
+            progress_bar.update(
+                task_id, description=f"Rendering signing key shards... ({idx}/{total_shards})"
+            )
+            shard_path = _render_shard(
+                shard,
+                doc_id=doc_id,
+                output_dir=output_dir,
+                render_service=render_service,
+                filename_prefix="signing-key-shard",
+                template_path=config.signing_key_shard_template_path,
+                doc_type=DOC_TYPE_SIGNING_KEY_SHARD,
+                layout_debug_json_path=_layout_debug_json_path(
+                    layout_debug_dir,
+                    f"signing-key-shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
+                ),
+                qr_payload_codec=qr_payload_codec,
+            )
+            signing_key_shard_paths.append(shard_path)
+            progress_bar.advance(task_id)
+            _advance_render(
+                f"Rendered signing-key shard {idx} of {total_shards}",
+                kind="signing_key_shard_document",
+                path=shard_path,
+            )
+
+    return shard_paths, signing_key_shard_paths
+
+
+def _render_without_progress(
+    *,
+    qr_inputs: RenderInputs,
+    recovery_inputs: RenderInputs,
+    kit_index_inputs: RenderInputs | None,
+    shard_payloads: list[ShardPayload],
+    signing_key_shard_payloads: list[ShardPayload],
+    doc_id: bytes,
+    output_dir: str,
+    render_service: RenderService,
+    config: AppConfig,
+    status_quiet: bool,
+    layout_debug_dir: str | None,
+    qr_payload_codec: QrPayloadCodec,
+) -> tuple[list[str], list[str]]:
+    """Render documents without progress bar (using status messages)."""
+    shard_paths: list[str] = []
+    signing_key_shard_paths: list[str] = []
+    rendered = 0
+
+    def _advance_render(label: str, *, kind: str, path: str | Path | None = None) -> None:
+        nonlocal rendered
+        rendered += 1
+        details = {"kind": kind}
+        if path is not None:
+            details["path"] = str(path)
+        emit_progress(
+            phase="render",
+            current=rendered,
+            total=(
+                2
+                + (1 if kit_index_inputs is not None else 0)
+                + len(shard_payloads)
+                + len(signing_key_shard_payloads)
+            ),
+            unit="documents",
+            label=label,
+            details=details,
+        )
+
+    with status("Rendering QR document...", quiet=status_quiet):
+        render_module.render_frames_to_pdf(qr_inputs)
+    _advance_render("Rendered QR document", kind="qr_document", path=qr_inputs.output_path)
+
+    with status("Rendering recovery document...", quiet=status_quiet):
+        render_module.render_frames_to_pdf(recovery_inputs)
+    _advance_render(
+        "Rendered recovery document",
+        kind="recovery_document",
+        path=recovery_inputs.output_path,
+    )
+
+    if kit_index_inputs is not None:
+        with status("Rendering recovery kit index...", quiet=status_quiet):
+            render_module.render_frames_to_pdf(kit_index_inputs)
+        _advance_render(
+            "Rendered recovery kit index",
+            kind="recovery_kit_index",
+            path=kit_index_inputs.output_path,
+        )
+
+    if shard_payloads:
+        with status("Rendering shard documents...", quiet=status_quiet):
+            sorted_shards = sorted(shard_payloads, key=lambda shard: shard.share_index)
+            for shard in sorted_shards:
+                shard_path = _render_shard(
+                    shard,
+                    doc_id=doc_id,
+                    output_dir=output_dir,
+                    render_service=render_service,
+                    filename_prefix="shard",
+                    template_path=config.shard_template_path,
+                    layout_debug_json_path=_layout_debug_json_path(
+                        layout_debug_dir,
+                        f"shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
+                    ),
+                    qr_payload_codec=qr_payload_codec,
+                )
+                shard_paths.append(shard_path)
+                _advance_render(
+                    (f"Rendered shard document {shard.share_index} of {shard.share_count}"),
+                    kind="shard_document",
+                    path=shard_path,
+                )
+
+    if signing_key_shard_payloads:
+        with status("Rendering signing key shards...", quiet=status_quiet):
+            sorted_shards = sorted(signing_key_shard_payloads, key=lambda shard: shard.share_index)
+            for shard in sorted_shards:
+                shard_path = _render_shard(
+                    shard,
+                    doc_id=doc_id,
+                    output_dir=output_dir,
+                    render_service=render_service,
+                    filename_prefix="signing-key-shard",
+                    template_path=config.signing_key_shard_template_path,
+                    doc_type=DOC_TYPE_SIGNING_KEY_SHARD,
+                    layout_debug_json_path=_layout_debug_json_path(
+                        layout_debug_dir,
+                        f"signing-key-shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
+                    ),
+                    qr_payload_codec=qr_payload_codec,
+                )
+                signing_key_shard_paths.append(shard_path)
+                _advance_render(
+                    (f"Rendered signing-key shard {shard.share_index} of {shard.share_count}"),
+                    kind="signing_key_shard_document",
+                    path=shard_path,
+                )
+
+    return shard_paths, signing_key_shard_paths
+
+
+def run_backup(
+    *,
+    input_files: list[InputFile],
+    base_dir: Path | None,
+    output_dir: str | None,
+    output_dir_existing_parent: bool = False,
+    layout_debug_dir: str | None = None,
+    input_origin: str = "file",
+    input_roots: list[str] | None = None,
+    plan: DocumentPlan,
+    passphrase: str | None,
+    passphrase_words: int | None = None,
+    config: AppConfig,
+    debug: bool = False,
+    debug_max_bytes: int | None = None,
+    debug_reveal_secrets: bool = False,
+    quiet: bool = False,
+) -> BackupResult:
+    """Run the backup process and generate PDF documents."""
+    status_quiet = quiet or debug
+    if not input_files:
+        raise ValueError("at least one input file is required")
+
+    with status("Starting backup...", quiet=status_quiet):
+        pass
+
+    # Generate signing keypair and determine key storage modes
+    sign_priv, sign_pub = signing_module.generate_signing_keypair()
+    store_signing_key = not plan.sealed
+    shard_signing_key = (
+        plan.sharding is not None
+        and not plan.sealed
+        and plan.signing_seed_mode == SigningSeedMode.SHARDED
+    )
+
+    # Prepare envelope and handle debug output
+    with status("Preparing payload...", quiet=status_quiet):
+        emit_phase(phase="prepare", label="Preparing payload")
+        payload_codec_mode = config.cli_defaults.backup.payload_codec
+        qr_payload_codec_mode = config.cli_defaults.backup.qr_payload_codec
+        envelope, payload = _prepare_envelope(
+            input_files,
+            plan,
+            sign_priv,
+            input_origin,
+            input_roots or [],
+            payload_codec_mode=payload_codec_mode,
+        )
+        manifest = envelope_codec_module.decode_envelope(envelope)[0]
+        emit_progress(
+            phase="prepare",
+            current=1,
+            total=1,
+            unit="step",
+            details={
+                "input_count": len(input_files),
+                "manifest_file_count": len(manifest.files),
+                "payload_bytes": len(payload),
+            },
+        )
+
+    if debug:
+        print_backup_debug(
+            payload=payload,
+            input_files=input_files,
+            base_dir=base_dir,
+            manifest=manifest,
+            envelope=envelope,
+            plan=plan,
+            passphrase=passphrase,
+            signing_seed=sign_priv,
+            signing_pub=sign_pub,
+            signing_seed_stored=store_signing_key,
+            debug_max_bytes=_normalize_debug_max_bytes(debug_max_bytes),
+            reveal_secrets=debug_reveal_secrets,
+            stderr=active_event_sink() is not None,
+        )
+
+    # Encrypt payload
+    with status("Encrypting payload...", quiet=status_quiet):
+        emit_phase(phase="encrypt", label="Encrypting payload")
+        ciphertext, passphrase_used = encrypt_bytes_with_passphrase(
+            envelope, passphrase=passphrase, passphrase_words=passphrase_words
+        )
+    emit_progress(
+        phase="encrypt",
+        current=1,
+        total=1,
+        unit="step",
+        details={"ciphertext_bytes": len(ciphertext)},
+    )
+    if len(ciphertext) > MAX_CIPHERTEXT_BYTES:
+        raise ValueError(
+            f"ciphertext exceeds MAX_CIPHERTEXT_BYTES ({MAX_CIPHERTEXT_BYTES}): "
+            f"{len(ciphertext)} bytes"
+        )
+    if passphrase_used is None:
+        raise ValueError("passphrase generation failed")
+    passphrase_final = passphrase if passphrase is not None else passphrase_used
+
+    # Build key lines for recovery document
+    plan_sharding = plan.sharding
+    if plan_sharding is not None:
+        key_lines = [
+            "Passphrase is sharded.",
+            f"Recover with {plan_sharding.threshold} of {plan_sharding.shares} shard documents.",
+        ]
+    else:
+        key_lines = ["Passphrase:", passphrase_final]
+    recovery_meta = build_recovery_meta(
+        passphrase=None if plan_sharding is not None else passphrase_final,
+        quorum_threshold=plan_sharding.threshold if plan_sharding is not None else None,
+        quorum_shares=plan_sharding.shares if plan_sharding is not None else None,
+        signing_pub=sign_pub,
+    )
+
+    # Create document identifiers and auth frame
+    doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+    auth_frame = _create_auth_frame(doc_id, doc_hash, sign_priv, sign_pub)
+
+    # Create shard payloads if sharding is enabled
+    if plan_sharding is not None and passphrase_final is None:
+        raise ValueError("passphrase is required for sharding")
+    emit_phase(phase="shard", label="Preparing shard documents")
+    shard_payloads, signing_key_shard_payloads = _create_shard_payloads(
+        plan, passphrase_final or "", doc_hash, sign_priv, sign_pub, shard_signing_key, status_quiet
+    )
+    emit_progress(
+        phase="shard",
+        current=len(shard_payloads) + len(signing_key_shard_payloads),
+        total=len(shard_payloads) + len(signing_key_shard_payloads),
+        unit="documents",
+        details={
+            "passphrase_shards": len(shard_payloads),
+            "signing_key_shards": len(signing_key_shard_payloads),
+        },
+    )
+
+    _append_signing_key_lines(
+        key_lines,
+        sign_pub=sign_pub,
+        sealed=plan.sealed,
+        stored_in_main=store_signing_key,
+        stored_as_shards=shard_signing_key,
+    )
+
+    # Prepare render inputs
+    main_chunk_size = choose_frame_chunk_size(
+        len(ciphertext),
+        preferred_chunk_size=config.qr_chunk_size,
+        doc_id=doc_id,
+        frame_type=FrameType.MAIN_DOCUMENT,
+        qr_config=config.qr_config,
+        payload_codec=qr_payload_codec_mode,
+    )
+    if main_chunk_size < config.qr_chunk_size:
+        _warn(
+            (
+                f"Requested QR chunk size ({config.qr_chunk_size} bytes) was reduced to "
+                f"{main_chunk_size} bytes to fit current QR settings."
+            ),
+            quiet=quiet,
+            code=api_codes.BACKUP_QR_CHUNK_SIZE_REDUCED,
+            details={
+                "requested_chunk_size": config.qr_chunk_size,
+                "effective_chunk_size": main_chunk_size,
+            },
+        )
+    frames = chunk_payload(
+        ciphertext,
+        doc_id=doc_id,
+        frame_type=FrameType.MAIN_DOCUMENT,
+        chunk_size=main_chunk_size,
+    )
+    qr_frames = [*frames, auth_frame]
+    output_dir, staging_output_dir = _prepare_output_dir(
+        output_dir,
+        doc_id.hex(),
+        prefix="backup",
+        existing_directory_is_parent=output_dir_existing_parent,
+    )
+    output_dir_path = Path(staging_output_dir)
+    qr_path = str(output_dir_path / "qr_document.pdf")
+    recovery_path = str(output_dir_path / "recovery_document.pdf")
+    kit_index_template = _resolve_kit_index_template_path(config)
+    kit_index_path = None
+    if kit_index_template is not None:
+        kit_index_path = str(output_dir_path / "recovery_kit_index.pdf")
+    layout_debug_dir = _resolve_layout_debug_dir(layout_debug_dir)
+
+    render_service = RenderService(config)
+    qr_payloads = render_service.build_qr_payloads(qr_frames, codec=qr_payload_codec_mode)
+    qr_inputs = render_service.qr_inputs(
+        qr_frames,
+        qr_path,
+        qr_payloads=qr_payloads,
+        layout_debug_json_path=_layout_debug_json_path(layout_debug_dir, "qr_document"),
+    )
+    kit_index_context = render_service.base_context(
+        {
+            "inventory_rows": _build_kit_index_inventory_rows(
+                shard_payloads=shard_payloads,
+                signing_key_shard_payloads=signing_key_shard_payloads,
+            )
+        }
+    )
+    kit_index_inputs = (
+        render_service.kit_inputs(
+            qr_frames,
+            kit_index_path,
+            qr_payloads=qr_payloads,
+            context=kit_index_context,
+            template_path=kit_index_template,
+            layout_debug_json_path=_layout_debug_json_path(layout_debug_dir, "recovery_kit_index"),
+        )
+        if kit_index_template is not None and kit_index_path is not None
+        else None
+    )
+
+    main_fallback_frame = Frame(
+        version=VERSION,
+        frame_type=FrameType.MAIN_DOCUMENT,
+        doc_id=doc_id,
+        index=0,
+        total=1,
+        data=ciphertext,
+    )
+    fallback_sections = [
+        render_module.FallbackSection(label=AUTH_FALLBACK_LABEL, frame=auth_frame),
+        render_module.FallbackSection(label=MAIN_FALLBACK_LABEL, frame=main_fallback_frame),
+    ]
+    recovery_inputs = render_service.recovery_inputs(
+        frames,
+        recovery_path,
+        key_lines=key_lines,
+        recovery_meta=recovery_meta,
+        fallback_sections=fallback_sections,
+        layout_debug_json_path=_layout_debug_json_path(layout_debug_dir, "recovery_document"),
+    )
+
+    try:
+        emit_phase(phase="render", label="Rendering backup documents")
+        shard_paths, signing_key_shard_paths = _render_all_documents(
+            qr_inputs=qr_inputs,
+            recovery_inputs=recovery_inputs,
+            kit_index_inputs=kit_index_inputs,
+            shard_payloads=shard_payloads,
+            signing_key_shard_payloads=signing_key_shard_payloads,
+            doc_id=doc_id,
+            output_dir=staging_output_dir,
+            render_service=render_service,
+            config=config,
+            status_quiet=status_quiet,
+            layout_debug_dir=layout_debug_dir,
+            qr_payload_codec=qr_payload_codec_mode,
+        )
+        _commit_prepared_output_dir(staging_output_dir, output_dir)
+    except Exception:
+        _discard_prepared_output_dir(staging_output_dir)
+        raise
+
+    final_output_dir = Path(output_dir)
+    final_qr_path = str(final_output_dir / Path(qr_path).name)
+    final_recovery_path = str(final_output_dir / Path(recovery_path).name)
+    final_kit_index_path = (
+        None if kit_index_path is None else str(final_output_dir / Path(kit_index_path).name)
+    )
+    final_shard_paths = tuple(str(final_output_dir / Path(path).name) for path in shard_paths)
+    final_signing_key_shard_paths = tuple(
+        str(final_output_dir / Path(path).name) for path in signing_key_shard_paths
+    )
+
+    return BackupResult(
+        doc_id=doc_id,
+        qr_path=final_qr_path,
+        recovery_path=final_recovery_path,
+        kit_index_path=final_kit_index_path,
+        shard_paths=final_shard_paths,
+        signing_key_shard_paths=final_signing_key_shard_paths,
+        passphrase_used=passphrase_used,
+    )

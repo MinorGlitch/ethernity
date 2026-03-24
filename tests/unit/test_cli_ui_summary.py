@@ -17,8 +17,8 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from ethernity.cli.core.types import BackupResult
-from ethernity.cli.ui import summary as summary_module
+from ethernity.cli.shared.types import BackupResult
+from ethernity.cli.shared.ui import summary as summary_module
 from ethernity.core.models import DocumentPlan
 
 
@@ -33,12 +33,12 @@ class TestUISummary(unittest.TestCase):
             passphrase_used=None,
         )
         plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
-        with mock.patch("ethernity.cli.ui.summary.console.print") as print_mock:
+        with mock.patch("ethernity.cli.shared.ui.summary.console.print") as print_mock:
             summary_module.print_backup_summary(result, plan, passphrase=None, quiet=True)
         print_mock.assert_not_called()
 
-    @mock.patch("ethernity.cli.ui.summary.panel", return_value="PANEL")
-    @mock.patch("ethernity.cli.ui.summary.build_outputs_tree", return_value="TREE")
+    @mock.patch("ethernity.cli.shared.ui.summary.panel", return_value="PANEL")
+    @mock.patch("ethernity.cli.shared.ui.summary.build_outputs_tree", return_value="TREE")
     def test_print_backup_summary_prints_panel_when_not_quiet(
         self,
         build_outputs_tree: mock.MagicMock,
@@ -54,7 +54,7 @@ class TestUISummary(unittest.TestCase):
             kit_index_path="kit-index.pdf",
         )
         plan = DocumentPlan(version=1, sealed=False, sharding=None, signing_seed_sharding=None)
-        with mock.patch("ethernity.cli.ui.summary.console.print") as print_mock:
+        with mock.patch("ethernity.cli.shared.ui.summary.console.print") as print_mock:
             summary_module.print_backup_summary(result, plan, passphrase="secret", quiet=False)
         build_outputs_tree.assert_called_once_with(
             "qr.pdf",
@@ -67,9 +67,9 @@ class TestUISummary(unittest.TestCase):
         self.assertIn(mock.call(), print_mock.mock_calls)
         self.assertIn(mock.call("PANEL"), print_mock.mock_calls)
 
-    @mock.patch("ethernity.cli.ui.summary.panel")
-    @mock.patch("ethernity.cli.ui.summary.build_kv_table")
-    @mock.patch("ethernity.cli.ui.summary.build_recovered_tree")
+    @mock.patch("ethernity.cli.shared.ui.summary.panel")
+    @mock.patch("ethernity.cli.shared.ui.summary.build_kv_table")
+    @mock.patch("ethernity.cli.shared.ui.summary.build_recovered_tree")
     def test_print_recover_summary_stdout_and_auth_row(
         self,
         build_recovered_tree: mock.MagicMock,
@@ -81,7 +81,7 @@ class TestUISummary(unittest.TestCase):
         build_kv_table.return_value = "TABLE"
         panel.side_effect = ["SUMMARY_PANEL"]
 
-        with mock.patch("ethernity.cli.ui.summary.console_err.print") as print_err:
+        with mock.patch("ethernity.cli.shared.ui.summary.console_err.print") as print_err:
             summary_module.print_recover_summary(
                 entries,
                 output_path=None,
@@ -101,9 +101,9 @@ class TestUISummary(unittest.TestCase):
         )
         print_err.assert_called_once_with("SUMMARY_PANEL")
 
-    @mock.patch("ethernity.cli.ui.summary.panel")
-    @mock.patch("ethernity.cli.ui.summary.build_kv_table")
-    @mock.patch("ethernity.cli.ui.summary.build_recovered_tree")
+    @mock.patch("ethernity.cli.shared.ui.summary.panel")
+    @mock.patch("ethernity.cli.shared.ui.summary.build_kv_table")
+    @mock.patch("ethernity.cli.shared.ui.summary.build_recovered_tree")
     def test_print_recover_summary_with_tree(
         self,
         build_recovered_tree: mock.MagicMock,
@@ -118,7 +118,7 @@ class TestUISummary(unittest.TestCase):
         build_kv_table.return_value = "TABLE"
         panel.side_effect = ["SUMMARY_PANEL", "TREE_PANEL"]
 
-        with mock.patch("ethernity.cli.ui.summary.console_err.print") as print_err:
+        with mock.patch("ethernity.cli.shared.ui.summary.console_err.print") as print_err:
             summary_module.print_recover_summary(
                 entries,
                 output_path="out-dir",
@@ -133,9 +133,9 @@ class TestUISummary(unittest.TestCase):
         self.assertEqual(print_err.mock_calls[0], mock.call("SUMMARY_PANEL"))
         self.assertEqual(print_err.mock_calls[1], mock.call("TREE_PANEL"))
 
-    @mock.patch("ethernity.cli.ui.summary.panel")
-    @mock.patch("ethernity.cli.ui.summary.build_kv_table")
-    @mock.patch("ethernity.cli.ui.summary.build_recovered_tree")
+    @mock.patch("ethernity.cli.shared.ui.summary.panel")
+    @mock.patch("ethernity.cli.shared.ui.summary.build_kv_table")
+    @mock.patch("ethernity.cli.shared.ui.summary.build_recovered_tree")
     def test_print_recover_summary_single_entry_directory_mode(
         self,
         build_recovered_tree: mock.MagicMock,
@@ -147,7 +147,7 @@ class TestUISummary(unittest.TestCase):
         build_kv_table.return_value = "TABLE"
         panel.side_effect = ["SUMMARY_PANEL", "TREE_PANEL"]
 
-        with mock.patch("ethernity.cli.ui.summary.console_err.print") as print_err:
+        with mock.patch("ethernity.cli.shared.ui.summary.console_err.print") as print_err:
             summary_module.print_recover_summary(
                 entries,
                 output_path="vault",
@@ -164,7 +164,7 @@ class TestUISummary(unittest.TestCase):
         self.assertEqual(print_err.call_count, 2)
 
     def test_print_recover_summary_quiet_noop(self) -> None:
-        with mock.patch("ethernity.cli.ui.summary.console_err.print") as print_err:
+        with mock.patch("ethernity.cli.shared.ui.summary.console_err.print") as print_err:
             summary_module.print_recover_summary([], "x", auth_status=None, quiet=True)
         print_err.assert_not_called()
 
