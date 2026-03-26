@@ -47,6 +47,7 @@ class TestMintCommand(unittest.TestCase):
             "signing_key_shard_fallback_file": None,
             "signing_key_shard_dir": None,
             "signing_key_shard_payloads_file": None,
+            "signing_key_shard_scan": None,
             "output_dir": None,
             "layout_debug_dir": None,
             "shard_threshold": None,
@@ -97,6 +98,7 @@ class TestMintCommand(unittest.TestCase):
             shard_dir="passphrase-shards",
             signing_key_shard_fallback_file=["manual-signing.txt"],
             signing_key_shard_dir="signing-shards",
+            signing_key_shard_scan=["signing-scan-a.pdf", "signing-scan-b.pdf"],
             shard_threshold=2,
             shard_count=3,
             passphrase_replacement_count=1,
@@ -112,6 +114,7 @@ class TestMintCommand(unittest.TestCase):
             args.signing_key_shard_fallback_file,
             ["manual-signing.txt", "signing-dir.txt"],
         )
+        self.assertEqual(args.signing_key_shard_scan, ["signing-scan-a.pdf", "signing-scan-b.pdf"])
         self.assertEqual(args.passphrase_replacement_count, 1)
         self.assertEqual(args.signing_key_replacement_count, 2)
         self.assertEqual(run_mint_command.call_args.kwargs["debug"], True)

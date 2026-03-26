@@ -102,32 +102,37 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
                     )
                 with mock.patch.object(
                     recover_plan,
-                    "_frames_from_shard_inputs",
-                    return_value=["shard"],
-                ) as shard_mock:
+                    "_frame_from_fallback",
+                    return_value="shard",
+                ) as shard_fallback_mock:
                     with mock.patch.object(
                         recover_plan,
-                        "_shard_frames_from_scan",
-                        return_value=["scan-shard"],
-                    ) as shard_scan_mock:
-                        shard_frames, shard_fallback, shard_payloads, shard_scan = (
-                            recover_plan._shard_frames_from_args(
-                                args,
-                                quiet=True,
+                        "_frames_from_payloads",
+                        return_value=["payload-shard"],
+                    ) as shard_payload_mock:
+                        with mock.patch.object(
+                            recover_plan,
+                            "_shard_frames_from_scan",
+                            return_value=["scan-shard"],
+                        ) as shard_scan_mock:
+                            shard_frames, shard_fallback, shard_payloads, shard_scan = (
+                                recover_plan._shard_frames_from_args(
+                                    args,
+                                    quiet=True,
+                                )
                             )
-                        )
         self.assertEqual(auth_frames, ["auth"])
         auth_mock.assert_called_once_with(
             str(home / "auth.txt"), allow_invalid_auth=False, quiet=True
         )
-        self.assertEqual(shard_frames, ["shard", "scan-shard"])
+        self.assertEqual(shard_frames, ["shard", "payload-shard", "scan-shard"])
         self.assertEqual(shard_fallback, [str(home / "s1.txt")])
         self.assertEqual(shard_payloads, [str(home / "s2.txt")])
         self.assertEqual(shard_scan, [str(home / "s3.pdf")])
-        shard_mock.assert_called_once_with(
-            [str(home / "s1.txt")],
-            [str(home / "s2.txt")],
-            quiet=True,
+        shard_fallback_mock.assert_called_once_with(str(home / "s1.txt"), quiet=True)
+        shard_payload_mock.assert_called_once_with(
+            str(home / "s2.txt"),
+            label="shard QR payloads",
         )
         shard_scan_mock.assert_called_once_with([str(home / "s3.pdf")], quiet=True)
 

@@ -99,6 +99,7 @@ def _mint_started_args(
         "auth_payloads_file": args.auth_payloads_file,
         "signing_key_shard_fallback_file": list(args.signing_key_shard_fallback_file or []),
         "signing_key_shard_payloads_file": list(args.signing_key_shard_payloads_file or []),
+        "signing_key_shard_scan": list(args.signing_key_shard_scan or []),
         "shard_threshold": args.shard_threshold,
         "shard_count": args.shard_count,
         "signing_key_shard_threshold": args.signing_key_shard_threshold,
@@ -165,7 +166,7 @@ def run_mint_inspect_api_command(args: MintArgs, *, debug: bool = False) -> int:
                 "main_frame_count": len(inspection.recovery.main_frames),
                 "auth_frame_count": len(inspection.recovery.auth_frames),
                 "shard_frame_count": len(inspection.recovery.shard_frames),
-                "signing_key_shard_frame_count": inspection.signing_key_validated_shard_count,
+                "signing_key_shard_frame_count": inspection.signing_key_frame_count,
             },
         )
         emit_result(
@@ -180,7 +181,7 @@ def run_mint_inspect_api_command(args: MintArgs, *, debug: bool = False) -> int:
                 "main": len(inspection.recovery.main_frames),
                 "auth": len(inspection.recovery.auth_frames),
                 "shard": len(inspection.recovery.shard_frames),
-                "signing_key_shard": inspection.signing_key_validated_shard_count,
+                "signing_key_shard": inspection.signing_key_frame_count,
             },
             unlock={
                 "validated_passphrase_shard_count": (

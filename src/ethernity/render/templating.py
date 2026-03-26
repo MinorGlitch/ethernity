@@ -23,8 +23,9 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
-_TEMPLATES_ROOT = Path(__file__).parent.parent / "templates"
-_PACKAGED_SHARED_DIR = _TEMPLATES_ROOT / "_shared"
+from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
+
+_PACKAGED_SHARED_DIR = TEMPLATES_RESOURCE_ROOT / "_shared"
 
 
 def _discover_shared_dir(template_dir: Path) -> Path | None:

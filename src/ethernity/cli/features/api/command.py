@@ -357,6 +357,7 @@ def _build_mint_api_args(
     signing_key_shard_fallback_file: list[str] | None,
     signing_key_shard_dir: str | None,
     signing_key_shard_payloads_file: list[str] | None,
+    signing_key_shard_scan: list[str] | None,
     output_dir: str | None,
     layout_debug_dir: str | None,
     shard_threshold: str | None,
@@ -402,6 +403,7 @@ def _build_mint_api_args(
         auth_payloads_file=auth_payloads_file,
         signing_key_shard_fallback_file=signing_key_shard_files,
         signing_key_shard_payloads_file=list(signing_key_shard_payloads_file or []),
+        signing_key_shard_scan=list(signing_key_shard_scan or []),
         output_dir=output_dir,
         output_dir_existing_parent=True,
         layout_debug_dir=layout_debug_dir,
@@ -448,6 +450,7 @@ def _run_mint_operation(
     signing_key_shard_fallback_file: list[str] | None,
     signing_key_shard_dir: str | None,
     signing_key_shard_payloads_file: list[str] | None,
+    signing_key_shard_scan: list[str] | None,
     output_dir: str | None,
     layout_debug_dir: str | None,
     shard_threshold: str | None,
@@ -478,6 +481,7 @@ def _run_mint_operation(
         signing_key_shard_fallback_file=list(signing_key_shard_fallback_file or []),
         signing_key_shard_dir=signing_key_shard_dir,
         signing_key_shard_payloads_file=list(signing_key_shard_payloads_file or []),
+        signing_key_shard_scan=list(signing_key_shard_scan or []),
         output_dir=output_dir,
         layout_debug_dir=layout_debug_dir,
         shard_threshold=shard_threshold,
@@ -959,6 +963,13 @@ def mint(
             help="Signing-key shard QR payload file.",
         ),
     ] = None,
+    signing_key_shard_scan: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--signing-key-shard-scan",
+            help="Signing-key shard scan path (image/PDF/dir, repeatable).",
+        ),
+    ] = None,
     output_dir: Annotated[
         str | None,
         typer.Option("--output-dir", "-o", help="Where to write minted shard PDFs."),
@@ -1053,6 +1064,7 @@ def mint(
             signing_key_shard_fallback_file=signing_key_shard_fallback_file,
             signing_key_shard_dir=signing_key_shard_dir,
             signing_key_shard_payloads_file=signing_key_shard_payloads_file,
+            signing_key_shard_scan=signing_key_shard_scan,
             output_dir=output_dir,
             layout_debug_dir=layout_debug_dir,
             shard_threshold=shard_threshold,
@@ -1128,6 +1140,13 @@ def inspect_mint(
         typer.Option(
             "--signing-key-shard-payloads-file",
             help="Signing-key shard QR payload file.",
+        ),
+    ] = None,
+    signing_key_shard_scan: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--signing-key-shard-scan",
+            help="Signing-key shard scan path (image/PDF/dir, repeatable).",
         ),
     ] = None,
     shard_threshold: Annotated[
@@ -1216,6 +1235,7 @@ def inspect_mint(
             signing_key_shard_fallback_file=signing_key_shard_fallback_file,
             signing_key_shard_dir=signing_key_shard_dir,
             signing_key_shard_payloads_file=signing_key_shard_payloads_file,
+            signing_key_shard_scan=signing_key_shard_scan,
             output_dir=None,
             layout_debug_dir=None,
             shard_threshold=shard_threshold,

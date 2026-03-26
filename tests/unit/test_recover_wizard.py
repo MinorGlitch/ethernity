@@ -228,17 +228,20 @@ class TestPromptKeyMaterial(unittest.TestCase):
 
 
 class TestRecoveryWizardHelpers(unittest.TestCase):
-    @mock.patch("ethernity.cli.features.recover.wizard._frames_from_shard_inputs")
+    @mock.patch("ethernity.cli.features.recover.wizard._frame_from_fallback")
+    @mock.patch("ethernity.cli.features.recover.wizard._frames_from_payloads")
     def test_load_shard_frames_uses_preloaded_frames_for_interactive_files(
         self,
-        frames_from_shard_inputs: mock.MagicMock,
+        frames_from_payloads: mock.MagicMock,
+        frame_from_fallback: mock.MagicMock,
     ) -> None:
         shard = _frame(FrameType.KEY_DOCUMENT)
 
         result = wizard._load_shard_frames(["shard.txt"], [], [shard], quiet=True)
 
         self.assertEqual(result, [shard])
-        frames_from_shard_inputs.assert_not_called()
+        frame_from_fallback.assert_not_called()
+        frames_from_payloads.assert_not_called()
 
     def test_build_review_rows_sharded_allow_unsigned(self) -> None:
         plan = SimpleNamespace(
@@ -317,25 +320,25 @@ class TestRecoveryWizardHelpers(unittest.TestCase):
     def test_load_shard_frames_returns_empty_when_nothing_supplied(self) -> None:
         self.assertEqual(wizard._load_shard_frames([], [], extra_frames=None, quiet=True), [])
 
-    @mock.patch("ethernity.cli.features.recover.wizard._frames_from_shard_inputs")
+    @mock.patch("ethernity.cli.features.recover.wizard._frame_from_fallback")
     @mock.patch(
         "ethernity.cli.features.recover.wizard.status", return_value=contextlib.nullcontext(None)
     )
     def test_load_shard_frames_reads_from_files(
         self,
         _status: mock.MagicMock,
-        frames_from_shard_inputs: mock.MagicMock,
+        frame_from_fallback: mock.MagicMock,
     ) -> None:
         shard = _frame(FrameType.KEY_DOCUMENT)
-        frames_from_shard_inputs.return_value = [shard]
+        frame_from_fallback.return_value = shard
 
         frames = wizard._load_shard_frames(["shards.txt"], [], extra_frames=[], quiet=False)
 
         self.assertEqual(frames, [shard])
-        frames_from_shard_inputs.assert_called_once_with(["shards.txt"], [], quiet=False)
+        frame_from_fallback.assert_called_once_with("shards.txt", quiet=False)
 
     @mock.patch(
-        "ethernity.cli.features.recover.wizard._frames_from_shard_inputs",
+        "ethernity.cli.features.recover.wizard._frame_from_fallback",
         side_effect=ValueError("bad magic"),
     )
     @mock.patch(
@@ -344,22 +347,22 @@ class TestRecoveryWizardHelpers(unittest.TestCase):
     def test_load_shard_frames_wraps_parse_errors(
         self,
         _status: mock.MagicMock,
-        _frames_from_shard_inputs: mock.MagicMock,
+        _frame_from_fallback: mock.MagicMock,
     ) -> None:
         with self.assertRaisesRegex(ValueError, "Shard recovery text is incomplete or invalid"):
             wizard._load_shard_frames(["shards.txt"], [], extra_frames=None, quiet=True)
 
-    @mock.patch("ethernity.cli.features.recover.wizard._frames_from_shard_inputs", return_value=[])
+    @mock.patch("ethernity.cli.features.recover.wizard._frames_from_payloads", return_value=[])
     @mock.patch(
         "ethernity.cli.features.recover.wizard.status", return_value=contextlib.nullcontext(None)
     )
     def test_load_shard_frames_rejects_empty_result(
         self,
         _status: mock.MagicMock,
-        _frames_from_shard_inputs: mock.MagicMock,
+        _frames_from_payloads: mock.MagicMock,
     ) -> None:
         with self.assertRaisesRegex(ValueError, "No valid shard data found"):
-            wizard._load_shard_frames(["shards.txt"], [], extra_frames=[], quiet=True)
+            wizard._load_shard_frames([], ["shards.txt"], extra_frames=[], quiet=True)
 
 
 class TestRunRecoverWizard(unittest.TestCase):

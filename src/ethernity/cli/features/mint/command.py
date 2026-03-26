@@ -167,6 +167,14 @@ def mint(
             rich_help_panel="Keys",
         ),
     ] = None,
+    signing_key_shard_scan: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--signing-key-shard-scan",
+            help="Signing-key shard scan path (image/PDF/dir, repeatable).",
+            rich_help_panel="Keys",
+        ),
+    ] = None,
     output_dir: Annotated[
         str | None,
         typer.Option(
@@ -309,6 +317,7 @@ def mint(
         auth_payloads_file=auth_payloads_file,
         signing_key_shard_fallback_file=signing_key_shard_files,
         signing_key_shard_payloads_file=list(signing_key_shard_payloads_file or []),
+        signing_key_shard_scan=list(signing_key_shard_scan or []),
         output_dir=output_dir,
         layout_debug_dir=layout_debug_dir,
         shard_threshold=shard_threshold,

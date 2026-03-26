@@ -39,6 +39,18 @@ class TestTemplatingSharedDir(unittest.TestCase):
             rendered = render_template(root / "design" / "main.html.j2", {})
             self.assertIn("SENTINEL", rendered)
 
+    def test_packaged_shared_dir_is_used_for_standalone_design_imports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            template_path = root / "standalone.html.j2"
+            template_path.write_text(
+                "{% include 'partials/material_symbols_local.j2' %}",
+                encoding="utf-8",
+            )
+
+            rendered = render_template(template_path, {})
+            self.assertIn("Material Symbols Outlined", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -262,6 +262,10 @@ Stable recover `result.auth_status` values:
 - `mint_capabilities.can_mint_passphrase_shards|can_mint_signing_key_shards`
 - `blocking_issues` and `warnings`
 
+`frame_counts.signing_key_shard` reports decoded signing-key shard input frames. Readiness still
+comes from `signing_key.validated_shard_count`, and `unlock.satisfied` is `false` whenever auth
+validation is blocking even if shard quorum is otherwise met.
+
 `mint_capabilities` is per output type and reflects both readiness and the currently enabled
 output toggles. A replacement-shard blocker can disable one capability while leaving the other
 available.

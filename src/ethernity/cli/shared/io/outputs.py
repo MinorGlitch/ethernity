@@ -266,8 +266,9 @@ def _write_recovered_directory_outputs(
                     on_entry_written(entry, data, written_paths[index - 1], index, total)
             return written_paths
         return _commit_recovered_directory_outputs(
-            base_dir,
-            staged_records,
+            base_dir=base_dir,
+            staging_dir=staging_dir,
+            staged_records=staged_records,
             total=total,
             on_entry_written=on_entry_written,
         )
@@ -277,55 +278,33 @@ def _write_recovered_directory_outputs(
 
 def _commit_recovered_directory_outputs(
     base_dir: Path,
+    staging_dir: Path,
     staged_records: Sequence[tuple[object, bytes, str, Path]],
     *,
     total: int,
     on_entry_written: Callable[[object, bytes, str, int, int], None] | None,
 ) -> list[str]:
-    """Move staged recovered files into the destination with rollback."""
+    """Publish the staged recovered tree as the authoritative destination."""
 
-    backups: list[tuple[Path, Path]] = []
-    created_targets: list[Path] = []
-    committed_records: list[tuple[object, bytes, str]] = []
-    written_paths: list[str] = []
+    fd, backup_name = tempfile.mkstemp(prefix=f".{base_dir.name}.bak-", dir=str(base_dir.parent))
+    os.close(fd)
+    backup_dir = Path(backup_name)
+    backup_dir.unlink(missing_ok=True)
+    written_paths = [
+        str(base_dir / relative_path) for _entry, _data, relative_path, _path in staged_records
+    ]
     try:
-        for entry, data, relative_path, staged_path in staged_records:
-            target_path = _safe_join(base_dir, relative_path)
-            backup_path: Path | None = None
-            if target_path.exists():
-                if target_path.is_dir():
-                    raise ValueError(f"output path is a directory: {target_path}")
-                fd, backup_name = tempfile.mkstemp(
-                    prefix=f".{target_path.name}.bak-",
-                    dir=str(target_path.parent),
-                )
-                os.close(fd)
-                backup_path = Path(backup_name)
-                backup_path.unlink(missing_ok=True)
-                target_path.replace(backup_path)
-                backups.append((target_path, backup_path))
-            else:
-                created_targets.append(target_path)
-            try:
-                staged_path.replace(target_path)
-            except Exception:
-                if backup_path is not None and backup_path.exists():
-                    backup_path.replace(target_path)
-                raise
-            committed_records.append((entry, data, str(target_path)))
-            written_paths.append(str(target_path))
-        for target_path, backup_path in backups:
-            backup_path.unlink(missing_ok=True)
-        if on_entry_written is not None:
-            for index, (entry, data, written_path) in enumerate(committed_records, start=1):
-                on_entry_written(entry, data, written_path, index, total)
-        return written_paths
+        base_dir.replace(backup_dir)
+        staging_dir.replace(base_dir)
     except Exception:
-        for target_path, backup_path in reversed(backups):
-            if backup_path.exists():
-                backup_path.replace(target_path)
-            elif target_path.exists():
-                target_path.unlink(missing_ok=True)
-        for target_path in reversed(created_targets):
-            target_path.unlink(missing_ok=True)
+        if backup_dir.exists() and not base_dir.exists():
+            backup_dir.replace(base_dir)
         raise
+    finally:
+        if backup_dir.exists():
+            shutil.rmtree(backup_dir, ignore_errors=True)
+
+    if on_entry_written is not None:
+        for index, (entry, data, _relative_path, _path) in enumerate(staged_records, start=1):
+            on_entry_written(entry, data, written_paths[index - 1], index, total)
+    return written_paths

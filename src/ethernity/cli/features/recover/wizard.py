@@ -41,10 +41,11 @@ from ethernity.cli.shared.io.fallback_parser import format_fallback_error
 from ethernity.cli.shared.io.frames import (
     _auth_frames_from_fallback,
     _auth_frames_from_payloads,
+    _frame_from_fallback,
     _frames_from_fallback,
     _frames_from_payloads,
-    _frames_from_shard_inputs,
     _recovery_frames_from_scan,
+    format_shard_input_error,
 )
 from ethernity.cli.shared.io.outputs import _single_entry_uses_directory_output
 from ethernity.cli.shared.log import _warn
@@ -422,16 +423,18 @@ def _load_shard_frames(
     total_files = len(shard_fallback_files) + len(shard_payloads_file)
     if total_files:
         with status(f"Reading {total_files} shard file(s)...", quiet=quiet):
-            try:
-                shard_frames.extend(
-                    _frames_from_shard_inputs(
-                        shard_fallback_files,
-                        shard_payloads_file,
-                        quiet=quiet,
-                    )
-                )
-            except ValueError as exc:
-                raise ValueError(format_fallback_error(exc, context="Shard recovery text")) from exc
+            for path in shard_fallback_files:
+                try:
+                    shard_frames.append(_frame_from_fallback(path, quiet=quiet))
+                except ValueError as exc:
+                    raise ValueError(
+                        format_fallback_error(exc, context="Shard recovery text")
+                    ) from exc
+            for path in shard_payloads_file:
+                try:
+                    shard_frames.extend(_frames_from_payloads(path, label="shard QR payloads"))
+                except ValueError as exc:
+                    raise ValueError(format_shard_input_error(exc)) from exc
     if not shard_frames:
         raise ValueError(
             "No valid shard data found in provided files.\n"

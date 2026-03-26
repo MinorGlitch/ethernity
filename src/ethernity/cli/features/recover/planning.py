@@ -18,7 +18,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 from ethernity.cli.features.recover.key_recovery import (
@@ -36,13 +36,14 @@ from ethernity.cli.shared.io.frames import (
     _auth_frames_from_payloads,
     _dedupe_auth_frames,
     _dedupe_frames,
+    _frame_from_fallback,
     _frames_from_fallback,
     _frames_from_payloads,
-    _frames_from_shard_inputs,
     _recovery_frames_from_scan,
     _shard_frames_from_scan,
     _split_main_and_auth_frames,
     format_recovery_input_error,
+    format_shard_input_error,
 )
 from ethernity.cli.shared.log import _warn
 from ethernity.cli.shared.paths import expanduser_cli_path, expanduser_cli_paths
@@ -251,6 +252,8 @@ def inspect_recovery_inputs(
         sign_pub=auth_payload.sign_pub if auth_payload is not None else None,
         allow_unsigned=allow_unsigned,
     )
+    if auth_blocking_issues and unlock.satisfied:
+        unlock = replace(unlock, satisfied=False, resolved_passphrase=None)
     blocking_issues = [*auth_blocking_issues, *unlock.blocking_issues]
     return RecoveryInspection(
         ciphertext=ciphertext,
@@ -732,20 +735,21 @@ def _shard_frames_from_args(
     shard_payloads_file = expanduser_cli_paths(list(args.shard_payloads_file or []))
     shard_scan = expanduser_cli_paths(list(args.shard_scan or []))
     shard_frames: list[Frame] = []
-    if shard_fallback_files or shard_payloads_file:
+    for path in shard_fallback_files:
         try:
-            shard_frames = _frames_from_shard_inputs(
-                shard_fallback_files,
-                shard_payloads_file,
-                quiet=quiet,
-            )
+            shard_frames.append(_frame_from_fallback(path, quiet=quiet))
         except ValueError as exc:
             raise ValueError(format_fallback_error(exc, context="Shard recovery text")) from exc
+    for path in shard_payloads_file:
+        try:
+            shard_frames.extend(_frames_from_payloads(path, label="shard QR payloads"))
+        except ValueError as exc:
+            raise ValueError(format_shard_input_error(exc)) from exc
     if shard_scan:
         try:
             shard_frames.extend(_shard_frames_from_scan(shard_scan, quiet=quiet))
         except ValueError as exc:
-            raise ValueError(format_recovery_input_error(exc)) from exc
+            raise ValueError(format_shard_input_error(exc)) from exc
     if (shard_fallback_files or shard_payloads_file or shard_scan) and not shard_frames:
         raise ValueError("no shard payloads found; check shard inputs and try again")
     return shard_frames, shard_fallback_files, shard_payloads_file, shard_scan

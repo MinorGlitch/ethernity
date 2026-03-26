@@ -21,11 +21,16 @@ from unittest import mock
 
 from playwright.sync_api import sync_playwright
 
+from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
 from ethernity.render import RenderInputs, pdf_render as pdf_render_module, render_frames_to_pdf
 from ethernity.render.recovery_meta import build_recovery_meta
 from ethernity.render.types import Layout
 from tests.test_support import ensure_playwright_browsers
+
+
+def _template_path(design: str, name: str) -> Path:
+    return TEMPLATES_RESOURCE_ROOT / design / name
 
 
 def _playwright_ready() -> bool:
@@ -64,14 +69,7 @@ class TestPdfRender(unittest.TestCase):
             "paper_size": "A4",
         }
 
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "ledger"
-            / "main_document.html.j2"
-        )
+        template_path = _template_path("ledger", "main_document.html.j2")
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "out.pdf"
             inputs = RenderInputs(
@@ -98,14 +96,7 @@ class TestPdfRender(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "ledger"
-            / "main_document.html.j2"
-        )
+        template_path = _template_path("ledger", "main_document.html.j2")
         context = {
             "paper_size": "A4",
             "inventory_rows": [
@@ -281,14 +272,7 @@ class TestPdfRender(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "ledger"
-            / "main_document.html.j2"
-        )
+        template_path = _template_path("ledger", "main_document.html.j2")
         context = {"paper_size": "A4"}
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -327,14 +311,7 @@ class TestPdfRender(unittest.TestCase):
             total=1,
             data=b"payload",
         )
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "ledger"
-            / "recovery_document.html.j2"
-        )
+        template_path = _template_path("ledger", "recovery_document.html.j2")
         recovery_meta = build_recovery_meta(
             passphrase=None,
             quorum_threshold=2,
@@ -404,14 +381,7 @@ class TestPdfRender(unittest.TestCase):
             total=1,
             data=b"payload",
         )
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "ledger"
-            / "recovery_document.html.j2"
-        )
+        template_path = _template_path("ledger", "recovery_document.html.j2")
         inputs = RenderInputs(
             frames=[frame],
             template_path=template_path,
@@ -438,14 +408,7 @@ class TestPdfRender(unittest.TestCase):
             total=1,
             data=b"payload",
         )
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "ledger"
-            / "recovery_document.html.j2"
-        )
+        template_path = _template_path("ledger", "recovery_document.html.j2")
         recovery_meta = build_recovery_meta(
             passphrase=None,
             quorum_threshold=2,

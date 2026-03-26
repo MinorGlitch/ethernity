@@ -1353,6 +1353,7 @@ class TestCliApi(unittest.TestCase):
             captured["signing_key_shard_payloads_file"] = list(
                 args.signing_key_shard_payloads_file or []
             )
+            captured["signing_key_shard_scan"] = list(args.signing_key_shard_scan or [])
             return 0
 
         with (
@@ -1377,6 +1378,10 @@ class TestCliApi(unittest.TestCase):
                         V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT
                         / "signing_key_shard_payloads_threshold.txt"
                     ),
+                    "--signing-key-shard-scan",
+                    "signing-a.pdf",
+                    "--signing-key-shard-scan",
+                    "signing-b.png",
                 ],
             )
 
@@ -1395,6 +1400,7 @@ class TestCliApi(unittest.TestCase):
                 )
             ],
         )
+        self.assertEqual(captured["signing_key_shard_scan"], ["signing-a.pdf", "signing-b.png"])
 
     def test_api_inspect_mint_rejects_layout_debug_dir_option(self) -> None:
         with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
@@ -1452,6 +1458,7 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["unlock"]["validated_passphrase_shard_count"], 2)
         self.assertEqual(events[-1]["unlock"]["required_passphrase_threshold"], 2)
         self.assertEqual(events[-1]["unlock"]["satisfied"], True)
+        self.assertEqual(events[-1]["frame_counts"]["signing_key_shard"], 1)
         self.assertEqual(events[-1]["signing_key"]["validated_shard_count"], 0)
         self.assertIsNone(events[-1]["signing_key"]["required_threshold"])
         self.assertEqual(events[-1]["signing_key"]["satisfied"], True)
@@ -1608,6 +1615,7 @@ class TestCliApi(unittest.TestCase):
             ),
             manifest=None,
             source_summary=None,
+            signing_key_frame_count=0,
             signing_key_validated_shard_count=0,
             signing_key_required_threshold=None,
             signing_key_satisfied=False,
@@ -1647,6 +1655,53 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["auth_status"], "missing")
         self.assertEqual(events[-1]["blocking_issues"][0]["code"], "AUTH_REQUIRED")
         self.assertEqual([event for event in events if event["type"] == "artifact"], [])
+
+    def test_run_mint_inspect_api_command_reports_input_signing_key_frame_count(self) -> None:
+        args = MintArgs(payloads_file="main.txt", quiet=True)
+        inspection = SimpleNamespace(
+            recovery=SimpleNamespace(
+                doc_id=b"\x03" * 8,
+                auth_status="verified",
+                input_label="QR payloads",
+                input_detail="main.txt",
+                main_frames=(object(), object()),
+                auth_frames=(object(),),
+                shard_frames=(object(), object()),
+                unlock=SimpleNamespace(
+                    validated_shard_count=2,
+                    required_shard_threshold=2,
+                    satisfied=True,
+                ),
+            ),
+            manifest=object(),
+            source_summary={"sealed": True},
+            signing_key_frame_count=1,
+            signing_key_validated_shard_count=0,
+            signing_key_required_threshold=None,
+            signing_key_satisfied=True,
+            signing_key_source="embedded signing seed",
+            mint_capabilities={
+                "can_mint_passphrase_shards": True,
+                "can_mint_signing_key_shards": True,
+            },
+            blocking_issues=(),
+        )
+        buffer = io.StringIO()
+        with (
+            mock.patch(
+                "ethernity.cli.features.mint.api_handlers.inspect_mint_inputs",
+                return_value=inspection,
+            ),
+            ndjson_session(stream=buffer),
+        ):
+            exit_code = run_mint_inspect_api_command(args)
+
+        self.assertEqual(exit_code, 0)
+        events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(events[2]["details"]["signing_key_shard_frame_count"], 1)
+        self.assertEqual(events[-1]["frame_counts"]["signing_key_shard"], 1)
+        self.assertEqual(events[-1]["signing_key"]["validated_shard_count"], 0)
 
     def test_api_mint_signing_key_shard_dir_error_is_structured(self) -> None:
         with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):

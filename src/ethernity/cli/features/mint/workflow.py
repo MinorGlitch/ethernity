@@ -125,6 +125,7 @@ class MintInspectionState:
     recovery: RecoveryInspection
     manifest: EnvelopeManifest | None
     source_summary: dict[str, object] | None
+    signing_key_frame_count: int
     signing_key_validated_shard_count: int
     signing_key_required_threshold: int | None
     signing_key_satisfied: bool
@@ -292,6 +293,7 @@ def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectio
         recovery=recovery,
         manifest=manifest,
         source_summary=source_summary,
+        signing_key_frame_count=len(state.signing_key_frames),
         signing_key_validated_shard_count=signing_key_validated_shard_count,
         signing_key_required_threshold=signing_key_required_threshold,
         signing_key_satisfied=signing_key_satisfied,
@@ -985,6 +987,7 @@ def _validate_mint_args(args: MintArgs, *, require_output_configuration: bool = 
         and not _has_existing_shard_inputs(
             args.signing_key_shard_fallback_file,
             args.signing_key_shard_payloads_file,
+            args.signing_key_shard_scan,
         )
     ):
         raise ValueError(
@@ -1136,8 +1139,9 @@ def _validate_quorum_pair(
 def _has_existing_shard_inputs(
     fallback_files: list[str] | None,
     payload_files: list[str] | None,
+    scan_paths: list[str] | None = None,
 ) -> bool:
-    return bool(fallback_files or payload_files)
+    return bool(fallback_files or payload_files or scan_paths)
 
 
 def _recovery_shard_inputs_for_plan(
@@ -1360,11 +1364,13 @@ def _mint_from_plan(
 def _signing_key_shard_frames_from_args(args: MintArgs, *, quiet: bool) -> list[Frame]:
     fallback_files = list(args.signing_key_shard_fallback_file or [])
     payload_files = list(args.signing_key_shard_payloads_file or [])
-    if not fallback_files and not payload_files:
+    scan_files = list(args.signing_key_shard_scan or [])
+    if not fallback_files and not payload_files and not scan_files:
         return []
     temp_args = RecoverArgs(
         shard_fallback_file=fallback_files,
         shard_payloads_file=payload_files,
+        shard_scan=scan_files,
         quiet=quiet,
     )
     frames, _fallback_files, _payload_files, _scan_files = _shard_frames_from_args(

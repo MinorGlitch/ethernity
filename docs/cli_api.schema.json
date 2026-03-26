@@ -1301,6 +1301,7 @@
         "auth_payloads_file",
         "signing_key_shard_fallback_file",
         "signing_key_shard_payloads_file",
+        "signing_key_shard_scan",
         "output_dir",
         "layout_debug_dir",
         "shard_threshold",
@@ -1401,6 +1402,12 @@
             "$ref": "#/$defs/pathString"
           }
         },
+        "signing_key_shard_scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
         "output_dir": {
           "type": [
             "string",
@@ -1483,6 +1490,7 @@
         "auth_payloads_file",
         "signing_key_shard_fallback_file",
         "signing_key_shard_payloads_file",
+        "signing_key_shard_scan",
         "shard_threshold",
         "shard_count",
         "signing_key_shard_threshold",
@@ -1579,6 +1587,12 @@
           }
         },
         "signing_key_shard_payloads_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "signing_key_shard_scan": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/pathString"

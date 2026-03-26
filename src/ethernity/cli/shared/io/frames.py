@@ -54,18 +54,32 @@ def format_recovery_input_error(exc: Exception) -> str:
     )
 
 
+def format_shard_input_error(exc: Exception) -> str:
+    """Format shard QR input errors with shard-specific actionable hints."""
+
+    message = str(exc)
+    lowered = message.lower()
+    if "no valid shard data found" in lowered or "unable to parse shard recovery text" in lowered:
+        return "No shard data found. Try scanning PDFs/images or provide shard recovery text."
+    return format_qr_input_error(
+        message,
+        bad_payload_hint=(
+            "That doesn't look like a shard QR payload. Paste one payload per line, "
+            "or switch to shard recovery text."
+        ),
+        no_qr_hint="No shard QR data found. Try a clearer scan or switch to shard recovery text.",
+        scan_failed_hint="Check the scan path and try again.",
+        file_hint="Check the path and try again.",
+        default_hint="Try scanning shard images or provide shard recovery text.",
+    )
+
+
 def _read_text_lines(path: str) -> list[str]:
     """Read recovery text input from a file or stdin with size limits."""
 
     normalized_path = expanduser_cli_path(path) or path
     if normalized_path == "-":
-        text = sys.stdin.read()
-        text_bytes = len(text.encode("utf-8"))
-        if text_bytes > MAX_RECOVERY_TEXT_BYTES:
-            raise ValueError(
-                "recovery input exceeds "
-                f"MAX_RECOVERY_TEXT_BYTES ({MAX_RECOVERY_TEXT_BYTES}): {text_bytes} bytes"
-            )
+        text = _read_stdin_text_with_limit()
     else:
         file_path = Path(normalized_path)
         try:
@@ -98,6 +112,48 @@ def _read_text_lines(path: str) -> list[str]:
                 f"MAX_RECOVERY_TEXT_BYTES ({MAX_RECOVERY_TEXT_BYTES}): {text_bytes} bytes"
             )
     return text.splitlines()
+
+
+def _read_stdin_text_with_limit() -> str:
+    """Read UTF-8 stdin incrementally and stop once the recovery size limit is exceeded."""
+
+    stream_buffer = getattr(sys.stdin, "buffer", None)
+    if stream_buffer is not None:
+        chunks: list[bytes] = []
+        total_bytes = 0
+        while True:
+            chunk = stream_buffer.read(64 * 1024)
+            if not chunk:
+                break
+            total_bytes += len(chunk)
+            if total_bytes > MAX_RECOVERY_TEXT_BYTES:
+                raise ValueError(
+                    "recovery input exceeds "
+                    f"MAX_RECOVERY_TEXT_BYTES ({MAX_RECOVERY_TEXT_BYTES}): {total_bytes} bytes"
+                )
+            chunks.append(chunk)
+        try:
+            return b"".join(chunks).decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError(
+                "stdin is not UTF-8 text. If this is a PDF or image, "
+                "scan it for QR payloads instead."
+            ) from exc
+
+    chunks_text: list[str] = []
+    total_bytes = 0
+    while True:
+        chunk = sys.stdin.read(64 * 1024)
+        if not chunk:
+            break
+        total_bytes += len(chunk.encode("utf-8"))
+        if total_bytes > MAX_RECOVERY_TEXT_BYTES:
+            raise ValueError(
+                "recovery input exceeds "
+                f"MAX_RECOVERY_TEXT_BYTES ({MAX_RECOVERY_TEXT_BYTES}): {total_bytes} bytes"
+            )
+        chunks_text.append(chunk)
+    return "".join(chunks_text)
 
 
 def _frame_from_fallback(path: str, *, quiet: bool = False) -> Frame:
