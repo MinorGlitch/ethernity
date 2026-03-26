@@ -11,13 +11,13 @@
   },
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "lint": "biome lint .",
+    "lint": "biome lint --error-on-warnings .",
     "format:check": "biome check --linter-enabled=false --assist-enabled=false .",
     "format": "biome format --write ."
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "GPL-3.0-or-later",
   "description": "",
   "devDependencies": {
     "@biomejs/biome": "2.4.8",

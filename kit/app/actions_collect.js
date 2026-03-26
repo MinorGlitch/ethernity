@@ -252,7 +252,7 @@ export async function copyRecoveredSecret(dispatch, getState) {
   let statusLines = [];
   let statusType = "ok";
   try {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
+    if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);
       statusLines = ["Copied to clipboard."];
     } else {

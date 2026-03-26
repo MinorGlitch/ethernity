@@ -268,7 +268,7 @@ export function parseScannedPayload(state, scanned) {
   const text = getScannedText(scanned).trim();
   const bytes = getScannedBytes(scanned);
 
-  if (bytes && bytes.length) {
+  if (bytes?.length) {
     try {
       const frame = decodeFrame(bytes);
       addFrame(state, frame);
@@ -298,7 +298,7 @@ export function parseScannedShard(state, scanned) {
   const text = getScannedText(scanned).trim();
   const bytes = getScannedBytes(scanned);
 
-  if (bytes && bytes.length) {
+  if (bytes?.length) {
     try {
       const frame = decodeFrame(bytes);
       if (frame.frameType !== FRAME_TYPE_KEY) {

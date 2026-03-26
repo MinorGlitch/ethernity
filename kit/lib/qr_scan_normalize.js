@@ -30,7 +30,7 @@ export function normalizeJsQrPayload(hit) {
   if (!hit) return null;
   const text = typeof hit.data === "string" ? hit.data.trim() : "";
   const binaryData = hit.binaryData;
-  if (binaryData && binaryData.length) {
+  if (binaryData?.length) {
     const bytes = binaryData instanceof Uint8Array ? binaryData : Uint8Array.from(binaryData);
     if (text) {
       const textDecoded = decodePayloadString(text);

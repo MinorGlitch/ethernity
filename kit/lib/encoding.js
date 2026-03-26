@@ -59,7 +59,7 @@ export function decodePayloadString(text) {
         return null;
       }
       return bytes;
-    } catch (err) {
+    } catch (_err) {
       return null;
     }
   }

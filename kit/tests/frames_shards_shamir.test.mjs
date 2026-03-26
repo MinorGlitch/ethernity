@@ -2,11 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  FRAME_MAGIC,
-  FRAME_TYPE_AUTH,
   FRAME_TYPE_KEY,
   FRAME_TYPE_MAIN,
-  FRAME_VERSION,
   MAX_CIPHERTEXT_BYTES,
   MAX_QR_PAYLOAD_CHARS,
   SHARD_KEY_PASSPHRASE,
@@ -32,8 +29,6 @@ import { bytesToHex, hexToBytes } from "../lib/encoding.js";
 import { recoverSecretFromShards } from "../lib/shamir.js";
 import {
   buildFrame,
-  concatBytes,
-  encodeUvarint,
   encodeZBase32,
   ensureAtob,
   mutateFrameCrc,
@@ -73,33 +68,6 @@ function shardPayload({
     pub: signPub,
     sig: signature,
   };
-}
-
-function authPayload(signature = new Uint8Array(64)) {
-  return {
-    version: 1,
-    hash: new Uint8Array(32),
-    pub: new Uint8Array(32),
-    sig: signature,
-  };
-}
-
-function rawFrameBytes({
-  version = FRAME_VERSION,
-  frameType = FRAME_TYPE_MAIN,
-  data = new Uint8Array(0),
-}) {
-  const body = concatBytes([
-    Uint8Array.from(FRAME_MAGIC),
-    encodeUvarint(version),
-    Uint8Array.of(frameType),
-    Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8),
-    encodeUvarint(0),
-    encodeUvarint(1),
-    encodeUvarint(data.length),
-    data,
-  ]);
-  return buildFrame({ frameType, data, index: 0, total: 1 });
 }
 
 test("parseAutoPayload handles frame state transitions and hash caching", () => {

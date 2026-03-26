@@ -418,7 +418,7 @@ function readCborLength(bytes, offset, addl) {
     const view = new DataView(bytes.buffer, bytes.byteOffset + offset, 8);
     const high = view.getUint32(0);
     const low = view.getUint32(4);
-    const value = high * Math.pow(2, 32) + low;
+    const value = high * 2 ** 32 + low;
     if (value > Number.MAX_SAFE_INTEGER) throw new Error("CBOR integer too large");
     return { value, offset: offset + 8 };
   }

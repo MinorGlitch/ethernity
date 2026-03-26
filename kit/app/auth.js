@@ -35,7 +35,7 @@ async function verifyAuthSignature(docHash, signPub, signature) {
     const message = concatBytes(textEncoder.encode(AUTH_DOMAIN), signedBytes);
     const ok = await crypto.subtle.verify("Ed25519", key, signature, message);
     return ok;
-  } catch (err) {
+  } catch (_err) {
     return null;
   }
 }
