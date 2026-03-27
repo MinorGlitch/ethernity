@@ -209,6 +209,25 @@ test("parseAutoPayload supports fallback sections and handles invalid auth fallb
   assert.equal(state.authErrors, 1);
 });
 
+test("parseAutoPayload rejects invalid non-empty fallback lines", () => {
+  const state = createInitialState();
+  const main = buildFrame({ frameType: FRAME_TYPE_MAIN, data: Uint8Array.of(7), total: 1 });
+  const text = ["Main Frame:", encodeZBase32(main), "not-valid-line!"].join("\n");
+
+  assert.throws(() => parseAutoPayload(state, text), /outside the z-base-32 alphabet/);
+});
+
+test("parseAutoShard rejects invalid non-empty fallback lines", () => {
+  const state = createInitialState();
+  const shard = buildFrame({
+    frameType: FRAME_TYPE_KEY,
+    data: encodeCbor(shardPayload({ shareIndex: 1, shareHex: FIXTURE_SHARES.share1 })),
+  });
+  const text = ["Shard Frame:", encodeZBase32(shard), "not-valid-line!"].join("\n");
+
+  assert.throws(() => parseAutoShard(state, text), /outside the z-base-32 alphabet/);
+});
+
 test("parseAutoPayload rejects malformed frame encodings", () => {
   const badFrames = [
     Uint8Array.of(0x41, 0x50, 0x01),
@@ -276,7 +295,7 @@ test("parseAutoShard handles duplicates, conflicts, and fallback", () => {
 
   assert.throws(
     () => parseAutoShard(createInitialState(), "Shard Frame:\nnot-zbase32!!!"),
-    /no shard fallback lines found/,
+    /outside the z-base-32 alphabet/,
   );
 });
 

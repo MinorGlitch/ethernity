@@ -43,7 +43,7 @@ test("encoding primitives enforce strict payload and varint rules", () => {
   assert.deepEqual(Array.from(decodeZBase32("yy")), [0]);
   assert.throws(() => decodeZBase32("yb"), /non-canonical tail bits/);
   assert.throws(() => decodeZBase32("!"), /invalid z-base-32 character/);
-  assert.deepEqual(filterZBase32Lines("yy\nhello\n8x\n"), ["yy", "8x"]);
+  assert.throws(() => filterZBase32Lines("yy\nhello\n8x\n"), /outside the z-base-32 alphabet/);
 
   assert.throws(() => readUvarint(Uint8Array.of(0x80), 0), /truncated varint/);
   assert.throws(
@@ -109,6 +109,14 @@ test("path validation and zip creation enforce safe relative paths", async () =>
     Array.from(zipBytes.slice(zipBytes.length - 22, zipBytes.length - 18)),
     [0x50, 0x4b, 0x05, 0x06],
   );
+  assert.equal(zipBytes[6] | (zipBytes[7] << 8), 0x0800);
+  const eocdOffset = zipBytes.length - 22;
+  const centralOffset =
+    zipBytes[eocdOffset + 16] |
+    (zipBytes[eocdOffset + 17] << 8) |
+    (zipBytes[eocdOffset + 18] << 16) |
+    (zipBytes[eocdOffset + 19] << 24);
+  assert.equal(zipBytes[centralOffset + 8] | (zipBytes[centralOffset + 9] << 8), 0x0800);
 
   assert.throws(() => makeZip([{ path: "docs/file.txt", data: "not-bytes" }]), /must be bytes/);
 });

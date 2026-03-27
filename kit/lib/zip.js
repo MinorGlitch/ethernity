@@ -19,6 +19,7 @@ import { crc32 } from "./crc32.js";
 import { validateManifestPath } from "./path_validation.js";
 
 const textEncoder = new TextEncoder();
+const ZIP_UTF8_FLAG = 0x0800;
 
 export function makeZip(files) {
   const chunks = [];
@@ -34,7 +35,7 @@ export function makeZip(files) {
     const localHeader = new Uint8Array(30);
     writeU32(localHeader, 0, 0x04034b50);
     writeU16(localHeader, 4, 20);
-    writeU16(localHeader, 6, 0);
+    writeU16(localHeader, 6, ZIP_UTF8_FLAG);
     writeU16(localHeader, 8, 0);
     writeU16(localHeader, 10, 0);
     writeU16(localHeader, 12, 0);
@@ -49,7 +50,7 @@ export function makeZip(files) {
     writeU32(centralHeader, 0, 0x02014b50);
     writeU16(centralHeader, 4, 20);
     writeU16(centralHeader, 6, 20);
-    writeU16(centralHeader, 8, 0);
+    writeU16(centralHeader, 8, ZIP_UTF8_FLAG);
     writeU16(centralHeader, 10, 0);
     writeU16(centralHeader, 12, 0);
     writeU16(centralHeader, 14, 0);

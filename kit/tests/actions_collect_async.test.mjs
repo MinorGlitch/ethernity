@@ -43,6 +43,29 @@ test("updateAuthStatus clears pending guard after ciphertext errors", async () =
   assert.notEqual(state.authStatus, "ciphertext error");
 });
 
+test("updateAuthStatus degrades cleanly when crypto is unavailable", async () => {
+  const original = globalThis.crypto;
+  const state = createInitialState();
+  state.authPayload = {
+    signPub: new Uint8Array(32),
+    signature: new Uint8Array(64),
+    docHash: new Uint8Array(32),
+  };
+  state.total = 1;
+  state.mainFrames.set(0, { data: new Uint8Array([1, 2, 3]) });
+
+  try {
+    delete globalThis.crypto;
+    await updateAuthStatus(state);
+  } finally {
+    if (original) {
+      globalThis.crypto = original;
+    }
+  }
+
+  assert.equal(state.authStatus, "doc_hash matches; signature not verified");
+});
+
 test("async main followups do not overwrite reset state", async () => {
   const store = createStore();
   const state = store.getState();

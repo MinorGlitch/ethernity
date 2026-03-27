@@ -128,8 +128,12 @@ function allLinesDecodeShardFrames(lines) {
 
 function allLinesLookLikeFallback(lines) {
   if (!lines.length) return false;
-  const filtered = filterZBase32Lines(lines.join("\n"));
-  return filtered.length === lines.length;
+  try {
+    const filtered = filterZBase32Lines(lines.join("\n"));
+    return filtered.length === lines.length;
+  } catch {
+    return false;
+  }
 }
 
 function normalizedZbaseChars(lines) {
@@ -208,7 +212,17 @@ function parseFallbackText(state, text) {
 }
 
 function parseShardFallbackText(state, text) {
-  const filtered = filterZBase32Lines(text);
+  const payloadLines = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const lower = line.toLowerCase();
+    if (lower.includes("shard frame") || lower.includes("shard payload")) {
+      continue;
+    }
+    payloadLines.push(line);
+  }
+  const filtered = filterZBase32Lines(payloadLines.join("\n"));
   if (!filtered.length) {
     throw new Error("no shard fallback lines found");
   }

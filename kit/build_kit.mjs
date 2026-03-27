@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { scannerHookPathForMode, selectedVariants } from "./lib/build_variants.mjs";
 import { buildCompressedLoaderHtml } from "./lib/loader_html.js";
 const BASE91_ALPHABET =
   'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~"';
@@ -376,23 +377,6 @@ const scannerHookJsqrPath = resolve(kitDir, "app", "hooks", "useQrScannerRuntime
 await mkdir(distDir, { recursive: true });
 await mkdir(packageDir, { recursive: true });
 
-function selectedVariants() {
-  const requested = (process.env.ETHERNITY_KIT_VARIANTS ?? "both").toLowerCase();
-  if (requested === "both") {
-    return [
-      { id: "lean", bundleName: "recovery_kit.bundle.html", scannerMode: "none" },
-      { id: "scanner", bundleName: "recovery_kit.scanner.bundle.html", scannerMode: "jsqr" },
-    ];
-  }
-  if (requested === "lean") {
-    return [{ id: "lean", bundleName: "recovery_kit.bundle.html", scannerMode: "none" }];
-  }
-  if (requested === "scanner") {
-    return [{ id: "scanner", bundleName: "recovery_kit.scanner.bundle.html", scannerMode: "jsqr" }];
-  }
-  throw new Error("ETHERNITY_KIT_VARIANTS must be one of: both, lean, scanner");
-}
-
 async function buildBundleVariant(variant) {
   const rawBundleName = variant.bundleName.replace(/\.html$/, ".raw.html");
   const rawOutputPath = resolve(distDir, rawBundleName);
@@ -400,8 +384,11 @@ async function buildBundleVariant(variant) {
   const packagePath = resolve(packageDir, variant.bundleName);
   const tmpBase = resolve(tmpdir(), `ethernity-kit-${variant.id}-${Date.now()}`);
   const tmpOut = `${tmpBase}.min.js`;
-  const scannerHookPath =
-    variant.scannerMode === "jsqr" ? scannerHookJsqrPath : scannerHookLeanPath;
+  const scannerHookPath = scannerHookPathForMode(
+    variant.scannerMode,
+    scannerHookLeanPath,
+    scannerHookJsqrPath,
+  );
 
   const esbuildArgs = [
     entryPoint,
@@ -492,6 +479,6 @@ async function buildBundleVariant(variant) {
   console.log(`[${variant.id}] Wrote ${packagePath}`);
 }
 
-for (const variant of selectedVariants()) {
+for (const variant of selectedVariants(process.env.ETHERNITY_KIT_VARIANTS ?? "both")) {
   await buildBundleVariant(variant);
 }
