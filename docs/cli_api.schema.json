@@ -1297,6 +1297,7 @@
         "has_passphrase",
         "shard_fallback_file",
         "shard_payloads_file",
+        "shard_scan",
         "auth_fallback_file",
         "auth_payloads_file",
         "signing_key_shard_fallback_file",
@@ -1371,6 +1372,12 @@
           }
         },
         "shard_payloads_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_scan": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/pathString"
@@ -1486,6 +1493,7 @@
         "has_passphrase",
         "shard_fallback_file",
         "shard_payloads_file",
+        "shard_scan",
         "auth_fallback_file",
         "auth_payloads_file",
         "signing_key_shard_fallback_file",
@@ -1561,6 +1569,12 @@
           }
         },
         "shard_payloads_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_scan": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/pathString"

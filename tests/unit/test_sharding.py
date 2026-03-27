@@ -609,6 +609,119 @@ class TestSharding(unittest.TestCase):
         with self.assertRaises(ValueError):
             recover_passphrase([shares[0], bad_payload])
 
+    def test_recover_passphrase_rejects_doc_hash_mismatch(self) -> None:
+        passphrase = "doc-hash-check"
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        shares = split_passphrase(
+            passphrase,
+            threshold=2,
+            shares=3,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        bad_payload = ShardPayload(
+            share_index=shares[1].share_index,
+            threshold=shares[1].threshold,
+            share_count=shares[1].share_count,
+            key_type=shares[1].key_type,
+            share=shares[1].share,
+            secret_len=shares[1].secret_len,
+            doc_hash=b"x" * 32,
+            sign_pub=shares[1].sign_pub,
+            signature=shares[1].signature,
+            version=shares[1].version,
+            shard_set_id=shares[1].shard_set_id,
+        )
+        with self.assertRaisesRegex(ValueError, "document hashes"):
+            recover_passphrase([shares[0], bad_payload])
+
+    def test_recover_signing_seed_rejects_signing_public_key_mismatch(self) -> None:
+        seed = b"s" * 32
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        _other_sign_priv, other_sign_pub = generate_signing_keypair()
+        shares = split_signing_seed(
+            seed,
+            threshold=2,
+            shares=3,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        bad_payload = ShardPayload(
+            share_index=shares[1].share_index,
+            threshold=shares[1].threshold,
+            share_count=shares[1].share_count,
+            key_type=shares[1].key_type,
+            share=shares[1].share,
+            secret_len=shares[1].secret_len,
+            doc_hash=shares[1].doc_hash,
+            sign_pub=other_sign_pub,
+            signature=shares[1].signature,
+            version=shares[1].version,
+            shard_set_id=shares[1].shard_set_id,
+        )
+        with self.assertRaisesRegex(ValueError, "public keys"):
+            recover_signing_seed([shares[0], bad_payload])
+
+    def test_recover_signing_seed_rejects_invalid_signature(self) -> None:
+        seed = b"s" * 32
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        shares = split_signing_seed(
+            seed,
+            threshold=2,
+            shares=3,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        bad_payload = ShardPayload(
+            share_index=shares[1].share_index,
+            threshold=shares[1].threshold,
+            share_count=shares[1].share_count,
+            key_type=shares[1].key_type,
+            share=bytes([shares[1].share[0] ^ 1]) + shares[1].share[1:],
+            secret_len=shares[1].secret_len,
+            doc_hash=shares[1].doc_hash,
+            sign_pub=shares[1].sign_pub,
+            signature=shares[1].signature,
+            version=shares[1].version,
+            shard_set_id=shares[1].shard_set_id,
+        )
+        with self.assertRaisesRegex(ValueError, "invalid shard signature"):
+            recover_signing_seed([shares[0], bad_payload])
+
+    def test_mint_replacement_shards_rejects_invalid_signature(self) -> None:
+        passphrase = "replacement-signature-check"
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        shares = split_passphrase(
+            passphrase,
+            threshold=2,
+            shares=3,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        bad_payload = ShardPayload(
+            share_index=shares[1].share_index,
+            threshold=shares[1].threshold,
+            share_count=shares[1].share_count,
+            key_type=shares[1].key_type,
+            share=bytes([shares[1].share[0] ^ 1]) + shares[1].share[1:],
+            secret_len=shares[1].secret_len,
+            doc_hash=shares[1].doc_hash,
+            sign_pub=shares[1].sign_pub,
+            signature=shares[1].signature,
+            version=shares[1].version,
+            shard_set_id=shares[1].shard_set_id,
+        )
+        with self.assertRaisesRegex(ValueError, "invalid shard signature"):
+            mint_replacement_shards([shares[0], bad_payload], count=1, sign_priv=sign_priv)
+
     def test_shard_payload_roundtrip(self) -> None:
         doc_hash = hashlib.blake2b(b"payload", digest_size=32).digest()
         sign_priv, sign_pub = generate_signing_keypair()

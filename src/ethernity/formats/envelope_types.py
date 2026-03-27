@@ -45,6 +45,12 @@ PAYLOAD_CODEC_RAW = "raw"
 PAYLOAD_CODEC_GZIP = "gzip"
 
 
+def _require_manifest_created_at(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("manifest created must be a number")
+    return float(value)
+
+
 @dataclass(frozen=True)
 class ManifestFile:
     """One file entry stored in the envelope manifest."""
@@ -92,6 +98,7 @@ class EnvelopeManifest:
         format_version = require_int(self.format_version, label="manifest version")
         if format_version != MANIFEST_VERSION:
             raise ValueError(f"unsupported manifest version: {format_version}")
+        created_at = _require_manifest_created_at(self.created_at)
 
         if not self.files:
             raise ValueError("manifest files are required")
@@ -143,7 +150,7 @@ class EnvelopeManifest:
 
         base_manifest: dict[str, object] = {
             "version": format_version,
-            "created": self.created_at,
+            "created": created_at,
             "sealed": self.sealed,
             "seed": self.signing_seed,
             "input_origin": self.input_origin,
@@ -217,8 +224,7 @@ class EnvelopeManifest:
         format_version = require_int(format_version, label="manifest version")
         if format_version != MANIFEST_VERSION:
             raise ValueError(f"unsupported manifest version: {format_version}")
-        if not isinstance(created_at, (int, float)):
-            raise ValueError("manifest created must be a number")
+        created_at = _require_manifest_created_at(created_at)
         sealed = require_bool(sealed, label="manifest sealed")
         input_origin = require_str(input_origin, label="manifest input_origin")
         if input_origin not in {"file", "directory", "mixed"}:
@@ -288,7 +294,7 @@ class EnvelopeManifest:
                 raise ValueError("manifest payload_raw_len must match sum of manifest file sizes")
         return cls(
             format_version=format_version,
-            created_at=float(created_at),
+            created_at=created_at,
             sealed=sealed,
             signing_seed=seed_bytes,
             input_origin=input_origin,
@@ -413,6 +419,8 @@ def _decode_direct_file_entry(entry: object) -> ManifestFile:
     if isinstance(entry, dict):
         raise ValueError("manifest file entry must use array encoding")
     values = require_list(entry, 4, label="manifest file entry")
+    if len(values) != 4:
+        raise ValueError("manifest file entry must contain exactly 4 items")
     path = values[0]
     size = values[1]
     sha256 = values[2]
@@ -426,6 +434,8 @@ def _decode_prefix_file_entry(entry: object, path_prefixes: tuple[str, ...]) -> 
     if isinstance(entry, dict):
         raise ValueError("manifest file entry must use array encoding")
     values = require_list(entry, 5, label="manifest file entry")
+    if len(values) != 5:
+        raise ValueError("manifest file entry must contain exactly 5 items")
     prefix_index = values[0]
     suffix = values[1]
     size = values[2]

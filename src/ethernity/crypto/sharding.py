@@ -41,6 +41,7 @@ from ethernity.crypto.signing import (
     SHARD_SET_ID_LEN,
     derive_public_key,
     sign_shard,
+    verify_shard,
 )
 from ethernity.encoding.cbor import dumps_canonical, loads_canonical
 
@@ -120,17 +121,33 @@ def split_signing_seed(
     )
 
 
-def recover_passphrase(shares: list[ShardPayload]) -> str:
+def recover_passphrase(
+    shares: list[ShardPayload],
+    *,
+    verify_signatures: bool = True,
+) -> str:
     """Recover a UTF-8 passphrase from shard payloads."""
 
-    secret = _recover_secret(shares, key_type=KEY_TYPE_PASSPHRASE)
+    secret = _recover_secret(
+        shares,
+        key_type=KEY_TYPE_PASSPHRASE,
+        verify_signatures=verify_signatures,
+    )
     return secret.decode("utf-8")
 
 
-def recover_signing_seed(shares: list[ShardPayload]) -> bytes:
+def recover_signing_seed(
+    shares: list[ShardPayload],
+    *,
+    verify_signatures: bool = True,
+) -> bytes:
     """Recover an Ed25519 signing seed from shard payloads."""
 
-    seed = _recover_secret(shares, key_type=KEY_TYPE_SIGNING_SEED)
+    seed = _recover_secret(
+        shares,
+        key_type=KEY_TYPE_SIGNING_SEED,
+        verify_signatures=verify_signatures,
+    )
     if len(seed) != ED25519_SEED_LEN:
         raise ValueError(f"signing seed must be {ED25519_SEED_LEN} bytes")
     return seed
@@ -420,7 +437,11 @@ def _split_secret(
     return payloads
 
 
-def validate_shard_set_consistency(shares: list[ShardPayload]) -> None:
+def validate_shard_set_consistency(
+    shares: list[ShardPayload],
+    *,
+    verify_signatures: bool = True,
+) -> None:
     """Reject share sets that are detectably mixed across different polynomials."""
 
     if not shares:
@@ -429,11 +450,31 @@ def validate_shard_set_consistency(shares: list[ShardPayload]) -> None:
     threshold = shares[0].threshold
     version = shares[0].version
     shard_set_id = shares[0].shard_set_id
+    doc_hash = shares[0].doc_hash
+    sign_pub = shares[0].sign_pub
     for share in shares:
         if share.version != version:
             raise ValueError("shard versions do not match")
         if not _same_shard_set_id(share.shard_set_id, shard_set_id):
             raise ValueError(_INCOMPATIBLE_SHARD_SET_MESSAGE)
+        if not hmac.compare_digest(share.doc_hash, doc_hash):
+            raise ValueError("shard document hashes do not match")
+        if not hmac.compare_digest(share.sign_pub, sign_pub):
+            raise ValueError("shard signing public keys do not match")
+        if verify_signatures and not verify_shard(
+            share.doc_hash,
+            shard_version=share.version,
+            key_type=share.key_type,
+            threshold=share.threshold,
+            share_count=share.share_count,
+            share_index=share.share_index,
+            secret_len=share.secret_len,
+            share=share.share,
+            shard_set_id=share.shard_set_id,
+            sign_pub=share.sign_pub,
+            signature=share.signature,
+        ):
+            raise ValueError("invalid shard signature")
     if len(shares) <= threshold:
         return
 
@@ -457,7 +498,12 @@ def validate_shard_set_consistency(shares: list[ShardPayload]) -> None:
             raise ValueError(_INCOMPATIBLE_SHARD_SET_MESSAGE)
 
 
-def _recover_secret(shares: list[ShardPayload], *, key_type: str) -> bytes:
+def _recover_secret(
+    shares: list[ShardPayload],
+    *,
+    key_type: str,
+    verify_signatures: bool,
+) -> bytes:
     """Recover a secret from validated shard payloads of one key type."""
 
     if not shares:
@@ -491,7 +537,7 @@ def _recover_secret(shares: list[ShardPayload], *, key_type: str) -> bytes:
         if len(share.share) != expected_len:
             raise ValueError("shard share length does not match secret length")
 
-    validate_shard_set_consistency(shares)
+    validate_shard_set_consistency(shares, verify_signatures=verify_signatures)
     source_shares = sorted(shares, key=lambda item: item.share_index)[:threshold]
 
     blocks: list[bytes] = []

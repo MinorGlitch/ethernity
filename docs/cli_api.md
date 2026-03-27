@@ -262,8 +262,9 @@ Stable recover `result.auth_status` values:
 - `mint_capabilities.can_mint_passphrase_shards|can_mint_signing_key_shards`
 - `blocking_issues` and `warnings`
 
-`frame_counts.signing_key_shard` reports decoded signing-key shard input frames. Readiness still
-comes from `signing_key.validated_shard_count`, and `unlock.satisfied` is `false` whenever auth
+`frame_counts.signing_key_shard` reports decoded signing-key shard input frames. Signing-key
+readiness comes from `signing_key.satisfied`; `validated_shard_count` is informational and can be
+`0` when the backup already embeds a signing seed. `unlock.satisfied` is `false` whenever auth
 validation is blocking even if shard quorum is otherwise met.
 
 `mint_capabilities` is per output type and reflects both readiness and the currently enabled
@@ -411,6 +412,9 @@ Example onboarding patch:
 ```json
 {"type":"started","schema_version":1,"command":"recover","args":{"operation":"inspect","config":null,"paper":null,"fallback_file":null,"payloads_file":"main_payloads.txt","scan":[],"has_passphrase":false,"shard_fallback_file":["shard-1.txt"],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"allow_unsigned":false,"quiet":true,"debug":false}}
 {"type":"phase","id":"plan","label":"Resolving recovery inputs"}
+{"type":"progress","phase":"plan","current":1,"total":1,"unit":"step","details":{"main_frame_count":2,"auth_frame_count":0,"shard_frame_count":1}}
+{"type":"phase","id":"decrypt","label":"Decrypting and extracting payload"}
+{"type":"progress","phase":"decrypt","current":1,"total":1,"unit":"step","details":{"output_path":null,"output_path_kind":"none"}}
 {"type":"result","ok":true,"command":"recover","operation":"inspect","doc_id":"deadbeef","auth_status":"missing","input_label":"QR payloads","input_detail":"main_payloads.txt","source_summary":null,"frame_counts":{"main":2,"auth":0,"shard":1},"unlock":{"mode":"shards","passphrase_provided":false,"validated_shard_count":1,"required_shard_threshold":2,"satisfied":false},"blocking_issues":[{"code":"PASSPHRASE_SHARDS_UNDER_QUORUM","message":"need at least 2 shard(s) to recover passphrase","details":{"provided_count":1,"required_threshold":2}}],"warnings":[]}
 ```
 

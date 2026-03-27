@@ -17,11 +17,59 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import re
 import tomllib
 import urllib.request
 from pathlib import Path
+
+_ROOT_LOCK_PACKAGE_NAME = "ethernity-paper"
+_VERSION_MARKER_NAMES = frozenset(
+    {"python_full_version", "python_version", "implementation_version"}
+)
+_HOMEBREW_MARKER_ENVIRONMENTS = (
+    {
+        "sys_platform": "darwin",
+        "platform_system": "Darwin",
+        "os_name": "posix",
+        "platform_machine": "arm64",
+        "platform_python_implementation": "CPython",
+        "implementation_name": "cpython",
+        "python_full_version": "3.13.0",
+        "python_version": "3.13",
+    },
+    {
+        "sys_platform": "darwin",
+        "platform_system": "Darwin",
+        "os_name": "posix",
+        "platform_machine": "x86_64",
+        "platform_python_implementation": "CPython",
+        "implementation_name": "cpython",
+        "python_full_version": "3.13.0",
+        "python_version": "3.13",
+    },
+    {
+        "sys_platform": "linux",
+        "platform_system": "Linux",
+        "os_name": "posix",
+        "platform_machine": "x86_64",
+        "platform_python_implementation": "CPython",
+        "implementation_name": "cpython",
+        "python_full_version": "3.13.0",
+        "python_version": "3.13",
+    },
+    {
+        "sys_platform": "linux",
+        "platform_system": "Linux",
+        "os_name": "posix",
+        "platform_machine": "aarch64",
+        "platform_python_implementation": "CPython",
+        "implementation_name": "cpython",
+        "python_full_version": "3.13.0",
+        "python_version": "3.13",
+    },
+)
 
 
 def _normalize_tag(tag: str) -> str:
@@ -162,7 +210,175 @@ def _load_lock_packages(lock_path: Path) -> dict[str, dict[str, object]]:
     return by_name
 
 
+def _resource_package_names(formula: str) -> set[str]:
+    return {
+        _normalize_package_name(match.group(1))
+        for match in re.finditer(r'^\s*resource "([^"]+)" do\s*$', formula, flags=re.MULTILINE)
+    }
+
+
+def _formula_dependency_names(formula: str) -> set[str]:
+    return {
+        _normalize_package_name(match.group(1))
+        for match in re.finditer(r'^\s*depends_on "([^"]+)"', formula, flags=re.MULTILINE)
+    }
+
+
+def _is_version_string(value: str) -> bool:
+    return bool(value) and all(part.isdigit() for part in value.split("."))
+
+
+def _version_key(value: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in value.split("."))
+
+
+def _compare_marker_values(left: str, right: str, op: ast.cmpop, *, left_name: str | None) -> bool:
+    if (
+        left_name in _VERSION_MARKER_NAMES
+        and _is_version_string(left)
+        and _is_version_string(right)
+    ):
+        left_value: tuple[int, ...] | str = _version_key(left)
+        right_value: tuple[int, ...] | str = _version_key(right)
+    else:
+        left_value = left
+        right_value = right
+
+    if isinstance(op, ast.Eq):
+        return left_value == right_value
+    if isinstance(op, ast.NotEq):
+        return left_value != right_value
+    if isinstance(op, ast.Lt):
+        return left_value < right_value
+    if isinstance(op, ast.LtE):
+        return left_value <= right_value
+    if isinstance(op, ast.Gt):
+        return left_value > right_value
+    if isinstance(op, ast.GtE):
+        return left_value >= right_value
+    if isinstance(op, ast.In):
+        return left in right
+    if isinstance(op, ast.NotIn):
+        return left not in right
+    raise ValueError(f"unsupported marker operator: {ast.dump(op)}")
+
+
+def _evaluate_marker_node(node: ast.AST, environment: dict[str, str]) -> bool | str:
+    if isinstance(node, ast.BoolOp):
+        values = [_evaluate_marker_node(value, environment) for value in node.values]
+        if not all(isinstance(value, bool) for value in values):
+            raise ValueError("marker boolean expressions must compare boolean values")
+        if isinstance(node.op, ast.And):
+            return all(values)
+        if isinstance(node.op, ast.Or):
+            return any(values)
+        raise ValueError(f"unsupported marker boolean operator: {ast.dump(node.op)}")
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        value = _evaluate_marker_node(node.operand, environment)
+        if not isinstance(value, bool):
+            raise ValueError("marker 'not' operand must be boolean")
+        return not value
+    if isinstance(node, ast.Compare):
+        left = _evaluate_marker_node(node.left, environment)
+        left_name = node.left.id if isinstance(node.left, ast.Name) else None
+        if not isinstance(left, str):
+            raise ValueError("marker comparison left operand must be a string value")
+        current_left = left
+        current_left_name = left_name
+        for op, comparator in zip(node.ops, node.comparators, strict=True):
+            right = _evaluate_marker_node(comparator, environment)
+            if not isinstance(right, str):
+                raise ValueError("marker comparison right operand must be a string value")
+            if not _compare_marker_values(current_left, right, op, left_name=current_left_name):
+                return False
+            current_left = right
+            current_left_name = comparator.id if isinstance(comparator, ast.Name) else None
+        return True
+    if isinstance(node, ast.Name):
+        if node.id not in environment:
+            raise ValueError(f"unsupported marker variable: {node.id}")
+        return environment[node.id]
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    raise ValueError(f"unsupported marker expression: {ast.dump(node)}")
+
+
+def _marker_applies_to_environment(marker: str, environment: dict[str, str]) -> bool:
+    expression = ast.parse(marker, mode="eval")
+    result = _evaluate_marker_node(expression.body, environment)
+    if not isinstance(result, bool):
+        raise ValueError("marker did not evaluate to a boolean")
+    return result
+
+
+def _dependency_applies_to_homebrew(dependency: dict[str, object]) -> bool:
+    marker = dependency.get("marker")
+    if not isinstance(marker, str):
+        return True
+    return any(
+        _marker_applies_to_environment(marker, environment)
+        for environment in _HOMEBREW_MARKER_ENVIRONMENTS
+    )
+
+
+def _package_dependency_names(package: dict[str, object]) -> list[str]:
+    dependencies = package.get("dependencies", [])
+    if not isinstance(dependencies, list):
+        return []
+    names: list[str] = []
+    for dependency in dependencies:
+        if not isinstance(dependency, dict):
+            continue
+        if not _dependency_applies_to_homebrew(dependency):
+            continue
+        name_value = dependency.get("name")
+        if isinstance(name_value, str):
+            names.append(_normalize_package_name(name_value))
+    return names
+
+
+def _required_runtime_resource_names(
+    lock_packages: dict[str, dict[str, object]],
+    *,
+    formula_dependency_names: set[str] | None = None,
+) -> set[str]:
+    root_package = lock_packages.get(_ROOT_LOCK_PACKAGE_NAME)
+    if root_package is None:
+        raise ValueError(f"uv.lock does not contain root package {_ROOT_LOCK_PACKAGE_NAME!r}")
+
+    formula_dependencies = formula_dependency_names or set()
+    pending = list(_package_dependency_names(root_package))
+    required: set[str] = set()
+    while pending:
+        package_name = pending.pop()
+        if package_name in required:
+            continue
+        if package_name in formula_dependencies:
+            continue
+        package = lock_packages.get(package_name)
+        if package is None:
+            raise ValueError(f"uv.lock is missing runtime package {package_name!r}")
+        required.add(package_name)
+        pending.extend(_package_dependency_names(package))
+    return required
+
+
 def _render_resources_from_lock(formula: str, lock_packages: dict[str, dict[str, object]]) -> str:
+    resource_names = _resource_package_names(formula)
+    formula_dependency_names = _formula_dependency_names(formula)
+    missing_resources = sorted(
+        _required_runtime_resource_names(
+            lock_packages,
+            formula_dependency_names=formula_dependency_names,
+        )
+        - resource_names
+    )
+    if missing_resources:
+        joined = ", ".join(missing_resources)
+        raise ValueError(
+            f"formula template is missing resource blocks for runtime packages: {joined}"
+        )
+
     lines = formula.splitlines(keepends=True)
     index = 0
     while index < len(lines):
@@ -174,8 +390,7 @@ def _render_resources_from_lock(formula: str, lock_packages: dict[str, dict[str,
         package_name = _normalize_package_name(match.group(1))
         package = lock_packages.get(package_name)
         if package is None:
-            index += 1
-            continue
+            raise ValueError(f"formula resource package not found in uv.lock: {package_name}")
 
         block_end = index + 1
         url_idx = None

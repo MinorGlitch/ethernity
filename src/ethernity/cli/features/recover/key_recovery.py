@@ -146,7 +146,7 @@ def _passphrase_from_shard_frames(
         key_type=KEY_TYPE_PASSPHRASE,
         secret_label="passphrase",
     )
-    return recover_passphrase(share_list)
+    return recover_passphrase(share_list, verify_signatures=False)
 
 
 def _signing_seed_from_shard_frames(
@@ -166,7 +166,7 @@ def _signing_seed_from_shard_frames(
         key_type=KEY_TYPE_SIGNING_SEED,
         secret_label="signing key",
     )
-    return recover_signing_seed(share_list)
+    return recover_signing_seed(share_list, verify_signatures=False)
 
 
 def _validated_shard_payloads_from_frames(
@@ -232,7 +232,7 @@ def _validated_shard_payloads_from_frames(
             raise ValueError("shard thresholds do not match")
         if share.share_count != share_total:
             raise ValueError("shard share counts do not match")
-    validate_shard_set_consistency(share_list)
+    validate_shard_set_consistency(share_list, verify_signatures=False)
     if len(share_list) < threshold:
         raise InsufficientShardError(
             threshold=threshold,

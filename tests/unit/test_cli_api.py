@@ -1309,6 +1309,7 @@ class TestCliApi(unittest.TestCase):
         args = MintArgs(
             payloads_file="main.txt",
             passphrase="secret words",
+            shard_scan=["passphrase-a.pdf", "passphrase-b.png"],
             output_dir="/tmp/mint-out",
             shard_threshold=2,
             shard_count=3,
@@ -1339,6 +1340,7 @@ class TestCliApi(unittest.TestCase):
             [event["type"] for event in events], ["started", "artifact", "artifact", "result"]
         )
         self.assertEqual(events[0]["command"], "mint")
+        self.assertEqual(events[0]["args"]["shard_scan"], ["passphrase-a.pdf", "passphrase-b.png"])
         self.assertEqual(events[1]["kind"], "shard_document")
         self.assertEqual(events[2]["kind"], "signing_key_shard_document")
         self.assertEqual(events[-1]["artifacts"]["shard_documents"], list(result.shard_paths))
@@ -1661,10 +1663,11 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["operation"], "inspect")
         self.assertEqual(events[-1]["auth_status"], "missing")
         self.assertEqual(events[-1]["blocking_issues"][0]["code"], "AUTH_REQUIRED")
+        self.assertFalse(events[-1]["unlock"]["satisfied"])
         self.assertEqual([event for event in events if event["type"] == "artifact"], [])
 
     def test_run_mint_inspect_api_command_reports_input_signing_key_frame_count(self) -> None:
-        args = MintArgs(payloads_file="main.txt", quiet=True)
+        args = MintArgs(payloads_file="main.txt", shard_scan=["passphrase-a.pdf"], quiet=True)
         inspection = SimpleNamespace(
             recovery=SimpleNamespace(
                 doc_id=b"\x03" * 8,
@@ -1706,6 +1709,7 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
         self._assert_valid_events(events)
+        self.assertEqual(events[0]["args"]["shard_scan"], ["passphrase-a.pdf"])
         self.assertEqual(events[2]["details"]["signing_key_shard_frame_count"], 1)
         self.assertEqual(events[-1]["frame_counts"]["signing_key_shard"], 1)
         self.assertEqual(events[-1]["signing_key"]["validated_shard_count"], 0)

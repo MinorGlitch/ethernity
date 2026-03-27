@@ -95,6 +95,7 @@ def _mint_started_args(
         "has_passphrase": args.passphrase is not None,
         "shard_fallback_file": list(args.shard_fallback_file or []),
         "shard_payloads_file": list(args.shard_payloads_file or []),
+        "shard_scan": list(args.shard_scan or []),
         "auth_fallback_file": args.auth_fallback_file,
         "auth_payloads_file": args.auth_payloads_file,
         "signing_key_shard_fallback_file": list(args.signing_key_shard_fallback_file or []),
@@ -117,6 +118,13 @@ def _mint_started_args(
         payload["layout_debug_dir"] = args.layout_debug_dir
         payload["output_dir"] = args.output_dir
     return payload
+
+
+def _has_blocking_issue(
+    items: tuple[dict[str, object], ...] | list[dict[str, object]],
+    code: str,
+) -> bool:
+    return any(item.get("code") == code for item in items)
 
 
 def run_mint_api_command(args: MintArgs, *, debug: bool = False) -> int:
@@ -191,7 +199,9 @@ def run_mint_inspect_api_command(args: MintArgs, *, debug: bool = False) -> int:
                     inspection.recovery.unlock.required_shard_threshold
                 ),
                 "satisfied": (
-                    inspection.recovery.unlock.satisfied and inspection.manifest is not None
+                    inspection.recovery.unlock.satisfied
+                    and inspection.manifest is not None
+                    and not _has_blocking_issue(list(inspection.blocking_issues), "AUTH_REQUIRED")
                 ),
             },
             signing_key={

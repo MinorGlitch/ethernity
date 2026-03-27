@@ -94,7 +94,7 @@ def build_manifest_and_payload(
         if len(signing_seed_bytes) != SIGNING_SEED_LEN:
             raise ValueError(f"seed must be {SIGNING_SEED_LEN} bytes")
 
-    created = time.time() if created_at is None else created_at
+    created = int(time.time()) if created_at is None else created_at
     files: list[ManifestFile] = []
     payload = bytearray()
     seen_paths: set[str] = set()
