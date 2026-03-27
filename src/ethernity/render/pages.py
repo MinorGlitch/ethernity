@@ -23,6 +23,7 @@ from collections.abc import Callable
 
 from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
+    DOC_TYPE_MAIN,
     DOC_TYPE_RECOVERY,
     DOC_TYPE_SHARD,
     DOC_TYPE_SIGNING_KEY_SHARD,
@@ -66,14 +67,31 @@ def _calculate_total_pages(
     layout: Layout,
     layout_rest: Layout | None,
     fallback_lines: list[str],
+    capabilities: TemplateCapabilities,
+    recovery_meta_lines_extra: int,
     first_page_qr_slots_extra: int = 0,
 ) -> tuple[int, int, int]:
     """Calculate total pages needed for frames and fallback.
 
     Returns: (total_pages, fallback_first, fallback_rest)
     """
-    fallback_first = layout.fallback_lines_per_page
-    fallback_rest = layout_rest.fallback_lines_per_page if layout_rest else fallback_first
+    fallback_first = adjust_page_fallback_capacity(
+        capabilities=capabilities,
+        doc_type=inputs.doc_type,
+        page_layout=layout,
+        lines_capacity=layout.fallback_lines_per_page,
+        page_idx=0,
+        recovery_meta_lines_extra=recovery_meta_lines_extra,
+    )
+    fallback_rest_layout = layout_rest if layout_rest is not None else layout
+    fallback_rest = adjust_page_fallback_capacity(
+        capabilities=capabilities,
+        doc_type=inputs.doc_type,
+        page_layout=fallback_rest_layout,
+        lines_capacity=fallback_rest_layout.fallback_lines_per_page,
+        page_idx=1,
+        recovery_meta_lines_extra=recovery_meta_lines_extra,
+    )
 
     frames_pages = 0
     if inputs.render_qr:
@@ -457,10 +475,15 @@ def build_pages(
         layout,
         layout_rest,
         fallback_lines,
+        capabilities,
+        int(spec.header.meta_lines_extra),
         first_page_qr_slots_extra=first_page_qr_slots_extra,
     )
     normalized_doc_type = inputs.doc_type.strip().lower()
     kit_instructions_page = normalized_doc_type == DOC_TYPE_KIT
+    repeat_main_instructions = (
+        normalized_doc_type == DOC_TYPE_MAIN and capabilities.repeat_main_instructions_on_all_pages
+    )
     pages: list[PageModel] = []
     page_idx = 0
     while True:
@@ -534,7 +557,11 @@ def build_pages(
                 instructions_y_mm=page_layout.instructions_y,
                 show_instructions=(
                     not kit_instructions_page
-                    and (not spec.instructions.first_page_only or page_idx == 0)
+                    and (
+                        repeat_main_instructions
+                        or not spec.instructions.first_page_only
+                        or page_idx == 0
+                    )
                 ),
                 instructions_full_page=False,
                 qr_items=qr_items,

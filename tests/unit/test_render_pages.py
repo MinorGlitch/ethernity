@@ -881,6 +881,98 @@ class TestBuildPages(unittest.TestCase):
                 fallback_state=None,
             )
 
+    def test_forge_shard_non_section_fallback_respects_effective_page_capacity(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\xf1" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "resources"
+            / "templates"
+            / "forge"
+            / "shard_document.html.j2"
+        )
+        inputs = RenderInputs(
+            frames=frames,
+            template_path=template_path,
+            output_path="out.pdf",
+            context={},
+            doc_type="shard",
+            render_qr=False,
+            render_fallback=True,
+        )
+        layout = _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=10)
+        fallback_lines = [f"L{i}" for i in range(1, 11)]
+
+        pages = build_pages(
+            inputs=inputs,
+            spec=_spec(),
+            layout=layout,
+            layout_rest=layout,
+            fallback_lines=fallback_lines,
+            qr_image_builder=lambda idx: f"qr:{idx}",
+            fallback_sections_data=None,
+            fallback_state=None,
+        )
+
+        self.assertEqual(len(pages), 2)
+        self.assertEqual(pages[0].fallback_line_capacity, 9)
+        self.assertEqual(pages[1].fallback_line_capacity, 13)
+        self.assertEqual(list(pages[0].fallback_blocks[0].lines), fallback_lines[:9])
+        self.assertEqual(list(pages[1].fallback_blocks[0].lines), fallback_lines[9:])
+
+    def test_main_pages_repeat_instructions_when_capability_is_enabled(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\xf2" * DOC_ID_LEN,
+                index=i,
+                total=3,
+                data=f"payload-{i}".encode("utf-8"),
+            )
+            for i in range(3)
+        ]
+        with TemporaryDirectory() as temp_dir:
+            template_path = _write_template(
+                Path(temp_dir),
+                "maritime",
+                capabilities={"repeat_main_instructions_on_all_pages": True},
+            )
+            inputs = RenderInputs(
+                frames=frames,
+                template_path=template_path,
+                output_path="out.pdf",
+                context={},
+                doc_type="main",
+                render_qr=True,
+                render_fallback=False,
+            )
+            layout = _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=1)
+            layout_rest = _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=1)
+
+            pages = build_pages(
+                inputs=inputs,
+                spec=_spec(),
+                layout=layout,
+                layout_rest=layout_rest,
+                fallback_lines=[],
+                qr_image_builder=lambda idx: f"qr:{idx}",
+                fallback_sections_data=None,
+                fallback_state=None,
+            )
+
+        self.assertTrue(all(page.show_instructions for page in pages))
+
     def test_recovery_capability_bonus_applies_only_when_explicit(self) -> None:
         frames = [
             Frame(

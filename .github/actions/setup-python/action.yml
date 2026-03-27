@@ -27,4 +27,17 @@ runs:
 
     - name: Install dependencies
       shell: bash
-      run: uv sync --extra ${{ inputs.extras }} --frozen
+      run: |
+        set -euo pipefail
+        cmd=(uv sync --frozen)
+        extras_raw="${{ inputs.extras }}"
+        IFS=',' read -r -a extras <<< "$extras_raw"
+        for extra in "${extras[@]}"; do
+          extra="${extra#"${extra%%[![:space:]]*}"}"
+          extra="${extra%"${extra##*[![:space:]]}"}"
+          if [[ -z "$extra" ]]; then
+            continue
+          fi
+          cmd+=(--extra "$extra")
+        done
+        "${cmd[@]}"
