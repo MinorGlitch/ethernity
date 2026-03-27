@@ -62,7 +62,9 @@ def _expand_shard_dir(shard_dir: str | None, *, label: str) -> list[str]:
         raise typer.BadParameter(f"{label} directory not found: {shard_dir}")
     if not path.is_dir():
         raise typer.BadParameter(f"{label}-dir must be a directory: {shard_dir}")
-    files = sorted(path.glob("*.txt"))
+    files = sorted(
+        child for child in path.iterdir() if child.is_file() and child.suffix.lower() == ".txt"
+    )
     if not files:
         raise typer.BadParameter(f"no .txt files found in {label} directory: {shard_dir}")
     return [str(file_path) for file_path in files]
@@ -124,6 +126,14 @@ def mint(
         typer.Option(
             "--shard-payloads-file",
             help="Existing passphrase shard QR payload file (repeatable).",
+            rich_help_panel="Keys",
+        ),
+    ] = None,
+    shard_scan: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--shard-scan",
+            help="Existing passphrase shard scan path (image/PDF/dir, repeatable).",
             rich_help_panel="Keys",
         ),
     ] = None,
@@ -313,6 +323,7 @@ def mint(
         passphrase=passphrase,
         shard_fallback_file=passphrase_shard_files,
         shard_payloads_file=list(shard_payloads_file or []),
+        shard_scan=list(shard_scan or []),
         auth_fallback_file=auth_fallback_file,
         auth_payloads_file=auth_payloads_file,
         signing_key_shard_fallback_file=signing_key_shard_files,

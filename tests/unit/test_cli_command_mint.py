@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import contextlib
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -42,6 +43,7 @@ class TestMintCommand(unittest.TestCase):
             "shard_fallback_file": None,
             "shard_dir": None,
             "shard_payloads_file": None,
+            "shard_scan": None,
             "auth_fallback_file": None,
             "auth_payloads_file": None,
             "signing_key_shard_fallback_file": None,
@@ -70,6 +72,10 @@ class TestMintCommand(unittest.TestCase):
         self.assertEqual(mint_command._expand_shard_dir(None, label="shard"), [])
         with self.assertRaises(typer.BadParameter):
             mint_command._expand_shard_dir("/definitely/missing", label="shard")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            txt_path = Path(tmpdir) / "SHARD1.TXT"
+            txt_path.write_text("payload", encoding="utf-8")
+            self.assertEqual(mint_command._expand_shard_dir(tmpdir, label="shard"), [str(txt_path)])
 
     @mock.patch("ethernity.cli.features.mint.command.run_mint_command", return_value=0)
     @mock.patch(
@@ -96,6 +102,7 @@ class TestMintCommand(unittest.TestCase):
             ctx,
             shard_fallback_file=["manual-passphrase.txt"],
             shard_dir="passphrase-shards",
+            shard_scan=["passphrase-scan-a.pdf", "passphrase-scan-b.png"],
             signing_key_shard_fallback_file=["manual-signing.txt"],
             signing_key_shard_dir="signing-shards",
             signing_key_shard_scan=["signing-scan-a.pdf", "signing-scan-b.pdf"],
@@ -110,6 +117,7 @@ class TestMintCommand(unittest.TestCase):
         self.assertEqual(args.paper, "A4")
         self.assertEqual(args.design, "sentinel")
         self.assertEqual(args.shard_fallback_file, ["manual-passphrase.txt", "passphrase-dir.txt"])
+        self.assertEqual(args.shard_scan, ["passphrase-scan-a.pdf", "passphrase-scan-b.png"])
         self.assertEqual(
             args.signing_key_shard_fallback_file,
             ["manual-signing.txt", "signing-dir.txt"],

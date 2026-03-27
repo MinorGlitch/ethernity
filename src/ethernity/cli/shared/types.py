@@ -108,6 +108,7 @@ class MintArgs:
     passphrase: str | None = None
     shard_fallback_file: list[str] | None = None
     shard_payloads_file: list[str] | None = None
+    shard_scan: list[str] | None = None
     auth_fallback_file: str | None = None
     auth_payloads_file: str | None = None
     signing_key_shard_fallback_file: list[str] | None = None

@@ -24,6 +24,7 @@ from unittest import mock
 
 import ethernity.config.api_patch as api_config
 import ethernity.config.install as installer
+from ethernity.config.install import ONBOARDING_FIELDS
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -49,8 +50,12 @@ class TestApiConfigService(unittest.TestCase):
         self.assertEqual(snapshot.status, "valid")
         self.assertEqual(snapshot.errors, ())
         self.assertTrue(snapshot.path.endswith("config.toml"))
-        self.assertIn("template_designs", snapshot.options)
-        self.assertIn("available_fields", snapshot.onboarding)
+        self.assertEqual(
+            snapshot.options["template_designs"],
+            ["archive", "forge", "ledger", "maritime", "sentinel"],
+        )
+        self.assertEqual(snapshot.options["onboarding_fields"], list(ONBOARDING_FIELDS))
+        self.assertEqual(snapshot.onboarding["available_fields"], list(ONBOARDING_FIELDS))
         self.assertIn("template_name", templates)
 
     def test_apply_api_config_patch_updates_values_and_onboarding_marker(self) -> None:

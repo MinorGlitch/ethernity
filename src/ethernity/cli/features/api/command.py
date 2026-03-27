@@ -352,6 +352,7 @@ def _build_mint_api_args(
     shard_fallback_file: list[str] | None,
     shard_dir: str | None,
     shard_payloads_file: list[str] | None,
+    shard_scan: list[str] | None,
     auth_fallback_file: str | None,
     auth_payloads_file: str | None,
     signing_key_shard_fallback_file: list[str] | None,
@@ -399,6 +400,7 @@ def _build_mint_api_args(
         passphrase=passphrase,
         shard_fallback_file=passphrase_shard_files,
         shard_payloads_file=list(shard_payloads_file or []),
+        shard_scan=list(shard_scan or []),
         auth_fallback_file=auth_fallback_file,
         auth_payloads_file=auth_payloads_file,
         signing_key_shard_fallback_file=signing_key_shard_files,
@@ -445,6 +447,7 @@ def _run_mint_operation(
     shard_fallback_file: list[str] | None,
     shard_dir: str | None,
     shard_payloads_file: list[str] | None,
+    shard_scan: list[str] | None,
     auth_fallback_file: str | None,
     auth_payloads_file: str | None,
     signing_key_shard_fallback_file: list[str] | None,
@@ -476,6 +479,7 @@ def _run_mint_operation(
         shard_fallback_file=list(shard_fallback_file or []),
         shard_dir=shard_dir,
         shard_payloads_file=list(shard_payloads_file or []),
+        shard_scan=list(shard_scan or []),
         auth_fallback_file=auth_fallback_file,
         auth_payloads_file=auth_payloads_file,
         signing_key_shard_fallback_file=list(signing_key_shard_fallback_file or []),
@@ -934,6 +938,12 @@ def mint(
         list[str] | None,
         typer.Option("--shard-payloads-file", help="Existing passphrase shard QR payload file."),
     ] = None,
+    shard_scan: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--shard-scan", help="Existing passphrase shard scan path (image/PDF/dir, repeatable)."
+        ),
+    ] = None,
     auth_fallback_file: Annotated[
         str | None,
         typer.Option("--auth-fallback-file", help="Auth recovery text (fallback, z-base-32)."),
@@ -1059,6 +1069,7 @@ def mint(
             shard_fallback_file=shard_fallback_file,
             shard_dir=shard_dir,
             shard_payloads_file=shard_payloads_file,
+            shard_scan=shard_scan,
             auth_fallback_file=auth_fallback_file,
             auth_payloads_file=auth_payloads_file,
             signing_key_shard_fallback_file=signing_key_shard_fallback_file,
@@ -1112,6 +1123,12 @@ def inspect_mint(
     shard_payloads_file: Annotated[
         list[str] | None,
         typer.Option("--shard-payloads-file", help="Existing passphrase shard QR payload file."),
+    ] = None,
+    shard_scan: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--shard-scan", help="Existing passphrase shard scan path (image/PDF/dir, repeatable)."
+        ),
     ] = None,
     auth_fallback_file: Annotated[
         str | None,
@@ -1230,6 +1247,7 @@ def inspect_mint(
             shard_fallback_file=shard_fallback_file,
             shard_dir=shard_dir,
             shard_payloads_file=shard_payloads_file,
+            shard_scan=shard_scan,
             auth_fallback_file=auth_fallback_file,
             auth_payloads_file=auth_payloads_file,
             signing_key_shard_fallback_file=signing_key_shard_fallback_file,

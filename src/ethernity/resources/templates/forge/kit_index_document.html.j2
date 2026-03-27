@@ -132,9 +132,11 @@
 {% set row_source = ns_rows.items %}
 {% endif %}
 
-{% set rows_per_page = first_page_row_limit %}
-{% set row_chunks = row_source | batch(rows_per_page, none) | list %}
-{% if not row_chunks %}
+{% if row_source %}
+{% set first_page_rows = row_source[:first_page_row_limit] %}
+{% set continuation_rows = row_source[first_page_row_limit:] %}
+{% set row_chunks = [first_page_rows] + (continuation_rows | batch(continuation_page_row_limit, none) | list) %}
+{% else %}
 {% set row_chunks = [[]] %}
 {% endif %}
 {% set total_pages = row_chunks | length %}

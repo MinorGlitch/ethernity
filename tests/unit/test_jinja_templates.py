@@ -720,7 +720,7 @@ class TestJinjaTemplates(unittest.TestCase):
         rendered = render_template(template_path, context)
         self.assertIn("COMP-01", rendered)
         self.assertIn("COMP-27", rendered)
-        self.assertGreater(rendered.count('<section class="print-sheet'), 1)
+        self.assertEqual(rendered.count('<section class="print-sheet'), 3)
         self.assertNotIn("additional entries", rendered)
         self.assertEqual(rendered.count("Custodian Signature"), 1)
 

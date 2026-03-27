@@ -163,7 +163,20 @@ def _resolve_created_timestamp(base_context: dict[str, object]) -> tuple[str, da
     elif isinstance(created_value, str):
         created_value = created_value.strip()
         if created_value:
-            if "UTC" in created_value or created_value.endswith("Z"):
+            parsed_value = created_value
+            if created_value.endswith(" UTC"):
+                parsed_value = f"{created_value[:-4].strip()}+00:00"
+            elif created_value.endswith("Z"):
+                parsed_value = f"{created_value[:-1]}+00:00"
+            try:
+                parsed_dt = datetime.fromisoformat(parsed_value)
+            except ValueError:
+                parsed_dt = None
+            if parsed_dt is not None:
+                if parsed_dt.tzinfo is None:
+                    parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+                created_dt = parsed_dt.astimezone(timezone.utc)
+            elif "UTC" in created_value or created_value.endswith("Z"):
                 created_timestamp_utc = created_value
             else:
                 created_timestamp_utc = f"{created_value} UTC"
@@ -464,8 +477,6 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     template_name = Path(inputs.template_path).name
     context["copy"] = build_copy_bundle(template_name=template_name, context=context)
 
-    html = render_template(inputs.template_path, context)
-    render_html_to_pdf(html, inputs.output_path, resources=resources)
     _write_layout_debug_json(
         output_path=inputs.output_path,
         inputs=inputs,
@@ -474,6 +485,8 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
         layout_rest=layout_rest,
         pages=pages,
     )
+    html = render_template(inputs.template_path, context)
+    render_html_to_pdf(html, inputs.output_path, resources=resources)
 
 
 def _qr_kind(config: QrConfig) -> str:

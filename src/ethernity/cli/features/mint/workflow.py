@@ -934,6 +934,7 @@ def _recover_args_from_mint_args(args: MintArgs) -> RecoverArgs:
         passphrase=args.passphrase,
         shard_fallback_file=list(args.shard_fallback_file or []),
         shard_payloads_file=list(args.shard_payloads_file or []),
+        shard_scan=list(args.shard_scan or []),
         auth_fallback_file=args.auth_fallback_file,
         auth_payloads_file=args.auth_payloads_file,
         output=None,

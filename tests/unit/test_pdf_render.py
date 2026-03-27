@@ -302,6 +302,51 @@ class TestPdfRender(unittest.TestCase):
             self.assertEqual(payload["style_name"], "ledger")
             self.assertEqual(payload["template_path"], str(template_path))
 
+    def test_render_frames_to_pdf_writes_layout_debug_json_before_pdf_render(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x98" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        template_path = _template_path("ledger", "main_document.html.j2")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "out.pdf"
+            debug_path = Path(tmpdir) / "debug" / "layout.json"
+            inputs = RenderInputs(
+                frames=[frame],
+                template_path=template_path,
+                output_path=output_path,
+                context={"paper_size": "A4"},
+                doc_type="main",
+                render_qr=False,
+                render_fallback=False,
+                layout_debug_json_path=debug_path,
+            )
+            with (
+                mock.patch(
+                    "ethernity.render.pdf_render.render_template", return_value="<html></html>"
+                ),
+                mock.patch(
+                    "ethernity.render.pdf_render.render_html_to_pdf",
+                    side_effect=RuntimeError("render failed"),
+                ),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "render failed"):
+                    render_frames_to_pdf(inputs)
+
+            self.assertTrue(debug_path.is_file())
+
+    def test_resolve_created_timestamp_normalizes_offset_strings_to_utc(self) -> None:
+        context = {"created_timestamp_utc": "2026-03-27T10:00:00+02:00"}
+        created_timestamp_utc, created_dt = pdf_render_module._resolve_created_timestamp(context)
+
+        self.assertEqual(created_timestamp_utc, "2026-03-27 08:00 UTC")
+        self.assertIsNotNone(created_dt)
+        self.assertEqual(context["created_date"], "2026-03-27")
+
     def test_recovery_doc_type_is_case_insensitive_for_layout_flags(self) -> None:
         frame = Frame(
             version=1,

@@ -53,6 +53,7 @@ from ethernity.cli.shared.types import (
     MintResult,
 )
 from ethernity.config import CliDefaults, RecoverDefaults, load_app_config
+from ethernity.config.install import ONBOARDING_FIELDS
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.core.models import DocumentPlan, SigningSeedMode
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
@@ -154,7 +155,7 @@ class TestCliApi(unittest.TestCase):
                 "kit_template_name": None,
             },
             "page": {"size": "A4"},
-            "qr": {"error": "Q", "chunk_size": 768},
+            "qr": {"error": "M", "chunk_size": 512},
             "defaults": {
                 "backup": {
                     "base_dir": None,
@@ -170,17 +171,17 @@ class TestCliApi(unittest.TestCase):
                 "recover": {"output": None},
             },
             "ui": {"quiet": False, "no_color": False, "no_animations": False},
-            "debug": {"max_bytes": None},
-            "runtime": {"render_jobs": None},
+            "debug": {"max_bytes": 1024},
+            "runtime": {"render_jobs": "auto"},
         }
         options = {
-            "template_designs": ["sentinel"],
+            "template_designs": ["archive", "forge", "ledger", "maritime", "sentinel"],
             "page_sizes": ["A4", "LETTER"],
             "qr_error_correction": ["L", "M", "Q", "H"],
             "payload_codecs": ["auto", "raw", "gzip"],
             "qr_payload_codecs": ["raw", "base64"],
             "signing_key_modes": ["embedded", "sharded"],
-            "onboarding_fields": ["page_size"],
+            "onboarding_fields": list(ONBOARDING_FIELDS),
         }
         snapshot = SimpleNamespace(
             path="/tmp/config.toml",
@@ -192,7 +193,7 @@ class TestCliApi(unittest.TestCase):
             onboarding={
                 "needed": True,
                 "configured_fields": [],
-                "available_fields": ["page_size"],
+                "available_fields": list(ONBOARDING_FIELDS),
             },
         )
         buffer = io.StringIO()
@@ -243,17 +244,17 @@ class TestCliApi(unittest.TestCase):
                 "recover": {"output": None},
             },
             "ui": {"quiet": False, "no_color": False, "no_animations": False},
-            "debug": {"max_bytes": None},
-            "runtime": {"render_jobs": None},
+            "debug": {"max_bytes": 1024},
+            "runtime": {"render_jobs": "auto"},
         }
         options = {
-            "template_designs": ["sentinel"],
+            "template_designs": ["archive", "forge", "ledger", "maritime", "sentinel"],
             "page_sizes": ["A4", "LETTER"],
             "qr_error_correction": ["L", "M", "Q", "H"],
             "payload_codecs": ["auto", "raw", "gzip"],
             "qr_payload_codecs": ["raw", "base64"],
             "signing_key_modes": ["embedded", "sharded"],
-            "onboarding_fields": ["page_size"],
+            "onboarding_fields": list(ONBOARDING_FIELDS),
         }
         snapshot = SimpleNamespace(
             path="/tmp/config.toml",
@@ -265,7 +266,7 @@ class TestCliApi(unittest.TestCase):
             onboarding={
                 "needed": False,
                 "configured_fields": ["page_size"],
-                "available_fields": ["page_size"],
+                "available_fields": list(ONBOARDING_FIELDS),
             },
         )
         buffer = io.StringIO()
@@ -1350,6 +1351,7 @@ class TestCliApi(unittest.TestCase):
         def _capture_args(args, **_kwargs) -> int:
             captured["payloads_file"] = args.payloads_file
             captured["output_dir"] = args.output_dir
+            captured["shard_scan"] = list(args.shard_scan or [])
             captured["signing_key_shard_payloads_file"] = list(
                 args.signing_key_shard_payloads_file or []
             )
@@ -1373,6 +1375,10 @@ class TestCliApi(unittest.TestCase):
                     "mint",
                     "--payloads-file",
                     str(V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT / "main_payloads.txt"),
+                    "--shard-scan",
+                    "passphrase-a.pdf",
+                    "--shard-scan",
+                    "passphrase-b.png",
                     "--signing-key-shard-payloads-file",
                     str(
                         V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT
@@ -1391,6 +1397,7 @@ class TestCliApi(unittest.TestCase):
             str(V1_1_SHARDED_SIGNING_SHARDED_FIXTURE_ROOT / "main_payloads.txt"),
         )
         self.assertIsNone(captured["output_dir"])
+        self.assertEqual(captured["shard_scan"], ["passphrase-a.pdf", "passphrase-b.png"])
         self.assertEqual(
             captured["signing_key_shard_payloads_file"],
             [
