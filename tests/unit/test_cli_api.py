@@ -1909,6 +1909,50 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(execution.output_path_kind, "directory")
         self.assertEqual(execution.output_path, tmpdir)
 
+    def test_execute_recover_plan_reports_requested_root_for_nested_directory_outputs(self) -> None:
+        manifest = EnvelopeManifest(
+            format_version=1,
+            created_at=0.0,
+            input_origin="directory",
+            input_roots=("root",),
+            sealed=True,
+            signing_seed=None,
+            payload_codec="raw",
+            payload_raw_len=3,
+            files=(
+                ManifestFile(path="nested/a.txt", size=3, sha256=b"\x00" * 32, mtime=1),
+                ManifestFile(path="nested/b.txt", size=3, sha256=b"\x01" * 32, mtime=1),
+            ),
+        )
+        extracted = [(manifest.files[0], b"one"), (manifest.files[1], b"two")]
+        plan = SimpleNamespace(
+            ciphertext=b"ciphertext",
+            passphrase="stable passphrase",
+            auth_status="verified",
+            allow_unsigned=False,
+            output_path=None,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with mock.patch(
+                "ethernity.cli.features.recover.service.decrypt_manifest_and_extract",
+                return_value=(manifest, extracted),
+            ):
+                plan.output_path = tmpdir
+                execution = execute_recover_plan(
+                    cast(Any, plan), quiet=True, emit_file_artifacts=False
+                )
+
+        self.assertEqual(execution.output_path_kind, "directory")
+        self.assertEqual(execution.output_path, tmpdir)
+        self.assertEqual(
+            execution.written_paths,
+            (
+                str(Path(tmpdir) / "nested" / "a.txt"),
+                str(Path(tmpdir) / "nested" / "b.txt"),
+            ),
+        )
+
     def test_execute_recover_plan_treats_existing_output_directory_as_directory(self) -> None:
         manifest = EnvelopeManifest(
             format_version=1,

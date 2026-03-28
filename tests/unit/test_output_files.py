@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
 import stat
 import tempfile
 import types
@@ -26,6 +27,7 @@ from unittest import mock
 
 from ethernity.cli.shared.io.outputs import (
     _ensure_output_dir,
+    _prepare_output_dir,
     _safe_join,
     _write_output,
     _write_recovered_outputs,
@@ -107,6 +109,21 @@ class TestOutputFiles(unittest.TestCase):
                 with mock.patch("pathlib.Path.chmod", side_effect=OSError("denied")):
                     _ensure_output_dir(str(out_dir), "deadbeef")
                     _write_output(str(out_file), b"payload")
+
+    def test_prepare_output_dir_does_not_harden_existing_parent_permissions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            parent = Path(tmpdir)
+            with mock.patch("ethernity.cli.shared.io.outputs._harden_dir_permissions") as harden:
+                final_dir, staging_dir = _prepare_output_dir(
+                    str(parent / "backup-deadbeef"),
+                    "deadbeef",
+                    prefix="backup",
+                )
+            self.assertEqual(final_dir, str(parent / "backup-deadbeef"))
+            self.assertTrue(Path(staging_dir).is_dir())
+            self.assertEqual(harden.call_count, 1)
+            self.assertEqual(harden.call_args.args[0], Path(staging_dir))
+            shutil.rmtree(staging_dir, ignore_errors=True)
 
     def test_write_output_writes_stdout_when_path_is_none(self) -> None:
         fake_stdout = types.SimpleNamespace(buffer=io.BytesIO())

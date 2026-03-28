@@ -61,8 +61,10 @@ def _ensure_directory(path: str | Path, *, exist_ok: bool) -> Path:
     """Create an output directory and harden its permissions."""
 
     directory = Path(expanduser_cli_path(path, preserve_stdin=False) or "")
+    existed = directory.exists()
     directory.mkdir(parents=True, exist_ok=exist_ok, mode=0o700)
-    _harden_dir_permissions(directory)
+    if not existed:
+        _harden_dir_permissions(directory)
     return directory
 
 
@@ -140,8 +142,7 @@ def _safe_join(base: Path, relative: str) -> Path:
     if rel.is_absolute() or ".." in rel.parts:
         raise ValueError(f"unsafe output path: {relative}")
     path = base / rel
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    _harden_dir_permissions(path.parent)
+    _ensure_directory(path.parent, exist_ok=True)
     return path
 
 
@@ -150,8 +151,7 @@ def _write_output(path: str | None, data: bytes) -> str | None:
 
     if path:
         normalized = Path(expanduser_cli_path(path, preserve_stdin=False) or "")
-        normalized.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        _harden_dir_permissions(normalized.parent)
+        _ensure_directory(normalized.parent, exist_ok=True)
         _write_atomic_file(normalized, data)
         return str(normalized)
 
