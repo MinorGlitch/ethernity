@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { sha256 } from "@noble/hashes/sha2.js";
 
@@ -18,7 +19,8 @@ import { ensureAtob } from "./test_helpers.mjs";
 
 ensureAtob();
 
-const FIXTURES_ROOT = path.resolve(process.cwd(), "../tests/fixtures/v1_0/golden");
+const testDir = path.dirname(fileURLToPath(import.meta.url));
+const FIXTURES_ROOT = path.resolve(testDir, "..", "..", "tests", "fixtures", "v1_0", "golden");
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));

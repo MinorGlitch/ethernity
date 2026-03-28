@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 import { parseAutoPayload, parseAutoShard } from "../app/frames_parse.js";
 import { createInitialState } from "../app/state/initial.js";
@@ -9,11 +10,14 @@ if (typeof globalThis.atob !== "function") {
   globalThis.atob = (value) => Buffer.from(value, "base64").toString("binary");
 }
 
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(scriptDir, "..", "..");
+
 function fixturePathFromArg() {
   if (process.argv[2]) {
     return path.resolve(process.argv[2]);
   }
-  return path.resolve(process.cwd(), "tests/fixtures/recovery_parse_vectors.json");
+  return path.resolve(repoRoot, "tests", "fixtures", "recovery_parse_vectors.json");
 }
 
 function runPayloadCase(testCase) {

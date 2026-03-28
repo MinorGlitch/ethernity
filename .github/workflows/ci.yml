@@ -213,6 +213,28 @@ jobs:
             --cov-report=term-missing \
             --cov-fail-under=85
 
+  package:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+      - name: Build wheel and sdist
+        run: uv build --wheel --sdist --out-dir dist
+      - name: Verify wheel contents
+        run: python3 scripts/check_wheel_contents.py dist/*.whl
+      - name: Install built wheel
+        run: python3 -m pip install --force-reinstall dist/*.whl
+      - name: Smoke test installed package
+        env:
+          ETHERNITY_SKIP_PLAYWRIGHT_INSTALL: "1"
+        run: |
+          python3 -c "import ethernity, ethernity.cli.bootstrap.app; print(ethernity.__file__)"
+          python3 -m ethernity --help > /dev/null
+
   kit-verify:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
