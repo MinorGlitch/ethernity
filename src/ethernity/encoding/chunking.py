@@ -20,9 +20,9 @@ from __future__ import annotations
 
 from typing import Iterable, Sequence
 
-from ..core.bounds import MAX_CIPHERTEXT_BYTES, MAX_MAIN_FRAME_TOTAL
-from .framing import DOC_ID_LEN, VERSION, Frame, FrameType, decode_frame
-from .zbase32 import decode_fallback_lines as _decode_fallback_lines
+from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES, MAX_MAIN_FRAME_TOTAL
+from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, decode_frame
+from ethernity.encoding.zbase32 import decode_fallback_lines as _decode_fallback_lines
 
 DEFAULT_CHUNK_SIZE = 1024
 

@@ -18,21 +18,22 @@
 
 from __future__ import annotations
 
-from .doc_types import (
+from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
+    DOC_TYPE_KIT_INDEX,
     DOC_TYPE_MAIN,
     DOC_TYPE_RECOVERY,
     DOC_TYPE_SHARD,
     DOC_TYPE_SIGNING_KEY_SHARD,
 )
-from .spec import DocumentSpec
-from .template_style import (
+from ethernity.render.spec import DocumentSpec
+from ethernity.render.template_style import (
     RecoveryFallbackLayout,
     ShardFallbackLayout,
     TemplateCapabilities,
     load_template_style,
 )
-from .types import Layout, RenderInputs
+from ethernity.render.types import Layout, RenderInputs
 
 _MAIN_MAX_ROWS_CAP = 3
 _MAIN_FIRST_PAGE_ROWS_CAP = 2
@@ -110,7 +111,7 @@ def max_rows_override_for_template(
         return max_rows
 
     normalized_doc_type = _normalized_doc_type(doc_type)
-    if normalized_doc_type not in {DOC_TYPE_MAIN, DOC_TYPE_KIT}:
+    if normalized_doc_type not in {DOC_TYPE_MAIN, DOC_TYPE_KIT, DOC_TYPE_KIT_INDEX}:
         return max_rows
 
     capped_rows = min(int(max_rows), _MAIN_MAX_ROWS_CAP)

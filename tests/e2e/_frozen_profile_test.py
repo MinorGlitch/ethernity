@@ -25,6 +25,7 @@ import unittest
 from pathlib import Path
 from typing import Any, cast
 
+from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.crypto import decrypt_bytes
 from ethernity.crypto.sharding import decode_shard_payload
 from ethernity.encoding.chunking import reassemble_payload
@@ -42,12 +43,21 @@ from tests.e2e._mint_fixture_support import (
     mint_cases_for_scenario,
     mint_cli_args,
 )
-from tests.test_support import build_cli_env, ensure_playwright_browsers
+from tests.test_support import (
+    build_cli_env,
+    cli_subprocess_timeout_seconds,
+    ensure_playwright_browsers,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_CONFIG_PATH = _REPO_ROOT / "src" / "ethernity" / "config" / "config.toml"
+_CONFIG_PATH = DEFAULT_CONFIG_PATH
 _BINARY_PAYLOADS_MAGIC = b"EQPB"
 _BINARY_PAYLOADS_VERSION = 1
+
+
+def _run_cli_subprocess(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+    kwargs.setdefault("timeout", cli_subprocess_timeout_seconds())
+    return subprocess.run(*args, **kwargs)
 
 
 class FrozenProfileTestCase(unittest.TestCase):
@@ -173,7 +183,7 @@ class FrozenProfileTestCase(unittest.TestCase):
                     else:
                         cmd.extend(["--passphrase", self._passphrase])
 
-                    result = subprocess.run(
+                    result = _run_cli_subprocess(
                         cmd,
                         cwd=_REPO_ROOT,
                         env=env,
@@ -242,7 +252,7 @@ class FrozenProfileTestCase(unittest.TestCase):
                         str(output_dir),
                         "--quiet",
                     ]
-                    result = subprocess.run(
+                    result = _run_cli_subprocess(
                         cmd,
                         cwd=_REPO_ROOT,
                         env=env,
@@ -296,7 +306,7 @@ class FrozenProfileTestCase(unittest.TestCase):
                             str(self._profile_config_path(tmp_path)),
                             *self._mint_args(case, scenario_root, output_dir),
                         ]
-                        result = subprocess.run(
+                        result = _run_cli_subprocess(
                             cmd,
                             cwd=_REPO_ROOT,
                             env=env,
@@ -640,7 +650,7 @@ class FrozenProfileTestCase(unittest.TestCase):
                 mixed_signing_payloads,
             )
             replacement_output = tmp_path / "rejected-signing-replacement"
-            result = subprocess.run(
+            result = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -732,7 +742,7 @@ class FrozenProfileTestCase(unittest.TestCase):
             mixed_payloads = tmp_path / "mixed_shard_payloads.txt"
             self._write_scanned_payloads([first_shards[0], second_shards[1]], mixed_payloads)
             recover_output = tmp_path / "rejected-restore"
-            result = subprocess.run(
+            result = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -789,7 +799,7 @@ class FrozenProfileTestCase(unittest.TestCase):
         return json.loads(snapshot_path.read_text(encoding="utf-8"))
 
     def _run_cli_command(self, cmd: list[str], *, env: dict[str, str]) -> None:
-        result = subprocess.run(
+        result = _run_cli_subprocess(
             cmd,
             cwd=_REPO_ROOT,
             env=env,

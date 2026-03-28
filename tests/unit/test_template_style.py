@@ -20,11 +20,23 @@ from tempfile import TemporaryDirectory
 from ethernity.render.template_style import load_template_style
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_TEMPLATES_ROOT = _PROJECT_ROOT / "src" / "ethernity" / "templates"
+_TEMPLATES_ROOT = _PROJECT_ROOT / "src" / "ethernity" / "resources" / "templates"
 
 
 class TestTemplateStyle(unittest.TestCase):
     def test_builtin_styles_match_expected_values(self) -> None:
+        archive = load_template_style(_TEMPLATES_ROOT / "archive" / "recovery_document.html.j2")
+        self.assertEqual(archive.name, "archive")
+        self.assertEqual(archive.capabilities.recovery_line_groups_bonus, 5)
+        self.assertEqual(archive.capabilities.recovery_first_page_bonus_lines, 13)
+        self.assertEqual(
+            archive.capabilities.recovery_first_page_bonus_lines_per_extra_section,
+            2,
+        )
+        self.assertEqual(archive.capabilities.recovery_continuation_bonus_lines, 16)
+        self.assertEqual(archive.capabilities.shard_line_groups_bonus, 10)
+        self.assertEqual(archive.capabilities.signing_key_shard_line_groups_bonus, 10)
+
         ledger = load_template_style(_TEMPLATES_ROOT / "ledger" / "main_document.html.j2")
         self.assertEqual(ledger.name, "ledger")
         self.assertAlmostEqual(ledger.header.meta_row_gap_mm, 1.2)
@@ -61,6 +73,12 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertTrue(forge.capabilities.repeat_primary_qr_on_shard_continuation)
         self.assertTrue(forge.capabilities.advanced_fallback_layout)
         self.assertFalse(forge.capabilities.uniform_main_qr_capacity)
+        self.assertEqual(forge.capabilities.recovery_main_section_start_reserved_lines, 1)
+        self.assertEqual(forge.capabilities.shard_first_page_estimate_bonus_lines, 1)
+        self.assertEqual(forge.capabilities.shard_first_page_bonus_lines, 3)
+        self.assertEqual(forge.capabilities.signing_key_shard_line_groups_bonus, 2)
+        self.assertEqual(forge.capabilities.signing_key_shard_first_page_estimate_bonus_lines, 3)
+        self.assertEqual(forge.capabilities.signing_key_shard_first_page_bonus_lines, 3)
         self.assertIsNotNone(forge.capabilities.fallback_layout)
         if forge.capabilities.fallback_layout is not None:
             self.assertAlmostEqual(
@@ -88,6 +106,10 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertTrue(sentinel.capabilities.advanced_fallback_layout)
         self.assertTrue(sentinel.capabilities.extra_main_first_page_qr_slot)
         self.assertFalse(sentinel.capabilities.uniform_main_qr_capacity)
+        self.assertEqual(sentinel.capabilities.recovery_quorumless_line_groups_bonus, 1)
+        self.assertEqual(sentinel.capabilities.recovery_quorumless_first_page_bonus_lines, 5)
+        self.assertEqual(sentinel.capabilities.recovery_quorumless_continuation_bonus_lines, 2)
+        self.assertEqual(sentinel.capabilities.signing_key_shard_line_groups_bonus, 3)
         self.assertIsNotNone(sentinel.capabilities.fallback_layout)
         if sentinel.capabilities.fallback_layout is not None:
             self.assertAlmostEqual(
@@ -133,8 +155,24 @@ class TestTemplateStyle(unittest.TestCase):
             self.assertIsNone(style.capabilities.main_qr_grid_size_mm)
             self.assertIsNone(style.capabilities.main_qr_grid_max_cols)
             self.assertIsNone(style.capabilities.fallback_layout)
+            self.assertEqual(style.capabilities.recovery_line_groups_bonus, 0)
+            self.assertEqual(style.capabilities.recovery_first_page_bonus_lines, 0)
+            self.assertEqual(style.capabilities.recovery_continuation_bonus_lines, 0)
+            self.assertEqual(style.capabilities.recovery_main_section_start_reserved_lines, 0)
+            self.assertEqual(style.capabilities.recovery_quorumless_line_groups_bonus, 0)
+            self.assertEqual(style.capabilities.recovery_quorumless_first_page_bonus_lines, 0)
+            self.assertEqual(style.capabilities.recovery_quorumless_continuation_bonus_lines, 0)
+            self.assertEqual(style.capabilities.shard_line_groups_bonus, 0)
+            self.assertEqual(style.capabilities.shard_first_page_estimate_bonus_lines, 0)
+            self.assertEqual(style.capabilities.shard_first_page_bonus_lines, 0)
+            self.assertEqual(style.capabilities.signing_key_shard_line_groups_bonus, 0)
+            self.assertEqual(
+                style.capabilities.signing_key_shard_first_page_estimate_bonus_lines,
+                0,
+            )
+            self.assertEqual(style.capabilities.signing_key_shard_first_page_bonus_lines, 0)
 
-    def test_sentinel_style_defaults_extra_first_page_slot_when_omitted(self) -> None:
+    def test_omitted_capabilities_do_not_gain_sentinel_defaults(self) -> None:
         with TemporaryDirectory() as temp_dir:
             template_dir = Path(temp_dir)
             (template_dir / "style.json").write_text(
@@ -184,7 +222,7 @@ class TestTemplateStyle(unittest.TestCase):
             self.assertFalse(style.capabilities.inject_forge_copy)
             self.assertTrue(style.capabilities.repeat_primary_qr_on_shard_continuation)
             self.assertTrue(style.capabilities.advanced_fallback_layout)
-            self.assertTrue(style.capabilities.extra_main_first_page_qr_slot)
+            self.assertFalse(style.capabilities.extra_main_first_page_qr_slot)
             self.assertFalse(style.capabilities.uniform_main_qr_capacity)
             self.assertIsNone(style.capabilities.main_qr_grid_size_mm)
             self.assertIsNone(style.capabilities.main_qr_grid_max_cols)
@@ -272,7 +310,7 @@ class TestTemplateStyle(unittest.TestCase):
             ):
                 load_template_style(template_dir / "main_document.html.j2")
 
-    def test_style_rejects_legacy_bonus_capability_keys_with_migration_hint(self) -> None:
+    def test_style_rejects_removed_legacy_capability_keys(self) -> None:
         with TemporaryDirectory() as temp_dir:
             template_dir = Path(temp_dir)
             (template_dir / "style.json").write_text(
@@ -288,7 +326,7 @@ class TestTemplateStyle(unittest.TestCase):
     "doc_types": []
   },
   "capabilities": {
-    "shard_first_page_bonus_lines": 1
+    "wide_recovery_fallback_lines": true
   }
 }
 """,
@@ -297,7 +335,7 @@ class TestTemplateStyle(unittest.TestCase):
             (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
             with self.assertRaisesRegex(
                 ValueError,
-                "legacy capability keys removed: shard_first_page_bonus_lines",
+                "legacy capability keys removed: wide_recovery_fallback_lines",
             ):
                 load_template_style(template_dir / "main_document.html.j2")
 

@@ -22,13 +22,11 @@ from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.core.types import BackupArgs, BackupResult, InputFile
-from ethernity.cli.flows import backup
+from ethernity.cli.features.backup import orchestrator as backup
+from ethernity.cli.shared.types import BackupArgs, BackupResult, InputFile
 from ethernity.config import BackupDefaults, load_app_config
+from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.core.models import DocumentPlan, ShardingConfig, SigningSeedMode
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG_PATH = REPO_ROOT / "src" / "ethernity" / "config" / "config.toml"
 
 
 class TestBackupFlowWizardLogic(unittest.TestCase):
@@ -445,7 +443,7 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
         )
 
         with mock.patch(
-            "ethernity.cli.flows.backup.payload_codec_module.encode_payload_for_manifest",
+            "ethernity.cli.features.backup.orchestrator.payload_codec_module.encode_payload_for_manifest",
             side_effect=ValueError("too big"),
         ):
             rows = backup._build_review_rows(
@@ -478,18 +476,18 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
             config = replace(
                 load_app_config(path=DEFAULT_CONFIG_PATH), kit_template_path=kit_template
             )
-            with mock.patch.object(backup, "PACKAGE_ROOT", root / "pkg"):
+            with mock.patch.object(backup, "TEMPLATES_RESOURCE_ROOT", root / "pkg-templates"):
                 self.assertEqual(backup._resolve_kit_index_template_path(config), compatible)
 
             compatible.write_text("incompatible", encoding="utf-8")
-            package_candidate = root / "pkg" / "templates" / "forge" / "kit_index_document.html.j2"
+            package_candidate = root / "pkg-templates" / "forge" / "kit_index_document.html.j2"
             package_candidate.parent.mkdir(parents=True, exist_ok=True)
             package_candidate.write_text("kit_index_inventory_artifacts_v3", encoding="utf-8")
-            with mock.patch.object(backup, "PACKAGE_ROOT", root / "pkg"):
+            with mock.patch.object(backup, "TEMPLATES_RESOURCE_ROOT", root / "pkg-templates"):
                 self.assertEqual(backup._resolve_kit_index_template_path(config), package_candidate)
 
             package_candidate.write_text("incompatible", encoding="utf-8")
-            with mock.patch.object(backup, "PACKAGE_ROOT", root / "pkg"):
+            with mock.patch.object(backup, "TEMPLATES_RESOURCE_ROOT", root / "pkg-templates"):
                 self.assertIsNone(backup._resolve_kit_index_template_path(config))
 
             self.assertFalse(backup._is_compatible_kit_index_template(root / "missing.html.j2"))

@@ -18,10 +18,11 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
-from ..core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
-from ..core.validation import (
+from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
+from ethernity.core.validation import (
     normalize_manifest_path,
     normalize_path,
     require_bool,
@@ -35,7 +36,7 @@ from ..core.validation import (
     require_non_negative_int,
     require_str,
 )
-from ..encoding.cbor import dumps_canonical
+from ethernity.encoding.cbor import dumps_canonical
 
 MANIFEST_VERSION = 1
 SIGNING_SEED_LEN = 32
@@ -43,6 +44,15 @@ PATH_ENCODING_DIRECT = "direct"
 PATH_ENCODING_PREFIX_TABLE = "prefix_table"
 PAYLOAD_CODEC_RAW = "raw"
 PAYLOAD_CODEC_GZIP = "gzip"
+
+
+def _require_manifest_created_at(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("manifest created must be a number")
+    created_at = float(value)
+    if not math.isfinite(created_at):
+        raise ValueError("manifest created must be finite")
+    return created_at
 
 
 @dataclass(frozen=True)
@@ -92,13 +102,23 @@ class EnvelopeManifest:
         format_version = require_int(self.format_version, label="manifest version")
         if format_version != MANIFEST_VERSION:
             raise ValueError(f"unsupported manifest version: {format_version}")
+        created_at = _require_manifest_created_at(self.created_at)
+        files = tuple(
+            _build_manifest_file(
+                path=entry.path,
+                size=entry.size,
+                sha256=entry.sha256,
+                mtime=entry.mtime,
+            )
+            for entry in self.files
+        )
 
-        if not self.files:
+        if not files:
             raise ValueError("manifest files are required")
-        if len(self.files) > MAX_MANIFEST_FILES:
+        if len(files) > MAX_MANIFEST_FILES:
             raise ValueError(
                 f"manifest files exceed MAX_MANIFEST_FILES ({MAX_MANIFEST_FILES}): "
-                f"{len(self.files)} entries"
+                f"{len(files)} entries"
             )
 
         if self.sealed:
@@ -115,7 +135,7 @@ class EnvelopeManifest:
         payload_codec = require_str(self.payload_codec, label="manifest payload_codec")
         if payload_codec not in {PAYLOAD_CODEC_RAW, PAYLOAD_CODEC_GZIP}:
             raise ValueError("manifest payload_codec must be one of: raw, gzip")
-        expected_raw_len = sum(entry.size for entry in self.files)
+        expected_raw_len = sum(entry.size for entry in files)
         if payload_codec == PAYLOAD_CODEC_RAW:
             if self.payload_raw_len is not None:
                 raise ValueError("manifest payload_raw_len must be null for raw payload_codec")
@@ -136,14 +156,14 @@ class EnvelopeManifest:
                 raise ValueError("manifest payload_raw_len must match sum of manifest file sizes")
 
         seen_paths: set[str] = set()
-        for entry in self.files:
+        for entry in files:
             if entry.path in seen_paths:
                 raise ValueError(f"duplicate manifest file path: {entry.path}")
             seen_paths.add(entry.path)
 
         base_manifest: dict[str, object] = {
             "version": format_version,
-            "created": self.created_at,
+            "created": created_at,
             "sealed": self.sealed,
             "seed": self.signing_seed,
             "input_origin": self.input_origin,
@@ -155,13 +175,13 @@ class EnvelopeManifest:
 
         direct_manifest = dict(base_manifest)
         direct_manifest["path_encoding"] = PATH_ENCODING_DIRECT
-        direct_manifest["files"] = _encode_direct_files(self.files)
+        direct_manifest["files"] = _encode_direct_files(files)
 
-        path_prefixes = _build_prefix_table([entry.path for entry in self.files])
+        path_prefixes = _build_prefix_table([entry.path for entry in files])
         prefix_manifest = dict(base_manifest)
         prefix_manifest["path_encoding"] = PATH_ENCODING_PREFIX_TABLE
         prefix_manifest["path_prefixes"] = list(path_prefixes)
-        prefix_manifest["files"] = _encode_prefix_files(self.files, path_prefixes)
+        prefix_manifest["files"] = _encode_prefix_files(files, path_prefixes)
 
         encoded_direct = dumps_canonical(direct_manifest)
         encoded_prefix = dumps_canonical(prefix_manifest)
@@ -217,8 +237,7 @@ class EnvelopeManifest:
         format_version = require_int(format_version, label="manifest version")
         if format_version != MANIFEST_VERSION:
             raise ValueError(f"unsupported manifest version: {format_version}")
-        if not isinstance(created_at, (int, float)):
-            raise ValueError("manifest created must be a number")
+        created_at = _require_manifest_created_at(created_at)
         sealed = require_bool(sealed, label="manifest sealed")
         input_origin = require_str(input_origin, label="manifest input_origin")
         if input_origin not in {"file", "directory", "mixed"}:
@@ -288,7 +307,7 @@ class EnvelopeManifest:
                 raise ValueError("manifest payload_raw_len must match sum of manifest file sizes")
         return cls(
             format_version=format_version,
-            created_at=float(created_at),
+            created_at=created_at,
             sealed=sealed,
             signing_seed=seed_bytes,
             input_origin=input_origin,
@@ -413,6 +432,8 @@ def _decode_direct_file_entry(entry: object) -> ManifestFile:
     if isinstance(entry, dict):
         raise ValueError("manifest file entry must use array encoding")
     values = require_list(entry, 4, label="manifest file entry")
+    if len(values) != 4:
+        raise ValueError("manifest file entry must contain exactly 4 items")
     path = values[0]
     size = values[1]
     sha256 = values[2]
@@ -426,6 +447,8 @@ def _decode_prefix_file_entry(entry: object, path_prefixes: tuple[str, ...]) -> 
     if isinstance(entry, dict):
         raise ValueError("manifest file entry must use array encoding")
     values = require_list(entry, 5, label="manifest file entry")
+    if len(values) != 5:
+        raise ValueError("manifest file entry must contain exactly 5 items")
     prefix_index = values[0]
     suffix = values[1]
     size = values[2]

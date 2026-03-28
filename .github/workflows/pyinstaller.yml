@@ -164,11 +164,16 @@ jobs:
                   payload = json.load(response)
 
               runs = payload.get("workflow_runs", [])
-              if runs:
+              qualifying_events = {"push", "pull_request", "workflow_dispatch"}
+              qualifying_runs = [
+                  run for run in runs if str(run.get("event") or "") in qualifying_events
+              ]
+              if qualifying_runs:
                   # Release gating policy: require the latest CI run for this commit SHA
-                  # to be green. We intentionally do not allow an older successful run
-                  # to satisfy the gate after a newer run fails/cancels.
-                  latest = runs[0]
+                  # from a substantive event to be green. We intentionally do not
+                  # allow an older successful run to satisfy the gate after a newer
+                  # qualifying run fails/cancels.
+                  latest = qualifying_runs[0]
                   latest_status = str(latest.get("status") or "unknown")
                   latest_conclusion = str(latest.get("conclusion") or "unknown")
                   latest_url = str(latest.get("html_url") or "")
@@ -204,9 +209,9 @@ jobs:
 
               now = time.time()
               if now >= deadline:
-                  state = "no runs found"
-                  if runs:
-                      latest = runs[0]
+                  state = "no qualifying runs found"
+                  if qualifying_runs:
+                      latest = qualifying_runs[0]
                       latest_status = str(latest.get("status") or "unknown")
                       latest_conclusion = str(latest.get("conclusion") or "unknown")
                       state = (

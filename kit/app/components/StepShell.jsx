@@ -22,9 +22,7 @@ export function StepShell({ title = "Recovery step", summary, children }) {
         <h2 class="step-heading">{title}</h2>
         {summary ? <p class="step-summary">{summary}</p> : null}
       </div>
-      <div class="step-content">
-        {children}
-      </div>
+      <div class="step-content">{children}</div>
     </section>
   );
 }

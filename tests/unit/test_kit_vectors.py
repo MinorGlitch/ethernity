@@ -18,6 +18,8 @@ import subprocess
 import unittest
 from pathlib import Path
 
+from tests.test_support import cli_subprocess_timeout_seconds
+
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _FIXTURE_PATH = _PROJECT_ROOT / "tests" / "fixtures" / "recovery_parse_vectors.json"
 _SCRIPT_PATH = _PROJECT_ROOT / "kit" / "scripts" / "run_parse_vectors.mjs"
@@ -32,6 +34,7 @@ class TestKitVectors(unittest.TestCase):
             text=True,
             capture_output=True,
             check=False,
+            timeout=cli_subprocess_timeout_seconds(),
         )
         self.assertEqual(
             result.returncode,

@@ -15,33 +15,37 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { ActionsRow, Card } from "./common.jsx";
+import { ActionsRow } from "./common.jsx";
 
 export function CollectorStep({ className, input, status, output }) {
   const layoutClass = className ? `step-layout ${className}` : "step-layout";
-  const inputClass = input?.className ? `step-input ${input.className}` : "step-input";
-  const statusClass = status?.className ? `step-status ${status.className}` : "step-status";
-  const outputClass = output?.className ? `step-output ${output.className}` : "step-output";
+  const inputClass = input?.className ? `step-section ${input.className}` : "step-section";
   return (
     <div class={layoutClass}>
       {input ? (
-        <Card title={input.title} className={inputClass}>
+        <div class={inputClass}>
           {input.body}
           {input.actions ? <ActionsRow actions={input.actions} /> : null}
-          {input.secondaryActions ? <ActionsRow actions={input.secondaryActions} className="actions-secondary" /> : null}
-        </Card>
+          {input.secondaryActions ? (
+            <ActionsRow actions={input.secondaryActions} className="actions-secondary" />
+          ) : null}
+        </div>
       ) : null}
       {status ? (
-        <Card title={status.title} className={statusClass}>
+        <div class="step-section">
+          {status.title ? <div class="step-section-label">{status.title}</div> : null}
           {status.body}
-        </Card>
+        </div>
       ) : null}
       {output ? (
-        <Card title={output.title} className={outputClass}>
+        <div class="step-section">
+          {output.title ? <div class="step-section-label">{output.title}</div> : null}
           {output.body}
           {output.actions ? <ActionsRow actions={output.actions} /> : null}
-          {output.secondaryActions ? <ActionsRow actions={output.secondaryActions} className="actions-secondary" /> : null}
-        </Card>
+          {output.secondaryActions ? (
+            <ActionsRow actions={output.secondaryActions} className="actions-secondary" />
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

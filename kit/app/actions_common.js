@@ -82,12 +82,14 @@ export function setErrorStatus(state, key, err) {
 
 export function parseTextWithErrors(state, text, parseFn, errorKey) {
   let added = 0;
+  let failed = false;
   try {
     added += parseFn(state, text);
   } catch {
     bumpError(state, errorKey);
+    failed = true;
   }
-  return added;
+  return { added, failed };
 }
 
 export function clearRecoveredOutput(state) {

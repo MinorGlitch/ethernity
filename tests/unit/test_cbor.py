@@ -18,6 +18,8 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
+import cbor2
+
 from ethernity.encoding.cbor import dumps_canonical, loads_canonical
 
 
@@ -34,6 +36,18 @@ class TestCbor(unittest.TestCase):
         payload = {"version": 1, "value": b"\x01"}
         encoded = dumps_canonical(payload)
         self.assertEqual(loads_canonical(encoded, label="payload"), payload)
+
+    def test_loads_canonical_wraps_decode_errors(self) -> None:
+        with self.assertRaisesRegex(ValueError, "invalid auth payload CBOR payload"):
+            loads_canonical(b"\x9f\x01", label="auth payload")
+
+    def test_loads_canonical_wraps_encode_errors(self) -> None:
+        with mock.patch(
+            "ethernity.encoding.cbor.dumps_canonical",
+            side_effect=cbor2.CBOREncodeError("bad canonical"),
+        ):
+            with self.assertRaisesRegex(ValueError, "invalid auth payload CBOR payload"):
+                loads_canonical(dumps_canonical({"ok": 1}), label="auth payload")
 
 
 if __name__ == "__main__":

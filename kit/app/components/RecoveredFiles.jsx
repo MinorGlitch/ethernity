@@ -15,7 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { ActionsRow, Card, OutputTable, StatusBlock } from "./common.jsx";
+import { ActionsRow, OutputTable, StatusBlock } from "./common.jsx";
 
 function SuccessBanner({ fileCount }) {
   return (
@@ -46,11 +46,11 @@ export function RecoveredFiles({
     { label: "Download ZIP", className: "secondary", onClick: onDownloadZip, disabled: !hasOutput },
   ];
   return (
-    <Card>
+    <div class="step-section">
       {recoveryComplete && hasOutput && <SuccessBanner fileCount={files.length} />}
       <div class="row row-between">
         <div>
-          <h3>Recovered files</h3>
+          <div class="step-section-label">Recovered files</div>
           <div class="sub">{outputSubtitle}</div>
         </div>
         <ActionsRow actions={actions} />
@@ -66,6 +66,6 @@ export function RecoveredFiles({
         </thead>
         <OutputTable files={files} onDownloadFile={onDownloadFile} />
       </table>
-    </Card>
+    </div>
   );
 }

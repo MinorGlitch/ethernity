@@ -35,21 +35,16 @@ class InspectorApp:
     def __init__(self, root: Tk) -> None:
         self.root = root
         self.root.title("Ethernity Document Inspector")
-        self.root.geometry("1700x980")
-        self.root.minsize(1200, 760)
+        self.root.geometry("1700x900")
+        self.root.minsize(1100, 640)
         self.theme: ThemeController = configure_styles(root)
 
         self.mode_var = StringVar(value=MODE_AUTO)
         self.passphrase_var = StringVar()
-        self.status_var = StringVar(
-            value=(
-                "Create a session, paste payloads/fallback text, paste a screenshot, "
-                "or import PDFs/images."
-            )
-        )
+        self.status_var = StringVar(value="Ready.")
         self.drop_hint_var = StringVar()
-        self.active_session_var = StringVar(value="No active session")
-        self.active_session_meta_var = StringVar(value="Create a session or import a backup set.")
+        self.active_session_var = StringVar(value="No session")
+        self.active_session_meta_var = StringVar()
         self.batch_report_text = "No batch import has been run.\n"
         self.batch_report_json = json_text({"entries": []})
         self._session_counter = 0
@@ -61,280 +56,111 @@ class InspectorApp:
         self.root.bind("<FocusIn>", self._on_focus_in, add=True)
         self._schedule_theme_sync()
 
+    # ── UI construction ───────────────────────────────────────
+
     def _build_ui(self) -> None:
         self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(3, weight=1)
+        self.root.rowconfigure(1, weight=1)
         self.mono_font = tkfont.Font(family=self.theme.mono_font_family, size=11)
 
-        hero = ttk.Frame(self.root, style="Hero.TFrame", padding=(20, 20, 20, 18))
-        hero.grid(row=0, column=0, sticky="ew", padx=18, pady=(18, 12))
-        hero.columnconfigure(0, weight=1)
+        # ── Action bar (row 0) ────────────────────────────────
+        bar = ttk.Frame(self.root, style="ActionBar.TFrame", padding=(12, 6, 12, 6))
+        bar.grid(row=0, column=0, sticky="ew")
 
-        hero_body = ttk.Frame(hero, style="Hero.TFrame")
-        hero_body.grid(row=0, column=0, sticky="nsew")
-        hero_body.columnconfigure(0, weight=1)
-        ttk.Label(hero_body, text="Ethernity Tooling", style="Eyebrow.TLabel").grid(
-            row=0, column=0, sticky="w"
+        ttk.Label(bar, text="Document Inspector", style="BarTitle.TLabel").pack(
+            side="left", padx=(0, 14)
         )
-        ttk.Label(hero_body, text="Document Inspector", style="HeroTitle.TLabel").grid(
-            row=1, column=0, sticky="w", pady=(6, 4)
-        )
-        ttk.Label(
-            hero_body,
-            text=(
-                "Inspect payloads, fallback documents, screenshots, and decrypted files in a "
-                "single workspace built for side-by-side recovery analysis."
-            ),
-            style="HeroBody.TLabel",
-            wraplength=760,
-            justify="left",
-        ).grid(row=2, column=0, sticky="w")
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=(0, 10), pady=1)
 
-        controls = ttk.Frame(self.root, style="App.TFrame", padding=(18, 0, 18, 0))
-        controls.grid(row=1, column=0, sticky="ew")
-        for column in range(4):
-            controls.columnconfigure(column, weight=1)
-
-        inspect_group = ttk.LabelFrame(
-            controls,
-            text="Inspect",
-            padding=12,
-            style="ToolbarCard.TLabelframe",
-        )
-        inspect_group.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        inspect_group.columnconfigure(1, weight=1)
-
-        ttk.Label(inspect_group, text="Input mode", style="Card.TLabel").grid(
-            row=0,
-            column=0,
-            sticky="w",
-        )
+        input_frame = ttk.Frame(bar, style="ActionBar.TFrame")
+        input_frame.pack(side="left")
+        ttk.Label(input_frame, text="Mode", style="ActionBar.TLabel").pack(side="left", padx=(0, 4))
         ttk.Combobox(
-            inspect_group,
+            input_frame,
             state="readonly",
             textvariable=self.mode_var,
             values=(MODE_AUTO, MODE_PAYLOADS, MODE_FALLBACK),
-            width=12,
-        ).grid(row=0, column=1, sticky="ew", padx=(8, 0))
+            width=9,
+        ).pack(side="left", padx=(0, 10))
+        ttk.Label(input_frame, text="Passphrase", style="ActionBar.TLabel").pack(
+            side="left", padx=(0, 4)
+        )
+        ttk.Entry(input_frame, textvariable=self.passphrase_var, show="*", width=16).pack(
+            side="left"
+        )
 
-        ttk.Label(inspect_group, text="Passphrase", style="Card.TLabel").grid(
-            row=1,
-            column=0,
-            sticky="w",
-            pady=(8, 0),
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=10, pady=1)
+
+        import_frame = ttk.Frame(bar, style="ActionBar.TFrame")
+        import_frame.pack(side="left")
+        ttk.Button(import_frame, text="New", command=self._new_session).pack(
+            side="left", padx=(0, 3)
         )
-        ttk.Entry(inspect_group, textvariable=self.passphrase_var, show="*", width=28).grid(
-            row=1,
-            column=1,
-            sticky="ew",
-            padx=(8, 0),
-            pady=(8, 0),
+        ttk.Button(
+            import_frame, text="Paste", command=self._paste_screenshot_into_new_session
+        ).pack(side="left", padx=(0, 3))
+        ttk.Button(import_frame, text="Open", command=self._open_scan_files).pack(
+            side="left", padx=(0, 3)
         )
+        ttk.Button(import_frame, text="Folder", command=self._open_scan_folder).pack(side="left")
+
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=10, pady=1)
 
         ttk.Button(
-            inspect_group,
-            text="Parse Current Session",
+            bar,
+            text="Parse",
             command=self._parse_current_session,
             style="Primary.TButton",
-        ).grid(
-            row=2,
-            column=0,
-            sticky="ew",
-            pady=(10, 0),
-        )
-        ttk.Button(inspect_group, text="Close Session", command=self._clear_current_session).grid(
-            row=2,
-            column=1,
-            sticky="ew",
-            padx=(8, 0),
-            pady=(10, 0),
-        )
+        ).pack(side="left", padx=(0, 3))
+        ttk.Button(bar, text="Close", command=self._clear_current_session).pack(side="left")
 
-        import_group = ttk.LabelFrame(
-            controls,
-            text="Import",
-            padding=12,
-            style="ToolbarCard.TLabelframe",
-        )
-        import_group.grid(row=0, column=1, sticky="nsew", padx=4)
-        import_group.columnconfigure(0, weight=1)
-        import_group.columnconfigure(1, weight=1)
-
-        ttk.Label(
-            import_group,
-            text="Create a blank session or load a whole backup set.",
-            style="Muted.TLabel",
-            wraplength=260,
-            justify="left",
-        ).grid(row=0, column=0, columnspan=2, sticky="w")
-
-        ttk.Button(import_group, text="New Session", command=self._new_session).grid(
-            row=1,
-            column=0,
-            sticky="ew",
-            pady=(10, 0),
-        )
-        ttk.Button(
-            import_group,
-            text="Paste Screenshot",
-            command=self._paste_screenshot_into_new_session,
-        ).grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=(10, 0))
-        ttk.Button(import_group, text="Open PDFs/Images", command=self._open_scan_files).grid(
-            row=2,
-            column=0,
-            sticky="ew",
-            pady=(8, 0),
-        )
-        ttk.Button(import_group, text="Open Folder", command=self._open_scan_folder).grid(
-            row=2,
-            column=1,
-            sticky="ew",
-            padx=(8, 0),
-            pady=(8, 0),
-        )
-
-        session_group = ttk.LabelFrame(
-            controls,
-            text="Session",
-            padding=12,
-            style="ToolbarCard.TLabelframe",
-        )
-        session_group.grid(row=0, column=2, sticky="nsew", padx=4)
-        session_group.columnconfigure(0, weight=1)
-        ttk.Label(session_group, textvariable=self.active_session_var, style="Title.TLabel").grid(
-            row=0,
-            column=0,
-            sticky="w",
-        )
-        ttk.Label(
-            session_group,
-            textvariable=self.active_session_meta_var,
-            style="Meta.TLabel",
-            wraplength=280,
-            justify="left",
-        ).grid(row=1, column=0, sticky="ew", pady=(6, 10))
-        ttk.Label(
-            session_group,
-            text="Drop matching MAIN, AUTH, and shard PDFs together to inspect them in tandem.",
-            style="Muted.TLabel",
-            wraplength=280,
-            justify="left",
-        ).grid(row=2, column=0, sticky="ew")
-
-        export_group = ttk.LabelFrame(
-            controls,
-            text="Export",
-            padding=12,
-            style="ToolbarCard.TLabelframe",
-        )
-        export_group.grid(row=0, column=3, sticky="nsew", padx=(8, 0))
-        export_group.columnconfigure(0, weight=1)
-        export_group.columnconfigure(1, weight=1)
-
-        ttk.Label(
-            export_group,
-            text="Save the current report, payloads, or decrypted files.",
-            style="Muted.TLabel",
-            wraplength=260,
-            justify="left",
-        ).grid(row=0, column=0, columnspan=2, sticky="w")
-        ttk.Button(export_group, text="Export Report", command=self._export_current_json).grid(
-            row=1,
-            column=0,
-            sticky="ew",
-            pady=(10, 0),
-        )
-        ttk.Button(export_group, text="Export Files", command=self._export_current_files).grid(
-            row=1,
-            column=1,
-            sticky="ew",
-            padx=(8, 0),
-            pady=(10, 0),
-        )
-        ttk.Button(
-            export_group, text="Export Payloads", command=self._export_current_payloads
-        ).grid(
-            row=2,
-            column=0,
-            sticky="ew",
-            pady=(8, 0),
-        )
-        self.export_menu_button = ttk.Menubutton(
-            export_group,
-            text="More Exports",
-            style="Toolbar.TMenubutton",
-        )
-        self.export_menu_button.grid(row=2, column=1, sticky="ew", padx=(8, 0), pady=(8, 0))
+        self.export_menu_button = ttk.Menubutton(bar, text="Export", style="Toolbar.TMenubutton")
+        self.export_menu_button.pack(side="right")
         self.export_menu = Menu(self.export_menu_button, tearoff=False)
-        self.export_menu.add_command(label="Export Fallback", command=self._export_current_fallback)
-        self.export_menu.add_command(label="Export Manifest", command=self._export_current_manifest)
-        self.export_menu.add_command(label="Export Batch Report", command=self._export_batch_report)
+        self.export_menu.add_command(label="Report JSON", command=self._export_current_json)
+        self.export_menu.add_command(label="Decrypted Files", command=self._export_current_files)
+        self.export_menu.add_command(label="Payloads", command=self._export_current_payloads)
+        self.export_menu.add_command(label="Fallback Text", command=self._export_current_fallback)
+        self.export_menu.add_command(label="Manifest JSON", command=self._export_current_manifest)
+        self.export_menu.add_separator()
+        self.export_menu.add_command(label="Batch Report", command=self._export_batch_report)
         self.export_menu_button.configure(menu=self.export_menu)
         self.theme.register_menu(self.export_menu)
 
-        status_frame = ttk.Frame(self.root, style="StatusCard.TFrame", padding=(18, 14))
-        status_frame.grid(row=2, column=0, padx=18, pady=(12, 12), sticky="ew")
-        status_frame.columnconfigure(0, weight=1)
-        ttk.Label(
-            status_frame,
-            textvariable=self.status_var,
-            style="Status.TLabel",
-            wraplength=1500,
-            justify="left",
-        ).grid(row=0, column=0, sticky="ew")
-
+        # ── Main content (row 1) ──────────────────────────────
         main = ttk.Panedwindow(self.root, orient="horizontal")
-        main.grid(row=3, column=0, sticky="nsew", padx=18, pady=(0, 18))
+        main.grid(row=1, column=0, sticky="nsew", padx=6, pady=(4, 0))
 
-        left = ttk.Frame(main, style="Surface.TFrame", padding=(16, 16, 16, 14))
+        # Left panel: session notebook (no chrome)
+        left = ttk.Frame(main, style="Surface.TFrame", padding=4)
         left.columnconfigure(0, weight=1)
-        left.rowconfigure(1, weight=1)
-        left_header = ttk.Frame(left, style="Surface.TFrame")
-        left_header.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        left_header.columnconfigure(0, weight=1)
-        ttk.Label(left_header, text="Source Sessions", style="SectionTitle.TLabel").grid(
-            row=0, column=0, sticky="w"
-        )
-        ttk.Label(
-            left_header,
-            textvariable=self.drop_hint_var,
-            style="Meta.TLabel",
-            wraplength=380,
-            justify="left",
-        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
+        left.rowconfigure(0, weight=1)
         self.session_notebook = ttk.Notebook(left)
-        self.session_notebook.grid(row=1, column=0, sticky="nsew")
+        self.session_notebook.grid(row=0, column=0, sticky="nsew")
         self.session_notebook.bind("<<NotebookTabChanged>>", self._on_session_changed)
         main.add(left, weight=2)
 
-        right_shell = ttk.Frame(main, style="Surface.TFrame", padding=(16, 16, 16, 14))
+        # Right panel: consolidated output tabs
+        right_shell = ttk.Frame(main, style="Surface.TFrame", padding=4)
         right_shell.columnconfigure(0, weight=1)
-        right_shell.rowconfigure(1, weight=1)
-        right_header = ttk.Frame(right_shell, style="Surface.TFrame")
-        right_header.grid(row=0, column=0, sticky="ew")
-        right_header.columnconfigure(0, weight=1)
-        ttk.Label(right_header, text="Inspection Output", style="SectionTitle.TLabel").grid(
-            row=0, column=0, sticky="w"
-        )
-        ttk.Label(
-            right_header,
-            text=(
-                "Dive into summaries, decoded frames, files, reconstructed secrets, and "
-                "exportable reports."
-            ),
-            style="Meta.TLabel",
-            wraplength=860,
-            justify="left",
-        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
-
+        right_shell.rowconfigure(0, weight=1)
         right = ttk.Notebook(right_shell)
-        right.grid(row=1, column=0, sticky="nsew", pady=(12, 0))
+        right.grid(row=0, column=0, sticky="nsew")
         main.add(right_shell, weight=3)
 
-        self.summary_text = self._build_text_tab(right, "Summary")
-        self.diagnostics_text = self._build_text_tab(right, "Diagnostics")
+        # Tab 1: Overview (Summary + Diagnostics stacked)
+        overview_tab = ttk.Frame(right, padding=6, style="NotebookPage.TFrame")
+        overview_tab.columnconfigure(0, weight=1)
+        overview_tab.rowconfigure(0, weight=3)
+        overview_tab.rowconfigure(1, weight=2)
+        self.summary_text = self._build_child_text(overview_tab)
+        self.summary_text.grid(row=0, column=0, sticky="nsew")
+        self.diagnostics_text = self._build_child_text(overview_tab)
+        self.diagnostics_text.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
+        right.add(overview_tab, text="Overview")
 
-        frames_tab = ttk.Frame(right, padding=8, style="NotebookPage.TFrame")
+        # Tab 2: Frames (tree + detail sub-tabs)
+        frames_tab = ttk.Frame(right, padding=6, style="NotebookPage.TFrame")
         frames_tab.columnconfigure(0, weight=1)
         frames_tab.rowconfigure(0, weight=2)
         frames_tab.rowconfigure(1, weight=3)
@@ -344,56 +170,65 @@ class InspectorApp:
             show="headings",
             selectmode="browse",
         )
-        for column, heading, width in (
-            ("type", "Type", 140),
-            ("doc_id", "doc_id", 160),
-            ("index", "Index", 70),
-            ("total", "Total", 70),
-            ("bytes", "Data bytes", 100),
+        for col, heading, w in (
+            ("type", "Type", 130),
+            ("doc_id", "doc_id", 150),
+            ("index", "Idx", 60),
+            ("total", "Total", 60),
+            ("bytes", "Bytes", 90),
         ):
-            self.frame_tree.heading(column, text=heading)
-            self.frame_tree.column(column, width=width, stretch=column == "doc_id")
+            self.frame_tree.heading(col, text=heading)
+            self.frame_tree.column(col, width=w, stretch=col == "doc_id")
         self.frame_tree.grid(row=0, column=0, sticky="nsew")
         self.frame_tree.bind("<<TreeviewSelect>>", self._on_frame_selected)
 
         frame_details = ttk.Notebook(frames_tab)
-        frame_details.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
-        self.frame_detail_text = self._build_text_tab(frame_details, "Overview")
+        frame_details.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
+        self.frame_detail_text = self._build_text_tab(frame_details, "Detail")
         self.frame_raw_text = self._build_text_tab(frame_details, "Raw")
         self.frame_cbor_text = self._build_text_tab(frame_details, "CBOR")
         self.frame_payload_text = self._build_text_tab(frame_details, "Payload")
         self.frame_fallback_text = self._build_text_tab(frame_details, "Fallback")
         right.add(frames_tab, text="Frames")
 
-        self.manifest_text_widget = self._build_text_tab(right, "Manifest")
+        # Tab 3: Data (Manifest, Files, Payloads, Fallback as sub-tabs)
+        data_tab = ttk.Frame(right, padding=6, style="NotebookPage.TFrame")
+        data_tab.columnconfigure(0, weight=1)
+        data_tab.rowconfigure(0, weight=1)
+        data_nb = ttk.Notebook(data_tab)
+        data_nb.grid(row=0, column=0, sticky="nsew")
 
-        files_tab = ttk.Frame(right, padding=8, style="NotebookPage.TFrame")
-        files_tab.columnconfigure(0, weight=1)
-        files_tab.rowconfigure(0, weight=2)
-        files_tab.rowconfigure(1, weight=3)
+        self.manifest_text_widget = self._build_text_tab(data_nb, "Manifest")
+
+        files_frame = ttk.Frame(data_nb, padding=6, style="NotebookPage.TFrame")
+        files_frame.columnconfigure(0, weight=1)
+        files_frame.rowconfigure(0, weight=2)
+        files_frame.rowconfigure(1, weight=3)
         self.file_tree = ttk.Treeview(
-            files_tab,
+            files_frame,
             columns=("path", "size", "kind"),
             show="headings",
             selectmode="browse",
         )
-        for column, heading, width in (
-            ("path", "Path", 320),
+        for col, heading, w in (
+            ("path", "Path", 300),
             ("size", "Size", 80),
             ("kind", "Preview", 100),
         ):
-            self.file_tree.heading(column, text=heading)
-            self.file_tree.column(column, width=width, stretch=column == "path")
+            self.file_tree.heading(col, text=heading)
+            self.file_tree.column(col, width=w, stretch=col == "path")
         self.file_tree.grid(row=0, column=0, sticky="nsew")
         self.file_tree.bind("<<TreeviewSelect>>", self._on_file_selected)
-        self.file_preview_text = self._build_child_text(files_tab)
-        self.file_preview_text.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
-        right.add(files_tab, text="Files")
+        self.file_preview_text = self._build_child_text(files_frame)
+        self.file_preview_text.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
+        data_nb.add(files_frame, text="Files")
 
-        self.payloads_text = self._build_text_tab(right, "Payloads")
-        self.fallback_text_widget = self._build_text_tab(right, "Fallback")
+        self.payloads_text = self._build_text_tab(data_nb, "Payloads")
+        self.fallback_text_widget = self._build_text_tab(data_nb, "Fallback")
+        right.add(data_tab, text="Data")
 
-        secrets_tab = ttk.Frame(right, padding=8, style="NotebookPage.TFrame")
+        # Tab 4: Secrets (tree + detail)
+        secrets_tab = ttk.Frame(right, padding=6, style="NotebookPage.TFrame")
         secrets_tab.columnconfigure(0, weight=1)
         secrets_tab.rowconfigure(0, weight=2)
         secrets_tab.rowconfigure(1, weight=3)
@@ -410,25 +245,46 @@ class InspectorApp:
         self.secret_tree.grid(row=0, column=0, sticky="nsew")
         self.secret_tree.bind("<<TreeviewSelect>>", self._on_secret_selected)
         self.secret_detail_text = self._build_child_text(secrets_tab)
-        self.secret_detail_text.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
+        self.secret_detail_text.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
         right.add(secrets_tab, text="Secrets")
 
-        batch_tab = ttk.Frame(right, padding=8, style="NotebookPage.TFrame")
-        batch_tab.columnconfigure(0, weight=1)
-        batch_tab.rowconfigure(0, weight=1)
-        batch_tabs = ttk.Notebook(batch_tab)
-        batch_tabs.grid(row=0, column=0, sticky="nsew")
-        self.batch_text_widget = self._build_text_tab(batch_tabs, "Summary")
-        self.batch_json_text_widget = self._build_text_tab(batch_tabs, "JSON")
-        right.add(batch_tab, text="Batch Report")
-
-        self.report_json_text = self._build_text_tab(right, "Report JSON")
+        # Tab 5: Report (JSON + Batch as sub-tabs)
+        report_tab = ttk.Frame(right, padding=6, style="NotebookPage.TFrame")
+        report_tab.columnconfigure(0, weight=1)
+        report_tab.rowconfigure(0, weight=1)
+        report_nb = ttk.Notebook(report_tab)
+        report_nb.grid(row=0, column=0, sticky="nsew")
+        self.report_json_text = self._build_text_tab(report_nb, "JSON")
+        self.batch_text_widget = self._build_text_tab(report_nb, "Batch")
+        self.batch_json_text_widget = self._build_text_tab(report_nb, "Batch JSON")
+        right.add(report_tab, text="Report")
 
         self._set_default_outputs()
         self._configure_import_capabilities(left)
 
+        # ── Status bar (row 2) ────────────────────────────────
+        status_frame = ttk.Frame(self.root, style="StatusBar.TFrame", padding=(12, 4, 12, 4))
+        status_frame.grid(row=2, column=0, sticky="ew")
+        status_left = ttk.Frame(status_frame, style="StatusBar.TFrame")
+        status_left.pack(side="left")
+        ttk.Label(
+            status_left,
+            textvariable=self.active_session_var,
+            style="StatusSession.TLabel",
+        ).pack(side="left", padx=(0, 10))
+        ttk.Label(
+            status_left,
+            textvariable=self.active_session_meta_var,
+            style="StatusMeta.TLabel",
+        ).pack(side="left")
+        ttk.Label(
+            status_frame,
+            textvariable=self.status_var,
+            style="StatusBar.TLabel",
+        ).pack(side="right")
+
     def _build_text_tab(self, notebook: ttk.Notebook, title: str) -> ScrolledText:
-        frame = ttk.Frame(notebook, padding=8, style="NotebookPage.TFrame")
+        frame = ttk.Frame(notebook, padding=6, style="NotebookPage.TFrame")
         frame.columnconfigure(0, weight=1)
         frame.rowconfigure(0, weight=1)
         widget = self._build_child_text(frame)
@@ -440,6 +296,8 @@ class InspectorApp:
         widget = ScrolledText(parent, wrap="word", undo=True, font=self.mono_font)
         self.theme.register_text_widget(widget)
         return widget
+
+    # ── Theme synchronisation ─────────────────────────────────
 
     def _schedule_theme_sync(self) -> None:
         self.root.after(1600, self._theme_sync_tick)
@@ -456,6 +314,8 @@ class InspectorApp:
     def _sync_theme(self) -> None:
         self.theme.refresh()
         self.mono_font.configure(family=self.theme.mono_font_family, size=11)
+
+    # ── Text helpers ──────────────────────────────────────────
 
     def _set_text(self, widget: ScrolledText, text: str, *, editable: bool = False) -> None:
         widget.configure(state="normal")
@@ -486,31 +346,33 @@ class InspectorApp:
                 tree.delete(item)
         self._set_active_session(None)
 
+    # ── Session management ────────────────────────────────────
+
     def _session_meta_text(self, session: SessionState) -> str:
         source_count = len(session.source_paths)
         if session.result is None:
             if source_count:
                 noun = "source" if source_count == 1 else "sources"
-                return f"{source_count} {noun} loaded. Parse the session to inspect contents."
-            return "Manual session ready for pasted payloads, screenshots, or dropped files."
+                return f"{source_count} {noun} loaded"
+            return "manual session"
 
         result = session.result
         parts = [f"{result.deduped_frame_count} frame(s)"]
         if result.files:
-            parts.append(f"{len(result.files)} extracted file(s)")
+            parts.append(f"{len(result.files)} file(s)")
         if result.recovered_secrets:
             statuses = ", ".join(
                 f"{secret.label}: {secret.status}" for secret in result.recovered_secrets
             )
             parts.append(statuses)
         if source_count:
-            parts.append(f"{source_count} source file(s)")
+            parts.append(f"{source_count} source(s)")
         return " | ".join(parts)
 
     def _set_active_session(self, session: SessionState | None) -> None:
         if session is None:
-            self.active_session_var.set("No active session")
-            self.active_session_meta_var.set("Create a session or import a backup set.")
+            self.active_session_var.set("No session")
+            self.active_session_meta_var.set("")
             return
         self.active_session_var.set(session.title)
         self.active_session_meta_var.set(self._session_meta_text(session))
@@ -519,16 +381,6 @@ class InspectorApp:
         self.root.bind_all("<Command-Shift-V>", self._paste_screenshot_shortcut, add=True)
         self.root.bind_all("<Control-Shift-V>", self._paste_screenshot_shortcut, add=True)
         self._drop_enabled = self._enable_drop_target(left_container)
-        if self._drop_enabled:
-            self.drop_hint_var.set(
-                "Tip: paste screenshots, drop PDFs/images or folders, "
-                "or use Open Folder for batch scans."
-            )
-        else:
-            self.drop_hint_var.set(
-                "Tip: use Paste Screenshot, Open PDFs/Images, or Open Folder "
-                "if drag and drop is unavailable."
-            )
 
     def _current_session(self) -> SessionState | None:
         return self._sessions.get(self.session_notebook.select())
@@ -566,16 +418,13 @@ class InspectorApp:
         self, *, title: str | None = None, source_label: str | None = None
     ) -> SessionState:
         self._session_counter += 1
-        tab = ttk.Frame(self.session_notebook, padding=8, style="NotebookPage.TFrame")
+        tab = ttk.Frame(self.session_notebook, padding=4, style="NotebookPage.TFrame")
         tab.columnconfigure(0, weight=1)
-        tab.rowconfigure(1, weight=1)
+        tab.rowconfigure(0, weight=1)
         info_var = StringVar(value=source_label or "Manual session")
-        ttk.Label(tab, textvariable=info_var, style="Meta.TLabel").grid(
-            row=0, column=0, sticky="w", pady=(0, 8)
-        )
         text_widget = ScrolledText(tab, wrap="word", undo=True, font=self.mono_font)
         self.theme.register_text_widget(text_widget)
-        text_widget.grid(row=1, column=0, sticky="nsew")
+        text_widget.grid(row=0, column=0, sticky="nsew")
         text_widget.bind("<<Paste>>", self._on_text_paste, add=True)
         self._enable_drop_target(text_widget)
         label = title or f"Session {self._session_counter}"
@@ -594,6 +443,8 @@ class InspectorApp:
         self._set_active_session(session)
         self.status_var.set(f"Created {label}.")
         return session
+
+    # ── Import ────────────────────────────────────────────────
 
     def _open_scan_files(self) -> None:
         paths = filedialog.askopenfilenames(
@@ -731,6 +582,8 @@ class InspectorApp:
         self.status_var.set(status)
         return "break"
 
+    # ── Drag-and-drop ─────────────────────────────────────────
+
     def _enable_drop_target(self, widget) -> bool:
         if DND_FILES is None:
             return False
@@ -756,6 +609,8 @@ class InspectorApp:
             return "break"
         self._import_scan_sources(raw_paths, source_label="dropped scan files")
         return "break"
+
+    # ── Inspection ────────────────────────────────────────────
 
     def _on_session_changed(self, _event=None) -> None:
         session = self._current_session()
@@ -902,6 +757,8 @@ class InspectorApp:
         record = session.result.recovered_secrets[int(selected[0])]
         self._set_text(self.secret_detail_text, f"{record.summary}\n\n{record.detail_text}")
 
+    # ── Session lifecycle ─────────────────────────────────────
+
     def _clear_current_session(self) -> None:
         session = self._current_session()
         if session is None:
@@ -922,6 +779,8 @@ class InspectorApp:
             return
 
         self.status_var.set(f"Closed {session.title}.")
+
+    # ── Export ────────────────────────────────────────────────
 
     def _require_result_for_export(
         self, title: str

@@ -17,6 +17,7 @@ import unittest
 
 from ethernity.crypto.passphrases import (
     looks_like_bip39_mnemonic,
+    normalize_bip39_mnemonic,
     validate_mnemonic_checksum_if_bip39,
 )
 
@@ -37,6 +38,19 @@ class TestPassphrases(unittest.TestCase):
         phrase = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
         self.assertFalse(looks_like_bip39_mnemonic(phrase))
         validate_mnemonic_checksum_if_bip39(phrase)
+
+    def test_normalize_bip39_mnemonic_collapses_whitespace(self) -> None:
+        phrase = (
+            "  abandon   abandon abandon abandon abandon abandon abandon abandon "
+            "abandon abandon abandon about  "
+        )
+        self.assertEqual(
+            normalize_bip39_mnemonic(phrase),
+            (
+                "abandon abandon abandon abandon abandon abandon abandon abandon "
+                "abandon abandon abandon about"
+            ),
+        )
 
 
 if __name__ == "__main__":

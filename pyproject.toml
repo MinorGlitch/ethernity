@@ -20,7 +20,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "cbor2>=5.8.0",
+    "cbor2>=5.9.0",
     "typer>=0.24.1",
     "rich>=14.3.3",
     "questionary>=2.1.1",
@@ -29,7 +29,7 @@ dependencies = [
     "jinja2>=3.1.6",
     "pycryptodome>=3.23.0,<3.24.0",
     "pillow>=12.1.1",
-    "pypdf>=6.7.4",
+    "pypdf>=6.9.2",
     "segno>=1.6.6",
     "zxing-cpp>=3.0.0",
     "playwright>=1.58.0",
@@ -43,13 +43,19 @@ ethernity = "ethernity.cli:main"
 [project.optional-dependencies]
 build = ["pyinstaller>=6.19.0"]
 dev = [
+    "check-jsonschema>=0.37.0",
     "coverage>=7.13.4",
+    "hypothesis>=6.151.9",
+    "jsonschema>=4.25.1",
     "mypy>=1.19.1",
+    "pip-audit>=2.10.0",
     "pre-commit>=4.5.1",
+    "pyright>=1.1.408",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
     "ruff>=0.15.2",
     "tkinterdnd2>=0.4.3",
+    "typos>=1.44.0",
 ]
 
 [build-system]
@@ -65,18 +71,18 @@ include = ["ethernity", "ethernity.*"]
 
 [tool.setuptools.package-data]
 ethernity = [
-    "templates/*/*.html.j2",
-    "templates/_shared/*.html.j2",
-    "templates/_shared/*.j2",
-    "templates/_shared/partials/*.j2",
-    "templates/_shared/assets/*.js",
-    "templates/_shared/assets/*.ttf",
-    "templates/*/style.json",
-    "storage/*.html.j2",
-    "storage/*.png",
-    "config/*.toml",
-    "kit/*.html",
-    "crypto/bip39_wordlist.txt",
+    "resources/templates/*/*.html.j2",
+    "resources/templates/_shared/*.html.j2",
+    "resources/templates/_shared/*.j2",
+    "resources/templates/_shared/partials/*.j2",
+    "resources/templates/_shared/assets/*.js",
+    "resources/templates/_shared/assets/*.ttf",
+    "resources/templates/*/style.json",
+    "resources/storage/*.html.j2",
+    "resources/storage/*.png",
+    "resources/config/*.toml",
+    "resources/kit/*.html",
+    "resources/crypto/bip39_wordlist.txt",
     "py.typed",
 ]
 
@@ -117,6 +123,7 @@ show_missing = true
 [dependency-groups]
 dev = [
     "debugpy>=1.8.20",
+    "jsonschema>=4.25.1",
     "tkinterdnd2>=0.4.3",
     "twine>=6.2.0",
 ]

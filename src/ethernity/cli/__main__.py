@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-from .app import main
+from ethernity.cli.bootstrap.app import main
 
 if __name__ == "__main__":
     main()

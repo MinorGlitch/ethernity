@@ -16,8 +16,8 @@
 import unittest
 from unittest import mock
 
-from ethernity.cli.core.types import BackupArgs
-from ethernity.cli.flows import backup_wizard
+from ethernity.cli.features.backup import wizard as backup_wizard
+from ethernity.cli.shared.types import BackupArgs
 from ethernity.core.models import ShardingConfig, SigningSeedMode
 from ethernity.crypto import DEFAULT_PASSPHRASE_WORDS
 

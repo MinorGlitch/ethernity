@@ -19,15 +19,24 @@
 from __future__ import annotations
 
 import functools
+import importlib
 import io
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
-import PIL.Image as pil_image
-import pypdf
-import zxingcpp
+
+def _optional_import(name: str) -> Any | None:
+    try:
+        return importlib.import_module(name)
+    except ModuleNotFoundError:
+        return None
+
+
+pil_image = _optional_import("PIL.Image")
+pypdf = _optional_import("pypdf")
+zxingcpp = _optional_import("zxingcpp")
 
 
 class QrScanError(RuntimeError):
@@ -55,9 +64,9 @@ def _module(name: str, default: Any) -> Any:
 
 
 def _decode_image(image, *, zxing_module) -> list[bytes]:
-    """Decode all barcodes in an opened image object."""
+    """Decode QR codes in an opened image object."""
 
-    results = zxing_module.read_barcodes(image)
+    results = zxing_module.read_barcodes(image, formats=zxing_module.BarcodeFormat.QRCode)
     payloads: list[bytes] = []
     for result in results:
         data = getattr(result, "bytes", None) or getattr(result, "raw_bytes", None)
@@ -106,6 +115,10 @@ def _load_decoder() -> QrDecoder:
 
     zxing_module = _module("zxingcpp", zxingcpp)
     image_module = _module("PIL.Image", pil_image)
+    if zxing_module is None:
+        raise QrScanError("zxingcpp is required to scan QR payloads")
+    if image_module is None:
+        raise QrScanError("Pillow is required to scan QR payloads")
 
     return QrDecoder(
         name="zxingcpp",
@@ -135,9 +148,11 @@ def _scan_pdf(path: Path, decoder: QrDecoder) -> list[bytes]:
     """Decode QR payloads from all embedded page images in a PDF."""
 
     pypdf_module = _module("pypdf", pypdf)
+    if pypdf_module is None:
+        raise QrScanError("pypdf is required to scan PDF inputs")
     try:
         reader = pypdf_module.PdfReader(str(path))
-    except (OSError, pypdf.errors.PdfReadError, ValueError) as exc:
+    except (OSError, pypdf_module.errors.PdfReadError, ValueError) as exc:
         raise QrScanError(f"failed to read PDF: {path}") from exc
     payloads: list[bytes] = []
     for page in reader.pages:

@@ -107,7 +107,9 @@ class TestJinjaTemplates(unittest.TestCase):
         self.assertNotIn("<script>alert(1)</script>", rendered)
 
     def test_maritime_main_template_shows_instructions_on_continuation_pages(self) -> None:
-        template_path = _ETHERNITY_ROOT / "templates" / "maritime" / "main_document.html.j2"
+        template_path = (
+            _ETHERNITY_ROOT / "resources" / "templates" / "maritime" / "main_document.html.j2"
+        )
         context = _base_document_context()
         context["pages"] = [
             _page_with_qr(page_num=1, page_label="Page 1 / 2"),
@@ -129,7 +131,7 @@ class TestJinjaTemplates(unittest.TestCase):
         self.assertGreaterEqual(rendered.count("Instructions"), 2)
 
     def _render_sentinel_template(self, template_name: str) -> str:
-        template_path = _ETHERNITY_ROOT / "templates" / "sentinel" / template_name
+        template_path = _ETHERNITY_ROOT / "resources" / "templates" / "sentinel" / template_name
         context = _base_document_context()
         if template_name == "main_document.html.j2":
             context["pages"] = [_page_with_qr(page_num=1, page_label="Page 1 / 1")]
@@ -227,7 +229,7 @@ class TestJinjaTemplates(unittest.TestCase):
         return render_template(template_path, context)
 
     def _render_forge_template(self, template_name: str) -> str:
-        template_path = _ETHERNITY_ROOT / "templates" / "forge" / template_name
+        template_path = _ETHERNITY_ROOT / "resources" / "templates" / "forge" / template_name
         context = _base_document_context()
         if template_name == "main_document.html.j2":
             context["pages"] = [_page_with_qr(page_num=1, page_label="Page 1 / 1")]
@@ -322,7 +324,7 @@ class TestJinjaTemplates(unittest.TestCase):
         return render_template(template_path, context)
 
     def test_document_templates_render(self) -> None:
-        template_root = _ETHERNITY_ROOT / "templates"
+        template_root = _ETHERNITY_ROOT / "resources" / "templates"
         templates = sorted(template_root.rglob("*.html.j2"))
         self.assertTrue(templates, "no document templates found")
 
@@ -389,7 +391,7 @@ class TestJinjaTemplates(unittest.TestCase):
             self.assertIn("<!doctype html>", rendered.lower(), str(template_path))
 
     def test_envelope_templates_render_with_default_logo(self) -> None:
-        storage_root = _ETHERNITY_ROOT / "storage"
+        storage_root = _ETHERNITY_ROOT / "resources" / "storage"
         logo_path = storage_root / "logo.png"
         self.assertTrue(logo_path.is_file(), "expected default logo.png to exist")
 
@@ -407,7 +409,9 @@ class TestJinjaTemplates(unittest.TestCase):
             self.assertIn(prefix, rendered, str(template_path))
 
     def test_archive_kit_template_omits_footer(self) -> None:
-        template_path = _ETHERNITY_ROOT / "templates" / "archive" / "kit_document.html.j2"
+        template_path = (
+            _ETHERNITY_ROOT / "resources" / "templates" / "archive" / "kit_document.html.j2"
+        )
         source = template_path.read_text(encoding="utf-8")
 
         self.assertNotIn("margin-bottom: auto;", source)
@@ -415,7 +419,9 @@ class TestJinjaTemplates(unittest.TestCase):
         self.assertNotIn('<footer class="footer">', source)
 
     def test_archive_recovery_hex_entropy_panel_first_page_only(self) -> None:
-        template_path = _ETHERNITY_ROOT / "templates" / "archive" / "recovery_document.html.j2"
+        template_path = (
+            _ETHERNITY_ROOT / "resources" / "templates" / "archive" / "recovery_document.html.j2"
+        )
         context = _base_document_context()
         context["doc"] = {"title": "Recovery Document", "subtitle": "Keys + Text Fallback"}
         context["pages"] = [
@@ -457,7 +463,9 @@ class TestJinjaTemplates(unittest.TestCase):
         self.assertEqual(rendered.count("Raw Hex Entropy"), 0)
 
     def test_ledger_kit_template_uses_expanded_instructions_page(self) -> None:
-        template_path = _ETHERNITY_ROOT / "templates" / "ledger" / "kit_document.html.j2"
+        template_path = (
+            _ETHERNITY_ROOT / "resources" / "templates" / "ledger" / "kit_document.html.j2"
+        )
         source = template_path.read_text(encoding="utf-8")
 
         self.assertIn('class="instructions-page"', source)
@@ -488,7 +496,9 @@ class TestJinjaTemplates(unittest.TestCase):
             }
         ]
 
-        main_template = _ETHERNITY_ROOT / "templates" / "forge" / "main_document.html.j2"
+        main_template = (
+            _ETHERNITY_ROOT / "resources" / "templates" / "forge" / "main_document.html.j2"
+        )
         _inject_copy(context, template_name=main_template.name)
         main_rendered = render_template(main_template, context)
         self.assertIn("SEGMENT 13", main_rendered)
@@ -515,7 +525,9 @@ class TestJinjaTemplates(unittest.TestCase):
             }
         ]
 
-        kit_template = _ETHERNITY_ROOT / "templates" / "forge" / "kit_document.html.j2"
+        kit_template = (
+            _ETHERNITY_ROOT / "resources" / "templates" / "forge" / "kit_document.html.j2"
+        )
         _inject_copy(kit_context, template_name=kit_template.name)
         kit_rendered = render_template(kit_template, kit_context)
         self.assertIn("KIT 07", kit_rendered)
@@ -547,7 +559,7 @@ class TestJinjaTemplates(unittest.TestCase):
         self.assertNotIn("Generated by Ethernity Forge", combined_rendered)
 
     def test_forge_templates_use_local_material_symbols_font(self) -> None:
-        forge_root = _ETHERNITY_ROOT / "templates" / "forge"
+        forge_root = _ETHERNITY_ROOT / "resources" / "templates" / "forge"
 
         for template_path in sorted(forge_root.glob("*_document.html.j2")):
             with self.subTest(template=template_path.name):
@@ -582,7 +594,7 @@ class TestJinjaTemplates(unittest.TestCase):
                 self.assertNotIn("fonts.googleapis.com", rendered)
 
     def test_forge_templates_render_mock_icon_ligatures(self) -> None:
-        forge_root = _ETHERNITY_ROOT / "templates" / "forge"
+        forge_root = _ETHERNITY_ROOT / "resources" / "templates" / "forge"
         expected_icons_by_template = {
             "main_document.html.j2": ["visibility_off", "lock", "grid_view", "description"],
             "recovery_document.html.j2": ["warning", "fingerprint"],
@@ -660,7 +672,7 @@ class TestJinjaTemplates(unittest.TestCase):
                     self.assertIn(icon, rendered)
 
     def test_forge_recovery_template_uses_fixed_print_sheet_and_nonflowing_footer(self) -> None:
-        forge_root = _ETHERNITY_ROOT / "templates" / "forge"
+        forge_root = _ETHERNITY_ROOT / "resources" / "templates" / "forge"
         template_path = forge_root / "recovery_document.html.j2"
         context = _base_document_context()
         context["doc"] = {"title": "Recovery Document", "subtitle": "Keys + Text Fallback"}
@@ -690,7 +702,7 @@ class TestJinjaTemplates(unittest.TestCase):
         self.assertIn("forge-shell-footer", rendered)
 
     def test_forge_kit_index_template_paginates_inventory_rows(self) -> None:
-        forge_root = _ETHERNITY_ROOT / "templates" / "forge"
+        forge_root = _ETHERNITY_ROOT / "resources" / "templates" / "forge"
         template_path = forge_root / "kit_index_document.html.j2"
         context = _base_document_context()
         context["doc"] = {"title": "Recovery Kit", "subtitle": "Offline HTML bundle"}
@@ -708,7 +720,7 @@ class TestJinjaTemplates(unittest.TestCase):
         rendered = render_template(template_path, context)
         self.assertIn("COMP-01", rendered)
         self.assertIn("COMP-27", rendered)
-        self.assertGreater(rendered.count('<section class="print-sheet'), 1)
+        self.assertEqual(rendered.count('<section class="print-sheet'), 3)
         self.assertNotIn("additional entries", rendered)
         self.assertEqual(rendered.count("Custodian Signature"), 1)
 
@@ -743,7 +755,7 @@ class TestJinjaTemplates(unittest.TestCase):
         self.assertNotIn("Page 2 / 2", rendered)
 
     def test_forge_kit_index_uses_single_shell_footer_on_all_pages(self) -> None:
-        forge_root = _ETHERNITY_ROOT / "templates" / "forge"
+        forge_root = _ETHERNITY_ROOT / "resources" / "templates" / "forge"
         template_path = forge_root / "kit_index_document.html.j2"
         context = _base_document_context()
         context["doc"] = {"title": "Recovery Kit", "subtitle": "Offline HTML bundle"}
@@ -766,6 +778,7 @@ class TestJinjaTemplates(unittest.TestCase):
     def test_sentinel_templates_use_local_tailwind_runtime(self) -> None:
         tailwind_asset = (
             _ETHERNITY_ROOT
+            / "resources"
             / "templates"
             / "_shared"
             / "assets"
@@ -773,7 +786,7 @@ class TestJinjaTemplates(unittest.TestCase):
         )
         self.assertTrue(tailwind_asset.is_file())
 
-        sentinel_root = _ETHERNITY_ROOT / "templates" / "sentinel"
+        sentinel_root = _ETHERNITY_ROOT / "resources" / "templates" / "sentinel"
         for template_path in sorted(sentinel_root.glob("*_document.html.j2")):
             with self.subTest(template=template_path.name):
                 source = template_path.read_text(encoding="utf-8")
@@ -807,9 +820,13 @@ class TestJinjaTemplates(unittest.TestCase):
         self.assertEqual(rendered.count("sentinel-shell-footer"), 2)
         self.assertIn("DOC ID:", rendered)
         self.assertIn("GENERATED (UTC):", rendered)
+        self.assertIn("Created Date", rendered)
+        self.assertNotIn("Recovery Date", rendered)
 
     def test_sentinel_kit_index_uses_first_and_continuation_row_limits(self) -> None:
-        template_path = _ETHERNITY_ROOT / "templates" / "sentinel" / "kit_index_document.html.j2"
+        template_path = (
+            _ETHERNITY_ROOT / "resources" / "templates" / "sentinel" / "kit_index_document.html.j2"
+        )
         context = _base_document_context()
         context["doc"] = {"title": "Recovery Kit", "subtitle": "Offline HTML bundle"}
         context["pages"] = [_page_with_qr(page_num=1, page_label="Page 1 / 1")]
@@ -829,10 +846,20 @@ class TestJinjaTemplates(unittest.TestCase):
 
     def test_sentinel_shell_partials_use_flexible_header_footer_constraints(self) -> None:
         header_path = (
-            _ETHERNITY_ROOT / "templates" / "_shared" / "partials" / "sentinel_shell_header.j2"
+            _ETHERNITY_ROOT
+            / "resources"
+            / "templates"
+            / "_shared"
+            / "partials"
+            / "sentinel_shell_header.j2"
         )
         footer_path = (
-            _ETHERNITY_ROOT / "templates" / "_shared" / "partials" / "sentinel_shell_footer.j2"
+            _ETHERNITY_ROOT
+            / "resources"
+            / "templates"
+            / "_shared"
+            / "partials"
+            / "sentinel_shell_footer.j2"
         )
 
         header_source = header_path.read_text(encoding="utf-8")
@@ -843,7 +870,9 @@ class TestJinjaTemplates(unittest.TestCase):
         self.assertNotIn("whitespace-nowrap", footer_source)
 
     def test_sentinel_recovery_template_does_not_clip_fallback_lines(self) -> None:
-        template_path = _ETHERNITY_ROOT / "templates" / "sentinel" / "recovery_document.html.j2"
+        template_path = (
+            _ETHERNITY_ROOT / "resources" / "templates" / "sentinel" / "recovery_document.html.j2"
+        )
         source = template_path.read_text(encoding="utf-8")
         self.assertNotIn("whitespace-nowrap overflow-hidden", source)
 

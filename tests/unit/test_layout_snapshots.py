@@ -77,6 +77,7 @@ class TestLayoutSnapshots(unittest.TestCase):
                     Path(__file__).resolve().parents[2]
                     / "src"
                     / "ethernity"
+                    / "resources"
                     / "templates"
                     / design
                     / f"{doc_type}_document.html.j2"

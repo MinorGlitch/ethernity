@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-from .envelope_codec import (
+from ethernity.formats.envelope_codec import (
     MAGIC as ENVELOPE_MAGIC,
     VERSION as ENVELOPE_VERSION,
     build_manifest_and_payload,
@@ -24,8 +24,11 @@ from .envelope_codec import (
     encode_manifest,
     extract_payloads,
 )
-from .envelope_types import EnvelopeManifest, ManifestFile, PayloadPart
-from .payload_codec import decode_payload_from_manifest, encode_payload_for_manifest
+from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile, PayloadPart
+from ethernity.formats.payload_codec import (
+    decode_payload_from_manifest,
+    encode_payload_for_manifest,
+)
 
 __all__ = [
     "ENVELOPE_MAGIC",

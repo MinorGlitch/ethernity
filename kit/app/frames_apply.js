@@ -155,6 +155,9 @@ export function addShardFrame(state, frame) {
   if (existing) {
     if (!bytesEqual(existing.share, payload.share)) {
       state.shardConflicts += 1;
+    } else if (!bytesEqual(existing.signature, payload.signature)) {
+      state.shardConflicts += 1;
+      state.shardFrames.set(payload.shareIndex, payload);
     } else {
       state.shardDuplicates += 1;
     }

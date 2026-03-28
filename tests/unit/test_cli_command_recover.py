@@ -21,9 +21,8 @@ from unittest import mock
 
 import typer
 
-from ethernity.cli.commands import recover as recover_command
-from ethernity.cli.core.types import CliContextState, RecoverArgs
-from ethernity.cli.flows import recover as recover_flow
+from ethernity.cli.features.recover import command as recover_command, orchestrator as recover_flow
+from ethernity.cli.shared.types import CliContextState, RecoverArgs
 from ethernity.config import RecoverDefaults
 
 
@@ -74,14 +73,19 @@ class TestRecoverCommand(unittest.TestCase):
             resolved = recover_command._expand_shard_dir(str(root))
             self.assertEqual(resolved, [str(root / "a.txt"), str(root / "b.txt")])
 
-    @mock.patch("ethernity.cli.commands.recover.run_recover_wizard", return_value=0)
-    @mock.patch("ethernity.cli.commands.recover._run_cli", side_effect=lambda func, debug: func())
-    @mock.patch("ethernity.cli.commands.recover._should_use_wizard_for_recover", return_value=True)
-    @mock.patch("ethernity.cli.commands.recover._expand_shard_dir", return_value=[])
+    @mock.patch("ethernity.cli.features.recover.command.run_recover_wizard", return_value=0)
     @mock.patch(
-        "ethernity.cli.commands.recover._resolve_config_and_paper", return_value=("cfg", "A4")
+        "ethernity.cli.features.recover.command._run_cli", side_effect=lambda func, debug: func()
     )
-    @mock.patch("ethernity.cli.commands.recover.sys.stdin.isatty", return_value=False)
+    @mock.patch(
+        "ethernity.cli.features.recover.command._should_use_wizard_for_recover", return_value=True
+    )
+    @mock.patch("ethernity.cli.features.recover.command._expand_shard_dir", return_value=[])
+    @mock.patch(
+        "ethernity.cli.features.recover.command._resolve_config_and_paper",
+        return_value=("cfg", "A4"),
+    )
+    @mock.patch("ethernity.cli.features.recover.command.sys.stdin.isatty", return_value=False)
     def test_recover_auto_stdin_wizard_path(
         self,
         _stdin_tty: mock.MagicMock,
@@ -99,14 +103,21 @@ class TestRecoverCommand(unittest.TestCase):
         self.assertEqual(args.paper, "A4")
         self.assertEqual(run_recover_wizard.call_args.kwargs["debug"], False)
 
-    @mock.patch("ethernity.cli.commands.recover.run_recover_command", return_value=0)
-    @mock.patch("ethernity.cli.commands.recover._run_cli", side_effect=lambda func, debug: func())
-    @mock.patch("ethernity.cli.commands.recover._should_use_wizard_for_recover", return_value=False)
-    @mock.patch("ethernity.cli.commands.recover._expand_shard_dir", return_value=["dir1.txt"])
+    @mock.patch("ethernity.cli.features.recover.command.run_recover_command", return_value=0)
     @mock.patch(
-        "ethernity.cli.commands.recover._resolve_config_and_paper", return_value=("cfg", "A4")
+        "ethernity.cli.features.recover.command._run_cli", side_effect=lambda func, debug: func()
     )
-    @mock.patch("ethernity.cli.commands.recover.sys.stdin.isatty", return_value=True)
+    @mock.patch(
+        "ethernity.cli.features.recover.command._should_use_wizard_for_recover", return_value=False
+    )
+    @mock.patch(
+        "ethernity.cli.features.recover.command._expand_shard_dir", return_value=["dir1.txt"]
+    )
+    @mock.patch(
+        "ethernity.cli.features.recover.command._resolve_config_and_paper",
+        return_value=("cfg", "A4"),
+    )
+    @mock.patch("ethernity.cli.features.recover.command.sys.stdin.isatty", return_value=True)
     def test_recover_nonwizard_path_merges_shard_inputs(
         self,
         _stdin_tty: mock.MagicMock,
@@ -135,14 +146,51 @@ class TestRecoverCommand(unittest.TestCase):
         self.assertTrue(args.debug_reveal_secrets)
         self.assertEqual(run_recover_command.call_args.kwargs["debug"], True)
 
-    @mock.patch("ethernity.cli.commands.recover.run_recover_command", return_value=0)
-    @mock.patch("ethernity.cli.commands.recover._run_cli", side_effect=lambda func, debug: func())
-    @mock.patch("ethernity.cli.commands.recover._should_use_wizard_for_recover", return_value=False)
-    @mock.patch("ethernity.cli.commands.recover._expand_shard_dir", return_value=[])
+    @mock.patch("ethernity.cli.features.recover.command.run_recover_command", return_value=0)
     @mock.patch(
-        "ethernity.cli.commands.recover._resolve_config_and_paper", return_value=("cfg", "A4")
+        "ethernity.cli.features.recover.command._run_cli", side_effect=lambda func, debug: func()
     )
-    @mock.patch("ethernity.cli.commands.recover.sys.stdin.isatty", return_value=True)
+    @mock.patch(
+        "ethernity.cli.features.recover.command._should_use_wizard_for_recover", return_value=False
+    )
+    @mock.patch("ethernity.cli.features.recover.command._expand_shard_dir", return_value=[])
+    @mock.patch(
+        "ethernity.cli.features.recover.command._resolve_config_and_paper",
+        return_value=("cfg", "A4"),
+    )
+    @mock.patch("ethernity.cli.features.recover.command.sys.stdin.isatty", return_value=True)
+    def test_recover_nonwizard_path_passes_shard_scan_inputs(
+        self,
+        _stdin_tty: mock.MagicMock,
+        _resolve_config_and_paper: mock.MagicMock,
+        _expand_shard_dir: mock.MagicMock,
+        _should_use_wizard_for_recover: mock.MagicMock,
+        _run_cli: mock.MagicMock,
+        run_recover_command: mock.MagicMock,
+    ) -> None:
+        ctx = self._ctx(quiet=False, debug=False)
+        self._call_recover(
+            ctx,
+            fallback_file="recovery.txt",
+            output="out.bin",
+            shard_scan=["shard-a.pdf", "shard-b.pdf"],
+        )
+        args = run_recover_command.call_args.args[0]
+        self.assertEqual(args.shard_scan, ["shard-a.pdf", "shard-b.pdf"])
+
+    @mock.patch("ethernity.cli.features.recover.command.run_recover_command", return_value=0)
+    @mock.patch(
+        "ethernity.cli.features.recover.command._run_cli", side_effect=lambda func, debug: func()
+    )
+    @mock.patch(
+        "ethernity.cli.features.recover.command._should_use_wizard_for_recover", return_value=False
+    )
+    @mock.patch("ethernity.cli.features.recover.command._expand_shard_dir", return_value=[])
+    @mock.patch(
+        "ethernity.cli.features.recover.command._resolve_config_and_paper",
+        return_value=("cfg", "A4"),
+    )
+    @mock.patch("ethernity.cli.features.recover.command.sys.stdin.isatty", return_value=True)
     def test_recover_uses_operator_default_output_when_unset(
         self,
         _stdin_tty: mock.MagicMock,
@@ -161,14 +209,19 @@ class TestRecoverCommand(unittest.TestCase):
         args = run_recover_command.call_args.args[0]
         self.assertEqual(args.output, "./default-recovered")
 
-    @mock.patch("ethernity.cli.commands.recover.run_recover_command", return_value=0)
-    @mock.patch("ethernity.cli.commands.recover._run_cli", side_effect=lambda func, debug: func())
-    @mock.patch("ethernity.cli.commands.recover._should_use_wizard_for_recover", return_value=False)
-    @mock.patch("ethernity.cli.commands.recover._expand_shard_dir", return_value=[])
+    @mock.patch("ethernity.cli.features.recover.command.run_recover_command", return_value=0)
     @mock.patch(
-        "ethernity.cli.commands.recover._resolve_config_and_paper", return_value=("cfg", "A4")
+        "ethernity.cli.features.recover.command._run_cli", side_effect=lambda func, debug: func()
     )
-    @mock.patch("ethernity.cli.commands.recover.sys.stdin.isatty", return_value=True)
+    @mock.patch(
+        "ethernity.cli.features.recover.command._should_use_wizard_for_recover", return_value=False
+    )
+    @mock.patch("ethernity.cli.features.recover.command._expand_shard_dir", return_value=[])
+    @mock.patch(
+        "ethernity.cli.features.recover.command._resolve_config_and_paper",
+        return_value=("cfg", "A4"),
+    )
+    @mock.patch("ethernity.cli.features.recover.command.sys.stdin.isatty", return_value=True)
     def test_recover_cli_output_overrides_operator_default(
         self,
         _stdin_tty: mock.MagicMock,
@@ -194,9 +247,9 @@ class TestRecoverCommand(unittest.TestCase):
 
 
 class TestRecoverFlow(unittest.TestCase):
-    @mock.patch("ethernity.cli.flows.recover.run_recover_plan", return_value=0)
-    @mock.patch("ethernity.cli.flows.recover._warn")
-    @mock.patch("ethernity.cli.flows.recover.plan_from_args")
+    @mock.patch("ethernity.cli.features.recover.orchestrator.run_recover_plan", return_value=0)
+    @mock.patch("ethernity.cli.features.recover.orchestrator._warn")
+    @mock.patch("ethernity.cli.features.recover.orchestrator.plan_from_args")
     def test_run_recover_command_warn_paths(
         self,
         plan_from_args: mock.MagicMock,
@@ -229,14 +282,14 @@ class TestRecoverFlow(unittest.TestCase):
             debug_reveal_secrets=False,
         )
 
-    @mock.patch("ethernity.cli.flows.recover._run_recover_wizard", return_value=3)
+    @mock.patch("ethernity.cli.features.recover.orchestrator._run_recover_wizard", return_value=3)
     def test_run_recover_wizard_delegates(self, run_wizard: mock.MagicMock) -> None:
         args = RecoverArgs()
         self.assertEqual(recover_flow.run_recover_wizard(args, debug=True), 3)
         run_wizard.assert_called_once_with(args, debug=True)
 
-    @mock.patch("ethernity.cli.flows.recover.sys.stdout.isatty", return_value=True)
-    @mock.patch("ethernity.cli.flows.recover.sys.stdin.isatty", return_value=True)
+    @mock.patch("ethernity.cli.features.recover.orchestrator.sys.stdout.isatty", return_value=True)
+    @mock.patch("ethernity.cli.features.recover.orchestrator.sys.stdin.isatty", return_value=True)
     def test_should_use_wizard_for_recover(
         self, _stdin_tty: mock.MagicMock, _stdout_tty: mock.MagicMock
     ) -> None:
@@ -247,8 +300,11 @@ class TestRecoverFlow(unittest.TestCase):
         self.assertFalse(
             recover_flow._should_use_wizard_for_recover(RecoverArgs(shard_fallback_file=["x"]))
         )
+        self.assertFalse(recover_flow._should_use_wizard_for_recover(RecoverArgs(shard_scan=["x"])))
 
-        with mock.patch("ethernity.cli.flows.recover.sys.stdin.isatty", return_value=False):
+        with mock.patch(
+            "ethernity.cli.features.recover.orchestrator.sys.stdin.isatty", return_value=False
+        ):
             self.assertFalse(recover_flow._should_use_wizard_for_recover(RecoverArgs()))
 
 

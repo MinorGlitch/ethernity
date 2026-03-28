@@ -31,7 +31,12 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     return false;
   }
   if (!state.shardDocHashHex) {
-    setShardStatus(state, statusPrefix, "Shard recovery blocked: shard payload hash is missing.", "error");
+    setShardStatus(
+      state,
+      statusPrefix,
+      "Shard recovery blocked: shard payload hash is missing.",
+      "error",
+    );
     return false;
   }
 
@@ -47,7 +52,7 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
       state,
       statusPrefix,
       "Shard recovery blocked: collect main frames to derive ciphertext hash.",
-      "warn"
+      "warn",
     );
     return false;
   }
@@ -58,7 +63,7 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
       state,
       statusPrefix,
       "Shard recovery blocked: shard hash does not match collected ciphertext.",
-      "error"
+      "error",
     );
     return false;
   }

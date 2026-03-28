@@ -16,7 +16,7 @@
 import unittest
 from unittest import mock
 
-from ethernity.cli.flows.prompts import _ingest_shard_frame, _ShardPasteState
+from ethernity.cli.shared.recovery_prompts import _ingest_shard_frame, _ShardPasteState
 from ethernity.crypto.sharding import (
     KEY_TYPE_PASSPHRASE,
     KEY_TYPE_SIGNING_SEED,
@@ -68,8 +68,8 @@ class TestRecoverShardPrompts(unittest.TestCase):
     def test_duplicate_shard_same_payload_is_ignored(self) -> None:
         state = _ShardPasteState(frames=[], seen_shares=set())
         frame = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
-        with mock.patch("ethernity.cli.flows.prompts.console.print") as print_mock:
-            with mock.patch("ethernity.cli.flows.prompts.console_err.print"):
+        with mock.patch("ethernity.cli.shared.recovery_prompts.console.print") as print_mock:
+            with mock.patch("ethernity.cli.shared.recovery_prompts.console_err.print"):
                 first = _ingest_shard_frame(frame=frame, state=state, label="Shard documents")
                 second = _ingest_shard_frame(frame=frame, state=state, label="Shard documents")
         self.assertFalse(first)
@@ -85,8 +85,10 @@ class TestRecoverShardPrompts(unittest.TestCase):
         state = _ShardPasteState(frames=[], seen_shares=set())
         first_frame = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
         conflicting_frame = _build_shard_frame(share_index=1, share=b"\xbb" * 16)
-        with mock.patch("ethernity.cli.flows.prompts.console.print"):
-            with mock.patch("ethernity.cli.flows.prompts.console_err.print") as error_print_mock:
+        with mock.patch("ethernity.cli.shared.recovery_prompts.console.print"):
+            with mock.patch(
+                "ethernity.cli.shared.recovery_prompts.console_err.print"
+            ) as error_print_mock:
                 _ingest_shard_frame(frame=first_frame, state=state, label="Shard documents")
                 accepted = _ingest_shard_frame(
                     frame=conflicting_frame,
@@ -111,8 +113,10 @@ class TestRecoverShardPrompts(unittest.TestCase):
             share=b"\xaa" * 16,
             signature=b"\x44" * 64,
         )
-        with mock.patch("ethernity.cli.flows.prompts.console.print"):
-            with mock.patch("ethernity.cli.flows.prompts.console_err.print") as error_print_mock:
+        with mock.patch("ethernity.cli.shared.recovery_prompts.console.print"):
+            with mock.patch(
+                "ethernity.cli.shared.recovery_prompts.console_err.print"
+            ) as error_print_mock:
                 _ingest_shard_frame(frame=first_frame, state=state, label="Shard documents")
                 accepted = _ingest_shard_frame(
                     frame=conflicting_frame,
@@ -132,8 +136,8 @@ class TestRecoverShardPrompts(unittest.TestCase):
         state = _ShardPasteState(frames=[], seen_shares=set())
         frame_one = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
         frame_two = _build_shard_frame(share_index=2, share=b"\xbb" * 16)
-        with mock.patch("ethernity.cli.flows.prompts.console.print") as print_mock:
-            with mock.patch("ethernity.cli.flows.prompts.console_err.print"):
+        with mock.patch("ethernity.cli.shared.recovery_prompts.console.print") as print_mock:
+            with mock.patch("ethernity.cli.shared.recovery_prompts.console_err.print"):
                 first = _ingest_shard_frame(frame=frame_one, state=state, label="Shard documents")
                 second = _ingest_shard_frame(frame=frame_two, state=state, label="Shard documents")
         self.assertFalse(first)
@@ -156,8 +160,10 @@ class TestRecoverShardPrompts(unittest.TestCase):
             data=b"x",
         )
         multiframe = _build_shard_frame(share_index=1, share=b"\xaa" * 16, index=1, total=2)
-        with mock.patch("ethernity.cli.flows.prompts.console.print"):
-            with mock.patch("ethernity.cli.flows.prompts.console_err.print") as error_print_mock:
+        with mock.patch("ethernity.cli.shared.recovery_prompts.console.print"):
+            with mock.patch(
+                "ethernity.cli.shared.recovery_prompts.console_err.print"
+            ) as error_print_mock:
                 self.assertFalse(
                     _ingest_shard_frame(frame=wrong_type, state=state, label="Shard documents")
                 )
@@ -182,8 +188,10 @@ class TestRecoverShardPrompts(unittest.TestCase):
             share=b"\xaa" * 32,
             key_type=KEY_TYPE_SIGNING_SEED,
         )
-        with mock.patch("ethernity.cli.flows.prompts.console.print"):
-            with mock.patch("ethernity.cli.flows.prompts.console_err.print") as error_print_mock:
+        with mock.patch("ethernity.cli.shared.recovery_prompts.console.print"):
+            with mock.patch(
+                "ethernity.cli.shared.recovery_prompts.console_err.print"
+            ) as error_print_mock:
                 self.assertFalse(
                     _ingest_shard_frame(frame=invalid, state=state, label="Shard documents")
                 )
@@ -206,8 +214,10 @@ class TestRecoverShardPrompts(unittest.TestCase):
             doc_hash=b"\x99" * 32,
             sign_pub=b"\x88" * 32,
         )
-        with mock.patch("ethernity.cli.flows.prompts.console.print"):
-            with mock.patch("ethernity.cli.flows.prompts.console_err.print") as error_print_mock:
+        with mock.patch("ethernity.cli.shared.recovery_prompts.console.print"):
+            with mock.patch(
+                "ethernity.cli.shared.recovery_prompts.console_err.print"
+            ) as error_print_mock:
                 self.assertFalse(
                     _ingest_shard_frame(frame=first, state=state, label="Shard documents")
                 )
@@ -222,8 +232,10 @@ class TestRecoverShardPrompts(unittest.TestCase):
         state = _ShardPasteState(frames=[], seen_shares=set())
         first = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
         mismatched = _build_shard_frame(share_index=2, share=b"\xbb" * 32)
-        with mock.patch("ethernity.cli.flows.prompts.console.print"):
-            with mock.patch("ethernity.cli.flows.prompts.console_err.print") as error_print_mock:
+        with mock.patch("ethernity.cli.shared.recovery_prompts.console.print"):
+            with mock.patch(
+                "ethernity.cli.shared.recovery_prompts.console_err.print"
+            ) as error_print_mock:
                 self.assertFalse(
                     _ingest_shard_frame(frame=first, state=state, label="Shard documents")
                 )

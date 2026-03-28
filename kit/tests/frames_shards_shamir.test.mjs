@@ -2,17 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  FRAME_MAGIC,
-  FRAME_TYPE_AUTH,
   FRAME_TYPE_KEY,
   FRAME_TYPE_MAIN,
-  FRAME_VERSION,
   MAX_CIPHERTEXT_BYTES,
   MAX_QR_PAYLOAD_CHARS,
   SHARD_KEY_PASSPHRASE,
   SHARD_KEY_SIGNING_SEED,
 } from "../app/constants.js";
 import {
+  detectMarker,
   parseAutoPayload,
   parseScannedPayload,
   parseAutoShard,
@@ -32,8 +30,6 @@ import { bytesToHex, hexToBytes } from "../lib/encoding.js";
 import { recoverSecretFromShards } from "../lib/shamir.js";
 import {
   buildFrame,
-  concatBytes,
-  encodeUvarint,
   encodeZBase32,
   ensureAtob,
   mutateFrameCrc,
@@ -75,43 +71,54 @@ function shardPayload({
   };
 }
 
-function authPayload(signature = new Uint8Array(64)) {
-  return {
-    version: 1,
-    hash: new Uint8Array(32),
-    pub: new Uint8Array(32),
-    sig: signature,
-  };
-}
-
-function rawFrameBytes({ version = FRAME_VERSION, frameType = FRAME_TYPE_MAIN, data = new Uint8Array(0) }) {
-  const body = concatBytes([
-    Uint8Array.from(FRAME_MAGIC),
-    encodeUvarint(version),
-    Uint8Array.of(frameType),
-    Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8),
-    encodeUvarint(0),
-    encodeUvarint(1),
-    encodeUvarint(data.length),
-    data,
-  ]);
-  return buildFrame({ frameType, data, index: 0, total: 1 });
-}
-
 test("parseAutoPayload handles frame state transitions and hash caching", () => {
   const state = createInitialState();
   const docId = Uint8Array.of(9, 9, 9, 9, 9, 9, 9, 9);
 
-  const main0 = toUnpaddedBase64(buildFrame({ frameType: FRAME_TYPE_MAIN, data: Uint8Array.of(1, 2), index: 0, total: 2, docId }));
-  const main0Dup = toUnpaddedBase64(buildFrame({ frameType: FRAME_TYPE_MAIN, data: Uint8Array.of(1, 2), index: 0, total: 2, docId }));
-  const main0Conflict = toUnpaddedBase64(buildFrame({ frameType: FRAME_TYPE_MAIN, data: Uint8Array.of(3, 4), index: 0, total: 2, docId }));
-  const foreignDoc = toUnpaddedBase64(buildFrame({ frameType: FRAME_TYPE_MAIN, data: Uint8Array.of(5), index: 1, total: 2, docId: Uint8Array.of(1, 1, 1, 1, 1, 1, 1, 1) }));
+  const main0 = toUnpaddedBase64(
+    buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      data: Uint8Array.of(1, 2),
+      index: 0,
+      total: 2,
+      docId,
+    }),
+  );
+  const main0Dup = toUnpaddedBase64(
+    buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      data: Uint8Array.of(1, 2),
+      index: 0,
+      total: 2,
+      docId,
+    }),
+  );
+  const main0Conflict = toUnpaddedBase64(
+    buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      data: Uint8Array.of(3, 4),
+      index: 0,
+      total: 2,
+      docId,
+    }),
+  );
+  const foreignDoc = toUnpaddedBase64(
+    buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      data: Uint8Array.of(5),
+      index: 1,
+      total: 2,
+      docId: Uint8Array.of(1, 1, 1, 1, 1, 1, 1, 1),
+    }),
+  );
   const keyFrame = toUnpaddedBase64(
     buildFrame({
       frameType: FRAME_TYPE_KEY,
-      data: encodeCbor(shardPayload({ threshold: 1, shareCount: 1, secretLen: 1, shareHex: "00".repeat(16) })),
+      data: encodeCbor(
+        shardPayload({ threshold: 1, shareCount: 1, secretLen: 1, shareHex: "00".repeat(16) }),
+      ),
       docId,
-    })
+    }),
   );
 
   assert.equal(parseAutoPayload(state, main0), 1);
@@ -125,7 +132,9 @@ test("parseAutoPayload handles frame state transitions and hash caching", () => 
   assert.equal(state.ignored, 2);
   assert.deepEqual(listMissing(state.total, state.mainFrames), [1]);
 
-  const main1 = toUnpaddedBase64(buildFrame({ frameType: FRAME_TYPE_MAIN, data: Uint8Array.of(6), index: 1, total: 2, docId }));
+  const main1 = toUnpaddedBase64(
+    buildFrame({ frameType: FRAME_TYPE_MAIN, data: Uint8Array.of(6), index: 1, total: 2, docId }),
+  );
   assert.equal(parseAutoPayload(state, main1), 1);
   const firstHash = ensureCiphertextAndHash(state);
   const secondHash = ensureCiphertextAndHash(state);
@@ -148,7 +157,7 @@ test("parseScannedPayload accepts raw frame bytes above text payload char limits
   const textOnlyState = createInitialState();
   assert.throws(
     () => parseAutoPayload(textOnlyState, asText),
-    /input is neither valid QR payloads nor valid fallback text/
+    /input is neither valid QR payloads nor valid fallback text/,
   );
 
   const scannedState = createInitialState();
@@ -165,7 +174,7 @@ test("parseScannedPayload and parseScannedShard fall back to text when bytes are
       index: 0,
       total: 1,
       docId: Uint8Array.of(6, 6, 6, 6, 6, 6, 6, 6),
-    })
+    }),
   );
   const mainAsciiBytes = Uint8Array.from(mainFrameText, (char) => char.charCodeAt(0));
   const mainState = createInitialState();
@@ -178,7 +187,7 @@ test("parseScannedPayload and parseScannedShard fall back to text when bytes are
       frameType: FRAME_TYPE_KEY,
       data: encodeCbor(shardPayload({ shareIndex: 1, shareHex: FIXTURE_SHARES.share1 })),
       docId: Uint8Array.of(7, 7, 7, 7, 7, 7, 7, 7),
-    })
+    }),
   );
   const shardAsciiBytes = Uint8Array.from(shardFrameText, (char) => char.charCodeAt(0));
   const shardState = createInitialState();
@@ -191,17 +200,50 @@ test("parseAutoPayload supports fallback sections and handles invalid auth fallb
   const state = createInitialState();
   const main = buildFrame({ frameType: FRAME_TYPE_MAIN, data: Uint8Array.of(7), total: 1 });
   const badAuth = Uint8Array.of(0x41, 0x50, 0x01);
-  const text = [
-    "Main Frame:",
-    encodeZBase32(main),
-    "Auth Frame:",
-    encodeZBase32(badAuth),
-  ].join("\n");
+  const text = ["Main Frame:", encodeZBase32(main), "Auth Frame:", encodeZBase32(badAuth)].join(
+    "\n",
+  );
 
   const added = parseAutoPayload(state, text);
   assert.equal(added, 1);
   assert.equal(state.mainFrames.size, 1);
   assert.equal(state.authErrors, 1);
+});
+
+test("detectMarker only matches explicit fallback headers", () => {
+  assert.equal(detectMarker("=== Main Frame ===", ["main frame", "auth frame"]), "main frame");
+  assert.equal(detectMarker("Auth Frame:", ["main frame", "auth frame"]), "auth frame");
+  assert.equal(detectMarker("zzmain framezz", ["main frame", "auth frame"]), null);
+});
+
+test("parseAutoPayload rejects invalid non-empty fallback lines", () => {
+  const state = createInitialState();
+  const main = buildFrame({ frameType: FRAME_TYPE_MAIN, data: Uint8Array.of(7), total: 1 });
+  const text = ["Main Frame:", encodeZBase32(main), "not-valid-line!"].join("\n");
+
+  assert.throws(() => parseAutoPayload(state, text), /outside the z-base-32 alphabet/);
+});
+
+test("parseAutoPayload rejects content before a marked fallback section", () => {
+  const state = createInitialState();
+  const main = buildFrame({ frameType: FRAME_TYPE_MAIN, data: Uint8Array.of(7), total: 1 });
+  const text = ["stray-line", "Main Frame:", encodeZBase32(main)].join("\n");
+
+  assert.throws(
+    () => parseAutoPayload(state, text),
+    /unexpected content before the first marked fallback section/,
+  );
+});
+
+test("parseAutoShard rejects invalid non-empty fallback lines", () => {
+  const state = createInitialState();
+  const shard = buildFrame({
+    frameType: FRAME_TYPE_KEY,
+    data: encodeCbor(shardPayload({ shareIndex: 1, shareHex: FIXTURE_SHARES.share1 })),
+  });
+  const text = ["Shard Frame:", encodeZBase32(shard), "not-valid-line!"].join("\n");
+
+  assert.throws(() => parseAutoShard(state, text), /outside the z-base-32 alphabet/);
 });
 
 test("parseAutoPayload rejects malformed frame encodings", () => {
@@ -228,7 +270,7 @@ test("parseAutoPayload rejects malformed frame encodings", () => {
     const state = createInitialState();
     assert.throws(
       () => parseAutoPayload(state, toUnpaddedBase64(frame)),
-      /(bad magic|unsupported frame version|non-canonical varint|crc mismatch|invalid z-base-32 text: non-canonical tail bits|neither valid QR payloads nor valid fallback text)/
+      /(bad magic|unsupported frame version|non-canonical varint|crc mismatch|invalid z-base-32 text: non-canonical tail bits|neither valid QR payloads nor valid fallback text)/,
     );
   }
 });
@@ -271,8 +313,41 @@ test("parseAutoShard handles duplicates, conflicts, and fallback", () => {
 
   assert.throws(
     () => parseAutoShard(createInitialState(), "Shard Frame:\nnot-zbase32!!!"),
-    /no shard fallback lines found/
+    /outside the z-base-32 alphabet/,
   );
+});
+
+test("parseScannedShard replaces same-share shards when signature differs", () => {
+  const state = createInitialState();
+  const docId = Uint8Array.of(4, 4, 4, 4, 4, 4, 4, 4);
+  const first = buildFrame({
+    frameType: FRAME_TYPE_KEY,
+    data: encodeCbor(
+      shardPayload({
+        shareIndex: 1,
+        shareHex: FIXTURE_SHARES.share1,
+        signature: new Uint8Array(64),
+      }),
+    ),
+    docId,
+  });
+  const secondSignature = new Uint8Array(64).fill(7);
+  const second = buildFrame({
+    frameType: FRAME_TYPE_KEY,
+    data: encodeCbor(
+      shardPayload({
+        shareIndex: 1,
+        shareHex: FIXTURE_SHARES.share1,
+        signature: secondSignature,
+      }),
+    ),
+    docId,
+  });
+
+  assert.equal(parseScannedShard(state, { bytes: first }), 1);
+  assert.equal(parseScannedShard(state, { bytes: second }), 1);
+  assert.equal(state.shardConflicts, 1);
+  assert.deepEqual(state.shardFrames.get(1).signature, secondSignature);
 });
 
 test("ciphertext helpers enforce limits and missing frames", () => {
@@ -303,34 +378,34 @@ test("recoverSecretFromShards reconstructs known passphrase and rejects mismatch
   ]);
   assert.equal(new TextDecoder().decode(recovered), FIXTURE_PASSPHRASE);
 
-  assert.throws(
-    () => recoverSecretFromShards([]),
-    /no shard payloads provided/
-  );
+  assert.throws(() => recoverSecretFromShards([]), /no shard payloads provided/);
   assert.throws(
     () => recoverSecretFromShards([makeShare(1, FIXTURE_SHARES.share1)]),
-    /need at least 2 shard\(s\) to recover secret/
+    /need at least 2 shard\(s\) to recover secret/,
   );
   assert.throws(
-    () => recoverSecretFromShards([
-      makeShare(1, FIXTURE_SHARES.share1),
-      { ...makeShare(2, FIXTURE_SHARES.share2), keyType: SHARD_KEY_SIGNING_SEED },
-    ]),
-    /key types do not match/
+    () =>
+      recoverSecretFromShards([
+        makeShare(1, FIXTURE_SHARES.share1),
+        { ...makeShare(2, FIXTURE_SHARES.share2), keyType: SHARD_KEY_SIGNING_SEED },
+      ]),
+    /key types do not match/,
   );
   assert.throws(
-    () => recoverSecretFromShards([
-      makeShare(1, FIXTURE_SHARES.share1),
-      { ...makeShare(2, FIXTURE_SHARES.share2), shareIndex: 1 },
-    ]),
-    /duplicate shard index/
+    () =>
+      recoverSecretFromShards([
+        makeShare(1, FIXTURE_SHARES.share1),
+        { ...makeShare(2, FIXTURE_SHARES.share2), shareIndex: 1 },
+      ]),
+    /duplicate shard index/,
   );
   assert.throws(
-    () => recoverSecretFromShards([
-      makeShare(1, FIXTURE_SHARES.share1),
-      { ...makeShare(2, FIXTURE_SHARES.share2), share: hexToBytes("aa".repeat(15)) },
-    ]),
-    /multiple of block size/
+    () =>
+      recoverSecretFromShards([
+        makeShare(1, FIXTURE_SHARES.share1),
+        { ...makeShare(2, FIXTURE_SHARES.share2), share: hexToBytes("aa".repeat(15)) },
+      ]),
+    /multiple of block size/,
   );
 });
 

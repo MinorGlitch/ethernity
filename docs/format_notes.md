@@ -81,7 +81,7 @@ unauthenticated.
 
 When recovery input mode is auto-detected, implementations should apply this strict order:
 
-1. If fallback section markers are present (`MAIN FRAME`, `AUTH FRAME`, shard markers), parse as
+1. If fallback section markers are present (`MAIN FRAME`, `AUTH FRAME`, `SHARD FRAME`, `KEY FRAME`), parse as
    fallback sections.
 2. Otherwise, if all non-empty lines decode as QR payload frames, parse as payload mode.
 3. Otherwise, if all non-empty lines are valid z-base-32 fallback lines, parse as fallback mode.

@@ -55,7 +55,12 @@ def _decode_image_bytes_skip_b(data: bytes) -> list[bytes]:
     return [data + b"-ok"]
 
 
-def _read_barcodes(_image):
+_QR_CODE_FORMAT = object()
+
+
+def _read_barcodes(_image, *, formats=None):
+    if formats is not _QR_CODE_FORMAT:
+        raise AssertionError("expected QR-only format filter")
     return [
         SimpleNamespace(bytes=b"\x01"),
         SimpleNamespace(raw_bytes=b"\x02"),
@@ -139,6 +144,7 @@ class TestQrScanMore(unittest.TestCase):
     def test_load_decoder_uses_bytes_and_text(self) -> None:
         zxingcpp = types.ModuleType("zxingcpp")
         zxingcpp.read_barcodes = _read_barcodes
+        zxingcpp.BarcodeFormat = SimpleNamespace(QRCode=_QR_CODE_FORMAT)
 
         image_mod = types.ModuleType("PIL.Image")
         image_mod.open = _open_dummy_image
@@ -152,6 +158,14 @@ class TestQrScanMore(unittest.TestCase):
 
         self.assertEqual(payloads, [b"\x01", b"\x02", b"hello"])
         self.assertEqual(payloads_path, [b"\x01", b"\x02", b"hello"])
+
+    def test_load_decoder_rejects_missing_pillow_lazily(self) -> None:
+        with (
+            mock.patch.object(qr_scan, "pil_image", None),
+            mock.patch.dict(sys.modules, {"PIL.Image": None}),
+        ):
+            with self.assertRaisesRegex(QrScanError, "Pillow is required"):
+                qr_scan._load_decoder()
 
 
 if __name__ == "__main__":

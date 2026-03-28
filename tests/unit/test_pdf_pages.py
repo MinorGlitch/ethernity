@@ -20,9 +20,14 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 from pypdf import PdfReader
 
+from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
 from ethernity.render import RenderInputs, render_frames_to_pdf
 from tests.test_support import ensure_playwright_browsers
+
+
+def _template_path(design: str, name: str) -> Path:
+    return TEMPLATES_RESOURCE_ROOT / design / name
 
 
 def _playwright_ready() -> bool:
@@ -62,14 +67,7 @@ class TestPdfPageCount(unittest.TestCase):
             "paper_size": "A4",
         }
 
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "templates"
-            / "ledger"
-            / "main_document.html.j2"
-        )
+        template_path = _template_path("ledger", "main_document.html.j2")
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "out.pdf"
             inputs = RenderInputs(

@@ -1,10 +1,32 @@
 {
-  "include": ["src/ethernity"],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "off",
+  "include": ["src", "tests"],
   "exclude": [
-    "build",
-    "backup-*",
     "**/__pycache__",
-    "ethernity.egg-info",
-    "tests"
-  ]
+    ".venv",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "build",
+    "dist",
+    "kit/node_modules",
+    "kit/dist",
+    "src/ethernity.egg-info",
+    "src/ethernity_paper.egg-info",
+    "src/.claude"
+  ],
+  "executionEnvironments": [
+    {
+      "root": "src",
+      "extraPaths": ["src"]
+    },
+    {
+      "root": "tests",
+      "extraPaths": ["src"]
+    }
+  ],
+  "reportMissingImports": "none",
+  "reportMissingTypeStubs": "none",
+  "reportUndefinedVariable": "error"
 }

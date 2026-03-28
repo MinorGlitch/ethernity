@@ -14,13 +14,15 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 import re
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from typer.testing import CliRunner
 
-from ethernity.cli import app
-from ethernity.config.installer import DEFAULT_CONFIG_PATH
+from ethernity.cli.bootstrap.app import app
+from ethernity.config.install import DEFAULT_CONFIG_PATH
 
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
@@ -38,7 +40,7 @@ class TestCliTyper(unittest.TestCase):
             {
                 "args": ["--help"],
                 "expected_exit_code": 0,
-                "contains": ("backup", "config", "recover"),
+                "contains": ("api", "backup", "config", "recover"),
             },
             {
                 "args": ["--version"],
@@ -48,7 +50,7 @@ class TestCliTyper(unittest.TestCase):
         )
         for case in cases:
             with self.subTest(args=case["args"]):
-                with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+                with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
                     result = self.runner.invoke(app, case["args"])
                 self.assertEqual(result.exit_code, case["expected_exit_code"])
                 output = result.output.lower() if "--version" in case["args"] else result.output
@@ -56,14 +58,14 @@ class TestCliTyper(unittest.TestCase):
                     self.assertIn(expected, output)
 
     def test_root_no_subcommand_non_tty_references_help(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
-            with mock.patch("ethernity.cli.app.sys.stdin.isatty", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            with mock.patch("ethernity.cli.bootstrap.app.sys.stdin.isatty", return_value=False):
                 result = self.runner.invoke(app, ["--config", str(DEFAULT_CONFIG_PATH)])
         self.assertEqual(result.exit_code, 2)
         self.assertIn("ethernity --help", result.output)
 
     def test_backup_help_lists_qr_chunk_size(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 app,
                 ["--config", str(DEFAULT_CONFIG_PATH), "backup", "--help"],
@@ -71,8 +73,30 @@ class TestCliTyper(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         self.assertIn("--qr-chunk-size", _strip_ansi(result.output))
 
+    def test_backup_help_does_not_run_startup(self) -> None:
+        with mock.patch(
+            "ethernity.cli.bootstrap.app.run_startup", side_effect=AssertionError("startup called")
+        ) as run_startup:
+            result = self.runner.invoke(app, ["backup", "--help"])
+        self.assertEqual(result.exit_code, 0)
+        run_startup.assert_not_called()
+
+    def test_backup_help_does_not_initialize_user_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = self.runner.invoke(
+                app,
+                ["backup", "--help"],
+                env={
+                    "XDG_CONFIG_HOME": tmpdir,
+                    "ETHERNITY_SKIP_PLAYWRIGHT_INSTALL": "1",
+                },
+            )
+            config_path = Path(tmpdir) / "ethernity" / "config.toml"
+        self.assertEqual(result.exit_code, 0)
+        self.assertFalse(config_path.exists())
+
     def test_kit_help_lists_qr_chunk_size(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 app,
                 ["--config", str(DEFAULT_CONFIG_PATH), "kit", "--help"],
@@ -81,7 +105,7 @@ class TestCliTyper(unittest.TestCase):
         self.assertIn("--qr-chunk-size", _strip_ansi(result.output))
 
     def test_kit_old_chunk_size_flag_is_rejected(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 app,
                 ["--config", str(DEFAULT_CONFIG_PATH), "kit", "--chunk-size", "100"],
@@ -91,7 +115,7 @@ class TestCliTyper(unittest.TestCase):
         self.assertIn("--chunk-size", _strip_ansi(result.output))
 
     def test_kit_custom_bundle_missing_file_returns_actionable_error(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 app,
                 [

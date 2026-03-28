@@ -21,12 +21,12 @@ from unittest import mock
 
 from rich.console import Console
 
-from ethernity.cli.ui import (
+from ethernity.cli.shared.ui import (
     picker as picker_module,
     prompts as prompts_module,
     prompts_core as prompts_core_module,
 )
-from ethernity.cli.ui.state import THEME, UIContext
+from ethernity.cli.shared.ui.state import THEME, UIContext
 
 
 class _Ask:
@@ -82,20 +82,20 @@ class TestPromptPrimitives(unittest.TestCase):
         prompts_module.print_prompt_header("Second", None, context=context)
         self.assertEqual(context.console.print.call_count, 2)
 
-    @mock.patch("ethernity.cli.ui.prompts_core.print_prompt_header")
+    @mock.patch("ethernity.cli.shared.ui.prompts_core.print_prompt_header")
     def test_prompt_optional_secret(self, print_prompt_header: mock.MagicMock) -> None:
         with mock.patch(
-            "ethernity.cli.ui.prompts_core.questionary.password",
+            "ethernity.cli.shared.ui.prompts_core.questionary.password",
             return_value=_Ask([""]),
         ):
             self.assertIsNone(prompts_module.prompt_optional_secret("Secret?"))
         with mock.patch(
-            "ethernity.cli.ui.prompts_core.questionary.password",
+            "ethernity.cli.shared.ui.prompts_core.questionary.password",
             return_value=_Ask(["value"]),
         ):
             self.assertEqual(prompts_module.prompt_optional_secret("Secret?"), "value")
         with mock.patch(
-            "ethernity.cli.ui.prompts_core.questionary.password",
+            "ethernity.cli.shared.ui.prompts_core.questionary.password",
             return_value=_Ask([None]),
         ):
             with self.assertRaises(KeyboardInterrupt):
@@ -106,7 +106,7 @@ class TestPromptPrimitives(unittest.TestCase):
         context = _context()
         context.console_err.print = mock.MagicMock()
         with mock.patch(
-            "ethernity.cli.ui.prompts_core.questionary.password",
+            "ethernity.cli.shared.ui.prompts_core.questionary.password",
             return_value=_Ask(["", "secret"]),
         ):
             value = prompts_module.prompt_required_secret("Secret?", context=context)
@@ -115,12 +115,12 @@ class TestPromptPrimitives(unittest.TestCase):
 
     def test_prompt_required_secret_keyboard_interrupt(self) -> None:
         with mock.patch(
-            "ethernity.cli.ui.prompts_core.questionary.password", return_value=_Ask([None])
+            "ethernity.cli.shared.ui.prompts_core.questionary.password", return_value=_Ask([None])
         ):
             with self.assertRaises(KeyboardInterrupt):
                 prompts_module.prompt_required_secret("Secret?")
 
-    @mock.patch("ethernity.cli.ui.prompts_core.prompt_choice_list", return_value="x")
+    @mock.patch("ethernity.cli.shared.ui.prompts_core.prompt_choice_list", return_value="x")
     def test_prompt_choice_delegates_to_choice_list(
         self,
         prompt_choice_list: mock.MagicMock,
@@ -131,26 +131,26 @@ class TestPromptPrimitives(unittest.TestCase):
 
     def test_prompt_yes_no(self) -> None:
         with mock.patch(
-            "ethernity.cli.ui.prompts_core.questionary.confirm", return_value=_Ask([True])
+            "ethernity.cli.shared.ui.prompts_core.questionary.confirm", return_value=_Ask([True])
         ):
             self.assertTrue(prompts_module.prompt_yes_no("Continue?", default=True))
         with mock.patch(
-            "ethernity.cli.ui.prompts_core.questionary.confirm", return_value=_Ask([None])
+            "ethernity.cli.shared.ui.prompts_core.questionary.confirm", return_value=_Ask([None])
         ):
             with self.assertRaises(KeyboardInterrupt):
                 prompts_module.prompt_yes_no("Continue?", default=False)
 
     def test_prompt_optional_required_and_multiline(self) -> None:
         with mock.patch(
-            "ethernity.cli.ui.prompts_core.questionary.text", return_value=_Ask([" value "])
+            "ethernity.cli.shared.ui.prompts_core.questionary.text", return_value=_Ask([" value "])
         ):
             self.assertEqual(prompts_module.prompt_optional("Name"), "value")
         with mock.patch(
-            "ethernity.cli.ui.prompts_core.questionary.text", return_value=_Ask(["  "])
+            "ethernity.cli.shared.ui.prompts_core.questionary.text", return_value=_Ask(["  "])
         ):
             self.assertIsNone(prompts_module.prompt_optional("Name"))
         with mock.patch(
-            "ethernity.cli.ui.prompts_core.questionary.text", return_value=_Ask([None])
+            "ethernity.cli.shared.ui.prompts_core.questionary.text", return_value=_Ask([None])
         ):
             with self.assertRaises(KeyboardInterrupt):
                 prompts_module.prompt_optional("Name")
@@ -158,13 +158,14 @@ class TestPromptPrimitives(unittest.TestCase):
         context = _context()
         context.console_err.print = mock.MagicMock()
         with mock.patch(
-            "ethernity.cli.ui.prompts_core.questionary.text", return_value=_Ask(["", "ready"])
+            "ethernity.cli.shared.ui.prompts_core.questionary.text",
+            return_value=_Ask(["", "ready"]),
         ):
             self.assertEqual(prompts_module.prompt_required("Value", context=context), "ready")
         context.console_err.print.assert_called()
 
         with mock.patch(
-            "ethernity.cli.ui.prompts_core.questionary.text",
+            "ethernity.cli.shared.ui.prompts_core.questionary.text",
             return_value=_Ask(["one\ntwo", "-"]),
         ):
             items = prompts_module.prompt_multiline("Lines", stop_on_dash=True)
@@ -174,7 +175,7 @@ class TestPromptPrimitives(unittest.TestCase):
         context = _context()
         context.console_err.print = mock.MagicMock()
         with mock.patch(
-            "ethernity.cli.ui.prompts_core.questionary.text",
+            "ethernity.cli.shared.ui.prompts_core.questionary.text",
             return_value=_Ask(["", "abc", "0", "11", "5"]),
         ):
             value = prompts_module.prompt_int("Count", minimum=1, maximum=10, context=context)
@@ -188,7 +189,8 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
             prompts_module.prompt_choice_list([], default=None)
 
     @mock.patch(
-        "ethernity.cli.ui.prompts_core._select_with_initial_choice", return_value=_Ask([None])
+        "ethernity.cli.shared.ui.prompts_core._select_with_initial_choice",
+        return_value=_Ask([None]),
     )
     def test_prompt_choice_list_cancellation_raises_keyboard_interrupt(
         self,
@@ -200,7 +202,8 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
             prompts_module.prompt_choice_list([("a", "A")], default=None)
 
     @mock.patch(
-        "ethernity.cli.ui.prompts_core._select_with_initial_choice", return_value=_Ask(["chosen"])
+        "ethernity.cli.shared.ui.prompts_core._select_with_initial_choice",
+        return_value=_Ask(["chosen"]),
     )
     def test_prompt_choice_list_uses_public_questionary_select(
         self,
@@ -222,7 +225,8 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
         self.assertNotIn(("selected", "reverse"), prompts_core_module.QUESTIONARY_STYLE.style_rules)
 
     @mock.patch(
-        "ethernity.cli.ui.prompts_core._select_with_initial_choice", return_value=_Ask(["chosen"])
+        "ethernity.cli.shared.ui.prompts_core._select_with_initial_choice",
+        return_value=_Ask(["chosen"]),
     )
     def test_prompt_choice_list_passes_unknown_default_as_initial_choice(
         self,
@@ -278,9 +282,9 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
                     include_hidden=False,
                 )
 
-    @mock.patch("ethernity.cli.ui.picker.prompt_optional_path", side_effect=[".", ".", "."])
+    @mock.patch("ethernity.cli.shared.ui.picker.prompt_optional_path", side_effect=[".", ".", "."])
     @mock.patch(
-        "ethernity.cli.ui.picker.prompt_choice",
+        "ethernity.cli.shared.ui.picker.prompt_choice",
         side_effect=["select", "select", "manual"],
     )
     def test_run_picker_flow_retry_then_manual(
@@ -320,8 +324,8 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
         self.assertEqual(value2, "manual")
         manual_func.assert_called_once()
 
-    @mock.patch("ethernity.cli.ui.picker.prompt_optional_path", return_value=None)
-    @mock.patch("ethernity.cli.ui.picker.prompt_choice", return_value="select")
+    @mock.patch("ethernity.cli.shared.ui.picker.prompt_optional_path", return_value=None)
+    @mock.patch("ethernity.cli.shared.ui.picker.prompt_choice", return_value="select")
     def test_run_picker_flow_uses_last_picker_dir_default(
         self,
         _prompt_choice: mock.MagicMock,
@@ -344,8 +348,8 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
         self.assertEqual(value, "/tmp/last-picker/chosen.txt")
         select_func.assert_called_once_with("/tmp/last-picker")
 
-    @mock.patch("ethernity.cli.ui.picker.prompt_optional_path", return_value=".")
-    @mock.patch("ethernity.cli.ui.picker.prompt_choice", return_value="select")
+    @mock.patch("ethernity.cli.shared.ui.picker.prompt_optional_path", return_value=".")
+    @mock.patch("ethernity.cli.shared.ui.picker.prompt_choice", return_value="select")
     def test_run_picker_flow_updates_last_picker_dir_after_select(
         self,
         _prompt_choice: mock.MagicMock,
@@ -367,7 +371,7 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
         )
         self.assertEqual(Path(context.last_picker_dir), Path("/tmp/out"))
 
-    @mock.patch("ethernity.cli.ui.picker.prompt_choice", return_value="manual")
+    @mock.patch("ethernity.cli.shared.ui.picker.prompt_choice", return_value="manual")
     def test_run_picker_flow_updates_last_picker_dir_after_manual(
         self,
         _prompt_choice: mock.MagicMock,
@@ -387,7 +391,7 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
         )
         self.assertEqual(Path(context.last_picker_dir), Path("/tmp/manual"))
 
-    @mock.patch("ethernity.cli.ui.picker.prompt_choice_list", return_value="chosen")
+    @mock.patch("ethernity.cli.shared.ui.picker.prompt_choice_list", return_value="chosen")
     def test_prompt_select_entries_single(
         self,
         prompt_choice_list: mock.MagicMock,
@@ -415,7 +419,9 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "a.txt").write_text("x", encoding="utf-8")
             checkbox = _Ask([[], ["ok"]])
-            with mock.patch("ethernity.cli.ui.picker.questionary.checkbox", return_value=checkbox):
+            with mock.patch(
+                "ethernity.cli.shared.ui.picker.questionary.checkbox", return_value=checkbox
+            ):
                 values = picker_module._prompt_select_entries(
                     "Pick many",
                     directory=tmp,
@@ -429,23 +435,23 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
         self.assertEqual(values, ["ok"])
         context.console_err.print.assert_called()
 
-    @mock.patch("ethernity.cli.ui.picker._prompt_select_entries", return_value=["a", "b"])
+    @mock.patch("ethernity.cli.shared.ui.picker._prompt_select_entries", return_value=["a", "b"])
     def test_prompt_select_paths_wrapper(self, _prompt_select_entries: mock.MagicMock) -> None:
         values = prompts_module.prompt_select_paths("Pick", directory=".")
         self.assertEqual(values, ["a", "b"])
 
-    @mock.patch("ethernity.cli.ui.picker._prompt_select_entries", return_value="a")
+    @mock.patch("ethernity.cli.shared.ui.picker._prompt_select_entries", return_value="a")
     def test_prompt_select_path_wrapper(self, _prompt_select_entries: mock.MagicMock) -> None:
         value = prompts_module.prompt_select_path("Pick", directory=".")
         self.assertEqual(value, "a")
 
-    @mock.patch("ethernity.cli.ui.picker._run_picker_flow", return_value="picked")
+    @mock.patch("ethernity.cli.shared.ui.picker._run_picker_flow", return_value="picked")
     def test_prompt_path_with_picker_delegates(self, run_picker_flow: mock.MagicMock) -> None:
         value = prompts_module.prompt_path_with_picker("Path", kind="file")
         self.assertEqual(value, "picked")
         run_picker_flow.assert_called_once()
 
-    @mock.patch("ethernity.cli.ui.picker._run_picker_flow", return_value=None)
+    @mock.patch("ethernity.cli.shared.ui.picker._run_picker_flow", return_value=None)
     def test_prompt_optional_path_with_picker_delegates(
         self,
         run_picker_flow: mock.MagicMock,
@@ -454,7 +460,7 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
         self.assertIsNone(value)
         run_picker_flow.assert_called_once()
 
-    @mock.patch("ethernity.cli.ui.picker._run_picker_flow", return_value=None)
+    @mock.patch("ethernity.cli.shared.ui.picker._run_picker_flow", return_value=None)
     def test_prompt_optional_path_with_picker_allow_new_defaults_to_manual(
         self,
         run_picker_flow: mock.MagicMock,
@@ -494,9 +500,11 @@ class TestPathValidationFlows(unittest.TestCase):
                 picker_module.validate_path(str(root / "new"), kind="path", allow_new=True)
             )
 
-    @mock.patch("ethernity.cli.ui.picker.validate_path", side_effect=["bad", None, None, None])
-    @mock.patch("ethernity.cli.ui.picker.prompt_optional", side_effect=[None, "value"])
-    @mock.patch("ethernity.cli.ui.picker.prompt_required", side_effect=["-", "bad", "good"])
+    @mock.patch(
+        "ethernity.cli.shared.ui.picker.validate_path", side_effect=["bad", None, None, None]
+    )
+    @mock.patch("ethernity.cli.shared.ui.picker.prompt_optional", side_effect=[None, "value"])
+    @mock.patch("ethernity.cli.shared.ui.picker.prompt_required", side_effect=["-", "bad", "good"])
     def test_prompt_path_required_optional_and_stdin(
         self,
         _prompt_required: mock.MagicMock,
@@ -546,7 +554,7 @@ class TestPathValidationFlows(unittest.TestCase):
             "value",
         )
 
-    @mock.patch("ethernity.cli.ui.picker._prompt_path", return_value="x")
+    @mock.patch("ethernity.cli.shared.ui.picker._prompt_path", return_value="x")
     def test_required_optional_path_wrappers(self, _prompt_path: mock.MagicMock) -> None:
         self.assertEqual(prompts_module.prompt_required_path("P", kind="file"), "x")
         self.assertEqual(prompts_module.prompt_optional_path("P", kind="file"), "x")
@@ -558,11 +566,11 @@ class TestPathValidationFlows(unittest.TestCase):
         context = _context()
         context.console_err.print = mock.MagicMock()
         with mock.patch(
-            "ethernity.cli.ui.picker.prompt_multiline",
+            "ethernity.cli.shared.ui.picker.prompt_multiline",
             side_effect=[[], ["-"], ["a.txt", "-"], ["bad"], ["ok"]],
         ):
             with mock.patch(
-                "ethernity.cli.ui.picker.validate_path",
+                "ethernity.cli.shared.ui.picker.validate_path",
                 side_effect=["broken", None],
             ):
                 values = picker_module.prompt_required_paths(
@@ -574,7 +582,7 @@ class TestPathValidationFlows(unittest.TestCase):
         self.assertEqual(values, ["ok"])
         self.assertGreaterEqual(context.console_err.print.call_count, 3)
 
-        with mock.patch("ethernity.cli.ui.picker.prompt_multiline", return_value=["-"]):
+        with mock.patch("ethernity.cli.shared.ui.picker.prompt_multiline", return_value=["-"]):
             values = picker_module.prompt_required_paths(
                 "Paths",
                 kind="file",
@@ -583,7 +591,7 @@ class TestPathValidationFlows(unittest.TestCase):
             )
         self.assertEqual(values, ["-"])
 
-    @mock.patch("ethernity.cli.ui.picker._run_picker_flow", return_value=["a.txt"])
+    @mock.patch("ethernity.cli.shared.ui.picker._run_picker_flow", return_value=["a.txt"])
     def test_prompt_paths_with_picker_delegates(self, run_picker_flow: mock.MagicMock) -> None:
         values = prompts_module.prompt_paths_with_picker("Enter paths")
         self.assertEqual(values, ["a.txt"])

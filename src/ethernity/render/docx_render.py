@@ -29,7 +29,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Mm
 
-from .storage_paths import (
+from ethernity.render.storage_paths import (
     DEFAULT_LOGO_PATH,
     EnvelopeKind,
     EnvelopeOrientation,

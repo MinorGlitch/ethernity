@@ -15,11 +15,7 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import {
-  decodePayloadString,
-  decodeZBase32,
-  filterZBase32Lines,
-} from "../lib/encoding.js";
+import { decodePayloadString, decodeZBase32, filterZBase32Lines } from "../lib/encoding.js";
 import {
   FRAME_TYPE_KEY,
   MAX_FALLBACK_LINES,
@@ -83,17 +79,26 @@ function getScannedBytes(input) {
 }
 
 function nonEmptyLines(text) {
-  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function normalizeMarkerLine(line) {
+  return line
+    .trim()
+    .replace(/^[=:\-\s]+|[=:\-\s]+$/g, "")
+    .toLowerCase();
+}
+
+function detectMarker(line, markers) {
+  const normalized = normalizeMarkerLine(line);
+  return markers.find((marker) => normalized === marker) ?? null;
 }
 
 function hasMarker(lines, markers) {
-  for (const line of lines) {
-    const lower = line.toLowerCase();
-    if (markers.some((marker) => lower.includes(marker))) {
-      return true;
-    }
-  }
-  return false;
+  return lines.some((line) => detectMarker(line, markers));
 }
 
 function allLinesDecodeFrames(lines) {
@@ -129,8 +134,12 @@ function allLinesDecodeShardFrames(lines) {
 
 function allLinesLookLikeFallback(lines) {
   if (!lines.length) return false;
-  const filtered = filterZBase32Lines(lines.join("\n"));
-  return filtered.length === lines.length;
+  try {
+    const filtered = filterZBase32Lines(lines.join("\n"));
+    return filtered.length === lines.length;
+  } catch {
+    return false;
+  }
 }
 
 function normalizedZbaseChars(lines) {
@@ -147,13 +156,13 @@ function normalizedZbaseChars(lines) {
 function enforceFallbackLimits(lines, label) {
   if (lines.length > MAX_FALLBACK_LINES) {
     throw new Error(
-      `${label} fallback exceeds MAX_FALLBACK_LINES (${MAX_FALLBACK_LINES}): ${lines.length} lines`
+      `${label} fallback exceeds MAX_FALLBACK_LINES (${MAX_FALLBACK_LINES}): ${lines.length} lines`,
     );
   }
   const normalizedChars = normalizedZbaseChars(lines);
   if (normalizedChars > MAX_FALLBACK_NORMALIZED_CHARS) {
     throw new Error(
-      `${label} fallback exceeds MAX_FALLBACK_NORMALIZED_CHARS (${MAX_FALLBACK_NORMALIZED_CHARS}): ${normalizedChars} chars`
+      `${label} fallback exceeds MAX_FALLBACK_NORMALIZED_CHARS (${MAX_FALLBACK_NORMALIZED_CHARS}): ${normalizedChars} chars`,
     );
   }
 }
@@ -162,15 +171,18 @@ function parseFallbackText(state, text) {
   const lines = text.split(/\r?\n/);
   const sections = { main: [], auth: [], any: [] };
   let current = null;
+  let sawMarker = false;
   for (const raw of lines) {
     const line = raw.trim();
     if (!line) continue;
-    const lower = line.toLowerCase();
-    if (lower.includes("main frame")) {
+    const marker = detectMarker(line, ["main frame", "auth frame"]);
+    if (marker === "main frame") {
+      sawMarker = true;
       current = "main";
       continue;
     }
-    if (lower.includes("auth frame")) {
+    if (marker === "auth frame") {
+      sawMarker = true;
       current = "auth";
       continue;
     }
@@ -179,6 +191,9 @@ function parseFallbackText(state, text) {
     } else {
       sections.any.push(line);
     }
+  }
+  if (sawMarker && sections.any.length) {
+    throw new Error("unexpected content before the first marked fallback section");
   }
   const target = sections.main.length ? sections.main : sections.any;
   const filtered = filterZBase32Lines(target.join("\n"));
@@ -209,7 +224,16 @@ function parseFallbackText(state, text) {
 }
 
 function parseShardFallbackText(state, text) {
-  const filtered = filterZBase32Lines(text);
+  const payloadLines = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (detectMarker(line, ["shard frame", "shard payload"])) {
+      continue;
+    }
+    payloadLines.push(line);
+  }
+  const filtered = filterZBase32Lines(payloadLines.join("\n"));
   if (!filtered.length) {
     throw new Error("no shard fallback lines found");
   }
@@ -224,7 +248,7 @@ function enforceRecoveryTextLimit(text) {
   const textBytes = new TextEncoder().encode(text).length;
   if (textBytes > MAX_RECOVERY_TEXT_BYTES) {
     throw new Error(
-      `recovery text exceeds MAX_RECOVERY_TEXT_BYTES (${MAX_RECOVERY_TEXT_BYTES}): ${textBytes} bytes`
+      `recovery text exceeds MAX_RECOVERY_TEXT_BYTES (${MAX_RECOVERY_TEXT_BYTES}): ${textBytes} bytes`,
     );
   }
 }
@@ -269,7 +293,7 @@ export function parseScannedPayload(state, scanned) {
   const text = getScannedText(scanned).trim();
   const bytes = getScannedBytes(scanned);
 
-  if (bytes && bytes.length) {
+  if (bytes?.length) {
     try {
       const frame = decodeFrame(bytes);
       addFrame(state, frame);
@@ -299,7 +323,7 @@ export function parseScannedShard(state, scanned) {
   const text = getScannedText(scanned).trim();
   const bytes = getScannedBytes(scanned);
 
-  if (bytes && bytes.length) {
+  if (bytes?.length) {
     try {
       const frame = decodeFrame(bytes);
       if (frame.frameType !== FRAME_TYPE_KEY) {
@@ -328,3 +352,5 @@ export function parseScannedShard(state, scanned) {
   bumpError(state, "shardErrors");
   return 0;
 }
+
+export { detectMarker };

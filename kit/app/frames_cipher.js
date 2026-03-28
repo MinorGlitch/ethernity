@@ -32,7 +32,7 @@ export function reassembleCiphertext(state) {
   const totalLen = chunks.reduce((sum, arr) => sum + arr.length, 0);
   if (totalLen > MAX_CIPHERTEXT_BYTES) {
     throw new Error(
-      `reassembled payload exceeds MAX_CIPHERTEXT_BYTES (${MAX_CIPHERTEXT_BYTES}): ${totalLen} bytes`
+      `reassembled payload exceeds MAX_CIPHERTEXT_BYTES (${MAX_CIPHERTEXT_BYTES}): ${totalLen} bytes`,
     );
   }
   const out = new Uint8Array(totalLen);

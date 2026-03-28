@@ -16,11 +16,15 @@
  */
 
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-const BASE91_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~\"";
+
+import { scannerHookPathForMode, selectedVariants } from "./lib/build_variants.mjs";
+import { buildCompressedLoaderHtml } from "./lib/loader_html.js";
+const BASE91_ALPHABET =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~"';
 const STYLE_TAG_RE = /<style\b[^>]*>([\s\S]*?)<\/style>/i;
 const CSS_CLASS_RE = /\.([A-Za-z_-][A-Za-z0-9_-]*)/g;
 const CLASS_TOKEN_RE = /[a-z0-9_-]+/g;
@@ -88,7 +92,11 @@ function buildClassMap(css) {
   const names = new Set();
   CSS_CLASS_RE.lastIndex = 0;
   let match = null;
-  while ((match = CSS_CLASS_RE.exec(css))) {
+  while (true) {
+    match = CSS_CLASS_RE.exec(css);
+    if (!match) {
+      break;
+    }
     const name = match[1];
     if (!PRESERVE_CLASS_TOKENS.has(name)) {
       names.add(name);
@@ -155,7 +163,7 @@ function readTemplateExpression(source, start) {
   let out = "";
   while (i < source.length) {
     const ch = source[i];
-    if (ch === "'" || ch === "\"") {
+    if (ch === "'" || ch === '"') {
       const parsed = readStringLiteral(source, i);
       out += parsed.text;
       i = parsed.end;
@@ -241,7 +249,7 @@ function replaceClassNamesInJs(source, map, classTokens) {
   let i = 0;
   while (i < source.length) {
     const ch = source[i];
-    if (ch === "'" || ch === "\"") {
+    if (ch === "'" || ch === '"') {
       const parsed = readStringLiteral(source, i, map, classTokens);
       out += parsed.text;
       i = parsed.end;
@@ -314,11 +322,9 @@ async function gzipWithLibdeflate(rawBundle, tmpBase) {
   if (!Number.isInteger(level) || level < 1 || level > 12) {
     throw new Error(`invalid ETHERNITY_KIT_LIBDEFLATE_LEVEL: ${levelRaw}`);
   }
-  const result = spawnSync(
-    "libdeflate-gzip",
-    [`-${level}`, "-c", inputPath],
-    { stdio: ["ignore", "pipe", "pipe"] }
-  );
+  const result = spawnSync("libdeflate-gzip", [`-${level}`, "-c", inputPath], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   if (result.error && result.error.code === "ENOENT") {
     return null;
   }
@@ -337,7 +343,7 @@ async function gzipBundlePayload(rawBundle, tmpBase) {
   const requested = (process.env.ETHERNITY_KIT_GZIP_COMPRESSOR ?? "libdeflate").toLowerCase();
   if (requested !== "libdeflate") {
     throw new Error(
-      "ETHERNITY_KIT_GZIP_COMPRESSOR must be 'libdeflate' (other compressors are not supported)"
+      "ETHERNITY_KIT_GZIP_COMPRESSOR must be 'libdeflate' (other compressors are not supported)",
     );
   }
   const libdeflateBytes = await gzipWithLibdeflate(rawBundle, tmpBase);
@@ -357,7 +363,7 @@ async function ensureTrailingNewline(path) {
 const kitDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const inputPath = resolve(kitDir, process.argv[2] ?? "recovery_kit.html");
 const distDir = resolve(kitDir, "dist");
-const packageDir = resolve(kitDir, "..", "src", "ethernity", "kit");
+const packageDir = resolve(kitDir, "..", "src", "ethernity", "resources", "kit");
 const html = await readFile(inputPath, "utf8");
 const scriptTagRe = /<script\b[^>]*>[\s\S]*?<\/script>/g;
 const entryPoint = resolve(kitDir, "app", "index.jsx");
@@ -371,23 +377,6 @@ const scannerHookJsqrPath = resolve(kitDir, "app", "hooks", "useQrScannerRuntime
 await mkdir(distDir, { recursive: true });
 await mkdir(packageDir, { recursive: true });
 
-function selectedVariants() {
-  const requested = (process.env.ETHERNITY_KIT_VARIANTS ?? "both").toLowerCase();
-  if (requested === "both") {
-    return [
-      { id: "lean", bundleName: "recovery_kit.bundle.html", scannerMode: "none" },
-      { id: "scanner", bundleName: "recovery_kit.scanner.bundle.html", scannerMode: "jsqr" },
-    ];
-  }
-  if (requested === "lean") {
-    return [{ id: "lean", bundleName: "recovery_kit.bundle.html", scannerMode: "none" }];
-  }
-  if (requested === "scanner") {
-    return [{ id: "scanner", bundleName: "recovery_kit.scanner.bundle.html", scannerMode: "jsqr" }];
-  }
-  throw new Error("ETHERNITY_KIT_VARIANTS must be one of: both, lean, scanner");
-}
-
 async function buildBundleVariant(variant) {
   const rawBundleName = variant.bundleName.replace(/\.html$/, ".raw.html");
   const rawOutputPath = resolve(distDir, rawBundleName);
@@ -395,7 +384,11 @@ async function buildBundleVariant(variant) {
   const packagePath = resolve(packageDir, variant.bundleName);
   const tmpBase = resolve(tmpdir(), `ethernity-kit-${variant.id}-${Date.now()}`);
   const tmpOut = `${tmpBase}.min.js`;
-  const scannerHookPath = variant.scannerMode === "jsqr" ? scannerHookJsqrPath : scannerHookLeanPath;
+  const scannerHookPath = scannerHookPathForMode(
+    variant.scannerMode,
+    scannerHookLeanPath,
+    scannerHookJsqrPath,
+  );
 
   const esbuildArgs = [
     entryPoint,
@@ -408,7 +401,7 @@ async function buildBundleVariant(variant) {
     "--minify",
     "--tree-shaking=true",
     "--legal-comments=none",
-    "--define:process.env.NODE_ENV=\"production\"",
+    '--define:process.env.NODE_ENV="production"',
     `--alias:microact=${microactIndexPath}`,
     `--alias:microact/hooks=${microactHooksPath}`,
     `--alias:microact/jsx-runtime=${microactJsxRuntimePath}`,
@@ -458,7 +451,10 @@ async function buildBundleVariant(variant) {
   console.log(`[${variant.id}] Gzip compressor: ${gzipResult.method} (${gzPayload.length} bytes)`);
   const gzBase91 = base91Encode(gzPayload);
   const gzBase91Safe = gzBase91.replaceAll("</", "<\\/");
-  const loaderHtml = `<!doctype html><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Ethernity Recovery Kit</title><script>(async()=>{const p=${JSON.stringify(gzBase91Safe)};if(!(\"DecompressionStream\"in window))return;const a=${JSON.stringify(BASE91_ALPHABET)};const d=t=>{let b=0,n=0,v=-1,o=[];for(let i=0;i<t.length;i++){const c=a.indexOf(t[i]);if(c===-1)continue;if(v<0){v=c;continue}v+=c*91;b|=v<<n;n+=(v&8191)>88?13:14;while(n>7){o.push(b&255);b>>=8;n-=8}v=-1}if(v>=0)o.push((b|v<<n)&255);return new Uint8Array(o)};const b=d(p);const ds=new DecompressionStream(\"gzip\");const s=new Blob([b]).stream().pipeThrough(ds);const t=await new Response(s).text();document.open();document.write(t);document.close();})();</script>`;
+  const loaderHtml = buildCompressedLoaderHtml({
+    gzBase91Safe,
+    alphabet: BASE91_ALPHABET,
+  });
 
   const tmpLoader = `${tmpBase}.loader.html`;
   await writeFile(tmpLoader, loaderHtml, "utf8");
@@ -468,7 +464,7 @@ async function buildBundleVariant(variant) {
   const loaderResult = spawnSync(
     "npx",
     ["--no-install", "html-minifier-terser", ...loaderMinArgs],
-    { stdio: "inherit" }
+    { stdio: "inherit" },
   );
   if (loaderResult.status !== 0) {
     process.exit(loaderResult.status ?? 1);
@@ -483,6 +479,6 @@ async function buildBundleVariant(variant) {
   console.log(`[${variant.id}] Wrote ${packagePath}`);
 }
 
-for (const variant of selectedVariants()) {
+for (const variant of selectedVariants(process.env.ETHERNITY_KIT_VARIANTS ?? "both")) {
   await buildBundleVariant(variant);
 }

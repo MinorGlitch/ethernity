@@ -19,9 +19,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+from ethernity.config.paths import STORAGE_RESOURCE_ROOT
 
-STORAGE_ROOT = _PACKAGE_ROOT / "storage"
+STORAGE_ROOT = STORAGE_RESOURCE_ROOT
 ENVELOPE_C6_TEMPLATE_PATH = STORAGE_ROOT / "envelope_c6.html.j2"
 ENVELOPE_C5_TEMPLATE_PATH = STORAGE_ROOT / "envelope_c5.html.j2"
 ENVELOPE_DL_TEMPLATE_PATH = STORAGE_ROOT / "envelope_dl.html.j2"

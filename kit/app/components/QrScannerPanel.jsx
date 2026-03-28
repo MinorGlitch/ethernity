@@ -18,29 +18,27 @@
 import { useQrScannerRuntime } from "#kit-scanner-runtime";
 
 export function QrScannerPanel({ onScanPayload }) {
-  const {
-    active,
-    status,
-    supported,
-    scanCount,
-    videoRef,
-    startScanner,
-    stopScanner,
-  } = useQrScannerRuntime(onScanPayload);
+  const { active, status, supported, scanCount, videoRef, startScanner, stopScanner } =
+    useQrScannerRuntime(onScanPayload);
 
   return (
     <div class="scan-panel">
       <div class="row">
-        <button type="button" class="secondary" onClick={startScanner} disabled={active || !supported.ok}>
+        <button
+          type="button"
+          class="secondary"
+          onClick={startScanner}
+          disabled={active || !supported.ok}
+        >
           Scan QR
         </button>
         <button type="button" class="ghost" onClick={stopScanner} disabled={!active}>
           Stop
         </button>
-        <div class="hint">{scanCount ? `Scanned: ${scanCount}` : "Camera (optional)"}</div>
+        <div class="hint">{scanCount ? `Scanned: ${scanCount}` : ""}</div>
       </div>
       <div class="scan-preview" hidden={!active}>
-        <video class="scan-video" ref={videoRef} muted hidden={!active} />
+        <video class="scan-video" ref={videoRef} muted playsinline hidden={!active} />
         {active ? <div class="scan-box" aria-hidden="true" /> : null}
       </div>
       {status ? <div class="hint scan-status">{status}</div> : null}

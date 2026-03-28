@@ -23,12 +23,12 @@ from unittest import mock
 from typer.testing import CliRunner
 
 from ethernity import cli
-from ethernity.cli.core.types import RecoverArgs
-from ethernity.cli.flows import recover_wizard as recover_wizard_module
-from ethernity.cli.flows.recover import run_recover_command
-from ethernity.cli.flows.recover_plan import _resolve_passphrase
-from ethernity.cli.io.frames import _frames_from_fallback
-from ethernity.config.installer import DEFAULT_CONFIG_PATH
+from ethernity.cli.features.recover import wizard as recover_wizard_module
+from ethernity.cli.features.recover.orchestrator import run_recover_command
+from ethernity.cli.features.recover.planning import _resolve_passphrase
+from ethernity.cli.shared.io.frames import _frames_from_fallback
+from ethernity.cli.shared.types import RecoverArgs
+from ethernity.config.install import DEFAULT_CONFIG_PATH
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.render.fallback_text import format_zbase32_lines
@@ -67,6 +67,28 @@ class TestCliRecoverValidation(unittest.TestCase):
                 args=None,
             )
         self.assertIn("mnemonic", str(ctx.exception).lower())
+
+    def test_whitespace_only_changes_do_not_change_valid_mnemonic_passphrase(self) -> None:
+        passphrase = (
+            "  abandon   abandon abandon abandon abandon abandon abandon abandon "
+            "abandon abandon abandon about  "
+        )
+        resolved = _resolve_passphrase(
+            passphrase=passphrase,
+            shard_frames=[],
+            doc_id=b"\x00" * DOC_ID_LEN,
+            doc_hash=b"\x00" * 32,
+            sign_pub=None,
+            allow_unsigned=False,
+            args=None,
+        )
+        self.assertEqual(
+            resolved,
+            (
+                "abandon abandon abandon abandon abandon abandon abandon abandon "
+                "abandon abandon abandon about"
+            ),
+        )
 
     def test_conflicting_input_combinations(self) -> None:
         cases = (
@@ -187,7 +209,7 @@ class TestCliRecoverValidation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "fallback.txt"
             path.write_text("\n".join(lines), encoding="utf-8")
-            with mock.patch("ethernity.cli.io.fallback_parser.MAX_FALLBACK_LINES", 2):
+            with mock.patch("ethernity.cli.shared.io.fallback_parser.MAX_FALLBACK_LINES", 2):
                 with self.assertRaisesRegex(ValueError, "MAX_FALLBACK_LINES"):
                     _frames_from_fallback(
                         str(path),
@@ -265,7 +287,7 @@ class TestCliRecoverValidation(unittest.TestCase):
         self.assertEqual(frames[0].frame_type, FrameType.MAIN_DOCUMENT)
 
     def test_recover_empty_stdin_non_tty_shows_input_guidance(self) -> None:
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 cli.app,
                 ["--config", str(DEFAULT_CONFIG_PATH), "recover"],
@@ -284,9 +306,9 @@ class TestCliRecoverValidation(unittest.TestCase):
             captured["fallback_file"] = args.fallback_file
             return 0
 
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             with mock.patch(
-                "ethernity.cli.commands.recover.run_recover_command",
+                "ethernity.cli.features.recover.command.run_recover_command",
                 side_effect=_capture_args,
             ):
                 result = self.runner.invoke(
@@ -305,9 +327,9 @@ class TestCliRecoverValidation(unittest.TestCase):
             captured["allow_unsigned"] = args.allow_unsigned
             return 0
 
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             with mock.patch(
-                "ethernity.cli.commands.recover.run_recover_command",
+                "ethernity.cli.features.recover.command.run_recover_command",
                 side_effect=_capture_args,
             ):
                 result = self.runner.invoke(
@@ -332,9 +354,9 @@ class TestCliRecoverValidation(unittest.TestCase):
             captured["allow_unsigned"] = args.allow_unsigned
             return 0
 
-        with mock.patch("ethernity.cli.app.run_startup", return_value=False):
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             with mock.patch(
-                "ethernity.cli.commands.recover.run_recover_command",
+                "ethernity.cli.features.recover.command.run_recover_command",
                 side_effect=_capture_args,
             ):
                 result = self.runner.invoke(
@@ -353,7 +375,7 @@ class TestCliRecoverValidation(unittest.TestCase):
 
     def test_recover_skip_auth_warning_not_emitted_before_input_validation(self) -> None:
         args = RecoverArgs(allow_unsigned=True, quiet=False)
-        with mock.patch("ethernity.cli.flows.recover._warn") as warn_mock:
+        with mock.patch("ethernity.cli.features.recover.orchestrator._warn") as warn_mock:
             with self.assertRaises(ValueError):
                 run_recover_command(args)
         warn_mock.assert_not_called()
@@ -386,15 +408,15 @@ class TestCliRecoverValidation(unittest.TestCase):
             return 0
 
         with mock.patch(
-            "ethernity.cli.flows.recover.plan_from_args",
+            "ethernity.cli.features.recover.orchestrator.plan_from_args",
             side_effect=_fake_plan_from_args,
         ):
             with mock.patch(
-                "ethernity.cli.flows.recover._warn",
+                "ethernity.cli.features.recover.orchestrator._warn",
                 side_effect=_fake_warn,
             ):
                 with mock.patch(
-                    "ethernity.cli.flows.recover.run_recover_plan",
+                    "ethernity.cli.features.recover.orchestrator.run_recover_plan",
                     side_effect=_fake_run_recover_plan,
                 ):
                     result = run_recover_command(RecoverArgs(allow_unsigned=True, quiet=False))
@@ -422,47 +444,47 @@ class TestCliRecoverValidation(unittest.TestCase):
         )
         args = RecoverArgs(quiet=False, assume_yes=False)
         with mock.patch(
-            "ethernity.cli.flows.recover_wizard.sys.stdin.isatty",
+            "ethernity.cli.features.recover.wizard.sys.stdin.isatty",
             return_value=True,
         ):
             with mock.patch(
-                "ethernity.cli.flows.recover_wizard.sys.stdout.isatty",
+                "ethernity.cli.features.recover.wizard.sys.stdout.isatty",
                 return_value=True,
             ):
                 with mock.patch(
-                    "ethernity.cli.flows.recover_wizard.resolve_recover_config",
+                    "ethernity.cli.features.recover.wizard.resolve_recover_config",
                     return_value=(object(), "base64"),
                 ):
                     with mock.patch(
-                        "ethernity.cli.flows.recover_wizard._prompt_recovery_input",
+                        "ethernity.cli.features.recover.wizard._prompt_recovery_input",
                         return_value=([frame], "Recovery text", "stdin"),
                     ):
                         with mock.patch(
-                            "ethernity.cli.flows.recover_wizard._load_extra_auth_frames",
+                            "ethernity.cli.features.recover.wizard._load_extra_auth_frames",
                             return_value=[],
                         ):
                             with mock.patch(
-                                "ethernity.cli.flows.recover_wizard._prompt_key_material",
+                                "ethernity.cli.features.recover.wizard._prompt_key_material",
                                 return_value=("passphrase", [], [], []),
                             ):
                                 with mock.patch(
-                                    "ethernity.cli.flows.recover_wizard._load_shard_frames",
+                                    "ethernity.cli.features.recover.wizard._load_shard_frames",
                                     return_value=[],
                                 ):
                                     with mock.patch(
-                                        "ethernity.cli.flows.recover_wizard.build_recovery_plan",
+                                        "ethernity.cli.features.recover.wizard.build_recovery_plan",
                                         return_value=plan,
                                     ):
                                         with mock.patch(
-                                            "ethernity.cli.flows.recover_wizard._build_recovery_review_rows",
+                                            "ethernity.cli.features.recover.wizard._build_recovery_review_rows",
                                             return_value=[("Inputs", None)],
                                         ):
                                             with mock.patch(
-                                                "ethernity.cli.flows.recover_wizard.prompt_yes_no",
+                                                "ethernity.cli.features.recover.wizard.prompt_yes_no",
                                                 return_value=False,
                                             ):
                                                 with mock.patch(
-                                                    "ethernity.cli.flows.recover_wizard.console.print"
+                                                    "ethernity.cli.features.recover.wizard.console.print"
                                                 ) as print_mock:
                                                     run_wizard = (
                                                         recover_wizard_module.run_recover_wizard

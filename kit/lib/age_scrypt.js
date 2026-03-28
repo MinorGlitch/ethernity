@@ -189,7 +189,7 @@ function decryptPayloadBytes(key, payloadBytes) {
   const out = [];
   while (payloadBytes.length - offset > STREAM_BLOCK_BYTES) {
     const decryptedChunk = chacha20poly1305(key, streamNonce).decrypt(
-      payloadBytes.subarray(offset, offset + STREAM_BLOCK_BYTES)
+      payloadBytes.subarray(offset, offset + STREAM_BLOCK_BYTES),
     );
     out.push(decryptedChunk);
     incNonce();

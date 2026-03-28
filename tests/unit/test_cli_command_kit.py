@@ -19,17 +19,17 @@ from unittest import mock
 
 import typer
 
-from ethernity.cli.commands import kit as kit_command
-from ethernity.cli.core.types import CliContextState
-from ethernity.cli.flows.kit import KitResult
+from ethernity.cli.features.kit import command as kit_command
+from ethernity.cli.features.kit.workflow import KitResult
+from ethernity.cli.shared.types import CliContextState
 
 
 class TestKitCommand(unittest.TestCase):
     def _ctx(self, **values: object) -> object:
         return mock.Mock(obj=CliContextState(**values))
 
-    @mock.patch("ethernity.cli.commands.kit.print_completion_panel")
-    @mock.patch("ethernity.cli.commands.kit.render_kit_qr_document")
+    @mock.patch("ethernity.cli.features.kit.command.print_completion_panel")
+    @mock.patch("ethernity.cli.features.kit.command.render_kit_qr_document")
     def test_run_kit_render_quiet_and_non_quiet(
         self,
         render_kit_qr_document: mock.MagicMock,
@@ -67,10 +67,12 @@ class TestKitCommand(unittest.TestCase):
         )
         print_completion_panel.assert_called_once()
 
-    @mock.patch("ethernity.cli.commands.kit._run_kit_render")
-    @mock.patch("ethernity.cli.commands.kit._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch("ethernity.cli.features.kit.command._run_kit_render")
     @mock.patch(
-        "ethernity.cli.commands.kit._resolve_config_and_paper",
+        "ethernity.cli.features.kit.command._run_cli", side_effect=lambda func, debug: func()
+    )
+    @mock.patch(
+        "ethernity.cli.features.kit.command._resolve_config_and_paper",
         return_value=("ctx.toml", "LETTER"),
     )
     def test_kit_command_resolves_context_and_executes(

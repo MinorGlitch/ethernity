@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { sha256 } from "@noble/hashes/sha2.js";
 
@@ -18,7 +19,8 @@ import { ensureAtob } from "./test_helpers.mjs";
 
 ensureAtob();
 
-const FIXTURES_ROOT = path.resolve(process.cwd(), "../tests/fixtures/v1_0/golden");
+const testDir = path.dirname(fileURLToPath(import.meta.url));
+const FIXTURES_ROOT = path.resolve(testDir, "..", "..", "tests", "fixtures", "v1_0", "golden");
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
@@ -41,7 +43,7 @@ async function restoreScenario(scenarioPath) {
   if (snapshot.shard_payload_count > 0) {
     const shardPayloadText = fs.readFileSync(
       path.join(scenarioDir, "shard_payloads_threshold.txt"),
-      "utf8"
+      "utf8",
     );
     const shardAdded = parseAutoShard(state, shardPayloadText);
     assert.equal(shardAdded, snapshot.shard_payload_count);
@@ -55,7 +57,7 @@ async function restoreScenario(scenarioPath) {
   const envelopeBytes = await decryptAgePassphrase(state.ciphertext, state.agePassphrase);
   const extracted = await extractFiles(envelopeBytes);
   const expectedPaths = snapshot.expected_relative_paths.slice().sort();
-  const actualPaths = extracted.files.map(file => file.path).sort();
+  const actualPaths = extracted.files.map((file) => file.path).sort();
 
   assert.deepEqual(actualPaths, expectedPaths);
   assert.equal(extracted.manifest.inputOrigin, snapshot.manifest_projection.input_origin);
@@ -92,10 +94,13 @@ test("shard-first then main frames triggers recovery without re-pasting shards",
   for (const profileName of ["base64", "raw"]) {
     const root = profileFixtureRoot(profileName);
     const snapshot = readJson(path.join(root, "sharded_embedded", "snapshot.json"));
-    const mainPayloadText = fs.readFileSync(path.join(root, "sharded_embedded", "main_payloads.txt"), "utf8");
+    const mainPayloadText = fs.readFileSync(
+      path.join(root, "sharded_embedded", "main_payloads.txt"),
+      "utf8",
+    );
     const shardPayloadText = fs.readFileSync(
       path.join(root, "sharded_embedded", "shard_payloads_threshold.txt"),
-      "utf8"
+      "utf8",
     );
 
     let state = initialState();
@@ -108,8 +113,10 @@ test("shard-first then main frames triggers recovery without re-pasting shards",
     await addShardPayloads(dispatch, getState);
     assert.equal(state.recoveredShardSecret, "");
     assert.equal(
-      state.shardStatus.lines.includes("Shard recovery blocked: collect main frames to derive ciphertext hash."),
-      true
+      state.shardStatus.lines.includes(
+        "Shard recovery blocked: collect main frames to derive ciphertext hash.",
+      ),
+      true,
     );
 
     state.payloadText = mainPayloadText;

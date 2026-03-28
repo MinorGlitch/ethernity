@@ -20,13 +20,18 @@ import { encodeCbor } from "../lib/cbor.js";
 import { SHARD_DOMAIN, SHARD_VERSION, textEncoder } from "./constants.js";
 
 async function verifyShardSignature(payload) {
-  if (!crypto || !crypto.subtle || !crypto.subtle.importKey) {
+  const cryptoApi = globalThis.crypto;
+  if (!cryptoApi || !cryptoApi.subtle || !cryptoApi.subtle.importKey) {
     return null;
   }
   try {
-    const key = await crypto.subtle.importKey("raw", payload.signPub, { name: "Ed25519" }, false, [
-      "verify",
-    ]);
+    const key = await cryptoApi.subtle.importKey(
+      "raw",
+      payload.signPub,
+      { name: "Ed25519" },
+      false,
+      ["verify"],
+    );
     const signedPayload = {
       version: SHARD_VERSION,
       type: payload.keyType,
@@ -40,7 +45,7 @@ async function verifyShardSignature(payload) {
     };
     const signedBytes = encodeCbor(signedPayload);
     const message = concatBytes(textEncoder.encode(SHARD_DOMAIN), signedBytes);
-    return await crypto.subtle.verify("Ed25519", key, payload.signature, message);
+    return await cryptoApi.subtle.verify("Ed25519", key, payload.signature, message);
   } catch {
     return null;
   }
@@ -50,7 +55,8 @@ export async function verifyCollectedShardSignatures(state) {
   if (!state.shardFrames || state.shardFrames.size === 0) {
     return { unavailable: false, verified: 0, invalid: 0 };
   }
-  if (!crypto || !crypto.subtle || !crypto.subtle.importKey) {
+  const cryptoApi = globalThis.crypto;
+  if (!cryptoApi || !cryptoApi.subtle || !cryptoApi.subtle.importKey) {
     return { unavailable: true, verified: 0, invalid: 0 };
   }
 

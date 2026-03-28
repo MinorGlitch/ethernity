@@ -18,7 +18,9 @@ import os
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from unittest import mock
 
-from ethernity.cli.startup import ensure_playwright_browsers as _ensure_playwright_browsers
+from ethernity.cli.bootstrap.startup import (
+    ensure_playwright_browsers as _ensure_playwright_browsers,
+)
 
 # =============================================================================
 # Environment Helpers
@@ -40,6 +42,17 @@ def build_cli_env(
     if overrides:
         env.update(overrides)
     return env
+
+
+def cli_subprocess_timeout_seconds() -> float:
+    raw = os.environ.get("ETHERNITY_TEST_CLI_TIMEOUT_SECONDS")
+    if raw is None:
+        return 300.0
+    try:
+        timeout = float(raw)
+    except ValueError:
+        return 300.0
+    return timeout if timeout > 0 else 300.0
 
 
 def ensure_playwright_browsers() -> None:

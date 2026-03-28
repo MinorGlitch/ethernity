@@ -35,17 +35,33 @@ uv run playwright install chromium
 Run before opening a PR:
 
 ```sh
-uv run pytest tests/unit tests/integration -q
+uv run pre-commit run --all-files
 uv run ruff check src tests
 uv run ruff format --check src tests
 uv run mypy src
+uv run pyright
+uv run check-jsonschema --check-metaschema docs/cli_api.schema.json
+uv run typos .
+uv run pytest tests/unit tests/integration -q
 ```
+
+## Python Readability
+
+- Keep `ruff format` as the only Python formatter.
+- Keep Python line length at `100`; readability work should come from code shape, not formatter churn.
+- Use blank lines for real phase boundaries, not as a substitute for extraction.
+- Prefer small helper functions or module imports over long symbol-import lists and dense orchestration blocks.
+- In tests, collapse repeated `mock.patch(...)` bundles into fixtures or helper context managers when they repeat.
+- Use `# fmt: off` / `# fmt: on` only for rare cases where structural refactoring would not help.
 
 Optional, when touching browser kit assets:
 
 ```sh
 cd kit
 npm ci
+npm run lint
+npm run format:check
+npm test
 # Requires libdeflate-gzip (for example: apt install libdeflate-tools)
 node build_kit.mjs
 cd ..

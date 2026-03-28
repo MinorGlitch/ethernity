@@ -16,9 +16,8 @@
  */
 
 import { useState } from "microact/hooks";
-
-import { DiagnosticsList, Field, StatusBlock } from "./common.jsx";
 import { CollectorStep } from "./CollectorStep.jsx";
+import { DiagnosticsList, Field, StatusBlock } from "./common.jsx";
 import { QrScannerPanel } from "./QrScannerPanel.jsx";
 
 export function FrameCollector({
@@ -32,12 +31,16 @@ export function FrameCollector({
   onDownloadCipher,
   canDownloadCipher,
   isComplete,
+  isAdding,
 }) {
   const showDetails = frameDiagnostics.some((item) => item.tone === "error");
   const [pasteHint, setPasteHint] = useState("");
   const handlePaste = (event) => {
     const text = event.clipboardData?.getData("text/plain") ?? "";
-    const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
     if (lines.length) {
       setPasteHint(`Pasted ${lines.length} line(s). Click Add.`);
     }
@@ -75,7 +78,6 @@ export function FrameCollector({
     setPasteHint(`Scanned ${lines.length} line(s). Click Add.`);
   };
   const input = {
-    title: "Backup data",
     body: (
       <>
         <Field
@@ -86,12 +88,15 @@ export function FrameCollector({
           onInput={handlePayloadChange}
           onPaste={handlePaste}
           as="textarea"
+          spellCheck="false"
         />
         <QrScannerPanel onScanPayload={handleScanPayload} />
         {pasteHint ? <div class="hint">{pasteHint}</div> : null}
       </>
     ),
-    actions: [{ label: "Add data", onClick: handleAddFrames }],
+    actions: [
+      { label: isAdding ? "Adding..." : "Add data", onClick: handleAddFrames, disabled: isAdding },
+    ],
     secondaryActions: [
       {
         label: "Download encrypted file",
@@ -117,7 +122,5 @@ export function FrameCollector({
       </>
     ),
   };
-  return (
-    <CollectorStep className="step-layout--compact" input={input} status={status} />
-  );
+  return <CollectorStep className="step-layout--compact" input={input} status={status} />;
 }

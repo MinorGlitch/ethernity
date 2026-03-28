@@ -22,13 +22,16 @@ import zlib
 from dataclasses import dataclass
 from enum import IntEnum
 
-from ..core.bounds import (
+from ethernity.core.bounds import (
     MAX_AUTH_CBOR_BYTES,
     MAX_MAIN_FRAME_DATA_BYTES,
     MAX_MAIN_FRAME_TOTAL,
     MAX_SHARD_CBOR_BYTES,
 )
-from .varint import decode_uvarint as _decode_uvarint, encode_uvarint as _encode_uvarint
+from ethernity.encoding.varint import (
+    decode_uvarint as _decode_uvarint,
+    encode_uvarint as _encode_uvarint,
+)
 
 MAGIC = b"AP"
 VERSION = 1

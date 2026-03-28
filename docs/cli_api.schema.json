@@ -1,0 +1,2515 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/MinorGlitch/ethernity/blob/master/docs/cli_api.schema.json",
+  "title": "Ethernity CLI API Event",
+  "description": "JSON Schema for one NDJSON event emitted by `ethernity api`.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/startedEvent"
+    },
+    {
+      "$ref": "#/$defs/phaseEvent"
+    },
+    {
+      "$ref": "#/$defs/progressEvent"
+    },
+    {
+      "$ref": "#/$defs/warningEvent"
+    },
+    {
+      "$ref": "#/$defs/artifactEvent"
+    },
+    {
+      "$ref": "#/$defs/resultEvent"
+    },
+    {
+      "$ref": "#/$defs/errorEvent"
+    }
+  ],
+  "$defs": {
+    "pathString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "command": {
+      "type": "string",
+      "enum": [
+        "backup",
+        "mint",
+        "recover",
+        "config"
+      ]
+    },
+    "phaseId": {
+      "type": "string",
+      "enum": [
+        "plan",
+        "input",
+        "backup",
+        "prepare",
+        "encrypt",
+        "shard",
+        "mint",
+        "render",
+        "decrypt",
+        "write",
+        "load",
+        "validate"
+      ]
+    },
+    "artifactKind": {
+      "type": "string",
+      "enum": [
+        "qr_document",
+        "recovery_document",
+        "recovery_kit_index",
+        "shard_document",
+        "signing_key_shard_document",
+        "layout_debug_json",
+        "recovered_file"
+      ]
+    },
+    "authStatus": {
+      "type": "string",
+      "enum": [
+        "verified",
+        "skipped",
+        "missing",
+        "invalid",
+        "ignored"
+      ]
+    },
+    "metadataObject": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "startedEvent": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/backupStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/recoverStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/inspectRecoverStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/mintStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/inspectMintStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/configStartedEvent"
+        }
+      ]
+    },
+    "phaseEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "id",
+        "label"
+      ],
+      "properties": {
+        "type": {
+          "const": "phase"
+        },
+        "id": {
+          "$ref": "#/$defs/phaseId"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "progressEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "phase",
+        "current",
+        "total",
+        "unit",
+        "label",
+        "details"
+      ],
+      "properties": {
+        "type": {
+          "const": "progress"
+        },
+        "phase": {
+          "$ref": "#/$defs/phaseId"
+        },
+        "current": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "unit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "details": {
+          "$ref": "#/$defs/metadataObject"
+        }
+      }
+    },
+    "warningEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "code",
+        "message",
+        "details"
+      ],
+      "properties": {
+        "type": {
+          "const": "warning"
+        },
+        "code": {
+          "$ref": "#/$defs/warningCode"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "$ref": "#/$defs/metadataObject"
+        }
+      }
+    },
+    "artifactEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "kind",
+        "path",
+        "details"
+      ],
+      "properties": {
+        "type": {
+          "const": "artifact"
+        },
+        "kind": {
+          "$ref": "#/$defs/artifactKind"
+        },
+        "path": {
+          "$ref": "#/$defs/pathString"
+        },
+        "details": {
+          "$ref": "#/$defs/metadataObject"
+        }
+      }
+    },
+    "errorEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "ok",
+        "code",
+        "message",
+        "details"
+      ],
+      "properties": {
+        "type": {
+          "const": "error"
+        },
+        "ok": {
+          "const": false
+        },
+        "code": {
+          "$ref": "#/$defs/errorCode"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "$ref": "#/$defs/metadataObject"
+        }
+      }
+    },
+    "backupArtifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "qr_document",
+        "recovery_document",
+        "recovery_kit_index",
+        "shard_documents",
+        "signing_key_shard_documents"
+      ],
+      "properties": {
+        "qr_document": {
+          "$ref": "#/$defs/pathString"
+        },
+        "recovery_document": {
+          "$ref": "#/$defs/pathString"
+        },
+        "recovery_kit_index": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "shard_documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "signing_key_shard_documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        }
+      }
+    },
+    "backupPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sealed",
+        "shard_threshold",
+        "shard_count",
+        "signing_key_mode",
+        "signing_key_shard_threshold",
+        "signing_key_shard_count"
+      ],
+      "properties": {
+        "sealed": {
+          "type": "boolean"
+        },
+        "shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "shard_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "signing_key_mode": {
+          "type": "string",
+          "enum": [
+            "embedded",
+            "sharded"
+          ]
+        },
+        "signing_key_shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "signing_key_shard_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      }
+    },
+    "backupResultEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "ok",
+        "command",
+        "doc_id",
+        "output_dir",
+        "input_origin",
+        "input_roots",
+        "input_count",
+        "generated_passphrase",
+        "artifacts",
+        "plan"
+      ],
+      "properties": {
+        "type": {
+          "const": "result"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "backup"
+        },
+        "doc_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]+$"
+        },
+        "output_dir": {
+          "$ref": "#/$defs/pathString"
+        },
+        "input_origin": {
+          "type": "string",
+          "enum": [
+            "file",
+            "directory",
+            "mixed"
+          ]
+        },
+        "input_roots": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "input_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "generated_passphrase": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "artifacts": {
+          "$ref": "#/$defs/backupArtifacts"
+        },
+        "plan": {
+          "$ref": "#/$defs/backupPlan"
+        }
+      }
+    },
+    "recoverManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format_version",
+        "input_origin",
+        "input_roots",
+        "sealed",
+        "payload_codec",
+        "payload_raw_len",
+        "file_count"
+      ],
+      "properties": {
+        "format_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "input_origin": {
+          "type": "string",
+          "enum": [
+            "file",
+            "directory",
+            "mixed"
+          ]
+        },
+        "input_roots": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "sealed": {
+          "type": "boolean"
+        },
+        "payload_codec": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload_raw_len": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "file_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "recoverFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest_path",
+        "output_path",
+        "size",
+        "sha256",
+        "mtime"
+      ],
+      "properties": {
+        "manifest_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "output_path": {
+          "$ref": "#/$defs/pathString"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "mtime": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      }
+    },
+    "blockingIssue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message",
+        "details"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/blockingIssueCode"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "$ref": "#/$defs/metadataObject"
+        }
+      }
+    },
+    "warningRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message",
+        "details"
+      ],
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/warningCode"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "$ref": "#/$defs/metadataObject"
+        }
+      }
+    },
+    "inspectRecoverFrameCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "main",
+        "auth",
+        "shard"
+      ],
+      "properties": {
+        "main": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "auth": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "shard": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "inspectMintFrameCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "main",
+        "auth",
+        "shard",
+        "signing_key_shard"
+      ],
+      "properties": {
+        "main": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "auth": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "shard": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "signing_key_shard": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "recoverInspectUnlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "passphrase_provided",
+        "validated_shard_count",
+        "required_shard_threshold",
+        "satisfied"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "missing",
+            "passphrase",
+            "shards"
+          ]
+        },
+        "passphrase_provided": {
+          "type": "boolean"
+        },
+        "validated_shard_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "required_shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "satisfied": {
+          "type": "boolean"
+        }
+      }
+    },
+    "mintInspectUnlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "validated_passphrase_shard_count",
+        "required_passphrase_threshold",
+        "satisfied"
+      ],
+      "properties": {
+        "validated_passphrase_shard_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "required_passphrase_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "satisfied": {
+          "type": "boolean"
+        }
+      }
+    },
+    "mintInspectSigningKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "validated_shard_count",
+        "required_threshold",
+        "satisfied",
+        "source"
+      ],
+      "properties": {
+        "validated_shard_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "required_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "satisfied": {
+          "type": "boolean"
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "mintCapabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "can_mint_passphrase_shards",
+        "can_mint_signing_key_shards"
+      ],
+      "properties": {
+        "can_mint_passphrase_shards": {
+          "type": "boolean"
+        },
+        "can_mint_signing_key_shards": {
+          "type": "boolean"
+        }
+      }
+    },
+    "recoverResultEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "ok",
+        "command",
+        "output_path",
+        "output_path_kind",
+        "doc_id",
+        "auth_status",
+        "input_label",
+        "input_detail",
+        "manifest",
+        "files"
+      ],
+      "properties": {
+        "type": {
+          "const": "result"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "recover"
+        },
+        "output_path": {
+          "$ref": "#/$defs/pathString"
+        },
+        "output_path_kind": {
+          "type": "string",
+          "enum": [
+            "file",
+            "directory"
+          ]
+        },
+        "doc_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]+$"
+        },
+        "auth_status": {
+          "$ref": "#/$defs/authStatus"
+        },
+        "input_label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_detail": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifest": {
+          "$ref": "#/$defs/recoverManifest"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/recoverFile"
+          }
+        }
+      }
+    },
+    "inspectRecoverResultEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "ok",
+        "command",
+        "operation",
+        "doc_id",
+        "auth_status",
+        "input_label",
+        "input_detail",
+        "source_summary",
+        "frame_counts",
+        "unlock",
+        "blocking_issues",
+        "warnings"
+      ],
+      "properties": {
+        "type": {
+          "const": "result"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "recover"
+        },
+        "operation": {
+          "const": "inspect"
+        },
+        "doc_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]+$"
+        },
+        "auth_status": {
+          "$ref": "#/$defs/authStatus"
+        },
+        "input_label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_detail": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_summary": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "frame_counts": {
+          "$ref": "#/$defs/inspectRecoverFrameCounts"
+        },
+        "unlock": {
+          "$ref": "#/$defs/recoverInspectUnlock"
+        },
+        "blocking_issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/blockingIssue"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/warningRecord"
+          }
+        }
+      }
+    },
+    "resultEvent": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/backupResultEvent"
+        },
+        {
+          "$ref": "#/$defs/recoverResultEvent"
+        },
+        {
+          "$ref": "#/$defs/inspectRecoverResultEvent"
+        },
+        {
+          "$ref": "#/$defs/mintResultEvent"
+        },
+        {
+          "$ref": "#/$defs/inspectMintResultEvent"
+        },
+        {
+          "$ref": "#/$defs/configResultEvent"
+        }
+      ]
+    },
+    "documentedErrorCode": {
+      "type": "string",
+      "enum": [
+        "INPUT_REQUIRED",
+        "OUTPUT_REQUIRED",
+        "CONFIG_INPUT_REQUIRED",
+        "CONFIG_JSON_INVALID",
+        "CONFIG_UNKNOWN_FIELD",
+        "CONFIG_INVALID_VALUE",
+        "CONFIG_CONFLICT",
+        "SHARD_DIR_NOT_FOUND",
+        "SHARD_DIR_INVALID",
+        "SHARD_DIR_EMPTY",
+        "SIGNING_KEY_SHARD_DIR_NOT_FOUND",
+        "SIGNING_KEY_SHARD_DIR_INVALID",
+        "SIGNING_KEY_SHARD_DIR_EMPTY",
+        "CANCELLED",
+        "NOT_FOUND",
+        "PERMISSION_DENIED",
+        "INVALID_INPUT",
+        "RUNTIME_ERROR",
+        "IO_ERROR"
+      ]
+    },
+    "errorCode": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/documentedErrorCode"
+        },
+        {
+          "type": "string",
+          "pattern": "^[A-Z0-9_]+$"
+        }
+      ]
+    },
+    "documentedWarningCode": {
+      "type": "string",
+      "enum": [
+        "AUTH_PAYLOAD_MISSING",
+        "AUTH_PAYLOAD_INVALID",
+        "AUTH_DOC_HASH_MISMATCH",
+        "AUTH_SIGNATURE_INVALID",
+        "AUTH_FALLBACK_INVALID",
+        "FALLBACK_SECTION_INVALID",
+        "RECOVERY_SHARD_PAYLOADS_IGNORED",
+        "BACKUP_SIGNING_KEY_SHARDING_DISABLED",
+        "BACKUP_QR_CHUNK_SIZE_REDUCED"
+      ]
+    },
+    "warningCode": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/documentedWarningCode"
+        },
+        {
+          "type": "string",
+          "pattern": "^[A-Z0-9_]+$"
+        }
+      ]
+    },
+    "documentedBlockingIssueCode": {
+      "type": "string",
+      "enum": [
+        "AUTH_PAYLOAD_MISSING",
+        "AUTH_PAYLOAD_MULTIPLE",
+        "AUTH_PAYLOAD_DOC_ID_MISMATCH",
+        "AUTH_PAYLOAD_FRAME_INVALID",
+        "AUTH_PAYLOAD_INVALID",
+        "AUTH_DOC_HASH_MISMATCH",
+        "AUTH_SIGNATURE_INVALID",
+        "PASSPHRASE_SHARDS_UNDER_QUORUM",
+        "PASSPHRASE_SHARDS_INVALID",
+        "PASSPHRASE_INVALID",
+        "PASSPHRASE_REQUIRED",
+        "AUTH_REQUIRED",
+        "UNLOCK_FAILED",
+        "SIGNING_KEY_SHARDS_REQUIRED",
+        "SIGNING_KEY_SHARDS_UNDER_QUORUM",
+        "SIGNING_KEY_SHARDS_INVALID",
+        "PASSPHRASE_REPLACEMENT_NOT_READY",
+        "SIGNING_KEY_REPLACEMENT_NOT_READY"
+      ]
+    },
+    "blockingIssueCode": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/documentedBlockingIssueCode"
+        },
+        {
+          "type": "string",
+          "pattern": "^[A-Z0-9_]+$"
+        }
+      ]
+    },
+    "backupStartedArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config",
+        "paper",
+        "design",
+        "input",
+        "input_dir",
+        "base_dir",
+        "output_dir",
+        "layout_debug_dir",
+        "qr_chunk_size",
+        "has_passphrase",
+        "passphrase_generate",
+        "passphrase_generate_requested",
+        "passphrase_words",
+        "sealed",
+        "shard_threshold",
+        "shard_count",
+        "signing_key_mode",
+        "signing_key_shard_threshold",
+        "signing_key_shard_count",
+        "quiet",
+        "debug"
+      ],
+      "properties": {
+        "config": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "paper": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A4",
+            "LETTER",
+            null
+          ]
+        },
+        "design": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "input": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "input_dir": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "base_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "output_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "layout_debug_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "qr_chunk_size": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "has_passphrase": {
+          "type": "boolean"
+        },
+        "passphrase_generate": {
+          "type": "boolean"
+        },
+        "passphrase_generate_requested": {
+          "type": "boolean"
+        },
+        "passphrase_words": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "sealed": {
+          "type": "boolean"
+        },
+        "shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "shard_count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "signing_key_mode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "embedded",
+            "sharded",
+            null
+          ]
+        },
+        "signing_key_shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "signing_key_shard_count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "quiet": {
+          "type": "boolean"
+        },
+        "debug": {
+          "type": "boolean"
+        }
+      }
+    },
+    "recoverStartedArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config",
+        "paper",
+        "fallback_file",
+        "payloads_file",
+        "scan",
+        "has_passphrase",
+        "shard_fallback_file",
+        "shard_payloads_file",
+        "shard_scan",
+        "auth_fallback_file",
+        "auth_payloads_file",
+        "output",
+        "allow_unsigned",
+        "quiet",
+        "debug"
+      ],
+      "properties": {
+        "config": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "paper": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A4",
+            "LETTER",
+            null
+          ]
+        },
+        "fallback_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "payloads_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "has_passphrase": {
+          "type": "boolean"
+        },
+        "shard_fallback_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_payloads_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "auth_fallback_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "auth_payloads_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "output": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "allow_unsigned": {
+          "type": "boolean"
+        },
+        "quiet": {
+          "type": "boolean"
+        },
+        "debug": {
+          "type": "boolean"
+        },
+        "shard_scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        }
+      }
+    },
+    "inspectRecoverStartedArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation",
+        "config",
+        "paper",
+        "fallback_file",
+        "payloads_file",
+        "scan",
+        "has_passphrase",
+        "shard_fallback_file",
+        "shard_payloads_file",
+        "shard_scan",
+        "auth_fallback_file",
+        "auth_payloads_file",
+        "allow_unsigned",
+        "quiet",
+        "debug"
+      ],
+      "properties": {
+        "operation": {
+          "const": "inspect"
+        },
+        "config": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "paper": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A4",
+            "LETTER",
+            null
+          ]
+        },
+        "fallback_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "payloads_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "has_passphrase": {
+          "type": "boolean"
+        },
+        "shard_fallback_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_payloads_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "auth_fallback_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "auth_payloads_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "allow_unsigned": {
+          "type": "boolean"
+        },
+        "quiet": {
+          "type": "boolean"
+        },
+        "debug": {
+          "type": "boolean"
+        }
+      }
+    },
+    "mintStartedArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config",
+        "paper",
+        "design",
+        "fallback_file",
+        "payloads_file",
+        "scan",
+        "has_passphrase",
+        "shard_fallback_file",
+        "shard_payloads_file",
+        "shard_scan",
+        "auth_fallback_file",
+        "auth_payloads_file",
+        "signing_key_shard_fallback_file",
+        "signing_key_shard_payloads_file",
+        "signing_key_shard_scan",
+        "output_dir",
+        "layout_debug_dir",
+        "shard_threshold",
+        "shard_count",
+        "signing_key_shard_threshold",
+        "signing_key_shard_count",
+        "passphrase_replacement_count",
+        "signing_key_replacement_count",
+        "mint_passphrase_shards",
+        "mint_signing_key_shards",
+        "quiet",
+        "debug"
+      ],
+      "properties": {
+        "config": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "paper": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A4",
+            "LETTER",
+            null
+          ]
+        },
+        "design": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "fallback_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "payloads_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "has_passphrase": {
+          "type": "boolean"
+        },
+        "shard_fallback_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_payloads_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "auth_fallback_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "auth_payloads_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "signing_key_shard_fallback_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "signing_key_shard_payloads_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "signing_key_shard_scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "output_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "layout_debug_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "shard_count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "signing_key_shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "signing_key_shard_count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "passphrase_replacement_count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "signing_key_replacement_count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "mint_passphrase_shards": {
+          "type": "boolean"
+        },
+        "mint_signing_key_shards": {
+          "type": "boolean"
+        },
+        "quiet": {
+          "type": "boolean"
+        },
+        "debug": {
+          "type": "boolean"
+        }
+      }
+    },
+    "inspectMintStartedArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation",
+        "config",
+        "paper",
+        "design",
+        "fallback_file",
+        "payloads_file",
+        "scan",
+        "has_passphrase",
+        "shard_fallback_file",
+        "shard_payloads_file",
+        "shard_scan",
+        "auth_fallback_file",
+        "auth_payloads_file",
+        "signing_key_shard_fallback_file",
+        "signing_key_shard_payloads_file",
+        "signing_key_shard_scan",
+        "shard_threshold",
+        "shard_count",
+        "signing_key_shard_threshold",
+        "signing_key_shard_count",
+        "passphrase_replacement_count",
+        "signing_key_replacement_count",
+        "mint_passphrase_shards",
+        "mint_signing_key_shards",
+        "quiet",
+        "debug"
+      ],
+      "properties": {
+        "operation": {
+          "const": "inspect"
+        },
+        "config": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "paper": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A4",
+            "LETTER",
+            null
+          ]
+        },
+        "design": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "fallback_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "payloads_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "has_passphrase": {
+          "type": "boolean"
+        },
+        "shard_fallback_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_payloads_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "auth_fallback_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "auth_payloads_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "signing_key_shard_fallback_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "signing_key_shard_payloads_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "signing_key_shard_scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "shard_count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "signing_key_shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "signing_key_shard_count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "passphrase_replacement_count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "signing_key_replacement_count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "mint_passphrase_shards": {
+          "type": "boolean"
+        },
+        "mint_signing_key_shards": {
+          "type": "boolean"
+        },
+        "quiet": {
+          "type": "boolean"
+        },
+        "debug": {
+          "type": "boolean"
+        }
+      }
+    },
+    "backupStartedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "schema_version",
+        "command",
+        "args"
+      ],
+      "properties": {
+        "type": {
+          "const": "started"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "command": {
+          "const": "backup"
+        },
+        "args": {
+          "$ref": "#/$defs/backupStartedArgs"
+        }
+      }
+    },
+    "recoverStartedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "schema_version",
+        "command",
+        "args"
+      ],
+      "properties": {
+        "type": {
+          "const": "started"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "command": {
+          "const": "recover"
+        },
+        "args": {
+          "$ref": "#/$defs/recoverStartedArgs"
+        }
+      }
+    },
+    "inspectRecoverStartedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "schema_version",
+        "command",
+        "args"
+      ],
+      "properties": {
+        "type": {
+          "const": "started"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "command": {
+          "const": "recover"
+        },
+        "args": {
+          "$ref": "#/$defs/inspectRecoverStartedArgs"
+        }
+      }
+    },
+    "mintStartedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "schema_version",
+        "command",
+        "args"
+      ],
+      "properties": {
+        "type": {
+          "const": "started"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "command": {
+          "const": "mint"
+        },
+        "args": {
+          "$ref": "#/$defs/mintStartedArgs"
+        }
+      }
+    },
+    "inspectMintStartedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "schema_version",
+        "command",
+        "args"
+      ],
+      "properties": {
+        "type": {
+          "const": "started"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "command": {
+          "const": "mint"
+        },
+        "args": {
+          "$ref": "#/$defs/inspectMintStartedArgs"
+        }
+      }
+    },
+    "mintArtifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "shard_documents",
+        "signing_key_shard_documents"
+      ],
+      "properties": {
+        "shard_documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "signing_key_shard_documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        }
+      }
+    },
+    "mintResultEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "ok",
+        "command",
+        "doc_id",
+        "output_dir",
+        "artifacts",
+        "signing_key_source",
+        "notes"
+      ],
+      "properties": {
+        "type": {
+          "const": "result"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "mint"
+        },
+        "doc_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]+$"
+        },
+        "output_dir": {
+          "$ref": "#/$defs/pathString"
+        },
+        "artifacts": {
+          "$ref": "#/$defs/mintArtifacts"
+        },
+        "signing_key_source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "inspectMintResultEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "ok",
+        "command",
+        "operation",
+        "doc_id",
+        "auth_status",
+        "input_label",
+        "input_detail",
+        "source_summary",
+        "frame_counts",
+        "unlock",
+        "signing_key",
+        "mint_capabilities",
+        "blocking_issues",
+        "warnings"
+      ],
+      "properties": {
+        "type": {
+          "const": "result"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "mint"
+        },
+        "operation": {
+          "const": "inspect"
+        },
+        "doc_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]+$"
+        },
+        "auth_status": {
+          "$ref": "#/$defs/authStatus"
+        },
+        "input_label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_detail": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_summary": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "frame_counts": {
+          "$ref": "#/$defs/inspectMintFrameCounts"
+        },
+        "unlock": {
+          "$ref": "#/$defs/mintInspectUnlock"
+        },
+        "signing_key": {
+          "$ref": "#/$defs/mintInspectSigningKey"
+        },
+        "mint_capabilities": {
+          "$ref": "#/$defs/mintCapabilities"
+        },
+        "blocking_issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/blockingIssue"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/warningRecord"
+          }
+        }
+      }
+    },
+    "configOperation": {
+      "type": "string",
+      "enum": [
+        "get",
+        "set"
+      ]
+    },
+    "configSource": {
+      "type": "string",
+      "enum": [
+        "default",
+        "user",
+        "explicit"
+      ]
+    },
+    "onboardingField": {
+      "type": "string",
+      "enum": [
+        "template_design",
+        "page_size",
+        "backup_output_dir",
+        "qr_chunk_size",
+        "qr_error_correction",
+        "sharding",
+        "payload_codec",
+        "qr_payload_codec"
+      ]
+    },
+    "configStartedArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation",
+        "config",
+        "input_json"
+      ],
+      "properties": {
+        "operation": {
+          "$ref": "#/$defs/configOperation"
+        },
+        "config": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "input_json": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "configStartedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "schema_version",
+        "command",
+        "args"
+      ],
+      "properties": {
+        "type": {
+          "const": "started"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "command": {
+          "const": "config"
+        },
+        "args": {
+          "$ref": "#/$defs/configStartedArgs"
+        }
+      }
+    },
+    "configValues": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "templates",
+        "page",
+        "qr",
+        "defaults",
+        "ui",
+        "debug",
+        "runtime"
+      ],
+      "properties": {
+        "templates": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "default_name",
+            "template_name",
+            "recovery_template_name",
+            "shard_template_name",
+            "signing_key_shard_template_name",
+            "kit_template_name"
+          ],
+          "properties": {
+            "default_name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "template_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "recovery_template_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "shard_template_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "signing_key_shard_template_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "kit_template_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            }
+          }
+        },
+        "page": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "size"
+          ],
+          "properties": {
+            "size": {
+              "type": "string",
+              "enum": [
+                "A4",
+                "LETTER"
+              ]
+            }
+          }
+        },
+        "qr": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "error",
+            "chunk_size"
+          ],
+          "properties": {
+            "error": {
+              "type": "string",
+              "enum": [
+                "L",
+                "M",
+                "Q",
+                "H"
+              ]
+            },
+            "chunk_size": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "defaults": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "backup",
+            "recover"
+          ],
+          "properties": {
+            "backup": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "base_dir",
+                "output_dir",
+                "shard_threshold",
+                "shard_count",
+                "signing_key_mode",
+                "signing_key_shard_threshold",
+                "signing_key_shard_count",
+                "payload_codec",
+                "qr_payload_codec"
+              ],
+              "properties": {
+                "base_dir": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1
+                },
+                "output_dir": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1
+                },
+                "shard_threshold": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "shard_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "signing_key_mode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "embedded",
+                    "sharded",
+                    null
+                  ]
+                },
+                "signing_key_shard_threshold": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "signing_key_shard_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "payload_codec": {
+                  "type": "string",
+                  "enum": [
+                    "auto",
+                    "raw",
+                    "gzip"
+                  ]
+                },
+                "qr_payload_codec": {
+                  "type": "string",
+                  "enum": [
+                    "raw",
+                    "base64"
+                  ]
+                }
+              }
+            },
+            "recover": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "output"
+              ],
+              "properties": {
+                "output": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        },
+        "ui": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "quiet",
+            "no_color",
+            "no_animations"
+          ],
+          "properties": {
+            "quiet": {
+              "type": "boolean"
+            },
+            "no_color": {
+              "type": "boolean"
+            },
+            "no_animations": {
+              "type": "boolean"
+            }
+          }
+        },
+        "debug": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max_bytes"
+          ],
+          "properties": {
+            "max_bytes": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1
+            }
+          }
+        },
+        "runtime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "render_jobs"
+          ],
+          "properties": {
+            "render_jobs": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "auto"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "configOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "template_designs",
+        "page_sizes",
+        "qr_error_correction",
+        "payload_codecs",
+        "qr_payload_codecs",
+        "signing_key_modes",
+        "onboarding_fields"
+      ],
+      "properties": {
+        "template_designs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "page_sizes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "A4",
+              "LETTER"
+            ]
+          }
+        },
+        "qr_error_correction": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "L",
+              "M",
+              "Q",
+              "H"
+            ]
+          }
+        },
+        "payload_codecs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "raw",
+              "gzip"
+            ]
+          }
+        },
+        "qr_payload_codecs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "raw",
+              "base64"
+            ]
+          }
+        },
+        "signing_key_modes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "embedded",
+              "sharded"
+            ]
+          }
+        },
+        "onboarding_fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/onboardingField"
+          }
+        }
+      }
+    },
+    "configOnboarding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "needed",
+        "configured_fields",
+        "available_fields"
+      ],
+      "properties": {
+        "needed": {
+          "type": "boolean"
+        },
+        "configured_fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/onboardingField"
+          }
+        },
+        "available_fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/onboardingField"
+          }
+        }
+      }
+    },
+    "configResultEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "ok",
+        "command",
+        "operation",
+        "path",
+        "source",
+        "status",
+        "values",
+        "errors",
+        "options",
+        "onboarding"
+      ],
+      "properties": {
+        "type": {
+          "const": "result"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "config"
+        },
+        "operation": {
+          "$ref": "#/$defs/configOperation"
+        },
+        "path": {
+          "$ref": "#/$defs/pathString"
+        },
+        "source": {
+          "$ref": "#/$defs/configSource"
+        },
+        "values": {
+          "$ref": "#/$defs/configValues"
+        },
+        "options": {
+          "$ref": "#/$defs/configOptions"
+        },
+        "onboarding": {
+          "$ref": "#/$defs/configOnboarding"
+        },
+        "status": {
+          "$ref": "#/$defs/configStatus"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/configError"
+          }
+        }
+      }
+    },
+    "configStatus": {
+      "type": "string",
+      "enum": [
+        "valid",
+        "invalid_toml",
+        "invalid_values"
+      ]
+    },
+    "configError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message",
+        "details"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "$ref": "#/$defs/metadataObject"
+        }
+      }
+    }
+  }
+}

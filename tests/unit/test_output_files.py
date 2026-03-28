@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
 import stat
 import tempfile
 import types
@@ -24,8 +25,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.io.outputs import (
+from ethernity.cli.shared.io.outputs import (
     _ensure_output_dir,
+    _prepare_output_dir,
     _safe_join,
     _write_output,
     _write_recovered_outputs,
@@ -48,6 +50,18 @@ class TestOutputFiles(unittest.TestCase):
             existing.mkdir()
             with self.assertRaisesRegex(ValueError, "already exists"):
                 _ensure_output_dir(str(existing), "deadbeef")
+
+    def test_ensure_output_dir_uses_existing_directory_as_parent_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            parent = Path(tmpdir) / "backups"
+            parent.mkdir()
+            created = _ensure_output_dir(
+                str(parent),
+                "deadbeef",
+                existing_directory_is_parent=True,
+            )
+            self.assertEqual(created, str(parent / "backup-deadbeef"))
+            self.assertTrue((parent / "backup-deadbeef").is_dir())
 
     def test_safe_join_rejects_unsafe_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -91,10 +105,25 @@ class TestOutputFiles(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "secure"
             out_file = out_dir / "payload.bin"
-            with mock.patch("ethernity.cli.io.outputs._is_posix", return_value=True):
+            with mock.patch("ethernity.cli.shared.io.outputs._is_posix", return_value=True):
                 with mock.patch("pathlib.Path.chmod", side_effect=OSError("denied")):
                     _ensure_output_dir(str(out_dir), "deadbeef")
                     _write_output(str(out_file), b"payload")
+
+    def test_prepare_output_dir_does_not_harden_existing_parent_permissions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            parent = Path(tmpdir)
+            with mock.patch("ethernity.cli.shared.io.outputs._harden_dir_permissions") as harden:
+                final_dir, staging_dir = _prepare_output_dir(
+                    str(parent / "backup-deadbeef"),
+                    "deadbeef",
+                    prefix="backup",
+                )
+            self.assertEqual(final_dir, str(parent / "backup-deadbeef"))
+            self.assertTrue(Path(staging_dir).is_dir())
+            self.assertEqual(harden.call_count, 1)
+            self.assertEqual(harden.call_args.args[0], Path(staging_dir))
+            shutil.rmtree(staging_dir, ignore_errors=True)
 
     def test_write_output_writes_stdout_when_path_is_none(self) -> None:
         fake_stdout = types.SimpleNamespace(buffer=io.BytesIO())
@@ -134,6 +163,16 @@ class TestOutputFiles(unittest.TestCase):
             )
             self.assertEqual((out_dir / "nested" / "file.txt").read_bytes(), b"single")
 
+    def test_write_recovered_outputs_single_entry_existing_directory_writes_under_directory(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "vault"
+            out_dir.mkdir()
+            entries = [(types.SimpleNamespace(path="payload.bin"), b"single")]
+            _write_recovered_outputs(str(out_dir), entries)
+            self.assertEqual((out_dir / "payload.bin").read_bytes(), b"single")
+
     def test_write_recovered_outputs_multiple_entries_writes_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "recovered"
@@ -145,6 +184,23 @@ class TestOutputFiles(unittest.TestCase):
             self.assertEqual((out_dir / "dir" / "a.txt").read_bytes(), b"A")
             self.assertEqual((out_dir / "b.txt").read_bytes(), b"B")
 
+    def test_write_recovered_outputs_replaces_existing_directory_authoritatively(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "recovered"
+            out_dir.mkdir()
+            (out_dir / "stale.txt").write_text("stale", encoding="utf-8")
+            (out_dir / "kept.txt").write_text("old", encoding="utf-8")
+            entries = [
+                (types.SimpleNamespace(path="kept.txt"), b"new"),
+                (types.SimpleNamespace(path="nested/fresh.txt"), b"fresh"),
+            ]
+
+            _write_recovered_outputs(str(out_dir), entries)
+
+            self.assertFalse((out_dir / "stale.txt").exists())
+            self.assertEqual((out_dir / "kept.txt").read_bytes(), b"new")
+            self.assertEqual((out_dir / "nested" / "fresh.txt").read_bytes(), b"fresh")
+
     def test_write_recovered_outputs_rejects_unsafe_entry_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "recovered"
@@ -154,6 +210,39 @@ class TestOutputFiles(unittest.TestCase):
             ]
             with self.assertRaisesRegex(ValueError, "unsafe output path"):
                 _write_recovered_outputs(str(out_dir), entries)
+
+    def test_write_recovered_outputs_rejects_case_colliding_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "recovered"
+            entries = [
+                (types.SimpleNamespace(path="Readme.txt"), b"A"),
+                (types.SimpleNamespace(path="README.txt"), b"B"),
+            ]
+            with mock.patch(
+                "ethernity.cli.shared.io.outputs._is_directory_case_sensitive",
+                return_value=False,
+            ):
+                with self.assertRaisesRegex(ValueError, "collide on this filesystem"):
+                    _write_recovered_outputs(str(out_dir), entries)
+
+    def test_write_recovered_outputs_stdout_invokes_callback(self) -> None:
+        fake_stdout = types.SimpleNamespace(buffer=io.BytesIO())
+        calls: list[tuple[str, str, int, int]] = []
+
+        def _capture(
+            entry: object, _data: bytes, written_path: str, index: int, total: int
+        ) -> None:
+            calls.append((getattr(entry, "path", ""), written_path, index, total))
+
+        with mock.patch("sys.stdout", new=fake_stdout):
+            _write_recovered_outputs(
+                None,
+                [(types.SimpleNamespace(path="stdout.bin"), b"stdout-bytes")],
+                on_entry_written=_capture,
+            )
+
+        self.assertEqual(fake_stdout.buffer.getvalue(), b"stdout-bytes")
+        self.assertEqual(calls, [("stdout.bin", "-", 1, 1)])
 
     def test_ensure_output_dir_expands_user_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -13,8 +13,12 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-from .age_runtime import AgeError, decrypt_bytes, encrypt_bytes_with_passphrase
-from .passphrases import DEFAULT_PASSPHRASE_WORDS, MNEMONIC_WORD_COUNTS, generate_passphrase
+from ethernity.crypto.age_runtime import AgeError, decrypt_bytes, encrypt_bytes_with_passphrase
+from ethernity.crypto.passphrases import (
+    DEFAULT_PASSPHRASE_WORDS,
+    MNEMONIC_WORD_COUNTS,
+    generate_passphrase,
+)
 
 __all__ = [
     "AgeError",

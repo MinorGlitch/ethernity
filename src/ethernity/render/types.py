@@ -22,11 +22,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Sequence
 
-from ..encoding.framing import Frame
-from ..qr.codec import QrConfig
+from ethernity.encoding.framing import Frame
+from ethernity.qr.codec import QrConfig
 
 if TYPE_CHECKING:
-    from .recovery_meta import RecoveryMeta
+    from ethernity.render.recovery_meta import RecoveryMeta
 
 
 @dataclass(frozen=True)

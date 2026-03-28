@@ -19,22 +19,28 @@ import { crc32 } from "./crc32.js";
 import { validateManifestPath } from "./path_validation.js";
 
 const textEncoder = new TextEncoder();
+const ZIP_UTF8_FLAG = 0x0800;
 
 export function makeZip(files) {
   const chunks = [];
   const central = [];
+  const seenPaths = new Set();
   let offset = 0;
   for (const file of files) {
     if (!file || !(file.data instanceof Uint8Array)) {
       throw new Error("ZIP entry data must be bytes");
     }
     const safePath = validateManifestPath(file.path, "ZIP entry path");
+    if (seenPaths.has(safePath)) {
+      throw new Error(`duplicate ZIP entry path: ${safePath}`);
+    }
+    seenPaths.add(safePath);
     const nameBytes = textEncoder.encode(safePath);
     const crc = crc32(file.data);
     const localHeader = new Uint8Array(30);
     writeU32(localHeader, 0, 0x04034b50);
     writeU16(localHeader, 4, 20);
-    writeU16(localHeader, 6, 0);
+    writeU16(localHeader, 6, ZIP_UTF8_FLAG);
     writeU16(localHeader, 8, 0);
     writeU16(localHeader, 10, 0);
     writeU16(localHeader, 12, 0);
@@ -49,7 +55,7 @@ export function makeZip(files) {
     writeU32(centralHeader, 0, 0x02014b50);
     writeU16(centralHeader, 4, 20);
     writeU16(centralHeader, 6, 20);
-    writeU16(centralHeader, 8, 0);
+    writeU16(centralHeader, 8, ZIP_UTF8_FLAG);
     writeU16(centralHeader, 10, 0);
     writeU16(centralHeader, 12, 0);
     writeU16(centralHeader, 14, 0);

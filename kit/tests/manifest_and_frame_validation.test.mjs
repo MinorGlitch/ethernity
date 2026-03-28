@@ -17,7 +17,13 @@ import {
 import { parseAutoPayload, parseAutoShard } from "../app/frames_parse.js";
 import { createInitialState } from "../app/state/initial.js";
 import { encodeCbor } from "../lib/cbor.js";
-import { buildFrame, concatBytes, encodeUvarint, ensureAtob, toUnpaddedBase64 } from "./test_helpers.mjs";
+import {
+  buildFrame,
+  concatBytes,
+  encodeUvarint,
+  ensureAtob,
+  toUnpaddedBase64,
+} from "./test_helpers.mjs";
 
 ensureAtob();
 
@@ -116,7 +122,7 @@ test("manifest decoder rejects invalid stable-v1 structures", async () => {
       name: "directory requires roots",
       envelope: buildEnvelope(
         { ...validManifest(payload), input_origin: "directory", input_roots: [] },
-        payload
+        payload,
       ),
       error: /input_roots must be non-empty/,
     },
@@ -140,13 +146,16 @@ test("manifest decoder rejects invalid stable-v1 structures", async () => {
             ["a.txt", 2, sha256(Uint8Array.of(2, 3)), null],
           ],
         },
-        Uint8Array.of(1, 2, 3)
+        Uint8Array.of(1, 2, 3),
       ),
       error: /duplicate manifest file path/,
     },
     {
       name: "prefix table requires prefixes",
-      envelope: buildEnvelope({ ...validManifest(payload), path_encoding: "prefix_table" }, payload),
+      envelope: buildEnvelope(
+        { ...validManifest(payload), path_encoding: "prefix_table" },
+        payload,
+      ),
       error: /path_prefixes is required/,
     },
     {
@@ -158,7 +167,7 @@ test("manifest decoder rejects invalid stable-v1 structures", async () => {
           path_prefixes: ["", "root"],
           files: [[4, "a.txt", payload.length, sha256(payload), null]],
         },
-        payload
+        payload,
       ),
       error: /prefix_index out of range/,
     },
@@ -169,7 +178,7 @@ test("manifest decoder rejects invalid stable-v1 structures", async () => {
           ...validManifest(payload),
           files: [["a.txt", payload.length, Uint8Array.of(1), null]],
         },
-        payload
+        payload,
       ),
       error: /file hash must be 32 bytes/,
     },
@@ -180,7 +189,7 @@ test("manifest decoder rejects invalid stable-v1 structures", async () => {
           ...validManifest(payload),
           files: [["a.txt", payload.length, sha256(payload), "123"]],
         },
-        payload
+        payload,
       ),
       error: /file mtime must be an int/,
     },
@@ -191,16 +200,9 @@ test("manifest decoder rejects invalid stable-v1 structures", async () => {
           ...validManifest(Uint8Array.of(1)),
           payload_codec: "gzip",
           payload_raw_len: MAX_DECOMPRESSED_PAYLOAD_BYTES + 1,
-          files: [
-            [
-              "a.txt",
-              MAX_DECOMPRESSED_PAYLOAD_BYTES + 1,
-              sha256(Uint8Array.of(1)),
-              null,
-            ],
-          ],
+          files: [["a.txt", MAX_DECOMPRESSED_PAYLOAD_BYTES + 1, sha256(Uint8Array.of(1)), null]],
         },
-        gzipPayload(Uint8Array.of(1))
+        gzipPayload(Uint8Array.of(1)),
       ),
       error: /MAX_DECOMPRESSED_PAYLOAD_BYTES/,
     },
@@ -246,13 +248,13 @@ test("envelope decoder rejects framing-length and hash mismatches", async () => 
   };
   await assert.rejects(
     () => extractFiles(buildEnvelope(digestMismatchManifest, payload)),
-    /sha256 mismatch/
+    /sha256 mismatch/,
   );
 
   const extraPayload = Uint8Array.of(1, 2, 3, 4);
   await assert.rejects(
     () => extractFiles(buildEnvelope(validManifest(payload), extraPayload)),
-    /payload length does not match manifest sizes/
+    /payload length does not match manifest sizes/,
   );
 });
 
@@ -280,7 +282,7 @@ test("extractFiles rejects gzip payload_raw_len mismatch", async () => {
   };
   await assert.rejects(
     () => extractFiles(buildEnvelope(manifest, compressedPayload)),
-    /payload_raw_len must match sum of manifest file sizes/
+    /payload_raw_len must match sum of manifest file sizes/,
   );
 });
 
@@ -294,7 +296,7 @@ test("extractFiles rejects gzip expansion beyond declared payload_raw_len", asyn
   };
   await assert.rejects(
     () => extractFiles(buildEnvelope(manifest, compressedPayload)),
-    /decoded payload exceeds manifest payload_raw_len/
+    /decoded payload exceeds manifest payload_raw_len/,
   );
 });
 
@@ -306,7 +308,7 @@ test("extractFiles rejects unsupported manifest payload codecs", async () => {
   };
   await assert.rejects(
     () => extractFiles(buildEnvelope(manifest, payload)),
-    /payload_codec must be one of: raw, gzip/
+    /payload_codec must be one of: raw, gzip/,
   );
 });
 
@@ -328,26 +330,36 @@ function shardPayload(overrides = {}) {
 
 test("frame parser rejects invalid auth/key frame invariants", () => {
   const authBad = toUnpaddedBase64(
-    buildFrame({ frameType: FRAME_TYPE_AUTH, data: encodeCbor({ version: 1, hash: new Uint8Array(32), pub: new Uint8Array(32), sig: new Uint8Array(64) }), index: 1, total: 2 })
+    buildFrame({
+      frameType: FRAME_TYPE_AUTH,
+      data: encodeCbor({
+        version: 1,
+        hash: new Uint8Array(32),
+        pub: new Uint8Array(32),
+        sig: new Uint8Array(64),
+      }),
+      index: 1,
+      total: 2,
+    }),
   );
   assert.throws(
     () => parseAutoPayload(createInitialState(), authBad),
-    /neither valid QR payloads nor valid fallback text/
+    /neither valid QR payloads nor valid fallback text/,
   );
 
   const keyBad = toUnpaddedBase64(
-    buildFrame({ frameType: FRAME_TYPE_KEY, data: encodeCbor(shardPayload()), index: 0, total: 2 })
+    buildFrame({ frameType: FRAME_TYPE_KEY, data: encodeCbor(shardPayload()), index: 0, total: 2 }),
   );
   assert.throws(
     () => parseAutoShard(createInitialState(), keyBad),
-    /neither valid shard payloads nor valid fallback text/
+    /neither valid shard payloads nor valid fallback text/,
   );
 
   const mainBad = toUnpaddedBase64(
-    buildFrame({ frameType: FRAME_TYPE_MAIN, data: Uint8Array.of(1), index: 1, total: 1 })
+    buildFrame({ frameType: FRAME_TYPE_MAIN, data: Uint8Array.of(1), index: 1, total: 1 }),
   );
   assert.throws(
     () => parseAutoPayload(createInitialState(), mainBad),
-    /neither valid QR payloads nor valid fallback text/
+    /neither valid QR payloads nor valid fallback text/,
   );
 });

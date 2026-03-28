@@ -23,23 +23,20 @@ import { ensureCiphertextAndHash } from "./frames_cipher.js";
 let authStatusPending = false;
 
 async function verifyAuthSignature(docHash, signPub, signature) {
-  if (!crypto || !crypto.subtle || !crypto.subtle.importKey) {
+  const cryptoApi = globalThis.crypto;
+  if (!cryptoApi || !cryptoApi.subtle || !cryptoApi.subtle.importKey) {
     return null;
   }
   try {
-    const key = await crypto.subtle.importKey(
-      "raw",
-      signPub,
-      { name: "Ed25519" },
-      false,
-      ["verify"]
-    );
+    const key = await cryptoApi.subtle.importKey("raw", signPub, { name: "Ed25519" }, false, [
+      "verify",
+    ]);
     const signedPayload = { version: AUTH_VERSION, hash: docHash, pub: signPub };
     const signedBytes = encodeCbor(signedPayload);
     const message = concatBytes(textEncoder.encode(AUTH_DOMAIN), signedBytes);
-    const ok = await crypto.subtle.verify("Ed25519", key, signature, message);
+    const ok = await cryptoApi.subtle.verify("Ed25519", key, signature, message);
     return ok;
-  } catch (err) {
+  } catch (_err) {
     return null;
   }
 }
@@ -84,7 +81,7 @@ export async function updateAuthStatus(state) {
     const verified = await verifyAuthSignature(
       docHash,
       state.authPayload.signPub,
-      state.authPayload.signature
+      state.authPayload.signature,
     );
     if (verified === true) {
       state.authStatus = "verified";

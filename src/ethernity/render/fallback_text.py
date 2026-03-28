@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from ..encoding.zbase32 import ZBASE32_ALPHABET
+from ethernity.encoding.zbase32 import ZBASE32_ALPHABET
 
 
 def format_zbase32_lines(

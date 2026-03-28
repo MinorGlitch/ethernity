@@ -21,12 +21,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Sequence
 
-from ..encoding.framing import encode_frame
-from ..encoding.zbase32 import encode_zbase32
-from .fallback_text import format_zbase32_lines
-from .spec import DocumentSpec, FallbackSpec
-from .text import font_line_height
-from .types import FallbackSection, Layout, RenderInputs
+from ethernity.encoding.framing import encode_frame
+from ethernity.encoding.zbase32 import encode_zbase32
+from ethernity.render.fallback_text import format_zbase32_lines
+from ethernity.render.spec import DocumentSpec, FallbackSpec
+from ethernity.render.text import font_line_height
+from ethernity.render.types import FallbackSection, Layout, RenderInputs
 
 
 @dataclass

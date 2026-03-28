@@ -15,7 +15,7 @@
 
 import unittest
 
-from ethernity.cli.core import text as text_module
+from ethernity.cli.shared import text as text_module
 
 
 class TestCliCoreText(unittest.TestCase):

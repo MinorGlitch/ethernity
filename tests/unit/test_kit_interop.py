@@ -25,6 +25,7 @@ from pathlib import Path
 
 from ethernity.formats.envelope_codec import build_manifest_and_payload, encode_envelope
 from ethernity.formats.envelope_types import PayloadPart
+from tests.test_support import cli_subprocess_timeout_seconds
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT_PATH = _PROJECT_ROOT / "kit" / "scripts" / "run_extract_envelope.mjs"
@@ -105,6 +106,7 @@ class TestKitInterop(unittest.TestCase):
                 text=True,
                 capture_output=True,
                 check=False,
+                timeout=cli_subprocess_timeout_seconds(),
             )
             self.assertEqual(
                 result.returncode,

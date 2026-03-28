@@ -1,15 +1,11 @@
-import {
-  DOC_ID_LEN,
-  FRAME_MAGIC,
-  FRAME_VERSION,
-} from "../app/constants.js";
+import { DOC_ID_LEN, FRAME_MAGIC, FRAME_VERSION } from "../app/constants.js";
 import { crc32 } from "../lib/crc32.js";
 
 const ZBASE32_ALPHABET = "ybndrfg8ejkmcpqxot1uwisza345h769";
 
 export function ensureAtob() {
   if (typeof globalThis.atob !== "function") {
-    globalThis.atob = value => Buffer.from(value, "base64").toString("binary");
+    globalThis.atob = (value) => Buffer.from(value, "base64").toString("binary");
   }
 }
 
@@ -53,14 +49,14 @@ export function encodeZBase32(bytes) {
     bitCount += 8;
     while (bitCount >= 5) {
       const shift = bitCount - 5;
-      const idx = Math.floor(bits / (2 ** shift)) & 0x1f;
+      const idx = Math.floor(bits / 2 ** shift) & 0x1f;
       out += ZBASE32_ALPHABET[idx];
       bitCount -= 5;
-      bits &= (2 ** bitCount) - 1;
+      bits &= 2 ** bitCount - 1;
     }
   }
   if (bitCount > 0) {
-    out += ZBASE32_ALPHABET[(bits * (2 ** (5 - bitCount))) & 0x1f];
+    out += ZBASE32_ALPHABET[(bits * 2 ** (5 - bitCount)) & 0x1f];
   }
   return out;
 }

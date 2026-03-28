@@ -22,8 +22,8 @@ from unittest import mock
 
 import typer
 
-from ethernity.cli.commands import render as render_module
-from ethernity.cli.core.types import CliContextState
+from ethernity.cli.features.render import command as render_module
+from ethernity.cli.shared.types import CliContextState
 from ethernity.render.storage_paths import DEFAULT_LOGO_PATH
 
 
@@ -47,19 +47,24 @@ class TestRenderCommand(unittest.TestCase):
                 uri = render_module._data_uri_for_path(path)
         self.assertTrue(uri.startswith("data:application/octet-stream;base64,"))
 
-    @mock.patch("ethernity.cli.commands.render.console.print")
-    @mock.patch("ethernity.cli.commands.render.render_envelope_docx")
-    @mock.patch("ethernity.cli.commands.render.render_html_to_pdf")
-    @mock.patch("ethernity.cli.commands.render.render_template", return_value="<html />")
-    @mock.patch("ethernity.cli.commands.render.envelope_page_size_mm", return_value=(10.0, 20.0))
+    @mock.patch("ethernity.cli.features.render.command.console.print")
+    @mock.patch("ethernity.cli.features.render.command.render_envelope_docx")
+    @mock.patch("ethernity.cli.features.render.command.render_html_to_pdf")
+    @mock.patch("ethernity.cli.features.render.command.render_template", return_value="<html />")
     @mock.patch(
-        "ethernity.cli.commands.render.envelope_template_path", return_value=Path("template")
+        "ethernity.cli.features.render.command.envelope_page_size_mm", return_value=(10.0, 20.0)
     )
     @mock.patch(
-        "ethernity.cli.commands.render._data_uri_for_path",
+        "ethernity.cli.features.render.command.envelope_template_path",
+        return_value=Path("template"),
+    )
+    @mock.patch(
+        "ethernity.cli.features.render.command._data_uri_for_path",
         return_value="data:image/png;base64,AA==",
     )
-    @mock.patch("ethernity.cli.commands.render._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch(
+        "ethernity.cli.features.render.command._run_cli", side_effect=lambda func, debug: func()
+    )
     def test_render_pdf_path(
         self,
         _run_cli: mock.MagicMock,
@@ -95,18 +100,24 @@ class TestRenderCommand(unittest.TestCase):
         render_envelope_docx.assert_not_called()
         print_mock.assert_called_once_with("out.pdf")
 
-    @mock.patch("ethernity.cli.commands.render.console.print")
-    @mock.patch("ethernity.cli.commands.render.render_envelope_docx")
-    @mock.patch("ethernity.cli.commands.render.render_html_to_pdf")
-    @mock.patch("ethernity.cli.commands.render.render_template", return_value="<html />")
-    @mock.patch("ethernity.cli.commands.render.envelope_page_size_mm", return_value=(10.0, 20.0))
+    @mock.patch("ethernity.cli.features.render.command.console.print")
+    @mock.patch("ethernity.cli.features.render.command.render_envelope_docx")
+    @mock.patch("ethernity.cli.features.render.command.render_html_to_pdf")
+    @mock.patch("ethernity.cli.features.render.command.render_template", return_value="<html />")
     @mock.patch(
-        "ethernity.cli.commands.render.envelope_template_path", return_value=Path("template")
+        "ethernity.cli.features.render.command.envelope_page_size_mm", return_value=(10.0, 20.0)
     )
     @mock.patch(
-        "ethernity.cli.commands.render.expanduser_cli_path", return_value="/tmp/expanded.pdf"
+        "ethernity.cli.features.render.command.envelope_template_path",
+        return_value=Path("template"),
     )
-    @mock.patch("ethernity.cli.commands.render._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch(
+        "ethernity.cli.features.render.command.expanduser_cli_path",
+        return_value="/tmp/expanded.pdf",
+    )
+    @mock.patch(
+        "ethernity.cli.features.render.command._run_cli", side_effect=lambda func, debug: func()
+    )
     def test_render_pdf_path_expands_output_user_home(
         self,
         _run_cli: mock.MagicMock,
@@ -133,14 +144,19 @@ class TestRenderCommand(unittest.TestCase):
         render_envelope_docx.assert_not_called()
         print_mock.assert_called_once_with(str(Path("/tmp/expanded.pdf")))
 
-    @mock.patch("ethernity.cli.commands.render.console.print")
-    @mock.patch("ethernity.cli.commands.render.render_envelope_docx")
-    @mock.patch("ethernity.cli.commands.render.render_html_to_pdf")
-    @mock.patch("ethernity.cli.commands.render.envelope_page_size_mm", return_value=(10.0, 20.0))
+    @mock.patch("ethernity.cli.features.render.command.console.print")
+    @mock.patch("ethernity.cli.features.render.command.render_envelope_docx")
+    @mock.patch("ethernity.cli.features.render.command.render_html_to_pdf")
     @mock.patch(
-        "ethernity.cli.commands.render.envelope_template_path", return_value=Path("template")
+        "ethernity.cli.features.render.command.envelope_page_size_mm", return_value=(10.0, 20.0)
     )
-    @mock.patch("ethernity.cli.commands.render._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch(
+        "ethernity.cli.features.render.command.envelope_template_path",
+        return_value=Path("template"),
+    )
+    @mock.patch(
+        "ethernity.cli.features.render.command._run_cli", side_effect=lambda func, debug: func()
+    )
     def test_render_docx_path_quiet_default_output(
         self,
         _run_cli: mock.MagicMock,
@@ -151,7 +167,9 @@ class TestRenderCommand(unittest.TestCase):
         print_mock: mock.MagicMock,
     ) -> None:
         ctx = self._ctx(debug=False, quiet=True)
-        with mock.patch("ethernity.cli.commands.render.Path.cwd", return_value=Path("/tmp")):
+        with mock.patch(
+            "ethernity.cli.features.render.command.Path.cwd", return_value=Path("/tmp")
+        ):
             render_module.render(
                 ctx,
                 target="envelope-c5",

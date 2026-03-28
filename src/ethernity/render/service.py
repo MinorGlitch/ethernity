@@ -22,22 +22,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
-from ..config import AppConfig
-from ..core.bounds import MAX_QR_PAYLOAD_CHARS
-from ..encoding.framing import Frame, encode_frame
-from ..encoding.qr_payloads import (
+from ethernity.config import AppConfig
+from ethernity.core.bounds import MAX_QR_PAYLOAD_CHARS
+from ethernity.encoding.framing import Frame, encode_frame
+from ethernity.encoding.qr_payloads import (
     QR_PAYLOAD_CODEC_BASE64,
     QrPayloadCodec,
     encode_qr_payload,
 )
-from .doc_types import (
+from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
     DOC_TYPE_MAIN,
     DOC_TYPE_RECOVERY,
     DOC_TYPE_SHARD,
 )
-from .recovery_meta import RecoveryMeta
-from .types import FallbackSection, RenderInputs
+from ethernity.render.recovery_meta import RecoveryMeta
+from ethernity.render.types import FallbackSection, RenderInputs
 
 
 @dataclass(frozen=True)
@@ -170,6 +170,7 @@ class RenderService:
         qr_payloads: Sequence[bytes | str],
         context: dict[str, object] | None = None,
         template_path: str | Path | None = None,
+        doc_type: str = DOC_TYPE_KIT,
         layout_debug_json_path: str | Path | None = None,
     ) -> RenderInputs:
         """Build render inputs for the recovery kit document/index."""
@@ -181,7 +182,7 @@ class RenderService:
             context=context,
             qr_payloads=qr_payloads,
             render_fallback=False,
-            doc_type=DOC_TYPE_KIT,
+            doc_type=doc_type,
             layout_debug_json_path=layout_debug_json_path,
         )
 

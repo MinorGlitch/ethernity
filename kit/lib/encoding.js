@@ -59,7 +59,7 @@ export function decodePayloadString(text) {
         return null;
       }
       return bytes;
-    } catch (err) {
+    } catch (_err) {
       return null;
     }
   }
@@ -125,12 +125,13 @@ export function filterZBase32Lines(text) {
   for (const raw of lines) {
     const line = raw.trim();
     if (!line) continue;
-    let ok = true;
+    const ok = true;
     for (const ch of line) {
       if (ch === "-" || /\s/.test(ch)) continue;
       if (!ZBASE32_ALPHABET.includes(ch.toLowerCase())) {
-        ok = false;
-        break;
+        throw new Error(
+          "fallback text contains non-empty lines with characters outside the z-base-32 alphabet",
+        );
       }
     }
     if (ok) filtered.push(line);
@@ -194,7 +195,9 @@ export function bytesEqual(a, b) {
 }
 
 export function bytesToHex(bytes) {
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 export function hexToBytes(hex) {

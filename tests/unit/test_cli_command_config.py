@@ -22,8 +22,8 @@ from unittest import mock
 
 import typer
 
-from ethernity.cli.commands import config as config_module
-from ethernity.cli.core.types import CliContextState
+from ethernity.cli.features.config import command as config_module
+from ethernity.cli.shared.types import CliContextState
 
 
 class TestConfigCommand(unittest.TestCase):
@@ -52,9 +52,9 @@ class TestConfigCommand(unittest.TestCase):
         with self.assertRaisesRegex(FileNotFoundError, "config file not found"):
             config_module._open_in_editor(missing, editor=None, quiet=True)
 
-    @mock.patch("ethernity.cli.commands.config.typer.launch")
-    @mock.patch("ethernity.cli.commands.config._resolve_editor_command", return_value=None)
-    @mock.patch("ethernity.cli.commands.config.console.print")
+    @mock.patch("ethernity.cli.features.config.command.typer.launch")
+    @mock.patch("ethernity.cli.features.config.command._resolve_editor_command", return_value=None)
+    @mock.patch("ethernity.cli.features.config.command.console.print")
     def test_open_in_editor_system_launcher_paths(
         self,
         print_mock: mock.MagicMock,
@@ -69,8 +69,8 @@ class TestConfigCommand(unittest.TestCase):
         self.assertEqual(launch.call_count, 2)
         print_mock.assert_called_once()
 
-    @mock.patch("ethernity.cli.commands.config.typer.launch")
-    @mock.patch("ethernity.cli.commands.config._resolve_editor_command", return_value=None)
+    @mock.patch("ethernity.cli.features.config.command.typer.launch")
+    @mock.patch("ethernity.cli.features.config.command._resolve_editor_command", return_value=None)
     def test_open_in_editor_does_not_expand_environment_variables(
         self,
         _resolve_editor_command: mock.MagicMock,
@@ -83,12 +83,12 @@ class TestConfigCommand(unittest.TestCase):
 
         launch.assert_called_once_with(str(path))
 
-    @mock.patch("ethernity.cli.commands.config.subprocess.run")
+    @mock.patch("ethernity.cli.features.config.command.subprocess.run")
     @mock.patch(
-        "ethernity.cli.commands.config._resolve_editor_command",
+        "ethernity.cli.features.config.command._resolve_editor_command",
         return_value=["code", "-w"],
     )
-    @mock.patch("ethernity.cli.commands.config.console.print")
+    @mock.patch("ethernity.cli.features.config.command.console.print")
     def test_open_in_editor_explicit_editor_paths(
         self,
         print_mock: mock.MagicMock,
@@ -103,11 +103,14 @@ class TestConfigCommand(unittest.TestCase):
         subprocess_run.assert_any_call(["code", "-w", str(path)], check=False)
         print_mock.assert_called_once()
 
-    @mock.patch("ethernity.cli.commands.config._open_in_editor")
+    @mock.patch("ethernity.cli.features.config.command._open_in_editor")
     @mock.patch(
-        "ethernity.cli.commands.config.resolve_config_path", return_value=Path("/tmp/cfg.toml")
+        "ethernity.cli.features.config.command.resolve_config_path",
+        return_value=Path("/tmp/cfg.toml"),
     )
-    @mock.patch("ethernity.cli.commands.config._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch(
+        "ethernity.cli.features.config.command._run_cli", side_effect=lambda func, debug: func()
+    )
     def test_config_command_open_editor_with_context_values(
         self,
         _run_cli: mock.MagicMock,
@@ -119,12 +122,15 @@ class TestConfigCommand(unittest.TestCase):
         resolve_config_path.assert_called_once_with("ctx.toml")
         open_in_editor.assert_called_once_with(Path("/tmp/cfg.toml"), editor="nano", quiet=True)
 
-    @mock.patch("ethernity.cli.commands.config._open_in_editor")
-    @mock.patch("ethernity.cli.commands.config.run_first_run_config_wizard")
+    @mock.patch("ethernity.cli.features.config.command._open_in_editor")
+    @mock.patch("ethernity.cli.features.config.command.run_first_run_config_wizard")
     @mock.patch(
-        "ethernity.cli.commands.config.resolve_config_path", return_value=Path("/tmp/cfg.toml")
+        "ethernity.cli.features.config.command.resolve_config_path",
+        return_value=Path("/tmp/cfg.toml"),
     )
-    @mock.patch("ethernity.cli.commands.config._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch(
+        "ethernity.cli.features.config.command._run_cli", side_effect=lambda func, debug: func()
+    )
     def test_config_command_onboard_runs_wizard(
         self,
         _run_cli: mock.MagicMock,
@@ -134,8 +140,10 @@ class TestConfigCommand(unittest.TestCase):
     ) -> None:
         ctx = self._ctx(config="ctx.toml", quiet=True, debug=False)
         with (
-            mock.patch("ethernity.cli.commands.config.sys.stdin.isatty", return_value=True),
-            mock.patch("ethernity.cli.commands.config.sys.stdout.isatty", return_value=True),
+            mock.patch("ethernity.cli.features.config.command.sys.stdin.isatty", return_value=True),
+            mock.patch(
+                "ethernity.cli.features.config.command.sys.stdout.isatty", return_value=True
+            ),
         ):
             config_module.config(
                 ctx,
@@ -153,9 +161,12 @@ class TestConfigCommand(unittest.TestCase):
         open_in_editor.assert_not_called()
 
     @mock.patch(
-        "ethernity.cli.commands.config.resolve_config_path", return_value=Path("/tmp/cfg.toml")
+        "ethernity.cli.features.config.command.resolve_config_path",
+        return_value=Path("/tmp/cfg.toml"),
     )
-    @mock.patch("ethernity.cli.commands.config._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch(
+        "ethernity.cli.features.config.command._run_cli", side_effect=lambda func, debug: func()
+    )
     def test_config_command_onboard_requires_interactive_terminal(
         self,
         _run_cli: mock.MagicMock,
@@ -163,8 +174,12 @@ class TestConfigCommand(unittest.TestCase):
     ) -> None:
         ctx = self._ctx(config="ctx.toml", quiet=False, debug=False)
         with (
-            mock.patch("ethernity.cli.commands.config.sys.stdin.isatty", return_value=False),
-            mock.patch("ethernity.cli.commands.config.sys.stdout.isatty", return_value=False),
+            mock.patch(
+                "ethernity.cli.features.config.command.sys.stdin.isatty", return_value=False
+            ),
+            mock.patch(
+                "ethernity.cli.features.config.command.sys.stdout.isatty", return_value=False
+            ),
         ):
             with self.assertRaisesRegex(ValueError, "interactive terminal"):
                 config_module.config(
@@ -175,12 +190,15 @@ class TestConfigCommand(unittest.TestCase):
                     onboard=True,
                 )
 
-    @mock.patch("ethernity.cli.commands.config._open_in_editor")
-    @mock.patch("ethernity.cli.commands.config.console.print")
+    @mock.patch("ethernity.cli.features.config.command._open_in_editor")
+    @mock.patch("ethernity.cli.features.config.command.console.print")
     @mock.patch(
-        "ethernity.cli.commands.config.resolve_config_path", return_value=Path("/tmp/print.toml")
+        "ethernity.cli.features.config.command.resolve_config_path",
+        return_value=Path("/tmp/print.toml"),
     )
-    @mock.patch("ethernity.cli.commands.config._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch(
+        "ethernity.cli.features.config.command._run_cli", side_effect=lambda func, debug: func()
+    )
     def test_config_command_print_path_short_circuit(
         self,
         _run_cli: mock.MagicMock,

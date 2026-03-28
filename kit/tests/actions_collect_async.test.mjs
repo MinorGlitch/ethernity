@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { MAX_CIPHERTEXT_BYTES } from "../app/constants.js";
-import { addPayloads, resetAll } from "../app/actions_collect.js";
+import {
+  addPayloads,
+  addScannedPayload,
+  addScannedShardPayload,
+  resetAll,
+} from "../app/actions_collect.js";
 import { updateAuthStatus } from "../app/auth.js";
 import { createInitialState } from "../app/state/initial.js";
 import { reducer } from "../app/state/reducer.js";
@@ -43,6 +48,29 @@ test("updateAuthStatus clears pending guard after ciphertext errors", async () =
   assert.notEqual(state.authStatus, "ciphertext error");
 });
 
+test("updateAuthStatus degrades cleanly when crypto is unavailable", async () => {
+  const original = globalThis.crypto;
+  const state = createInitialState();
+  state.authPayload = {
+    signPub: new Uint8Array(32),
+    signature: new Uint8Array(64),
+    docHash: new Uint8Array(32),
+  };
+  state.total = 1;
+  state.mainFrames.set(0, { data: new Uint8Array([1, 2, 3]) });
+
+  try {
+    delete globalThis.crypto;
+    await updateAuthStatus(state);
+  } finally {
+    if (original) {
+      globalThis.crypto = original;
+    }
+  }
+
+  assert.equal(state.authStatus, "doc_hash matches; signature not verified");
+});
+
 test("async main followups do not overwrite reset state", async () => {
   const store = createStore();
   const state = store.getState();
@@ -64,4 +92,30 @@ test("async main followups do not overwrite reset state", async () => {
   assert.equal(finalState.cipherDocHashHex, null);
   assert.equal(finalState.authStatus, "missing");
   assert.equal(finalState.frameStatus.lines[0], "State cleared.");
+});
+
+test("scanned payload parse failures surface an error status", async () => {
+  const store = createStore();
+
+  await addScannedPayload(store.dispatch.bind(store), store.getState.bind(store), {
+    text: "not a valid payload",
+  });
+
+  const finalState = store.getState();
+  assert.equal(finalState.errors, 1);
+  assert.equal(finalState.frameStatus.type, "error");
+  assert.equal(finalState.frameStatus.lines[0], "Scanned QR could not be decoded.");
+});
+
+test("scanned shard parse failures surface an error status", async () => {
+  const store = createStore();
+
+  await addScannedShardPayload(store.dispatch.bind(store), store.getState.bind(store), {
+    text: "not a valid shard payload",
+  });
+
+  const finalState = store.getState();
+  assert.equal(finalState.shardErrors, 1);
+  assert.equal(finalState.shardStatus.type, "error");
+  assert.equal(finalState.shardStatus.lines[0], "Scanned shard QR could not be decoded.");
 });

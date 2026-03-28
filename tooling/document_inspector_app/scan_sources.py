@@ -6,7 +6,7 @@ from typing import Sequence
 
 from PIL import ImageGrab
 
-from ethernity.cli.io.frames import _frame_from_scanned_payload
+from ethernity.cli.shared.io.frames import _frame_from_scanned_payload
 from ethernity.encoding.framing import Frame
 from ethernity.qr.scan import QrScanError, _load_decoder, scan_qr_payloads
 

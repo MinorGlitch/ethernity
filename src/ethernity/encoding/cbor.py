@@ -32,11 +32,16 @@ def loads_canonical(data: bytes, *, label: str) -> object:
 
     try:
         decoded = cbor2.loads(data)
+    except (cbor2.CBORDecodeError, ValueError) as exc:
+        raise ValueError(f"invalid {label} CBOR payload") from exc
+    except RecursionError as exc:
+        raise ValueError(f"{label} CBOR nesting is too deep") from exc
+    try:
         if dumps_canonical(decoded) != data:
             raise ValueError(
                 f"{label} must use canonical CBOR encoding "
                 "(indefinite-length items are not allowed)"
             )
-        return decoded
-    except RecursionError as exc:
-        raise ValueError(f"{label} CBOR nesting is too deep") from exc
+    except cbor2.CBOREncodeError as exc:
+        raise ValueError(f"invalid {label} CBOR payload") from exc
+    return decoded

@@ -21,14 +21,15 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Sequence
 
-from .doc_types import (
+from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
+    DOC_TYPE_KIT_INDEX,
     DOC_TYPE_MAIN,
     DOC_TYPE_RECOVERY,
     DOC_TYPE_SIGNING_KEY_SHARD,
     DOC_TYPES,
 )
-from .utils import int_value as _int_value
+from ethernity.render.utils import int_value as _int_value
 
 
 @dataclass(frozen=True)
@@ -207,7 +208,7 @@ def document_spec(
             ),
         )
         keys = replace(keys, first_page_only=True)
-    elif normalized == DOC_TYPE_KIT:
+    elif normalized in {DOC_TYPE_KIT, DOC_TYPE_KIT_INDEX}:
         header = replace(header, title="Recovery Kit", subtitle="Offline HTML bundle")
         instructions = replace(
             instructions,

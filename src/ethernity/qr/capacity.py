@@ -16,13 +16,13 @@
 
 from __future__ import annotations
 
-from ..encoding.framing import DOC_ID_LEN, VERSION, Frame, encode_frame
-from ..encoding.qr_payloads import (
+from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, encode_frame
+from ethernity.encoding.qr_payloads import (
     QR_PAYLOAD_CODEC_BASE64,
     QrPayloadCodec,
     encode_qr_payload,
 )
-from .codec import QrConfig, make_qr
+from ethernity.qr.codec import QrConfig, make_qr
 
 
 def choose_frame_chunk_size(

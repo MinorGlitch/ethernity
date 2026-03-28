@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from .doc_types import DOC_TYPES
+from ethernity.render.doc_types import DOC_TYPES
 
 
 @dataclass(frozen=True)
@@ -82,6 +82,20 @@ class TemplateCapabilities:
     main_qr_grid_size_mm: float | None = None
     main_qr_grid_max_cols: int | None = None
     fallback_layout: FallbackLayoutProfile | None = None
+    recovery_line_groups_bonus: int = 0
+    recovery_first_page_bonus_lines: int = 0
+    recovery_first_page_bonus_lines_per_extra_section: int = 0
+    recovery_continuation_bonus_lines: int = 0
+    recovery_main_section_start_reserved_lines: int = 0
+    recovery_quorumless_line_groups_bonus: int = 0
+    recovery_quorumless_first_page_bonus_lines: int = 0
+    recovery_quorumless_continuation_bonus_lines: int = 0
+    shard_line_groups_bonus: int = 0
+    shard_first_page_estimate_bonus_lines: int = 0
+    shard_first_page_bonus_lines: int = 0
+    signing_key_shard_line_groups_bonus: int = 0
+    signing_key_shard_first_page_estimate_bonus_lines: int = 0
+    signing_key_shard_first_page_bonus_lines: int = 0
 
 
 @dataclass(frozen=True)
@@ -165,7 +179,7 @@ def _load_style_for_dir(template_dir: Path) -> TemplateStyle:
         if normalized not in DOC_TYPES:
             raise ValueError(f"unknown doc type '{doc_type}' in {style_path}")
         normalized_doc_types.append(normalized)
-    capabilities = _parse_capabilities(data.get("capabilities"), style_name=name, path=style_path)
+    capabilities = _parse_capabilities(data.get("capabilities"), path=style_path)
 
     return TemplateStyle(
         name=name,
@@ -178,13 +192,11 @@ def _load_style_for_dir(template_dir: Path) -> TemplateStyle:
     )
 
 
-def _parse_capabilities(value: object, *, style_name: str, path: Path) -> TemplateCapabilities:
+def _parse_capabilities(value: object, *, path: Path) -> TemplateCapabilities:
     """Parse the `capabilities` section from a template style file."""
 
     if value is None:
-        return TemplateCapabilities(
-            extra_main_first_page_qr_slot=style_name.strip().lower() == "sentinel"
-        )
+        return TemplateCapabilities()
     if not isinstance(value, dict):
         raise ValueError(f"invalid 'capabilities' object in {path}")
     _reject_legacy_capability_keys(value, path=path)
@@ -201,12 +213,25 @@ def _parse_capabilities(value: object, *, style_name: str, path: Path) -> Templa
                 "main_qr_grid_size_mm",
                 "main_qr_grid_max_cols",
                 "fallback_layout",
+                "recovery_line_groups_bonus",
+                "recovery_first_page_bonus_lines",
+                "recovery_first_page_bonus_lines_per_extra_section",
+                "recovery_continuation_bonus_lines",
+                "recovery_main_section_start_reserved_lines",
+                "recovery_quorumless_line_groups_bonus",
+                "recovery_quorumless_first_page_bonus_lines",
+                "recovery_quorumless_continuation_bonus_lines",
+                "shard_line_groups_bonus",
+                "shard_first_page_estimate_bonus_lines",
+                "shard_first_page_bonus_lines",
+                "signing_key_shard_line_groups_bonus",
+                "signing_key_shard_first_page_estimate_bonus_lines",
+                "signing_key_shard_first_page_bonus_lines",
             }
         ),
         section="capabilities",
         path=path,
     )
-    normalized_style_name = style_name.strip().lower()
     advanced_fallback_layout = _optional_bool(
         value,
         "advanced_fallback_layout",
@@ -243,7 +268,7 @@ def _parse_capabilities(value: object, *, style_name: str, path: Path) -> Templa
         extra_main_first_page_qr_slot=_optional_bool(
             value,
             "extra_main_first_page_qr_slot",
-            default=normalized_style_name == "sentinel",
+            default=False,
             path=path,
         ),
         uniform_main_qr_capacity=_optional_bool(
@@ -271,6 +296,63 @@ def _parse_capabilities(value: object, *, style_name: str, path: Path) -> Templa
             path=path,
         ),
         fallback_layout=fallback_layout,
+        recovery_line_groups_bonus=_optional_non_negative_int(
+            value, "recovery_line_groups_bonus", default=0, path=path
+        ),
+        recovery_first_page_bonus_lines=_optional_non_negative_int(
+            value, "recovery_first_page_bonus_lines", default=0, path=path
+        ),
+        recovery_first_page_bonus_lines_per_extra_section=_optional_non_negative_int(
+            value,
+            "recovery_first_page_bonus_lines_per_extra_section",
+            default=0,
+            path=path,
+        ),
+        recovery_continuation_bonus_lines=_optional_non_negative_int(
+            value, "recovery_continuation_bonus_lines", default=0, path=path
+        ),
+        recovery_main_section_start_reserved_lines=_optional_non_negative_int(
+            value,
+            "recovery_main_section_start_reserved_lines",
+            default=0,
+            path=path,
+        ),
+        recovery_quorumless_line_groups_bonus=_optional_non_negative_int(
+            value, "recovery_quorumless_line_groups_bonus", default=0, path=path
+        ),
+        recovery_quorumless_first_page_bonus_lines=_optional_non_negative_int(
+            value,
+            "recovery_quorumless_first_page_bonus_lines",
+            default=0,
+            path=path,
+        ),
+        recovery_quorumless_continuation_bonus_lines=_optional_non_negative_int(
+            value,
+            "recovery_quorumless_continuation_bonus_lines",
+            default=0,
+            path=path,
+        ),
+        shard_line_groups_bonus=_optional_non_negative_int(
+            value, "shard_line_groups_bonus", default=0, path=path
+        ),
+        shard_first_page_estimate_bonus_lines=_optional_non_negative_int(
+            value, "shard_first_page_estimate_bonus_lines", default=0, path=path
+        ),
+        shard_first_page_bonus_lines=_optional_non_negative_int(
+            value, "shard_first_page_bonus_lines", default=0, path=path
+        ),
+        signing_key_shard_line_groups_bonus=_optional_non_negative_int(
+            value, "signing_key_shard_line_groups_bonus", default=0, path=path
+        ),
+        signing_key_shard_first_page_estimate_bonus_lines=_optional_non_negative_int(
+            value,
+            "signing_key_shard_first_page_estimate_bonus_lines",
+            default=0,
+            path=path,
+        ),
+        signing_key_shard_first_page_bonus_lines=_optional_non_negative_int(
+            value, "signing_key_shard_first_page_bonus_lines", default=0, path=path
+        ),
     )
 
 
@@ -393,19 +475,12 @@ def _parse_shard_fallback_layout(
 
 
 def _reject_legacy_capability_keys(data: dict[str, object], *, path: Path) -> None:
-    removed_keys = (
-        "wide_recovery_fallback_lines",
-        "shard_first_page_bonus_lines",
-        "signing_key_shard_first_page_bonus_lines",
-    )
+    removed_keys = ("wide_recovery_fallback_lines",)
     present = [key for key in removed_keys if key in data]
     if not present:
         return
     present_text = ", ".join(sorted(present))
-    raise ValueError(
-        "legacy capability keys removed: "
-        f"{present_text}; use 'capabilities.fallback_layout.*' in {path}"
-    )
+    raise ValueError(f"legacy capability keys removed: {present_text}; remove them from {path}")
 
 
 def _require_dict(data: dict[str, object], key: str, *, path: Path) -> dict[str, object]:
@@ -501,6 +576,23 @@ def _optional_positive_int(
     value = data.get(key)
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError(f"missing or invalid '{key}' positive integer in {path}")
+    return value
+
+
+def _optional_non_negative_int(
+    data: dict[str, object],
+    key: str,
+    *,
+    default: int,
+    path: Path,
+) -> int:
+    """Read an optional non-negative integer capability."""
+
+    if key not in data:
+        return default
+    value = data.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"missing or invalid '{key}' non-negative integer in {path}")
     return value
 
 

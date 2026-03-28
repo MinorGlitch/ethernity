@@ -19,8 +19,8 @@ from unittest import mock
 
 import typer
 
-from ethernity.cli.core import common as common_module
-from ethernity.cli.core.types import CliContextState
+from ethernity.cli.shared import common as common_module
+from ethernity.cli.shared.types import CliContextState
 
 
 class TestCliCoreCommon(unittest.TestCase):
@@ -38,7 +38,7 @@ class TestCliCoreCommon(unittest.TestCase):
             common_module._run_cli(lambda: 7, debug=False)
         self.assertEqual(exc_info.exception.exit_code, 7)
 
-    @mock.patch("ethernity.cli.core.common.console_err.print")
+    @mock.patch("ethernity.cli.shared.common.console_err.print")
     def test_run_cli_catches_known_errors_when_not_debug(
         self,
         print_mock: mock.MagicMock,
@@ -49,7 +49,7 @@ class TestCliCoreCommon(unittest.TestCase):
         print_mock.assert_called_once()
         self.assertIn("boom", str(print_mock.call_args.args[0]))
 
-    @mock.patch("ethernity.cli.core.common.console_err.print")
+    @mock.patch("ethernity.cli.shared.common.console_err.print")
     def test_run_cli_keyboard_interrupt_exits_130(
         self,
         print_mock: mock.MagicMock,
@@ -77,7 +77,7 @@ class TestCliCoreCommon(unittest.TestCase):
                 debug=True,
             )
 
-    @mock.patch("ethernity.cli.core.common.install_rich_traceback")
+    @mock.patch("ethernity.cli.shared.common.install_rich_traceback")
     def test_run_cli_debug_installs_traceback(
         self,
         install_rich_traceback: mock.MagicMock,
@@ -112,11 +112,11 @@ class TestCliCoreCommon(unittest.TestCase):
         with self.assertRaises(typer.BadParameter):
             common_module._paper_callback("A3")
 
-    @mock.patch("ethernity.cli.core.common.get_ethernity_version", return_value="1.2.3")
+    @mock.patch("ethernity.cli.shared.common.get_ethernity_version", return_value="1.2.3")
     def test_get_version_success(self, _version: mock.MagicMock) -> None:
         self.assertEqual(common_module._get_version(), "1.2.3")
 
-    @mock.patch("ethernity.cli.core.common.get_ethernity_version", return_value="")
+    @mock.patch("ethernity.cli.shared.common.get_ethernity_version", return_value="")
     def test_get_version_fallback(self, _version: mock.MagicMock) -> None:
         self.assertEqual(common_module._get_version(), "unknown")
 

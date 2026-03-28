@@ -22,8 +22,8 @@ import gzip
 import zlib
 from typing import Literal
 
-from ..core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES
-from .envelope_types import PAYLOAD_CODEC_GZIP, PAYLOAD_CODEC_RAW, EnvelopeManifest
+from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES
+from ethernity.formats.envelope_types import PAYLOAD_CODEC_GZIP, PAYLOAD_CODEC_RAW, EnvelopeManifest
 
 PAYLOAD_ENCODING_AUTO: Literal["auto"] = "auto"
 PayloadEncodingMode = Literal["auto", "raw", "gzip"]

@@ -18,9 +18,18 @@ conventions and a glob-based, working-tree inventory contract for contributors a
 
 - Imports: no nested (runtime) imports; keep imports at top-level.
 - Exports: prefer explicit public exports; do not re-export underscore helpers.
+- Python readability with Ruff:
+  - Keep `ruff format` as the only Python formatter; do not add Black for this repo.
+  - Keep Python line length at 100 unless a deliberate repo-wide style change is approved.
+  - Use blank lines only for real phase boundaries such as normalize, validate, execute, and report.
+  - If a function needs many manual spacing groups to read clearly, split it into small named helpers.
+  - Prefer module imports over long symbol lists when importing many names from one module.
+  - Avoid broad barrel exports unless the re-exported surface is intentionally public.
+  - In tests, replace large `mock.patch(...)` stacks with fixtures, helper context managers, or test support helpers when the same patch bundle repeats.
+  - Use `# fmt: off` / `# fmt: on` only for rare, justified hotspots where structure cannot be improved.
 - Text: keep ASCII-only edits unless a file already uses Unicode.
 - Artifacts: do not edit generated artifacts directly; edit sources and rebuild.
-- Kit bundle: do not edit `kit/dist/` or `src/ethernity/kit/recovery_kit.bundle.html` directly;
+- Kit bundle: do not edit `kit/dist/` or `src/ethernity/resources/kit/recovery_kit.bundle.html` directly;
   rebuild via `kit/build_kit.mjs`.
 - Rendering contract: `RenderInputs` requires explicit `doc_type`; do not set
   `context["doc_type"]` and do not infer from template filename.
@@ -32,7 +41,7 @@ conventions and a glob-based, working-tree inventory contract for contributors a
 - Key line contract: treat `key_lines` as display/fallback text only; do not attach behavior to
   specific line strings.
 - Template capabilities: behavior toggles belong in design style.json files (for example
-  `src/ethernity/templates/forge/style.json`) under the `capabilities` object, not ad-hoc
+  `src/ethernity/resources/templates/forge/style.json`) under the `capabilities` object, not ad-hoc
   template-name checks.
 - Layout diagnostics: use `RenderInputs.layout_debug_json_path` when layout diagnostics are needed;
   this emits a JSON sidecar and should not alter render behavior.
@@ -41,10 +50,10 @@ conventions and a glob-based, working-tree inventory contract for contributors a
   Legacy aliases or stale copied names must not be surfaced. Enforcement point:
   `src/ethernity/config/installer.py`.
 - Forge icons: Forge templates must use local material symbols assets via
-  `src/ethernity/templates/_shared/partials/material_symbols_local.j2`; do not depend on remote
+  `src/ethernity/resources/templates/_shared/partials/material_symbols_local.j2`; do not depend on remote
   icon CDNs.
-- Recovery kit index: backup flow may emit a separate `recovery_kit_index.pdf` when a compatible
-  `src/ethernity/templates/forge/kit_index_document.html.j2` style of index template is available.
+- Recovery kit index: backup flow may emit a separate `recovery_kit_index.pdf` when the active
+  template design provides a compatible `kit_index_document.html.j2`.
 - CLI prompts: Questionary is the only prompt library for CLI UI.
 - Fallback parser contract: for fallback section filtering, non-empty normalized lines that contain
   characters outside the z-base-32 alphabet must be treated as invalid input (reject), not silently
@@ -62,12 +71,13 @@ conventions and a glob-based, working-tree inventory contract for contributors a
 
 ### CLI
 
-- Entry point and command wiring: `src/ethernity/cli/app.py`,
-  `src/ethernity/cli/command_registry.py`.
+- Entry point and command wiring: `src/ethernity/cli/bootstrap/app.py`,
+  `src/ethernity/cli/bootstrap/registry.py`.
 - Core command surfaces: `backup`, `recover`, `kit`, `config`, `render`.
-- Orchestration is in `src/ethernity/cli/flows/`; keep planning and execution separated where
-  possible.
-- Key recovery helpers live in `src/ethernity/cli/keys/`.
+- Command definitions live in `src/ethernity/cli/features/*/command.py`.
+- Shared CLI infrastructure lives in `src/ethernity/cli/shared/`.
+- Feature orchestration lives in `src/ethernity/cli/features/`; keep planning and execution
+  separated where possible.
 
 ### Rendering
 
@@ -97,9 +107,9 @@ conventions and a glob-based, working-tree inventory contract for contributors a
 
 - Browser kit app source is under `kit/app/` and `kit/lib/`.
 - Built kit outputs (lean + scanner variants) live in `kit/dist/` and are copied into
-  `src/ethernity/kit/` by `kit/build_kit.mjs`.
+  `src/ethernity/resources/kit/` by `kit/build_kit.mjs`.
 - Local Material Symbols font asset:
-  `src/ethernity/templates/_shared/assets/material-symbols-outlined.ttf`.
+  `src/ethernity/resources/templates/_shared/assets/material-symbols-outlined.ttf`.
 
 ## Inventory Contract (Glob-Based)
 
@@ -110,8 +120,7 @@ Paths are maintained by scope globs rather than exhaustive file-by-file lists.
 
 - `src/ethernity/**/*.py`
 - `src/ethernity/py.typed`
-- `src/ethernity/templates/**/*`
-- `src/ethernity/storage/**/*`
+- `src/ethernity/resources/**/*`
 
 ### Browser Kit
 
@@ -145,8 +154,8 @@ Paths are maintained by scope globs rather than exhaustive file-by-file lists.
 
 These paths are high-signal anchors that should remain present and accurate:
 
-- `src/ethernity/cli/app.py`
-- `src/ethernity/config/installer.py`
+- `src/ethernity/cli/bootstrap/app.py`
+- `src/ethernity/config/install.py`
 - `src/ethernity/render/template_style.py`
 - `src/ethernity/core/bounds.py`
 - `docs/format.md`
@@ -181,14 +190,20 @@ These paths are high-signal anchors that should remain present and accurate:
 - Integration tests: `uv run pytest tests/integration -v`
 - E2E tests: `uv run pytest tests/e2e -v`
 - Coverage: `uv run pytest tests/unit tests/integration --cov=ethernity --cov-report=term-missing`
+- Pre-commit: `uv run pre-commit run --all-files`
 - Ruff lint: `uv run ruff check src tests`
 - Ruff format check: `uv run ruff format --check src tests`
 - Mypy: `uv run mypy src`
+- Pyright: `uv run pyright`
+- Schema validation: `uv run check-jsonschema --check-metaschema docs/cli_api.schema.json`
+- Typos: `uv run typos .`
 - CLI help surface: `uv run ethernity --help`
 - Backup command help: `uv run ethernity backup --help`
 - Recover command help: `uv run ethernity recover --help`
 - Kit command help: `uv run ethernity kit --help`
 - Render command help: `uv run ethernity render --help`
+- Kit lint: `cd kit && npm run lint`
+- Kit format check: `cd kit && npm run format:check`
 - Kit tests: `cd kit && npm test`
 - Envelope PDF render: `uv run ethernity render envelope-c6 --format pdf -o envelope_c6.pdf`
 - Envelope DOCX render: `uv run ethernity render envelope-c6 --format docx -o envelope_c6.docx`
@@ -201,9 +216,9 @@ These paths are high-signal anchors that should remain present and accurate:
 ## Runtime Notes
 
 - Playwright Chromium is required for HTML-to-PDF rendering. Startup install checks are handled by
-  `src/ethernity/cli/startup.py`.
+  `src/ethernity/cli/bootstrap/startup.py`.
 - Set `ETHERNITY_SKIP_PLAYWRIGHT_INSTALL=1` to skip Playwright downloads in tests/controlled envs.
 - Set `ETHERNITY_RENDER_JOBS` to tune QR render concurrency in `src/ethernity/render/pdf_render.py`
   (`auto` or a positive integer).
 - Forge icon glyphs are rendered through local font assets injected by PDF resource mapping; keep
-  `src/ethernity/templates/_shared/assets/material-symbols-outlined.ttf` available.
+  `src/ethernity/resources/templates/_shared/assets/material-symbols-outlined.ttf` available.

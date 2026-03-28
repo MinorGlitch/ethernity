@@ -33,8 +33,7 @@ export function useState(initialValue) {
   });
   if (!slot.setValue) {
     slot.setValue = (nextValue) => {
-      const next =
-        typeof nextValue === "function" ? nextValue(slot.value) : nextValue;
+      const next = typeof nextValue === "function" ? nextValue(slot.value) : nextValue;
       if (Object.is(next, slot.value)) {
         return;
       }

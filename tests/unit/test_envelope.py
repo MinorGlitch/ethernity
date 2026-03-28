@@ -207,6 +207,13 @@ class TestEnvelope(unittest.TestCase):
         self.assertEqual(roundtrip_payload, payload)
         self.assertEqual(roundtrip_manifest.files[0].path, "project/docs/sub/section/file_000.txt")
 
+    def test_build_manifest_defaults_created_at_to_integer_seconds(self) -> None:
+        parts = [PayloadPart(path="payload.bin", data=b"data", mtime=1)]
+        with mock.patch("ethernity.formats.envelope_codec.time.time", return_value=1234.75):
+            manifest, _payload = build_manifest_and_payload(parts, sealed=True)
+
+        self.assertEqual(manifest.created_at, 1234.0)
+
     @mock.patch("ethernity.formats.envelope_types.dumps_canonical")
     def test_manifest_encoding_tie_breaker_prefers_direct(
         self, dumps_canonical: mock.MagicMock
@@ -603,6 +610,107 @@ class TestEnvelope(unittest.TestCase):
             ],
         )
         with self.assertRaisesRegex(ValueError, "array encoding"):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_rejects_bool_created_timestamp(self) -> None:
+        data = _make_manifest_cbor(created=True)
+        with self.assertRaisesRegex(ValueError, "created"):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_encode_manifest_rejects_bool_created_timestamp(self) -> None:
+        manifest = EnvelopeManifest(
+            format_version=MANIFEST_VERSION,
+            created_at=True,
+            sealed=True,
+            signing_seed=None,
+            input_origin="directory",
+            input_roots=("payload",),
+            files=(
+                ManifestFile(
+                    path="payload.bin",
+                    size=1,
+                    sha256=hashlib.sha256(b"x").digest(),
+                    mtime=None,
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "created"):
+            encode_manifest(manifest)
+
+    def test_manifest_rejects_non_finite_created_timestamp(self) -> None:
+        for created_at in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(created_at=created_at):
+                data = _make_manifest_cbor(created=created_at)
+                with self.assertRaisesRegex(ValueError, "finite"):
+                    EnvelopeManifest.from_cbor(data)
+
+    def test_encode_manifest_rejects_non_finite_created_timestamp(self) -> None:
+        for created_at in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(created_at=created_at):
+                manifest = EnvelopeManifest(
+                    format_version=MANIFEST_VERSION,
+                    created_at=created_at,
+                    sealed=True,
+                    signing_seed=None,
+                    input_origin="directory",
+                    input_roots=("payload",),
+                    files=(
+                        ManifestFile(
+                            path="payload.bin",
+                            size=1,
+                            sha256=hashlib.sha256(b"x").digest(),
+                            mtime=None,
+                        ),
+                    ),
+                )
+                with self.assertRaisesRegex(ValueError, "finite"):
+                    encode_manifest(manifest)
+
+    def test_manifest_rejects_zero_raw_len_for_empty_gzip_payload(self) -> None:
+        manifest = EnvelopeManifest(
+            format_version=MANIFEST_VERSION,
+            created_at=0.0,
+            sealed=True,
+            signing_seed=None,
+            input_origin="directory",
+            input_roots=("payload",),
+            payload_codec=PAYLOAD_CODEC_GZIP,
+            payload_raw_len=0,
+            files=(
+                ManifestFile(
+                    path="payload.bin",
+                    size=0,
+                    sha256=hashlib.sha256(b"").digest(),
+                    mtime=None,
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(ValueError, "payload_raw_len"):
+            encode_manifest(manifest)
+
+    def test_encode_manifest_rejects_invalid_file_entry_fields(self) -> None:
+        manifest = EnvelopeManifest(
+            format_version=MANIFEST_VERSION,
+            created_at=0.0,
+            sealed=True,
+            signing_seed=None,
+            files=(ManifestFile(path="payload.bin", size=True, sha256=b"\x00" * 31, mtime=True),),
+        )
+        with self.assertRaisesRegex(ValueError, "manifest file size"):
+            encode_manifest(manifest)
+
+    def test_manifest_rejects_direct_file_entry_with_trailing_values(self) -> None:
+        data = _make_manifest_cbor(files=[["payload.bin", 4, b"\x00" * 32, None, "extra"]])
+        with self.assertRaisesRegex(ValueError, "exactly 4 items"):
+            EnvelopeManifest.from_cbor(data)
+
+    def test_manifest_rejects_prefix_file_entry_with_trailing_values(self) -> None:
+        data = _make_manifest_cbor(
+            path_encoding=PATH_ENCODING_PREFIX_TABLE,
+            path_prefixes=[""],
+            files=[[0, "payload.bin", 4, b"\x00" * 32, None, "extra"]],
+        )
+        with self.assertRaisesRegex(ValueError, "exactly 5 items"):
             EnvelopeManifest.from_cbor(data)
 
     def test_manifest_rejects_invalid_input_roots_shape(self) -> None:

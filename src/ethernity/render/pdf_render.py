@@ -29,22 +29,37 @@ from typing import Any, Callable, Literal, Sequence, cast
 
 from fpdf import FPDF
 
-from ..encoding.framing import encode_frame
-from ..qr.codec import QrConfig, qr_bytes
-from ..version import get_ethernity_version
-from .copy_catalog import build_copy_bundle
-from .doc_types import DOC_TYPE_KIT, DOC_TYPE_MAIN, DOC_TYPE_RECOVERY
-from .fallback import FallbackConsumerState, FallbackSectionData, build_fallback_sections_data
-from .html_to_pdf import render_html_to_pdf
-from .layout import compute_layout
-from .pages import build_pages
-from .recovery_meta import recovery_meta_lines_extra
-from .spec import DocumentSpec, document_spec
-from .template_model import DocModel, InstructionsModel, RecoveryModel, TemplateContext
-from .template_style import TemplateCapabilities, load_template_style
-from .templating import render_template
-from .text import page_format
-from .types import RenderInputs
+from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
+from ethernity.encoding.framing import encode_frame
+from ethernity.qr.codec import QrConfig, qr_bytes
+from ethernity.render.copy_catalog import build_copy_bundle
+from ethernity.render.doc_types import (
+    DOC_TYPE_KIT,
+    DOC_TYPE_KIT_INDEX,
+    DOC_TYPE_MAIN,
+    DOC_TYPE_RECOVERY,
+)
+from ethernity.render.fallback import (
+    FallbackConsumerState,
+    FallbackSectionData,
+    build_fallback_sections_data,
+)
+from ethernity.render.html_to_pdf import render_html_to_pdf
+from ethernity.render.layout import compute_layout
+from ethernity.render.pages import build_pages
+from ethernity.render.recovery_meta import recovery_meta_lines_extra
+from ethernity.render.spec import DocumentSpec, document_spec
+from ethernity.render.template_model import (
+    DocModel,
+    InstructionsModel,
+    RecoveryModel,
+    TemplateContext,
+)
+from ethernity.render.template_style import TemplateCapabilities, load_template_style
+from ethernity.render.templating import render_template
+from ethernity.render.text import page_format
+from ethernity.render.types import RenderInputs
+from ethernity.version import get_ethernity_version
 
 _QR_URL_PREFIX = "https://ethernity.local/qr/"
 _ASSET_URL_PREFIX = "https://ethernity.local/assets/"
@@ -52,8 +67,7 @@ _RENDER_JOBS_ENV = "ETHERNITY_RENDER_JOBS"
 _DEFAULT_QR_WORKERS_CAP = 8
 _MIN_QR_TASKS_PER_WORKER = 4
 _CONTEXT_PASSTHROUGH_KEYS = ("inventory_rows",)
-_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-_TEMPLATE_ASSETS_DIR = _PACKAGE_ROOT / "templates" / "_shared" / "assets"
+_TEMPLATE_ASSETS_DIR = TEMPLATES_RESOURCE_ROOT / "_shared" / "assets"
 
 
 @dataclass(frozen=True)
@@ -154,7 +168,20 @@ def _resolve_created_timestamp(base_context: dict[str, object]) -> tuple[str, da
     elif isinstance(created_value, str):
         created_value = created_value.strip()
         if created_value:
-            if "UTC" in created_value or created_value.endswith("Z"):
+            parsed_value = created_value
+            if created_value.endswith(" UTC"):
+                parsed_value = f"{created_value[:-4].strip()}+00:00"
+            elif created_value.endswith("Z"):
+                parsed_value = f"{created_value[:-1]}+00:00"
+            try:
+                parsed_dt = datetime.fromisoformat(parsed_value)
+            except ValueError:
+                parsed_dt = None
+            if parsed_dt is not None:
+                if parsed_dt.tzinfo is None:
+                    parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+                created_dt = parsed_dt.astimezone(timezone.utc)
+            elif "UTC" in created_value or created_value.endswith("Z"):
                 created_timestamp_utc = created_value
             else:
                 created_timestamp_utc = f"{created_value} UTC"
@@ -331,7 +358,7 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     pdf = FPDF(unit="mm", format=cast(Any, paper_format))
     pdf.set_auto_page_break(False)
 
-    include_instructions = normalized_doc_type != DOC_TYPE_KIT
+    include_instructions = normalized_doc_type not in {DOC_TYPE_KIT, DOC_TYPE_KIT_INDEX}
     include_keys = normalized_doc_type != DOC_TYPE_RECOVERY
     layout, fallback_lines = compute_layout(
         inputs,
@@ -455,8 +482,6 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     template_name = Path(inputs.template_path).name
     context["copy"] = build_copy_bundle(template_name=template_name, context=context)
 
-    html = render_template(inputs.template_path, context)
-    render_html_to_pdf(html, inputs.output_path, resources=resources)
     _write_layout_debug_json(
         output_path=inputs.output_path,
         inputs=inputs,
@@ -465,6 +490,8 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
         layout_rest=layout_rest,
         pages=pages,
     )
+    html = render_template(inputs.template_path, context)
+    render_html_to_pdf(html, inputs.output_path, resources=resources)
 
 
 def _qr_kind(config: QrConfig) -> str:

@@ -1,0 +1,1 @@
+"""Recovery kit CLI feature."""
