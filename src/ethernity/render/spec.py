@@ -23,6 +23,7 @@ from typing import Sequence
 
 from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
+    DOC_TYPE_KIT_INDEX,
     DOC_TYPE_MAIN,
     DOC_TYPE_RECOVERY,
     DOC_TYPE_SIGNING_KEY_SHARD,
@@ -207,7 +208,7 @@ def document_spec(
             ),
         )
         keys = replace(keys, first_page_only=True)
-    elif normalized == DOC_TYPE_KIT:
+    elif normalized in {DOC_TYPE_KIT, DOC_TYPE_KIT_INDEX}:
         header = replace(header, title="Recovery Kit", subtitle="Offline HTML bundle")
         instructions = replace(
             instructions,

@@ -33,7 +33,12 @@ from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
 from ethernity.encoding.framing import encode_frame
 from ethernity.qr.codec import QrConfig, qr_bytes
 from ethernity.render.copy_catalog import build_copy_bundle
-from ethernity.render.doc_types import DOC_TYPE_KIT, DOC_TYPE_MAIN, DOC_TYPE_RECOVERY
+from ethernity.render.doc_types import (
+    DOC_TYPE_KIT,
+    DOC_TYPE_KIT_INDEX,
+    DOC_TYPE_MAIN,
+    DOC_TYPE_RECOVERY,
+)
 from ethernity.render.fallback import (
     FallbackConsumerState,
     FallbackSectionData,
@@ -353,7 +358,7 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     pdf = FPDF(unit="mm", format=cast(Any, paper_format))
     pdf.set_auto_page_break(False)
 
-    include_instructions = normalized_doc_type != DOC_TYPE_KIT
+    include_instructions = normalized_doc_type not in {DOC_TYPE_KIT, DOC_TYPE_KIT_INDEX}
     include_keys = normalized_doc_type != DOC_TYPE_RECOVERY
     layout, fallback_lines = compute_layout(
         inputs,

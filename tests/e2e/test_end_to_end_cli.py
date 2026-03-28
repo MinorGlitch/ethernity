@@ -204,7 +204,9 @@ class TestEndToEndCli(unittest.TestCase):
             self.assertEqual(get_result_event["command"], "config")
             self.assertEqual(get_result_event["operation"], "get")
             self.assertTrue(str(get_result_event["path"]).endswith("config.toml"))
-            self.assertFalse(Path(str(get_result_event["path"])).exists())
+            self.assertEqual(get_result_event["source"], "default")
+            self.assertEqual(str(get_result_event["path"]), str(DEFAULT_CONFIG_PATH))
+            self.assertTrue(Path(str(get_result_event["path"])).exists())
 
             set_result = subprocess.run(
                 [

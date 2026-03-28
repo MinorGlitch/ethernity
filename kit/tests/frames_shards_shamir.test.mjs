@@ -10,6 +10,7 @@ import {
   SHARD_KEY_SIGNING_SEED,
 } from "../app/constants.js";
 import {
+  detectMarker,
   parseAutoPayload,
   parseScannedPayload,
   parseAutoShard,
@@ -207,6 +208,12 @@ test("parseAutoPayload supports fallback sections and handles invalid auth fallb
   assert.equal(added, 1);
   assert.equal(state.mainFrames.size, 1);
   assert.equal(state.authErrors, 1);
+});
+
+test("detectMarker only matches explicit fallback headers", () => {
+  assert.equal(detectMarker("=== Main Frame ===", ["main frame", "auth frame"]), "main frame");
+  assert.equal(detectMarker("Auth Frame:", ["main frame", "auth frame"]), "auth frame");
+  assert.equal(detectMarker("zzmain framezz", ["main frame", "auth frame"]), null);
 });
 
 test("parseAutoPayload rejects invalid non-empty fallback lines", () => {

@@ -34,6 +34,11 @@ class _Ctx:
 
 
 class TestCliApp(unittest.TestCase):
+    def test_argv_invokes_api_detects_top_level_api_surface(self) -> None:
+        self.assertTrue(app_module._argv_invokes_api(["ethernity", "api"]))
+        self.assertTrue(app_module._argv_invokes_api(["ethernity", "--config", "cfg.toml", "api"]))
+        self.assertFalse(app_module._argv_invokes_api(["ethernity", "backup"]))
+
     def test_should_run_first_run_onboarding_only_for_interactive_root(self) -> None:
         with (
             mock.patch("ethernity.cli.bootstrap.app.sys.stdin.isatty", return_value=True),
@@ -755,8 +760,18 @@ class TestCliApp(unittest.TestCase):
 
     @mock.patch("ethernity.cli.bootstrap.app.app")
     def test_main_dispatches(self, app_mock: mock.MagicMock) -> None:
-        app_module.main()
+        with mock.patch.object(app_module.sys, "argv", ["ethernity", "backup"]):
+            app_module.main()
         app_mock.assert_called_once_with()
+
+    @mock.patch("ethernity.cli.bootstrap.app.app")
+    def test_main_uses_non_standalone_mode_for_top_level_api_invocations(
+        self,
+        app_mock: mock.MagicMock,
+    ) -> None:
+        with mock.patch.object(app_module.sys, "argv", ["ethernity", "api"]):
+            app_module.main()
+        app_mock.assert_called_once_with(standalone_mode=False)
 
 
 if __name__ == "__main__":

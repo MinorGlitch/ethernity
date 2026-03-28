@@ -433,7 +433,7 @@ class TestCliBackup(unittest.TestCase):
         self.assertEqual(Path(result.kit_index_path or "").name, "recovery_kit_index.pdf")
         self.assertEqual(len(calls), 3)
         self.assertEqual(Path(calls[2].template_path).name, "kit_index_document.html.j2")
-        self.assertEqual(calls[2].doc_type, "kit")
+        self.assertEqual(calls[2].doc_type, "kit_index")
         self.assertFalse(calls[2].render_fallback)
         inventory_rows = calls[2].context["inventory_rows"]
         self.assertEqual(

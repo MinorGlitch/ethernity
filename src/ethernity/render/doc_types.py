@@ -21,6 +21,7 @@ from typing import Final
 DOC_TYPE_MAIN: Final = "main"
 DOC_TYPE_RECOVERY: Final = "recovery"
 DOC_TYPE_KIT: Final = "kit"
+DOC_TYPE_KIT_INDEX: Final = "kit_index"
 DOC_TYPE_SHARD: Final = "shard"
 DOC_TYPE_SIGNING_KEY_SHARD: Final = "signing_key_shard"
 
@@ -28,6 +29,7 @@ DOC_TYPES: Final[set[str]] = {
     DOC_TYPE_MAIN,
     DOC_TYPE_RECOVERY,
     DOC_TYPE_KIT,
+    DOC_TYPE_KIT_INDEX,
     DOC_TYPE_SHARD,
     DOC_TYPE_SIGNING_KEY_SHARD,
 }

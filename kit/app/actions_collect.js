@@ -72,7 +72,89 @@ function parsedShardAccepted(parsed, before, added) {
   );
 }
 
-async function runShardAsyncFollowups(dispatch, parsed, baseStatusLines) {
+function mainScanStatus(base, before, added) {
+  if (added > 0) {
+    return {
+      lines: [
+        `Added ${added} frame(s).`,
+        base.total ? "Collect all frames to download." : "Waiting for more frames.",
+      ],
+      type: "",
+    };
+  }
+  if (base.errors > before.errors || base.authErrors > before.authErrors) {
+    return {
+      lines: [
+        "Scanned QR could not be decoded.",
+        "Try another scan or paste the payload text instead.",
+      ],
+      type: "error",
+    };
+  }
+  if (
+    base.conflicts > before.conflicts ||
+    base.ignored > before.ignored ||
+    base.authConflicts > before.authConflicts
+  ) {
+    return {
+      lines: [
+        "Scanned QR was ignored.",
+        "Check for duplicates or conflicting frames, then continue scanning.",
+      ],
+      type: "warn",
+    };
+  }
+  return {
+    lines: [
+      `Added ${added} frame(s).`,
+      base.total ? "Collect all frames to download." : "Waiting for more frames.",
+    ],
+    type: "",
+  };
+}
+
+function shardScanStatus(parsed, before, added) {
+  if (added > 0) {
+    return {
+      lines: [
+        `Added ${added} shard frame(s).`,
+        parsed.shardThreshold
+          ? "Ready to recover when enough shards are collected."
+          : "Waiting for shard metadata.",
+      ],
+      type: "",
+    };
+  }
+  if (parsed.shardErrors > before.shardErrors) {
+    return {
+      lines: [
+        "Scanned shard QR could not be decoded.",
+        "Try another scan or paste the shard payload text instead.",
+      ],
+      type: "error",
+    };
+  }
+  if (parsed.shardConflicts > before.shardConflicts) {
+    return {
+      lines: [
+        "Scanned shard QR was ignored.",
+        "Check for duplicates or conflicting shard frames, then continue scanning.",
+      ],
+      type: "warn",
+    };
+  }
+  return {
+    lines: [
+      `Added ${added} shard frame(s).`,
+      parsed.shardThreshold
+        ? "Ready to recover when enough shards are collected."
+        : "Waiting for shard metadata.",
+    ],
+    type: "",
+  };
+}
+
+async function runShardAsyncFollowups(dispatch, parsed, baseStatusLines, baseStatusType = "") {
   const work = cloneState(parsed);
   const targetRevision = parsed.revision + 1;
   const signatureLines = [];
@@ -105,7 +187,7 @@ async function runShardAsyncFollowups(dispatch, parsed, baseStatusLines) {
       work.shardStatus.lines.some((line, index) => line !== previousShardStatus.lines[index]) ||
       work.shardStatus.type !== previousShardStatus.type);
   if (!recovered && !shardStatusOverridden) {
-    setStatus(work, "shardStatus", combinedLines, signatureType);
+    setStatus(work, "shardStatus", combinedLines, signatureType || baseStatusType);
   }
   dispatch({
     type: "MUTATE_STATE",
@@ -170,10 +252,8 @@ export async function addScannedPayload(dispatch, getState, scanned) {
     base.payloadText = "";
   }
   base.isAddingFrames = true;
-  setStatus(base, "frameStatus", [
-    `Added ${added} frame(s).`,
-    base.total ? "Collect all frames to download." : "Waiting for more frames.",
-  ]);
+  const frameStatus = mainScanStatus(base, before, added);
+  setStatus(base, "frameStatus", frameStatus.lines, frameStatus.type);
   dispatchState(dispatch, base);
   try {
     await runMainAsyncFollowups(dispatch, base);
@@ -227,16 +307,12 @@ export async function addScannedShardPayload(dispatch, getState, scanned) {
     parsed.shardPayloadText = "";
   }
   parsed.isAddingShards = true;
-  const baseStatusLines = [
-    `Added ${added} shard frame(s).`,
-    parsed.shardThreshold
-      ? "Ready to recover when enough shards are collected."
-      : "Waiting for shard metadata.",
-  ];
-  setStatus(parsed, "shardStatus", baseStatusLines);
+  const shardStatus = shardScanStatus(parsed, before, added);
+  const baseStatusLines = shardStatus.lines;
+  setStatus(parsed, "shardStatus", baseStatusLines, shardStatus.type);
   dispatchState(dispatch, parsed);
   try {
-    await runShardAsyncFollowups(dispatch, parsed, baseStatusLines);
+    await runShardAsyncFollowups(dispatch, parsed, baseStatusLines, shardStatus.type);
   } finally {
     const latest = cloneState(getState());
     latest.isAddingShards = false;

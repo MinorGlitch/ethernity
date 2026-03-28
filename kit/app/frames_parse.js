@@ -85,14 +85,20 @@ function nonEmptyLines(text) {
     .filter(Boolean);
 }
 
+function normalizeMarkerLine(line) {
+  return line
+    .trim()
+    .replace(/^[=:\-\s]+|[=:\-\s]+$/g, "")
+    .toLowerCase();
+}
+
+function detectMarker(line, markers) {
+  const normalized = normalizeMarkerLine(line);
+  return markers.find((marker) => normalized === marker) ?? null;
+}
+
 function hasMarker(lines, markers) {
-  for (const line of lines) {
-    const lower = line.toLowerCase();
-    if (markers.some((marker) => lower.includes(marker))) {
-      return true;
-    }
-  }
-  return false;
+  return lines.some((line) => detectMarker(line, markers));
 }
 
 function allLinesDecodeFrames(lines) {
@@ -168,12 +174,12 @@ function parseFallbackText(state, text) {
   for (const raw of lines) {
     const line = raw.trim();
     if (!line) continue;
-    const lower = line.toLowerCase();
-    if (lower.includes("main frame")) {
+    const marker = detectMarker(line, ["main frame", "auth frame"]);
+    if (marker === "main frame") {
       current = "main";
       continue;
     }
-    if (lower.includes("auth frame")) {
+    if (marker === "auth frame") {
       current = "auth";
       continue;
     }
@@ -216,8 +222,7 @@ function parseShardFallbackText(state, text) {
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line) continue;
-    const lower = line.toLowerCase();
-    if (lower.includes("shard frame") || lower.includes("shard payload")) {
+    if (detectMarker(line, ["shard frame", "shard payload"])) {
       continue;
     }
     payloadLines.push(line);
@@ -341,3 +346,5 @@ export function parseScannedShard(state, scanned) {
   bumpError(state, "shardErrors");
   return 0;
 }
+
+export { detectMarker };

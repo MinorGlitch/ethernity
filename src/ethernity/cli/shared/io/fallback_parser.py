@@ -16,12 +16,18 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from ethernity.core.bounds import MAX_FALLBACK_LINES, MAX_FALLBACK_NORMALIZED_CHARS
 from ethernity.encoding.chunking import fallback_lines_to_frame
 from ethernity.encoding.framing import Frame
 from ethernity.encoding.zbase32 import ZBASE32_ALPHABET
+
+_FALLBACK_SECTION_PATTERNS = {
+    "auth": re.compile(r"^[=\-:\s]*auth frame[=\-:\s]*$", re.IGNORECASE),
+    "main": re.compile(r"^[=\-:\s]*main frame[=\-:\s]*$", re.IGNORECASE),
+}
 
 
 def _is_valid_zbase32_line(line: str) -> bool:
@@ -92,11 +98,10 @@ def format_fallback_error(exc: Exception, *, context: str) -> str:
 
 
 def detect_fallback_section(line: str) -> str | None:
-    normalized = line.strip().lower()
-    if "auth frame" in normalized:
-        return "auth"
-    if "main frame" in normalized:
-        return "main"
+    normalized = line.strip()
+    for section, pattern in _FALLBACK_SECTION_PATTERNS.items():
+        if pattern.fullmatch(normalized):
+            return section
     return None
 
 

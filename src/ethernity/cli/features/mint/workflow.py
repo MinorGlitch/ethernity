@@ -238,11 +238,12 @@ def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectio
 
     blocking_issues = [dict(item) for item in recovery.blocking_issues]
     if recovery.auth_payload is None:
-        blocking_issues.append(
+        _append_unique_blocking_issue(
+            blocking_issues,
             _mint_blocking_issue(
                 "AUTH_REQUIRED",
                 "minting requires an authenticated backup input with an AUTH payload",
-            )
+            ),
         )
 
     manifest: EnvelopeManifest | None = None
@@ -257,8 +258,9 @@ def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectio
             manifest, _payload = decode_envelope(plaintext)
             source_summary = _mint_source_summary(manifest)
         except Exception as exc:
-            blocking_issues.append(
-                _mint_blocking_issue("UNLOCK_FAILED", str(exc), details={"stage": "decrypt"})
+            _append_unique_blocking_issue(
+                blocking_issues,
+                _mint_blocking_issue("UNLOCK_FAILED", str(exc), details={"stage": "decrypt"}),
             )
 
     (
@@ -272,14 +274,15 @@ def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectio
         recovery=recovery,
         signing_key_frames=list(state.signing_key_frames),
     )
-    blocking_issues.extend(signing_key_issues)
-    blocking_issues.extend(
+    _extend_unique_blocking_issues(blocking_issues, signing_key_issues)
+    _extend_unique_blocking_issues(
+        blocking_issues,
         _inspect_mint_replacement_blockers(
             args=args,
             recovery=recovery,
             passphrase_shard_frames=list(state.shard_frames),
             signing_key_frames=list(state.signing_key_frames),
-        )
+        ),
     )
 
     mint_capabilities = _inspect_mint_capabilities(
@@ -713,6 +716,28 @@ def _mint_blocking_issue(
         "message": message,
         "details": details or {},
     }
+
+
+def _append_unique_blocking_issue(
+    blocking_issues: list[dict[str, Any]],
+    issue: dict[str, Any],
+) -> None:
+    for existing in blocking_issues:
+        if (
+            existing.get("code") == issue.get("code")
+            and existing.get("message") == issue.get("message")
+            and existing.get("details") == issue.get("details")
+        ):
+            return
+    blocking_issues.append(issue)
+
+
+def _extend_unique_blocking_issues(
+    blocking_issues: list[dict[str, Any]],
+    issues: list[dict[str, Any]],
+) -> None:
+    for issue in issues:
+        _append_unique_blocking_issue(blocking_issues, issue)
 
 
 def _mint_source_summary(manifest: EnvelopeManifest) -> dict[str, object]:

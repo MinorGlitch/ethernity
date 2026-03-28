@@ -49,7 +49,10 @@ from ethernity.cli.shared.log import _warn
 from ethernity.cli.shared.paths import expanduser_cli_path, expanduser_cli_paths
 from ethernity.cli.shared.types import RecoverArgs
 from ethernity.config import load_app_config
-from ethernity.crypto.passphrases import validate_mnemonic_checksum_if_bip39
+from ethernity.crypto.passphrases import (
+    normalize_bip39_mnemonic,
+    validate_mnemonic_checksum_if_bip39,
+)
 from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE
 from ethernity.crypto.signing import AuthPayload, decode_auth_payload, verify_auth
 from ethernity.encoding.chunking import reassemble_payload
@@ -549,8 +552,9 @@ def _inspect_unlock_status(
             expected_sign_pub=sign_pub,
             allow_unsigned=allow_unsigned,
         )
+        normalized_recovered = normalize_bip39_mnemonic(recovered)
         try:
-            validate_mnemonic_checksum_if_bip39(recovered)
+            validate_mnemonic_checksum_if_bip39(normalized_recovered)
         except ValueError as exc:
             return RecoveryUnlockStatus(
                 mode="shards",
@@ -571,11 +575,12 @@ def _inspect_unlock_status(
             validated_shard_count=len(shard_payloads),
             required_shard_threshold=shard_payloads[0].threshold if shard_payloads else None,
             satisfied=True,
-            resolved_passphrase=recovered,
+            resolved_passphrase=normalized_recovered,
         )
     if passphrase:
+        normalized_passphrase = normalize_bip39_mnemonic(passphrase)
         try:
-            validate_mnemonic_checksum_if_bip39(passphrase)
+            validate_mnemonic_checksum_if_bip39(normalized_passphrase)
         except ValueError as exc:
             return RecoveryUnlockStatus(
                 mode="passphrase",
@@ -596,7 +601,7 @@ def _inspect_unlock_status(
             validated_shard_count=0,
             required_shard_threshold=None,
             satisfied=True,
-            resolved_passphrase=passphrase,
+            resolved_passphrase=normalized_passphrase,
         )
     return RecoveryUnlockStatus(
         mode="missing",
@@ -635,15 +640,18 @@ def _resolve_passphrase(
             expected_sign_pub=sign_pub,
             allow_unsigned=allow_unsigned,
         )
-        validate_mnemonic_checksum_if_bip39(recovered)
-        return recovered
+        normalized_recovered = normalize_bip39_mnemonic(recovered)
+        validate_mnemonic_checksum_if_bip39(normalized_recovered)
+        return normalized_recovered
     if passphrase:
-        validate_mnemonic_checksum_if_bip39(passphrase)
-        return passphrase
+        normalized_passphrase = normalize_bip39_mnemonic(passphrase)
+        validate_mnemonic_checksum_if_bip39(normalized_passphrase)
+        return normalized_passphrase
     if args is not None:
         recovered = _resolve_recovery_keys(args)
-        validate_mnemonic_checksum_if_bip39(recovered)
-        return recovered
+        normalized_recovered = normalize_bip39_mnemonic(recovered)
+        validate_mnemonic_checksum_if_bip39(normalized_recovered)
+        return normalized_recovered
     raise ValueError("passphrase is required for recovery")
 
 

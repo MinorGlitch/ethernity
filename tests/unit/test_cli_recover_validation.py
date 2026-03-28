@@ -68,6 +68,28 @@ class TestCliRecoverValidation(unittest.TestCase):
             )
         self.assertIn("mnemonic", str(ctx.exception).lower())
 
+    def test_whitespace_only_changes_do_not_change_valid_mnemonic_passphrase(self) -> None:
+        passphrase = (
+            "  abandon   abandon abandon abandon abandon abandon abandon abandon "
+            "abandon abandon abandon about  "
+        )
+        resolved = _resolve_passphrase(
+            passphrase=passphrase,
+            shard_frames=[],
+            doc_id=b"\x00" * DOC_ID_LEN,
+            doc_hash=b"\x00" * 32,
+            sign_pub=None,
+            allow_unsigned=False,
+            args=None,
+        )
+        self.assertEqual(
+            resolved,
+            (
+                "abandon abandon abandon abandon abandon abandon abandon abandon "
+                "abandon abandon abandon about"
+            ),
+        )
+
     def test_conflicting_input_combinations(self) -> None:
         cases = (
             {

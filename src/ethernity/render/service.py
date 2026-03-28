@@ -170,6 +170,7 @@ class RenderService:
         qr_payloads: Sequence[bytes | str],
         context: dict[str, object] | None = None,
         template_path: str | Path | None = None,
+        doc_type: str = DOC_TYPE_KIT,
         layout_debug_json_path: str | Path | None = None,
     ) -> RenderInputs:
         """Build render inputs for the recovery kit document/index."""
@@ -181,7 +182,7 @@ class RenderService:
             context=context,
             qr_payloads=qr_payloads,
             render_fallback=False,
-            doc_type=DOC_TYPE_KIT,
+            doc_type=doc_type,
             layout_debug_json_path=layout_debug_json_path,
         )
 

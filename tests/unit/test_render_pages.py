@@ -168,6 +168,49 @@ class TestBuildPages(unittest.TestCase):
         self.assertFalse(pages[0].show_instructions)
         self.assertTrue(any(page.instructions_full_page for page in pages))
 
+    def test_kit_index_doc_type_does_not_add_synthetic_instruction_page(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\x34" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "resources"
+            / "templates"
+            / "forge"
+            / "kit_index_document.html.j2"
+        )
+        inputs = RenderInputs(
+            frames=frames,
+            template_path=template_path,
+            output_path="out.pdf",
+            context={},
+            doc_type="kit_index",
+            render_qr=True,
+            render_fallback=False,
+        )
+
+        pages = build_pages(
+            inputs=inputs,
+            spec=_spec(),
+            layout=_layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=1),
+            layout_rest=None,
+            fallback_lines=[],
+            qr_image_builder=lambda idx: f"qr:{idx}",
+            fallback_sections_data=None,
+            fallback_state=None,
+        )
+
+        self.assertFalse(any(page.instructions_full_page for page in pages))
+
     def test_qr_page_starts_account_for_layout_rest(self) -> None:
         frames = [
             Frame(

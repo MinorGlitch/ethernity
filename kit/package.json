@@ -10,7 +10,7 @@
     "lib": "lib"
   },
   "scripts": {
-    "test": "node --test $(find tests -name '*.test.mjs' -print | sort)",
+    "test": "node scripts/run_tests.mjs",
     "lint": "biome lint --error-on-warnings .",
     "format:check": "biome check --linter-enabled=false --assist-enabled=false .",
     "format": "biome format --write ."

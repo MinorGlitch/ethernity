@@ -16,8 +16,7 @@
  */
 
 import { useEffect, useRef, useState } from "microact/hooks";
-import jsQR from "jsqr";
-import { normalizeJsQrPayload } from "../../lib/qr_scan_normalize.js";
+import { detectWithJsQr } from "./jsqr_runtime_core.js";
 
 function cameraSupportState() {
   if (typeof window === "undefined") return { ok: false, reason: "No browser context." };
@@ -31,29 +30,6 @@ function cameraSupportState() {
     };
   }
   return { ok: true, reason: "" };
-}
-
-function centerScanRegion(width, height) {
-  const side = Math.max(32, Math.floor(Math.min(width, height) * 0.68));
-  const x = Math.max(0, Math.floor((width - side) / 2));
-  const y = Math.max(0, Math.floor((height - side) / 2));
-  return { x, y, width: Math.min(side, width), height: Math.min(side, height) };
-}
-
-function detectWithJsQr(video, canvas, ctx) {
-  const width = video.videoWidth | 0;
-  const height = video.videoHeight | 0;
-  if (width <= 0 || height <= 0) return null;
-  canvas.width = width;
-  canvas.height = height;
-  ctx.drawImage(video, 0, 0, width, height);
-
-  const region = centerScanRegion(width, height);
-  const regionImage = ctx.getImageData(region.x, region.y, region.width, region.height);
-  const centerHit = jsQR(regionImage.data, region.width, region.height, {
-    inversionAttempts: "dontInvert",
-  });
-  return normalizeJsQrPayload(centerHit);
 }
 
 export function useQrScannerRuntime(onScanPayload) {

@@ -34,6 +34,18 @@ def _load_wordlist() -> list[str]:
 
 
 _WORDLIST: list[str] = _load_wordlist()
+_WORDSET = frozenset(_WORDLIST)
+
+
+def normalize_bip39_mnemonic(passphrase: str) -> str:
+    """Collapse BIP-39 whitespace to the canonical single-space form."""
+
+    words = passphrase.strip().split()
+    if len(words) not in MNEMONIC_WORD_COUNTS:
+        return passphrase
+    if not all(word in _WORDSET for word in words):
+        return passphrase
+    return " ".join(words)
 
 
 def generate_passphrase(*, words: int = DEFAULT_PASSPHRASE_WORDS) -> str:
@@ -56,19 +68,19 @@ def generate_passphrase(*, words: int = DEFAULT_PASSPHRASE_WORDS) -> str:
 def looks_like_bip39_mnemonic(passphrase: str) -> bool:
     """Return whether text resembles a supported BIP-39 mnemonic."""
 
-    words = passphrase.strip().split()
+    words = normalize_bip39_mnemonic(passphrase).split()
     if len(words) not in MNEMONIC_WORD_COUNTS:
         return False
-    wordset = set(_WORDLIST)
-    return all(word in wordset for word in words)
+    return all(word in _WORDSET for word in words)
 
 
 def validate_mnemonic_checksum_if_bip39(passphrase: str) -> None:
     """Validate checksum when input looks like BIP-39, otherwise no-op."""
 
-    if not looks_like_bip39_mnemonic(passphrase):
+    normalized_passphrase = normalize_bip39_mnemonic(passphrase)
+    if not looks_like_bip39_mnemonic(normalized_passphrase):
         return
-    words_list = passphrase.strip().split()
+    words_list = normalized_passphrase.split()
     n = len(words_list)
     word_to_idx = {w: i for i, w in enumerate(_WORDLIST)}
     indices = [word_to_idx[w] for w in words_list]

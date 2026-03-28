@@ -60,7 +60,7 @@ from ethernity.formats import (
 )
 from ethernity.formats.envelope_types import PayloadPart
 from ethernity.qr.capacity import choose_frame_chunk_size
-from ethernity.render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
+from ethernity.render.doc_types import DOC_TYPE_KIT_INDEX, DOC_TYPE_SIGNING_KEY_SHARD
 from ethernity.render.recovery_meta import build_recovery_meta
 from ethernity.render.service import RenderService
 from ethernity.render.types import RenderInputs
@@ -808,6 +808,7 @@ def run_backup(
             qr_payloads=qr_payloads,
             context=kit_index_context,
             template_path=kit_index_template,
+            doc_type=DOC_TYPE_KIT_INDEX,
             layout_debug_json_path=_layout_debug_json_path(layout_debug_dir, "recovery_kit_index"),
         )
         if kit_index_template is not None and kit_index_path is not None

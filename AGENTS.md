@@ -52,8 +52,8 @@ conventions and a glob-based, working-tree inventory contract for contributors a
 - Forge icons: Forge templates must use local material symbols assets via
   `src/ethernity/resources/templates/_shared/partials/material_symbols_local.j2`; do not depend on remote
   icon CDNs.
-- Recovery kit index: backup flow may emit a separate `recovery_kit_index.pdf` when a compatible
-  `src/ethernity/resources/templates/forge/kit_index_document.html.j2` style of index template is available.
+- Recovery kit index: backup flow may emit a separate `recovery_kit_index.pdf` when the active
+  template design provides a compatible `kit_index_document.html.j2`.
 - CLI prompts: Questionary is the only prompt library for CLI UI.
 - Fallback parser contract: for fallback section filtering, non-empty normalized lines that contain
   characters outside the z-base-32 alphabet must be treated as invalid input (reject), not silently

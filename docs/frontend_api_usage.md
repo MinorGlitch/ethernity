@@ -62,7 +62,7 @@ This document gives the frontend team a practical plan for integrating the machi
    completing or resetting onboarding.
 
 `api config get` is read-only: when the default user config does not exist yet, it reports the
-future user config path and default values without creating the file.
+packaged default config path and default values without creating a user config file.
 
 ### Backup Flow
 

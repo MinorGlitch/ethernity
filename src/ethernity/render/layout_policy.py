@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
+    DOC_TYPE_KIT_INDEX,
     DOC_TYPE_MAIN,
     DOC_TYPE_RECOVERY,
     DOC_TYPE_SHARD,
@@ -110,7 +111,7 @@ def max_rows_override_for_template(
         return max_rows
 
     normalized_doc_type = _normalized_doc_type(doc_type)
-    if normalized_doc_type not in {DOC_TYPE_MAIN, DOC_TYPE_KIT}:
+    if normalized_doc_type not in {DOC_TYPE_MAIN, DOC_TYPE_KIT, DOC_TYPE_KIT_INDEX}:
         return max_rows
 
     capped_rows = min(int(max_rows), _MAIN_MAX_ROWS_CAP)

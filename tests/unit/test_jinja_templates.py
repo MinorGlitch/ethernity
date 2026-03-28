@@ -820,6 +820,8 @@ class TestJinjaTemplates(unittest.TestCase):
         self.assertEqual(rendered.count("sentinel-shell-footer"), 2)
         self.assertIn("DOC ID:", rendered)
         self.assertIn("GENERATED (UTC):", rendered)
+        self.assertIn("Created Date", rendered)
+        self.assertNotIn("Recovery Date", rendered)
 
     def test_sentinel_kit_index_uses_first_and_continuation_row_limits(self) -> None:
         template_path = (

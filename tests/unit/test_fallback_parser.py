@@ -18,6 +18,7 @@ from unittest import mock
 
 from ethernity.cli.shared.io.fallback_parser import (
     _is_valid_zbase32_line,
+    detect_fallback_section,
     filter_fallback_lines,
     parse_fallback_frame,
 )
@@ -131,6 +132,11 @@ class TestFilterFallbackLines(unittest.TestCase):
             ):
                 parsed = parse_fallback_frame([line], label="fallback")
         self.assertEqual(parsed.data, b"edge")
+
+    def test_detect_fallback_section_matches_only_explicit_header_lines(self) -> None:
+        self.assertEqual(detect_fallback_section("=== MAIN FRAME ==="), "main")
+        self.assertEqual(detect_fallback_section("Auth Frame:"), "auth")
+        self.assertIsNone(detect_fallback_section("zzmain framezz"))
 
 
 if __name__ == "__main__":

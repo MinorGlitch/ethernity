@@ -115,6 +115,25 @@ def _is_api_invocation(invoked_subcommand: str | None) -> bool:
     return invoked_subcommand == "api"
 
 
+def _argv_invokes_api(argv: Sequence[str]) -> bool:
+    """Return whether argv targets the machine-readable API surface."""
+
+    args = list(argv)[1:]
+    idx = 0
+    while idx < len(args):
+        arg = args[idx]
+        if arg == "--":
+            return False
+        if arg.startswith("--"):
+            if "=" in arg:
+                idx += 1
+                continue
+            idx += 2 if arg in _GLOBAL_OPTIONS_WITH_VALUES else 1
+            continue
+        return arg == "api"
+    return False
+
+
 def _api_argv_path(argv: Sequence[str]) -> tuple[str, ...]:
     """Return the nested API command path from argv when present."""
 
@@ -604,7 +623,7 @@ command_registry.register(app)
 
 
 def main() -> None:
-    if not _api_argv_path(sys.argv):
+    if not _argv_invokes_api(sys.argv):
         app()
         return
     result: object | None = None
