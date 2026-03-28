@@ -21,6 +21,7 @@ from ethernity.cli.shared.io.fallback_parser import (
     detect_fallback_section,
     filter_fallback_lines,
     parse_fallback_frame,
+    split_fallback_sections,
 )
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
@@ -137,6 +138,10 @@ class TestFilterFallbackLines(unittest.TestCase):
         self.assertEqual(detect_fallback_section("=== MAIN FRAME ==="), "main")
         self.assertEqual(detect_fallback_section("Auth Frame:"), "auth")
         self.assertIsNone(detect_fallback_section("zzmain framezz"))
+
+    def test_split_fallback_sections_rejects_non_empty_content_before_first_header(self) -> None:
+        with self.assertRaisesRegex(ValueError, "before the first marked fallback section"):
+            split_fallback_sections(["junk", "MAIN FRAME", "ybndr"])
 
 
 if __name__ == "__main__":

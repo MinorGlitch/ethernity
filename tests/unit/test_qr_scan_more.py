@@ -159,6 +159,14 @@ class TestQrScanMore(unittest.TestCase):
         self.assertEqual(payloads, [b"\x01", b"\x02", b"hello"])
         self.assertEqual(payloads_path, [b"\x01", b"\x02", b"hello"])
 
+    def test_load_decoder_rejects_missing_pillow_lazily(self) -> None:
+        with (
+            mock.patch.object(qr_scan, "pil_image", None),
+            mock.patch.dict(sys.modules, {"PIL.Image": None}),
+        ):
+            with self.assertRaisesRegex(QrScanError, "Pillow is required"):
+                qr_scan._load_decoder()
+
 
 if __name__ == "__main__":
     unittest.main()

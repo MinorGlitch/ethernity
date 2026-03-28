@@ -119,7 +119,7 @@ def apply_api_config_patch(
 
     try:
         writable_target_path = target_path
-        created_config = original_text is None and writable_target_path.exists()
+        created_config = original_text is None and config_changed
         if config_changed:
             _write_text_atomic(writable_target_path, updated)
         if onboarding_plan is not None:

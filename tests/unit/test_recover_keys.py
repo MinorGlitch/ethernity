@@ -556,7 +556,86 @@ class TestPassphraseFromShardFrames(unittest.TestCase):
                     allow_unsigned=True,
                 )
 
-    def test_recovers_legacy_v1_passphrase_with_signature_verification(self) -> None:
+    def test_recovers_legacy_v1_passphrase_with_signature_verification_when_extra_share_available(
+        self,
+    ) -> None:
+        passphrase = "legacy-passphrase"
+        doc_id = b"\x3c" * DOC_ID_LEN
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        shares = split_passphrase(
+            passphrase,
+            threshold=2,
+            shares=3,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        legacy_shares = []
+        for share in shares:
+            legacy_shares.append(
+                ShardPayload(
+                    share_index=share.share_index,
+                    threshold=share.threshold,
+                    share_count=share.share_count,
+                    key_type=share.key_type,
+                    share=share.share,
+                    secret_len=share.secret_len,
+                    doc_hash=share.doc_hash,
+                    sign_pub=share.sign_pub,
+                    signature=sign_shard(
+                        share.doc_hash,
+                        shard_version=LEGACY_SHARD_VERSION,
+                        key_type=share.key_type,
+                        threshold=share.threshold,
+                        share_count=share.share_count,
+                        share_index=share.share_index,
+                        secret_len=share.secret_len,
+                        share=share.share,
+                        sign_pub=share.sign_pub,
+                        sign_priv=sign_priv,
+                    ),
+                    version=LEGACY_SHARD_VERSION,
+                )
+            )
+        frames = [
+            Frame(
+                version=VERSION,
+                frame_type=FrameType.KEY_DOCUMENT,
+                doc_id=doc_id,
+                index=0,
+                total=1,
+                data=encode_shard_payload(legacy_shares[0]),
+            ),
+            Frame(
+                version=VERSION,
+                frame_type=FrameType.KEY_DOCUMENT,
+                doc_id=doc_id,
+                index=0,
+                total=1,
+                data=encode_shard_payload(legacy_shares[2]),
+            ),
+            Frame(
+                version=VERSION,
+                frame_type=FrameType.KEY_DOCUMENT,
+                doc_id=doc_id,
+                index=0,
+                total=1,
+                data=encode_shard_payload(legacy_shares[1]),
+            ),
+        ]
+
+        recovered = _passphrase_from_shard_frames(
+            frames,
+            expected_doc_id=doc_id,
+            expected_doc_hash=doc_hash,
+            expected_sign_pub=sign_pub,
+            allow_unsigned=False,
+        )
+
+        self.assertEqual(recovered, passphrase)
+
+    def test_rejects_legacy_v1_passphrase_at_exact_threshold(self) -> None:
         passphrase = "legacy-passphrase"
         doc_id = b"\x3c" * DOC_ID_LEN
         doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
@@ -615,15 +694,14 @@ class TestPassphraseFromShardFrames(unittest.TestCase):
             ),
         ]
 
-        recovered = _passphrase_from_shard_frames(
-            frames,
-            expected_doc_id=doc_id,
-            expected_doc_hash=doc_hash,
-            expected_sign_pub=sign_pub,
-            allow_unsigned=False,
-        )
-
-        self.assertEqual(recovered, passphrase)
+        with self.assertRaisesRegex(ValueError, "prove compatibility"):
+            _passphrase_from_shard_frames(
+                frames,
+                expected_doc_id=doc_id,
+                expected_doc_hash=doc_hash,
+                expected_sign_pub=sign_pub,
+                allow_unsigned=False,
+            )
 
     def test_rejects_v2_shards_with_mismatched_set_ids_at_threshold(self) -> None:
         passphrase = "set-id-check"

@@ -236,6 +236,17 @@ class TestFramesIo(unittest.TestCase):
                         quiet=True,
                     )
 
+    def test_frames_from_fallback_lines_rejects_content_before_first_marker(self) -> None:
+        frame = self._frame()
+        encoded = encode_zbase32(encode_frame(frame))
+
+        with self.assertRaisesRegex(ValueError, "before the first marked fallback section"):
+            _frames_from_fallback_lines(
+                ["junk-before-header", "MAIN FRAME", encoded],
+                allow_invalid_auth=False,
+                quiet=True,
+            )
+
     def test_auth_frames_from_fallback_lines_wraps_single_frame(self) -> None:
         frame = self._frame(frame_type=FrameType.AUTH)
         with mock.patch(

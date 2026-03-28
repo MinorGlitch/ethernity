@@ -924,6 +924,102 @@ class TestBuildPages(unittest.TestCase):
                 fallback_state=None,
             )
 
+    def test_qr_continuation_raises_when_continuation_capacity_is_zero(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\xef" * DOC_ID_LEN,
+                index=index,
+                total=2,
+                data=f"payload-{index}".encode("utf-8"),
+            )
+            for index in range(2)
+        ]
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "resources"
+            / "templates"
+            / "ledger"
+            / "main_document.html.j2"
+        )
+        inputs = RenderInputs(
+            frames=frames,
+            template_path=template_path,
+            output_path="out.pdf",
+            context={},
+            doc_type="main",
+            render_qr=True,
+            render_fallback=False,
+        )
+        layout = _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=1)
+        layout_rest = _layout(cols=1, rows=0, per_page=0, fallback_lines_per_page=1)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "QR continuation capacity exhausted before consuming frames",
+        ):
+            build_pages(
+                inputs=inputs,
+                spec=_spec(),
+                layout=layout,
+                layout_rest=layout_rest,
+                fallback_lines=[],
+                qr_image_builder=lambda idx: f"qr:{idx}",
+                fallback_sections_data=None,
+                fallback_state=None,
+            )
+
+    def test_non_section_fallback_consumes_effective_page_capacity(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\xee" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        template_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "ethernity"
+            / "resources"
+            / "templates"
+            / "ledger"
+            / "main_document.html.j2"
+        )
+        inputs = RenderInputs(
+            frames=frames,
+            template_path=template_path,
+            output_path="out.pdf",
+            context={},
+            doc_type="main",
+            render_qr=True,
+            render_fallback=True,
+        )
+        layout = _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=1)
+        fallback_lines = [f"L{index:02d}" for index in range(91)]
+
+        pages = build_pages(
+            inputs=inputs,
+            spec=_spec(),
+            layout=layout,
+            layout_rest=layout,
+            fallback_lines=fallback_lines,
+            qr_image_builder=lambda idx: f"qr:{idx}",
+            fallback_sections_data=None,
+            fallback_state=None,
+        )
+
+        self.assertEqual(len(pages), 2)
+        self.assertEqual(list(pages[0].fallback_blocks[0].lines), fallback_lines[:1])
+        self.assertEqual(len(pages[1].fallback_blocks[0].lines), 90)
+        self.assertEqual(list(pages[1].fallback_blocks[0].lines), fallback_lines[1:])
+
     def test_forge_shard_non_section_fallback_respects_effective_page_capacity(self) -> None:
         frames = [
             Frame(

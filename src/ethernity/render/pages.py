@@ -101,7 +101,13 @@ def _calculate_total_pages(
             frames_pages = 1
         else:
             remaining = len(inputs.frames) - frames_first
-            frames_pages = 1 + math.ceil(remaining / frames_rest) if frames_rest > 0 else 1
+            if frames_rest <= 0:
+                raise ValueError(
+                    "QR continuation capacity exhausted before consuming frames: "
+                    f"doc_type={inputs.doc_type!r}, continuation_capacity={frames_rest}, "
+                    f"remaining_frames={remaining}"
+                )
+            frames_pages = 1 + math.ceil(remaining / frames_rest)
 
     fallback_pages = 0
     if inputs.render_fallback and fallback_lines:
@@ -256,6 +262,7 @@ def _build_fallback_blocks(
     fallback_state: FallbackConsumerState | None,
     fallback_first: int,
     fallback_rest: int,
+    fallback_line_offset: int,
     qr_rows_for_page: int,
     recovery_meta_lines_extra: int,
     capabilities: TemplateCapabilities,
@@ -411,14 +418,20 @@ def _build_fallback_blocks(
                 f"line_height_mm={line_height:.3f}, available_height_mm={available_height:.3f}"
             )
     else:
+        start = fallback_line_offset
         if page_idx <= 0:
-            start = 0
-            end = fallback_first
+            page_capacity = min(fallback_first, lines_capacity)
         else:
-            start = fallback_first + (page_idx - 1) * fallback_rest
-            end = start + fallback_rest
+            if start < len(fallback_lines) and fallback_rest <= 0:
+                raise ValueError(
+                    "fallback continuation capacity exhausted before consuming fallback lines: "
+                    f"doc_type={inputs.doc_type!r}, continuation_capacity={fallback_rest}, "
+                    f"remaining_lines={len(fallback_lines) - start}"
+                )
+            page_capacity = lines_capacity
+        end = start + max(0, page_capacity)
         page_fallback_lines = fallback_lines[start:end]
-        if page_fallback_lines and lines_capacity <= 0:
+        if start < len(fallback_lines) and lines_capacity <= 0:
             raise ValueError(
                 "fallback capacity exhausted before consuming fallback lines: "
                 f"page={page_idx + 1}, doc_type={inputs.doc_type!r}, "
@@ -486,6 +499,7 @@ def build_pages(
     )
     pages: list[PageModel] = []
     page_idx = 0
+    fallback_line_offset = 0
     while True:
         has_remaining_section_fallback = (
             inputs.render_fallback
@@ -493,7 +507,16 @@ def build_pages(
             and fallback_state is not None
             and fallback_sections_remaining(fallback_sections_data, fallback_state)
         )
-        if page_idx >= total_pages and not has_remaining_section_fallback:
+        has_remaining_line_fallback = (
+            inputs.render_fallback
+            and fallback_sections_data is None
+            and fallback_line_offset < len(fallback_lines)
+        )
+        if (
+            page_idx >= total_pages
+            and not has_remaining_section_fallback
+            and not has_remaining_line_fallback
+        ):
             break
 
         page_num = page_idx + 1
@@ -544,10 +567,16 @@ def build_pages(
             fallback_state,
             fallback_first,
             fallback_rest,
+            fallback_line_offset,
             qr_rows_for_page=qr_grid.rows if qr_grid else 0,
             recovery_meta_lines_extra=int(spec.header.meta_lines_extra),
             capabilities=capabilities,
         )
+        if fallback_sections_data is None and page_fallback_blocks:
+            fallback_line_offset = max(
+                fallback_line_offset,
+                max(block.line_offset + len(block.lines) for block in page_fallback_blocks),
+            )
 
         pages.append(
             PageModel(

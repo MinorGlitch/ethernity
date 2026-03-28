@@ -117,6 +117,10 @@ def split_fallback_sections(lines: Sequence[str]) -> dict[str, list[str]]:
         if section:
             current = section
             continue
+        if current is None:
+            if line.strip():
+                raise ValueError("unexpected content before the first marked fallback section")
+            continue
         if current:
             sections[current].append(line)
     return sections

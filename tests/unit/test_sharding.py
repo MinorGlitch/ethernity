@@ -42,6 +42,40 @@ TEST_SHARD_SET_ID = b"s" * SHARD_SET_ID_LEN
 
 
 class TestSharding(unittest.TestCase):
+    @staticmethod
+    def _legacyize_shares(shares: list[ShardPayload], *, sign_priv: bytes) -> list[ShardPayload]:
+        legacy_shares: list[ShardPayload] = []
+        for share in shares:
+            legacy_signature = sign_shard(
+                share.doc_hash,
+                shard_version=LEGACY_SHARD_VERSION,
+                key_type=share.key_type,
+                threshold=share.threshold,
+                share_count=share.share_count,
+                share_index=share.share_index,
+                secret_len=share.secret_len,
+                share=share.share,
+                shard_set_id=None,
+                sign_pub=share.sign_pub,
+                sign_priv=sign_priv,
+            )
+            legacy_shares.append(
+                ShardPayload(
+                    share_index=share.share_index,
+                    threshold=share.threshold,
+                    share_count=share.share_count,
+                    key_type=share.key_type,
+                    share=share.share,
+                    secret_len=share.secret_len,
+                    doc_hash=share.doc_hash,
+                    sign_pub=share.sign_pub,
+                    signature=legacy_signature,
+                    version=LEGACY_SHARD_VERSION,
+                    shard_set_id=None,
+                )
+            )
+        return legacy_shares
+
     def test_shard_payload_encodes_to_map(self) -> None:
         doc_hash = hashlib.blake2b(b"payload", digest_size=32).digest()
         sign_priv, sign_pub = generate_signing_keypair()
@@ -478,6 +512,42 @@ class TestSharding(unittest.TestCase):
 
         self.assertEqual(decoded.version, LEGACY_SHARD_VERSION)
         self.assertIsNone(decoded.shard_set_id)
+
+    def test_recover_signing_seed_rejects_legacy_exact_threshold_without_shard_set_id(self) -> None:
+        seed = b"\x5a" * 32
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        shares = split_signing_seed(
+            seed,
+            threshold=2,
+            shares=3,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        legacy_shares = self._legacyize_shares(shares, sign_priv=sign_priv)
+
+        with self.assertRaisesRegex(ValueError, "prove compatibility"):
+            recover_signing_seed([legacy_shares[0], legacy_shares[1]])
+
+    def test_mint_replacement_shards_rejects_legacy_exact_threshold_without_shard_set_id(
+        self,
+    ) -> None:
+        passphrase = "legacy-threshold-policy"
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        shares = split_passphrase(
+            passphrase,
+            threshold=2,
+            shares=3,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        legacy_shares = self._legacyize_shares(shares, sign_priv=sign_priv)
+
+        with self.assertRaisesRegex(ValueError, "prove compatibility"):
+            mint_replacement_shards(legacy_shares[:2], count=1, sign_priv=sign_priv)
 
     def test_decode_v2_shard_payload_requires_set_id(self) -> None:
         payload = {
