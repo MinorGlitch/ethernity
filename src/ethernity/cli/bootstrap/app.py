@@ -22,6 +22,7 @@ from typing import Annotated
 
 import click
 import typer
+from typer.core import TyperGroup
 
 from ethernity.cli.bootstrap import registry as command_registry
 from ethernity.cli.bootstrap.startup import run_startup
@@ -35,7 +36,23 @@ from ethernity.cli.shared.types import BackupArgs, CliContextState
 from ethernity.config import CliDefaults, load_cli_defaults
 from ethernity.config.install import DEFAULT_CONFIG_PATH, resolve_api_defaults_config_path
 
-app = typer.Typer(add_completion=False, help="Ethernity CLI.")
+
+def _argv_requests_help(argv: Sequence[str]) -> bool:
+    for arg in argv:
+        if arg == "--":
+            break
+        if arg in {"--help", "-h"}:
+            return True
+    return False
+
+
+class _HelpAwareTyperGroup(TyperGroup):
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        ctx.meta["help_invocation"] = _argv_requests_help(args)
+        return super().parse_args(ctx, args)
+
+
+app = typer.Typer(add_completion=False, help="Ethernity CLI.", cls=_HelpAwareTyperGroup)
 
 _get_version = cli_common._get_version
 _paper_callback = cli_common._paper_callback
@@ -130,6 +147,18 @@ def _api_argv_path(argv: Sequence[str]) -> tuple[str, ...]:
 def _is_api_config_invocation(argv: Sequence[str]) -> bool:
     path = _api_argv_path(argv)
     return len(path) >= 2 and path[0] == "config" and path[1] in {"get", "set"}
+
+
+def _is_help_invocation(ctx: click.Context, argv: Sequence[str]) -> bool:
+    """Return whether the current invocation is only asking for help text."""
+
+    meta = getattr(ctx, "meta", None)
+    help_invocation = meta.get("help_invocation") if isinstance(meta, dict) else False
+    return (
+        bool(getattr(ctx, "resilient_parsing", False))
+        or bool(help_invocation)
+        or _argv_requests_help(argv[1:])
+    )
 
 
 def _raise_api_bootstrap_error(exc: BaseException, *, exit_code: int = 2) -> None:
@@ -265,8 +294,9 @@ def _load_bootstrap_defaults(
     invoked_subcommand: str | None,
     config_path_for_defaults: str | None,
     api_config_invocation: bool,
+    help_invocation: bool,
 ) -> CliDefaults:
-    if api_config_invocation:
+    if api_config_invocation or help_invocation:
         return CliDefaults()
     try:
         return load_cli_defaults(path=config_path_for_defaults)
@@ -506,20 +536,22 @@ def cli(
     ] = False,
 ) -> None:
     _ = version
-    _run_non_api_startup(
-        invoked_subcommand=ctx.invoked_subcommand,
-        quiet=quiet,
-        no_color=no_color,
-        no_animations=no_animations,
-        debug=debug,
-        init_config=init_config,
-    )
-    _run_first_run_onboarding_if_needed(
-        invoked_subcommand=ctx.invoked_subcommand,
-        config_path=config,
-        quiet=quiet,
-        debug=debug,
-    )
+    help_invocation = _is_help_invocation(ctx, sys.argv)
+    if not help_invocation:
+        _run_non_api_startup(
+            invoked_subcommand=ctx.invoked_subcommand,
+            quiet=quiet,
+            no_color=no_color,
+            no_animations=no_animations,
+            debug=debug,
+            init_config=init_config,
+        )
+        _run_first_run_onboarding_if_needed(
+            invoked_subcommand=ctx.invoked_subcommand,
+            config_path=config,
+            quiet=quiet,
+            debug=debug,
+        )
 
     explicit_config_path, config_path_for_defaults, api_config_invocation = (
         _defaults_bootstrap_config_path(
@@ -532,6 +564,7 @@ def cli(
         invoked_subcommand=ctx.invoked_subcommand,
         config_path_for_defaults=config_path_for_defaults,
         api_config_invocation=api_config_invocation,
+        help_invocation=help_invocation,
     )
 
     effective_quiet = quiet or cli_defaults.ui.quiet

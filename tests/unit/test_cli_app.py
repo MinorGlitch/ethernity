@@ -193,7 +193,7 @@ class TestCliApp(unittest.TestCase):
                 init_config=False,
                 version=False,
             )
-        load_cli_defaults.assert_called_once_with(path=str(app_module.DEFAULT_CONFIG_PATH))
+        load_cli_defaults.assert_not_called()
         run_startup.assert_not_called()
         state = ctx.obj
         if state is None:

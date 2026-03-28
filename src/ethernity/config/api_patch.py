@@ -41,7 +41,7 @@ from ethernity.config.install import (
 from ethernity.config.load import _load_toml, load_app_config, load_cli_defaults
 from ethernity.config.paths import DEFAULT_CONFIG_PATH, DEFAULT_TEMPLATE_STYLE
 
-ConfigTargetSource = Literal["user", "explicit"]
+ConfigTargetSource = Literal["default", "user", "explicit"]
 
 _CONFIG_SET_ALLOWED_KEYS = frozenset({"values", "onboarding"})
 _CONFIG_ONBOARDING_ALLOWED_KEYS = frozenset({"mark_complete", "configured_fields"})
@@ -88,7 +88,7 @@ def apply_api_config_patch(
     path: str | Path | None,
     patch: dict[str, object],
 ) -> ApiConfigSnapshot:
-    target_path, source = _resolve_config_target(path, for_write=False)
+    target_path, source = _resolve_config_target(path, for_write=True)
     _validate_patch_shape(patch)
     onboarding_plan = _build_onboarding_patch_plan(patch.get("onboarding"), source=source)
 
@@ -118,7 +118,7 @@ def apply_api_config_patch(
     created_config = False
 
     try:
-        writable_target_path = resolve_writable_config_path(path)
+        writable_target_path = target_path
         created_config = original_text is None and writable_target_path.exists()
         if config_changed:
             _write_text_atomic(writable_target_path, updated)
@@ -145,7 +145,10 @@ def _resolve_config_target(
     source: ConfigTargetSource = "explicit" if path else "user"
     if for_write:
         return resolve_writable_config_path(path), source
-    return resolve_config_snapshot_path(path), source
+    target_path = resolve_config_snapshot_path(path)
+    if not path and target_path == DEFAULT_CONFIG_PATH:
+        source = "default"
+    return target_path, source
 
 
 def _snapshot_from_path(path: Path, *, source: ConfigTargetSource) -> ApiConfigSnapshot:

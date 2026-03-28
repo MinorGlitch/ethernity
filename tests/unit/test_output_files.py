@@ -194,6 +194,20 @@ class TestOutputFiles(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unsafe output path"):
                 _write_recovered_outputs(str(out_dir), entries)
 
+    def test_write_recovered_outputs_rejects_case_colliding_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "recovered"
+            entries = [
+                (types.SimpleNamespace(path="Readme.txt"), b"A"),
+                (types.SimpleNamespace(path="README.txt"), b"B"),
+            ]
+            with mock.patch(
+                "ethernity.cli.shared.io.outputs._is_directory_case_sensitive",
+                return_value=False,
+            ):
+                with self.assertRaisesRegex(ValueError, "collide on this filesystem"):
+                    _write_recovered_outputs(str(out_dir), entries)
+
     def test_write_recovered_outputs_stdout_invokes_callback(self) -> None:
         fake_stdout = types.SimpleNamespace(buffer=io.BytesIO())
         calls: list[tuple[str, str, int, int]] = []

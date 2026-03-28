@@ -22,6 +22,8 @@ import os
 import shutil
 import sys
 import tempfile
+import unicodedata
+import uuid
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -245,6 +247,9 @@ def _write_recovered_directory_outputs(
         tempfile.mkdtemp(prefix=f".{base_dir.name or 'recover'}.tmp-", dir=str(base_dir.parent))
     )
     _harden_dir_permissions(staging_dir)
+    _validate_recovered_output_paths(
+        entries, case_sensitive=_is_directory_case_sensitive(staging_dir)
+    )
     staged_records: list[tuple[object, bytes, str, Path]] = []
     total = len(entries)
     try:
@@ -274,6 +279,46 @@ def _write_recovered_directory_outputs(
         )
     finally:
         shutil.rmtree(staging_dir, ignore_errors=True)
+
+
+def _validate_recovered_output_paths(
+    entries: Sequence[tuple[object, bytes]],
+    *,
+    case_sensitive: bool,
+) -> None:
+    """Reject output paths that would collide on the target filesystem."""
+
+    if case_sensitive:
+        return
+    seen_paths: dict[tuple[str, ...], str] = {}
+    for entry, _data in entries:
+        relative_path = normalize_path(getattr(entry, "path", "payload.bin"), label="output path")
+        key = tuple(
+            unicodedata.normalize("NFC", part).casefold() for part in relative_path.split("/")
+        )
+        previous = seen_paths.get(key)
+        if previous is None:
+            seen_paths[key] = relative_path
+            continue
+        if previous != relative_path:
+            raise ValueError(
+                f"output paths collide on this filesystem: {previous!r} vs {relative_path!r}"
+            )
+
+
+def _is_directory_case_sensitive(directory: Path) -> bool:
+    """Return whether the target directory distinguishes file names by case."""
+
+    probe_name = f".CaseSensitivityProbe-{uuid.uuid4().hex}"
+    probe_path = directory / probe_name
+    alternate_path = directory / probe_name.swapcase()
+    try:
+        probe_path.write_bytes(b"")
+        return not alternate_path.exists()
+    except OSError:
+        return os.name != "nt"
+    finally:
+        probe_path.unlink(missing_ok=True)
 
 
 def _commit_recovered_directory_outputs(

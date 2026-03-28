@@ -31,7 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class TestApiConfigService(unittest.TestCase):
-    def test_get_api_config_snapshot_uses_user_config_target(self) -> None:
+    def test_get_api_config_snapshot_uses_default_target_when_user_config_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             config_root = Path(tmpdir) / "config"
             with mock.patch.multiple(
@@ -46,17 +46,41 @@ class TestApiConfigService(unittest.TestCase):
                 snapshot = api_config.get_api_config_snapshot()
 
         templates = cast(dict[str, Any], snapshot.values["templates"])
-        self.assertEqual(snapshot.source, "user")
+        self.assertEqual(snapshot.source, "default")
         self.assertEqual(snapshot.status, "valid")
         self.assertEqual(snapshot.errors, ())
-        self.assertTrue(snapshot.path.endswith("config.toml"))
+        self.assertEqual(snapshot.path, str(DEFAULT_CONFIG_PATH))
         self.assertEqual(
             snapshot.options["template_designs"],
             ["archive", "forge", "ledger", "maritime", "sentinel"],
         )
         self.assertEqual(snapshot.options["onboarding_fields"], list(ONBOARDING_FIELDS))
-        self.assertEqual(snapshot.onboarding["available_fields"], list(ONBOARDING_FIELDS))
+        self.assertFalse(snapshot.onboarding["needed"])
+        self.assertEqual(snapshot.onboarding["configured_fields"], [])
         self.assertIn("template_name", templates)
+
+    def test_get_api_config_snapshot_uses_user_config_target_when_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_root = Path(tmpdir) / "config"
+            config_root.mkdir(parents=True, exist_ok=True)
+            (config_root / "config.toml").write_text(
+                DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            with mock.patch.multiple(
+                installer,
+                user_config_dir_path=mock.Mock(return_value=config_root),
+                user_config_file_path=mock.Mock(side_effect=lambda name: config_root / name),
+                user_templates_root_path=mock.Mock(return_value=config_root / "templates"),
+                user_templates_design_path=mock.Mock(
+                    side_effect=lambda design: config_root / "templates" / design
+                ),
+            ):
+                snapshot = api_config.get_api_config_snapshot()
+
+        self.assertEqual(snapshot.source, "user")
+        self.assertEqual(snapshot.status, "valid")
+        self.assertTrue(snapshot.path.endswith("config.toml"))
 
     def test_apply_api_config_patch_updates_values_and_onboarding_marker(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

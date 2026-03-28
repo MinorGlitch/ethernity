@@ -55,9 +55,9 @@ def _module(name: str, default: Any) -> Any:
 
 
 def _decode_image(image, *, zxing_module) -> list[bytes]:
-    """Decode all barcodes in an opened image object."""
+    """Decode QR codes in an opened image object."""
 
-    results = zxing_module.read_barcodes(image)
+    results = zxing_module.read_barcodes(image, formats=zxing_module.BarcodeFormat.QRCode)
     payloads: list[bytes] = []
     for result in results:
         data = getattr(result, "bytes", None) or getattr(result, "raw_bytes", None)

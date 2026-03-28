@@ -14,7 +14,9 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 import re
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from typer.testing import CliRunner
@@ -70,6 +72,28 @@ class TestCliTyper(unittest.TestCase):
             )
         self.assertEqual(result.exit_code, 0)
         self.assertIn("--qr-chunk-size", _strip_ansi(result.output))
+
+    def test_backup_help_does_not_run_startup(self) -> None:
+        with mock.patch(
+            "ethernity.cli.bootstrap.app.run_startup", side_effect=AssertionError("startup called")
+        ) as run_startup:
+            result = self.runner.invoke(app, ["backup", "--help"])
+        self.assertEqual(result.exit_code, 0)
+        run_startup.assert_not_called()
+
+    def test_backup_help_does_not_initialize_user_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = self.runner.invoke(
+                app,
+                ["backup", "--help"],
+                env={
+                    "XDG_CONFIG_HOME": tmpdir,
+                    "ETHERNITY_SKIP_PLAYWRIGHT_INSTALL": "1",
+                },
+            )
+            config_path = Path(tmpdir) / "ethernity" / "config.toml"
+        self.assertEqual(result.exit_code, 0)
+        self.assertFalse(config_path.exists())
 
     def test_kit_help_lists_qr_chunk_size(self) -> None:
         with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):

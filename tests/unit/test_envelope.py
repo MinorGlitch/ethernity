@@ -659,6 +659,17 @@ class TestEnvelope(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "payload_raw_len"):
             encode_manifest(manifest)
 
+    def test_encode_manifest_rejects_invalid_file_entry_fields(self) -> None:
+        manifest = EnvelopeManifest(
+            format_version=MANIFEST_VERSION,
+            created_at=0.0,
+            sealed=True,
+            signing_seed=None,
+            files=(ManifestFile(path="payload.bin", size=True, sha256=b"\x00" * 31, mtime=True),),
+        )
+        with self.assertRaisesRegex(ValueError, "manifest file size"):
+            encode_manifest(manifest)
+
     def test_manifest_rejects_direct_file_entry_with_trailing_values(self) -> None:
         data = _make_manifest_cbor(files=[["payload.bin", 4, b"\x00" * 32, None, "extra"]])
         with self.assertRaisesRegex(ValueError, "exactly 4 items"):

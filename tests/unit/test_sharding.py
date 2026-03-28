@@ -922,6 +922,22 @@ class TestSharding(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "signing-seed shard length must be 32 bytes"):
             encode_shard_payload(payload)
 
+    def test_encode_shard_payload_rejects_invalid_payload_fields(self) -> None:
+        payload = ShardPayload(
+            share_index=0,
+            threshold=0,
+            share_count=0,
+            key_type=KEY_TYPE_PASSPHRASE,
+            share=b"",
+            secret_len=0,
+            doc_hash=b"\x00",
+            sign_pub=b"\x00",
+            signature=b"\x00",
+            shard_set_id=TEST_SHARD_SET_ID,
+        )
+        with self.assertRaisesRegex(ValueError, "shard threshold must be a positive int"):
+            encode_shard_payload(payload)
+
     def test_decode_shard_payload_rejects_short_signing_seed_length(self) -> None:
         payload = {
             "version": SHARD_VERSION,

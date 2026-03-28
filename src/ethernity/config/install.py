@@ -218,7 +218,10 @@ def resolve_config_snapshot_path(path: str | Path | None = None) -> Path:
             raise FileNotFoundError(f"config file not found: {resolved}")
         return resolved
 
-    return _build_paths().user_config_path
+    paths = _build_paths()
+    if paths.user_config_path.exists():
+        return paths.user_config_path
+    return DEFAULT_CONFIG_PATH
 
 
 def resolve_api_defaults_config_path() -> Path:

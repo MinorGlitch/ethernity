@@ -1940,6 +1940,7 @@
     "configSource": {
       "type": "string",
       "enum": [
+        "default",
         "user",
         "explicit"
       ]

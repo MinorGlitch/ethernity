@@ -3,9 +3,6 @@ name: Update Homebrew Tap
 on:
   release:
     types: [published]
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       release_tag:
@@ -27,7 +24,7 @@ concurrency:
 
 jobs:
   update-tap:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && !contains(github.ref_name, '-')) || (github.event.release.prerelease == false && github.event.release.draft == false)
+    if: github.event_name == 'workflow_dispatch' || (github.event.release.prerelease == false && github.event.release.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
@@ -48,8 +45,6 @@ jobs:
             if [[ -z "${tag}" ]]; then
               tag="$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest" | jq -r '.tag_name')"
             fi
-          elif [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
-            tag="${GITHUB_REF_NAME}"
           else
             tag="${{ github.event.release.tag_name }}"
           fi
@@ -67,28 +62,6 @@ jobs:
           curl -fsSL \
             "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${{ steps.meta.outputs.tag }}/uv.lock" \
             -o "${RUNNER_TEMP}/uv.lock"
-
-      - name: Wait for release to exist (tag push)
-        if: github.event_name == 'push'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          tag="${{ steps.meta.outputs.tag }}"
-          repo="${GITHUB_REPOSITORY}"
-          attempts=40
-          sleep_seconds=15
-          for attempt in $(seq 1 "${attempts}"); do
-            if gh release view "${tag}" --repo "${repo}" >/dev/null 2>&1; then
-              echo "Release ${tag} is available."
-              exit 0
-            fi
-            echo "Waiting for release ${tag} to appear (${attempt}/${attempts})..."
-            sleep "${sleep_seconds}"
-          done
-          echo "Timed out waiting for release ${tag} to appear in ${repo}." >&2
-          exit 1
 
       - name: Generate source formula from release tag
         shell: bash

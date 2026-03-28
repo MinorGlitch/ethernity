@@ -21,8 +21,8 @@ When `--config` is omitted in API mode, command behavior depends on the surface:
 - `api backup`, `api mint`, and `api recover` load defaults from the existing user config when it
   already exists, otherwise they fall back to the packaged config without creating user config
   files.
-- `api config get` targets the user config path by default but does not initialize it just to read
-  settings.
+- `api config get` uses the user config when it exists; otherwise it reports the packaged config
+  path with `source = "default"` and does not initialize user config just to read settings.
 - `api config set` targets the user config path by default and will initialize it if needed.
 
 `ethernity api recover` does not implicitly read stdin. To recover from stdin, pass
@@ -319,6 +319,7 @@ Config results also include:
 
 - `status`: `valid`, `invalid_toml`, or `invalid_values`
 - `errors`: structured load problems for the current config snapshot
+- `source`: `user`, `default`, or `explicit`
 
 When `status` is not `valid`, `values` still contain a schema-valid snapshot derived from defaults
 and any parseable settings so the GUI can offer repair UX.

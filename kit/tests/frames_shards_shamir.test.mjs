@@ -299,6 +299,39 @@ test("parseAutoShard handles duplicates, conflicts, and fallback", () => {
   );
 });
 
+test("parseScannedShard replaces same-share shards when signature differs", () => {
+  const state = createInitialState();
+  const docId = Uint8Array.of(4, 4, 4, 4, 4, 4, 4, 4);
+  const first = buildFrame({
+    frameType: FRAME_TYPE_KEY,
+    data: encodeCbor(
+      shardPayload({
+        shareIndex: 1,
+        shareHex: FIXTURE_SHARES.share1,
+        signature: new Uint8Array(64),
+      }),
+    ),
+    docId,
+  });
+  const secondSignature = new Uint8Array(64).fill(7);
+  const second = buildFrame({
+    frameType: FRAME_TYPE_KEY,
+    data: encodeCbor(
+      shardPayload({
+        shareIndex: 1,
+        shareHex: FIXTURE_SHARES.share1,
+        signature: secondSignature,
+      }),
+    ),
+    docId,
+  });
+
+  assert.equal(parseScannedShard(state, { bytes: first }), 1);
+  assert.equal(parseScannedShard(state, { bytes: second }), 1);
+  assert.equal(state.shardConflicts, 1);
+  assert.deepEqual(state.shardFrames.get(1).signature, secondSignature);
+});
+
 test("ciphertext helpers enforce limits and missing frames", () => {
   const missingState = createInitialState();
   missingState.total = 1;
