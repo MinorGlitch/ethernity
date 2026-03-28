@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import sys
 from collections.abc import Callable
@@ -32,6 +33,10 @@ from ethernity.core.validation import normalize_path
 # Progress reporting intervals
 SCAN_UPDATE_INTERVAL = 1
 READ_PROGRESS_UPDATE_INTERVAL = 10  # Update more frequently for better UX
+
+
+def _missing_path_error(path: Path, message: str) -> FileNotFoundError:
+    return FileNotFoundError(errno.ENOENT, message, str(path))
 
 
 @dataclass
@@ -94,7 +99,7 @@ def _load_input_files(
     for raw in input_dirs:
         path = Path(expanduser_cli_path(raw, preserve_stdin=False) or "")
         if not path.exists():
-            raise FileNotFoundError(f"input dir not found: {path}")
+            raise _missing_path_error(path, "input dir not found")
         if not path.is_dir():
             raise ValueError(f"input dir is not a directory: {path}")
         has_directory_source = True
@@ -127,7 +132,7 @@ def _load_input_files(
     read = 0
     for path in paths:
         if not path.exists():
-            raise FileNotFoundError(f"input file not found: {path}")
+            raise _missing_path_error(path, "input file not found")
         if not path.is_file():
             raise ValueError(f"input path is not a file: {path}")
         abs_path = path.resolve()
@@ -186,7 +191,7 @@ def _load_input_files(
 
 def _walk_directory(path: Path, *, on_file: Callable[[], None] | None = None) -> list[Path]:
     if not path.exists():
-        raise FileNotFoundError(f"input dir not found: {path}")
+        raise _missing_path_error(path, "input dir not found")
     if not path.is_dir():
         raise ValueError(f"input dir is not a directory: {path}")
     files: list[Path] = []
@@ -202,7 +207,7 @@ def _resolve_base_dir(paths: list[Path], base_dir: str | None) -> Path | None:
     if base_dir:
         resolved = Path(expanduser_cli_path(base_dir, preserve_stdin=False) or "").resolve()
         if not resolved.exists():
-            raise FileNotFoundError(f"base dir not found: {resolved}")
+            raise _missing_path_error(resolved, "base dir not found")
         if not resolved.is_dir():
             raise ValueError(f"base dir is not a directory: {resolved}")
         return resolved

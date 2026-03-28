@@ -28,7 +28,7 @@ from ethernity.cli.shared.types import RecoverArgs
 from ethernity.config.install import DEFAULT_CONFIG_PATH
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
-from ethernity.crypto.signing import generate_signing_keypair
+from ethernity.crypto.signing import encode_auth_payload, generate_signing_keypair, sign_auth
 from ethernity.encoding.chunking import chunk_payload
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import encode_qr_payload
@@ -51,6 +51,18 @@ def _qr_payload_text(frame: Frame) -> str:
     if isinstance(payload, bytes):
         return payload.decode("ascii")
     return payload
+
+
+def _auth_frame(*, doc_id: bytes, doc_hash: bytes, sign_priv: bytes, sign_pub: bytes) -> Frame:
+    signature = sign_auth(doc_hash, sign_pub=sign_pub, sign_priv=sign_priv)
+    return Frame(
+        version=VERSION,
+        frame_type=FrameType.AUTH,
+        doc_id=doc_id,
+        index=0,
+        total=1,
+        data=encode_auth_payload(doc_hash, sign_pub=sign_pub, signature=signature),
+    )
 
 
 class TestIntegrationRecover(unittest.TestCase):
@@ -308,6 +320,12 @@ class TestIntegrationRecover(unittest.TestCase):
             doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
             doc_id = doc_hash[:DOC_ID_LEN]
             sign_priv, sign_pub = generate_signing_keypair()
+            auth_frame = _auth_frame(
+                doc_id=doc_id,
+                doc_hash=doc_hash,
+                sign_priv=sign_priv,
+                sign_pub=sign_pub,
+            )
 
             frames = chunk_payload(
                 ciphertext,
@@ -353,6 +371,12 @@ class TestIntegrationRecover(unittest.TestCase):
             shard_frames_path = tmp_path / "shard_frames.txt"
             shard_frames_path.write_text(
                 "\n".join(_qr_payload_text(frame) for frame in shard_frames),
+                encoding="utf-8",
+            )
+            frames_path.write_text(
+                "\n".join(
+                    [*(_qr_payload_text(frame) for frame in frames), _qr_payload_text(auth_frame)]
+                ),
                 encoding="utf-8",
             )
             output_path = tmp_path / "out.bin"

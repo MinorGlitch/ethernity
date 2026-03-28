@@ -137,6 +137,8 @@ class TestFilterFallbackLines(unittest.TestCase):
     def test_detect_fallback_section_matches_only_explicit_header_lines(self) -> None:
         self.assertEqual(detect_fallback_section("=== MAIN FRAME ==="), "main")
         self.assertEqual(detect_fallback_section("Auth Frame:"), "auth")
+        self.assertEqual(detect_fallback_section("Shard Frame"), "key")
+        self.assertEqual(detect_fallback_section("Key Frame"), "key")
         self.assertIsNone(detect_fallback_section("zzmain framezz"))
 
     def test_split_fallback_sections_rejects_non_empty_content_before_first_header(self) -> None:

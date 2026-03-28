@@ -87,6 +87,12 @@ def _read_config_patch(input_json: str) -> dict[str, object]:
             message="config patch is not valid UTF-8",
             details={"path": normalized} if normalized not in {None, "-"} else {},
         ) from exc
+    except FileNotFoundError as exc:
+        raise ApiCommandError(
+            code=api_codes.NOT_FOUND,
+            message=str(exc),
+            details={"path": normalized} if normalized not in {None, "-"} else {},
+        ) from exc
     except OSError as exc:
         raise ApiCommandError(
             code=api_codes.IO_ERROR,

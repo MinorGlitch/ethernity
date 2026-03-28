@@ -24,7 +24,9 @@ from ethernity.cli.features.mint.workflow import _signing_key_shard_frames_from_
 from ethernity.cli.features.recover.planning import (
     _inspect_auth_payload,
     _shard_frames_from_args,
+    build_recovery_plan,
     inspect_from_args,
+    inspect_recovery_inputs,
     plan_from_args,
 )
 from ethernity.cli.shared.types import MintArgs, RecoverArgs
@@ -132,6 +134,96 @@ class TestInspectAuthPayload(unittest.TestCase):
                     MintArgs(signing_key_shard_payloads_file=[str(payload_path)], quiet=True),
                     quiet=True,
                 )
+
+    def test_build_recovery_plan_requires_auth_even_with_shards_in_strict_mode(self) -> None:
+        main_frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x11" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"ciphertext",
+        )
+        shard_frame = Frame(
+            version=1,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=b"\x11" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"shard",
+        )
+
+        with mock.patch(
+            "ethernity.cli.features.recover.planning._resolve_auth_payload",
+            return_value=(None, "missing"),
+        ) as resolve_auth_mock:
+            with mock.patch(
+                "ethernity.cli.features.recover.planning._resolve_passphrase",
+                return_value="passphrase",
+            ):
+                build_recovery_plan(
+                    frames=[main_frame],
+                    extra_auth_frames=[],
+                    shard_frames=[shard_frame],
+                    passphrase="passphrase",
+                    allow_unsigned=False,
+                    input_label=None,
+                    input_detail=None,
+                    shard_fallback_files=[],
+                    shard_payloads_file=[],
+                    shard_scan=[],
+                    output_path=None,
+                    args=None,
+                    quiet=True,
+                )
+
+        self.assertTrue(resolve_auth_mock.call_args.kwargs["require_auth"])
+
+    def test_inspect_recovery_inputs_requires_auth_even_with_shards_in_strict_mode(self) -> None:
+        main_frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x11" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"ciphertext",
+        )
+        shard_frame = Frame(
+            version=1,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=b"\x11" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"shard",
+        )
+
+        with mock.patch(
+            "ethernity.cli.features.recover.planning._inspect_auth_payload",
+            return_value=(None, "missing", ()),
+        ) as inspect_auth_mock:
+            with mock.patch(
+                "ethernity.cli.features.recover.planning._inspect_unlock_status",
+                return_value=mock.Mock(
+                    satisfied=False,
+                    resolved_passphrase=None,
+                    blocking_issues=(),
+                ),
+            ):
+                inspect_recovery_inputs(
+                    frames=[main_frame],
+                    extra_auth_frames=[],
+                    shard_frames=[shard_frame],
+                    passphrase=None,
+                    allow_unsigned=False,
+                    input_label=None,
+                    input_detail=None,
+                    shard_fallback_files=[],
+                    shard_payloads_file=[],
+                    shard_scan=[],
+                    quiet=True,
+                )
+
+        self.assertTrue(inspect_auth_mock.call_args.kwargs["require_auth"])
 
 
 if __name__ == "__main__":

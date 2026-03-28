@@ -184,6 +184,8 @@ jobs:
       - name: Setup Python
         uses: ./.github/actions/setup-python
       - name: Run e2e tests
+        env:
+          ETHERNITY_TEST_CLI_TIMEOUT_SECONDS: "300"
         run: uv run pytest tests/e2e -v
 
   coverage:
@@ -286,7 +288,6 @@ jobs:
             src/ethernity/resources/kit/recovery_kit.scanner.bundle.html
 
   pip-audit:
-    continue-on-error: ${{ github.event_name != 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import errno
 import sys
 from pathlib import Path
 
@@ -100,7 +101,7 @@ def _read_text_lines(path: str) -> list[str]:
                 "If this is a PDF or image, scan it for QR payloads instead."
             ) from exc
         except FileNotFoundError as exc:
-            raise FileNotFoundError(f"file not found: {file_path}") from exc
+            raise FileNotFoundError(errno.ENOENT, "file not found", str(file_path)) from exc
         except PermissionError as exc:
             raise PermissionError(f"unable to read file: {file_path}") from exc
         except OSError as exc:
@@ -160,6 +161,17 @@ def _frame_from_fallback(path: str, *, quiet: bool = False) -> Frame:
     """Decode a single fallback file into one frame."""
 
     lines = _read_text_lines(path)
+    if _contains_fallback_markers(lines):
+        sections = _split_fallback_sections(lines)
+        populated_sections = [
+            (section_name, section_lines)
+            for section_name, section_lines in sections.items()
+            if section_lines
+        ]
+        if len(populated_sections) != 1:
+            raise ValueError("expected exactly one marked fallback section in shard recovery text")
+        section_name, section_lines = populated_sections[0]
+        return _frame_from_fallback_lines(section_lines, label=section_name, quiet=quiet)
     return _frame_from_fallback_lines(lines, label="fallback", quiet=quiet)
 
 

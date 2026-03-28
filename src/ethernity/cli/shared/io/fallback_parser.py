@@ -26,6 +26,7 @@ from ethernity.encoding.zbase32 import ZBASE32_ALPHABET
 
 _FALLBACK_SECTION_PATTERNS = {
     "auth": re.compile(r"^[=\-:\s]*auth frame[=\-:\s]*$", re.IGNORECASE),
+    "key": re.compile(r"^[=\-:\s]*(?:key|shard) frame[=\-:\s]*$", re.IGNORECASE),
     "main": re.compile(r"^[=\-:\s]*main frame[=\-:\s]*$", re.IGNORECASE),
 }
 
@@ -110,7 +111,7 @@ def contains_fallback_markers(lines: Sequence[str]) -> bool:
 
 
 def split_fallback_sections(lines: Sequence[str]) -> dict[str, list[str]]:
-    sections: dict[str, list[str]] = {"auth": [], "main": []}
+    sections: dict[str, list[str]] = {"auth": [], "key": [], "main": []}
     current: str | None = None
     for line in lines:
         section = detect_fallback_section(line)

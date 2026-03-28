@@ -23,7 +23,7 @@ from ethernity.cli.shared.types import RecoverArgs
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
-from ethernity.crypto.signing import generate_signing_keypair
+from ethernity.crypto.signing import encode_auth_payload, generate_signing_keypair, sign_auth
 from ethernity.encoding.chunking import chunk_payload
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import encode_qr_payload
@@ -34,6 +34,18 @@ from tests.test_support import suppress_output
 
 TEST_SIGNING_SEED = b"\x11" * 32
 _CONFIG_PATH = DEFAULT_CONFIG_PATH
+
+
+def _auth_frame(*, doc_id: bytes, doc_hash: bytes, sign_priv: bytes, sign_pub: bytes) -> Frame:
+    signature = sign_auth(doc_hash, sign_pub=sign_pub, sign_priv=sign_priv)
+    return Frame(
+        version=1,
+        frame_type=FrameType.AUTH,
+        doc_id=doc_id,
+        index=0,
+        total=1,
+        data=encode_auth_payload(doc_hash, sign_pub=sign_pub, signature=signature),
+    )
 
 
 class TestEndToEndSharding(unittest.TestCase):
@@ -51,6 +63,12 @@ class TestEndToEndSharding(unittest.TestCase):
             doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
             doc_id = doc_hash[:DOC_ID_LEN]
             sign_priv, sign_pub = generate_signing_keypair()
+            auth_frame = _auth_frame(
+                doc_id=doc_id,
+                doc_hash=doc_hash,
+                sign_priv=sign_priv,
+                sign_pub=sign_pub,
+            )
 
             frames = chunk_payload(
                 ciphertext,
@@ -60,7 +78,10 @@ class TestEndToEndSharding(unittest.TestCase):
             )
             frames_path = tmp_path / "frames.txt"
             frames_path.write_text(
-                "\n".join(encode_qr_payload(encode_frame(frame)) for frame in frames),
+                "\n".join(
+                    [*(encode_qr_payload(encode_frame(frame)) for frame in frames)]
+                    + [encode_qr_payload(encode_frame(auth_frame))]
+                ),
                 encoding="utf-8",
             )
 
@@ -121,6 +142,12 @@ class TestEndToEndSharding(unittest.TestCase):
             doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
             doc_id = doc_hash[:DOC_ID_LEN]
             sign_priv, sign_pub = generate_signing_keypair()
+            auth_frame = _auth_frame(
+                doc_id=doc_id,
+                doc_hash=doc_hash,
+                sign_priv=sign_priv,
+                sign_pub=sign_pub,
+            )
 
             frames = chunk_payload(
                 ciphertext,
@@ -130,7 +157,10 @@ class TestEndToEndSharding(unittest.TestCase):
             )
             frames_path = tmp_path / "frames.txt"
             frames_path.write_text(
-                "\n".join(encode_qr_payload(encode_frame(frame)) for frame in frames),
+                "\n".join(
+                    [*(encode_qr_payload(encode_frame(frame)) for frame in frames)]
+                    + [encode_qr_payload(encode_frame(auth_frame))]
+                ),
                 encoding="utf-8",
             )
 

@@ -116,6 +116,28 @@ class TestFramesIo(unittest.TestCase):
         self.assertEqual(parsed, frame)
         parse_mock.assert_called_once_with(["line"], label="fallback", quiet=False)
 
+    def test_frame_from_fallback_strips_single_marked_shard_section(self) -> None:
+        frame = self._frame(frame_type=FrameType.KEY_DOCUMENT)
+        with mock.patch(
+            "ethernity.cli.shared.io.frames._read_text_lines",
+            return_value=["SHARD FRAME", "line"],
+        ):
+            with mock.patch(
+                "ethernity.cli.shared.io.frames._frame_from_fallback_lines",
+                return_value=frame,
+            ) as parse_mock:
+                parsed = _frame_from_fallback("fallback.txt")
+        self.assertEqual(parsed, frame)
+        parse_mock.assert_called_once_with(["line"], label="key", quiet=False)
+
+    def test_frame_from_fallback_rejects_multiple_marked_sections(self) -> None:
+        with mock.patch(
+            "ethernity.cli.shared.io.frames._read_text_lines",
+            return_value=["MAIN FRAME", "aaa", "SHARD FRAME", "bbb"],
+        ):
+            with self.assertRaisesRegex(ValueError, "exactly one marked fallback section"):
+                _frame_from_fallback("fallback.txt")
+
     def test_parse_fallback_section_without_markers_passes_through_lines(self) -> None:
         frame = self._frame()
         with mock.patch(

@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import re
 import shutil
@@ -84,6 +85,10 @@ ONBOARDING_FIELDS = (
     ONBOARDING_FIELD_PAYLOAD_CODEC,
     ONBOARDING_FIELD_QR_PAYLOAD_CODEC,
 )
+
+
+def _missing_config_error(path: Path) -> FileNotFoundError:
+    return FileNotFoundError(errno.ENOENT, "config file not found", str(path))
 
 
 def _build_paths() -> ConfigPaths:
@@ -200,7 +205,7 @@ def resolve_writable_config_path(path: str | Path | None = None) -> Path:
     if path:
         resolved = Path(path).expanduser()
         if not resolved.exists():
-            raise FileNotFoundError(f"config file not found: {resolved}")
+            raise _missing_config_error(resolved)
         return resolved
 
     paths = _build_paths()
@@ -215,7 +220,7 @@ def resolve_config_snapshot_path(path: str | Path | None = None) -> Path:
     if path:
         resolved = Path(path).expanduser()
         if not resolved.exists():
-            raise FileNotFoundError(f"config file not found: {resolved}")
+            raise _missing_config_error(resolved)
         return resolved
 
     paths = _build_paths()

@@ -113,6 +113,25 @@ function mainScanStatus(base, before, added) {
   };
 }
 
+function mainTextStatus(base, added, failed) {
+  if (failed) {
+    return {
+      lines: [
+        "Pasted text could not be decoded.",
+        "Check the payload text or recovery text, then try again.",
+      ],
+      type: "error",
+    };
+  }
+  return {
+    lines: [
+      `Added ${added} frame(s).`,
+      base.total ? "Collect all frames to download." : "Waiting for more frames.",
+    ],
+    type: "",
+  };
+}
+
 function shardScanStatus(parsed, before, added) {
   if (added > 0) {
     return {
@@ -141,6 +160,27 @@ function shardScanStatus(parsed, before, added) {
         "Check for duplicates or conflicting shard frames, then continue scanning.",
       ],
       type: "warn",
+    };
+  }
+  return {
+    lines: [
+      `Added ${added} shard frame(s).`,
+      parsed.shardThreshold
+        ? "Ready to recover when enough shards are collected."
+        : "Waiting for shard metadata.",
+    ],
+    type: "",
+  };
+}
+
+function shardTextStatus(parsed, added, failed) {
+  if (failed) {
+    return {
+      lines: [
+        "Pasted shard text could not be decoded.",
+        "Check the shard payload text or shard recovery text, then try again.",
+      ],
+      type: "error",
     };
   }
   return {
@@ -216,16 +256,14 @@ export async function addPayloads(dispatch, getState) {
     authErrors: base.authErrors,
     authConflicts: base.authConflicts,
   };
-  const added = parseTextWithErrors(base, base.payloadText, parseAutoPayload, "errors");
+  const { added, failed } = parseTextWithErrors(base, base.payloadText, parseAutoPayload, "errors");
   const fullyAccepted = parsedMainAccepted(base, before, added);
   if (fullyAccepted) {
     base.payloadText = "";
   }
   base.isAddingFrames = true;
-  setStatus(base, "frameStatus", [
-    `Added ${added} frame(s).`,
-    base.total ? "Collect all frames to download." : "Waiting for more frames.",
-  ]);
+  const frameStatus = mainTextStatus(base, added, failed);
+  setStatus(base, "frameStatus", frameStatus.lines, frameStatus.type);
   dispatchState(dispatch, base);
   try {
     await runMainAsyncFollowups(dispatch, base);
@@ -271,22 +309,23 @@ export async function addShardPayloads(dispatch, getState) {
     shardErrors: parsed.shardErrors,
     shardConflicts: parsed.shardConflicts,
   };
-  const added = parseTextWithErrors(parsed, parsed.shardPayloadText, parseAutoShard, "shardErrors");
+  const { added, failed } = parseTextWithErrors(
+    parsed,
+    parsed.shardPayloadText,
+    parseAutoShard,
+    "shardErrors",
+  );
   const fullyAccepted = parsedShardAccepted(parsed, before, added);
   if (fullyAccepted) {
     parsed.shardPayloadText = "";
   }
   parsed.isAddingShards = true;
-  const baseStatusLines = [
-    `Added ${added} shard frame(s).`,
-    parsed.shardThreshold
-      ? "Ready to recover when enough shards are collected."
-      : "Waiting for shard metadata.",
-  ];
-  setStatus(parsed, "shardStatus", baseStatusLines);
+  const shardStatus = shardTextStatus(parsed, added, failed);
+  const baseStatusLines = shardStatus.lines;
+  setStatus(parsed, "shardStatus", baseStatusLines, shardStatus.type);
   dispatchState(dispatch, parsed);
   try {
-    await runShardAsyncFollowups(dispatch, parsed, baseStatusLines);
+    await runShardAsyncFollowups(dispatch, parsed, baseStatusLines, shardStatus.type);
   } finally {
     const latest = cloneState(getState());
     latest.isAddingShards = false;

@@ -44,6 +44,17 @@ def build_cli_env(
     return env
 
 
+def cli_subprocess_timeout_seconds() -> float:
+    raw = os.environ.get("ETHERNITY_TEST_CLI_TIMEOUT_SECONDS")
+    if raw is None:
+        return 300.0
+    try:
+        timeout = float(raw)
+    except ValueError:
+        return 300.0
+    return timeout if timeout > 0 else 300.0
+
+
 def ensure_playwright_browsers() -> None:
     os.environ.pop("ETHERNITY_SKIP_PLAYWRIGHT_INSTALL", None)
     _ensure_playwright_browsers(quiet=True)

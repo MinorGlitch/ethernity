@@ -244,7 +244,7 @@ def inspect_recovery_inputs(
         doc_id=doc_id,
         doc_hash=doc_hash,
         allow_unsigned=allow_unsigned,
-        require_auth=not allow_unsigned and not shard_frames,
+        require_auth=not allow_unsigned,
         quiet=quiet,
     )
     unlock = _inspect_unlock_status(
@@ -315,7 +315,7 @@ def build_recovery_plan(
         doc_id=doc_id,
         doc_hash=doc_hash,
         allow_unsigned=allow_unsigned,
-        require_auth=not allow_unsigned and not shard_frames,
+        require_auth=not allow_unsigned,
         quiet=quiet,
     )
     sign_pub = auth_payload.sign_pub if auth_payload else None

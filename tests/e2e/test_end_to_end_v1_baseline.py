@@ -30,7 +30,11 @@ from ethernity.encoding.qr_payloads import (
     encode_qr_payload,
 )
 from ethernity.qr.scan import scan_qr_payloads
-from tests.test_support import build_cli_env, ensure_playwright_browsers
+from tests.test_support import (
+    build_cli_env,
+    cli_subprocess_timeout_seconds,
+    ensure_playwright_browsers,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CONFIG_PATH = DEFAULT_CONFIG_PATH
@@ -343,6 +347,7 @@ class TestStableV1Baseline(unittest.TestCase):
             capture_output=True,
             text=True,
             check=False,
+            timeout=cli_subprocess_timeout_seconds(),
         )
         self.assertEqual(
             result.returncode,

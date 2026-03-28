@@ -29,9 +29,18 @@ from ethernity.encoding.framing import DOC_ID_LEN, FrameType, decode_frame, enco
 from ethernity.encoding.qr_payloads import decode_qr_payload, encode_qr_payload
 from ethernity.formats.envelope_codec import build_single_file_manifest, encode_envelope
 from ethernity.qr.scan import scan_qr_payloads
-from tests.test_support import build_cli_env, ensure_playwright_browsers
+from tests.test_support import (
+    build_cli_env,
+    cli_subprocess_timeout_seconds,
+    ensure_playwright_browsers,
+)
 
 TEST_SIGNING_SEED = b"\x11" * 32
+
+
+def _run_cli_subprocess(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+    kwargs.setdefault("timeout", cli_subprocess_timeout_seconds())
+    return subprocess.run(*args, **kwargs)
 
 
 class TestEndToEndCli(unittest.TestCase):
@@ -49,7 +58,7 @@ class TestEndToEndCli(unittest.TestCase):
             config_path = DEFAULT_CONFIG_PATH
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
-            result = subprocess.run(
+            result = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -81,7 +90,7 @@ class TestEndToEndCli(unittest.TestCase):
             xdg_config_home = tmp_path / "xdg"
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(xdg_config_home)})
-            result = subprocess.run(
+            result = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -110,7 +119,7 @@ class TestEndToEndCli(unittest.TestCase):
             xdg_config_home = tmp_path / "xdg"
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(xdg_config_home)})
-            result = subprocess.run(
+            result = _run_cli_subprocess(
                 [sys.executable, "-m", "ethernity.cli", "api", "config", "get"],
                 cwd=repo_root,
                 env=env,
@@ -131,7 +140,7 @@ class TestEndToEndCli(unittest.TestCase):
             tmp_path = Path(tmpdir)
             repo_root = Path(__file__).resolve().parents[2]
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
-            result = subprocess.run(
+            result = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -190,7 +199,7 @@ class TestEndToEndCli(unittest.TestCase):
             )
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(xdg_config_home)})
-            get_result = subprocess.run(
+            get_result = _run_cli_subprocess(
                 [sys.executable, "-m", "ethernity.cli", "api", "config", "get"],
                 cwd=repo_root,
                 env=env,
@@ -208,7 +217,7 @@ class TestEndToEndCli(unittest.TestCase):
             self.assertEqual(str(get_result_event["path"]), str(DEFAULT_CONFIG_PATH))
             self.assertTrue(Path(str(get_result_event["path"])).exists())
 
-            set_result = subprocess.run(
+            set_result = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -240,7 +249,7 @@ class TestEndToEndCli(unittest.TestCase):
             )
             self.assertFalse(cast(bool, set_onboarding["needed"]))
 
-            backup_result = subprocess.run(
+            backup_result = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -285,7 +294,7 @@ class TestEndToEndCli(unittest.TestCase):
             config_path = DEFAULT_CONFIG_PATH
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
-            result = subprocess.run(
+            result = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -328,7 +337,7 @@ class TestEndToEndCli(unittest.TestCase):
             config_path = DEFAULT_CONFIG_PATH
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
-            result = subprocess.run(
+            result = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -368,7 +377,7 @@ class TestEndToEndCli(unittest.TestCase):
             config_path = DEFAULT_CONFIG_PATH
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
-            result = subprocess.run(
+            result = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -395,6 +404,7 @@ class TestEndToEndCli(unittest.TestCase):
             self.assertEqual(events[0]["type"], "started")
             self.assertEqual(events[-1]["type"], "error")
             self.assertEqual(events[-1]["code"], "NOT_FOUND")
+            self.assertEqual(events[-1]["details"]["path"], str(tmp_path / "missing.txt"))
             self.assertEqual([event["type"] for event in events if event["type"] == "artifact"], [])
 
     def test_api_mint_cli_emits_ndjson_only_stdout(self) -> None:
@@ -409,7 +419,7 @@ class TestEndToEndCli(unittest.TestCase):
             config_path = DEFAULT_CONFIG_PATH
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
-            backup = subprocess.run(
+            backup = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -434,7 +444,7 @@ class TestEndToEndCli(unittest.TestCase):
             self.assertEqual(backup.returncode, 0, backup.stderr)
             self._write_scanned_payloads([output_dir / "qr_document.pdf"], main_payloads)
 
-            mint = subprocess.run(
+            mint = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -483,7 +493,7 @@ class TestEndToEndCli(unittest.TestCase):
             config_path = DEFAULT_CONFIG_PATH
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
-            backup = subprocess.run(
+            backup = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -508,7 +518,7 @@ class TestEndToEndCli(unittest.TestCase):
             self.assertEqual(backup.returncode, 0, backup.stderr)
             self._write_scanned_payloads([output_dir / "qr_document.pdf"], main_payloads)
 
-            mint = subprocess.run(
+            mint = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -574,7 +584,7 @@ class TestEndToEndCli(unittest.TestCase):
             output_path = tmp_path / "recovered.bin"
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
-            result = subprocess.run(
+            result = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -638,7 +648,7 @@ class TestEndToEndCli(unittest.TestCase):
             output_dir.mkdir()
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
-            result = subprocess.run(
+            result = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -679,7 +689,7 @@ class TestEndToEndCli(unittest.TestCase):
             config_path = DEFAULT_CONFIG_PATH
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
-            backup = subprocess.run(
+            backup = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -711,7 +721,7 @@ class TestEndToEndCli(unittest.TestCase):
             shard_paths = sorted(output_dir.glob("shard-*.pdf"))
             self.assertGreaterEqual(len(shard_paths), 2)
 
-            result = subprocess.run(
+            result = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -751,7 +761,7 @@ class TestEndToEndCli(unittest.TestCase):
             config_path = DEFAULT_CONFIG_PATH
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
-            result = subprocess.run(
+            result = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -821,7 +831,7 @@ class TestEndToEndCli(unittest.TestCase):
             output_path = tmp_path / "recovered.bin"
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
-            result = subprocess.run(
+            result = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -855,7 +865,7 @@ class TestEndToEndCli(unittest.TestCase):
             config_path = DEFAULT_CONFIG_PATH
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
-            backup = subprocess.run(
+            backup = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -891,7 +901,7 @@ class TestEndToEndCli(unittest.TestCase):
             self._write_scanned_payloads([output_dir / "qr_document.pdf"], main_payloads)
             self._write_scanned_payloads(sorted(output_dir.glob("shard-*.pdf"))[:2], shard_payloads)
 
-            mint = subprocess.run(
+            mint = _run_cli_subprocess(
                 [
                     sys.executable,
                     "-m",

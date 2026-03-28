@@ -375,7 +375,7 @@ class TestCliApi(unittest.TestCase):
         )
         self.assertEqual(events[-1]["code"], api_codes.CONFIG_INVALID_VALUE)
 
-    def test_api_config_set_missing_patch_file_emits_io_error(self) -> None:
+    def test_api_config_set_missing_patch_file_emits_not_found(self) -> None:
         with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
                 cli.app,
@@ -385,7 +385,7 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(result.exit_code, 2)
         events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
         self._assert_valid_events(events)
-        self.assertEqual(events[-1]["code"], api_codes.IO_ERROR)
+        self.assertEqual(events[-1]["code"], api_codes.NOT_FOUND)
         self.assertEqual(events[-1]["details"]["path"], "/no/such/patch.json")
 
     def test_api_command_does_not_run_startup(self) -> None:
@@ -867,6 +867,7 @@ class TestCliApi(unittest.TestCase):
         events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
         self._assert_valid_events(events)
         self.assertEqual(events[-1]["code"], api_codes.NOT_FOUND)
+        self.assertEqual(events[-1]["details"]["path"], "/no/such/payloads.txt")
 
     def test_api_recover_invalid_paper_emits_ndjson_error(self) -> None:
         payloads_file = V1_FIXTURE_ROOT / "main_payloads.txt"
@@ -998,6 +999,7 @@ class TestCliApi(unittest.TestCase):
         events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
         self._assert_valid_events(events)
         self.assertEqual(events[-1]["code"], api_codes.NOT_FOUND)
+        self.assertEqual(events[-1]["details"]["path"], "/no/such/input.txt")
 
     def test_api_backup_invalid_paper_emits_ndjson_error(self) -> None:
         with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
