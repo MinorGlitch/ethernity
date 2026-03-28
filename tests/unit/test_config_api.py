@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import tempfile
 import tomllib
 import unittest
@@ -28,6 +29,15 @@ from ethernity.config.install import ONBOARDING_FIELDS
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+@contextlib.contextmanager
+def _temporary_config_path(initial_text: str | None = None):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "config.toml"
+        if initial_text is not None:
+            path.write_text(initial_text, encoding="utf-8")
+        yield path
 
 
 class TestApiConfigService(unittest.TestCase):
@@ -128,9 +138,7 @@ class TestApiConfigService(unittest.TestCase):
         self.assertEqual(parsed["defaults"]["backup"]["output_dir"], "/tmp/backups")
 
     def test_get_api_config_snapshot_reports_invalid_toml_and_defaults(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".toml") as handle:
-            path = Path(handle.name)
-            path.write_text('[defaults.backup\noutput_dir = "oops"\n', encoding="utf-8")
+        with _temporary_config_path('[defaults.backup\noutput_dir = "oops"\n') as path:
             snapshot = api_config.get_api_config_snapshot(path)
 
         page = cast(dict[str, Any], snapshot.values["page"])
@@ -139,16 +147,13 @@ class TestApiConfigService(unittest.TestCase):
         self.assertEqual(page["size"], "A4")
 
     def test_apply_api_config_patch_repairs_invalid_current_values(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".toml") as handle:
-            path = Path(handle.name)
-            path.write_text(
-                DEFAULT_CONFIG_PATH.read_text(encoding="utf-8").replace(
-                    'size = "A4"',
-                    'size = "Letter"',
-                    1,
-                ),
-                encoding="utf-8",
+        with _temporary_config_path(
+            DEFAULT_CONFIG_PATH.read_text(encoding="utf-8").replace(
+                'size = "A4"',
+                'size = "Letter"',
+                1,
             )
+        ) as path:
             snapshot = api_config.apply_api_config_patch(
                 path,
                 {"values": {"ui": {"quiet": True}}},
@@ -160,9 +165,7 @@ class TestApiConfigService(unittest.TestCase):
         self.assertEqual(parsed["ui"]["quiet"], True)
 
     def test_apply_api_config_patch_repairs_invalid_toml(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".toml") as handle:
-            path = Path(handle.name)
-            path.write_text('[defaults.backup\noutput_dir = "oops"\n', encoding="utf-8")
+        with _temporary_config_path('[defaults.backup\noutput_dir = "oops"\n') as path:
             snapshot = api_config.apply_api_config_patch(
                 path,
                 {"values": {"page": {"size": "LETTER"}}},
@@ -213,9 +216,7 @@ class TestApiConfigService(unittest.TestCase):
             '[recovery_template]\nname = "forge"',
             1,
         )
-        with tempfile.NamedTemporaryFile(suffix=".toml") as handle:
-            path = Path(handle.name)
-            path.write_text(initial, encoding="utf-8")
+        with _temporary_config_path(initial) as path:
             snapshot = api_config.apply_api_config_patch(
                 path,
                 {"values": {"ui": {"quiet": True}}},
@@ -268,9 +269,7 @@ class TestApiConfigService(unittest.TestCase):
                 self.assertEqual(config_path.read_text(encoding="utf-8"), original)
 
     def test_get_api_config_snapshot_for_explicit_config_hides_onboarding_state(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".toml") as handle:
-            path = Path(handle.name)
-            path.write_text(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+        with _temporary_config_path(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) as path:
             with mock.patch(
                 "ethernity.config.api_patch.first_run_onboarding_configured_fields",
                 return_value=frozenset({installer.ONBOARDING_FIELD_PAGE_SIZE}),
@@ -341,9 +340,7 @@ class TestApiConfigService(unittest.TestCase):
         self.assertFalse(config_path.exists())
 
     def test_apply_api_config_patch_rejects_unknown_field(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".toml") as handle:
-            path = Path(handle.name)
-            path.write_text(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+        with _temporary_config_path(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) as path:
             with self.assertRaises(api_config.ConfigPatchError) as raised:
                 api_config.apply_api_config_patch(
                     path,
@@ -353,9 +350,7 @@ class TestApiConfigService(unittest.TestCase):
         self.assertEqual(raised.exception.code, "CONFIG_UNKNOWN_FIELD")
 
     def test_apply_api_config_patch_rejects_onboarding_for_explicit_config(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".toml") as handle:
-            path = Path(handle.name)
-            path.write_text(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+        with _temporary_config_path(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) as path:
             with self.assertRaises(api_config.ConfigPatchError) as raised:
                 api_config.apply_api_config_patch(
                     path,

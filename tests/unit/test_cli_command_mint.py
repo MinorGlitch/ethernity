@@ -29,6 +29,8 @@ from ethernity.cli.features.mint import command as mint_command, workflow as min
 from ethernity.cli.shared.types import CliContextState, MintArgs, MintResult
 from ethernity.crypto.sharding import KEY_TYPE_SIGNING_SEED
 
+TEST_MINT_OUTPUT_DIR = str(Path(tempfile.gettempdir()) / "minted")
+
 
 class TestMintCommand(unittest.TestCase):
     def _ctx(self, **values: object) -> mock.Mock:
@@ -245,7 +247,8 @@ class TestMintFlow(unittest.TestCase):
         ],
     )
     @mock.patch(
-        "ethernity.cli.features.mint.workflow._ensure_mint_output_dir", return_value="/tmp/minted"
+        "ethernity.cli.features.mint.workflow._ensure_mint_output_dir",
+        return_value=TEST_MINT_OUTPUT_DIR,
     )
     @mock.patch("ethernity.cli.features.mint.workflow.RenderService")
     @mock.patch("ethernity.cli.features.mint.workflow.derive_public_key", return_value=b"p" * 32)
@@ -298,7 +301,8 @@ class TestMintFlow(unittest.TestCase):
         ],
     )
     @mock.patch(
-        "ethernity.cli.features.mint.workflow._ensure_mint_output_dir", return_value="/tmp/minted"
+        "ethernity.cli.features.mint.workflow._ensure_mint_output_dir",
+        return_value=TEST_MINT_OUTPUT_DIR,
     )
     @mock.patch("ethernity.cli.features.mint.workflow.RenderService")
     @mock.patch("ethernity.cli.features.mint.workflow.mint_replacement_shards", return_value=[])
@@ -353,7 +357,8 @@ class TestMintFlow(unittest.TestCase):
 
     @mock.patch("ethernity.cli.features.mint.workflow._replacement_payloads_from_frames")
     @mock.patch(
-        "ethernity.cli.features.mint.workflow._ensure_mint_output_dir", return_value="/tmp/minted"
+        "ethernity.cli.features.mint.workflow._ensure_mint_output_dir",
+        return_value=TEST_MINT_OUTPUT_DIR,
     )
     @mock.patch("ethernity.cli.features.mint.workflow.RenderService")
     @mock.patch("ethernity.cli.features.mint.workflow.split_passphrase", return_value=[])
@@ -473,7 +478,8 @@ class TestMintFlow(unittest.TestCase):
     @mock.patch("ethernity.cli.features.mint.workflow.print_completion_panel")
     @mock.patch("ethernity.cli.features.mint.workflow.print_mint_summary")
     @mock.patch(
-        "ethernity.cli.features.mint.workflow._ensure_mint_output_dir", return_value="/tmp/minted"
+        "ethernity.cli.features.mint.workflow._ensure_mint_output_dir",
+        return_value=TEST_MINT_OUTPUT_DIR,
     )
     @mock.patch("ethernity.cli.features.mint.workflow._render_shard")
     @mock.patch("ethernity.cli.features.mint.workflow.split_signing_seed")
@@ -543,7 +549,10 @@ class TestMintFlow(unittest.TestCase):
     ) -> None:
         split_passphrase.return_value = [SimpleNamespace(share_index=1, share_count=2)]
         split_signing_seed.return_value = [SimpleNamespace(share_index=1, share_count=2)]
-        render_shard.side_effect = ["/tmp/minted/shard-1.pdf", "/tmp/minted/signing-1.pdf"]
+        render_shard.side_effect = [
+            str(Path(TEST_MINT_OUTPUT_DIR) / "shard-1.pdf"),
+            str(Path(TEST_MINT_OUTPUT_DIR) / "signing-1.pdf"),
+        ]
         args = MintArgs(
             payloads_file="qr.txt",
             passphrase="passphrase",

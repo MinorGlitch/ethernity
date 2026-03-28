@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
 import tempfile
 import unittest
@@ -74,6 +75,10 @@ ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 def _strip_ansi(text: str) -> str:
     return ANSI_ESCAPE_RE.sub("", text)
+
+
+def _expected_host_path(path: str) -> str:
+    return os.path.normpath(path)
 
 
 @lru_cache(maxsize=1)
@@ -392,7 +397,7 @@ class TestCliApi(unittest.TestCase):
         events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
         self._assert_valid_events(events)
         self.assertEqual(events[-1]["code"], api_codes.NOT_FOUND)
-        self.assertEqual(events[-1]["details"]["path"], "/no/such/patch.json")
+        self.assertEqual(events[-1]["details"]["path"], _expected_host_path("/no/such/patch.json"))
 
     def test_api_command_does_not_run_startup(self) -> None:
         with (
@@ -873,7 +878,10 @@ class TestCliApi(unittest.TestCase):
         events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
         self._assert_valid_events(events)
         self.assertEqual(events[-1]["code"], api_codes.NOT_FOUND)
-        self.assertEqual(events[-1]["details"]["path"], "/no/such/payloads.txt")
+        self.assertEqual(
+            events[-1]["details"]["path"],
+            _expected_host_path("/no/such/payloads.txt"),
+        )
 
     def test_api_recover_invalid_paper_emits_ndjson_error(self) -> None:
         payloads_file = V1_FIXTURE_ROOT / "main_payloads.txt"
@@ -1005,7 +1013,7 @@ class TestCliApi(unittest.TestCase):
         events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
         self._assert_valid_events(events)
         self.assertEqual(events[-1]["code"], api_codes.NOT_FOUND)
-        self.assertEqual(events[-1]["details"]["path"], "/no/such/input.txt")
+        self.assertEqual(events[-1]["details"]["path"], _expected_host_path("/no/such/input.txt"))
 
     def test_api_backup_invalid_paper_emits_ndjson_error(self) -> None:
         with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
