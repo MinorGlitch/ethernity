@@ -171,15 +171,18 @@ function parseFallbackText(state, text) {
   const lines = text.split(/\r?\n/);
   const sections = { main: [], auth: [], any: [] };
   let current = null;
+  let sawMarker = false;
   for (const raw of lines) {
     const line = raw.trim();
     if (!line) continue;
     const marker = detectMarker(line, ["main frame", "auth frame"]);
     if (marker === "main frame") {
+      sawMarker = true;
       current = "main";
       continue;
     }
     if (marker === "auth frame") {
+      sawMarker = true;
       current = "auth";
       continue;
     }
@@ -188,6 +191,9 @@ function parseFallbackText(state, text) {
     } else {
       sections.any.push(line);
     }
+  }
+  if (sawMarker && sections.any.length) {
+    throw new Error("unexpected content before the first marked fallback section");
   }
   const target = sections.main.length ? sections.main : sections.any;
   const filtered = filterZBase32Lines(target.join("\n"));

@@ -500,8 +500,7 @@
       ],
       "properties": {
         "code": {
-          "type": "string",
-          "minLength": 1
+          "$ref": "#/$defs/blockingIssueCode"
         },
         "message": {
           "type": "string",
@@ -905,6 +904,40 @@
       "anyOf": [
         {
           "$ref": "#/$defs/documentedWarningCode"
+        },
+        {
+          "type": "string",
+          "pattern": "^[A-Z0-9_]+$"
+        }
+      ]
+    },
+    "documentedBlockingIssueCode": {
+      "type": "string",
+      "enum": [
+        "AUTH_PAYLOAD_MISSING",
+        "AUTH_PAYLOAD_MULTIPLE",
+        "AUTH_PAYLOAD_DOC_ID_MISMATCH",
+        "AUTH_PAYLOAD_FRAME_INVALID",
+        "AUTH_PAYLOAD_INVALID",
+        "AUTH_DOC_HASH_MISMATCH",
+        "AUTH_SIGNATURE_INVALID",
+        "PASSPHRASE_SHARDS_UNDER_QUORUM",
+        "PASSPHRASE_SHARDS_INVALID",
+        "PASSPHRASE_INVALID",
+        "PASSPHRASE_REQUIRED",
+        "AUTH_REQUIRED",
+        "UNLOCK_FAILED",
+        "SIGNING_KEY_SHARDS_REQUIRED",
+        "SIGNING_KEY_SHARDS_UNDER_QUORUM",
+        "SIGNING_KEY_SHARDS_INVALID",
+        "PASSPHRASE_REPLACEMENT_NOT_READY",
+        "SIGNING_KEY_REPLACEMENT_NOT_READY"
+      ]
+    },
+    "blockingIssueCode": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/documentedBlockingIssueCode"
         },
         {
           "type": "string",

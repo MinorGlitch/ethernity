@@ -212,6 +212,13 @@ class TestKitFlowHelpers(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "variant must be 'lean' or 'scanner'"):
             kit_module._load_kit_bundle(None, variant="weird")
 
+    def test_extract_kit_bundle_loader_payload_accepts_js_string_variants(self) -> None:
+        let_bundle = b"<script>let p = 'abc\\u003cdef';</script>"
+        var_bundle = b'<script>var p="abc\\u003cdef";</script>'
+
+        self.assertEqual(kit_module._extract_kit_bundle_loader_payload(let_bundle), "abc<def")
+        self.assertEqual(kit_module._extract_kit_bundle_loader_payload(var_bundle), "abc<def")
+
 
 class TestRenderKitDocument(unittest.TestCase):
     @mock.patch("ethernity.cli.features.kit.workflow.render_frames_to_pdf")

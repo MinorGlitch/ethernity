@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import re
@@ -36,7 +37,9 @@ SCANNER_KIT_BUNDLE_NAME = "recovery_kit.scanner.bundle.html"
 DEFAULT_KIT_OUTPUT = "recovery_kit_qr.pdf"
 DEFAULT_KIT_CHUNK_SIZE = 1200
 _MAX_QR_PROBE_BYTES = 4000
-_BUNDLE_PAYLOAD_RE = re.compile(r'const p=("([^"\\]|\\.)*");')
+_BUNDLE_PAYLOAD_RE = re.compile(
+    r"""\b(?:const|let|var)\s+p\s*=\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*;"""
+)
 _KIT_CHUNK_ARRAY = "_k"
 _BASE91_ALPHABET = (
     'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~"'
@@ -166,7 +169,12 @@ def _extract_kit_bundle_loader_payload(bundle_bytes: bytes) -> str:
         raise ValueError(
             "unsupported recovery kit bundle format: embedded loader payload was not found"
         )
-    payload = json.loads(match.group(1))
+    try:
+        payload = ast.literal_eval(match.group(1))
+    except (SyntaxError, ValueError) as exc:
+        raise ValueError(
+            "unsupported recovery kit bundle format: loader payload is not a string"
+        ) from exc
     if not isinstance(payload, str):
         raise ValueError("unsupported recovery kit bundle format: loader payload is not a string")
     return payload

@@ -81,6 +81,12 @@ def _read_config_patch(input_json: str) -> dict[str, object]:
         else:
             path = Path(normalized or "")
             text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise ApiCommandError(
+            code=api_codes.CONFIG_JSON_INVALID,
+            message="config patch is not valid UTF-8",
+            details={"path": normalized} if normalized not in {None, "-"} else {},
+        ) from exc
     except OSError as exc:
         raise ApiCommandError(
             code=api_codes.IO_ERROR,

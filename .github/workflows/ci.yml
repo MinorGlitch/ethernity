@@ -286,7 +286,7 @@ jobs:
             src/ethernity/resources/kit/recovery_kit.scanner.bundle.html
 
   pip-audit:
-    continue-on-error: true
+    continue-on-error: ${{ github.event_name != 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

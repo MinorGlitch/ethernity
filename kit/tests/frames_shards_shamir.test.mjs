@@ -224,6 +224,17 @@ test("parseAutoPayload rejects invalid non-empty fallback lines", () => {
   assert.throws(() => parseAutoPayload(state, text), /outside the z-base-32 alphabet/);
 });
 
+test("parseAutoPayload rejects content before a marked fallback section", () => {
+  const state = createInitialState();
+  const main = buildFrame({ frameType: FRAME_TYPE_MAIN, data: Uint8Array.of(7), total: 1 });
+  const text = ["stray-line", "Main Frame:", encodeZBase32(main)].join("\n");
+
+  assert.throws(
+    () => parseAutoPayload(state, text),
+    /unexpected content before the first marked fallback section/,
+  );
+});
+
 test("parseAutoShard rejects invalid non-empty fallback lines", () => {
   const state = createInitialState();
   const shard = buildFrame({

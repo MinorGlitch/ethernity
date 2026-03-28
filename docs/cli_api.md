@@ -175,7 +175,8 @@ Current command-specific error codes:
   `--input -`
 - `OUTPUT_REQUIRED`: `ethernity api recover` was invoked without `--output`
 - `CONFIG_INPUT_REQUIRED`: `ethernity api config set` was invoked without `--input-json`
-- `CONFIG_JSON_INVALID`: the JSON patch passed to `api config set` was malformed or not an object
+- `CONFIG_JSON_INVALID`: the JSON patch passed to `api config set` was malformed, not a JSON
+  object, or not valid UTF-8
 - `CONFIG_UNKNOWN_FIELD`: the patch referenced an unsupported config or onboarding field
 - `CONFIG_INVALID_VALUE`: the patch supplied a value with the wrong type or enum value
 - `CONFIG_CONFLICT`: the patch supplied conflicting settings (for example mismatched shard counts)
@@ -211,6 +212,32 @@ Current warning codes emitted by backup/recover flows:
 
 Additional warning and error codes may be added in a backwards-compatible way. Existing codes will
 remain stable once documented here.
+
+## Stable Blocking Issue Codes
+
+Current inspect `blocking_issues[].code` values:
+
+- `AUTH_PAYLOAD_MISSING`
+- `AUTH_PAYLOAD_MULTIPLE`
+- `AUTH_PAYLOAD_DOC_ID_MISMATCH`
+- `AUTH_PAYLOAD_FRAME_INVALID`
+- `AUTH_PAYLOAD_INVALID`
+- `AUTH_DOC_HASH_MISMATCH`
+- `AUTH_SIGNATURE_INVALID`
+- `PASSPHRASE_SHARDS_UNDER_QUORUM`
+- `PASSPHRASE_SHARDS_INVALID`
+- `PASSPHRASE_INVALID`
+- `PASSPHRASE_REQUIRED`
+- `AUTH_REQUIRED`
+- `UNLOCK_FAILED`
+- `SIGNING_KEY_SHARDS_REQUIRED`
+- `SIGNING_KEY_SHARDS_UNDER_QUORUM`
+- `SIGNING_KEY_SHARDS_INVALID`
+- `PASSPHRASE_REPLACEMENT_NOT_READY`
+- `SIGNING_KEY_REPLACEMENT_NOT_READY`
+
+Additional blocking issue codes may be added in a backwards-compatible way. Existing documented
+codes remain stable once listed here.
 
 ## Artifact Kinds
 
@@ -411,12 +438,12 @@ Example onboarding patch:
 ```
 
 ```json
-{"type":"started","schema_version":1,"command":"recover","args":{"operation":"inspect","config":null,"paper":null,"fallback_file":null,"payloads_file":"main_payloads.txt","scan":[],"has_passphrase":false,"shard_fallback_file":["shard-1.txt"],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"allow_unsigned":false,"quiet":true,"debug":false}}
+{"type":"started","schema_version":1,"command":"recover","args":{"operation":"inspect","config":null,"paper":null,"fallback_file":null,"payloads_file":"main_payloads.txt","scan":[],"has_passphrase":true,"shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"allow_unsigned":false,"quiet":true,"debug":false}}
 {"type":"phase","id":"plan","label":"Resolving recovery inputs"}
-{"type":"progress","phase":"plan","current":1,"total":1,"unit":"step","details":{"main_frame_count":2,"auth_frame_count":0,"shard_frame_count":1}}
+{"type":"progress","phase":"plan","current":1,"total":1,"unit":"step","details":{"main_frame_count":2,"auth_frame_count":1,"shard_frame_count":0}}
 {"type":"phase","id":"decrypt","label":"Decrypting and extracting payload"}
-{"type":"progress","phase":"decrypt","current":1,"total":1,"unit":"step","details":{"output_path":null,"output_path_kind":"none"}}
-{"type":"result","ok":true,"command":"recover","operation":"inspect","doc_id":"deadbeef","auth_status":"missing","input_label":"QR payloads","input_detail":"main_payloads.txt","source_summary":null,"frame_counts":{"main":2,"auth":0,"shard":1},"unlock":{"mode":"shards","passphrase_provided":false,"validated_shard_count":1,"required_shard_threshold":2,"satisfied":false},"blocking_issues":[{"code":"PASSPHRASE_SHARDS_UNDER_QUORUM","message":"need at least 2 shard(s) to recover passphrase","details":{"provided_count":1,"required_threshold":2}}],"warnings":[]}
+{"type":"progress","phase":"decrypt","current":1,"total":1,"unit":"step","details":{"file_count":1,"manifest_file_count":1}}
+{"type":"result","ok":true,"command":"recover","operation":"inspect","doc_id":"deadbeef","auth_status":"verified","input_label":"QR payloads","input_detail":"main_payloads.txt","source_summary":{"format_version":1,"input_origin":"file","input_roots":["secret.txt"],"sealed":true,"file_count":1,"payload_codec":"raw","payload_raw_len":42},"frame_counts":{"main":2,"auth":1,"shard":0},"unlock":{"mode":"passphrase","passphrase_provided":true,"validated_shard_count":0,"required_shard_threshold":null,"satisfied":true},"blocking_issues":[],"warnings":[]}
 ```
 
 ```json

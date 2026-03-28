@@ -924,27 +924,21 @@ def _inspect_mint_capabilities(
     signing_key_satisfied: bool,
     blocking_issues: list[dict[str, Any]],
 ) -> dict[str, bool]:
-    base_ready = (
-        recovery.auth_payload is not None
-        and recovery.unlock.satisfied
-        and manifest is not None
-        and signing_key_satisfied
-    )
-    if not base_ready:
-        return {
-            "can_mint_passphrase_shards": False,
-            "can_mint_signing_key_shards": False,
-        }
-
     blocker_codes = {
         str(issue.get("code"))
         for issue in blocking_issues
         if isinstance(issue, dict) and issue.get("code") is not None
     }
+    passphrase_ready = (
+        recovery.auth_payload is not None and recovery.unlock.satisfied and manifest is not None
+    )
+    signing_key_ready = passphrase_ready and signing_key_satisfied
     return {
-        "can_mint_passphrase_shards": args.mint_passphrase_shards
+        "can_mint_passphrase_shards": passphrase_ready
+        and args.mint_passphrase_shards
         and not bool(blocker_codes & _PASSPHRASE_MINT_BLOCKER_CODES),
-        "can_mint_signing_key_shards": args.mint_signing_key_shards
+        "can_mint_signing_key_shards": signing_key_ready
+        and args.mint_signing_key_shards
         and not bool(blocker_codes & _SIGNING_KEY_MINT_BLOCKER_CODES),
     }
 

@@ -24,12 +24,17 @@ const ZIP_UTF8_FLAG = 0x0800;
 export function makeZip(files) {
   const chunks = [];
   const central = [];
+  const seenPaths = new Set();
   let offset = 0;
   for (const file of files) {
     if (!file || !(file.data instanceof Uint8Array)) {
       throw new Error("ZIP entry data must be bytes");
     }
     const safePath = validateManifestPath(file.path, "ZIP entry path");
+    if (seenPaths.has(safePath)) {
+      throw new Error(`duplicate ZIP entry path: ${safePath}`);
+    }
+    seenPaths.add(safePath);
     const nameBytes = textEncoder.encode(safePath);
     const crc = crc32(file.data);
     const localHeader = new Uint8Array(30);

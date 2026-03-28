@@ -109,6 +109,10 @@ class TestCliApi(unittest.TestCase):
             contracts["stable_generic_error_codes"],
         )
         self.assertEqual(list(api_codes.STABLE_WARNING_CODES), contracts["stable_warning_codes"])
+        self.assertEqual(
+            list(api_codes.STABLE_BLOCKING_ISSUE_CODES),
+            contracts["stable_blocking_issue_codes"],
+        )
 
     def test_api_help_lists_recover(self) -> None:
         with mock.patch(
@@ -317,6 +321,22 @@ class TestCliApi(unittest.TestCase):
         events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
         self._assert_valid_events(events)
         self.assertEqual(events[-1]["code"], api_codes.CONFIG_JSON_INVALID)
+
+    def test_api_config_set_rejects_non_utf8_patch_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            patch_path = Path(tmpdir) / "patch.json"
+            patch_path.write_bytes(b"\xff\xfe\xfd")
+            with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+                result = self.runner.invoke(
+                    cli.app,
+                    ["api", "config", "set", "--input-json", str(patch_path)],
+                )
+
+        self.assertEqual(result.exit_code, 2)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(events[-1]["code"], api_codes.CONFIG_JSON_INVALID)
+        self.assertEqual(events[-1]["message"], "config patch is not valid UTF-8")
 
     def test_api_config_set_invalid_patch_does_not_create_user_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

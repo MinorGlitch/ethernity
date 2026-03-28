@@ -119,6 +119,14 @@ test("path validation and zip creation enforce safe relative paths", async () =>
   assert.equal(zipBytes[centralOffset + 8] | (zipBytes[centralOffset + 9] << 8), 0x0800);
 
   assert.throws(() => makeZip([{ path: "docs/file.txt", data: "not-bytes" }]), /must be bytes/);
+  assert.throws(
+    () =>
+      makeZip([
+        { path: "docs/file.txt", data: Uint8Array.of(1) },
+        { path: "docs/file.txt", data: Uint8Array.of(2) },
+      ]),
+    /duplicate ZIP entry path/,
+  );
 });
 
 test("state helpers clone and reset mutable fields safely", () => {

@@ -20,7 +20,8 @@ async function collectTestFiles(rootDir) {
 
 const testRoot = resolve("tests");
 const testFiles = await collectTestFiles(testRoot);
-const result = spawnSync(process.execPath, ["--test", ...testFiles], {
+const testArgs = process.argv.slice(2);
+const result = spawnSync(process.execPath, ["--test", ...testArgs, ...testFiles], {
   stdio: "inherit",
 });
 

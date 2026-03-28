@@ -34,6 +34,7 @@ from ethernity.crypto.sharding import (
     recover_signing_seed,
     split_passphrase,
     split_signing_seed,
+    validate_shard_set_consistency,
 )
 from ethernity.crypto.signing import SHARD_SET_ID_LEN, generate_signing_keypair, sign_shard
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
@@ -463,6 +464,34 @@ class TestSharding(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "not mutually compatible"):
             recover_passphrase([first_set[0], second_set[1]])
+
+    def test_validate_shard_set_consistency_rejects_mixed_key_types_at_exact_threshold(
+        self,
+    ) -> None:
+        doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
+        sign_priv, sign_pub = generate_signing_keypair()
+        passphrase_shares = split_passphrase(
+            "mixed-valid-shard-sets",
+            threshold=2,
+            shares=3,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+        signing_seed_shares = split_signing_seed(
+            b"\x42" * 32,
+            threshold=2,
+            shares=3,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+            sign_pub=sign_pub,
+        )
+
+        with self.assertRaisesRegex(ValueError, "key types do not match"):
+            validate_shard_set_consistency(
+                [passphrase_shares[0], signing_seed_shares[1]],
+                verify_signatures=False,
+            )
 
     def test_mint_replacement_shards_rejects_mixed_valid_shard_sets_at_exact_threshold(
         self,

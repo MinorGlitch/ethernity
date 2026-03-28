@@ -521,6 +521,14 @@ def validate_shard_set_consistency(
     for share in shares:
         if share.version != version:
             raise ValueError("shard versions do not match")
+        if share.threshold != threshold:
+            raise ValueError("shard thresholds do not match")
+        if share.key_type != shares[0].key_type:
+            raise ValueError("shard key types do not match")
+        if share.share_count != shares[0].share_count:
+            raise ValueError("shard share counts do not match")
+        if share.secret_len != shares[0].secret_len:
+            raise ValueError("shard secret lengths do not match")
         if not _same_shard_set_id(share.shard_set_id, shard_set_id):
             raise ValueError(_INCOMPATIBLE_SHARD_SET_MESSAGE)
         if not hmac.compare_digest(share.doc_hash, doc_hash):
