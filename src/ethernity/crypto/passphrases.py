@@ -29,7 +29,11 @@ MNEMONIC_WORD_COUNTS = (12, 15, 18, 21, 24)
 def _load_wordlist() -> list[str]:
     """Load the packaged BIP-39 wordlist."""
 
-    ref = importlib.resources.files("ethernity.resources").joinpath("crypto", "bip39_wordlist.txt")
+    ref = (
+        importlib.resources.files("ethernity.resources")
+        .joinpath("crypto")
+        .joinpath("bip39_wordlist.txt")
+    )
     return ref.read_text(encoding="utf-8").splitlines()
 
 

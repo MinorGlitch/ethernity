@@ -14,7 +14,9 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 import unittest
+from unittest import mock
 
+from ethernity.crypto import passphrases
 from ethernity.crypto.passphrases import (
     looks_like_bip39_mnemonic,
     normalize_bip39_mnemonic,
@@ -23,6 +25,31 @@ from ethernity.crypto.passphrases import (
 
 
 class TestPassphrases(unittest.TestCase):
+    def test_load_wordlist_uses_single_segment_resource_joins(self) -> None:
+        testcase = self
+
+        class _FakeTraversable:
+            def __init__(self, children: dict[str, "_FakeTraversable"] | None = None) -> None:
+                self._children = children or {}
+
+            def joinpath(self, child: str) -> "_FakeTraversable":
+                return self._children[child]
+
+            def read_text(self, *, encoding: str) -> str:
+                testcase.assertEqual(encoding, "utf-8")
+                return "abandon\nabout\n"
+
+        wordlist_file = _FakeTraversable()
+        crypto_dir = _FakeTraversable({"bip39_wordlist.txt": wordlist_file})
+        resources_root = _FakeTraversable({"crypto": crypto_dir})
+
+        with mock.patch.object(
+            passphrases.importlib.resources,
+            "files",
+            return_value=resources_root,
+        ):
+            self.assertEqual(passphrases._load_wordlist(), ["abandon", "about"])
+
     def test_validate_mnemonic_checksum_accepts_valid_mnemonic(self) -> None:
         phrase = " ".join(["abandon"] * 11 + ["about"])
         self.assertTrue(looks_like_bip39_mnemonic(phrase))
