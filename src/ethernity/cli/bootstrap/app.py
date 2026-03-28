@@ -216,6 +216,7 @@ def _home_backup_wizard_args(
         design=design,
         base_dir=backup_defaults.base_dir if backup_defaults is not None else None,
         output_dir=backup_defaults.output_dir if backup_defaults is not None else None,
+        output_dir_existing_parent=True,
         shard_threshold=backup_defaults.shard_threshold if backup_defaults is not None else None,
         shard_count=backup_defaults.shard_count if backup_defaults is not None else None,
         signing_key_mode=backup_defaults.signing_key_mode if backup_defaults is not None else None,

@@ -1071,6 +1071,7 @@ class TestCliBackupUx(unittest.TestCase):
         def _capture_args(args: BackupArgs) -> int:
             captured["base_dir"] = args.base_dir
             captured["output_dir"] = args.output_dir
+            captured["output_dir_existing_parent"] = args.output_dir_existing_parent
             captured["shard_threshold"] = args.shard_threshold
             captured["shard_count"] = args.shard_count
             captured["signing_key_mode"] = args.signing_key_mode
@@ -1109,6 +1110,7 @@ class TestCliBackupUx(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(captured.get("base_dir"), "./vault")
         self.assertEqual(captured.get("output_dir"), "./out")
+        self.assertIs(captured.get("output_dir_existing_parent"), True)
         self.assertEqual(captured.get("shard_threshold"), 2)
         self.assertEqual(captured.get("shard_count"), 3)
         self.assertEqual(captured.get("signing_key_mode"), "sharded")
@@ -1120,6 +1122,7 @@ class TestCliBackupUx(unittest.TestCase):
 
         def _capture_args(args: BackupArgs) -> int:
             captured["output_dir"] = args.output_dir
+            captured["output_dir_existing_parent"] = args.output_dir_existing_parent
             captured["shard_threshold"] = args.shard_threshold
             return 0
 
@@ -1153,6 +1156,7 @@ class TestCliBackupUx(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(captured.get("output_dir"), "./cli-out")
+        self.assertIs(captured.get("output_dir_existing_parent"), True)
         self.assertEqual(captured.get("shard_threshold"), 4)
 
     def test_backup_review_cancel_returns_code_1(self) -> None:
@@ -1295,6 +1299,13 @@ class TestCliBackupUx(unittest.TestCase):
                 include_wizard_stage=True,
                 include_console_print=True,
             )
+            handles["_prompt_inputs"].return_value = (
+                [input_file],
+                None,
+                "/tmp/saved-out",
+                "file",
+                [],
+            )
             result = cli.run_wizard(
                 quiet=False,
                 args=BackupArgs(assume_yes=True, quiet=False, output_dir="/tmp/saved-out"),
@@ -1317,6 +1328,7 @@ class TestCliBackupUx(unittest.TestCase):
         self.assertEqual(handles["_prompt_layout"].call_args.kwargs["prompt_when_unset"], False)
         self.assertEqual(handles["_prompt_design"].call_args.kwargs["prompt_when_unset"], False)
         self.assertEqual(handles["_prompt_inputs"].call_args.kwargs["show_output_prompt"], False)
+        self.assertTrue(handles["run_backup"].call_args.kwargs["output_dir_existing_parent"])
 
     def test_backup_wizard_advanced_mode_keeps_all_sections_visible(self) -> None:
         input_file = cli.InputFile(

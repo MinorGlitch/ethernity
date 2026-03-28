@@ -572,6 +572,8 @@ def run_wizard(
 
     assume_yes = bool(args.assume_yes) if args is not None else False
     working_args = replace(args) if args is not None else BackupArgs(quiet=quiet)
+    if working_args.output_dir is not None:
+        working_args.output_dir_existing_parent = True
     configured_fields = first_run_onboarding_configured_fields()
     offer_quick_mode = bool(
         configured_fields
@@ -704,6 +706,7 @@ def run_wizard(
                             str(resolved_base) if resolved_base is not None else None
                         )
                         working_args.output_dir = output_dir
+                        working_args.output_dir_existing_parent = output_dir is not None
                     stage_index += 1
                     continue
 
@@ -765,6 +768,7 @@ def run_wizard(
                 input_files=input_files,
                 base_dir=resolved_base,
                 output_dir=output_dir,
+                output_dir_existing_parent=(working_args.output_dir_existing_parent),
                 layout_debug_dir=args.layout_debug_dir if args is not None else None,
                 input_origin=input_origin,
                 input_roots=input_roots,
@@ -814,6 +818,7 @@ def run_backup(
     input_files: list[InputFile],
     base_dir: Path | None,
     output_dir: str | None,
+    output_dir_existing_parent: bool = False,
     layout_debug_dir: str | None = None,
     input_origin: str = "file",
     input_roots: list[str] | None = None,
@@ -832,6 +837,7 @@ def run_backup(
         input_files=input_files,
         base_dir=base_dir,
         output_dir=output_dir,
+        output_dir_existing_parent=output_dir_existing_parent,
         layout_debug_dir=layout_debug_dir,
         input_origin=input_origin,
         input_roots=input_roots,

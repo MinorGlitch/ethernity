@@ -330,6 +330,7 @@ def mint(
         signing_key_shard_payloads_file=list(signing_key_shard_payloads_file or []),
         signing_key_shard_scan=list(signing_key_shard_scan or []),
         output_dir=output_dir,
+        output_dir_existing_parent=True,
         layout_debug_dir=layout_debug_dir,
         shard_threshold=shard_threshold,
         shard_count=shard_count,

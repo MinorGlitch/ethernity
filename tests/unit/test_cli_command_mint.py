@@ -123,6 +123,7 @@ class TestMintCommand(unittest.TestCase):
             ["manual-signing.txt", "signing-dir.txt"],
         )
         self.assertEqual(args.signing_key_shard_scan, ["signing-scan-a.pdf", "signing-scan-b.pdf"])
+        self.assertTrue(args.output_dir_existing_parent)
         self.assertEqual(args.passphrase_replacement_count, 1)
         self.assertEqual(args.signing_key_replacement_count, 2)
         self.assertEqual(run_mint_command.call_args.kwargs["debug"], True)
@@ -157,6 +158,7 @@ class TestMintCommand(unittest.TestCase):
         self.assertEqual(args.config, "cfg")
         self.assertEqual(args.paper, "A4")
         self.assertEqual(args.design, "sentinel")
+        self.assertTrue(args.output_dir_existing_parent)
         self.assertEqual(run_mint_wizard.call_args.kwargs["debug"], True)
 
     def test_register(self) -> None:
@@ -989,6 +991,7 @@ class TestMintFlow(unittest.TestCase):
         prompt_quorum_choice.assert_called_once()
         wizard_args = mint_from_plan.call_args.kwargs["args"]
         self.assertEqual(wizard_args.output_dir, "/tmp/custom-mint")
+        self.assertTrue(wizard_args.output_dir_existing_parent)
         print_mint_summary.assert_called_once()
         print_completion_actions.assert_called_once()
 

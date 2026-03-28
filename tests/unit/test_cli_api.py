@@ -1155,6 +1155,9 @@ class TestCliApi(unittest.TestCase):
         )
         with (
             mock.patch(
+                "ethernity.cli.features.backup.api_handlers.ensure_playwright_browsers"
+            ) as ensure_playwright_browsers,
+            mock.patch(
                 "ethernity.cli.features.backup.api_handlers.prepare_backup_run",
                 return_value=prepared,
             ),
@@ -1171,6 +1174,7 @@ class TestCliApi(unittest.TestCase):
             exit_code = run_backup_api_command(args)
 
         self.assertEqual(exit_code, 0)
+        ensure_playwright_browsers.assert_called_once_with(quiet=True)
         events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
         self._assert_valid_events(events)
         self.assertEqual(
@@ -1362,6 +1366,9 @@ class TestCliApi(unittest.TestCase):
         buffer = io.StringIO()
         with (
             mock.patch(
+                "ethernity.cli.features.mint.api_handlers.ensure_playwright_browsers"
+            ) as ensure_playwright_browsers,
+            mock.patch(
                 "ethernity.cli.features.mint.api_handlers.execute_mint", return_value=result
             ),
             mock.patch("pathlib.Path.exists", return_value=False),
@@ -1370,6 +1377,7 @@ class TestCliApi(unittest.TestCase):
             exit_code = run_mint_api_command(args)
 
         self.assertEqual(exit_code, 0)
+        ensure_playwright_browsers.assert_called_once_with(quiet=True)
         events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
         self._assert_valid_events(events)
         self.assertEqual(

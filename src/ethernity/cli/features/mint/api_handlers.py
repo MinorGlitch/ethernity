@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from ethernity.cli.bootstrap.startup import ensure_playwright_browsers
 from ethernity.cli.features.mint.workflow import execute_mint, inspect_mint_inputs
 from ethernity.cli.features.recover.api_handlers import _ForwardingWarningCollector
 from ethernity.cli.shared.events import (
@@ -135,6 +136,7 @@ def run_mint_api_command(args: MintArgs, *, debug: bool = False) -> int:
     )
 
     sink = active_event_sink()
+    ensure_playwright_browsers(quiet=True)
     result = execute_mint(args, debug=debug, event_sink=sink)
     _emit_mint_artifacts(result)
     _emit_layout_debug_artifacts(layout_debug_dir=args.layout_debug_dir, result=result)

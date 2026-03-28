@@ -328,6 +328,8 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
         quiet=quiet,
     )
     working_args = replace(args)
+    if working_args.output_dir is not None:
+        working_args.output_dir_existing_parent = True
     _validate_wizard_output_args(working_args)
 
     with ui_screen_mode(quiet=quiet):
@@ -671,6 +673,7 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
         paper=args.paper,
         design=args.design,
         output_dir=working_args.output_dir,
+        output_dir_existing_parent=working_args.output_dir_existing_parent,
         layout_debug_dir=args.layout_debug_dir,
         shard_threshold=passphrase_sharding.threshold if passphrase_sharding else None,
         shard_count=passphrase_sharding.shares if passphrase_sharding else None,

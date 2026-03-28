@@ -592,6 +592,7 @@ class TestCliApp(unittest.TestCase):
         self.assertEqual(wizard_args.design, "forge")
         self.assertEqual(wizard_args.base_dir, "/base")
         self.assertEqual(wizard_args.output_dir, "/tmp/default-out")
+        self.assertTrue(wizard_args.output_dir_existing_parent)
         self.assertEqual(wizard_args.shard_threshold, 2)
         self.assertEqual(wizard_args.shard_count, 3)
         self.assertEqual(wizard_args.signing_key_mode, "sharded")

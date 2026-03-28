@@ -285,6 +285,7 @@ def backup(
         input_dir=[str(path) for path in (input_dir or [])],
         base_dir=base_dir_value,
         output_dir=output_dir_value,
+        output_dir_existing_parent=True,
         layout_debug_dir=layout_debug_dir,
         qr_chunk_size=qr_chunk_size,
         passphrase=passphrase,

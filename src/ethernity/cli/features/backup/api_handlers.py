@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from ethernity.cli.bootstrap.startup import ensure_playwright_browsers
 from ethernity.cli.features.backup.service import execute_prepared_backup, prepare_backup_run
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.events import active_event_sink, emit_artifact, emit_result
@@ -128,6 +129,7 @@ def run_backup_api_command(args: BackupArgs) -> int:
     )
 
     sink = active_event_sink()
+    ensure_playwright_browsers(quiet=True)
     prepared = prepare_backup_run(args, event_sink=sink)
     result = execute_prepared_backup(prepared, event_sink=sink)
     effective_signing_key_mode = prepared.plan.signing_seed_mode.value
