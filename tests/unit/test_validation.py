@@ -125,6 +125,11 @@ class TestValidation(unittest.TestCase):
             normalize_manifest_path("dir//file.txt", label="manifest file path")
         self.assertIn("empty path segments", str(ctx.exception))
 
+    def test_normalize_manifest_path_rejects_control_characters(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            normalize_manifest_path("dir/\x00file.txt", label="manifest file path")
+        self.assertIn("control characters", str(ctx.exception))
+
     def test_normalize_manifest_path_accepts_exact_utf8_byte_limit(self) -> None:
         exact = "a" * MAX_PATH_BYTES
         self.assertEqual(

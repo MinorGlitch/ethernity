@@ -635,7 +635,7 @@ class TestPassphraseFromShardFrames(unittest.TestCase):
 
         self.assertEqual(recovered, passphrase)
 
-    def test_rejects_legacy_v1_passphrase_at_exact_threshold(self) -> None:
+    def test_accepts_legacy_v1_passphrase_at_exact_threshold(self) -> None:
         passphrase = "legacy-passphrase"
         doc_id = b"\x3c" * DOC_ID_LEN
         doc_hash = hashlib.blake2b(b"ciphertext", digest_size=32).digest()
@@ -694,14 +694,15 @@ class TestPassphraseFromShardFrames(unittest.TestCase):
             ),
         ]
 
-        with self.assertRaisesRegex(ValueError, "prove compatibility"):
-            _passphrase_from_shard_frames(
-                frames,
-                expected_doc_id=doc_id,
-                expected_doc_hash=doc_hash,
-                expected_sign_pub=sign_pub,
-                allow_unsigned=False,
-            )
+        recovered = _passphrase_from_shard_frames(
+            frames,
+            expected_doc_id=doc_id,
+            expected_doc_hash=doc_hash,
+            expected_sign_pub=sign_pub,
+            allow_unsigned=False,
+        )
+
+        self.assertEqual(recovered, passphrase)
 
     def test_rejects_v2_shards_with_mismatched_set_ids_at_threshold(self) -> None:
         passphrase = "set-id-check"

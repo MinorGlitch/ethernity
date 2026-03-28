@@ -637,6 +637,35 @@ class TestEnvelope(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "created"):
             encode_manifest(manifest)
 
+    def test_manifest_rejects_non_finite_created_timestamp(self) -> None:
+        for created_at in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(created_at=created_at):
+                data = _make_manifest_cbor(created=created_at)
+                with self.assertRaisesRegex(ValueError, "finite"):
+                    EnvelopeManifest.from_cbor(data)
+
+    def test_encode_manifest_rejects_non_finite_created_timestamp(self) -> None:
+        for created_at in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(created_at=created_at):
+                manifest = EnvelopeManifest(
+                    format_version=MANIFEST_VERSION,
+                    created_at=created_at,
+                    sealed=True,
+                    signing_seed=None,
+                    input_origin="directory",
+                    input_roots=("payload",),
+                    files=(
+                        ManifestFile(
+                            path="payload.bin",
+                            size=1,
+                            sha256=hashlib.sha256(b"x").digest(),
+                            mtime=None,
+                        ),
+                    ),
+                )
+                with self.assertRaisesRegex(ValueError, "finite"):
+                    encode_manifest(manifest)
+
     def test_manifest_rejects_zero_raw_len_for_empty_gzip_payload(self) -> None:
         manifest = EnvelopeManifest(
             format_version=MANIFEST_VERSION,

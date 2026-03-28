@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "imports": {
-    "#kit-scanner-runtime": "./app/hooks/useQrScannerRuntime.js"
+    "#kit-scanner-runtime": "./app/hooks/useQrScannerRuntime_jsqr.js"
   },
   "main": "app/index.jsx",
   "directories": {

@@ -549,11 +549,6 @@ def validate_shard_set_consistency(
             signature=share.signature,
         ):
             raise ValueError("invalid shard signature")
-    if version == LEGACY_SHARD_VERSION and threshold > 1 and len(shares) == threshold:
-        raise ValueError(
-            "legacy shard format requires more than the threshold number of shares "
-            "to prove compatibility"
-        )
     if len(shares) <= threshold:
         return
 

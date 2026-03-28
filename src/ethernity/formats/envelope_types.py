@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
@@ -48,7 +49,10 @@ PAYLOAD_CODEC_GZIP = "gzip"
 def _require_manifest_created_at(value: object) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("manifest created must be a number")
-    return float(value)
+    created_at = float(value)
+    if not math.isfinite(created_at):
+        raise ValueError("manifest created must be finite")
+    return created_at
 
 
 @dataclass(frozen=True)
