@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from importlib.resources import files
 from pathlib import Path
 
+from ethernity import resources as resources_pkg
 from ethernity.core.app_paths import (
     DEFAULT_CONFIG_FILENAME,
     user_config_dir_path,
@@ -16,7 +16,10 @@ from ethernity.core.app_paths import (
 
 
 def _resources_root() -> Path:
-    return Path(str(files("ethernity.resources")))
+    resources_file = getattr(resources_pkg, "__file__", None)
+    if not isinstance(resources_file, str) or not resources_file:
+        raise RuntimeError("unable to resolve ethernity.resources package path")
+    return Path(resources_file).resolve().parent
 
 
 RESOURCES_ROOT = _resources_root()
