@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import tempfile
 import unittest
 from functools import lru_cache
@@ -68,6 +69,11 @@ CLI_API_SCHEMA_PATH = REPO_ROOT / "docs" / "cli_api.schema.json"
 CLI_API_CONTRACTS_PATH = REPO_ROOT / "tests" / "fixtures" / "cli_api" / "contracts.json"
 FIXTURE_PASSPHRASE = "stable-v1-baseline-passphrase"
 FIXTURE_V1_1_PASSPHRASE = "stable-v1_1-golden-passphrase"
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _strip_ansi(text: str) -> str:
+    return ANSI_ESCAPE_RE.sub("", text)
 
 
 @lru_cache(maxsize=1)
@@ -1452,7 +1458,7 @@ class TestCliApi(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 2)
         self.assertIn("No such option", result.output)
-        self.assertIn("--layout-debug-dir", result.output)
+        self.assertIn("--layout-debug-dir", _strip_ansi(result.output))
 
     def test_api_inspect_mint_emits_success_with_valid_inputs(self) -> None:
         with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
