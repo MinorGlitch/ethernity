@@ -18,7 +18,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from ethernity.cli.features.recover.planning import inspect_from_args
+from ethernity.cli.features.recover.chain import (
+    recover_chain_entries,
+    validate_root_manifest_authority,
+)
+from ethernity.cli.features.recover.planning import inspect_from_args, plan_from_args
 from ethernity.cli.features.recover.service import execute_recover_plan, prepare_recover_plan
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.events import (
@@ -67,12 +71,43 @@ def _manifest_summary_payload(manifest: EnvelopeManifest) -> dict[str, object]:
     }
 
 
+def _inspect_replay_blocking_issue(exc: Exception) -> dict[str, object]:
+    if isinstance(exc, ApiCommandError):
+        return {
+            "code": exc.code,
+            "message": str(exc),
+            "details": dict(exc.details or {}),
+        }
+    return {
+        "code": "CHAIN_INVALID",
+        "message": str(exc),
+        "details": {"stage": "replay"},
+    }
+
+
+def _inspect_decrypt_blocking_issue(exc: Exception) -> dict[str, object]:
+    if isinstance(exc, ApiCommandError):
+        return {
+            "code": exc.code,
+            "message": str(exc),
+            "details": dict(exc.details or {}),
+        }
+    return {
+        "code": "UNLOCK_FAILED",
+        "message": str(exc),
+        "details": {"stage": "decrypt"},
+    }
+
+
 def _recover_started_args(
     args: RecoverArgs,
     *,
     debug: bool,
     operation: str | None = None,
 ) -> dict[str, object]:
+    normalized_extension_doc_hash = (
+        None if args.extension_doc_hash is None else args.extension_doc_hash.strip().lower()
+    )
     payload: dict[str, object] = {
         "config": args.config,
         "paper": args.paper,
@@ -85,6 +120,8 @@ def _recover_started_args(
         "shard_scan": list(args.shard_scan or []),
         "auth_fallback_file": args.auth_fallback_file,
         "auth_payloads_file": args.auth_payloads_file,
+        "extension_index": args.extension_index,
+        "extension_doc_hash": normalized_extension_doc_hash,
         "allow_unsigned": args.allow_unsigned,
         "quiet": args.quiet,
         "debug": debug,
@@ -136,6 +173,8 @@ def run_recover_api_command(args: RecoverArgs, *, debug: bool = False) -> int:
         output_path=execution.output_path,
         output_path_kind=execution.output_path_kind,
         doc_id=execution.plan.doc_id.hex(),
+        selected_extension_index=getattr(execution, "selected_extension_index", None),
+        selected_extension_doc_hash=getattr(execution, "selected_extension_doc_hash", None),
         auth_status=execution.plan.auth_status,
         input_label=execution.plan.input_label,
         input_detail=execution.plan.input_detail,
@@ -170,15 +209,35 @@ def run_recover_inspect_api_command(args: RecoverArgs, *, debug: bool = False) -
 
         blocking_issues = [dict(item) for item in inspection.blocking_issues]
         source_summary: dict[str, object] | None = None
+        selected_extension_index: int | None = None
+        selected_extension_doc_hash: str | None = None
+        plan = None
         if inspection.unlock.satisfied and inspection.unlock.resolved_passphrase is not None:
             emit_phase(phase="decrypt", label="Decrypting and inspecting payload")
             try:
-                plaintext = decrypt_bytes(
-                    inspection.ciphertext,
-                    passphrase=inspection.unlock.resolved_passphrase,
-                    debug=debug,
-                )
-                manifest, _payload = decode_envelope(plaintext)
+                if args.scan:
+                    plan = plan_from_args(args)
+                    if plan.root_dir is not None:
+                        chain = recover_chain_entries(plan, quiet=True, debug=debug)
+                        manifest = chain.manifest
+                        selected_extension_index = chain.selected_extension_index
+                        selected_extension_doc_hash = chain.selected_extension_doc_hash
+                    else:
+                        plaintext = decrypt_bytes(
+                            inspection.ciphertext,
+                            passphrase=inspection.unlock.resolved_passphrase,
+                            debug=debug,
+                        )
+                        manifest, _payload = decode_envelope(plaintext)
+                        validate_root_manifest_authority(manifest, inspection.auth_payload)
+                else:
+                    plaintext = decrypt_bytes(
+                        inspection.ciphertext,
+                        passphrase=inspection.unlock.resolved_passphrase,
+                        debug=debug,
+                    )
+                    manifest, _payload = decode_envelope(plaintext)
+                    validate_root_manifest_authority(manifest, inspection.auth_payload)
                 source_summary = _manifest_summary_payload(manifest)
                 emit_progress(
                     phase="decrypt",
@@ -191,18 +250,17 @@ def run_recover_inspect_api_command(args: RecoverArgs, *, debug: bool = False) -
                     },
                 )
             except Exception as exc:
-                blocking_issues.append(
-                    {
-                        "code": "UNLOCK_FAILED",
-                        "message": str(exc),
-                        "details": {"stage": "decrypt"},
-                    }
-                )
+                if args.scan and getattr(plan, "root_dir", None) is not None:
+                    blocking_issues.append(_inspect_replay_blocking_issue(exc))
+                else:
+                    blocking_issues.append(_inspect_decrypt_blocking_issue(exc))
 
         emit_result(
             command="recover",
             operation="inspect",
             doc_id=inspection.doc_id.hex(),
+            selected_extension_index=selected_extension_index,
+            selected_extension_doc_hash=selected_extension_doc_hash,
             auth_status=inspection.auth_status,
             input_label=inspection.input_label,
             input_detail=inspection.input_detail,

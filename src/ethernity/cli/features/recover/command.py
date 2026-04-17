@@ -90,12 +90,30 @@ def recover(
             rich_help_panel="Inputs",
         ),
     ] = None,
+    extension_index: Annotated[
+        int | None,
+        typer.Option(
+            "--extension-index",
+            help="Recover through a specific extension index (0 = root only).",
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
+    extension_doc_hash: Annotated[
+        str | None,
+        typer.Option(
+            "--extension-doc-hash",
+            help=(
+                "Recover through the extension whose authenticated doc hash matches this hex value."
+            ),
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
     passphrase: Annotated[
         str | None,
         typer.Option(
             "--passphrase",
             help="Passphrase to decrypt with.",
-            rich_help_panel="Keys",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     shard_fallback_file: Annotated[
@@ -103,7 +121,7 @@ def recover(
         typer.Option(
             "--shard-fallback-file",
             help="Shard recovery text file (repeatable).",
-            rich_help_panel="Inputs",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     shard_dir: Annotated[
@@ -111,7 +129,7 @@ def recover(
         typer.Option(
             "--shard-dir",
             help="Directory containing shard text files (auto-discovers *.txt files).",
-            rich_help_panel="Inputs",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     shard_payloads_file: Annotated[
@@ -119,7 +137,7 @@ def recover(
         typer.Option(
             "--shard-payloads-file",
             help="Shard QR payload file (repeatable).",
-            rich_help_panel="Inputs",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     shard_scan: Annotated[
@@ -127,7 +145,7 @@ def recover(
         typer.Option(
             "--shard-scan",
             help="Shard scan path (image/PDF/dir, repeatable).",
-            rich_help_panel="Inputs",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     auth_fallback_file: Annotated[
@@ -135,7 +153,7 @@ def recover(
         typer.Option(
             "--auth-fallback-file",
             help="Auth recovery text (fallback, z-base-32, use - for stdin).",
-            rich_help_panel="Inputs",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     auth_payloads_file: Annotated[
@@ -143,7 +161,7 @@ def recover(
         typer.Option(
             "--auth-payloads-file",
             help="Auth QR payloads (one per line).",
-            rich_help_panel="Inputs",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     output: Annotated[
@@ -155,7 +173,7 @@ def recover(
                 "Output file/dir (default: stdout for single-file recovery; "
                 "multi-file recovery requires --output directory)."
             ),
-            rich_help_panel="Output",
+            rich_help_panel="Outputs",
         ),
     ] = None,
     allow_unsigned: Annotated[
@@ -167,7 +185,7 @@ def recover(
                 "Enable rescue mode and continue without authentication verification "
                 "(legacy alias: --skip-auth-check)."
             ),
-            rich_help_panel="Verification",
+            rich_help_panel="Behavior",
         ),
     ] = False,
     assume_yes: Annotated[
@@ -220,6 +238,7 @@ def recover(
         fallback_file,
         payloads_file,
         list(scan or []),
+        extension_selector_present=(extension_index is not None or extension_doc_hash is not None),
         stdin_is_tty=sys.stdin.isatty(),
     )
 
@@ -239,6 +258,8 @@ def recover(
         shard_scan=list(shard_scan or []),
         auth_fallback_file=auth_fallback_file,
         auth_payloads_file=auth_payloads_file,
+        extension_index=extension_index,
+        extension_doc_hash=extension_doc_hash,
         output=output_value,
         allow_unsigned=allow_unsigned,
         assume_yes=assume_yes,

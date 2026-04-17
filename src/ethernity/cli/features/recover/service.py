@@ -21,6 +21,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Literal
 
+from ethernity.cli.features.recover.chain import recover_chain_entries
 from ethernity.cli.features.recover.execution import (
     decrypt_manifest_and_extract,
     write_recovered_outputs,
@@ -61,6 +62,8 @@ class RecoverExecutionResult:
     output_path: str
     output_path_kind: Literal["file", "directory", "stdout"]
     single_entry_output_is_directory: bool
+    selected_extension_index: int | None = None
+    selected_extension_doc_hash: str | None = None
 
 
 def expand_recover_shard_dir(shard_dir: str | None) -> list[str]:
@@ -98,9 +101,10 @@ def apply_recover_stdin_default(
     payloads_file: str | None,
     scan: list[str] | None,
     *,
+    extension_selector_present: bool = False,
     stdin_is_tty: bool,
 ) -> str | None:
-    if fallback_file or payloads_file or (scan or []) or stdin_is_tty:
+    if fallback_file or payloads_file or (scan or []) or extension_selector_present or stdin_is_tty:
         return fallback_file
     return "-"
 
@@ -139,6 +143,8 @@ def execute_recover_plan(
 ) -> RecoverExecutionResult:
     with event_session(event_sink):
         file_payloads: list[dict[str, object]] = []
+        selected_extension_index: int | None = None
+        selected_extension_doc_hash: str | None = None
 
         def _on_file_written(
             entry: object,
@@ -173,7 +179,14 @@ def execute_recover_plan(
                 emit_artifact(kind="recovered_file", path=written_path, details=file_payload)
 
         emit_phase(phase="decrypt", label="Decrypting and extracting payload")
-        manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
+        if getattr(plan, "root_dir", None):
+            chain = recover_chain_entries(plan, quiet=quiet, debug=debug)
+            manifest = chain.manifest
+            extracted = list(chain.extracted)
+            selected_extension_index = chain.selected_extension_index
+            selected_extension_doc_hash = chain.selected_extension_doc_hash
+        else:
+            manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
         emit_progress(
             phase="decrypt",
             current=1,
@@ -233,6 +246,8 @@ def execute_recover_plan(
             output_path=emitted_output_path,
             output_path_kind=output_path_kind,
             single_entry_output_is_directory=single_entry_output_is_directory,
+            selected_extension_index=selected_extension_index,
+            selected_extension_doc_hash=selected_extension_doc_hash,
         )
 
 

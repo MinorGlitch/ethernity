@@ -20,6 +20,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from ethernity.cli.features.recover.chain import (
+    recover_chain_entries,
+    validate_root_manifest_authority,
+)
 from ethernity.cli.features.recover.planning import RecoveryPlan
 from ethernity.cli.shared.io.outputs import (
     _single_entry_uses_directory_output,
@@ -41,10 +45,15 @@ def decrypt_manifest_and_extract(
 ) -> tuple[EnvelopeManifest, list[tuple[ManifestFile, bytes]]]:
     """Decrypt a recovery plan ciphertext and extract manifest payload entries."""
 
+    if plan.root_dir:
+        chain = recover_chain_entries(plan, quiet=quiet, debug=debug)
+        return chain.manifest, list(chain.extracted)
+
     with status("Decrypting and unpacking payload...", quiet=quiet):
         plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
         manifest, payload = decode_envelope(plaintext)
         extracted = extract_payloads(manifest, payload)
+    validate_root_manifest_authority(manifest, plan.auth_payload)
     return manifest, extracted
 
 

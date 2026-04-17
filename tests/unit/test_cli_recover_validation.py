@@ -465,7 +465,7 @@ class TestCliRecoverValidation(unittest.TestCase):
                         ):
                             with mock.patch(
                                 "ethernity.cli.features.recover.wizard._prompt_key_material",
-                                return_value=("passphrase", [], [], []),
+                                return_value=("passphrase", [], [], [], []),
                             ):
                                 with mock.patch(
                                     "ethernity.cli.features.recover.wizard._load_shard_frames",

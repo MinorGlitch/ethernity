@@ -22,6 +22,7 @@ import sys
 from dataclasses import replace
 from typing import Any, cast
 
+from ethernity.cli.features.recover.chain import detect_recovery_root_dir
 from ethernity.cli.features.recover.execution import (
     decrypt_manifest_and_extract,
     write_recovered_outputs,
@@ -45,11 +46,15 @@ from ethernity.cli.shared.io.frames import (
     _frames_from_fallback,
     _frames_from_payloads,
     _recovery_frames_from_scan,
+    _shard_frames_from_scan,
     format_shard_input_error,
 )
 from ethernity.cli.shared.io.outputs import _single_entry_uses_directory_output
 from ethernity.cli.shared.log import _warn
-from ethernity.cli.shared.recovery_prompts import _prompt_shard_inputs, _resolve_recover_output
+from ethernity.cli.shared.recovery_prompts import (
+    _resolve_recover_output,
+    prompt_passphrase_unlock_material,
+)
 from ethernity.cli.shared.types import RecoverArgs
 from ethernity.cli.shared.ui.debug import print_recover_debug
 from ethernity.cli.shared.ui.summary import format_auth_status
@@ -58,7 +63,6 @@ from ethernity.cli.shared.ui_api import (
     console,
     panel,
     prompt_choice,
-    prompt_required_secret,
     prompt_yes_no,
     status,
     ui_screen_mode,
@@ -123,6 +127,8 @@ def _prompt_recovery_input(
             allow_unsigned=allow_unsigned,
             quiet=quiet,
         )
+        if input_label in {"Scan", "Backup root directory"} and input_detail:
+            args.scan = [input_detail]
 
     return frames or [], input_label, input_detail
 
@@ -132,45 +138,19 @@ def _prompt_key_material(
     *,
     quiet: bool,
     collect_all_shards: bool = False,
-) -> tuple[str | None, list[str], list[str], list[Frame]]:
+) -> tuple[str | None, list[str], list[str], list[str], list[Frame]]:
     """Prompt for key material.
 
-    Returns (passphrase, shard_fallback_files, shard_payloads_file, shard_frames).
+    Returns (passphrase, shard_fallback_files, shard_payloads_file, shard_scan, shard_frames).
     """
-    passphrase = args.passphrase
-    shard_fallback_files = list(args.shard_fallback_file or [])
-    shard_payloads_file = list(args.shard_payloads_file or [])
-    shard_frames: list[Frame] = []
-
-    if not shard_fallback_files and not shard_payloads_file and not passphrase:
-        while True:
-            key_choice = prompt_choice(
-                "How will you decrypt",
-                {
-                    "passphrase": "I have the passphrase",
-                    "shards": "I have shard documents",
-                },
-                default="passphrase",
-                help_text="Choose based on what key material you have available.",
-            )
-            if key_choice == "passphrase":
-                passphrase = prompt_required_secret(
-                    "Enter passphrase",
-                    help_text="This is the passphrase used to encrypt the backup.",
-                )
-                break
-            (
-                shard_fallback_files,
-                shard_payloads_file,
-                shard_frames,
-            ) = _prompt_shard_inputs(quiet=quiet, stop_at_quorum=not collect_all_shards)
-            break
-
-    return (
-        passphrase,
-        shard_fallback_files,
-        shard_payloads_file,
-        shard_frames,
+    return prompt_passphrase_unlock_material(
+        quiet=quiet,
+        passphrase=args.passphrase,
+        shard_fallback_files=args.shard_fallback_file,
+        shard_payloads_file=args.shard_payloads_file,
+        shard_scan=args.shard_scan,
+        collect_all_shards=collect_all_shards,
+        allow_existing_review=True,
     )
 
 
@@ -194,7 +174,7 @@ def _build_recovery_review_rows(
     review_rows.append(("Auth QR payloads", auth_frames_label))
     review_rows.append(("Keys", None))
     review_rows.append(("Auth verification", auth_label))
-    review_rows.append(("Key material", key_method))
+    review_rows.append(("Unlock method", key_method))
 
     if plan.shard_frames:
         shard_sources = []
@@ -205,7 +185,9 @@ def _build_recovery_review_rows(
         if plan.shard_scan:
             shard_sources.append(f"{len(plan.shard_scan)} scan path(s)")
         shard_label = ", ".join(shard_sources) if shard_sources else "provided"
-        review_rows.append(("Shard inputs", f"{len(plan.shard_frames)} payload(s), {shard_label}"))
+        review_rows.append(
+            ("Recovery shards", f"{len(plan.shard_frames)} payload(s), {shard_label}")
+        )
 
     if plan.allow_unsigned:
         review_rows.append(("Allow unsigned", "yes"))
@@ -217,8 +199,36 @@ def _build_recovery_review_rows(
     return review_rows
 
 
+def _recommended_retry_stage(exc: Exception) -> str:
+    message = str(exc).lower()
+    key_markers = (
+        "passphrase",
+        "shard",
+        "decryption failed",
+        "invalid bip-39 mnemonic checksum",
+    )
+    if any(marker in message for marker in key_markers):
+        return "keys"
+    return "input"
+
+
+def _prompt_recovery_retry_stage(exc: Exception) -> str:
+    recommended = _recommended_retry_stage(exc)
+    choices = {
+        "input": "Edit recovery input",
+        "keys": "Edit unlock material",
+        "cancel": "Cancel recovery",
+    }
+    return prompt_choice(
+        "Recovery needs one more fix",
+        choices,
+        default=recommended,
+        help_text=f"{exc} Choose what you want to fix before continuing.",
+    )
+
+
 def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: bool = True) -> int:
-    """Run the guided recovery workflow, falling back to non-interactive mode when needed."""
+    """Run the guided recovery workflow or execute directly when non-interactive."""
 
     quiet = args.quiet
     allow_unsigned = args.allow_unsigned
@@ -226,13 +236,6 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
     interactive = sys.stdin.isatty() and sys.stdout.isatty()
 
     if not interactive:
-        if (
-            not args.fallback_file
-            and not args.payloads_file
-            and not (args.scan or [])
-            and not sys.stdin.isatty()
-        ):
-            args.fallback_file = "-"
         recovery_plan = plan_from_args(args)
         if recovery_plan.allow_unsigned:
             _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
@@ -246,8 +249,7 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
 
     with ui_screen_mode(quiet=quiet):
         if show_header and not quiet:
-            console.print("[title]Ethernity recovery wizard[/title]")
-            console.print("[subtitle]Guided recovery of backup documents.[/subtitle]")
+            console.print("[title]Recover backup[/title]")
 
         validate_recover_args(args)
         resolve_recover_config(args)
@@ -260,6 +262,7 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
             passphrase = working_args.passphrase
             shard_fallback_files = list(working_args.shard_fallback_file or [])
             shard_payloads_file = list(working_args.shard_payloads_file or [])
+            shard_scan = list(working_args.shard_scan or [])
             collected_shard_frames: list[Frame] = []
             plan: Any = None
             manifest: Any = None
@@ -282,38 +285,69 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                             passphrase,
                             shard_fallback_files,
                             shard_payloads_file,
+                            shard_scan,
                             collected_shard_frames,
                         ) = _prompt_key_material(working_args, quiet=quiet)
                         working_args.passphrase = passphrase
                         working_args.shard_fallback_file = list(shard_fallback_files)
                         working_args.shard_payloads_file = list(shard_payloads_file)
+                        working_args.shard_scan = list(shard_scan)
                     stage_index += 1
                     continue
 
                 extra_auth_frames = _load_extra_auth_frames(working_args, allow_unsigned, quiet)
-                shard_frames = _load_shard_frames(
-                    shard_fallback_files,
-                    shard_payloads_file,
-                    extra_frames=collected_shard_frames,
-                    quiet=quiet,
-                )
-                plan = build_recovery_plan(
-                    frames=frames,
-                    extra_auth_frames=extra_auth_frames,
-                    shard_frames=shard_frames,
-                    passphrase=passphrase,
-                    allow_unsigned=allow_unsigned,
-                    input_label=input_label,
-                    input_detail=input_detail,
-                    shard_fallback_files=shard_fallback_files,
-                    shard_payloads_file=shard_payloads_file,
-                    shard_scan=list(working_args.shard_scan or []),
-                    output_path=working_args.output,
-                    args=working_args,
-                    quiet=quiet,
-                )
-                if plan.allow_unsigned:
-                    _warn("Authentication check skipped - ensure you trust the source", quiet=quiet)
+                try:
+                    shard_frames = _load_shard_frames(
+                        shard_fallback_files,
+                        shard_payloads_file,
+                        shard_scan,
+                        extra_frames=collected_shard_frames,
+                        quiet=quiet,
+                    )
+                    root_dir = None
+                    if working_args.scan:
+                        detected_root_dir = detect_recovery_root_dir(list(working_args.scan))
+                        root_dir = None if detected_root_dir is None else str(detected_root_dir)
+                    if (
+                        working_args.extension_index is not None
+                        or working_args.extension_doc_hash is not None
+                    ) and root_dir is None:
+                        raise ValueError(
+                            "extension selectors require --scan to point at a backup root folder "
+                            "(backup root directory)"
+                        )
+                    plan = build_recovery_plan(
+                        frames=frames,
+                        extra_auth_frames=extra_auth_frames,
+                        shard_frames=shard_frames,
+                        passphrase=passphrase,
+                        allow_unsigned=allow_unsigned,
+                        input_label=input_label,
+                        input_detail=input_detail,
+                        shard_fallback_files=shard_fallback_files,
+                        shard_payloads_file=shard_payloads_file,
+                        shard_scan=list(shard_scan),
+                        output_path=working_args.output,
+                        root_dir=root_dir,
+                        extension_index=working_args.extension_index,
+                        extension_doc_hash=working_args.extension_doc_hash,
+                        args=working_args,
+                        quiet=quiet,
+                    )
+                    if plan.allow_unsigned:
+                        _warn(
+                            "Authentication check skipped - ensure you trust the source",
+                            quiet=quiet,
+                        )
+                except ValueError as exc:
+                    if quiet:
+                        raise
+                    retry_stage = _prompt_recovery_retry_stage(exc)
+                    if retry_stage == "cancel":
+                        console.print("Recovery cancelled.")
+                        return 1
+                    stage_index = 0 if retry_stage == "input" else 1
+                    continue
 
                 if stage_index == 2:
                     with wizard_stage("Review", step_number=3):
@@ -321,15 +355,25 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                         if not quiet:
                             console.print(panel("Review", build_review_table(review_rows)))
                         if not assume_yes and not prompt_yes_no(
-                            "Proceed with recovery",
+                            "Decrypt and preview recovered files",
                             default=True,
-                            help_text="Select no to cancel.",
+                            help_text="Select no to stop here without decrypting.",
                         ):
                             console.print("Recovery cancelled.")
                             return 1
-                    manifest, extracted = decrypt_manifest_and_extract(
-                        plan, quiet=quiet, debug=debug
-                    )
+                    try:
+                        manifest, extracted = decrypt_manifest_and_extract(
+                            plan, quiet=quiet, debug=debug
+                        )
+                    except ValueError as exc:
+                        if quiet:
+                            raise
+                        retry_stage = _prompt_recovery_retry_stage(exc)
+                        if retry_stage == "cancel":
+                            console.print("Recovery cancelled.")
+                            return 1
+                        stage_index = 0 if retry_stage == "input" else 1
+                        continue
                     if debug:
                         print_recover_debug(
                             manifest=manifest,
@@ -358,9 +402,9 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                     )
                     working_args.output = output_path
                     if not assume_yes and not prompt_yes_no(
-                        "Proceed with writing files",
+                        "Write recovered files",
                         default=True,
-                        help_text="Select no to cancel.",
+                        help_text="Select no to stop here without writing files.",
                     ):
                         console.print("Recovery cancelled.")
                         return 1
@@ -411,16 +455,17 @@ def _load_extra_auth_frames(args: RecoverArgs, allow_unsigned: bool, quiet: bool
 def _load_shard_frames(
     shard_fallback_files: list[str],
     shard_payloads_file: list[str],
+    shard_scan: list[str],
     extra_frames: list[Frame] | None,
     quiet: bool,
 ) -> list[Frame]:
     """Load shard frames from files or pasted input."""
-    if not shard_fallback_files and not shard_payloads_file and not extra_frames:
+    if not shard_fallback_files and not shard_payloads_file and not shard_scan and not extra_frames:
         return []
     shard_frames = list(extra_frames or [])
-    if shard_frames and (shard_fallback_files or shard_payloads_file):
+    if shard_frames and (shard_fallback_files or shard_payloads_file or shard_scan):
         return shard_frames
-    total_files = len(shard_fallback_files) + len(shard_payloads_file)
+    total_files = len(shard_fallback_files) + len(shard_payloads_file) + len(shard_scan)
     if total_files:
         with status(f"Reading {total_files} shard file(s)...", quiet=quiet):
             for path in shard_fallback_files:
@@ -435,10 +480,16 @@ def _load_shard_frames(
                     shard_frames.extend(_frames_from_payloads(path, label="shard QR payloads"))
                 except ValueError as exc:
                     raise ValueError(format_shard_input_error(exc)) from exc
+            if shard_scan:
+                try:
+                    shard_frames.extend(_shard_frames_from_scan(shard_scan, quiet=quiet))
+                except ValueError as exc:
+                    raise ValueError(format_shard_input_error(exc)) from exc
     if not shard_frames:
         raise ValueError(
             "No valid shard data found in provided files.\n"
             "  - Check that files contain shard recovery text or QR payloads\n"
+            "  - PDFs/images are scanned for shard QR payloads automatically\n"
             "  - Ensure each shard file has valid content"
         )
     return shard_frames

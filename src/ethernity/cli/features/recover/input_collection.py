@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal, cast
 
 from ethernity.cli.shared.io.fallback_parser import format_fallback_error
 from ethernity.cli.shared.io.frames import (
@@ -41,6 +42,8 @@ from ethernity.cli.shared.ui_api import (
 )
 from ethernity.encoding.framing import Frame, FrameType
 
+RecoveryTextInputKind = Literal["fallback", "payload", "auto"]
+
 
 def prompt_recovery_input_interactive(
     *,
@@ -50,37 +53,40 @@ def prompt_recovery_input_interactive(
     """Prompt for recovery source and return (frames, input_label, input_detail)."""
     while True:
         choice = prompt_choice(
-            "What do you have",
+            "How do you want to provide the backup",
             {
-                "scan": "Recovery PDF or images (recommended)",
-                "text": "Recovery text or QR payloads (file or paste)",
+                "scan": "Scan a backup PDF or images (recommended)",
+                "text": "Use recovery text or QR payloads",
             },
             default="scan",
-            help_text="Choose how you want to provide the recovery data.",
+            help_text="Choose the kind of backup material you already have available.",
         )
         try:
             if choice == "text":
+                input_kind = _prompt_recovery_text_input_kind()
                 path = prompt_path_with_picker(
-                    "Recovery text or QR payloads file path (or '-' to paste)",
-                    help_text="Provide recovery text or QR payloads; enter '-' to paste.",
+                    _recovery_text_path_prompt(input_kind),
+                    help_text=_recovery_text_path_help(input_kind),
                     kind="file",
                     allow_stdin=True,
-                    picker_prompt="Select a recovery text or payload file",
+                    picker_prompt=_recovery_text_picker_prompt(input_kind),
                 )
                 input_detail = "stdin" if path == "-" else path
                 if path == "-":
                     frames, input_label = prompt_text_or_payloads_stdin(
                         allow_unsigned=allow_unsigned,
                         quiet=quiet,
+                        preferred_kind=input_kind,
                     )
                 else:
-                    with status("Reading recovery input...", quiet=quiet):
+                    with status(_recovery_text_status_label(input_kind), quiet=quiet):
                         lines = _read_text_lines(path)
-                        frames, input_label = parse_recovery_lines(
+                        frames, input_label = parse_recovery_lines_for_kind(
                             lines,
                             allow_unsigned=allow_unsigned,
                             quiet=quiet,
                             source=path,
+                            input_kind=input_kind,
                         )
             else:
                 path = prompt_path_with_picker(
@@ -132,20 +138,91 @@ def parse_recovery_lines(
         raise ValueError(f"invalid QR payloads in {source}: {exc}") from exc
 
 
+def parse_recovery_lines_for_kind(
+    lines: list[str],
+    *,
+    allow_unsigned: bool,
+    quiet: bool,
+    source: str,
+    input_kind: RecoveryTextInputKind,
+) -> tuple[list[Frame], str]:
+    if input_kind == "fallback":
+        return _parse_recovery_fallback_lines(
+            lines,
+            allow_unsigned=allow_unsigned,
+            quiet=quiet,
+            source=source,
+        )
+    if input_kind == "payload":
+        return _parse_recovery_payload_lines(lines, source=source)
+    return parse_recovery_lines(
+        lines,
+        allow_unsigned=allow_unsigned,
+        quiet=quiet,
+        source=source,
+    )
+
+
+def _parse_recovery_fallback_lines(
+    lines: list[str],
+    *,
+    allow_unsigned: bool,
+    quiet: bool,
+    source: str,
+) -> tuple[list[Frame], str]:
+    try:
+        frames = _frames_from_fallback_lines(
+            lines,
+            allow_invalid_auth=allow_unsigned,
+            quiet=quiet,
+        )
+    except ValueError as exc:
+        message = format_fallback_error(exc, context="Recovery text")
+        raise ValueError(f"invalid recovery text in {source}: {message}") from exc
+    return frames, "Recovery text"
+
+
+def _parse_recovery_payload_lines(
+    lines: list[str],
+    *,
+    source: str,
+) -> tuple[list[Frame], str]:
+    try:
+        frames = _frames_from_payload_lines(lines, label="QR payloads", source=source)
+    except ValueError as exc:
+        raise ValueError(f"invalid QR payloads in {source}: {exc}") from exc
+    return frames, "QR payloads"
+
+
 def prompt_text_or_payloads_stdin(
     *,
     allow_unsigned: bool,
     quiet: bool,
+    preferred_kind: RecoveryTextInputKind = "auto",
 ) -> tuple[list[Frame], str]:
     """Read stdin-style interactive input and branch into fallback or payload collection."""
 
-    first_line = prompt_required(
-        "Recovery text or QR payload (first line or block)",
-        help_text="Paste recovery text or a QR payload; we'll keep asking until it decodes.",
+    first_entry = prompt_required(
+        _recovery_text_stdin_prompt(preferred_kind),
+        help_text=_recovery_text_stdin_help(preferred_kind),
     )
-    initial_lines = [line for line in first_line.splitlines() if line.strip()]
-    if not initial_lines:
-        initial_lines = [first_line]
+    initial_lines = _nonempty_input_lines(first_entry)
+
+    if preferred_kind == "fallback":
+        frames = collect_fallback_frames(
+            allow_unsigned=allow_unsigned,
+            quiet=quiet,
+            initial_lines=initial_lines,
+        )
+        return frames, "Recovery text"
+    if preferred_kind == "payload":
+        initial_frames = _parse_initial_payload_frames(initial_lines)
+        frames = collect_payload_frames(
+            allow_unsigned=allow_unsigned,
+            quiet=quiet,
+            initial_frames=initial_frames,
+        )
+        return frames, "QR payloads"
 
     try:
         mode = _detect_recovery_input_mode(initial_lines)
@@ -165,8 +242,7 @@ def prompt_text_or_payloads_stdin(
         )
         return frames, "Recovery text"
 
-    first_payload = initial_lines[0].strip()
-    first_frame = _frame_from_payload_text(first_payload)
+    first_frame = _frame_from_payload_text(initial_lines[0].strip())
     frames = collect_payload_frames(
         allow_unsigned=allow_unsigned,
         quiet=quiet,
@@ -187,14 +263,14 @@ def collect_fallback_frames(
     if not quiet:
         console.print(
             "[subtitle]"
-            "Paste fallback recovery text in batches; submit a batch with a blank line."
+            "Paste recovery text one section at a time. Press Enter on a blank line to finish "
+            "each section."
             "[/subtitle]"
         )
     help_text: str | None = (
-        "Paste recovery text (fallback). "
-        "You can paste in batches; we'll keep asking until it decodes."
+        "Paste recovery text. You can paste it in sections, and we'll keep asking until it decodes."
     )
-    prompt_label = "Paste recovery text (blank line ends a batch)"
+    prompt_label = "Paste recovery text (blank line ends this section)"
 
     if lines:
         try:
@@ -207,7 +283,7 @@ def collect_fallback_frames(
         except ValueError as exc:
             message = format_fallback_error(exc, context="Recovery text")
             console_err.print(f"[error]{message}[/error]")
-            prompt_label = "Paste more recovery text (blank line ends a batch)"
+            prompt_label = "Paste more recovery text (blank line ends this section)"
 
     while True:
         batch = prompt_multiline(prompt_label, help_text=help_text)
@@ -228,7 +304,7 @@ def collect_fallback_frames(
         except ValueError as exc:
             message = format_fallback_error(exc, context="Recovery text")
             console_err.print(f"[error]{message}[/error]")
-            prompt_label = "Paste more recovery text (blank line ends a batch)"
+            prompt_label = "Paste more recovery text (blank line ends this section)"
 
 
 @dataclass
@@ -326,19 +402,23 @@ def collect_payload_frames(
     allow_unsigned: bool,
     quiet: bool,
     first_frame: Frame | None = None,
+    initial_frames: list[Frame] | None = None,
 ) -> list[Frame]:
     """Collect QR payload lines interactively until the required set is complete."""
 
     if not quiet:
         console.print(
             "[subtitle]"
-            "Paste one QR payload per line. Include auth payload when requested."
+            "Paste one QR payload per line. Include the authenticity payload when requested."
             "[/subtitle]"
         )
     help_text: str | None = (
         "Paste one QR payload per line; we'll stop once all required payloads are collected."
     )
     state = _PayloadCollectionState(allow_unsigned=allow_unsigned, quiet=quiet)
+    for frame in initial_frames or []:
+        if state.ingest(frame):
+            return state.frames
     if first_frame is not None and state.ingest(first_frame):
         return state.frames
 
@@ -353,3 +433,88 @@ def collect_payload_frames(
 
         if state.ingest(frame):
             return state.frames
+
+
+def _prompt_recovery_text_input_kind() -> RecoveryTextInputKind:
+    selected = prompt_choice(
+        "What kind of text input do you have",
+        {
+            "fallback": "Recovery text",
+            "payload": "QR payload lines",
+            "auto": "Let Ethernity detect it",
+        },
+        default="fallback",
+        help_text=(
+            "Choose the exact artifact when you know it. Use auto-detect only if you're not sure."
+        ),
+    )
+    return cast(RecoveryTextInputKind, selected)
+
+
+def _recovery_text_path_prompt(input_kind: RecoveryTextInputKind) -> str:
+    if input_kind == "fallback":
+        return "Recovery text file (or '-' to paste)"
+    if input_kind == "payload":
+        return "QR payload file (or '-' to paste)"
+    return "Recovery text or QR payload file (or '-' to paste)"
+
+
+def _recovery_text_path_help(input_kind: RecoveryTextInputKind) -> str:
+    if input_kind == "fallback":
+        return "Choose a text file with recovery text, or enter '-' to paste it."
+    if input_kind == "payload":
+        return "Choose a text file with QR payload lines, or enter '-' to paste them."
+    return (
+        "Choose a text file with recovery text or QR payload lines, or enter '-' to paste. "
+        "Ethernity will auto-detect the format."
+    )
+
+
+def _recovery_text_picker_prompt(input_kind: RecoveryTextInputKind) -> str:
+    if input_kind == "fallback":
+        return "Select a recovery text file"
+    if input_kind == "payload":
+        return "Select a QR payload file"
+    return "Select a recovery text or QR payload file"
+
+
+def _recovery_text_status_label(input_kind: RecoveryTextInputKind) -> str:
+    if input_kind == "fallback":
+        return "Reading recovery text..."
+    if input_kind == "payload":
+        return "Reading QR payloads..."
+    return "Reading recovery input..."
+
+
+def _recovery_text_stdin_prompt(input_kind: RecoveryTextInputKind) -> str:
+    if input_kind == "fallback":
+        return "Recovery text"
+    if input_kind == "payload":
+        return "QR payload lines"
+    return "Recovery text or QR payload"
+
+
+def _recovery_text_stdin_help(input_kind: RecoveryTextInputKind) -> str:
+    if input_kind == "fallback":
+        return "Paste recovery text. You can paste one section or a full block."
+    if input_kind == "payload":
+        return "Paste one QR payload per line. You can paste several lines at once."
+    return (
+        "Paste recovery text or QR payload lines. If detection is wrong, go back and choose the "
+        "exact artifact type."
+    )
+
+
+def _nonempty_input_lines(entry: str) -> list[str]:
+    lines = [line for line in entry.splitlines() if line.strip()]
+    if lines:
+        return lines
+    return [entry]
+
+
+def _parse_initial_payload_frames(initial_lines: list[str]) -> list[Frame]:
+    try:
+        return _frames_from_payload_lines(initial_lines, label="QR payloads", source="stdin")
+    except ValueError as exc:
+        console_err.print(f"[error]invalid QR payloads in stdin: {exc}[/error]")
+        return []

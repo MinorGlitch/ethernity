@@ -19,8 +19,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any, Literal
 
+from ethernity.cli.features.recover.chain import (
+    detect_recovery_root_dir,
+    validated_root_recovery_scan_paths,
+)
 from ethernity.cli.features.recover.key_recovery import (
     InsufficientShardError,
     _passphrase_from_shard_frames,
@@ -79,6 +84,9 @@ class RecoveryPlan:
     shard_fallback_files: tuple[str, ...]
     shard_payloads_file: tuple[str, ...]
     shard_scan: tuple[str, ...]
+    root_dir: str | None = None
+    extension_index: int | None = None
+    extension_doc_hash: str | None = None
 
 
 @dataclass(frozen=True)
@@ -132,6 +140,8 @@ def validate_recover_args(args: RecoverArgs) -> None:
         raise ValueError("use either --scan or --fallback-file/--payloads-file, not both")
     if args.auth_fallback_file and args.auth_payloads_file:
         raise ValueError("use either --auth-fallback-file or --auth-payloads-file, not both")
+    if args.extension_index is not None and args.extension_doc_hash is not None:
+        raise ValueError("use either --extension-index or --extension-doc-hash, not both")
 
 
 def inspect_from_args(args: RecoverArgs) -> RecoveryInspection:
@@ -142,11 +152,18 @@ def inspect_from_args(args: RecoverArgs) -> RecoveryInspection:
     allow_unsigned = args.allow_unsigned
     quiet = args.quiet
 
-    frames, input_label, input_detail = _frames_from_args(
+    frames, input_label, input_detail, root_dir = _frames_from_args(
         args,
         allow_unsigned=allow_unsigned,
         quiet=quiet,
     )
+    if (
+        args.extension_index is not None or args.extension_doc_hash is not None
+    ) and root_dir is None:
+        raise ValueError(
+            "extension selectors require --scan to point at a backup root folder "
+            "(backup root directory)"
+        )
     extra_auth_frames = _extra_auth_frames_from_args(
         args,
         allow_unsigned=allow_unsigned,
@@ -179,11 +196,18 @@ def plan_from_args(args: RecoverArgs) -> RecoveryPlan:
     allow_unsigned = args.allow_unsigned
     quiet = args.quiet
 
-    frames, input_label, input_detail = _frames_from_args(
+    frames, input_label, input_detail, root_dir = _frames_from_args(
         args,
         allow_unsigned=allow_unsigned,
         quiet=quiet,
     )
+    if (
+        args.extension_index is not None or args.extension_doc_hash is not None
+    ) and root_dir is None:
+        raise ValueError(
+            "extension selectors require --scan to point at a backup root folder "
+            "(backup root directory)"
+        )
     extra_auth_frames = _extra_auth_frames_from_args(
         args,
         allow_unsigned=allow_unsigned,
@@ -205,6 +229,9 @@ def plan_from_args(args: RecoverArgs) -> RecoveryPlan:
         shard_payloads_file=shard_payloads_file,
         shard_scan=shard_scan,
         output_path=expanduser_cli_path(args.output),
+        root_dir=str(root_dir) if root_dir is not None else None,
+        extension_index=args.extension_index,
+        extension_doc_hash=args.extension_doc_hash,
         args=args,
         quiet=quiet,
     )
@@ -291,6 +318,9 @@ def build_recovery_plan(
     shard_payloads_file: list[str],
     shard_scan: list[str],
     output_path: str | None,
+    root_dir: str | None,
+    extension_index: int | None,
+    extension_doc_hash: str | None,
     args: RecoverArgs | None,
     quiet: bool,
 ) -> RecoveryPlan:
@@ -346,6 +376,9 @@ def build_recovery_plan(
         shard_fallback_files=tuple(shard_fallback_files),
         shard_payloads_file=tuple(shard_payloads_file),
         shard_scan=tuple(shard_scan),
+        root_dir=root_dir,
+        extension_index=extension_index,
+        extension_doc_hash=extension_doc_hash,
     )
 
 
@@ -379,7 +412,7 @@ def _inspect_auth_payload(
                 (
                     _blocking_issue(
                         api_codes.AUTH_PAYLOAD_MISSING,
-                        "missing auth payload; provide AUTH input for inspection readiness",
+                        "missing AUTH payload; provide AUTH input to check readiness",
                     ),
                 ),
             )
@@ -660,13 +693,14 @@ def _frames_from_args(
     *,
     allow_unsigned: bool,
     quiet: bool,
-) -> tuple[list[Frame], str | None, str | None]:
+) -> tuple[list[Frame], str | None, str | None, Path | None]:
     """Load primary recovery frames from fallback text, payload lists, or scans."""
 
     fallback_file = expanduser_cli_path(args.fallback_file)
     payloads_file = expanduser_cli_path(args.payloads_file)
     scan = expanduser_cli_paths(list(args.scan or []))
 
+    root_dir: Path | None = None
     if fallback_file:
         input_label = "Recovery text"
         input_detail = fallback_file
@@ -692,15 +726,28 @@ def _frames_from_args(
         except ValueError as exc:
             raise ValueError(format_recovery_input_error(exc)) from exc
     elif scan:
-        input_label = "Scan"
-        input_detail = ", ".join(scan)
+        if len(scan) == 1:
+            candidate = Path(scan[0]).expanduser()
+            if candidate.is_dir() and not candidate.is_symlink():
+                scan = validated_root_recovery_scan_paths(candidate)
+                if scan:
+                    root_dir = candidate
+        if root_dir is None:
+            root_dir = detect_recovery_root_dir(scan)
+        if root_dir is not None:
+            input_label = "Backup root directory"
+            input_detail = str(root_dir.resolve())
+            scan = validated_root_recovery_scan_paths(root_dir)
+        else:
+            input_label = "Scan"
+            input_detail = ", ".join(scan)
         try:
             frames = _recovery_frames_from_scan(scan, quiet=quiet)
         except ValueError as exc:
             raise ValueError(format_recovery_input_error(exc)) from exc
     else:
         raise ValueError("either --fallback-file, --payloads-file, or --scan is required")
-    return frames, input_label, input_detail
+    return frames, input_label, input_detail, root_dir
 
 
 def _extra_auth_frames_from_args(
@@ -715,7 +762,7 @@ def _extra_auth_frames_from_args(
     auth_payloads_file = expanduser_cli_path(args.auth_payloads_file)
     if auth_fallback_file and auth_payloads_file:
         raise ValueError("use either --auth-fallback-file or --auth-payloads-file, not both")
-    extra_auth_frames: list[Frame] = []
+    extra_auth_frames: list[Frame] = list(args.auth_frames or [])
     if auth_fallback_file:
         try:
             extra_auth_frames.extend(
@@ -742,7 +789,7 @@ def _shard_frames_from_args(
     shard_fallback_files = expanduser_cli_paths(list(args.shard_fallback_file or []))
     shard_payloads_file = expanduser_cli_paths(list(args.shard_payloads_file or []))
     shard_scan = expanduser_cli_paths(list(args.shard_scan or []))
-    shard_frames: list[Frame] = []
+    shard_frames: list[Frame] = list(args.shard_frames or [])
     for path in shard_fallback_files:
         try:
             shard_frames.append(_frame_from_fallback(path, quiet=quiet))
@@ -758,6 +805,8 @@ def _shard_frames_from_args(
             shard_frames.extend(_shard_frames_from_scan(shard_scan, quiet=quiet))
         except ValueError as exc:
             raise ValueError(format_shard_input_error(exc)) from exc
-    if (shard_fallback_files or shard_payloads_file or shard_scan) and not shard_frames:
+    if (
+        args.shard_frames or shard_fallback_files or shard_payloads_file or shard_scan
+    ) and not shard_frames:
         raise ValueError("no shard payloads found; check shard inputs and try again")
     return shard_frames, shard_fallback_files, shard_payloads_file, shard_scan

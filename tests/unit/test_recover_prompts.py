@@ -16,7 +16,10 @@
 import unittest
 from unittest import mock
 
-from ethernity.cli.shared.recovery_prompts import _resolve_recover_output
+from ethernity.cli.shared.recovery_prompts import (
+    _resolve_recover_output,
+    prompt_passphrase_unlock_material,
+)
 
 
 class _ManifestEntry:
@@ -257,6 +260,123 @@ class TestResolveRecoverOutput(unittest.TestCase):
         self.assertEqual(resolved, "recovered-" + ("69" * 16))
         mock_prompt_choice.assert_called_once()
         mock_prompt_optional_path_with_picker.assert_not_called()
+
+
+class TestPromptPassphraseUnlockMaterial(unittest.TestCase):
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
+    def test_prefilled_unlock_material_can_be_kept_without_reprompting(
+        self,
+        prompt_choice: mock.MagicMock,
+    ) -> None:
+        prompt_choice.return_value = "keep"
+
+        resolved = prompt_passphrase_unlock_material(
+            quiet=True,
+            passphrase="secret",
+            shard_fallback_files=["old-shard.txt"],
+            allow_existing_review=True,
+        )
+
+        self.assertEqual(resolved, ("secret", ["old-shard.txt"], [], [], []))
+        prompt_choice.assert_called_once()
+
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_optional_secret")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
+    def test_prefilled_passphrase_can_be_replaced_interactively(
+        self,
+        prompt_choice: mock.MagicMock,
+        prompt_optional_secret: mock.MagicMock,
+    ) -> None:
+        prompt_choice.return_value = "passphrase"
+        prompt_optional_secret.return_value = "updated-secret"
+
+        resolved = prompt_passphrase_unlock_material(
+            quiet=True,
+            passphrase="secret",
+            allow_existing_review=True,
+        )
+
+        self.assertEqual(resolved, ("updated-secret", [], [], [], []))
+        prompt_optional_secret.assert_called_once()
+
+    @mock.patch("ethernity.cli.shared.recovery_prompts._prompt_shard_inputs")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
+    def test_prefilled_unlock_material_can_switch_to_shards(
+        self,
+        prompt_choice: mock.MagicMock,
+        prompt_shard_inputs: mock.MagicMock,
+    ) -> None:
+        shard_frame = mock.sentinel.shard_frame
+        prompt_choice.return_value = "shards"
+        prompt_shard_inputs.return_value = (
+            ["new-shards.txt"],
+            ["scan.pdf", "new-shards.payloads.txt"],
+            [shard_frame],
+        )
+
+        resolved = prompt_passphrase_unlock_material(
+            quiet=True,
+            passphrase="secret",
+            allow_existing_review=True,
+        )
+
+        self.assertEqual(
+            resolved,
+            (
+                None,
+                ["new-shards.txt"],
+                ["new-shards.payloads.txt"],
+                ["scan.pdf"],
+                [shard_frame],
+            ),
+        )
+
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_required")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_required_secret")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
+    def test_passphrase_choice_uses_secret_prompt(
+        self,
+        prompt_choice: mock.MagicMock,
+        prompt_required_secret: mock.MagicMock,
+        prompt_required: mock.MagicMock,
+    ) -> None:
+        prompt_choice.return_value = "passphrase"
+        prompt_required_secret.return_value = "secret"
+
+        resolved = prompt_passphrase_unlock_material(quiet=True)
+
+        self.assertEqual(resolved, ("secret", [], [], [], []))
+        prompt_required_secret.assert_called_once()
+        prompt_required.assert_not_called()
+
+    @mock.patch("ethernity.cli.shared.recovery_prompts._prompt_shard_inputs")
+    @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")
+    def test_shard_choice_routes_scan_and_payload_inputs(
+        self,
+        prompt_choice: mock.MagicMock,
+        prompt_shard_inputs: mock.MagicMock,
+    ) -> None:
+        shard_frame = mock.sentinel.shard_frame
+        prompt_choice.return_value = "shards"
+        prompt_shard_inputs.return_value = (
+            ["shards.txt"],
+            ["scan.pdf", "shards.payloads.txt"],
+            [shard_frame],
+        )
+
+        resolved = prompt_passphrase_unlock_material(quiet=True)
+
+        self.assertEqual(
+            resolved,
+            (
+                None,
+                ["shards.txt"],
+                ["shards.payloads.txt"],
+                ["scan.pdf"],
+                [shard_frame],
+            ),
+        )
+        prompt_shard_inputs.assert_called_once_with(quiet=True, stop_at_quorum=True)
 
     @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_optional_path_with_picker")
     @mock.patch("ethernity.cli.shared.recovery_prompts.prompt_choice")

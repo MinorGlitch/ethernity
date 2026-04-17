@@ -173,6 +173,9 @@ class TestInspectAuthPayload(unittest.TestCase):
                     shard_payloads_file=[],
                     shard_scan=[],
                     output_path=None,
+                    root_dir=None,
+                    extension_index=None,
+                    extension_doc_hash=None,
                     args=None,
                     quiet=True,
                 )
