@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Annotated
 
 import click
@@ -27,12 +28,18 @@ from typer.core import TyperGroup
 from ethernity.cli.bootstrap import registry as command_registry
 from ethernity.cli.bootstrap.startup import run_startup
 from ethernity.cli.features.backup.orchestrator import run_wizard
-from ethernity.cli.features.config.onboarding import run_first_run_config_wizard
+from ethernity.cli.features.compact.command import run_compact_command
+from ethernity.cli.features.config.onboarding import (
+    FirstRunOnboardingResult,
+    run_first_run_config_wizard,
+)
+from ethernity.cli.features.extend.command import run_extend_command
 from ethernity.cli.features.kit.command import _run_kit_render
 from ethernity.cli.features.mint.workflow import run_mint_wizard
 from ethernity.cli.features.recover.orchestrator import run_recover_wizard
 from ethernity.cli.shared import common as cli_common, ndjson as cli_ndjson, ui_api as ui
-from ethernity.cli.shared.types import BackupArgs, CliContextState
+from ethernity.cli.shared.recovery_prompts import prompt_passphrase_unlock_material
+from ethernity.cli.shared.types import BackupArgs, CliContextState, CompactArgs, ExtendArgs
 from ethernity.config import CliDefaults, load_cli_defaults
 from ethernity.config.install import DEFAULT_CONFIG_PATH, resolve_api_defaults_config_path
 
@@ -52,7 +59,14 @@ class _HelpAwareTyperGroup(TyperGroup):
         return super().parse_args(ctx, args)
 
 
-app = typer.Typer(add_completion=False, help="Ethernity CLI.", cls=_HelpAwareTyperGroup)
+_HELP_OPTION_NAMES = {"help_option_names": ["-h", "--help"]}
+
+
+app = typer.Typer(
+    help="Ethernity CLI.",
+    cls=_HelpAwareTyperGroup,
+    context_settings=_HELP_OPTION_NAMES,
+)
 
 _get_version = cli_common._get_version
 _paper_callback = cli_common._paper_callback
@@ -68,10 +82,18 @@ console = ui.console
 console_err = ui.console_err
 empty_mint_args = ui.empty_mint_args
 empty_recover_args = ui.empty_recover_args
+prompt_choice = ui.prompt_choice
 prompt_home_action = ui.prompt_home_action
+prompt_optional_path_with_picker = ui.prompt_optional_path_with_picker
+prompt_path_with_picker = ui.prompt_path_with_picker
+prompt_paths_with_picker = ui.prompt_paths_with_picker
+prompt_required_secret = ui.prompt_required_secret
+prompt_yes_no = ui.prompt_yes_no
 ui_screen_mode = ui.ui_screen_mode
 
-_DEFAULTS_BOOTSTRAP_SUBCOMMANDS = frozenset({"api", "backup", "recover", "kit", "mint", "render"})
+_DEFAULTS_BOOTSTRAP_SUBCOMMANDS = frozenset(
+    {"api", "backup", "compact", "extend", "recover", "kit", "mint", "render"}
+)
 _GLOBAL_OPTIONS_WITH_VALUES = frozenset({"--config", "--paper", "--design", "--debug-max-bytes"})
 
 
@@ -232,6 +254,182 @@ def _home_backup_wizard_args(
     )
 
 
+def _split_existing_paths(paths: Sequence[str]) -> tuple[list[str], list[str]]:
+    """Split validated existing paths into file and directory lists."""
+
+    files: list[str] = []
+    directories: list[str] = []
+    for value in paths:
+        path = Path(value)
+        if path.is_dir():
+            directories.append(value)
+        else:
+            files.append(value)
+    return files, directories
+
+
+def _prompt_home_auth_inputs() -> tuple[str | None, str | None]:
+    if not prompt_yes_no(
+        "Add a separate authenticity file",
+        default=False,
+        help_text=(
+            "Use this only when the backup documents do not already include "
+            "valid authenticity data."
+        ),
+    ):
+        return None, None
+
+    auth_input_kind = prompt_choice(
+        "How is the authenticity data stored",
+        {
+            "fallback": "Recovery text file",
+            "payloads": "QR payload file",
+        },
+        default="payloads",
+        help_text="Choose the file format for the extra authenticity data you want to supply.",
+    )
+    if auth_input_kind == "fallback":
+        return (
+            prompt_path_with_picker(
+                "Authenticity recovery text file",
+                kind="file",
+                help_text="Choose the recovery text file that contains the authenticity lines.",
+                picker_prompt="Select authenticity recovery text",
+                picker_help_text="Choose the authenticity recovery text file.",
+            ),
+            None,
+        )
+    return (
+        None,
+        prompt_path_with_picker(
+            "Authenticity QR payload file",
+            kind="file",
+            help_text="Choose the text file that contains the authenticity QR payload line.",
+            picker_prompt="Select authenticity QR payload file",
+            picker_help_text="Choose the authenticity QR payload file.",
+        ),
+    )
+
+
+def _prompt_home_extend_args(
+    *,
+    config: str | None,
+    paper: str | None,
+    design: str | None,
+    quiet: bool,
+) -> ExtendArgs:
+    root_dir = prompt_path_with_picker(
+        "Backup folder to update",
+        kind="dir",
+        help_text=(
+            "Choose the backup folder you want to update. It should contain the backup PDFs "
+            "and, if present, the extensions folder. Existing extensions in that folder "
+            "will be discovered automatically."
+        ),
+        picker_prompt="Select backup folder",
+        picker_help_text="Choose the existing backup folder to update.",
+    )
+    (
+        passphrase,
+        shard_fallback_files,
+        shard_payloads_file,
+        shard_scan,
+        shard_frames,
+    ) = prompt_passphrase_unlock_material(
+        quiet=quiet,
+        choice_prompt="How do you want to unlock this backup",
+        passphrase_choice_label="I have the passphrase",
+        shard_choice_label="I have recovery shard documents",
+        choice_help_text=(
+            "Choose the unlock method for the existing backup before selecting files to add."
+        ),
+        passphrase_prompt="Passphrase",
+        passphrase_help_text="Enter the passphrase for the backup you are updating.",
+    )
+    selected_paths = prompt_paths_with_picker(
+        "Files or folders to add",
+        kind="path",
+        manual_help_text=(
+            "Enter one or more existing file or folder paths to include. Blank line to finish."
+        ),
+        empty_message="Choose at least one file or folder to add to the backup.",
+    )
+    input_files, input_dirs = _split_existing_paths(selected_paths)
+    return ExtendArgs(
+        config=config,
+        paper=paper,
+        design=design,
+        root_dir=root_dir,
+        input=input_files or None,
+        input_dir=input_dirs or None,
+        passphrase=passphrase,
+        shard_fallback_file=shard_fallback_files or None,
+        shard_payloads_file=shard_payloads_file or None,
+        shard_scan=shard_scan or None,
+        shard_frames=shard_frames or None,
+        quiet=quiet,
+    )
+
+
+def _prompt_home_compact_args(
+    *,
+    config: str | None,
+    paper: str | None,
+    design: str | None,
+    quiet: bool,
+) -> CompactArgs:
+    root_dir = prompt_path_with_picker(
+        "Backup folder to rebuild",
+        kind="dir",
+        help_text=(
+            "Choose the backup folder you want to compact. It should contain the backup PDFs "
+            "and any extensions you want folded into the new backup."
+        ),
+        picker_prompt="Select backup folder",
+        picker_help_text="Choose the existing backup folder to compact.",
+    )
+    output_dir: str | None = None
+    while output_dir is None:
+        output_dir = prompt_optional_path_with_picker(
+            "Output directory",
+            kind="path",
+            allow_new=True,
+            help_text="Choose a new or empty folder where the compacted backup should be written.",
+            picker_prompt="Select existing output path",
+            picker_help_text=(
+                "Choose an existing file or folder, or switch to manual entry for a new path."
+            ),
+        )
+    (
+        passphrase,
+        shard_fallback_files,
+        shard_payloads_file,
+        shard_scan,
+        shard_frames,
+    ) = prompt_passphrase_unlock_material(
+        quiet=quiet,
+        choice_prompt="How do you want to unlock this backup",
+        passphrase_choice_label="I have the passphrase",
+        shard_choice_label="I have recovery shard documents",
+        choice_help_text=("Choose the unlock method for the existing backup before compacting it."),
+        passphrase_prompt="Passphrase",
+        passphrase_help_text="Enter the passphrase for the backup you are compacting.",
+    )
+    return CompactArgs(
+        config=config,
+        paper=paper,
+        design=design,
+        root_dir=root_dir,
+        output_dir=output_dir,
+        passphrase=passphrase,
+        shard_fallback_file=shard_fallback_files or None,
+        shard_payloads_file=shard_payloads_file or None,
+        shard_scan=shard_scan or None,
+        shard_frames=shard_frames or None,
+        quiet=quiet,
+    )
+
+
 def _version_callback(value: bool) -> None:
     if value:
         console.print(f"ethernity {_get_version()}")
@@ -270,10 +468,12 @@ def _run_first_run_onboarding_if_needed(
     config_path: str | None,
     quiet: bool,
     debug: bool,
-) -> None:
+) -> str | None:
     try:
         if _should_run_first_run_onboarding(invoked_subcommand):
-            run_first_run_config_wizard(config_path=config_path, quiet=quiet)
+            result = run_first_run_config_wizard(config_path=config_path, quiet=quiet)
+            if isinstance(result, FirstRunOnboardingResult):
+                return result.launch_action
     except KeyboardInterrupt:
         if debug:
             raise
@@ -284,6 +484,7 @@ def _run_first_run_onboarding_if_needed(
             raise
         console_err.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(code=2) from exc
+    return None
 
 
 def _defaults_bootstrap_config_path(
@@ -382,6 +583,7 @@ def _run_home_screen(
     debug_max_bytes: int,
     debug_reveal_secrets: bool,
     quiet: bool,
+    initial_action: str | None = None,
 ) -> None:
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         console_err.print(
@@ -391,8 +593,10 @@ def _run_home_screen(
         raise typer.Exit(code=2)
 
     config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
-    with ui_screen_mode(quiet=quiet):
-        action = prompt_home_action(quiet=quiet)
+    action = initial_action
+    if action is None:
+        with ui_screen_mode(quiet=quiet):
+            action = prompt_home_action(quiet=quiet)
 
     if action == "recover":
         recover_args = empty_recover_args(
@@ -413,6 +617,26 @@ def _run_home_screen(
             quiet=quiet,
         )
         _run_cli(lambda: run_mint_wizard(mint_args, debug=debug), debug=debug)
+        return
+
+    if action == "extend":
+        extend_args = _prompt_home_extend_args(
+            config=config_value,
+            paper=paper_value,
+            design=design,
+            quiet=quiet,
+        )
+        _run_cli(lambda: run_extend_command(extend_args, debug=debug), debug=debug)
+        return
+
+    if action == "compact":
+        compact_args = _prompt_home_compact_args(
+            config=config_value,
+            paper=paper_value,
+            design=design,
+            quiet=quiet,
+        )
+        _run_cli(lambda: run_compact_command(compact_args, debug=debug), debug=debug)
         return
 
     if action == "kit":
@@ -566,12 +790,14 @@ def cli(
             debug=debug,
             init_config=init_config,
         )
-        _run_first_run_onboarding_if_needed(
+        onboarding_launch_action = _run_first_run_onboarding_if_needed(
             invoked_subcommand=ctx.invoked_subcommand,
             config_path=config,
             quiet=quiet,
             debug=debug,
         )
+    else:
+        onboarding_launch_action = None
 
     explicit_config_path, config_path_for_defaults, api_config_invocation = (
         _defaults_bootstrap_config_path(
@@ -617,6 +843,7 @@ def cli(
             debug_max_bytes=effective_debug_max_bytes,
             debug_reveal_secrets=debug_reveal_secrets,
             quiet=effective_quiet,
+            initial_action=onboarding_launch_action,
         )
 
 

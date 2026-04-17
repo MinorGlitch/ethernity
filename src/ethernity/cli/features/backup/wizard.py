@@ -104,13 +104,15 @@ def resolve_passphrase_sharding(
         return None
 
     sharding_choice = prompt_choice(
-        "Passphrase sharding",
+        "Passphrase recovery method",
         {
-            "shard": "Split into shard documents (Recommended)",
-            "none": "No sharding (single passphrase)",
+            "shard": "Split into recovery shard documents (recommended)",
+            "none": "Keep one recovery passphrase",
         },
         default="shard",
-        help_text="Sharding distributes the passphrase across multiple documents for safety.",
+        help_text=(
+            "Sharding spreads recovery across multiple documents so one lost copy is not fatal."
+        ),
     )
     if sharding_choice == "none":
         return None
@@ -138,11 +140,11 @@ def resolve_signing_seed_mode(
         signing_choice = prompt_choice(
             "Signing key storage",
             {
-                "embedded": "In main document (Recommended - simpler recovery)",
-                "sharded": "Separate shard documents (more secure)",
+                "embedded": "Keep it in the main document (recommended, simpler recovery)",
+                "sharded": "Store it in separate shard documents",
             },
             default="embedded",
-            help_text="The signing key lets you create new shard documents later.",
+            help_text="The signing key is needed if you want to create new shard documents later.",
         )
         signing_seed_mode = SigningSeedMode(signing_choice)
     return signing_seed_mode
@@ -186,7 +188,7 @@ def resolve_signing_seed_sharding(
     use_same = prompt_yes_no(
         f"Use same quorum for signing-key shards ({same_quorum})",
         default=True,
-        help_text="Choose no if you want different redundancy for signing keys.",
+        help_text="Choose no if you want a different recovery threshold for signing-key shards.",
     )
     if use_same:
         return None

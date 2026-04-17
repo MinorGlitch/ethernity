@@ -28,16 +28,20 @@ from questionary.prompts import common
 from questionary.prompts.common import InquirerControl
 from questionary.question import Question
 from questionary.styles import merge_styles_default
-from rich.padding import Padding
 from rich.rule import Rule
+from rich.text import Text
 
-from ethernity.cli.shared.ui.state import UIContext, format_hint, get_context
+from ethernity.cli.shared.ui.renderables import hint_box
+from ethernity.cli.shared.ui.runtime import clear_screen
+from ethernity.cli.shared.ui.state import UIContext, get_context
 
 QUESTIONARY_STYLE = questionary.Style(
     [
         ("question", "bold"),
         ("answer", "bold"),
-        ("highlighted", "reverse"),
+        ("pointer", "fg:ansicyan bold"),
+        ("highlighted", "fg:ansicyan bold"),
+        ("separator", "fg:ansibrightblack bold"),
         ("instruction", "fg:ansibrightblack"),
     ]
 )
@@ -66,14 +70,41 @@ def print_prompt_header(
     context: UIContext | None = None,
 ) -> None:
     context = _resolve_context(context)
-    if context.compact_prompt_headers and context.stage_prompt_count > 0:
+    if context.screen_mode:
+        should_redraw = context.stage_prompt_count > 0 or context.current_stage_title is not None
+        if should_redraw:
+            clear_screen(context=context)
+        _print_screen_prompt_context(help_text, context=context)
         context.stage_prompt_count += 1
         return
     output = context.console
     output.print(Rule(style="rule"))
     if help_text:
-        output.print(Padding(format_hint(help_text), (0, 0, 0, 1)))
+        output.print(hint_box([help_text]))
     context.stage_prompt_count += 1
+
+
+def _print_screen_prompt_context(
+    help_text: str | None,
+    *,
+    context: UIContext,
+) -> None:
+    output = context.console
+    state = context.wizard_state
+    if state is not None and context.current_stage_title:
+        step = max(state.step, 1)
+        step_label = f"Step {step} of {state.total_steps}: {context.current_stage_title}"
+        output.print(Text(step_label, style="title"))
+    elif context.current_stage_title:
+        output.print(Text(context.current_stage_title, style="title"))
+    stage_help_text = context.current_stage_help_text
+    hint_messages: list[str] = []
+    if stage_help_text:
+        hint_messages.append(stage_help_text)
+    if help_text and help_text != stage_help_text:
+        hint_messages.append(help_text)
+    if hint_messages:
+        output.print(hint_box(hint_messages))
 
 
 def prompt_optional_secret(
@@ -146,7 +177,7 @@ def prompt_yes_no(
 
 
 def prompt_choice_list(
-    items: Sequence[tuple[str, str]],
+    items: Sequence[tuple[str, str] | questionary.Separator | questionary.Choice],
     *,
     default: str | None,
     title: str | None = None,
@@ -157,7 +188,12 @@ def prompt_choice_list(
     items = list(items)
     if not items:
         raise ValueError("A list of choices needs to be provided.")
-    choices = [questionary.Choice(title=label, value=key) for key, label in items]
+    choices = [
+        item
+        if isinstance(item, (questionary.Separator, questionary.Choice))
+        else questionary.Choice(title=item[1], value=item[0])
+        for item in items
+    ]
     print_prompt_header(title or "Select an option", help_text, context=context)
     value = _select_with_initial_choice(
         title or "Select an option",
@@ -165,7 +201,10 @@ def prompt_choice_list(
         initial_choice=default,
         qmark="",
         style=QUESTIONARY_STYLE,
+        show_navigation_hint=not context.screen_mode or not context.choice_navigation_hint_seen,
     )
+    if context.screen_mode:
+        context.choice_navigation_hint_seen = True
     value = _ask_question(value)
     if value is None:
         raise KeyboardInterrupt
@@ -179,9 +218,10 @@ def _select_with_initial_choice(
     initial_choice: str | None,
     qmark: str,
     style,
+    show_navigation_hint: bool,
 ):
     merged_style = merge_styles_default([style])
-    ic = InquirerControl(
+    ic = _EthernityInquirerControl(
         choices,
         default=None,
         pointer=DEFAULT_SELECTED_POINTER,
@@ -201,8 +241,8 @@ def _select_with_initial_choice(
                 tokens.append(("class:answer", "".join(token[1] for token in current.title)))
             else:
                 tokens.append(("class:answer", current.title or ""))
-        else:
-            tokens.append(("class:instruction", "(Use arrow keys)"))
+        elif show_navigation_hint:
+            tokens.append(("class:instruction", "(Arrows/j/k)"))
         return tokens
 
     layout = common.create_inquirer_layout(ic, get_prompt_tokens)
@@ -247,6 +287,21 @@ def _select_with_initial_choice(
             **utils.used_kwargs({}, Application.__init__),
         )
     )
+
+
+class _EthernityInquirerControl(InquirerControl):
+    def _get_choice_tokens(self):
+        tokens = super()._get_choice_tokens()
+        current = self.get_pointed_at()
+        if current.description is None or not tokens:
+            return tokens
+        last_style, last_text = tokens[-1]
+        if last_text.startswith("  Description: "):
+            tokens[-1] = ("class:instruction", f"  {current.description}")
+        else:
+            tokens.append(("", "\n"))
+            tokens.append(("class:instruction", f"  {current.description}"))
+        return tokens
 
 
 def prompt_int(

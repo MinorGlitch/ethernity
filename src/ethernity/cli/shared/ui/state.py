@@ -37,6 +37,7 @@ THEME = Theme(
     {
         "title": "bold cyan",
         "subtitle": "dim",
+        "hint": "white",
         "accent": "cyan",
         "success": "cyan",
         "warning": "yellow",
@@ -66,6 +67,9 @@ class UIContext:
     screen_mode: bool = False
     compact_prompt_headers: bool = False
     stage_prompt_count: int = 0
+    current_stage_title: str | None = None
+    current_stage_help_text: str | None = None
+    choice_navigation_hint_seen: bool = False
     last_picker_dir: str = "."
 
 
@@ -91,4 +95,4 @@ def get_context() -> UIContext:
 
 
 def format_hint(help_text: str) -> Text:
-    return Text(help_text, style="dim italic")
+    return Text(help_text, style="hint")

@@ -19,6 +19,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import questionary
 from rich.console import Console
 
 from ethernity.cli.shared.ui import (
@@ -64,15 +65,57 @@ class TestPromptPrimitives(unittest.TestCase):
         question.unsafe_ask.assert_called_once_with()
         question.ask.assert_not_called()
 
-    def test_print_prompt_header_compact_suppresses_repeated_headers(self) -> None:
+    def test_print_prompt_header_screen_mode_keeps_help_text_lightweight(self) -> None:
         context = _context()
+        context.screen_mode = True
         context.compact_prompt_headers = True
+        context.current_stage_title = "Input"
+        context.current_stage_help_text = "Stage hint"
         context.stage_prompt_count = 0
         context.console.print = mock.MagicMock()
         prompts_module.print_prompt_header("First", "hint", context=context)
         prompts_module.print_prompt_header("Second", "hint", context=context)
         self.assertEqual(context.stage_prompt_count, 2)
-        self.assertEqual(context.console.print.call_count, 2)
+        self.assertEqual(context.console.print.call_count, 4)
+
+    @mock.patch("ethernity.cli.shared.ui.prompts_core.clear_screen")
+    def test_print_prompt_header_screen_mode_preserves_first_rendered_home_screen(
+        self,
+        clear_screen: mock.MagicMock,
+    ) -> None:
+        context = _context()
+        context.screen_mode = True
+        context.console.print = mock.MagicMock()
+        prompts_module.print_prompt_header("First", "hint", context=context)
+        clear_screen.assert_not_called()
+        prompts_module.print_prompt_header("Second", "hint", context=context)
+        clear_screen.assert_called_once_with(context=context)
+
+    @mock.patch("ethernity.cli.shared.ui.prompts_core.clear_screen")
+    def test_print_prompt_header_screen_mode_redraws_first_prompt_inside_stage(
+        self,
+        clear_screen: mock.MagicMock,
+    ) -> None:
+        context = _context()
+        context.screen_mode = True
+        context.current_stage_title = "Input"
+        context.console.print = mock.MagicMock()
+        prompts_module.print_prompt_header("First", "hint", context=context)
+        clear_screen.assert_called_once_with(context=context)
+
+    def test_print_prompt_header_screen_mode_uses_stage_title_when_no_help_text(self) -> None:
+        context = _context()
+        context.screen_mode = True
+        context.compact_prompt_headers = True
+        context.current_stage_title = "Input"
+        context.stage_prompt_count = 1
+        context.console.print = mock.MagicMock()
+        prompts_module.print_prompt_header("Second", None, context=context)
+        self.assertEqual(context.stage_prompt_count, 2)
+        printed = [
+            str(call.args[0]) if call.args else "" for call in context.console.print.call_args_list
+        ]
+        self.assertTrue(any("Input" in entry for entry in printed))
 
     def test_print_prompt_header_non_compact_prints_each_time(self) -> None:
         context = _context()
@@ -221,7 +264,10 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
         self.assertEqual(select_mock.call_args.kwargs["initial_choice"], "b")
 
     def test_questionary_style_highlights_current_choice(self) -> None:
-        self.assertIn(("highlighted", "reverse"), prompts_core_module.QUESTIONARY_STYLE.style_rules)
+        self.assertIn(
+            ("highlighted", "fg:ansicyan bold"),
+            prompts_core_module.QUESTIONARY_STYLE.style_rules,
+        )
         self.assertNotIn(("selected", "reverse"), prompts_core_module.QUESTIONARY_STYLE.style_rules)
 
     @mock.patch(
@@ -234,6 +280,56 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
     ) -> None:
         prompts_module.prompt_choice_list([("a", "A")], default="missing", context=_context())
         self.assertEqual(select_mock.call_args.kwargs["initial_choice"], "missing")
+
+    @mock.patch(
+        "ethernity.cli.shared.ui.prompts_core._select_with_initial_choice",
+        side_effect=[_Ask(["chosen"]), _Ask(["chosen"])],
+    )
+    def test_prompt_choice_list_shows_navigation_hint_once_per_screen_mode(
+        self,
+        select_mock: mock.MagicMock,
+    ) -> None:
+        context = _context()
+        context.screen_mode = True
+        prompts_module.prompt_choice_list([("a", "A")], default="a", context=context)
+        prompts_module.prompt_choice_list([("b", "B")], default="b", context=context)
+        self.assertTrue(select_mock.call_args_list[0].kwargs["show_navigation_hint"])
+        self.assertFalse(select_mock.call_args_list[1].kwargs["show_navigation_hint"])
+
+    @mock.patch(
+        "ethernity.cli.shared.ui.prompts_core._select_with_initial_choice",
+        return_value=_Ask(["chosen"]),
+    )
+    def test_prompt_choice_list_preserves_separators(
+        self,
+        select_mock: mock.MagicMock,
+    ) -> None:
+        prompts_module.prompt_choice_list(
+            [questionary.Separator("Start"), ("a", "A")],
+            default="a",
+            context=_context(),
+        )
+        choices = select_mock.call_args.kwargs["choices"]
+        self.assertIsInstance(choices[0], questionary.Separator)
+        self.assertEqual(choices[1].title, "A")
+
+    @mock.patch(
+        "ethernity.cli.shared.ui.prompts_core._select_with_initial_choice",
+        return_value=_Ask(["chosen"]),
+    )
+    def test_prompt_choice_list_preserves_choice_objects(
+        self,
+        select_mock: mock.MagicMock,
+    ) -> None:
+        prompts_module.prompt_choice_list(
+            [questionary.Choice("A", value="a", description="desc")],
+            default="a",
+            context=_context(),
+        )
+        choice = select_mock.call_args.kwargs["choices"][0]
+        self.assertIsInstance(choice, questionary.Choice)
+        self.assertEqual(choice.value, "a")
+        self.assertEqual(choice.description, "desc")
 
     def test_list_picker_entries_filters_and_errors(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

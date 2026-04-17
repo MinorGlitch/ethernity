@@ -134,6 +134,7 @@ def _append_signing_key_lines(
     sealed: bool,
     stored_in_main: bool,
     stored_as_shards: bool = False,
+    not_stored_message: str = "Signing private key not stored.",
 ) -> None:
     key_lines.append("Signing public key (hex):")
     key_lines.extend(_format_hex_lines(sign_pub))
@@ -146,7 +147,7 @@ def _append_signing_key_lines(
     if stored_as_shards:
         key_lines.append("Signing private key stored in separate shard documents.")
     if not stored_in_main and not stored_as_shards:
-        key_lines.append("Signing private key not stored.")
+        key_lines.append(not_stored_message)
 
 
 def _hexdump(data: bytes, *, max_bytes: int | None) -> str:

@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Callable, TypeVar, cast
 
 import questionary
-from rich.padding import Padding
 
 from ethernity.cli.shared.paths import expanduser_cli_path
 from ethernity.cli.shared.ui.prompts_core import (
@@ -33,7 +32,8 @@ from ethernity.cli.shared.ui.prompts_core import (
     prompt_optional,
     prompt_required,
 )
-from ethernity.cli.shared.ui.state import UIContext, format_hint
+from ethernity.cli.shared.ui.renderables import hint_box
+from ethernity.cli.shared.ui.state import UIContext
 
 
 def _list_picker_entries(
@@ -116,7 +116,7 @@ def _run_picker_flow(
         )
         if input_mode == "select":
             if picker_help_text:
-                context.console.print(Padding(format_hint(picker_help_text), (0, 0, 0, 1)))
+                context.console.print(hint_box([picker_help_text]))
             directory = prompt_optional_path(
                 directory_prompt,
                 kind="dir",
@@ -164,7 +164,7 @@ def _prompt_select_entries(
     choices = [questionary.Choice(title=label, value=value) for value, label in entries]
     while True:
         if help_text:
-            context.console.print(Padding(format_hint(help_text), (0, 0, 0, 1)))
+            context.console.print(hint_box([help_text]))
         values = _ask_question(
             questionary.checkbox(
                 prompt,
@@ -247,7 +247,7 @@ def prompt_path_with_picker(
     if directory_help_text is None:
         directory_help_text = "Pick the folder to list for selection."
     if picker_help_text is None:
-        picker_help_text = "Use arrow keys to choose an entry."
+        picker_help_text = "Use arrow keys, j/k, or Ctrl-N/Ctrl-P to choose an entry."
     if picker_prompt is None:
         picker_prompt = "Select a path"
 
@@ -305,7 +305,7 @@ def prompt_optional_path_with_picker(
     if directory_help_text is None:
         directory_help_text = "Pick the folder to list for selection."
     if picker_help_text is None:
-        picker_help_text = "Use arrow keys to choose an entry."
+        picker_help_text = "Use arrow keys, j/k, or Ctrl-N/Ctrl-P to choose an entry."
     if picker_prompt is None:
         picker_prompt = "Select a path"
 

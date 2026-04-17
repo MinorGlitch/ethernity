@@ -21,7 +21,8 @@ from unittest import mock
 
 import typer
 
-from ethernity.cli.shared.types import CliContextState, RecoverArgs
+from ethernity.cli.features.config.onboarding import FirstRunOnboardingResult
+from ethernity.cli.shared.types import CliContextState, CompactArgs, ExtendArgs, RecoverArgs
 from ethernity.config import BackupDefaults, CliDefaults, DebugDefaults, UiDefaults
 
 app_module = importlib.import_module("ethernity.cli.bootstrap.app")
@@ -34,6 +35,107 @@ class _Ctx:
 
 
 class TestCliApp(unittest.TestCase):
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",
+        return_value=("secret", [], [], [], []),
+    )
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_paths_with_picker", return_value=["/tmp/input"])
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_path_with_picker", return_value="/tmp/root")
+    def test_prompt_home_extend_args_prompts_root_then_passphrase_then_files(
+        self,
+        prompt_path_with_picker: mock.MagicMock,
+        prompt_paths_with_picker: mock.MagicMock,
+        prompt_passphrase_unlock_material: mock.MagicMock,
+    ) -> None:
+        calls: list[str] = []
+
+        def _record_root(*args, **kwargs):
+            calls.append("root")
+            return "/tmp/root"
+
+        def _record_unlock(*args, **kwargs):
+            calls.append("passphrase")
+            return ("secret", [], [], [], [])
+
+        def _record_paths(*args, **kwargs):
+            calls.append("paths")
+            return ["/tmp/input"]
+
+        prompt_path_with_picker.side_effect = _record_root
+        prompt_paths_with_picker.side_effect = _record_paths
+        prompt_passphrase_unlock_material.side_effect = _record_unlock
+
+        args = app_module._prompt_home_extend_args(
+            config="cfg",
+            paper="A4",
+            design="forge",
+            quiet=False,
+        )
+
+        self.assertEqual(calls, ["root", "passphrase", "paths"])
+        self.assertEqual(args.root_dir, "/tmp/root")
+        self.assertEqual(args.input, ["/tmp/input"])
+        self.assertIsNone(args.input_dir)
+        self.assertEqual(args.passphrase, "secret")
+
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",
+        return_value=(None, ["shards.txt"], ["payloads.txt"], ["scan.pdf"], [object()]),
+    )
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_paths_with_picker", return_value=["/tmp/input"])
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_path_with_picker", return_value="/tmp/root")
+    def test_prompt_home_extend_args_preserves_shard_unlock_inputs(
+        self,
+        _prompt_path_with_picker: mock.MagicMock,
+        _prompt_paths_with_picker: mock.MagicMock,
+        _prompt_passphrase_unlock_material: mock.MagicMock,
+    ) -> None:
+        args = app_module._prompt_home_extend_args(
+            config="cfg",
+            paper="A4",
+            design="forge",
+            quiet=False,
+        )
+
+        self.assertIsNone(args.passphrase)
+        self.assertEqual(args.shard_fallback_file, ["shards.txt"])
+        self.assertEqual(args.shard_payloads_file, ["payloads.txt"])
+        self.assertEqual(args.shard_scan, ["scan.pdf"])
+        self.assertEqual(len(args.shard_frames or []), 1)
+
+    @mock.patch("ethernity.cli.bootstrap.app._prompt_home_auth_inputs")
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",
+        return_value=(None, ["shards.txt"], ["payloads.txt"], ["scan.pdf"], [object()]),
+    )
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_optional_path_with_picker",
+        return_value="/tmp/output",
+    )
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_path_with_picker", return_value="/tmp/root")
+    def test_prompt_home_compact_args_preserves_shard_inputs_without_extra_auth_prompt(
+        self,
+        _prompt_path_with_picker: mock.MagicMock,
+        _prompt_optional_path_with_picker: mock.MagicMock,
+        _prompt_passphrase_unlock_material: mock.MagicMock,
+        prompt_home_auth_inputs: mock.MagicMock,
+    ) -> None:
+        args = app_module._prompt_home_compact_args(
+            config="cfg",
+            paper="A4",
+            design="forge",
+            quiet=False,
+        )
+
+        self.assertIsNone(args.passphrase)
+        self.assertEqual(args.shard_fallback_file, ["shards.txt"])
+        self.assertEqual(args.shard_payloads_file, ["payloads.txt"])
+        self.assertEqual(args.shard_scan, ["scan.pdf"])
+        self.assertEqual(len(args.shard_frames or []), 1)
+        prompt_home_auth_inputs.assert_not_called()
+        self.assertIsNone(args.auth_fallback_file)
+        self.assertIsNone(args.auth_payloads_file)
+
     def test_argv_invokes_api_detects_top_level_api_surface(self) -> None:
         self.assertTrue(app_module._argv_invokes_api(["ethernity", "api"]))
         self.assertTrue(app_module._argv_invokes_api(["ethernity", "--config", "cfg.toml", "api"]))
@@ -393,9 +495,12 @@ class TestCliApp(unittest.TestCase):
     @mock.patch("ethernity.cli.bootstrap.app.run_recover_wizard", return_value=0)
     @mock.patch("ethernity.cli.bootstrap.app._run_cli", side_effect=lambda func, debug: func())
     @mock.patch("ethernity.cli.bootstrap.app.empty_recover_args", return_value=RecoverArgs())
-    @mock.patch("ethernity.cli.bootstrap.app.prompt_home_action", return_value="recover")
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_home_action")
     @mock.patch("ethernity.cli.bootstrap.app.ui_screen_mode", return_value=contextlib.nullcontext())
-    @mock.patch("ethernity.cli.bootstrap.app.run_first_run_config_wizard", return_value=False)
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.run_first_run_config_wizard",
+        return_value=FirstRunOnboardingResult(applied_defaults=False, launch_action="recover"),
+    )
     @mock.patch("ethernity.cli.bootstrap.app.load_cli_defaults", return_value=CliDefaults())
     @mock.patch("ethernity.cli.bootstrap.app._resolve_config_and_paper", return_value=("cfg", "A4"))
     @mock.patch("ethernity.cli.bootstrap.app.sys.stdout.isatty", return_value=True)
@@ -410,7 +515,7 @@ class TestCliApp(unittest.TestCase):
         _load_cli_defaults: mock.MagicMock,
         _run_first_run_config_wizard: mock.MagicMock,
         ui_screen_mode: mock.MagicMock,
-        _prompt_home_action: mock.MagicMock,
+        prompt_home_action: mock.MagicMock,
         _empty_recover_args: mock.MagicMock,
         _run_cli: mock.MagicMock,
         run_recover_wizard: mock.MagicMock,
@@ -430,7 +535,8 @@ class TestCliApp(unittest.TestCase):
             init_config=False,
             version=False,
         )
-        ui_screen_mode.assert_called_once_with(quiet=False)
+        ui_screen_mode.assert_not_called()
+        prompt_home_action.assert_not_called()
         run_recover_wizard.assert_called_once()
         self.assertTrue(run_recover_wizard.call_args.kwargs["debug"])
         _empty_recover_args.assert_called_once_with(
@@ -491,6 +597,108 @@ class TestCliApp(unittest.TestCase):
         )
         run_mint_wizard.assert_called_once()
         self.assertTrue(run_mint_wizard.call_args.kwargs["debug"])
+
+    @mock.patch("ethernity.cli.bootstrap.app.run_extend_command", return_value=0)
+    @mock.patch("ethernity.cli.bootstrap.app._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch("ethernity.cli.bootstrap.app._prompt_home_extend_args")
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_home_action", return_value="extend")
+    @mock.patch("ethernity.cli.bootstrap.app.ui_screen_mode", return_value=contextlib.nullcontext())
+    @mock.patch("ethernity.cli.bootstrap.app.run_first_run_config_wizard", return_value=False)
+    @mock.patch("ethernity.cli.bootstrap.app.load_cli_defaults", return_value=CliDefaults())
+    @mock.patch("ethernity.cli.bootstrap.app._resolve_config_and_paper", return_value=("cfg", "A4"))
+    @mock.patch("ethernity.cli.bootstrap.app.sys.stdout.isatty", return_value=True)
+    @mock.patch("ethernity.cli.bootstrap.app.sys.stdin.isatty", return_value=True)
+    @mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False)
+    def test_cli_interactive_extend_route(
+        self,
+        _run_startup: mock.MagicMock,
+        _stdin_tty: mock.MagicMock,
+        _stdout_tty: mock.MagicMock,
+        _resolve_config_and_paper: mock.MagicMock,
+        _load_cli_defaults: mock.MagicMock,
+        _run_first_run_config_wizard: mock.MagicMock,
+        ui_screen_mode: mock.MagicMock,
+        _prompt_home_action: mock.MagicMock,
+        prompt_home_extend_args: mock.MagicMock,
+        _run_cli: mock.MagicMock,
+        run_extend_command: mock.MagicMock,
+    ) -> None:
+        ctx = _Ctx(invoked_subcommand=None)
+        extend_args = ExtendArgs(root_dir="/root", input_dir=["/input"], passphrase="secret")
+        prompt_home_extend_args.return_value = extend_args
+        app_module.cli(
+            ctx,
+            config=None,
+            paper=None,
+            design="forge",
+            debug=True,
+            debug_max_bytes=1024,
+            debug_reveal_secrets=False,
+            quiet=False,
+            no_color=False,
+            no_animations=False,
+            init_config=False,
+            version=False,
+        )
+        ui_screen_mode.assert_called_once_with(quiet=False)
+        prompt_home_extend_args.assert_called_once_with(
+            config="cfg",
+            paper="A4",
+            design="forge",
+            quiet=False,
+        )
+        run_extend_command.assert_called_once_with(extend_args, debug=True)
+
+    @mock.patch("ethernity.cli.bootstrap.app.run_compact_command", return_value=0)
+    @mock.patch("ethernity.cli.bootstrap.app._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch("ethernity.cli.bootstrap.app._prompt_home_compact_args")
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_home_action", return_value="compact")
+    @mock.patch("ethernity.cli.bootstrap.app.ui_screen_mode", return_value=contextlib.nullcontext())
+    @mock.patch("ethernity.cli.bootstrap.app.run_first_run_config_wizard", return_value=False)
+    @mock.patch("ethernity.cli.bootstrap.app.load_cli_defaults", return_value=CliDefaults())
+    @mock.patch("ethernity.cli.bootstrap.app._resolve_config_and_paper", return_value=("cfg", "A4"))
+    @mock.patch("ethernity.cli.bootstrap.app.sys.stdout.isatty", return_value=True)
+    @mock.patch("ethernity.cli.bootstrap.app.sys.stdin.isatty", return_value=True)
+    @mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False)
+    def test_cli_interactive_compact_route(
+        self,
+        _run_startup: mock.MagicMock,
+        _stdin_tty: mock.MagicMock,
+        _stdout_tty: mock.MagicMock,
+        _resolve_config_and_paper: mock.MagicMock,
+        _load_cli_defaults: mock.MagicMock,
+        _run_first_run_config_wizard: mock.MagicMock,
+        ui_screen_mode: mock.MagicMock,
+        _prompt_home_action: mock.MagicMock,
+        prompt_home_compact_args: mock.MagicMock,
+        _run_cli: mock.MagicMock,
+        run_compact_command: mock.MagicMock,
+    ) -> None:
+        ctx = _Ctx(invoked_subcommand=None)
+        compact_args = CompactArgs(root_dir="/root", output_dir="/out", passphrase="secret")
+        prompt_home_compact_args.return_value = compact_args
+        app_module.cli(
+            ctx,
+            config=None,
+            paper=None,
+            design="forge",
+            debug=False,
+            debug_max_bytes=1024,
+            debug_reveal_secrets=False,
+            quiet=False,
+            no_color=False,
+            no_animations=False,
+            init_config=False,
+            version=False,
+        )
+        ui_screen_mode.assert_called_once_with(quiet=False)
+        prompt_home_compact_args.assert_called_once_with(
+            config="cfg",
+            paper="A4",
+            design="forge",
+            quiet=False,
+        )
+        run_compact_command.assert_called_once_with(compact_args, debug=False)
 
     @mock.patch("ethernity.cli.bootstrap.app.run_wizard", return_value=0)
     @mock.patch("ethernity.cli.bootstrap.app._run_cli", side_effect=lambda func, debug: func())

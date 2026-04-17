@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 from ethernity.cli.features.backup.execution import run_backup as _run_backup
 from ethernity.cli.features.backup.planning import build_document_plan
@@ -65,10 +66,15 @@ from ethernity.config import (
     ONBOARDING_FIELD_SHARDING,
     ONBOARDING_FIELD_TEMPLATE_DESIGN,
     AppConfig,
+    PageSize as ConfigPageSize,
+    QrErrorCorrection as ConfigQrErrorCorrection,
+    SigningKeyMode as ConfigSigningKeyMode,
+    apply_first_run_defaults,
     apply_template_design,
     first_run_onboarding_configured_fields,
     list_template_designs,
     load_app_config,
+    mark_first_run_onboarding_complete,
 )
 from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
 from ethernity.core.models import DocumentPlan, ShardingConfig, SigningSeedMode
@@ -77,8 +83,17 @@ from ethernity.formats import (
     payload_codec as payload_codec_module,
 )
 from ethernity.formats.envelope_types import SIGNING_SEED_LEN, PayloadPart
+from ethernity.render.types import RenderLineage
 
 _KIT_INDEX_TEMPLATE_MARKER = "kit_index_inventory_artifacts_v3"
+_BACKUP_WIZARD_SAVEABLE_FIELDS = frozenset(
+    {
+        ONBOARDING_FIELD_TEMPLATE_DESIGN,
+        ONBOARDING_FIELD_PAGE_SIZE,
+        ONBOARDING_FIELD_BACKUP_OUTPUT_DIR,
+        ONBOARDING_FIELD_SHARDING,
+    }
+)
 
 
 def _format_backup_input_error(exc: Exception) -> str:
@@ -165,9 +180,9 @@ def _prompt_recovery_options(
 
     if debug_override is None:
         debug = prompt_yes_no(
-            "Show pre-encryption debug output",
+            "Show sensitive debug details before encryption",
             default=False,
-            help_text="Includes plaintext details; use only for troubleshooting.",
+            help_text="This can reveal plaintext details. Use it only for local troubleshooting.",
         )
     else:
         debug = debug_override
@@ -207,7 +222,7 @@ def _prompt_layout(
             "custom": "Custom config file (TOML)",
         }
         layout_choice = prompt_choice(
-            "Paper size",
+            "Choose paper size",
             layout_choices,
             default=DEFAULT_PAPER_SIZE.lower(),
             help_text="Choose a paper size or select a custom TOML config.",
@@ -272,7 +287,7 @@ def _prompt_design(args: BackupArgs | None, *, prompt_when_unset: bool = True) -
         for name in design_names
     }
     return prompt_choice(
-        "Template design",
+        "Choose print design",
         choices,
         default=default,
         help_text="Design folders are discovered from packaged templates (copied to user config).",
@@ -285,15 +300,15 @@ def _prompt_backup_setup_mode(*, offer_quick: bool) -> bool:
     if not offer_quick:
         return False
     mode = prompt_choice(
-        "Backup setup mode",
+        "How much setup do you want",
         {
-            "quick": "Quick run (use saved onboarding defaults)",
-            "advanced": "Advanced (review all backup options)",
+            "quick": "Use saved defaults where possible",
+            "advanced": "Review every backup option",
         },
         default="quick",
         help_text=(
-            "Quick mode skips prompts for options configured during onboarding. "
-            "Choose Advanced to customize everything for this run."
+            "Quick mode skips prompts for settings already saved during onboarding. "
+            "Choose the full review if this backup needs custom settings."
         ),
     )
     return mode == "quick"
@@ -327,10 +342,10 @@ def _prompt_inputs(
                 "Press Enter to keep the saved default output directory, or enter a different "
                 "folder for this run."
                 if output_dir
-                else "Creates a backup-<id> folder in current directory."
+                else "Leave blank to create a backup-<id> folder in the current directory."
             )
             selected_output_dir = prompt_optional(
-                "Output folder (press Enter for default)",
+                "Output folder",
                 help_text=output_help,
             )
             if selected_output_dir is not None:
@@ -543,7 +558,7 @@ def _print_completion_actions(result: BackupResult, quiet: bool) -> None:
     output_dir = str(Path(result.qr_path).parent)
     actions = [
         f"Saved to {output_dir}",
-        "Print the QR document and store it securely.",
+        "Print the main document and store it securely.",
         "Store the recovery document separately.",
     ]
     if result.kit_index_path:
@@ -556,6 +571,77 @@ def _print_completion_actions(result: BackupResult, quiet: bool) -> None:
         )
     actions.append("Run `ethernity recover` to verify the backup.")
     print_completion_panel("Backup complete", actions, quiet=quiet)
+
+
+def _active_design_name(config: AppConfig) -> str:
+    return config.template_path.parent.name
+
+
+def _persist_backup_defaults_from_wizard(
+    *,
+    config_path: str | None,
+    config: AppConfig,
+    plan: DocumentPlan,
+    output_dir: str | None,
+    configured_fields: frozenset[str],
+) -> None:
+    backup_defaults = config.cli_defaults.backup
+    signing_key_mode: ConfigSigningKeyMode | None = (
+        None if plan.sharding is None else plan.signing_seed_mode.value
+    )
+    apply_first_run_defaults(
+        config_path,
+        design=_active_design_name(config),
+        payload_codec=backup_defaults.payload_codec,
+        qr_payload_codec=backup_defaults.qr_payload_codec,
+        qr_error_correction=cast(ConfigQrErrorCorrection, config.qr_config.error),
+        page_size=cast(ConfigPageSize, config.paper_size),
+        backup_output_dir=output_dir,
+        qr_chunk_size=config.qr_chunk_size,
+        shard_threshold=plan.sharding.threshold if plan.sharding is not None else None,
+        shard_count=plan.sharding.shares if plan.sharding is not None else None,
+        signing_key_mode=signing_key_mode,
+        signing_key_shard_threshold=(
+            plan.signing_seed_sharding.threshold if plan.signing_seed_sharding is not None else None
+        ),
+        signing_key_shard_count=(
+            plan.signing_seed_sharding.shares if plan.signing_seed_sharding is not None else None
+        ),
+    )
+    mark_first_run_onboarding_complete(
+        configured_fields=set(configured_fields | _BACKUP_WIZARD_SAVEABLE_FIELDS)
+    )
+
+
+def _maybe_save_backup_defaults(
+    *,
+    config_path: str | None,
+    config: AppConfig,
+    plan: DocumentPlan,
+    output_dir: str | None,
+    quiet: bool,
+    configured_fields: frozenset[str],
+) -> None:
+    if quiet or configured_fields.issuperset(_BACKUP_WIZARD_SAVEABLE_FIELDS):
+        return
+    should_save = prompt_yes_no(
+        "Save these backup choices for future runs",
+        default=True,
+        help_text=(
+            "This saves the layout and recovery settings you just used. Use "
+            "`ethernity config --onboard` any time to review or save more defaults."
+        ),
+    )
+    if not should_save:
+        return
+    _persist_backup_defaults_from_wizard(
+        config_path=config_path,
+        config=config,
+        plan=plan,
+        output_dir=output_dir,
+        configured_fields=configured_fields,
+    )
+    console.print("[success]Saved these backup defaults for future runs.[/success]")
 
 
 def run_wizard(
@@ -588,10 +674,10 @@ def run_wizard(
     with ui_screen_mode(quiet=quiet):
         with wizard_flow(name="Backup", total_steps=5, quiet=quiet):
             if not quiet:
-                console.print("[title]Ethernity backup wizard[/title]")
-                console.print("[subtitle]Guided setup for backup documents.[/subtitle]")
+                console.print("[title]Create backup[/title]")
                 console.print(
-                    "[subtitle]Defaults favor recovery (2-of-3 shards, unsealed).[/subtitle]"
+                    "[subtitle]Default choices favor easier recovery (2-of-3 shards, unsealed)."
+                    "[/subtitle]"
                 )
             quick_mode = False
             passphrase: str | None = None
@@ -736,9 +822,9 @@ def run_wizard(
                 with wizard_stage("Review", step_number=5):
                     console.print(panel("Review", build_review_table(review_rows)))
                     if not assume_yes and not prompt_yes_no(
-                        "Proceed with backup",
+                        "Create backup documents",
                         default=True,
-                        help_text="Select no to cancel.",
+                        help_text="Select no to go back without writing anything.",
                     ):
                         console.print("Backup cancelled.")
                         return 1
@@ -783,6 +869,14 @@ def run_wizard(
             )
             print_backup_summary(result, plan, passphrase, quiet=quiet)
             _print_completion_actions(result, quiet)
+            _maybe_save_backup_defaults(
+                config_path=config_path,
+                config=config,
+                plan=plan,
+                output_dir=output_dir,
+                quiet=quiet,
+                configured_fields=configured_fields,
+            )
     return 0
 
 
@@ -826,6 +920,7 @@ def run_backup(
     passphrase: str | None,
     passphrase_words: int | None = None,
     config: AppConfig,
+    render_lineage: RenderLineage | None = None,
     debug: bool = False,
     debug_max_bytes: int | None = None,
     debug_reveal_secrets: bool = False,
@@ -845,6 +940,7 @@ def run_backup(
         passphrase=passphrase,
         passphrase_words=passphrase_words,
         config=config,
+        render_lineage=render_lineage,
         debug=debug,
         debug_max_bytes=debug_max_bytes,
         debug_reveal_secrets=debug_reveal_secrets,

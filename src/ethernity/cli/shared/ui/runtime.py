@@ -30,7 +30,6 @@ from rich.progress import (
     TextColumn,
     TimeElapsedColumn,
 )
-from rich.rule import Rule
 from rich.spinner import Spinner
 from rich.text import Text
 
@@ -79,10 +78,16 @@ def ui_screen_mode(
     previous_screen_mode = context.screen_mode
     previous_compact_prompt_headers = context.compact_prompt_headers
     previous_stage_prompt_count = context.stage_prompt_count
+    previous_stage_title = context.current_stage_title
+    previous_stage_help_text = context.current_stage_help_text
+    previous_choice_navigation_hint_seen = context.choice_navigation_hint_seen
     active = enabled and not quiet
     context.screen_mode = active
     context.compact_prompt_headers = active
     context.stage_prompt_count = 0
+    context.current_stage_title = None
+    context.current_stage_help_text = None
+    context.choice_navigation_hint_seen = False
     try:
         if active:
             clear_screen(context=context)
@@ -91,6 +96,9 @@ def ui_screen_mode(
         context.screen_mode = previous_screen_mode
         context.compact_prompt_headers = previous_compact_prompt_headers
         context.stage_prompt_count = previous_stage_prompt_count
+        context.current_stage_title = previous_stage_title
+        context.current_stage_help_text = previous_stage_help_text
+        context.choice_navigation_hint_seen = previous_choice_navigation_hint_seen
 
 
 @contextmanager
@@ -116,18 +124,26 @@ def wizard_stage(
 ) -> Generator[None, None, None]:
     context = _resolve_context(context)
     state = context.wizard_state
+    previous_stage_title = context.current_stage_title
+    previous_stage_help_text = context.current_stage_help_text
+    context.current_stage_title = title
+    context.current_stage_help_text = help_text
     context.stage_prompt_count = 0
-    if state is not None and not state.quiet:
-        display_step = step_number if step_number is not None else state.step + 1
-        if display_step > 1:
-            clear_screen(context=context)
-            context.console.print()
-        state.step = display_step
-        step_label = f"Step {display_step}/{state.total_steps} - {title}"
-        context.console.print(Rule(Text(step_label, style="title"), style="rule", align="left"))
-        if help_text:
-            context.console.print(Padding(format_hint(help_text), (0, 0, 0, 1)))
-    yield
+    try:
+        if state is not None and not state.quiet:
+            display_step = step_number if step_number is not None else state.step + 1
+            if display_step > 1:
+                clear_screen(context=context)
+                context.console.print()
+            state.step = display_step
+            step_label = Text(f"Step {display_step} of {state.total_steps}: {title}", style="title")
+            context.console.print(step_label)
+            if help_text:
+                context.console.print(Padding(format_hint(help_text), (0, 0, 0, 1)))
+        yield
+    finally:
+        context.current_stage_title = previous_stage_title
+        context.current_stage_help_text = previous_stage_help_text
 
 
 @contextmanager
