@@ -30,6 +30,14 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
+class RenderLineage:
+    """Render-time lineage metadata for root, extension, and compacted artifacts."""
+
+    kind: Literal["root_backup", "extension", "compaction_checkpoint"]
+    extension_index: int | None = None
+
+
+@dataclass(frozen=True)
 class FallbackSection:
     """A labeled frame included in fallback text sections."""
 
@@ -56,6 +64,7 @@ class RenderInputs:
     recovery_meta: "RecoveryMeta | None" = None
     render_jobs: int | Literal["auto"] | None = None
     layout_debug_json_path: str | Path | None = None
+    lineage: RenderLineage | None = None
 
 
 @dataclass(frozen=True)

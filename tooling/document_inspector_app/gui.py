@@ -49,6 +49,7 @@ class InspectorApp:
         self.batch_report_json = json_text({"entries": []})
         self._session_counter = 0
         self._sessions: dict[str, SessionState] = {}
+        self._pending_reparse_after_id: str | None = None
 
         self._build_ui()
         self._new_session()
@@ -85,9 +86,15 @@ class InspectorApp:
         ttk.Label(input_frame, text="Passphrase", style="ActionBar.TLabel").pack(
             side="left", padx=(0, 4)
         )
-        ttk.Entry(input_frame, textvariable=self.passphrase_var, show="*", width=16).pack(
-            side="left"
+        self.passphrase_entry = ttk.Entry(
+            input_frame,
+            textvariable=self.passphrase_var,
+            show="*",
+            width=16,
         )
+        self.passphrase_entry.pack(side="left")
+        self.passphrase_entry.bind("<Return>", self._on_passphrase_commit, add=True)
+        self.passphrase_var.trace_add("write", self._on_passphrase_changed)
 
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=10, pady=1)
 
@@ -121,7 +128,10 @@ class InspectorApp:
         self.export_menu.add_command(label="Decrypted Files", command=self._export_current_files)
         self.export_menu.add_command(label="Payloads", command=self._export_current_payloads)
         self.export_menu.add_command(label="Fallback Text", command=self._export_current_fallback)
-        self.export_menu.add_command(label="Manifest JSON", command=self._export_current_manifest)
+        self.export_menu.add_command(
+            label="Document JSON",
+            command=self._export_current_document_json,
+        )
         self.export_menu.add_separator()
         self.export_menu.add_command(label="Batch Report", command=self._export_batch_report)
         self.export_menu_button.configure(menu=self.export_menu)
@@ -191,14 +201,22 @@ class InspectorApp:
         self.frame_fallback_text = self._build_text_tab(frame_details, "Fallback")
         right.add(frames_tab, text="Frames")
 
-        # Tab 3: Data (Manifest, Files, Payloads, Fallback as sub-tabs)
+        # Tab 3: Data (Document, Files, Payloads, Fallback as sub-tabs)
         data_tab = ttk.Frame(right, padding=6, style="NotebookPage.TFrame")
         data_tab.columnconfigure(0, weight=1)
         data_tab.rowconfigure(0, weight=1)
         data_nb = ttk.Notebook(data_tab)
         data_nb.grid(row=0, column=0, sticky="nsew")
 
-        self.manifest_text_widget = self._build_text_tab(data_nb, "Manifest")
+        document_frame = ttk.Frame(data_nb, padding=6, style="NotebookPage.TFrame")
+        document_frame.columnconfigure(0, weight=1)
+        document_frame.rowconfigure(0, weight=3)
+        document_frame.rowconfigure(1, weight=2)
+        self.document_text_widget = self._build_child_text(document_frame)
+        self.document_text_widget.grid(row=0, column=0, sticky="nsew")
+        self.projection_diagnostics_text_widget = self._build_child_text(document_frame)
+        self.projection_diagnostics_text_widget.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
+        data_nb.add(document_frame, text="Document")
 
         files_frame = ttk.Frame(data_nb, padding=6, style="NotebookPage.TFrame")
         files_frame.columnconfigure(0, weight=1)
@@ -311,6 +329,33 @@ class InspectorApp:
     def _on_focus_in(self, _event=None) -> None:
         self._sync_theme()
 
+    def _on_passphrase_commit(self, _event=None) -> str:
+        self._cancel_pending_reparse()
+        self._reparse_current_session_if_ready()
+        return "break"
+
+    def _on_passphrase_changed(self, *_args) -> None:
+        self._cancel_pending_reparse()
+        self._pending_reparse_after_id = self.root.after(250, self._reparse_after_passphrase_change)
+
+    def _cancel_pending_reparse(self) -> None:
+        if self._pending_reparse_after_id is None:
+            return
+        self.root.after_cancel(self._pending_reparse_after_id)
+        self._pending_reparse_after_id = None
+
+    def _reparse_after_passphrase_change(self) -> None:
+        self._pending_reparse_after_id = None
+        self._reparse_current_session_if_ready()
+
+    def _reparse_current_session_if_ready(self) -> None:
+        session = self._current_session()
+        if session is None:
+            return
+        if not session.text_widget.get("1.0", END).strip():
+            return
+        self._parse_current_session()
+
     def _sync_theme(self) -> None:
         self.theme.refresh()
         self.mono_font.configure(family=self.theme.mono_font_family, size=11)
@@ -333,7 +378,11 @@ class InspectorApp:
             self.frame_payload_text, "Select a frame to inspect normalized payload text.\n"
         )
         self._set_text(self.frame_fallback_text, "Select a frame to inspect fallback text.\n")
-        self._set_text(self.manifest_text_widget, "No manifest available.\n")
+        self._set_text(self.document_text_widget, "No decoded document available.\n")
+        self._set_text(
+            self.projection_diagnostics_text_widget,
+            "No projection diagnostics available.\n",
+        )
         self._set_text(self.file_preview_text, "No file previews available.\n")
         self._set_text(self.payloads_text, "No normalized payloads available.\n")
         self._set_text(self.fallback_text_widget, "No fallback text available.\n")
@@ -655,7 +704,11 @@ class InspectorApp:
 
         self._set_text(self.summary_text, result.summary_text)
         self._set_text(self.diagnostics_text, result.diagnostics_text)
-        self._set_text(self.manifest_text_widget, result.manifest_text)
+        self._set_text(self.document_text_widget, result.document_text)
+        self._set_text(
+            self.projection_diagnostics_text_widget,
+            result.projection_diagnostics_text,
+        )
         self._set_text(
             self.payloads_text,
             result.normalized_payload_text or "No normalized payloads available.\n",
@@ -696,12 +749,12 @@ class InspectorApp:
             ):
                 self._set_text(widget, text)
 
-        for index, record in enumerate(result.files):
+        for index, file_record in enumerate(result.files):
             self.file_tree.insert(
                 "",
                 END,
                 iid=str(index),
-                values=(record.path, record.size, record.preview_kind),
+                values=(file_record.path, file_record.size, file_record.preview_kind),
             )
         if result.files:
             self.file_tree.selection_set("0")
@@ -709,8 +762,13 @@ class InspectorApp:
         else:
             self._set_text(self.file_preview_text, "No decrypted file previews available.\n")
 
-        for index, record in enumerate(result.recovered_secrets):
-            self.secret_tree.insert("", END, iid=str(index), values=(record.label, record.status))
+        for index, secret_record in enumerate(result.recovered_secrets):
+            self.secret_tree.insert(
+                "",
+                END,
+                iid=str(index),
+                values=(secret_record.label, secret_record.status),
+            )
         if result.recovered_secrets:
             self.secret_tree.selection_set("0")
             self._on_secret_selected()
@@ -839,26 +897,26 @@ class InspectorApp:
             Path(path).write_text(result.combined_fallback_text, encoding="utf-8")
             self.status_var.set(f"Exported fallback text to {path}.")
 
-    def _export_current_manifest(self) -> None:
-        exported = self._require_result_for_export("Export Manifest")
+    def _export_current_document_json(self) -> None:
+        exported = self._require_result_for_export("Export Document JSON")
         if exported is None:
             return
         session, result = exported
-        if result.manifest_json_text is None:
+        if result.document_json_text is None:
             messagebox.showinfo(
-                "Export Manifest",
-                "No manifest JSON is available. Reassemble MAIN frames and provide "
-                "the passphrase first.",
+                "Export Document JSON",
+                "No document JSON is available. Reassemble MAIN frames, provide the "
+                "passphrase, and include the root backup when inspecting an extension set.",
             )
             return
         path = filedialog.asksaveasfilename(
-            title="Export manifest JSON",
+            title="Export document JSON",
             defaultextension=".json",
-            initialfile=f"{session.title.replace(' ', '_').lower()}_manifest.json",
+            initialfile=f"{session.title.replace(' ', '_').lower()}_document.json",
         )
         if path:
-            Path(path).write_text(result.manifest_json_text, encoding="utf-8")
-            self.status_var.set(f"Exported manifest JSON to {path}.")
+            Path(path).write_text(result.document_json_text, encoding="utf-8")
+            self.status_var.set(f"Exported document JSON to {path}.")
 
     def _export_current_files(self) -> None:
         exported = self._require_result_for_export("Export Files")

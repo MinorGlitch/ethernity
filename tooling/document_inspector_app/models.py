@@ -49,8 +49,9 @@ class InspectionResult:
     diagnostics_text: str
     normalized_payload_text: str
     combined_fallback_text: str
-    manifest_text: str
-    manifest_json_text: str | None
+    document_text: str
+    document_json_text: str | None
+    projection_diagnostics_text: str
     frame_records: tuple[FrameRecord, ...]
     files: tuple[FileRecord, ...]
     recovered_secrets: tuple[RecoveredSecretRecord, ...]

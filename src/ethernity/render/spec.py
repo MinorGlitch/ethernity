@@ -203,7 +203,7 @@ def document_spec(
             instructions,
             lines=(
                 "This document contains recovery keys and full text fallback.",
-                "Keep it separate from the QR document.",
+                "Keep it separate from the main document.",
                 "Fallback includes AUTH + MAIN sections; keep the labels when transcribing.",
             ),
         )

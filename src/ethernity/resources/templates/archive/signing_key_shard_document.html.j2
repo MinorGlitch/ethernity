@@ -459,7 +459,7 @@
           </div>
           <div class="badge-col">
             <div class="badge">Shard {{ shard_index }} / {{ shard_total }}</div>
-            <span class="conf">Confidential</span>
+            <span class="conf">{{ copy.lineage_badge if copy.lineage_badge is defined else 'Confidential' }}</span>
           </div>
         </div>
 

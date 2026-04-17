@@ -25,7 +25,7 @@ from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
 from ethernity.render import RenderInputs, pdf_render as pdf_render_module, render_frames_to_pdf
 from ethernity.render.recovery_meta import build_recovery_meta
-from ethernity.render.types import Layout
+from ethernity.render.types import Layout, RenderLineage
 from tests.test_support import ensure_playwright_browsers
 
 
@@ -131,6 +131,48 @@ class TestPdfRender(unittest.TestCase):
         inventory_rows = rendered_context["inventory_rows"]
         self.assertEqual(inventory_rows[0]["component_id"], "QR-DOC-01")
         self.assertNotIn("forge_copy", rendered_context)
+        self.assertEqual(rendered_context["lineage"]["kind"], "root_backup")
+
+    def test_render_frames_to_pdf_uses_lineage_aware_copy_for_document_title(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\x55" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        template_path = _template_path("ledger", "main_document.html.j2")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "out.pdf"
+            inputs = RenderInputs(
+                frames=frames,
+                template_path=template_path,
+                output_path=output_path,
+                context={"paper_size": "A4"},
+                doc_type="main",
+                render_qr=False,
+                render_fallback=False,
+                lineage=RenderLineage(kind="extension", extension_index=2),
+            )
+            with mock.patch("ethernity.render.pdf_render.render_html_to_pdf"):
+                with mock.patch(
+                    "ethernity.render.pdf_render.render_template",
+                    return_value="<html></html>",
+                ) as render_template_mock:
+                    render_frames_to_pdf(inputs)
+
+        rendered_context = render_template_mock.call_args[0][1]
+        self.assertEqual(rendered_context["lineage"]["kind"], "extension")
+        self.assertEqual(rendered_context["lineage"]["extension_index"], 2)
+        self.assertEqual(rendered_context["doc"]["title"], "Extension Main Document")
+        self.assertEqual(
+            rendered_context["doc"]["subtitle"],
+            "Extension 02 - Appended generation payload",
+        )
+        self.assertEqual(rendered_context["copy"]["lineage_badge"], "Extension 02")
 
     def test_render_frames_to_pdf_injects_forge_copy_from_style_capability(self) -> None:
         frames = [

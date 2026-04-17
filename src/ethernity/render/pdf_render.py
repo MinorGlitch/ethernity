@@ -52,13 +52,14 @@ from ethernity.render.spec import DocumentSpec, document_spec
 from ethernity.render.template_model import (
     DocModel,
     InstructionsModel,
+    LineageModel,
     RecoveryModel,
     TemplateContext,
 )
 from ethernity.render.template_style import TemplateCapabilities, load_template_style
 from ethernity.render.templating import render_template
 from ethernity.render.text import page_format
-from ethernity.render.types import RenderInputs
+from ethernity.render.types import RenderInputs, RenderLineage
 from ethernity.version import get_ethernity_version
 
 _QR_URL_PREFIX = "https://ethernity.local/qr/"
@@ -200,6 +201,14 @@ def _layout_spec(spec: DocumentSpec, doc_id: str, page_label: str) -> DocumentSp
     """Return a spec copy with header doc/page metadata populated."""
 
     return spec.with_header(doc_id=doc_id, page_label=page_label)
+
+
+def _lineage_payload(lineage: RenderLineage | None) -> dict[str, object]:
+    resolved = lineage or RenderLineage(kind="root_backup")
+    return {
+        "kind": resolved.kind,
+        "extension_index": resolved.extension_index,
+    }
 
 
 def _page_size_css(spec: DocumentSpec) -> str:
@@ -447,6 +456,19 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
             quorum_value=recovery_meta.quorum_value,
             signing_pub_lines=recovery_meta.signing_pub_lines,
         )
+    lineage = inputs.lineage or RenderLineage(kind="root_backup")
+    template_context: dict[str, object] = {
+        "lineage": _lineage_payload(lineage),
+        "shard_index": base_context.get("shard_index", 1),
+    }
+    shard_total = base_context.get("shard_total", 1)
+    template_context["shard_total"] = shard_total
+    template_context["shard_threshold"] = base_context.get("shard_threshold", shard_total)
+    for key in _CONTEXT_PASSTHROUGH_KEYS:
+        if key in base_context:
+            template_context[key] = base_context[key]
+    template_name = Path(inputs.template_path).name
+    copy = build_copy_bundle(template_name=template_name, context=template_context)
     context = TemplateContext(
         page_size_css=_page_size_css(spec),
         page_width_mm=layout.page_w,
@@ -455,7 +477,14 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
         usable_width_mm=layout.usable_w,
         doc_id=str(doc_id),
         created_timestamp_utc=created_timestamp_utc,
-        doc=DocModel(title=spec.header.title, subtitle=spec.header.subtitle),
+        lineage=LineageModel(
+            kind=lineage.kind,
+            extension_index=lineage.extension_index,
+        ),
+        doc=DocModel(
+            title=str(copy.get("title", spec.header.title)),
+            subtitle=str(copy.get("subtitle", spec.header.subtitle)),
+        ),
         instructions=InstructionsModel(
             label=spec.instructions.label or "Instructions",
             lines=tuple(spec.instructions.lines),
@@ -465,22 +494,14 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
         fallback_width_mm=layout.fallback_width,
         recovery=recovery_view,
     ).to_template_dict()
-
-    context["shard_index"] = base_context.get("shard_index", 1)
-    shard_total = base_context.get("shard_total", 1)
-    context["shard_total"] = shard_total
-    context["shard_threshold"] = base_context.get("shard_threshold", shard_total)
+    context.update(template_context)
     ethernity_version = _ethernity_version()
     context["ethernity_version"] = ethernity_version
-    for key in _CONTEXT_PASSTHROUGH_KEYS:
-        if key in base_context:
-            context[key] = base_context[key]
     if style.capabilities.inject_forge_copy:
         context["forge_copy"] = asdict(_forge_copy_payload(ethernity_version=ethernity_version))
     if created_dt is not None:
         context["created_date"] = created_dt.date().isoformat()
-    template_name = Path(inputs.template_path).name
-    context["copy"] = build_copy_bundle(template_name=template_name, context=context)
+    context["copy"] = copy
 
     _write_layout_debug_json(
         output_path=inputs.output_path,

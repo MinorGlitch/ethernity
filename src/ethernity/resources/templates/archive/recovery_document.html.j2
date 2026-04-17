@@ -423,7 +423,7 @@
         <div class="head-top">
           <h1 class="title">{{ doc.title }}</h1>
           <div class="badge-col">
-            <span class="badge">Confidential</span>
+            <span class="badge">{{ copy.lineage_badge if copy.lineage_badge is defined else 'Confidential' }}</span>
             <span class="subtitle">{{ doc.subtitle }}</span>
           </div>
         </div>

@@ -8,6 +8,7 @@ on:
       - "tests/**"
       - "scripts/**"
       - "docs/**"
+      - "tooling/**"
       - ".github/workflows/**"
       - ".github/actions/**"
       - ".github/dependabot.yml"
@@ -25,6 +26,7 @@ on:
       - "tests/**"
       - "scripts/**"
       - "docs/**"
+      - "tooling/**"
       - ".github/workflows/**"
       - ".github/actions/**"
       - ".github/dependabot.yml"
@@ -48,7 +50,6 @@ concurrency:
 
 jobs:
   lint:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -57,10 +58,9 @@ jobs:
       - name: Setup Python
         uses: ./.github/actions/setup-python
       - name: Ruff lint
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests tooling
 
   format:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -69,10 +69,9 @@ jobs:
       - name: Setup Python
         uses: ./.github/actions/setup-python
       - name: Ruff format
-        run: uv run ruff format --check src tests
+        run: uv run ruff format --check src tests tooling
 
   mypy:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -81,10 +80,9 @@ jobs:
       - name: Setup Python
         uses: ./.github/actions/setup-python
       - name: Mypy
-        run: uv run mypy src
+        run: uv run mypy src tooling
 
   pyright:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -96,7 +94,6 @@ jobs:
         run: uv run pyright
 
   schema:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -108,7 +105,6 @@ jobs:
         run: uv run check-jsonschema --check-metaschema docs/cli_api.schema.json
 
   typos:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -120,7 +116,6 @@ jobs:
         run: uv run typos .
 
   kit-lint:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -143,7 +138,6 @@ jobs:
         run: npm run format:check
 
   test:
-    if: github.event_name != 'schedule'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -181,7 +175,6 @@ jobs:
         run: uv run pytest tests/integration -v
 
   e2e:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -195,7 +188,6 @@ jobs:
         run: uv run pytest tests/e2e -v
 
   coverage:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -219,8 +211,24 @@ jobs:
             --cov-report=term-missing \
             --cov-fail-under=85
 
+  tooling-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+      - name: Document inspector coverage
+        run: |
+          uv run pytest \
+            tests/unit/test_document_inspector_tool.py \
+            tests/unit/test_document_inspector_app_support.py \
+            --cov=tooling.document_inspector_app \
+            --cov-report=term-missing \
+            --cov-fail-under=45
+
   package:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -242,7 +250,6 @@ jobs:
           python3 -m ethernity --help > /dev/null
 
   kit-verify:
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

@@ -147,7 +147,7 @@
     {% set forge_header_title = copy.title %}
     {% set forge_header_subtitle = copy.subtitle %}
     {% set forge_header_kicker = 'The Forge // Secure Offline Storage' %}
-    {% set forge_header_classification = 'Authorized Personnel Only' %}
+    {% set forge_header_classification = copy.lineage_badge if copy.lineage_badge is defined else 'Authorized Personnel Only' %}
     {% set forge_header_guidance = copy.header_guidance %}
     {% set forge_header_ref = doc_id %}
     {% set forge_header_icon = 'inventory_2' %}

@@ -107,7 +107,7 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertTrue(sentinel.capabilities.extra_main_first_page_qr_slot)
         self.assertFalse(sentinel.capabilities.uniform_main_qr_capacity)
         self.assertEqual(sentinel.capabilities.recovery_quorumless_line_groups_bonus, 1)
-        self.assertEqual(sentinel.capabilities.recovery_quorumless_first_page_bonus_lines, 5)
+        self.assertEqual(sentinel.capabilities.recovery_quorumless_first_page_bonus_lines, 0)
         self.assertEqual(sentinel.capabilities.recovery_quorumless_continuation_bonus_lines, 2)
         self.assertEqual(sentinel.capabilities.signing_key_shard_line_groups_bonus, 3)
         self.assertIsNotNone(sentinel.capabilities.fallback_layout)

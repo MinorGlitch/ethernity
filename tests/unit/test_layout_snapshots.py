@@ -49,7 +49,7 @@ _EXPECTED_LAYOUT_SNAPSHOT: dict[str, tuple[int, int, int, int, float, float]] = 
     "maritime.shard": (10, 14, 9, 9, 4.2, 4.2),
     "maritime.signing_key_shard": (10, 14, 9, 9, 4.2, 4.2),
     "sentinel.main": (24, 14, 6, 9, 4.2, 4.2),
-    "sentinel.recovery": (31, 40, 6, 9, 5.8, 5.8),
+    "sentinel.recovery": (30, 40, 6, 9, 5.8, 5.8),
     "sentinel.shard": (10, 10, 9, 9, 4.8, 4.8),
     "sentinel.signing_key_shard": (17, 11, 9, 9, 4.2, 4.2),
 }
