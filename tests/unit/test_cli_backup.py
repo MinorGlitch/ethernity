@@ -252,6 +252,35 @@ class TestCliBackup(unittest.TestCase):
                                         )
                                         chunk_mock.assert_called_once()
 
+    def test_run_backup_sets_root_backup_lineage_on_render_inputs(self) -> None:
+        config = load_app_config(path=DEFAULT_CONFIG_PATH)
+        plan = DocumentPlan(version=1, sealed=False, sharding=None)
+        input_file = cli.InputFile(
+            source_path=Path("input.bin"),
+            relative_path="input.bin",
+            data=b"payload",
+            mtime=None,
+        )
+        rendered_inputs: list[object] = []
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "out"
+            with mock.patch(
+                "ethernity.render.render_frames_to_pdf",
+                side_effect=lambda inputs: rendered_inputs.append(inputs),
+            ):
+                cli.run_backup(
+                    input_files=[input_file],
+                    base_dir=None,
+                    output_dir=str(output_dir),
+                    plan=plan,
+                    passphrase="manual-pass",
+                    config=config,
+                )
+
+        self.assertGreaterEqual(len(rendered_inputs), 2)
+        self.assertTrue(all(inputs.lineage.kind == "root_backup" for inputs in rendered_inputs))
+
     def test_run_backup_warns_when_chunk_size_reduced(self) -> None:
         config = load_app_config(path=DEFAULT_CONFIG_PATH)
         config = replace(config, qr_chunk_size=1024)
@@ -1533,6 +1562,133 @@ class TestCliBackupUx(unittest.TestCase):
         self.assertIsNone(recovery_args.signing_key_mode)
         self.assertIsNone(recovery_args.signing_key_shard_threshold)
         self.assertIsNone(recovery_args.signing_key_shard_count)
+
+    def test_backup_wizard_offers_to_save_defaults_after_success(self) -> None:
+        input_file = cli.InputFile(
+            source_path=Path("input.txt"),
+            relative_path="input.txt",
+            data=b"payload",
+            mtime=None,
+        )
+        backup_result = cli.BackupResult(
+            doc_id=b"\x11" * 16,
+            qr_path="/tmp/out/qr_document.pdf",
+            recovery_path="/tmp/out/recovery_document.pdf",
+            shard_paths=(),
+            signing_key_shard_paths=(),
+            passphrase_used="pass",
+        )
+        config = load_app_config(path=DEFAULT_CONFIG_PATH)
+
+        with contextlib.ExitStack() as stack:
+            handles = _enter_backup_wizard_patches(
+                stack,
+                input_file=input_file,
+                onboarding_fields=frozenset(),
+                prompt_yes_no=True,
+                run_backup_result=backup_result,
+                include_print_summary=True,
+                include_print_actions=True,
+                include_wizard_flow=True,
+                include_wizard_stage=True,
+                include_console_print=True,
+            )
+            handles["load_app_config"].return_value = config
+            handles["apply_template_design"].return_value = config
+            handles["prompt_yes_no"].side_effect = [True]
+            handles["_prompt_inputs"].return_value = (
+                [input_file],
+                None,
+                "/tmp/saved-out",
+                "file",
+                [],
+            )
+            handles["_prompt_recovery_options"].return_value = (
+                False,
+                False,
+                SigningSeedMode.SHARDED,
+                ShardingConfig(threshold=2, shares=3),
+                ShardingConfig(threshold=1, shares=2),
+            )
+            handles["apply_first_run_defaults"] = stack.enter_context(
+                _patch_backup_orchestrator(
+                    "apply_first_run_defaults",
+                    return_value=Path("/tmp/config.toml"),
+                )
+            )
+            handles["mark_first_run_onboarding_complete"] = stack.enter_context(
+                _patch_backup_orchestrator("mark_first_run_onboarding_complete")
+            )
+
+            result = cli.run_wizard(
+                quiet=False,
+                args=BackupArgs(assume_yes=True, quiet=False),
+            )
+
+        self.assertEqual(result, 0)
+        handles["prompt_yes_no"].assert_called_once()
+        handles["apply_first_run_defaults"].assert_called_once()
+        apply_kwargs = handles["apply_first_run_defaults"].call_args.kwargs
+        self.assertEqual(apply_kwargs["page_size"], config.paper_size)
+        self.assertEqual(apply_kwargs["backup_output_dir"], "/tmp/saved-out")
+        self.assertEqual(apply_kwargs["shard_threshold"], 2)
+        self.assertEqual(apply_kwargs["shard_count"], 3)
+        self.assertEqual(apply_kwargs["signing_key_mode"], "sharded")
+        self.assertEqual(apply_kwargs["signing_key_shard_threshold"], 1)
+        self.assertEqual(apply_kwargs["signing_key_shard_count"], 2)
+        handles["mark_first_run_onboarding_complete"].assert_called_once()
+        self.assertEqual(
+            handles["mark_first_run_onboarding_complete"].call_args.kwargs["configured_fields"],
+            {"template_design", "page_size", "backup_output_dir", "sharding"},
+        )
+
+    def test_backup_wizard_skips_save_defaults_prompt_when_backup_defaults_already_configured(
+        self,
+    ) -> None:
+        input_file = cli.InputFile(
+            source_path=Path("input.txt"),
+            relative_path="input.txt",
+            data=b"payload",
+            mtime=None,
+        )
+        backup_result = cli.BackupResult(
+            doc_id=b"\x11" * 16,
+            qr_path="/tmp/out/qr_document.pdf",
+            recovery_path="/tmp/out/recovery_document.pdf",
+            shard_paths=(),
+            signing_key_shard_paths=(),
+            passphrase_used="pass",
+        )
+        config = load_app_config(path=DEFAULT_CONFIG_PATH)
+
+        with contextlib.ExitStack() as stack:
+            handles = _enter_backup_wizard_patches(
+                stack,
+                input_file=input_file,
+                onboarding_fields=frozenset(
+                    {"template_design", "page_size", "backup_output_dir", "sharding"}
+                ),
+                prompt_backup_setup_mode=True,
+                run_backup_result=backup_result,
+                include_print_summary=True,
+                include_print_actions=True,
+                include_wizard_flow=True,
+                include_wizard_stage=True,
+                include_console_print=True,
+            )
+            handles["load_app_config"].return_value = config
+            handles["apply_template_design"].return_value = config
+            handles["apply_first_run_defaults"] = stack.enter_context(
+                _patch_backup_orchestrator("apply_first_run_defaults")
+            )
+
+            result = cli.run_wizard(
+                quiet=False,
+                args=BackupArgs(assume_yes=True, quiet=False),
+            )
+
+        self.assertEqual(result, 0)
+        handles["apply_first_run_defaults"].assert_not_called()
 
 
 if __name__ == "__main__":

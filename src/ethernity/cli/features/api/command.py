@@ -18,15 +18,20 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 import click
 import typer
 
 from ethernity.cli.features.backup.api_handlers import run_backup_api_command
+from ethernity.cli.features.compact.api_handlers import run_compact_api_command
 from ethernity.cli.features.config.api_handlers import (
     run_config_get_api_command,
     run_config_set_api_command,
+)
+from ethernity.cli.features.extend.api_handlers import (
+    run_extend_api_command,
+    run_extend_inspect_api_command,
 )
 from ethernity.cli.features.mint.api_handlers import (
     run_mint_api_command,
@@ -39,9 +44,12 @@ from ethernity.cli.features.recover.api_handlers import (
 from ethernity.cli.features.recover.service import RecoverShardDirError, expand_recover_shard_dir
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.common import _ctx_state, _paper_callback, _resolve_config_and_paper
+from ethernity.cli.shared.events import started_event_emitted
 from ethernity.cli.shared.ndjson import (
+    SCHEMA_VERSION,
     ApiCommandError,
     emit_error,
+    emit_started,
     error_code_for_exception,
     error_details_for_exception,
     ndjson_session,
@@ -49,57 +57,100 @@ from ethernity.cli.shared.ndjson import (
 from ethernity.cli.shared.paths import expanduser_cli_path
 from ethernity.cli.shared.types import (
     BackupArgs,
+    CompactArgs,
     ConfigGetArgs,
     ConfigSetArgs,
+    ExtendArgs,
     MintArgs,
     RecoverArgs,
 )
 from ethernity.config import BackupDefaults
 
 _API_HELP = (
-    "Machine-readable CLI surface for GUI and automation integrations.\n\n"
+    "Machine-readable CLI for GUI clients and automation.\n\n"
     "Commands under `ethernity api` write NDJSON events to stdout."
 )
 
 _RECOVER_HELP = (
-    "Recover data from QR payloads or fallback text and emit NDJSON progress/events.\n\n"
-    "This command is intended for GUI or automation use and requires --output."
+    "Recover data from QR payloads or fallback text and stream NDJSON events.\n\n"
+    "For GUI clients and automation. Requires --output."
 )
 
-_BACKUP_HELP = (
-    "Create backup documents and emit NDJSON progress/events.\n\n"
-    "This command is intended for GUI or automation use."
-)
+_BACKUP_HELP = "Create backup files and stream NDJSON events.\n\nFor GUI clients and automation."
 
 _MINT_HELP = (
-    "Mint fresh shard PDFs for an existing backup and emit NDJSON progress/events.\n\n"
-    "This command is intended for GUI or automation use."
+    "Mint fresh shard PDFs for an existing backup and stream NDJSON events.\n\n"
+    "For GUI clients and automation."
+)
+
+_EXTEND_HELP = (
+    "Create a new extension update inside a backup root folder "
+    "(writable backup root) and stream NDJSON events.\n\n"
+    "For GUI clients and automation."
+)
+
+_COMPACT_HELP = (
+    "Compact a backup root folder (writable backup root) into a fresh standalone backup "
+    "and stream NDJSON events.\n\n"
+    "For GUI clients and automation."
 )
 
 _CONFIG_HELP = (
     "Read or update app configuration and onboarding metadata via NDJSON.\n\n"
-    "This command is intended for GUI and automation use."
+    "For GUI clients and automation."
 )
 
 _INSPECT_HELP = (
-    "Inspect recover and mint readiness and emit NDJSON state/events.\n\n"
+    "Inspect recover, extend, and mint readiness and stream NDJSON state/events.\n\n"
     "Inspect commands do not write files or emit artifact events."
 )
 
 SigningKeyMode = Literal["embedded", "sharded"]
 
 
+class _DisplayOnlyParamType(click.ParamType):
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def convert(self, value: str, param: click.Parameter | None, ctx: click.Context | None) -> str:
+        return value
+
+
+_INTEGER_HELP_TYPE = _DisplayOnlyParamType("INTEGER")
+_MODE_HELP_TYPE = _DisplayOnlyParamType("MODE")
+_POLICY_HELP_TYPE = _DisplayOnlyParamType("POLICY")
+
+
 def register(app: typer.Typer) -> None:
-    api_app = typer.Typer(help=_API_HELP, add_completion=False)
-    config_app = typer.Typer(help=_CONFIG_HELP, add_completion=False)
-    inspect_app = typer.Typer(help=_INSPECT_HELP, add_completion=False)
+    context_settings = {"help_option_names": ["-h", "--help"]}
+    api_app = typer.Typer(
+        help=_API_HELP,
+        context_settings=context_settings,
+    )
+    config_app = typer.Typer(
+        help=_CONFIG_HELP,
+        context_settings=context_settings,
+    )
+    inspect_app = typer.Typer(
+        help=_INSPECT_HELP,
+        context_settings=context_settings,
+    )
     api_app.command(name="backup", help=_BACKUP_HELP)(backup)
+    api_app.command(name="compact", help=_COMPACT_HELP)(compact)
+    api_app.command(name="extend", help=_EXTEND_HELP)(extend)
     api_app.command(name="mint", help=_MINT_HELP)(mint)
     api_app.command(name="recover", help=_RECOVER_HELP)(recover)
     inspect_app.command(
         name="recover",
         help="Inspect recover readiness via NDJSON.",
     )(inspect_recover)
+    inspect_app.command(
+        name="extend",
+        help=(
+            "Inspect whether an extension can be unlocked and applied "
+            "(extension-chain readiness) via NDJSON."
+        ),
+    )(inspect_extend)
     inspect_app.command(name="mint", help="Inspect mint readiness via NDJSON.")(inspect_mint)
     config_app.command(name="get", help="Read the active config as NDJSON.")(config_get)
     config_app.command(name="set", help="Apply a JSON config patch and emit NDJSON.")(config_set)
@@ -108,13 +159,25 @@ def register(app: typer.Typer) -> None:
     app.add_typer(api_app, name="api")
 
 
-def _run_ndjson_command(func: Callable[[], int | None]) -> None:
+def _emit_fallback_started(started: tuple[str, dict[str, Any]] | None) -> None:
+    if started is None or started_event_emitted():
+        return
+    command, args = started
+    emit_started(command=command, schema_version=SCHEMA_VERSION, args=args)
+
+
+def _run_ndjson_command(
+    func: Callable[[], int | None],
+    *,
+    started: tuple[str, dict[str, Any]] | None = None,
+) -> None:
     with ndjson_session():
         try:
             result = func()
         except typer.Exit:
             raise
         except (KeyboardInterrupt, click.Abort) as exc:
+            _emit_fallback_started(started)
             emit_error(
                 code=error_code_for_exception(exc),
                 message="Cancelled by user",
@@ -122,6 +185,7 @@ def _run_ndjson_command(func: Callable[[], int | None]) -> None:
             )
             raise typer.Exit(code=130) from exc
         except Exception as exc:
+            _emit_fallback_started(started)
             details = {"error_type": type(exc).__name__}
             details.update(error_details_for_exception(exc))
             emit_error(
@@ -230,6 +294,329 @@ def _parse_signing_key_mode(value: str | None) -> str | None:
     return normalized
 
 
+def _parse_unlock_policy(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized not in {"self-contained", "reuse-root"}:
+        raise ApiCommandError(
+            code=api_codes.INVALID_INPUT,
+            message="--unlock-policy must be 'self-contained' or 'reuse-root'",
+            details={"option": "--unlock-policy", "value": value},
+        )
+    return normalized
+
+
+def _stringify_paths(values: list[Path] | None) -> list[str]:
+    return [str(path) for path in values or []]
+
+
+def _normalized_paper_for_started(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().upper()
+    return normalized if normalized in {"A4", "LETTER"} else None
+
+
+def _optional_int_for_started(value: str | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value, 10)
+    except ValueError:
+        return None
+
+
+def _normalized_signing_key_mode_for_started(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    return normalized if normalized in {"embedded", "sharded"} else None
+
+
+def _normalized_unlock_policy_for_started(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    return normalized if normalized in {"self-contained", "reuse-root"} else None
+
+
+def _normalized_extension_doc_hash_for_started(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if len(normalized) != 64:
+        return None
+    if any(char not in "0123456789abcdef" for char in normalized):
+        return None
+    return normalized
+
+
+def _config_started_args(
+    ctx: typer.Context,
+    *,
+    config: str | None,
+    operation: str,
+    input_json: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "operation": operation,
+        "config": _explicit_api_config_value(ctx, config),
+        "input_json": input_json,
+    }
+
+
+def _recover_started_args_for_error(
+    ctx: typer.Context,
+    *,
+    state: object | None,
+    config: str | None,
+    paper: str | None,
+    fallback_file: str | None,
+    payloads_file: str | None,
+    scan: list[str] | None,
+    passphrase: str | None,
+    shard_fallback_file: list[str] | None,
+    shard_payloads_file: list[str] | None,
+    shard_scan: list[str] | None,
+    auth_fallback_file: str | None,
+    auth_payloads_file: str | None,
+    extension_index: str | None,
+    extension_doc_hash: str | None,
+    output: str | None,
+    allow_unsigned: bool,
+    operation: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "config": _explicit_api_config_value(ctx, config),
+        "paper": _normalized_paper_for_started(paper),
+        "fallback_file": fallback_file,
+        "payloads_file": payloads_file,
+        "scan": list(scan or []),
+        "has_passphrase": passphrase is not None,
+        "shard_fallback_file": list(shard_fallback_file or []),
+        "shard_payloads_file": list(shard_payloads_file or []),
+        "shard_scan": list(shard_scan or []),
+        "auth_fallback_file": auth_fallback_file,
+        "auth_payloads_file": auth_payloads_file,
+        "extension_index": _optional_int_for_started(extension_index),
+        "extension_doc_hash": _normalized_extension_doc_hash_for_started(extension_doc_hash),
+        "allow_unsigned": allow_unsigned,
+        "quiet": True,
+        "debug": _state_debug_enabled(state),
+    }
+    if operation is not None:
+        payload["operation"] = operation
+    else:
+        payload["output"] = output
+    return payload
+
+
+def _backup_started_args_for_error(
+    ctx: typer.Context,
+    *,
+    state: object | None,
+    config: str | None,
+    paper: str | None,
+    design: str | None,
+    input: list[Path] | None,
+    input_dir: list[Path] | None,
+    base_dir: str | None,
+    output_dir: str | None,
+    qr_chunk_size: str | None,
+    passphrase: str | None,
+    passphrase_generate: bool,
+    passphrase_words: str | None,
+    sealed: bool,
+    shard_threshold: str | None,
+    shard_count: str | None,
+    signing_key_mode: str | None,
+    signing_key_shard_threshold: str | None,
+    signing_key_shard_count: str | None,
+    layout_debug_dir: str | None,
+) -> dict[str, Any]:
+    return {
+        "config": _explicit_api_config_value(ctx, config),
+        "paper": _normalized_paper_for_started(paper),
+        "design": design or _state_design(state),
+        "input": _stringify_paths(input),
+        "input_dir": _stringify_paths(input_dir),
+        "base_dir": base_dir,
+        "output_dir": output_dir,
+        "layout_debug_dir": layout_debug_dir,
+        "qr_chunk_size": _optional_int_for_started(qr_chunk_size),
+        "has_passphrase": passphrase is not None,
+        "passphrase_generate": passphrase is None,
+        "passphrase_generate_requested": passphrase_generate,
+        "passphrase_words": _optional_int_for_started(passphrase_words),
+        "sealed": sealed,
+        "shard_threshold": _optional_int_for_started(shard_threshold),
+        "shard_count": _optional_int_for_started(shard_count),
+        "signing_key_mode": _normalized_signing_key_mode_for_started(signing_key_mode),
+        "signing_key_shard_threshold": _optional_int_for_started(signing_key_shard_threshold),
+        "signing_key_shard_count": _optional_int_for_started(signing_key_shard_count),
+        "quiet": True,
+        "debug": _state_debug_enabled(state),
+    }
+
+
+def _compact_started_args_for_error(
+    ctx: typer.Context,
+    *,
+    state: object | None,
+    config: str | None,
+    paper: str | None,
+    design: str | None,
+    root_dir: str | None,
+    output_dir: str | None,
+    shard_fallback_file: list[str] | None,
+    shard_payloads_file: list[str] | None,
+    shard_scan: list[str] | None,
+    auth_fallback_file: str | None,
+    auth_payloads_file: str | None,
+    layout_debug_dir: str | None,
+    qr_chunk_size: str | None,
+    passphrase: str | None,
+) -> dict[str, Any]:
+    return {
+        "config": _explicit_api_config_value(ctx, config),
+        "paper": _normalized_paper_for_started(paper),
+        "design": design or _state_design(state),
+        "root_dir": root_dir,
+        "output_dir": output_dir,
+        "shard_fallback_file": list(shard_fallback_file or []),
+        "shard_payloads_file": list(shard_payloads_file or []),
+        "shard_scan": list(shard_scan or []),
+        "auth_fallback_file": auth_fallback_file,
+        "auth_payloads_file": auth_payloads_file,
+        "layout_debug_dir": layout_debug_dir,
+        "qr_chunk_size": _optional_int_for_started(qr_chunk_size),
+        "has_passphrase": passphrase is not None,
+        "quiet": True,
+        "debug": _state_debug_enabled(state),
+    }
+
+
+def _extend_started_args_for_error(
+    ctx: typer.Context,
+    *,
+    state: object | None,
+    config: str | None,
+    paper: str | None,
+    design: str | None,
+    root_dir: str | None,
+    input: list[Path] | None,
+    input_dir: list[Path] | None,
+    base_dir: str | None,
+    layout_debug_dir: str | None,
+    qr_chunk_size: str | None,
+    passphrase: str | None,
+    shard_fallback_file: list[str] | None,
+    shard_payloads_file: list[str] | None,
+    shard_scan: list[str] | None,
+    unlock_policy: str | None,
+    shard_threshold: str | None,
+    shard_count: str | None,
+    signing_key_mode: str | None,
+    signing_key_shard_threshold: str | None,
+    signing_key_shard_count: str | None,
+    operation: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "config": _explicit_api_config_value(ctx, config),
+        "paper": _normalized_paper_for_started(paper),
+        "design": design or _state_design(state),
+        "root_dir": root_dir,
+        "input": _stringify_paths(input),
+        "input_dir": _stringify_paths(input_dir),
+        "base_dir": base_dir,
+        "has_passphrase": passphrase is not None,
+        "shard_fallback_file": list(shard_fallback_file or []),
+        "shard_payloads_file": list(shard_payloads_file or []),
+        "shard_scan": list(shard_scan or []),
+        "unlock_policy": _normalized_unlock_policy_for_started(unlock_policy),
+        "shard_threshold": _optional_int_for_started(shard_threshold),
+        "shard_count": _optional_int_for_started(shard_count),
+        "signing_key_mode": _normalized_signing_key_mode_for_started(signing_key_mode),
+        "signing_key_shard_threshold": _optional_int_for_started(signing_key_shard_threshold),
+        "signing_key_shard_count": _optional_int_for_started(signing_key_shard_count),
+        "quiet": True,
+        "debug": _state_debug_enabled(state),
+    }
+    if operation is not None:
+        payload["operation"] = operation
+    else:
+        payload["layout_debug_dir"] = layout_debug_dir
+        payload["qr_chunk_size"] = _optional_int_for_started(qr_chunk_size)
+    return payload
+
+
+def _mint_started_args_for_error(
+    ctx: typer.Context,
+    *,
+    state: object | None,
+    config: str | None,
+    paper: str | None,
+    design: str | None,
+    fallback_file: str | None,
+    payloads_file: str | None,
+    scan: list[str] | None,
+    passphrase: str | None,
+    shard_fallback_file: list[str] | None,
+    shard_payloads_file: list[str] | None,
+    shard_scan: list[str] | None,
+    auth_fallback_file: str | None,
+    auth_payloads_file: str | None,
+    signing_key_shard_fallback_file: list[str] | None,
+    signing_key_shard_payloads_file: list[str] | None,
+    signing_key_shard_scan: list[str] | None,
+    output_dir: str | None,
+    layout_debug_dir: str | None,
+    shard_threshold: str | None,
+    shard_count: str | None,
+    signing_key_shard_threshold: str | None,
+    signing_key_shard_count: str | None,
+    passphrase_replacement_count: str | None,
+    signing_key_replacement_count: str | None,
+    mint_passphrase_shards: bool,
+    mint_signing_key_shards: bool,
+    operation: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "config": _explicit_api_config_value(ctx, config),
+        "paper": _normalized_paper_for_started(paper),
+        "design": design or _state_design(state),
+        "fallback_file": fallback_file,
+        "payloads_file": payloads_file,
+        "scan": list(scan or []),
+        "has_passphrase": passphrase is not None,
+        "shard_fallback_file": list(shard_fallback_file or []),
+        "shard_payloads_file": list(shard_payloads_file or []),
+        "shard_scan": list(shard_scan or []),
+        "auth_fallback_file": auth_fallback_file,
+        "auth_payloads_file": auth_payloads_file,
+        "signing_key_shard_fallback_file": list(signing_key_shard_fallback_file or []),
+        "signing_key_shard_payloads_file": list(signing_key_shard_payloads_file or []),
+        "signing_key_shard_scan": list(signing_key_shard_scan or []),
+        "shard_threshold": _optional_int_for_started(shard_threshold),
+        "shard_count": _optional_int_for_started(shard_count),
+        "signing_key_shard_threshold": _optional_int_for_started(signing_key_shard_threshold),
+        "signing_key_shard_count": _optional_int_for_started(signing_key_shard_count),
+        "passphrase_replacement_count": _optional_int_for_started(passphrase_replacement_count),
+        "signing_key_replacement_count": _optional_int_for_started(signing_key_replacement_count),
+        "mint_passphrase_shards": mint_passphrase_shards,
+        "mint_signing_key_shards": mint_signing_key_shards,
+        "quiet": True,
+        "debug": _state_debug_enabled(state),
+    }
+    if operation is not None:
+        payload["operation"] = operation
+    else:
+        payload["layout_debug_dir"] = layout_debug_dir
+        payload["output_dir"] = output_dir
+    return payload
+
+
 def _state_debug_enabled(state: object | None) -> bool:
     return bool(getattr(state, "debug", False)) if state is not None else False
 
@@ -268,6 +655,8 @@ def _build_recover_api_args(
     shard_scan: list[str] | None,
     auth_fallback_file: str | None,
     auth_payloads_file: str | None,
+    extension_index: int | None,
+    extension_doc_hash: str | None,
     output: str | None,
     allow_unsigned: bool,
 ) -> RecoverArgs:
@@ -289,6 +678,8 @@ def _build_recover_api_args(
         shard_scan=list(shard_scan or []),
         auth_fallback_file=auth_fallback_file,
         auth_payloads_file=auth_payloads_file,
+        extension_index=extension_index,
+        extension_doc_hash=extension_doc_hash,
         output=output,
         allow_unsigned=allow_unsigned,
         assume_yes=True,
@@ -314,6 +705,8 @@ def _run_recover_operation(
     shard_scan: list[str] | None,
     auth_fallback_file: str | None,
     auth_payloads_file: str | None,
+    extension_index: int | None,
+    extension_doc_hash: str | None,
     output: str | None,
     allow_unsigned: bool,
     handler: Callable[..., int],
@@ -333,6 +726,8 @@ def _run_recover_operation(
         shard_scan=list(shard_scan or []),
         auth_fallback_file=auth_fallback_file,
         auth_payloads_file=auth_payloads_file,
+        extension_index=extension_index,
+        extension_doc_hash=extension_doc_hash,
         output=output,
         allow_unsigned=allow_unsigned,
     )
@@ -578,6 +973,432 @@ def _build_backup_api_args(
     )
 
 
+def _build_extend_api_args(
+    *,
+    state: object | None,
+    config_value: str | None,
+    paper_value: str | None,
+    design: str | None,
+    root_dir: str | None,
+    input: list[Path] | None,
+    input_dir: list[Path] | None,
+    base_dir: str | None,
+    layout_debug_dir: str | None,
+    qr_chunk_size: str | None,
+    passphrase: str | None,
+    shard_fallback_file: list[str] | None,
+    shard_payloads_file: list[str] | None,
+    shard_scan: list[str] | None,
+    unlock_policy: str | None,
+    shard_threshold: str | None,
+    shard_count: str | None,
+    signing_key_mode: str | None,
+    signing_key_shard_threshold: str | None,
+    signing_key_shard_count: str | None,
+) -> ExtendArgs:
+    defaults = _state_backup_defaults(state)
+    qr_chunk_size_cli = _parse_api_int_option("--qr-chunk-size", qr_chunk_size)
+    unlock_policy_cli = _parse_unlock_policy(unlock_policy)
+    shard_threshold_cli = _parse_api_int_option("--shard-threshold", shard_threshold)
+    shard_count_cli = _parse_api_int_option("--shard-count", shard_count)
+    signing_key_mode_cli = _parse_signing_key_mode(signing_key_mode)
+    signing_key_shard_threshold_cli = _parse_api_int_option(
+        "--signing-key-shard-threshold",
+        signing_key_shard_threshold,
+    )
+    signing_key_shard_count_cli = _parse_api_int_option(
+        "--signing-key-shard-count",
+        signing_key_shard_count,
+    )
+    if unlock_policy_cli == "reuse-root":
+        shard_threshold_value = shard_threshold_cli
+        shard_count_value = shard_count_cli
+        signing_key_mode_value = signing_key_mode_cli
+        signing_key_shard_threshold_value = signing_key_shard_threshold_cli
+        signing_key_shard_count_value = signing_key_shard_count_cli
+    else:
+        shard_threshold_value = (
+            shard_threshold_cli if shard_threshold_cli is not None else defaults.shard_threshold
+        )
+        shard_count_value = shard_count_cli if shard_count_cli is not None else defaults.shard_count
+        signing_key_mode_value = (
+            signing_key_mode_cli if signing_key_mode_cli is not None else defaults.signing_key_mode
+        )
+        signing_key_shard_threshold_value = (
+            signing_key_shard_threshold_cli
+            if signing_key_shard_threshold_cli is not None
+            else defaults.signing_key_shard_threshold
+        )
+        signing_key_shard_count_value = (
+            signing_key_shard_count_cli
+            if signing_key_shard_count_cli is not None
+            else defaults.signing_key_shard_count
+        )
+    return ExtendArgs(
+        config=config_value,
+        paper=paper_value,
+        design=design or _state_design(state),
+        root_dir=root_dir,
+        input=[str(path) for path in (input or [])],
+        input_dir=[str(path) for path in (input_dir or [])],
+        base_dir=base_dir,
+        layout_debug_dir=layout_debug_dir,
+        qr_chunk_size=qr_chunk_size_cli,
+        passphrase=passphrase,
+        shard_fallback_file=list(shard_fallback_file or []),
+        shard_payloads_file=list(shard_payloads_file or []),
+        shard_scan=list(shard_scan or []),
+        unlock_policy=cast(
+            Literal["self-contained", "reuse-root"] | None,
+            unlock_policy_cli,
+        ),
+        shard_threshold=shard_threshold_value,
+        shard_count=shard_count_value,
+        signing_key_mode=cast(
+            SigningKeyMode | None,
+            signing_key_mode_value,
+        ),
+        signing_key_shard_threshold=signing_key_shard_threshold_value,
+        signing_key_shard_count=signing_key_shard_count_value,
+        quiet=True,
+    )
+
+
+def _build_compact_api_args(
+    *,
+    state: object | None,
+    config_value: str | None,
+    paper_value: str | None,
+    design: str | None,
+    root_dir: str | None,
+    output_dir: str | None,
+    shard_fallback_file: list[str] | None,
+    shard_payloads_file: list[str] | None,
+    shard_scan: list[str] | None,
+    auth_fallback_file: str | None,
+    auth_payloads_file: str | None,
+    layout_debug_dir: str | None,
+    qr_chunk_size: str | None,
+    passphrase: str | None,
+) -> CompactArgs:
+    defaults = _state_backup_defaults(state)
+    qr_chunk_size_cli = _parse_api_int_option("--qr-chunk-size", qr_chunk_size)
+    return CompactArgs(
+        config=config_value,
+        paper=paper_value,
+        design=design or _state_design(state),
+        root_dir=root_dir,
+        output_dir=output_dir if output_dir is not None else defaults.output_dir,
+        shard_fallback_file=shard_fallback_file,
+        shard_payloads_file=shard_payloads_file,
+        shard_scan=shard_scan,
+        auth_fallback_file=auth_fallback_file,
+        auth_payloads_file=auth_payloads_file,
+        layout_debug_dir=layout_debug_dir,
+        qr_chunk_size=qr_chunk_size_cli,
+        passphrase=passphrase,
+        quiet=True,
+    )
+
+
+def compact(
+    ctx: typer.Context,
+    root_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--root-dir",
+            help="Backup root folder (writable backup root) to compact. Required in API mode.",
+        ),
+    ] = None,
+    output_dir: Annotated[
+        str | None,
+        typer.Option("--output-dir", "-o", help="Where to write the compacted standalone backup."),
+    ] = None,
+    shard_fallback_file: Annotated[
+        list[str] | None,
+        typer.Option("--shard-fallback-file", help="Fallback text file with shard lines."),
+    ] = None,
+    shard_payloads_file: Annotated[
+        list[str] | None,
+        typer.Option("--shard-payloads-file", help="Text file with shard payload lines."),
+    ] = None,
+    shard_scan: Annotated[
+        list[str] | None,
+        typer.Option("--shard-scan", help="Passphrase shard document image/PDF to scan."),
+    ] = None,
+    auth_fallback_file: Annotated[
+        str | None,
+        typer.Option("--auth-fallback-file", help="Fallback text file for the AUTH payload."),
+    ] = None,
+    auth_payloads_file: Annotated[
+        str | None,
+        typer.Option("--auth-payloads-file", help="Text file with the AUTH payload line."),
+    ] = None,
+    layout_debug_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--layout-debug-dir", help="Write per-document layout diagnostics JSON files."
+        ),
+    ] = None,
+    qr_chunk_size: Annotated[
+        str | None,
+        typer.Option(
+            "--qr-chunk-size",
+            help="Preferred ciphertext bytes per QR frame.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
+    ] = None,
+    passphrase: Annotated[
+        str | None,
+        typer.Option("--passphrase", help="Passphrase to decrypt and compact with."),
+    ] = None,
+    config: Annotated[
+        str | None,
+        typer.Option("--config", help="Use this config file."),
+    ] = None,
+    paper: Annotated[
+        str | None,
+        typer.Option("--paper", help="Paper size override (A4/Letter)."),
+    ] = None,
+    design: Annotated[
+        str | None,
+        typer.Option("--design", help="Template design override for the compacted backup."),
+    ] = None,
+) -> None:
+    state = _ctx_state(ctx)
+
+    def _run() -> int:
+        config_value, paper_value = _resolve_api_config_and_paper(ctx, config, paper)
+        args = _build_compact_api_args(
+            state=state,
+            config_value=config_value,
+            paper_value=paper_value,
+            design=design,
+            root_dir=root_dir,
+            output_dir=output_dir,
+            shard_fallback_file=shard_fallback_file,
+            shard_payloads_file=shard_payloads_file,
+            shard_scan=shard_scan,
+            auth_fallback_file=auth_fallback_file,
+            auth_payloads_file=auth_payloads_file,
+            layout_debug_dir=layout_debug_dir,
+            qr_chunk_size=qr_chunk_size,
+            passphrase=passphrase,
+        )
+        return run_compact_api_command(args, debug=_state_debug_enabled(state))
+
+    _run_ndjson_command(
+        _run,
+        started=(
+            "compact",
+            _compact_started_args_for_error(
+                ctx,
+                state=state,
+                config=config,
+                paper=paper,
+                design=design,
+                root_dir=root_dir,
+                output_dir=output_dir,
+                shard_fallback_file=shard_fallback_file,
+                shard_payloads_file=shard_payloads_file,
+                shard_scan=shard_scan,
+                auth_fallback_file=auth_fallback_file,
+                auth_payloads_file=auth_payloads_file,
+                layout_debug_dir=layout_debug_dir,
+                qr_chunk_size=qr_chunk_size,
+                passphrase=passphrase,
+            ),
+        ),
+    )
+
+
+def extend(
+    ctx: typer.Context,
+    root_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--root-dir",
+            help="Backup root folder (writable backup root) to extend. Required in API mode.",
+        ),
+    ] = None,
+    input: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--input",
+            "-i",
+            help="File to include in selected scope (repeatable, use - for stdin).",
+        ),
+    ] = None,
+    input_dir: Annotated[
+        list[Path] | None,
+        typer.Option("--input-dir", help="Directory to include in selected scope (repeatable)."),
+    ] = None,
+    base_dir: Annotated[
+        str | None,
+        typer.Option("--base-dir", help="Base path for stored relative names."),
+    ] = None,
+    qr_chunk_size: Annotated[
+        str | None,
+        typer.Option(
+            "--qr-chunk-size",
+            help="Preferred ciphertext bytes per QR frame.",
+            metavar="INTEGER",
+        ),
+    ] = None,
+    passphrase: Annotated[
+        str | None,
+        typer.Option(
+            "--passphrase",
+            help="Passphrase to decrypt the root and encrypt the extension.",
+        ),
+    ] = None,
+    shard_fallback_file: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--shard-fallback-file",
+            help="Passphrase shard recovery text file for unlocking the existing backup.",
+        ),
+    ] = None,
+    shard_payloads_file: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--shard-payloads-file",
+            help="Passphrase shard QR payload file for unlocking the existing backup.",
+        ),
+    ] = None,
+    shard_scan: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--shard-scan",
+            help="Passphrase shard image/PDF to scan for unlocking the existing backup.",
+        ),
+    ] = None,
+    unlock_policy: Annotated[
+        str | None,
+        typer.Option(
+            "--unlock-policy",
+            help="Extension unlock artifact policy. Accepted values: self-contained, reuse-root.",
+            click_type=_POLICY_HELP_TYPE,
+        ),
+    ] = None,
+    shard_threshold: Annotated[
+        str | None,
+        typer.Option(
+            "--shard-threshold",
+            help="Minimum passphrase shards needed to recover.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
+    ] = None,
+    shard_count: Annotated[
+        str | None,
+        typer.Option(
+            "--shard-count",
+            help="Total passphrase shard documents to create.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
+    ] = None,
+    signing_key_mode: Annotated[
+        str | None,
+        typer.Option(
+            "--signing-key-mode",
+            help="Signing key handling for the new extension. Accepted values: embedded, sharded.",
+            click_type=_MODE_HELP_TYPE,
+        ),
+    ] = None,
+    signing_key_shard_threshold: Annotated[
+        str | None,
+        typer.Option(
+            "--signing-key-shard-threshold",
+            help="Signing-key shard threshold.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
+    ] = None,
+    signing_key_shard_count: Annotated[
+        str | None,
+        typer.Option(
+            "--signing-key-shard-count",
+            help="Signing-key shard count.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
+    ] = None,
+    layout_debug_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--layout-debug-dir", help="Write per-document layout diagnostics JSON files."
+        ),
+    ] = None,
+    config: Annotated[
+        str | None,
+        typer.Option("--config", help="Use this config file."),
+    ] = None,
+    paper: Annotated[
+        str | None,
+        typer.Option("--paper", help="Paper size override (A4/Letter)."),
+    ] = None,
+    design: Annotated[
+        str | None,
+        typer.Option("--design", help="Template design override for the new extension output."),
+    ] = None,
+) -> None:
+    state = _ctx_state(ctx)
+
+    def _run() -> int:
+        config_value, paper_value = _resolve_api_config_and_paper(ctx, config, paper)
+        args = _build_extend_api_args(
+            state=state,
+            config_value=config_value,
+            paper_value=paper_value,
+            design=design,
+            root_dir=root_dir,
+            input=input,
+            input_dir=input_dir,
+            base_dir=base_dir,
+            layout_debug_dir=layout_debug_dir,
+            qr_chunk_size=qr_chunk_size,
+            passphrase=passphrase,
+            shard_fallback_file=shard_fallback_file,
+            shard_payloads_file=shard_payloads_file,
+            shard_scan=shard_scan,
+            unlock_policy=unlock_policy,
+            shard_threshold=shard_threshold,
+            shard_count=shard_count,
+            signing_key_mode=signing_key_mode,
+            signing_key_shard_threshold=signing_key_shard_threshold,
+            signing_key_shard_count=signing_key_shard_count,
+        )
+        return run_extend_api_command(args, debug=_state_debug_enabled(state))
+
+    _run_ndjson_command(
+        _run,
+        started=(
+            "extend",
+            _extend_started_args_for_error(
+                ctx,
+                state=state,
+                config=config,
+                paper=paper,
+                design=design,
+                root_dir=root_dir,
+                input=input,
+                input_dir=input_dir,
+                base_dir=base_dir,
+                layout_debug_dir=layout_debug_dir,
+                qr_chunk_size=qr_chunk_size,
+                passphrase=passphrase,
+                shard_fallback_file=shard_fallback_file,
+                shard_payloads_file=shard_payloads_file,
+                shard_scan=shard_scan,
+                unlock_policy=unlock_policy,
+                shard_threshold=shard_threshold,
+                shard_count=shard_count,
+                signing_key_mode=signing_key_mode,
+                signing_key_shard_threshold=signing_key_shard_threshold,
+                signing_key_shard_count=signing_key_shard_count,
+            ),
+        ),
+    )
+
+
 def config_get(
     ctx: typer.Context,
     config: Annotated[
@@ -589,7 +1410,10 @@ def config_get(
         args = ConfigGetArgs(config=_explicit_api_config_value(ctx, config))
         return run_config_get_api_command(args)
 
-    _run_ndjson_command(_run)
+    _run_ndjson_command(
+        _run,
+        started=("config", _config_started_args(ctx, config=config, operation="get")),
+    )
 
 
 def config_set(
@@ -613,7 +1437,18 @@ def config_set(
         )
         return run_config_set_api_command(args)
 
-    _run_ndjson_command(_run)
+    _run_ndjson_command(
+        _run,
+        started=(
+            "config",
+            _config_started_args(
+                ctx,
+                config=config,
+                operation="set",
+                input_json=input_json,
+            ),
+        ),
+    )
 
 
 def recover(
@@ -658,6 +1493,21 @@ def recover(
         str | None,
         typer.Option("--auth-payloads-file", help="Auth QR payloads (one per line)."),
     ] = None,
+    extension_index: Annotated[
+        str | None,
+        typer.Option(
+            "--extension-index",
+            help="Recover through a specific extension index.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
+    ] = None,
+    extension_doc_hash: Annotated[
+        str | None,
+        typer.Option(
+            "--extension-doc-hash",
+            help="Recover through the extension with this authenticated doc hash.",
+        ),
+    ] = None,
     output: Annotated[
         str | None,
         typer.Option("--output", "-o", help="Output file or directory path. Required in API mode."),
@@ -697,12 +1547,38 @@ def recover(
             shard_scan=shard_scan,
             auth_fallback_file=auth_fallback_file,
             auth_payloads_file=auth_payloads_file,
+            extension_index=_parse_api_int_option("--extension-index", extension_index),
+            extension_doc_hash=extension_doc_hash,
             output=output,
             allow_unsigned=allow_unsigned,
             handler=run_recover_api_command,
         )
 
-    _run_ndjson_command(_run)
+    _run_ndjson_command(
+        _run,
+        started=(
+            "recover",
+            _recover_started_args_for_error(
+                ctx,
+                state=state,
+                config=config,
+                paper=paper,
+                fallback_file=fallback_file,
+                payloads_file=payloads_file,
+                scan=scan,
+                passphrase=passphrase,
+                shard_fallback_file=shard_fallback_file,
+                shard_payloads_file=shard_payloads_file,
+                shard_scan=shard_scan,
+                auth_fallback_file=auth_fallback_file,
+                auth_payloads_file=auth_payloads_file,
+                extension_index=extension_index,
+                extension_doc_hash=extension_doc_hash,
+                output=output,
+                allow_unsigned=allow_unsigned,
+            ),
+        ),
+    )
 
 
 def inspect_recover(
@@ -747,6 +1623,21 @@ def inspect_recover(
         str | None,
         typer.Option("--auth-payloads-file", help="Auth QR payloads (one per line)."),
     ] = None,
+    extension_index: Annotated[
+        str | None,
+        typer.Option(
+            "--extension-index",
+            help="Inspect through a specific extension index.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
+    ] = None,
+    extension_doc_hash: Annotated[
+        str | None,
+        typer.Option(
+            "--extension-doc-hash",
+            help="Inspect through the extension with this authenticated doc hash.",
+        ),
+    ] = None,
     allow_unsigned: Annotated[
         bool,
         typer.Option(
@@ -782,12 +1673,39 @@ def inspect_recover(
             shard_scan=shard_scan,
             auth_fallback_file=auth_fallback_file,
             auth_payloads_file=auth_payloads_file,
+            extension_index=_parse_api_int_option("--extension-index", extension_index),
+            extension_doc_hash=extension_doc_hash,
             output=None,
             allow_unsigned=allow_unsigned,
             handler=run_recover_inspect_api_command,
         )
 
-    _run_ndjson_command(_run)
+    _run_ndjson_command(
+        _run,
+        started=(
+            "recover",
+            _recover_started_args_for_error(
+                ctx,
+                state=state,
+                config=config,
+                paper=paper,
+                fallback_file=fallback_file,
+                payloads_file=payloads_file,
+                scan=scan,
+                passphrase=passphrase,
+                shard_fallback_file=shard_fallback_file,
+                shard_payloads_file=shard_payloads_file,
+                shard_scan=shard_scan,
+                auth_fallback_file=auth_fallback_file,
+                auth_payloads_file=auth_payloads_file,
+                extension_index=extension_index,
+                extension_doc_hash=extension_doc_hash,
+                output=None,
+                allow_unsigned=allow_unsigned,
+                operation="inspect",
+            ),
+        ),
+    )
 
 
 def backup(
@@ -817,7 +1735,11 @@ def backup(
     ] = None,
     qr_chunk_size: Annotated[
         str | None,
-        typer.Option("--qr-chunk-size", help="Preferred ciphertext bytes per QR frame."),
+        typer.Option(
+            "--qr-chunk-size",
+            help="Preferred ciphertext bytes per QR frame.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
     ] = None,
     passphrase: Annotated[
         str | None,
@@ -831,7 +1753,11 @@ def backup(
     ] = False,
     passphrase_words: Annotated[
         str | None,
-        typer.Option("--passphrase-words", help="Mnemonic word count for generated passphrases."),
+        typer.Option(
+            "--passphrase-words",
+            help="Mnemonic word count for generated passphrases.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
     ] = None,
     sealed: Annotated[
         bool,
@@ -839,23 +1765,43 @@ def backup(
     ] = False,
     shard_threshold: Annotated[
         str | None,
-        typer.Option("--shard-threshold", help="Minimum shards needed to recover."),
+        typer.Option(
+            "--shard-threshold",
+            help="Minimum shards needed to recover.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
     ] = None,
     shard_count: Annotated[
         str | None,
-        typer.Option("--shard-count", help="Total shard documents to create."),
+        typer.Option(
+            "--shard-count",
+            help="Total shard documents to create.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
     ] = None,
     signing_key_mode: Annotated[
         str | None,
-        typer.Option("--signing-key-mode", help="Signing key handling for sharded backups."),
+        typer.Option(
+            "--signing-key-mode",
+            help="Signing key handling for sharded backups.",
+            click_type=_MODE_HELP_TYPE,
+        ),
     ] = None,
     signing_key_shard_threshold: Annotated[
         str | None,
-        typer.Option("--signing-key-shard-threshold", help="Signing-key shard threshold."),
+        typer.Option(
+            "--signing-key-shard-threshold",
+            help="Signing-key shard threshold.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
     ] = None,
     signing_key_shard_count: Annotated[
         str | None,
-        typer.Option("--signing-key-shard-count", help="Signing-key shard count."),
+        typer.Option(
+            "--signing-key-shard-count",
+            help="Signing-key shard count.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
     ] = None,
     layout_debug_dir: Annotated[
         str | None,
@@ -903,7 +1849,207 @@ def backup(
         )
         return run_backup_api_command(args)
 
-    _run_ndjson_command(_run)
+    _run_ndjson_command(
+        _run,
+        started=(
+            "backup",
+            _backup_started_args_for_error(
+                ctx,
+                state=state,
+                config=config,
+                paper=paper,
+                design=design,
+                input=input,
+                input_dir=input_dir,
+                base_dir=base_dir,
+                output_dir=output_dir,
+                qr_chunk_size=qr_chunk_size,
+                passphrase=passphrase,
+                passphrase_generate=passphrase_generate,
+                passphrase_words=passphrase_words,
+                sealed=sealed,
+                shard_threshold=shard_threshold,
+                shard_count=shard_count,
+                signing_key_mode=signing_key_mode,
+                signing_key_shard_threshold=signing_key_shard_threshold,
+                signing_key_shard_count=signing_key_shard_count,
+                layout_debug_dir=layout_debug_dir,
+            ),
+        ),
+    )
+
+
+def inspect_extend(
+    ctx: typer.Context,
+    root_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--root-dir",
+            help="Backup root folder (writable backup root) to inspect. Required in API mode.",
+        ),
+    ] = None,
+    input: Annotated[
+        list[Path] | None,
+        typer.Option("--input", "-i", help="File to include in selected scope (repeatable)."),
+    ] = None,
+    input_dir: Annotated[
+        list[Path] | None,
+        typer.Option("--input-dir", help="Directory to include in selected scope (repeatable)."),
+    ] = None,
+    base_dir: Annotated[
+        str | None,
+        typer.Option("--base-dir", help="Base path for stored relative names."),
+    ] = None,
+    passphrase: Annotated[
+        str | None,
+        typer.Option(
+            "--passphrase",
+            help=(
+                "Passphrase to validate whether the extension can be unlocked "
+                "(extension unlock readiness)."
+            ),
+        ),
+    ] = None,
+    shard_fallback_file: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--shard-fallback-file",
+            help="Passphrase shard recovery text file for unlocking the existing backup.",
+        ),
+    ] = None,
+    shard_payloads_file: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--shard-payloads-file",
+            help="Passphrase shard QR payload file for unlocking the existing backup.",
+        ),
+    ] = None,
+    shard_scan: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--shard-scan",
+            help="Passphrase shard image/PDF to scan for unlocking the existing backup.",
+        ),
+    ] = None,
+    unlock_policy: Annotated[
+        str | None,
+        typer.Option(
+            "--unlock-policy",
+            help="Extension unlock artifact policy. Accepted values: self-contained, reuse-root.",
+            click_type=_POLICY_HELP_TYPE,
+        ),
+    ] = None,
+    shard_threshold: Annotated[
+        str | None,
+        typer.Option(
+            "--shard-threshold",
+            help="Minimum passphrase shards needed to recover.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
+    ] = None,
+    shard_count: Annotated[
+        str | None,
+        typer.Option(
+            "--shard-count",
+            help="Total passphrase shard documents to create.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
+    ] = None,
+    signing_key_mode: Annotated[
+        str | None,
+        typer.Option(
+            "--signing-key-mode",
+            help="Signing key handling for the new extension. Accepted values: embedded, sharded.",
+            click_type=_MODE_HELP_TYPE,
+        ),
+    ] = None,
+    signing_key_shard_threshold: Annotated[
+        str | None,
+        typer.Option(
+            "--signing-key-shard-threshold",
+            help="Signing-key shard threshold.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
+    ] = None,
+    signing_key_shard_count: Annotated[
+        str | None,
+        typer.Option(
+            "--signing-key-shard-count",
+            help="Signing-key shard count.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
+    ] = None,
+    config: Annotated[
+        str | None,
+        typer.Option("--config", help="Use this config file."),
+    ] = None,
+    paper: Annotated[
+        str | None,
+        typer.Option("--paper", help="Paper size override (A4/Letter)."),
+    ] = None,
+    design: Annotated[
+        str | None,
+        typer.Option("--design", help="Template design override for the new extension output."),
+    ] = None,
+) -> None:
+    state = _ctx_state(ctx)
+
+    def _run() -> int:
+        config_value, paper_value = _resolve_api_config_and_paper(ctx, config, paper)
+        args = _build_extend_api_args(
+            state=state,
+            config_value=config_value,
+            paper_value=paper_value,
+            design=design,
+            root_dir=root_dir,
+            input=input,
+            input_dir=input_dir,
+            base_dir=base_dir,
+            layout_debug_dir=None,
+            qr_chunk_size=None,
+            passphrase=passphrase,
+            shard_fallback_file=shard_fallback_file,
+            shard_payloads_file=shard_payloads_file,
+            shard_scan=shard_scan,
+            unlock_policy=unlock_policy,
+            shard_threshold=shard_threshold,
+            shard_count=shard_count,
+            signing_key_mode=signing_key_mode,
+            signing_key_shard_threshold=signing_key_shard_threshold,
+            signing_key_shard_count=signing_key_shard_count,
+        )
+        return run_extend_inspect_api_command(args, debug=_state_debug_enabled(state))
+
+    _run_ndjson_command(
+        _run,
+        started=(
+            "extend",
+            _extend_started_args_for_error(
+                ctx,
+                state=state,
+                config=config,
+                paper=paper,
+                design=design,
+                root_dir=root_dir,
+                input=input,
+                input_dir=input_dir,
+                base_dir=base_dir,
+                layout_debug_dir=None,
+                qr_chunk_size=None,
+                passphrase=passphrase,
+                shard_fallback_file=shard_fallback_file,
+                shard_payloads_file=shard_payloads_file,
+                shard_scan=shard_scan,
+                unlock_policy=unlock_policy,
+                shard_threshold=shard_threshold,
+                shard_count=shard_count,
+                signing_key_mode=signing_key_mode,
+                signing_key_shard_threshold=signing_key_shard_threshold,
+                signing_key_shard_count=signing_key_shard_count,
+                operation="inspect",
+            ),
+        ),
+    )
 
 
 def mint(
@@ -991,18 +2137,25 @@ def mint(
     shard_threshold: Annotated[
         str | None,
         typer.Option(
-            "--shard-threshold", help="Minimum fresh passphrase shards needed to recover."
+            "--shard-threshold",
+            help="Minimum fresh passphrase shards needed to recover.",
+            click_type=_INTEGER_HELP_TYPE,
         ),
     ] = None,
     shard_count: Annotated[
         str | None,
-        typer.Option("--shard-count", help="Total fresh passphrase shard documents to create."),
+        typer.Option(
+            "--shard-count",
+            help="Total fresh passphrase shard documents to create.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
     ] = None,
     signing_key_shard_threshold: Annotated[
         str | None,
         typer.Option(
             "--signing-key-shard-threshold",
             help="Minimum fresh signing-key shards needed to recover.",
+            click_type=_INTEGER_HELP_TYPE,
         ),
     ] = None,
     signing_key_shard_count: Annotated[
@@ -1010,6 +2163,7 @@ def mint(
         typer.Option(
             "--signing-key-shard-count",
             help="Total fresh signing-key shard documents to create.",
+            click_type=_INTEGER_HELP_TYPE,
         ),
     ] = None,
     passphrase_replacement_count: Annotated[
@@ -1017,6 +2171,7 @@ def mint(
         typer.Option(
             "--passphrase-replacement-count",
             help="Mint this many compatible replacement passphrase shards.",
+            click_type=_INTEGER_HELP_TYPE,
         ),
     ] = None,
     signing_key_replacement_count: Annotated[
@@ -1024,6 +2179,7 @@ def mint(
         typer.Option(
             "--signing-key-replacement-count",
             help="Mint this many compatible replacement signing-key shards.",
+            click_type=_INTEGER_HELP_TYPE,
         ),
     ] = None,
     mint_passphrase_shards: Annotated[
@@ -1089,7 +2245,41 @@ def mint(
             handler=run_mint_api_command,
         )
 
-    _run_ndjson_command(_run)
+    _run_ndjson_command(
+        _run,
+        started=(
+            "mint",
+            _mint_started_args_for_error(
+                ctx,
+                state=state,
+                config=config,
+                paper=paper,
+                design=design,
+                fallback_file=fallback_file,
+                payloads_file=payloads_file,
+                scan=scan,
+                passphrase=passphrase,
+                shard_fallback_file=shard_fallback_file,
+                shard_payloads_file=shard_payloads_file,
+                shard_scan=shard_scan,
+                auth_fallback_file=auth_fallback_file,
+                auth_payloads_file=auth_payloads_file,
+                signing_key_shard_fallback_file=signing_key_shard_fallback_file,
+                signing_key_shard_payloads_file=signing_key_shard_payloads_file,
+                signing_key_shard_scan=signing_key_shard_scan,
+                output_dir=output_dir,
+                layout_debug_dir=layout_debug_dir,
+                shard_threshold=shard_threshold,
+                shard_count=shard_count,
+                signing_key_shard_threshold=signing_key_shard_threshold,
+                signing_key_shard_count=signing_key_shard_count,
+                passphrase_replacement_count=passphrase_replacement_count,
+                signing_key_replacement_count=signing_key_replacement_count,
+                mint_passphrase_shards=mint_passphrase_shards,
+                mint_signing_key_shards=mint_signing_key_shards,
+            ),
+        ),
+    )
 
 
 def inspect_mint(
@@ -1169,18 +2359,25 @@ def inspect_mint(
     shard_threshold: Annotated[
         str | None,
         typer.Option(
-            "--shard-threshold", help="Minimum fresh passphrase shards needed to recover."
+            "--shard-threshold",
+            help="Minimum fresh passphrase shards needed to recover.",
+            click_type=_INTEGER_HELP_TYPE,
         ),
     ] = None,
     shard_count: Annotated[
         str | None,
-        typer.Option("--shard-count", help="Total fresh passphrase shard documents to create."),
+        typer.Option(
+            "--shard-count",
+            help="Total fresh passphrase shard documents to create.",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
     ] = None,
     signing_key_shard_threshold: Annotated[
         str | None,
         typer.Option(
             "--signing-key-shard-threshold",
             help="Minimum fresh signing-key shards needed to recover.",
+            click_type=_INTEGER_HELP_TYPE,
         ),
     ] = None,
     signing_key_shard_count: Annotated[
@@ -1188,6 +2385,7 @@ def inspect_mint(
         typer.Option(
             "--signing-key-shard-count",
             help="Total fresh signing-key shard documents to create.",
+            click_type=_INTEGER_HELP_TYPE,
         ),
     ] = None,
     passphrase_replacement_count: Annotated[
@@ -1195,6 +2393,7 @@ def inspect_mint(
         typer.Option(
             "--passphrase-replacement-count",
             help="Mint this many compatible replacement passphrase shards.",
+            click_type=_INTEGER_HELP_TYPE,
         ),
     ] = None,
     signing_key_replacement_count: Annotated[
@@ -1202,6 +2401,7 @@ def inspect_mint(
         typer.Option(
             "--signing-key-replacement-count",
             help="Mint this many compatible replacement signing-key shards.",
+            click_type=_INTEGER_HELP_TYPE,
         ),
     ] = None,
     mint_passphrase_shards: Annotated[
@@ -1267,7 +2467,42 @@ def inspect_mint(
             handler=run_mint_inspect_api_command,
         )
 
-    _run_ndjson_command(_run)
+    _run_ndjson_command(
+        _run,
+        started=(
+            "mint",
+            _mint_started_args_for_error(
+                ctx,
+                state=state,
+                config=config,
+                paper=paper,
+                design=design,
+                fallback_file=fallback_file,
+                payloads_file=payloads_file,
+                scan=scan,
+                passphrase=passphrase,
+                shard_fallback_file=shard_fallback_file,
+                shard_payloads_file=shard_payloads_file,
+                shard_scan=shard_scan,
+                auth_fallback_file=auth_fallback_file,
+                auth_payloads_file=auth_payloads_file,
+                signing_key_shard_fallback_file=signing_key_shard_fallback_file,
+                signing_key_shard_payloads_file=signing_key_shard_payloads_file,
+                signing_key_shard_scan=signing_key_shard_scan,
+                output_dir=None,
+                layout_debug_dir=None,
+                shard_threshold=shard_threshold,
+                shard_count=shard_count,
+                signing_key_shard_threshold=signing_key_shard_threshold,
+                signing_key_shard_count=signing_key_shard_count,
+                passphrase_replacement_count=passphrase_replacement_count,
+                signing_key_replacement_count=signing_key_replacement_count,
+                mint_passphrase_shards=mint_passphrase_shards,
+                mint_signing_key_shards=mint_signing_key_shards,
+                operation="inspect",
+            ),
+        ),
+    )
 
 
 __all__ = ["register"]

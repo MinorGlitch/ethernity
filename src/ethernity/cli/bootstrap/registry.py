@@ -20,7 +20,9 @@ import typer
 
 from ethernity.cli.features.api import command as api_command
 from ethernity.cli.features.backup import command as backup_command
+from ethernity.cli.features.compact import command as compact_command
 from ethernity.cli.features.config import command as config_command
+from ethernity.cli.features.extend import command as extend_command
 from ethernity.cli.features.kit import command as kit_command
 from ethernity.cli.features.mint import command as mint_command
 from ethernity.cli.features.recover import command as recover_command
@@ -30,7 +32,9 @@ from ethernity.cli.features.render import command as render_command
 def register(app: typer.Typer) -> None:
     api_command.register(app)
     backup_command.register(app)
+    compact_command.register(app)
     config_command.register(app)
+    extend_command.register(app)
     kit_command.register(app)
     mint_command.register(app)
     render_command.register(app)

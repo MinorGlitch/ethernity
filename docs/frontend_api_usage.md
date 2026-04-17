@@ -23,6 +23,9 @@ This document gives the frontend team a practical plan for integrating the machi
 - Settings + onboarding state: `ethernity api config get`
 - Save settings + onboarding completion: `ethernity api config set`
 - Create backup artifacts: `ethernity api backup`
+- Inspect extension readiness from a backup root: `ethernity api inspect extend`
+- Create extension artifacts inside a backup root: `ethernity api extend`
+- Compact a backup root into a fresh standalone backup: `ethernity api compact`
 - Inspect recovery readiness from PDFs/images/text inputs: `ethernity api inspect recover`
 - Recover files from PDFs/images/text inputs: `ethernity api recover`
 - Inspect mint readiness from an existing backup: `ethernity api inspect mint`
@@ -89,6 +92,32 @@ Mint preflight rule for the GUI:
 - use `api inspect mint` before asking for an output directory when the UI only needs readiness,
   shard quorum, signing-key status, or mint capability metadata
 - use `api mint` only for the write-producing step after the user confirms generation
+
+### Extension Flow
+
+Use `ethernity api inspect extend` first when the UI needs readiness, unlock status, diff
+summary, or extension policy preview without writing files.
+
+Use `ethernity api extend` for the write-producing step after the user confirms the selected
+scope and output policy.
+
+Both commands:
+
+- require `--root-dir`
+- can unlock with `--passphrase`, `--shard-fallback-file`, `--shard-payloads-file`, or `--shard-scan`
+- accept explicit scope selection through `--input`, `--input-dir`, and `--base-dir`
+- reuse saved backup/config defaults when the UI does not override them explicitly
+
+### Compaction Flow
+
+Use `ethernity api compact` when the UI needs to flatten the latest validated chain state into a
+fresh standalone backup.
+
+The command:
+
+- requires `--root-dir` and `--output-dir`
+- reuses saved backup/config defaults for render policy when the UI does not override them
+- performs authenticated recovery semantics, not rescue-mode recovery
 
 ### Recovery Flow
 

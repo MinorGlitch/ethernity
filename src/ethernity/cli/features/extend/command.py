@@ -1,0 +1,358 @@
+#!/usr/bin/env python3
+# Copyright (C) 2026 Alex Stoyanov
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with this program.
+# If not, see <https://www.gnu.org/licenses/>.
+
+from __future__ import annotations
+
+import functools
+from pathlib import Path
+from typing import Annotated, Literal
+
+import typer
+
+from ethernity.cli.features.extend.service import PublishedExtensionResult, run_extend
+from ethernity.cli.shared.common import (
+    _ctx_state,
+    _paper_callback,
+    _resolve_config_and_paper,
+    _run_cli,
+)
+from ethernity.cli.shared.types import ExtendArgs
+from ethernity.cli.shared.ui_api import (
+    build_kv_table,
+    build_outputs_tree,
+    console,
+    console_err,
+    panel,
+    print_completion_panel,
+)
+from ethernity.config import BackupDefaults
+
+_EXTEND_HELP = (
+    "Create a new extension update inside a backup root folder "
+    "(writable backup root).\n\n"
+    "Examples:\n"
+    "  ethernity extend --root-dir root --input in.txt\n"
+    "  ethernity extend --root-dir root --input in.txt --unlock-policy reuse-root\n"
+    "  ethernity extend --root-dir root --input in.txt --signing-key-mode sharded\n"
+    "  ethernity extend --root-dir root --input-dir docs --base-dir docs\n\n"
+    "Notes:\n"
+    "  reuse-root uses the root shard set.\n"
+    "  sharded writes signing-key shard documents.\n"
+)
+
+
+def register(app: typer.Typer) -> None:
+    app.command(help=_EXTEND_HELP)(extend)
+
+
+def _print_extend_summary(result: PublishedExtensionResult, *, quiet: bool) -> None:
+    if quiet:
+        return
+    console.print()
+    console.print(
+        panel(
+            "Outputs",
+            build_outputs_tree(
+                str(result.qr_document_path),
+                str(result.recovery_document_path),
+                tuple(str(path) for path in result.shard_paths),
+                tuple(str(path) for path in result.signing_key_shard_paths),
+                str(result.recovery_kit_index_path) if result.recovery_kit_index_path else None,
+            ),
+        )
+    )
+    console.print(
+        panel(
+            "Extension summary",
+            build_kv_table(
+                [
+                    ("Root", str(result.final_dir.parent.parent)),
+                    ("Extension dir", str(result.final_dir)),
+                    ("Index", f"{result.index:02d}"),
+                    ("Doc ID", result.doc_id.hex()),
+                ]
+            ),
+        )
+    )
+
+
+def _print_completion_actions(result: PublishedExtensionResult, *, quiet: bool) -> None:
+    if quiet:
+        return
+    actions = [
+        f"Saved extension {result.index:02d} to {result.final_dir}",
+        "Keep the root backup PDFs and all extension directories together.",
+    ]
+    if result.shard_paths:
+        actions.append(f"Store {len(result.shard_paths)} extension shard documents separately.")
+    if result.signing_key_shard_paths:
+        actions.append(
+            "Store "
+            f"{len(result.signing_key_shard_paths)} extension signing-key shard documents "
+            "separately."
+        )
+    actions.append("Verify the extended chain before retiring any older media set.")
+    print_completion_panel("Extend complete", actions, quiet=quiet)
+
+
+def run_extend_command(args: ExtendArgs, *, debug: bool = False) -> int:
+    _ = debug
+    result = run_extend(args)
+    _print_extend_summary(result, quiet=args.quiet)
+    _print_completion_actions(result, quiet=args.quiet)
+    return 0
+
+
+def extend(
+    ctx: typer.Context,
+    root_dir: Annotated[
+        Path,
+        typer.Option(
+            "--root-dir",
+            help="Backup root folder (writable backup root) to extend.",
+            rich_help_panel="Inputs",
+        ),
+    ],
+    input: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--input",
+            "-i",
+            help="File to include in this extension (repeatable, use - for stdin).",
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
+    input_dir: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--input-dir",
+            help="Folder to include in this extension (recursive, repeatable).",
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
+    passphrase: Annotated[
+        str | None,
+        typer.Option(
+            "--passphrase",
+            help="Passphrase to decrypt and extend with.",
+            rich_help_panel="Unlock",
+        ),
+    ] = None,
+    shard_fallback_file: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--shard-fallback-file",
+            help="Passphrase shard recovery text file for unlocking the existing backup.",
+            rich_help_panel="Unlock",
+        ),
+    ] = None,
+    shard_payloads_file: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--shard-payloads-file",
+            help="Passphrase shard QR payload file for unlocking the existing backup.",
+            rich_help_panel="Unlock",
+        ),
+    ] = None,
+    shard_scan: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--shard-scan",
+            help="Passphrase shard image/PDF to scan for unlocking the existing backup.",
+            rich_help_panel="Unlock",
+        ),
+    ] = None,
+    unlock_policy: Annotated[
+        Literal["self-contained", "reuse-root"] | None,
+        typer.Option(
+            "--unlock-policy",
+            help="Where unlock shards come from.",
+            rich_help_panel="Outputs",
+        ),
+    ] = None,
+    shard_threshold: Annotated[
+        int | None,
+        typer.Option(
+            "--shard-threshold",
+            help="Extension shards needed to recover.",
+            rich_help_panel="Outputs",
+        ),
+    ] = None,
+    shard_count: Annotated[
+        int | None,
+        typer.Option(
+            "--shard-count",
+            help="Extension shard documents to create.",
+            rich_help_panel="Outputs",
+        ),
+    ] = None,
+    signing_key_mode: Annotated[
+        Literal["embedded", "sharded"] | None,
+        typer.Option(
+            "--signing-key-mode",
+            help="How to store signing-key recovery.",
+            rich_help_panel="Outputs",
+        ),
+    ] = None,
+    signing_key_shard_threshold: Annotated[
+        int | None,
+        typer.Option(
+            "--signing-key-shard-threshold",
+            help="Signing-key shards needed to recover.",
+            rich_help_panel="Outputs",
+        ),
+    ] = None,
+    signing_key_shard_count: Annotated[
+        int | None,
+        typer.Option(
+            "--signing-key-shard-count",
+            help="Signing-key shard documents to create.",
+            rich_help_panel="Outputs",
+        ),
+    ] = None,
+    quiet: Annotated[
+        bool,
+        typer.Option(
+            "--quiet",
+            help="Hide non-error output.",
+            rich_help_panel="Behavior",
+        ),
+    ] = False,
+    config: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            help="Use this config file.",
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    paper: Annotated[
+        str | None,
+        typer.Option(
+            "--paper",
+            help="Paper size override (A4/Letter).",
+            callback=_paper_callback,
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    design: Annotated[
+        str | None,
+        typer.Option(
+            "--design",
+            help="Template design folder (auto-discovered under templates/).",
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    qr_chunk_size: Annotated[
+        int | None,
+        typer.Option(
+            "--qr-chunk-size",
+            help="Preferred ciphertext bytes per QR frame.",
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    base_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--base-dir",
+            help="Base path for stored relative names.",
+            rich_help_panel="Advanced",
+        ),
+    ] = None,
+    layout_debug_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--layout-debug-dir",
+            help=(
+                "Write per-document layout diagnostics JSON files to this directory "
+                "(for pagination/capacity debugging)."
+            ),
+            rich_help_panel="Advanced",
+        ),
+    ] = None,
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            help="Show traceback details on failure.",
+            rich_help_panel="Debug",
+        ),
+    ] = False,
+) -> None:
+    state = _ctx_state(ctx)
+    config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
+    design_value = design or (state.design if state is not None else None)
+    defaults = state.backup_defaults if state is not None else None
+    if not isinstance(defaults, BackupDefaults):
+        defaults = BackupDefaults()
+
+    quiet_value = quiet or (state.quiet if state is not None else False)
+    debug_value = debug or (state.debug if state is not None else False)
+    base_dir_value = base_dir if base_dir is not None else defaults.base_dir
+    unlock_policy_value = unlock_policy
+    if unlock_policy_value == "reuse-root":
+        shard_threshold_value = shard_threshold
+        shard_count_value = shard_count
+        signing_key_mode_value = signing_key_mode
+        signing_key_shard_threshold_value = signing_key_shard_threshold
+        signing_key_shard_count_value = signing_key_shard_count
+    else:
+        shard_threshold_value = (
+            shard_threshold if shard_threshold is not None else defaults.shard_threshold
+        )
+        shard_count_value = shard_count if shard_count is not None else defaults.shard_count
+        signing_key_mode_value = (
+            signing_key_mode if signing_key_mode is not None else defaults.signing_key_mode
+        )
+        signing_key_shard_threshold_value = (
+            signing_key_shard_threshold
+            if signing_key_shard_threshold is not None
+            else defaults.signing_key_shard_threshold
+        )
+        signing_key_shard_count_value = (
+            signing_key_shard_count
+            if signing_key_shard_count is not None
+            else defaults.signing_key_shard_count
+        )
+
+    args = ExtendArgs(
+        config=config_value,
+        paper=paper_value,
+        design=design_value,
+        root_dir=str(root_dir),
+        input=[str(path) for path in (input or [])],
+        input_dir=[str(path) for path in (input_dir or [])],
+        base_dir=base_dir_value,
+        layout_debug_dir=layout_debug_dir,
+        qr_chunk_size=qr_chunk_size,
+        passphrase=passphrase,
+        shard_fallback_file=list(shard_fallback_file or []),
+        shard_payloads_file=list(shard_payloads_file or []),
+        shard_scan=list(shard_scan or []),
+        unlock_policy=unlock_policy_value,
+        shard_threshold=shard_threshold_value,
+        shard_count=shard_count_value,
+        signing_key_mode=signing_key_mode_value,
+        signing_key_shard_threshold=signing_key_shard_threshold_value,
+        signing_key_shard_count=signing_key_shard_count_value,
+        quiet=quiet_value,
+    )
+    if not args.input and not args.input_dir:
+        console_err.print(
+            "Input is required for extend. Use --input PATH, --input-dir DIR, or --input -."
+        )
+        raise typer.Exit(code=2)
+    _run_cli(functools.partial(run_extend_command, args, debug=debug_value), debug=debug_value)

@@ -57,6 +57,15 @@ class TestCliTyper(unittest.TestCase):
                 for expected in case["contains"]:
                     self.assertIn(expected, output)
 
+    def test_root_help_surfaces_shell_completion_options(self) -> None:
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            result = self.runner.invoke(app, ["--help"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        output = _strip_ansi(result.output)
+        self.assertIn("--install-completion", output)
+        self.assertIn("--show-completion", output)
+
     def test_root_no_subcommand_non_tty_references_help(self) -> None:
         with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             with mock.patch("ethernity.cli.bootstrap.app.sys.stdin.isatty", return_value=False):

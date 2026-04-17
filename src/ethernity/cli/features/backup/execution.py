@@ -51,6 +51,7 @@ from ethernity.crypto import (
     signing as signing_module,
 )
 from ethernity.crypto.sharding import ShardPayload
+from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.chunking import chunk_payload
 from ethernity.encoding.framing import VERSION, Frame, FrameType
 from ethernity.encoding.qr_payloads import QR_PAYLOAD_CODEC_RAW, QrPayloadCodec
@@ -63,7 +64,7 @@ from ethernity.qr.capacity import choose_frame_chunk_size
 from ethernity.render.doc_types import DOC_TYPE_KIT_INDEX, DOC_TYPE_SIGNING_KEY_SHARD
 from ethernity.render.recovery_meta import build_recovery_meta
 from ethernity.render.service import RenderService
-from ethernity.render.types import RenderInputs
+from ethernity.render.types import RenderInputs, RenderLineage
 
 _KIT_INDEX_TEMPLATE_NAME = "kit_index_document.html.j2"
 _KIT_INDEX_TEMPLATE_MARKER = "kit_index_inventory_artifacts_v3"
@@ -165,6 +166,7 @@ def _render_shard(
     doc_type: str | None = None,
     layout_debug_json_path: str | None = None,
     qr_payload_codec: QrPayloadCodec = QR_PAYLOAD_CODEC_RAW,
+    lineage: RenderLineage | None = None,
 ) -> str:
     """Render a single shard document to PDF and return the output path."""
     shard_frame = Frame(
@@ -189,6 +191,7 @@ def _render_shard(
         template_path=template_path,
         doc_type=doc_type,
         layout_debug_json_path=layout_debug_json_path,
+        lineage=lineage,
     )
     render_module.render_frames_to_pdf(shard_inputs)
     return shard_path
@@ -312,6 +315,7 @@ def _render_all_documents(
     status_quiet: bool,
     layout_debug_dir: str | None,
     qr_payload_codec: QrPayloadCodec,
+    lineage: RenderLineage,
 ) -> tuple[list[str], list[str]]:
     """Render all PDF documents. Returns (shard_paths, signing_key_shard_paths)."""
     shard_paths: list[str] = []
@@ -340,6 +344,7 @@ def _render_all_documents(
                 config=config,
                 layout_debug_dir=layout_debug_dir,
                 qr_payload_codec=qr_payload_codec,
+                lineage=lineage,
             )
         else:
             shard_paths, signing_key_shard_paths = _render_without_progress(
@@ -355,6 +360,7 @@ def _render_all_documents(
                 status_quiet=status_quiet,
                 layout_debug_dir=layout_debug_dir,
                 qr_payload_codec=qr_payload_codec,
+                lineage=lineage,
             )
 
     return shard_paths, signing_key_shard_paths
@@ -375,6 +381,7 @@ def _render_with_progress(
     config: AppConfig,
     layout_debug_dir: str | None,
     qr_payload_codec: QrPayloadCodec,
+    lineage: RenderLineage,
 ) -> tuple[list[str], list[str]]:
     """Render documents with progress bar."""
     shard_paths: list[str] = []
@@ -441,6 +448,7 @@ def _render_with_progress(
                     f"shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                 ),
                 qr_payload_codec=qr_payload_codec,
+                lineage=lineage,
             )
             shard_paths.append(shard_path)
             progress_bar.advance(task_id)
@@ -470,6 +478,7 @@ def _render_with_progress(
                     f"signing-key-shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                 ),
                 qr_payload_codec=qr_payload_codec,
+                lineage=lineage,
             )
             signing_key_shard_paths.append(shard_path)
             progress_bar.advance(task_id)
@@ -496,6 +505,7 @@ def _render_without_progress(
     status_quiet: bool,
     layout_debug_dir: str | None,
     qr_payload_codec: QrPayloadCodec,
+    lineage: RenderLineage,
 ) -> tuple[list[str], list[str]]:
     """Render documents without progress bar (using status messages)."""
     shard_paths: list[str] = []
@@ -559,6 +569,7 @@ def _render_without_progress(
                         f"shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                     ),
                     qr_payload_codec=qr_payload_codec,
+                    lineage=lineage,
                 )
                 shard_paths.append(shard_path)
                 _advance_render(
@@ -584,6 +595,7 @@ def _render_without_progress(
                         f"signing-key-shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                     ),
                     qr_payload_codec=qr_payload_codec,
+                    lineage=lineage,
                 )
                 signing_key_shard_paths.append(shard_path)
                 _advance_render(
@@ -608,6 +620,8 @@ def run_backup(
     passphrase: str | None,
     passphrase_words: int | None = None,
     config: AppConfig,
+    signing_seed_override: bytes | None = None,
+    render_lineage: RenderLineage | None = None,
     debug: bool = False,
     debug_max_bytes: int | None = None,
     debug_reveal_secrets: bool = False,
@@ -622,7 +636,11 @@ def run_backup(
         pass
 
     # Generate signing keypair and determine key storage modes
-    sign_priv, sign_pub = signing_module.generate_signing_keypair()
+    if signing_seed_override is None:
+        sign_priv, sign_pub = signing_module.generate_signing_keypair()
+    else:
+        sign_priv = bytes(signing_seed_override)
+        sign_pub = derive_public_key(sign_priv)
     store_signing_key = not plan.sealed
     shard_signing_key = (
         plan.sharding is not None
@@ -784,6 +802,7 @@ def run_backup(
     if kit_index_template is not None:
         kit_index_path = str(output_dir_path / "recovery_kit_index.pdf")
     layout_debug_dir = _resolve_layout_debug_dir(layout_debug_dir)
+    lineage = render_lineage or RenderLineage(kind="root_backup")
 
     render_service = RenderService(config)
     qr_payloads = render_service.build_qr_payloads(qr_frames, codec=qr_payload_codec_mode)
@@ -792,6 +811,7 @@ def run_backup(
         qr_path,
         qr_payloads=qr_payloads,
         layout_debug_json_path=_layout_debug_json_path(layout_debug_dir, "qr_document"),
+        lineage=lineage,
     )
     kit_index_context = render_service.base_context(
         {
@@ -810,6 +830,7 @@ def run_backup(
             template_path=kit_index_template,
             doc_type=DOC_TYPE_KIT_INDEX,
             layout_debug_json_path=_layout_debug_json_path(layout_debug_dir, "recovery_kit_index"),
+            lineage=lineage,
         )
         if kit_index_template is not None and kit_index_path is not None
         else None
@@ -834,6 +855,7 @@ def run_backup(
         recovery_meta=recovery_meta,
         fallback_sections=fallback_sections,
         layout_debug_json_path=_layout_debug_json_path(layout_debug_dir, "recovery_document"),
+        lineage=lineage,
     )
 
     try:
@@ -851,6 +873,7 @@ def run_backup(
             status_quiet=status_quiet,
             layout_debug_dir=layout_debug_dir,
             qr_payload_codec=qr_payload_codec_mode,
+            lineage=lineage,
         )
         _commit_prepared_output_dir(staging_output_dir, output_dir)
     except Exception:

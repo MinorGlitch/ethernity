@@ -625,7 +625,10 @@ class TestMintFlow(unittest.TestCase):
         return_value=([], "QR payloads", "qr.txt"),
     )
     @mock.patch("ethernity.cli.features.mint.workflow._prompt_quorum_choice")
-    @mock.patch("ethernity.cli.features.mint.workflow.prompt_yes_no", side_effect=[True, False])
+    @mock.patch(
+        "ethernity.cli.features.mint.workflow.prompt_yes_no",
+        side_effect=[True, False, True],
+    )
     @mock.patch(
         "ethernity.cli.features.mint.workflow.apply_template_design",
         side_effect=lambda config, design: config,
@@ -684,6 +687,10 @@ class TestMintFlow(unittest.TestCase):
         self.assertEqual(mint_from_plan.call_args.kwargs["manifest_signing_seed"], b"s" * 32)
         print_mint_summary.assert_called_once()
         print_completion_actions.assert_called_once()
+        self.assertEqual(
+            [call.args[0] for call in _wizard_stage.call_args_list],
+            ["Input", "Keys", "Scope", "Quorum", "Review"],
+        )
 
     @mock.patch("ethernity.cli.features.mint.workflow._print_completion_actions")
     @mock.patch("ethernity.cli.features.mint.workflow.print_mint_summary")
@@ -719,7 +726,10 @@ class TestMintFlow(unittest.TestCase):
         return_value=([], "QR payloads", "qr.txt"),
     )
     @mock.patch("ethernity.cli.features.mint.workflow._prompt_quorum_choice")
-    @mock.patch("ethernity.cli.features.mint.workflow.prompt_yes_no", side_effect=[True, False])
+    @mock.patch(
+        "ethernity.cli.features.mint.workflow.prompt_yes_no",
+        side_effect=[True, False, True],
+    )
     @mock.patch(
         "ethernity.cli.features.mint.workflow.apply_template_design",
         side_effect=lambda config, design: config,
@@ -780,6 +790,98 @@ class TestMintFlow(unittest.TestCase):
         self.assertEqual(build_recovery_plan.call_args.kwargs["extra_auth_frames"], auth_frames)
         print_mint_summary.assert_called_once()
         print_completion_actions.assert_called_once()
+
+    @mock.patch(
+        "ethernity.cli.features.mint.workflow.prompt_recovery_input_interactive",
+        return_value=([], "Backup root directory", "/tmp/root"),
+    )
+    @mock.patch("ethernity.cli.features.mint.workflow.detect_recovery_root_dir")
+    @mock.patch("ethernity.cli.features.mint.workflow._prompt_key_material")
+    @mock.patch(
+        "ethernity.cli.features.mint.workflow.apply_template_design",
+        side_effect=lambda config, design: config,
+    )
+    @mock.patch(
+        "ethernity.cli.features.mint.workflow.load_app_config", return_value=SimpleNamespace()
+    )
+    @mock.patch(
+        "ethernity.cli.features.mint.workflow.wizard_stage",
+        side_effect=lambda *_args, **_kwargs: contextlib.nullcontext(),
+    )
+    @mock.patch(
+        "ethernity.cli.features.mint.workflow.wizard_flow",
+        side_effect=lambda *_args, **_kwargs: contextlib.nullcontext(),
+    )
+    @mock.patch(
+        "ethernity.cli.features.mint.workflow.ui_screen_mode",
+        side_effect=lambda **_kwargs: contextlib.nullcontext(),
+    )
+    @mock.patch("ethernity.cli.features.mint.workflow.sys.stdout.isatty", return_value=True)
+    @mock.patch("ethernity.cli.features.mint.workflow.sys.stdin.isatty", return_value=True)
+    def test_run_mint_wizard_detects_root_dir_from_prompted_scan(
+        self,
+        _stdin_isatty: mock.MagicMock,
+        _stdout_isatty: mock.MagicMock,
+        _ui_screen_mode: mock.MagicMock,
+        _wizard_flow: mock.MagicMock,
+        _wizard_stage: mock.MagicMock,
+        _load_app_config: mock.MagicMock,
+        _apply_template_design: mock.MagicMock,
+        prompt_key_material: mock.MagicMock,
+        detect_recovery_root_dir: mock.MagicMock,
+        _prompt_recovery_input_interactive: mock.MagicMock,
+    ) -> None:
+        prompt_key_material.return_value = ("passphrase", [], None, [])
+        detect_recovery_root_dir.return_value = Path("/tmp/root")
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._extra_auth_frames_from_args",
+                return_value=[],
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.build_recovery_plan",
+                return_value=SimpleNamespace(
+                    auth_payload=SimpleNamespace(sign_pub=b"\x44" * 32),
+                    ciphertext=b"ciphertext",
+                    passphrase="passphrase",
+                    doc_id=b"\x11" * 16,
+                    doc_hash=b"\x22" * 32,
+                ),
+            ) as build_recovery_plan,
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decrypt_bytes",
+                return_value=b"plaintext",
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decode_envelope",
+                return_value=(SimpleNamespace(signing_seed=b"\x55" * 32), b""),
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._mint_from_plan",
+                return_value=MintResult(
+                    doc_id=b"\x11" * 16,
+                    output_dir="/tmp/out",
+                    shard_paths=(),
+                    signing_key_shard_paths=(),
+                    signing_key_source="embedded_seed",
+                ),
+            ),
+            mock.patch("ethernity.cli.features.mint.workflow.print_mint_summary"),
+            mock.patch("ethernity.cli.features.mint.workflow._print_completion_actions"),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.prompt_yes_no",
+                side_effect=[True, False],
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._prompt_quorum_choice",
+                return_value=SimpleNamespace(threshold=2, shares=3),
+            ),
+        ):
+            result = mint_flow.run_mint_wizard(MintArgs(quiet=True), debug=False, show_header=False)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(build_recovery_plan.call_args.kwargs["root_dir"], "/tmp/root")
 
     @mock.patch(
         "ethernity.cli.features.mint.workflow.prompt_recovery_input_interactive",
@@ -934,7 +1036,10 @@ class TestMintFlow(unittest.TestCase):
         return_value=([], "QR payloads", "qr.txt"),
     )
     @mock.patch("ethernity.cli.features.mint.workflow._prompt_quorum_choice")
-    @mock.patch("ethernity.cli.features.mint.workflow.prompt_yes_no", side_effect=[True, False])
+    @mock.patch(
+        "ethernity.cli.features.mint.workflow.prompt_yes_no",
+        side_effect=[True, False, True],
+    )
     @mock.patch(
         "ethernity.cli.features.mint.workflow.apply_template_design",
         side_effect=lambda config, design: config,
@@ -1263,7 +1368,10 @@ class TestMintFlow(unittest.TestCase):
         return_value=([], "QR payloads", "qr.txt"),
     )
     @mock.patch("ethernity.cli.features.mint.workflow._prompt_quorum_choice")
-    @mock.patch("ethernity.cli.features.mint.workflow.prompt_yes_no", side_effect=[True, False])
+    @mock.patch(
+        "ethernity.cli.features.mint.workflow.prompt_yes_no",
+        side_effect=[True, False, True],
+    )
     @mock.patch(
         "ethernity.cli.features.mint.workflow.apply_template_design",
         side_effect=lambda config, design: config,

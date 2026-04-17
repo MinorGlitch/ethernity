@@ -12,7 +12,12 @@
     "SHARD_DIR_EMPTY",
     "SIGNING_KEY_SHARD_DIR_NOT_FOUND",
     "SIGNING_KEY_SHARD_DIR_INVALID",
-    "SIGNING_KEY_SHARD_DIR_EMPTY"
+    "SIGNING_KEY_SHARD_DIR_EMPTY",
+    "EXTENSION_INPUT_REQUIRED",
+    "EXTENSION_INVALID_POLICY",
+    "EXTENSION_NO_CHANGES",
+    "EXTENSION_MAIN_CARRIER_INVALID",
+    "EXTENSION_SHARD_CARRIER_INVALID"
   ],
   "stable_generic_error_codes": [
     "CANCELLED",
@@ -51,7 +56,13 @@
     "SIGNING_KEY_SHARDS_UNDER_QUORUM",
     "SIGNING_KEY_SHARDS_INVALID",
     "PASSPHRASE_REPLACEMENT_NOT_READY",
-    "SIGNING_KEY_REPLACEMENT_NOT_READY"
+    "SIGNING_KEY_REPLACEMENT_NOT_READY",
+    "ROOT_AUTHORITY_MISMATCH",
+    "EXTENSION_LAYOUT_INVALID",
+    "EXTENSION_INVALID_POLICY",
+    "SEALED_ROOT_NOT_EXTENDABLE",
+    "CHAIN_INVALID",
+    "DELETE_NOT_SUPPORTED"
   ],
   "recover_success_event_types": [
     "started",
@@ -64,7 +75,25 @@
     "artifact",
     "result"
   ],
+  "compact_mocked_event_types": [
+    "started",
+    "artifact",
+    "artifact",
+    "artifact",
+    "artifact",
+    "artifact",
+    "result"
+  ],
   "backup_mocked_event_types": [
+    "started",
+    "artifact",
+    "artifact",
+    "artifact",
+    "artifact",
+    "artifact",
+    "result"
+  ],
+  "extend_mocked_event_types": [
     "started",
     "artifact",
     "artifact",

@@ -68,12 +68,80 @@ def backup(
             rich_help_panel="Inputs",
         ),
     ] = None,
-    base_dir: Annotated[
+    passphrase: Annotated[
         str | None,
         typer.Option(
-            "--base-dir",
-            help="Base path for stored relative names.",
-            rich_help_panel="Advanced",
+            "--passphrase",
+            help="Passphrase to encrypt with.",
+            rich_help_panel="Unlock",
+        ),
+    ] = None,
+    passphrase_generate: Annotated[
+        bool,
+        typer.Option(
+            "--generate-passphrase",
+            "--passphrase-generate",
+            help="Generate a mnemonic passphrase (default if none).",
+            rich_help_panel="Unlock",
+        ),
+    ] = False,
+    passphrase_words: Annotated[
+        int | None,
+        typer.Option(
+            "--passphrase-words",
+            help="Mnemonic word count for generated passphrases (12/15/18/21/24).",
+            rich_help_panel="Unlock",
+        ),
+    ] = None,
+    sealed: Annotated[
+        bool,
+        typer.Option(
+            "--sealed",
+            help="Seal backup (no new shards later).",
+            rich_help_panel="Unlock",
+        ),
+    ] = False,
+    shard_threshold: Annotated[
+        int | None,
+        typer.Option(
+            "--shard-threshold",
+            help="Minimum shards needed to recover (e.g., 2 for '2 of 3').",
+            rich_help_panel="Unlock",
+        ),
+    ] = None,
+    shard_count: Annotated[
+        int | None,
+        typer.Option(
+            "--shard-count",
+            help="Total shard documents to create (e.g., 3 for '2 of 3').",
+            rich_help_panel="Unlock",
+        ),
+    ] = None,
+    signing_key_mode: Annotated[
+        Literal["embedded", "sharded"] | None,
+        typer.Option(
+            "--signing-key-mode",
+            help=(
+                "Signing key handling for sharded passphrase backups: "
+                "embedded (inside main doc) or sharded (separate signing-key PDFs)."
+            ),
+            rich_help_panel="Unlock",
+        ),
+    ] = None,
+    signing_key_shard_threshold: Annotated[
+        int | None,
+        typer.Option(
+            "--signing-key-shard-threshold",
+            help="Signing-key shard threshold (n). Requires --signing-key-mode sharded.",
+            rich_help_panel="Unlock",
+        ),
+    ] = None,
+    signing_key_shard_count: Annotated[
+        int | None,
+        typer.Option(
+            "--signing-key-shard-count",
+            help="Signing-key shard count (k). Requires --signing-key-mode sharded.",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     output_dir: Annotated[
@@ -85,104 +153,23 @@ def backup(
             rich_help_panel="Outputs",
         ),
     ] = None,
-    layout_debug_dir: Annotated[
-        str | None,
-        typer.Option(
-            "--layout-debug-dir",
-            help=(
-                "Write per-document layout diagnostics JSON files to this directory "
-                "(for pagination/capacity debugging)."
-            ),
-            rich_help_panel="Advanced",
-        ),
-    ] = None,
-    qr_chunk_size: Annotated[
-        int | None,
-        typer.Option(
-            "--qr-chunk-size",
-            help=(
-                "Preferred ciphertext bytes per QR frame. Lower values create more codes "
-                "but easier scanning; renderer may reduce to fit."
-            ),
-            rich_help_panel="Config",
-        ),
-    ] = None,
-    passphrase: Annotated[
-        str | None,
-        typer.Option(
-            "--passphrase",
-            help="Passphrase to encrypt with.",
-            rich_help_panel="Encryption",
-        ),
-    ] = None,
-    passphrase_generate: Annotated[
+    assume_yes: Annotated[
         bool,
         typer.Option(
-            "--generate-passphrase",
-            "--passphrase-generate",
-            help="Generate a mnemonic passphrase (default if none).",
-            rich_help_panel="Encryption",
+            "--yes",
+            "-y",
+            help="Skip confirmation prompts and proceed.",
+            rich_help_panel="Behavior",
         ),
     ] = False,
-    passphrase_words: Annotated[
-        int | None,
-        typer.Option(
-            "--passphrase-words",
-            help="Mnemonic word count for generated passphrases (12/15/18/21/24).",
-            rich_help_panel="Encryption",
-        ),
-    ] = None,
-    sealed: Annotated[
+    quiet: Annotated[
         bool,
         typer.Option(
-            "--sealed",
-            help="Seal backup (no new shards later).",
-            rich_help_panel="Sharding",
+            "--quiet",
+            help="Hide non-error output.",
+            rich_help_panel="Behavior",
         ),
     ] = False,
-    shard_threshold: Annotated[
-        int | None,
-        typer.Option(
-            "--shard-threshold",
-            help="Minimum shards needed to recover (e.g., 2 for '2 of 3').",
-            rich_help_panel="Sharding",
-        ),
-    ] = None,
-    shard_count: Annotated[
-        int | None,
-        typer.Option(
-            "--shard-count",
-            help="Total shard documents to create (e.g., 3 for '2 of 3').",
-            rich_help_panel="Sharding",
-        ),
-    ] = None,
-    signing_key_mode: Annotated[
-        Literal["embedded", "sharded"] | None,
-        typer.Option(
-            "--signing-key-mode",
-            help=(
-                "Signing key handling for sharded passphrase backups: "
-                "embedded (inside main doc) or sharded (separate signing-key PDFs)."
-            ),
-            rich_help_panel="Sharding",
-        ),
-    ] = None,
-    signing_key_shard_threshold: Annotated[
-        int | None,
-        typer.Option(
-            "--signing-key-shard-threshold",
-            help="Signing-key shard threshold (n). Requires --signing-key-mode sharded.",
-            rich_help_panel="Sharding",
-        ),
-    ] = None,
-    signing_key_shard_count: Annotated[
-        int | None,
-        typer.Option(
-            "--signing-key-shard-count",
-            help="Signing-key shard count (k). Requires --signing-key-mode sharded.",
-            rich_help_panel="Sharding",
-        ),
-    ] = None,
     config: Annotated[
         str | None,
         typer.Option(
@@ -208,6 +195,36 @@ def backup(
             rich_help_panel="Config",
         ),
     ] = None,
+    qr_chunk_size: Annotated[
+        int | None,
+        typer.Option(
+            "--qr-chunk-size",
+            help=(
+                "Preferred ciphertext bytes per QR frame. Lower values create more codes "
+                "but easier scanning; renderer may reduce to fit."
+            ),
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    base_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--base-dir",
+            help="Base path for stored relative names.",
+            rich_help_panel="Advanced",
+        ),
+    ] = None,
+    layout_debug_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--layout-debug-dir",
+            help=(
+                "Write per-document layout diagnostics JSON files to this directory "
+                "(for pagination/capacity debugging)."
+            ),
+            rich_help_panel="Advanced",
+        ),
+    ] = None,
     debug: Annotated[
         bool,
         typer.Option(
@@ -224,23 +241,6 @@ def backup(
             rich_help_panel="Debug",
         ),
     ] = None,
-    assume_yes: Annotated[
-        bool,
-        typer.Option(
-            "--yes",
-            "-y",
-            help="Skip confirmation prompts and proceed.",
-            rich_help_panel="Behavior",
-        ),
-    ] = False,
-    quiet: Annotated[
-        bool,
-        typer.Option(
-            "--quiet",
-            help="Hide non-error output.",
-            rich_help_panel="Behavior",
-        ),
-    ] = False,
 ) -> None:
     state = _ctx_state(ctx)
     config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)

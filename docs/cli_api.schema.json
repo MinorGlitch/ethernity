@@ -35,6 +35,8 @@
       "type": "string",
       "enum": [
         "backup",
+        "compact",
+        "extend",
         "mint",
         "recover",
         "config"
@@ -89,10 +91,19 @@
           "$ref": "#/$defs/backupStartedEvent"
         },
         {
+          "$ref": "#/$defs/compactStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/extendStartedEvent"
+        },
+        {
           "$ref": "#/$defs/recoverStartedEvent"
         },
         {
           "$ref": "#/$defs/inspectRecoverStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/inspectExtendStartedEvent"
         },
         {
           "$ref": "#/$defs/mintStartedEvent"
@@ -289,6 +300,44 @@
         }
       }
     },
+    "extendArtifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "qr_document",
+        "recovery_document",
+        "recovery_kit_index",
+        "shard_documents",
+        "signing_key_shard_documents"
+      ],
+      "properties": {
+        "qr_document": {
+          "$ref": "#/$defs/pathString"
+        },
+        "recovery_document": {
+          "$ref": "#/$defs/pathString"
+        },
+        "recovery_kit_index": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "shard_documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "signing_key_shard_documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        }
+      }
+    },
     "backupPlan": {
       "type": "object",
       "additionalProperties": false,
@@ -407,6 +456,140 @@
         }
       }
     },
+    "compactResultEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "ok",
+        "command",
+        "doc_id",
+        "root_dir",
+        "output_dir",
+        "artifacts"
+      ],
+      "properties": {
+        "type": {
+          "const": "result"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "compact"
+        },
+        "doc_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]+$"
+        },
+        "root_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "output_dir": {
+          "$ref": "#/$defs/pathString"
+        },
+        "artifacts": {
+          "$ref": "#/$defs/backupArtifacts"
+        }
+      }
+    },
+    "extendResultEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "ok",
+        "command",
+        "index",
+        "doc_id",
+        "doc_hash",
+        "root_doc_id",
+        "root_doc_hash",
+        "chain_id",
+        "extension_dir",
+        "artifacts",
+        "selected_scope",
+        "diff_summary",
+        "chunk_reuse",
+        "extension_bytes"
+      ],
+      "properties": {
+        "type": {
+          "const": "result"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "extend"
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "doc_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]+$"
+        },
+        "doc_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]+$"
+        },
+        "root_doc_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]+$"
+        },
+        "root_doc_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]+$"
+        },
+        "chain_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]+$"
+        },
+        "extension_dir": {
+          "$ref": "#/$defs/pathString"
+        },
+        "artifacts": {
+          "$ref": "#/$defs/extendArtifacts"
+        },
+        "selected_scope": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "diff_summary": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "chunk_reuse": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "extension_bytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
     "recoverManifest": {
       "type": "object",
       "additionalProperties": false,
@@ -444,17 +627,58 @@
         },
         "payload_codec": {
           "type": "string",
-          "minLength": 1
+          "enum": [
+            "raw",
+            "gzip"
+          ]
         },
         "payload_raw_len": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         },
         "file_count": {
           "type": "integer",
           "minimum": 0
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "payload_codec": {
+                "const": "raw"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload_raw_len": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "payload_codec": {
+                "const": "gzip"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload_raw_len": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      ]
     },
     "recoverFile": {
       "type": "object",
@@ -705,6 +929,8 @@
         "output_path",
         "output_path_kind",
         "doc_id",
+        "selected_extension_index",
+        "selected_extension_doc_hash",
         "auth_status",
         "input_label",
         "input_detail",
@@ -734,6 +960,20 @@
         "doc_id": {
           "type": "string",
           "pattern": "^[0-9a-f]+$"
+        },
+        "selected_extension_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "selected_extension_doc_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
         },
         "auth_status": {
           "$ref": "#/$defs/authStatus"
@@ -766,6 +1006,8 @@
         "command",
         "operation",
         "doc_id",
+        "selected_extension_index",
+        "selected_extension_doc_hash",
         "auth_status",
         "input_label",
         "input_detail",
@@ -791,6 +1033,20 @@
         "doc_id": {
           "type": "string",
           "pattern": "^[0-9a-f]+$"
+        },
+        "selected_extension_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "selected_extension_doc_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
         },
         "auth_status": {
           "$ref": "#/$defs/authStatus"
@@ -829,16 +1085,342 @@
         }
       }
     },
+    "inspectExtendStartedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "command",
+        "schema_version",
+        "args"
+      ],
+      "properties": {
+        "type": {
+          "const": "started"
+        },
+        "command": {
+          "const": "extend"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "args": {
+          "$ref": "#/$defs/inspectExtendStartedArgs"
+        }
+      }
+    },
+    "inspectExtendResultEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "ok",
+        "command",
+        "operation",
+        "doc_id",
+        "input_label",
+        "input_detail",
+        "input_kind",
+        "source_summary",
+        "frame_counts",
+        "root_doc_id",
+        "root_doc_hash",
+        "chain_id",
+        "auth_status",
+        "unlock",
+        "discovered_extension_dirs",
+        "validated_head_index",
+        "validated_head_auth_status",
+        "validated_head_root_authority_verified",
+        "available_extensions",
+        "ancestry_valid",
+        "signing_authority",
+        "selected_scope",
+        "diff_summary",
+        "chunk_reuse",
+        "estimated_extension_bytes",
+        "blocking_issues",
+        "warnings"
+      ],
+      "properties": {
+        "type": {
+          "const": "result"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "extend"
+        },
+        "operation": {
+          "const": "inspect"
+        },
+        "doc_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]+$"
+        },
+        "input_label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_detail": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_kind": {
+          "type": "string",
+          "enum": [
+            "standalone_root",
+            "extended_root"
+          ]
+        },
+        "source_summary": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "frame_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "main",
+            "auth",
+            "shard"
+          ],
+          "properties": {
+            "main": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "auth": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "shard": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "root_doc_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]+$"
+        },
+        "root_doc_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]+$"
+        },
+        "chain_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]+$"
+        },
+        "auth_status": {
+          "$ref": "#/$defs/authStatus"
+        },
+        "unlock": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "passphrase_provided",
+            "validated_shard_count",
+            "required_shard_threshold",
+            "satisfied"
+          ],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "minLength": 1
+            },
+            "passphrase_provided": {
+              "type": "boolean"
+            },
+            "validated_shard_count": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "required_shard_threshold": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "satisfied": {
+              "type": "boolean"
+            }
+          }
+        },
+        "discovered_extension_dirs": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "validated_head_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "validated_head_auth_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "validated_head_root_authority_verified": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "available_extensions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "dir_name",
+              "doc_id",
+              "doc_hash"
+            ],
+            "properties": {
+              "dir_name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "doc_id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]+$"
+              },
+              "doc_hash": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[0-9a-f]+$"
+              },
+              "auth_status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "root_authority_verified": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "ancestry_valid": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "signing_authority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "available",
+            "satisfied",
+            "source"
+          ],
+          "properties": {
+            "available": {
+              "type": "boolean"
+            },
+            "satisfied": {
+              "type": "boolean"
+            },
+            "source": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "selected_scope": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "diff_summary": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "chunk_reuse": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "estimated_extension_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "blocking_issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/blockingIssue"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/warningRecord"
+          }
+        }
+      }
+    },
     "resultEvent": {
       "oneOf": [
         {
           "$ref": "#/$defs/backupResultEvent"
         },
         {
+          "$ref": "#/$defs/compactResultEvent"
+        },
+        {
+          "$ref": "#/$defs/extendResultEvent"
+        },
+        {
           "$ref": "#/$defs/recoverResultEvent"
         },
         {
           "$ref": "#/$defs/inspectRecoverResultEvent"
+        },
+        {
+          "$ref": "#/$defs/inspectExtendResultEvent"
         },
         {
           "$ref": "#/$defs/mintResultEvent"
@@ -867,6 +1449,11 @@
         "SIGNING_KEY_SHARD_DIR_NOT_FOUND",
         "SIGNING_KEY_SHARD_DIR_INVALID",
         "SIGNING_KEY_SHARD_DIR_EMPTY",
+        "EXTENSION_INPUT_REQUIRED",
+        "EXTENSION_INVALID_POLICY",
+        "EXTENSION_NO_CHANGES",
+        "EXTENSION_MAIN_CARRIER_INVALID",
+        "EXTENSION_SHARD_CARRIER_INVALID",
         "CANCELLED",
         "NOT_FOUND",
         "PERMISSION_DENIED",
@@ -931,7 +1518,12 @@
         "SIGNING_KEY_SHARDS_UNDER_QUORUM",
         "SIGNING_KEY_SHARDS_INVALID",
         "PASSPHRASE_REPLACEMENT_NOT_READY",
-        "SIGNING_KEY_REPLACEMENT_NOT_READY"
+        "SIGNING_KEY_REPLACEMENT_NOT_READY",
+        "ROOT_AUTHORITY_MISMATCH",
+        "EXTENSION_LAYOUT_INVALID",
+        "SEALED_ROOT_NOT_EXTENDABLE",
+        "CHAIN_INVALID",
+        "DELETE_NOT_SUPPORTED"
       ]
     },
     "blockingIssueCode": {
@@ -1097,6 +1689,123 @@
         }
       }
     },
+    "compactStartedArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config",
+        "paper",
+        "design",
+        "root_dir",
+        "output_dir",
+        "shard_fallback_file",
+        "shard_payloads_file",
+        "shard_scan",
+        "auth_fallback_file",
+        "auth_payloads_file",
+        "layout_debug_dir",
+        "qr_chunk_size",
+        "has_passphrase",
+        "quiet",
+        "debug"
+      ],
+      "properties": {
+        "config": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "paper": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A4",
+            "LETTER",
+            null
+          ]
+        },
+        "design": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "root_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "output_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "shard_fallback_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_payloads_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "auth_fallback_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "auth_payloads_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "layout_debug_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "qr_chunk_size": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "has_passphrase": {
+          "type": "boolean"
+        },
+        "quiet": {
+          "type": "boolean"
+        },
+        "debug": {
+          "type": "boolean"
+        }
+      }
+    },
     "recoverStartedArgs": {
       "type": "object",
       "additionalProperties": false,
@@ -1112,6 +1821,8 @@
         "shard_scan",
         "auth_fallback_file",
         "auth_payloads_file",
+        "extension_index",
+        "extension_doc_hash",
         "output",
         "allow_unsigned",
         "quiet",
@@ -1185,6 +1896,20 @@
           ],
           "minLength": 1
         },
+        "extension_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "extension_doc_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
         "output": {
           "type": [
             "string",
@@ -1225,6 +1950,8 @@
         "shard_scan",
         "auth_fallback_file",
         "auth_payloads_file",
+        "extension_index",
+        "extension_doc_hash",
         "allow_unsigned",
         "quiet",
         "debug"
@@ -1306,8 +2033,376 @@
           ],
           "minLength": 1
         },
+        "extension_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "extension_doc_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
         "allow_unsigned": {
           "type": "boolean"
+        },
+        "quiet": {
+          "type": "boolean"
+        },
+        "debug": {
+          "type": "boolean"
+        }
+      }
+    },
+    "inspectExtendStartedArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config",
+        "paper",
+        "design",
+        "root_dir",
+        "input",
+        "input_dir",
+        "base_dir",
+        "shard_fallback_file",
+        "shard_payloads_file",
+        "shard_scan",
+        "has_passphrase",
+        "unlock_policy",
+        "shard_threshold",
+        "shard_count",
+        "signing_key_mode",
+        "signing_key_shard_threshold",
+        "signing_key_shard_count",
+        "quiet",
+        "debug",
+        "operation"
+      ],
+      "properties": {
+        "config": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "paper": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A4",
+            "LETTER",
+            null
+          ]
+        },
+        "design": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "root_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "input": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "input_dir": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "base_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "shard_fallback_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_payloads_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "has_passphrase": {
+          "type": "boolean"
+        },
+        "unlock_policy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "self-contained",
+            "reuse-root",
+            null
+          ]
+        },
+        "shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "shard_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "signing_key_mode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "embedded",
+            "sharded",
+            null
+          ]
+        },
+        "signing_key_shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "signing_key_shard_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "quiet": {
+          "type": "boolean"
+        },
+        "debug": {
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "inspect"
+        }
+      }
+    },
+    "extendStartedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "command",
+        "schema_version",
+        "args"
+      ],
+      "properties": {
+        "type": {
+          "const": "started"
+        },
+        "command": {
+          "const": "extend"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "args": {
+          "$ref": "#/$defs/extendStartedArgs"
+        }
+      }
+    },
+    "extendStartedArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config",
+        "paper",
+        "design",
+        "root_dir",
+        "input",
+        "input_dir",
+        "base_dir",
+        "layout_debug_dir",
+        "qr_chunk_size",
+        "has_passphrase",
+        "shard_fallback_file",
+        "shard_payloads_file",
+        "shard_scan",
+        "unlock_policy",
+        "shard_threshold",
+        "shard_count",
+        "signing_key_mode",
+        "signing_key_shard_threshold",
+        "signing_key_shard_count",
+        "quiet",
+        "debug"
+      ],
+      "properties": {
+        "config": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "paper": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A4",
+            "LETTER",
+            null
+          ]
+        },
+        "design": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "root_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "input": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "input_dir": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "base_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "layout_debug_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "qr_chunk_size": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "has_passphrase": {
+          "type": "boolean"
+        },
+        "shard_fallback_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_payloads_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "unlock_policy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "self-contained",
+            "reuse-root",
+            null
+          ]
+        },
+        "shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "shard_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "signing_key_mode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "embedded",
+            "sharded",
+            null
+          ]
+        },
+        "signing_key_shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "signing_key_shard_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
         },
         "quiet": {
           "type": "boolean"
@@ -1716,6 +2811,30 @@
         },
         "args": {
           "$ref": "#/$defs/backupStartedArgs"
+        }
+      }
+    },
+    "compactStartedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "schema_version",
+        "command",
+        "args"
+      ],
+      "properties": {
+        "type": {
+          "const": "started"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "command": {
+          "const": "compact"
+        },
+        "args": {
+          "$ref": "#/$defs/compactStartedArgs"
         }
       }
     },

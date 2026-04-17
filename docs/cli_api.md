@@ -6,9 +6,12 @@ Ethernity exposes a machine-readable CLI surface for GUI and automation clients 
 Current commands:
 
 - `ethernity api backup`
+- `ethernity api compact`
 - `ethernity api config get`
 - `ethernity api config set`
+- `ethernity api extend`
 - `ethernity api inspect mint`
+- `ethernity api inspect extend`
 - `ethernity api inspect recover`
 - `ethernity api mint`
 - `ethernity api recover`
@@ -18,9 +21,9 @@ reserved for event records only.
 
 When `--config` is omitted in API mode, command behavior depends on the surface:
 
-- `api backup`, `api mint`, and `api recover` load defaults from the existing user config when it
-  already exists, otherwise they fall back to the packaged config without creating user config
-  files.
+- `api backup`, `api compact`, `api extend`, `api mint`, and `api recover` load defaults from the
+  existing user config when it already exists, otherwise they fall back to the packaged config
+  without creating user config files.
 - `api config get` uses the user config when it exists; otherwise it reports the packaged config
   path with `source = "default"` and does not initialize user config just to read settings.
 - `api config set` targets the user config path by default and will initialize it if needed.
@@ -50,7 +53,7 @@ Fields:
 
 - `type`: `started`
 - `schema_version`: integer
-- `command`: `backup`, `config`, `mint`, or `recover`
+- `command`: `backup`, `compact`, `config`, `extend`, `mint`, or `recover`
 - `args`: sanitized argument summary
 
 For `backup`, `args.passphrase_generate` reflects whether the command will generate a passphrase,
@@ -60,8 +63,8 @@ The `args` payload is command-specific and schema-validated in `docs/cli_api.sch
 
 For `config`, `args.operation` is `get` or `set`.
 
-For `api inspect recover` and `api inspect mint`, `args.operation` is `inspect` while `command`
-remains `recover` or `mint`.
+For `api inspect recover`, `api inspect extend`, and `api inspect mint`, `args.operation` is
+`inspect` while `command` remains `recover`, `extend`, or `mint`.
 
 ### `phase`
 
@@ -77,6 +80,7 @@ Current phases:
 
 - Backup: `plan`, `input`, `backup`, `prepare`, `encrypt`, `shard`, `render`
 - Config: `load`, `validate`, `write`
+- Extend inspect: `plan`
 - Mint: `plan`, `mint`, `render`
 - Recover: `plan`, `decrypt`, `write`
 
@@ -145,6 +149,17 @@ creates that exact directory.
 
 Mint results include `signing_key_source` and a stable `artifacts` object for minted shard paths.
 
+Extend results include `index`, `doc_id`, `doc_hash`, `root_doc_id`, `root_doc_hash`, `chain_id`,
+the promoted `extension_dir`, a stable `artifacts` object for generated PDFs, and execution
+summaries for `selected_scope`, `diff_summary`, `chunk_reuse`, and `extension_bytes`.
+
+For `api inspect extend`, `chunk_reuse` and `estimated_extension_bytes` are execution-grade preview
+values for the pending extension when unlock/auth requirements are satisfied and the selected scope
+contains changes.
+
+Compact results include the source `root_dir`, the emitted standalone `output_dir`, a fresh
+standalone `doc_id`, and a stable `artifacts` object for generated PDFs.
+
 Inspect results include `operation: "inspect"`, never include artifacts, and report readiness as a
 success-shaped payload: `ok: true` plus any `blocking_issues`.
 
@@ -172,8 +187,10 @@ Fields:
 Current command-specific error codes:
 
 - `INPUT_REQUIRED`: `ethernity api backup` was invoked without `--input`, `--input-dir`, or
-  `--input -`
-- `OUTPUT_REQUIRED`: `ethernity api recover` was invoked without `--output`
+  `--input -`; `ethernity api compact`, `ethernity api extend`, or `ethernity api inspect extend`
+  was invoked without `--root-dir`
+- `OUTPUT_REQUIRED`: `ethernity api recover` was invoked without `--output`, or
+  `ethernity api compact` was invoked without `--output-dir`
 - `CONFIG_INPUT_REQUIRED`: `ethernity api config set` was invoked without `--input-json`
 - `CONFIG_JSON_INVALID`: the JSON patch passed to `api config set` was malformed, not a JSON
   object, or not valid UTF-8
@@ -186,6 +203,14 @@ Current command-specific error codes:
 - `SIGNING_KEY_SHARD_DIR_NOT_FOUND`: `--signing-key-shard-dir` path does not exist
 - `SIGNING_KEY_SHARD_DIR_INVALID`: `--signing-key-shard-dir` path is not a directory
 - `SIGNING_KEY_SHARD_DIR_EMPTY`: `--signing-key-shard-dir` contains no `.txt` files
+- `EXTENSION_INPUT_REQUIRED`: `ethernity api extend` was invoked without `--input`, `--input-dir`,
+  or `--input -`
+- `EXTENSION_INVALID_POLICY`: `ethernity api extend` received an unsupported or inconsistent shard /
+  unlock-policy combination
+- `EXTENSION_NO_CHANGES`: `ethernity api extend` found no changed or new paths in the selected
+  scope; `api inspect extend` reports a no-op preview instead of raising this code
+- `EXTENSION_MAIN_CARRIER_INVALID`: staged extension MAIN carriers failed ciphertext / AUTH validation
+- `EXTENSION_SHARD_CARRIER_INVALID`: staged extension shard carriers failed payload validation
 
 Current generic error codes:
 
@@ -235,6 +260,12 @@ Current inspect `blocking_issues[].code` values:
 - `SIGNING_KEY_SHARDS_INVALID`
 - `PASSPHRASE_REPLACEMENT_NOT_READY`
 - `SIGNING_KEY_REPLACEMENT_NOT_READY`
+- `ROOT_AUTHORITY_MISMATCH`
+- `EXTENSION_LAYOUT_INVALID`
+- `EXTENSION_INVALID_POLICY`
+- `SEALED_ROOT_NOT_EXTENDABLE`
+- `CHAIN_INVALID`
+- `DELETE_NOT_SUPPORTED`
 
 Additional blocking issue codes may be added in a backwards-compatible way. Existing documented
 codes remain stable once listed here.
@@ -244,6 +275,8 @@ codes remain stable once listed here.
 Current artifact kinds:
 
 - Backup: `qr_document`, `recovery_document`, `recovery_kit_index`, `shard_document`,
+  `signing_key_shard_document`, `layout_debug_json`
+- Extend: `qr_document`, `recovery_document`, `recovery_kit_index`, `shard_document`,
   `signing_key_shard_document`, `layout_debug_json`
 - Mint: `shard_document`, `signing_key_shard_document`, `layout_debug_json`
 - Recover: `recovered_file`
@@ -273,7 +306,8 @@ Stable recover `result.auth_status` values:
 
 `ethernity api inspect recover` reports:
 
-- `doc_id`, `input_label`, `input_detail`, `auth_status`
+- `doc_id`, `selected_extension_index`, `selected_extension_doc_hash`, `input_label`,
+  `input_detail`, `auth_status`
 - `source_summary` when decryption is possible, otherwise `null`
 - `frame_counts.main|auth|shard`
 - `unlock.mode|passphrase_provided|validated_shard_count|required_shard_threshold|satisfied`
@@ -287,6 +321,16 @@ Stable recover `result.auth_status` values:
 - `unlock.validated_passphrase_shard_count|required_passphrase_threshold|satisfied`
 - `signing_key.validated_shard_count|required_threshold|satisfied|source`
 - `mint_capabilities.can_mint_passphrase_shards|can_mint_signing_key_shards`
+- `blocking_issues` and `warnings`
+
+`ethernity api inspect extend` reports:
+
+- `doc_id`, `input_label`, `input_detail`, `input_kind`
+- `source_summary`, `frame_counts`, `root_doc_id`, `root_doc_hash`, `chain_id`
+- `auth_status`, `unlock`, `discovered_extension_dirs`, `validated_head_index`
+- `validated_head_auth_status`, `validated_head_root_authority_verified`
+- `available_extensions`, `ancestry_valid`, `signing_authority`
+- `selected_scope`, `diff_summary`, `chunk_reuse`, `estimated_extension_bytes`
 - `blocking_issues` and `warnings`
 
 `frame_counts.signing_key_shard` reports decoded signing-key shard input frames. Signing-key
@@ -429,21 +473,28 @@ Example onboarding patch:
 ## Example
 
 ```json
-{"type":"started","schema_version":1,"command":"recover","args":{"config":null,"paper":null,"fallback_file":null,"payloads_file":"main_payloads.txt","scan":[],"has_passphrase":true,"shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"output":"/tmp/out/secret.txt","allow_unsigned":false,"quiet":true,"debug":false}}
+{"type":"started","schema_version":1,"command":"recover","args":{"config":null,"paper":null,"fallback_file":null,"payloads_file":"main_payloads.txt","scan":[],"has_passphrase":true,"shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"extension_index":null,"extension_doc_hash":null,"output":"/tmp/out/secret.txt","allow_unsigned":false,"quiet":true,"debug":false}}
 {"type":"phase","id":"plan","label":"Resolving recovery inputs"}
 {"type":"progress","phase":"plan","current":1,"total":1,"unit":"step","details":{"main_frame_count":2,"auth_frame_count":1,"shard_frame_count":0}}
-{"type":"phase","id":"decrypt","label":"Decrypting and extracting payload"}
+{"type":"phase","id":"decrypt","label":"Decrypting and inspecting payload"}
 {"type":"artifact","kind":"recovered_file","path":"/tmp/out/secret.txt","details":{"manifest_path":"secret.txt","size":42}}
-{"type":"result","ok":true,"command":"recover","output_path":"/tmp/out/secret.txt","output_path_kind":"file","doc_id":"deadbeef","auth_status":"verified","input_label":"QR payloads","input_detail":"main_payloads.txt","manifest":{"format_version":1,"input_origin":"file","input_roots":["secret.txt"],"sealed":true,"file_count":1,"payload_codec":"raw","payload_raw_len":42},"files":[{"manifest_path":"secret.txt","output_path":"/tmp/out/secret.txt","size":42,"sha256":"0123","mtime":0}]}
+{"type":"result","ok":true,"command":"recover","output_path":"/tmp/out/secret.txt","output_path_kind":"file","doc_id":"deadbeef","selected_extension_index":null,"selected_extension_doc_hash":null,"auth_status":"verified","input_label":"QR payloads","input_detail":"main_payloads.txt","manifest":{"format_version":1,"input_origin":"file","input_roots":[],"sealed":true,"file_count":1,"payload_codec":"raw","payload_raw_len":null},"files":[{"manifest_path":"secret.txt","output_path":"/tmp/out/secret.txt","size":42,"sha256":"0123","mtime":0}]}
 ```
 
 ```json
-{"type":"started","schema_version":1,"command":"recover","args":{"operation":"inspect","config":null,"paper":null,"fallback_file":null,"payloads_file":"main_payloads.txt","scan":[],"has_passphrase":true,"shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"allow_unsigned":false,"quiet":true,"debug":false}}
+{"type":"started","schema_version":1,"command":"recover","args":{"operation":"inspect","config":null,"paper":null,"fallback_file":null,"payloads_file":"main_payloads.txt","scan":[],"has_passphrase":true,"shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"extension_index":null,"extension_doc_hash":null,"allow_unsigned":false,"quiet":true,"debug":false}}
 {"type":"phase","id":"plan","label":"Resolving recovery inputs"}
 {"type":"progress","phase":"plan","current":1,"total":1,"unit":"step","details":{"main_frame_count":2,"auth_frame_count":1,"shard_frame_count":0}}
-{"type":"phase","id":"decrypt","label":"Decrypting and extracting payload"}
+{"type":"phase","id":"decrypt","label":"Decrypting and inspecting payload"}
 {"type":"progress","phase":"decrypt","current":1,"total":1,"unit":"step","details":{"file_count":1,"manifest_file_count":1}}
-{"type":"result","ok":true,"command":"recover","operation":"inspect","doc_id":"deadbeef","auth_status":"verified","input_label":"QR payloads","input_detail":"main_payloads.txt","source_summary":{"format_version":1,"input_origin":"file","input_roots":["secret.txt"],"sealed":true,"file_count":1,"payload_codec":"raw","payload_raw_len":42},"frame_counts":{"main":2,"auth":1,"shard":0},"unlock":{"mode":"passphrase","passphrase_provided":true,"validated_shard_count":0,"required_shard_threshold":null,"satisfied":true},"blocking_issues":[],"warnings":[]}
+{"type":"result","ok":true,"command":"recover","operation":"inspect","doc_id":"deadbeef","selected_extension_index":null,"selected_extension_doc_hash":null,"auth_status":"verified","input_label":"QR payloads","input_detail":"main_payloads.txt","source_summary":{"format_version":1,"input_origin":"file","input_roots":[],"sealed":true,"file_count":1,"payload_codec":"raw","payload_raw_len":null},"frame_counts":{"main":2,"auth":1,"shard":0},"unlock":{"mode":"passphrase","passphrase_provided":true,"validated_shard_count":0,"required_shard_threshold":null,"satisfied":true},"blocking_issues":[],"warnings":[]}
+```
+
+```json
+{"type":"started","schema_version":1,"command":"compact","args":{"config":null,"paper":null,"design":null,"root_dir":"backup-aa11","output_dir":"compacted","shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"layout_debug_dir":null,"qr_chunk_size":null,"has_passphrase":true,"quiet":true,"debug":false}}
+{"type":"artifact","kind":"qr_document","path":"compacted/qr_document.pdf","details":{"filename":"qr_document.pdf","size":1234}}
+{"type":"artifact","kind":"recovery_document","path":"compacted/recovery_document.pdf","details":{"filename":"recovery_document.pdf","size":2345}}
+{"type":"result","ok":true,"command":"compact","doc_id":"deadbeef","root_dir":"backup-aa11","output_dir":"compacted","artifacts":{"qr_document":"compacted/qr_document.pdf","recovery_document":"compacted/recovery_document.pdf","recovery_kit_index":null,"shard_documents":[],"signing_key_shard_documents":[]}}
 ```
 
 ```json
@@ -474,7 +525,34 @@ ethernity api recover --scan "/path/to/qr_document.pdf" --shard-scan "/path/to/s
 - Use `output_path_kind` to distinguish file outputs from directory outputs
 - Treat inspect `blocking_issues` as readiness guidance, not command failure
 - Use `api config get/set` for GUI settings management and onboarding state
-- Expect `api backup` / `api mint` / `api recover` to use the existing user config when present
-- Expect `api inspect recover` / `api inspect mint` to avoid file writes and artifact events
+- Expect `api backup` / `api compact` / `api extend` / `api mint` / `api recover` to use the existing user config when present
+- Expect `api inspect extend` / `api inspect recover` / `api inspect mint` to avoid file writes and artifact events
 - Prefer `code` values for logic and `message` values for display
 - Treat stdin as opt-in for `api recover`; pass `--fallback-file -` for recovery text or `--payloads-file -` for QR payload lines
+`extend` also accepts `--unlock-policy self-contained|reuse-root`.
+`reuse-root` disables extension-local shard emission, requires passphrase shard PDFs to already
+exist on the root backup, and rejects explicit shard-policy overrides for the new extension.
+Operators then unlock the extension through the root shard set or a direct passphrase.
+
+`api extend` and `api inspect extend` can also unlock the selected backup with passphrase shard
+inputs by using `--shard-fallback-file`, `--shard-payloads-file`, or `--shard-scan`.
+Both commands require `--root-dir`; the inspect form stays read-only and targets an existing
+non-symlink backup root directory.
+Both commands also accept `--input -` for stdin-backed file content when selecting an explicit
+scope.
+`api inspect extend` accepts the same extension-policy preview knobs as `api extend`:
+`--unlock-policy`, `--shard-threshold`, `--shard-count`, `--signing-key-mode`,
+`--signing-key-shard-threshold`, and `--signing-key-shard-count`.
+If the root backup already includes `recovery_kit_index.pdf`, the active design must also support
+rendering `recovery_kit_index` for extend/inspect previews; otherwise the result reports
+`EXTENSION_INVALID_POLICY`.
+
+For `api inspect extend`, result events also surface authenticated-head status:
+
+- `validated_head_auth_status`
+- `validated_head_root_authority_verified`
+
+When chain authentication has been evaluated, `available_extensions` entries may also include:
+
+- `auth_status`
+- `root_authority_verified`

@@ -102,7 +102,7 @@ def mint(
         typer.Option(
             "--passphrase",
             help="Passphrase to decrypt with.",
-            rich_help_panel="Keys",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     shard_fallback_file: Annotated[
@@ -110,7 +110,7 @@ def mint(
         typer.Option(
             "--shard-fallback-file",
             help="Existing passphrase shard recovery text file (repeatable).",
-            rich_help_panel="Keys",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     shard_dir: Annotated[
@@ -118,7 +118,7 @@ def mint(
         typer.Option(
             "--shard-dir",
             help="Directory containing existing passphrase shard text files.",
-            rich_help_panel="Keys",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     shard_payloads_file: Annotated[
@@ -126,7 +126,7 @@ def mint(
         typer.Option(
             "--shard-payloads-file",
             help="Existing passphrase shard QR payload file (repeatable).",
-            rich_help_panel="Keys",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     shard_scan: Annotated[
@@ -134,7 +134,7 @@ def mint(
         typer.Option(
             "--shard-scan",
             help="Existing passphrase shard scan path (image/PDF/dir, repeatable).",
-            rich_help_panel="Keys",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     auth_fallback_file: Annotated[
@@ -142,7 +142,7 @@ def mint(
         typer.Option(
             "--auth-fallback-file",
             help="Auth recovery text (fallback, z-base-32, use - for stdin).",
-            rich_help_panel="Inputs",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     auth_payloads_file: Annotated[
@@ -150,7 +150,7 @@ def mint(
         typer.Option(
             "--auth-payloads-file",
             help="Auth QR payloads (one per line).",
-            rich_help_panel="Inputs",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     signing_key_shard_fallback_file: Annotated[
@@ -158,7 +158,7 @@ def mint(
         typer.Option(
             "--signing-key-shard-fallback-file",
             help="Signing-key shard recovery text file (repeatable).",
-            rich_help_panel="Keys",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     signing_key_shard_dir: Annotated[
@@ -166,7 +166,7 @@ def mint(
         typer.Option(
             "--signing-key-shard-dir",
             help="Directory containing signing-key shard text files.",
-            rich_help_panel="Keys",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     signing_key_shard_payloads_file: Annotated[
@@ -174,7 +174,7 @@ def mint(
         typer.Option(
             "--signing-key-shard-payloads-file",
             help="Signing-key shard QR payload file (repeatable).",
-            rich_help_panel="Keys",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     signing_key_shard_scan: Annotated[
@@ -182,7 +182,7 @@ def mint(
         typer.Option(
             "--signing-key-shard-scan",
             help="Signing-key shard scan path (image/PDF/dir, repeatable).",
-            rich_help_panel="Keys",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     output_dir: Annotated[
@@ -192,14 +192,6 @@ def mint(
             "-o",
             help="Where to write minted shard PDFs (default: mint-<doc_id>).",
             rich_help_panel="Outputs",
-        ),
-    ] = None,
-    layout_debug_dir: Annotated[
-        str | None,
-        typer.Option(
-            "--layout-debug-dir",
-            help="Write layout diagnostics JSON files to this directory.",
-            rich_help_panel="Advanced",
         ),
     ] = None,
     shard_threshold: Annotated[
@@ -266,6 +258,14 @@ def mint(
             rich_help_panel="Outputs",
         ),
     ] = True,
+    quiet: Annotated[
+        bool,
+        typer.Option(
+            "--quiet",
+            help="Hide non-error output.",
+            rich_help_panel="Behavior",
+        ),
+    ] = False,
     config: Annotated[
         str | None,
         typer.Option(
@@ -291,14 +291,14 @@ def mint(
             rich_help_panel="Config",
         ),
     ] = None,
-    quiet: Annotated[
-        bool,
+    layout_debug_dir: Annotated[
+        str | None,
         typer.Option(
-            "--quiet",
-            help="Hide non-error output.",
-            rich_help_panel="Behavior",
+            "--layout-debug-dir",
+            help="Write layout diagnostics JSON files to this directory.",
+            rich_help_panel="Advanced",
         ),
-    ] = False,
+    ] = None,
 ) -> None:
     state = _ctx_state(ctx)
     config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
