@@ -46,6 +46,105 @@ Use this template for each change entry:
 
 ## Entries
 
+## 2026-04-10 - Require root-authorized extension AUTH in existing carriers
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: 19, 20
+- Compatibility:
+  - Old decoders reading new artifacts: partial (older extension readers that ignore or do not
+    enforce extension AUTH root-authority matching can misclassify trust state)
+  - New decoders reading old artifacts: partial (Version 1 root backups remain readable; extension
+    directories without root-authorized AUTH are no longer accepted in authenticated mode)
+- Version/profile bump required: no (the extension envelope stays outer Version 2 and the carrier
+  set stays unchanged; the delta is fail-closed authentication validation on existing carriers)
+- Implementation refs:
+  - `src/ethernity/cli/features/extend/service.py`
+  - `src/ethernity/cli/features/recover/chain.py`
+  - `tooling/document_inspector_app/analysis.py`
+- Test refs:
+  - `tests/unit/test_extend_service.py`
+  - `tests/unit/test_recover_chain.py`
+  - `tests/unit/test_document_inspector_tool.py`
+- Security impact:
+  - Makes extension acceptance depend on AUTH signed by the root-derived authority instead of
+    ciphertext integrity and lineage alone
+
+## 2026-04-09 - Finalize the Version 2 extension schema in place
+
+- Type: wire-format
+- Normative spec updated: yes
+- Sections changed: 19
+- Compatibility:
+  - Old decoders reading new artifacts: no (the Version 2 extension header now uses the finalized
+    field set and older extension decoders expect a different header shape)
+  - New decoders reading old artifacts: partial (Version 1 root backups remain readable; Version 2
+    extension compatibility follows the finalized schema defined in Section 19)
+- Version/profile bump required: no (standalone Version 1 root compatibility is preserved and the
+  extension envelope remains outer Version 2)
+- Implementation refs:
+  - `src/ethernity/formats/extension_envelope.py`
+  - `src/ethernity/extensions/chain.py`
+  - `src/ethernity/cli/features/extend/service.py`
+- Test refs:
+  - `tests/unit/test_extension_envelope.py`
+  - `tests/unit/test_extension_chain.py`
+  - `tests/unit/test_document_inspector_tool.py`
+- Security impact:
+  - Moves extension authority ownership to the root backup and removes extension-embedded signing
+    authority fields
+
+## 2026-04-09 - Harden extension-envelope chunking and staged publish validation
+
+- Type: editorial
+- Normative spec updated: yes
+- Sections changed: 19, 20
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged
+  - New decoders reading old artifacts: unchanged
+- Version/profile bump required: no (the extension-envelope wire shape remains outer envelope
+  version 2; this entry tightens implementation-aligned chunking and publish-validation
+  requirements)
+- Implementation refs:
+  - `src/ethernity/extensions/build.py`
+  - `src/ethernity/cli/features/extend/service.py`
+  - `src/ethernity/cli/features/recover/chain.py`
+- Test refs:
+  - `tests/unit/test_extension_build.py`
+  - `tests/unit/test_extend_service.py`
+  - `tests/integration/test_integration_extensions.py`
+- Security impact:
+  - Makes staged extension promotion fail closed for shard media and aligns replay/build chunking
+    behavior with the stored chain profile
+
+## 2026-04-09 - Add extension-envelope chain and compaction format rules
+
+- Type: wire-format
+- Normative spec updated: yes
+- Sections changed: 2, 12, 19, 20, 21
+- Compatibility:
+  - Old decoders reading new artifacts: no (Version 1-only decoders reject extension envelopes,
+    which use outer envelope version 2, and do not understand extension-chain directories)
+  - New decoders reading old artifacts: yes (standalone Version 1 backups remain readable without
+    extensions)
+- Version/profile bump required: yes (the format now includes extension envelopes with outer
+  envelope version 2 and authenticated chain replay semantics)
+- Implementation refs:
+  - `src/ethernity/formats/extension_envelope.py`
+  - `src/ethernity/extensions/discovery.py`
+  - `src/ethernity/extensions/chain.py`
+  - `src/ethernity/cli/features/recover/chain.py`
+  - `src/ethernity/cli/features/compact/service.py`
+- Test refs:
+  - `tests/unit/test_extension_envelope.py`
+  - `tests/unit/test_extension_discovery.py`
+  - `tests/unit/test_extension_chain.py`
+  - `tests/unit/test_recover_chain.py`
+  - `tests/unit/test_compact_service.py`
+- Security impact:
+  - Adds authenticated ancestry validation for extension replay and makes compaction the explicit
+    rebase path instead of allowing in-place chain rewriting
+
 ## 2026-03-11 - Add signed shard-set identifiers to shard payloads
 
 - Type: wire-format

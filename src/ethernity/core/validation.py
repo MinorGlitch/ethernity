@@ -39,7 +39,7 @@ def require_dict(value: object, *, label: str) -> dict[Any, Any]:
     return value
 
 
-def require_keys(mapping: dict[Any, Any], keys: Iterable[str], *, label: str) -> None:
+def require_keys(mapping: dict[Any, Any], keys: Iterable[object], *, label: str) -> None:
     """Validate that all keys are present in mapping."""
     for key in keys:
         if key not in mapping:
