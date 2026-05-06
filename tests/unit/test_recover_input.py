@@ -285,12 +285,12 @@ class TestRecoverInput(unittest.TestCase):
 
     def test_payload_collection_next_prompt_transitions(self) -> None:
         state = _PayloadCollectionState(allow_unsigned=False, quiet=True)
-        self.assertEqual(state.next_prompt(), "QR payload")
+        self.assertEqual(state.next_prompt(), "Backup text line")
         state.main_total = 2
         state.main_indices = {0}
-        self.assertEqual(state.next_prompt(), "QR payload (2 remaining)")
+        self.assertEqual(state.next_prompt(), "Backup text line (2 remaining)")
         state.main_indices = {0, 1}
-        self.assertEqual(state.next_prompt(), "Auth QR payload (1 remaining)")
+        self.assertEqual(state.next_prompt(), "Verification text line (1 remaining)")
 
     def test_payload_collection_rejects_total_mismatch(self) -> None:
         state = _PayloadCollectionState(allow_unsigned=True, quiet=True)
@@ -350,7 +350,7 @@ class TestRecoverInput(unittest.TestCase):
             self.assertTrue(state.ingest(frame))
             self.assertFalse(state.ingest(frame))
         self.assertTrue(
-            any("Duplicate payload ignored." in str(call) for call in print_mock.call_args_list)
+            any("Duplicate text line ignored." in str(call) for call in print_mock.call_args_list)
         )
 
     def test_payload_collection_rejects_non_main_or_auth_frames(self) -> None:
@@ -428,7 +428,7 @@ class TestRecoverInput(unittest.TestCase):
         self.assertEqual(frames, [frame])
         collect_mock.assert_called_once()
 
-    def test_prompt_text_or_payloads_stdin_prefers_qr_payload_lines_when_selected(self) -> None:
+    def test_prompt_text_or_payloads_stdin_prefers_backup_text_lines_when_selected(self) -> None:
         frame = Frame(
             version=1,
             frame_type=FrameType.MAIN_DOCUMENT,
@@ -454,7 +454,7 @@ class TestRecoverInput(unittest.TestCase):
                         quiet=True,
                         preferred_kind="payload",
                     )
-        self.assertEqual(label, "QR payloads")
+        self.assertEqual(label, "Backup text lines")
         self.assertEqual(frames, [frame])
         self.assertEqual(collect_mock.call_args.kwargs["initial_frames"], [frame])
 
@@ -487,7 +487,7 @@ class TestRecoverInput(unittest.TestCase):
                             allow_unsigned=True,
                             quiet=True,
                         )
-        self.assertEqual(label, "QR payloads")
+        self.assertEqual(label, "Backup text lines")
         self.assertEqual(frames, [first_frame])
         collect_mock.assert_called_once()
 
@@ -551,7 +551,10 @@ class TestRecoverInput(unittest.TestCase):
                     frames = collect_payload_frames(allow_unsigned=True, quiet=False)
         self.assertEqual(frames, [frame])
         self.assertTrue(
-            any("Paste one QR payload per line" in str(call) for call in print_mock.call_args_list)
+            any(
+                "Paste one backup text line per line" in str(call)
+                for call in print_mock.call_args_list
+            )
         )
 
     def test_collect_payload_frames_waits_for_auth_when_unsigned_not_allowed(self) -> None:
@@ -640,7 +643,7 @@ class TestRecoverInput(unittest.TestCase):
                 ):
                     with mock.patch(
                         "ethernity.cli.features.recover.input_collection.parse_recovery_lines_for_kind",
-                        return_value=([frame], "QR payloads"),
+                        return_value=([frame], "Backup text lines"),
                     ) as parse_mock:
                         with mock.patch(
                             "ethernity.cli.features.recover.input_collection.status",
@@ -650,7 +653,7 @@ class TestRecoverInput(unittest.TestCase):
                                 allow_unsigned=True,
                                 quiet=True,
                             )
-        self.assertEqual(label, "QR payloads")
+        self.assertEqual(label, "Backup text lines")
         self.assertEqual(detail, "payloads.txt")
         self.assertEqual(frames, [frame])
         self.assertEqual(parse_mock.call_args.kwargs["input_kind"], "payload")
@@ -683,7 +686,7 @@ class TestRecoverInput(unittest.TestCase):
                             allow_unsigned=True,
                             quiet=True,
                         )
-        self.assertEqual(label, "Scan")
+        self.assertEqual(label, "Backup PDF or images")
         self.assertEqual(detail, "scan.png")
         self.assertEqual(frames, [frame])
         recovery_scan.assert_called_once_with(["scan.png"], quiet=True)
@@ -717,7 +720,7 @@ class TestRecoverInput(unittest.TestCase):
                             allow_unsigned=True,
                             quiet=False,
                         )
-        self.assertEqual(label, "Scan")
+        self.assertEqual(label, "Backup PDF or images")
         self.assertEqual(detail, "backup-dir")
         self.assertEqual(frames, [main])
         recovery_scan.assert_called_once_with(["backup-dir"], quiet=False)
@@ -755,7 +758,7 @@ class TestRecoverInput(unittest.TestCase):
                                 allow_unsigned=True,
                                 quiet=True,
                             )
-        self.assertEqual(label, "Scan")
+        self.assertEqual(label, "Backup PDF or images")
         self.assertEqual(detail, "scan.png")
         self.assertEqual(frames, [frame])
 

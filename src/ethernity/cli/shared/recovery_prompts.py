@@ -41,6 +41,7 @@ from ethernity.cli.shared.ui_api import (
     prompt_required_secret,
     prompt_yes_no,
     status,
+    wizard_substep,
 )
 from ethernity.crypto.sharding import (
     KEY_TYPE_PASSPHRASE,
@@ -200,16 +201,17 @@ def _format_shard_input_error(exc: Exception) -> str:
     lowered = message.lower()
     if "no valid shard data found" in lowered or "unable to parse shard recovery text" in lowered:
         return (
-            "No shard data found. Try scanning PDFs/images or paste shard recovery text with '-'."
+            "No shard data found. Try scanning printed shard documents "
+            "or paste shard text with '-'."
         )
     return format_qr_input_error(
         message,
         bad_payload_hint=(
-            "That doesn't look like a QR payload. Paste one shard payload per line, "
+            "That doesn't look like a shard text line. Paste one shard text line per line, "
             "or switch to shard recovery text."
         ),
         no_qr_hint=(
-            "That doesn't look like a QR payload. Paste one shard payload per line, "
+            "That doesn't look like a shard text line. Paste one shard text line per line, "
             "or switch to shard recovery text."
         ),
         file_hint="Check the path and try again.",
@@ -221,14 +223,14 @@ def _format_shard_payload_error(exc: Exception) -> str:
     return format_qr_input_error(
         message,
         bad_payload_hint=(
-            "That doesn't look like a QR payload. Paste one shard payload per line, "
+            "That doesn't look like a shard text line. Paste one shard text line per line, "
             "or switch to shard recovery text."
         ),
         no_qr_hint=(
-            "That doesn't look like a QR payload. Paste one shard payload per line, "
+            "That doesn't look like a shard text line. Paste one shard text line per line, "
             "or switch to shard recovery text."
         ),
-        default_hint="Try scanning images or paste shard recovery text.",
+        default_hint="Try scanning printed shard documents or paste shard recovery text.",
     )
 
 
@@ -236,7 +238,7 @@ def _prompt_shard_inputs(
     *,
     quiet: bool,
     key_type: str = KEY_TYPE_PASSPHRASE,
-    label: str = "Shard documents",
+    label: str = "Printed shard documents",
     stop_at_quorum: bool = True,
 ) -> tuple[list[str], list[str], list[Frame]]:
     state = _ShardPasteState(frames=[], seen_shares=set())
@@ -252,27 +254,30 @@ def _prompt_shard_inputs(
                 prompt_label = f"Recovery shard files ({remaining} remaining)"
         else:
             prompt_label = "Recovery shard files (one per line, blank when done)"
-        paths = prompt_paths_with_picker(
-            prompt_label,
-            picker_prompt="Select shard input files",
-            kind="file",
-            manual_help_text=manual_help_text,
-            picker_help_text="Use space to toggle, Enter to confirm.",
-            allow_stdin=True,
-            empty_message="At least one shard input is required.",
-            stdin_message="Enter '-' alone to paste shard recovery text or shard QR payloads.",
-        )
+        with wizard_substep("Choose shard source"):
+            paths = prompt_paths_with_picker(
+                prompt_label,
+                picker_prompt="Select shard input files",
+                kind="file",
+                manual_help_text=manual_help_text,
+                picker_help_text="Use space to toggle, Enter to confirm.",
+                allow_stdin=True,
+                empty_message="At least one shard input is required.",
+                stdin_message="Enter '-' alone to paste shard recovery text or shard text lines.",
+            )
         if "-" in paths:
-            return (
-                fallback_files,
-                payload_files,
-                _prompt_shard_text_or_payloads_stdin(
+            with wizard_substep("Paste shard text"):
+                frames = _prompt_shard_text_or_payloads_stdin(
                     preferred_kind=_prompt_shard_text_input_kind(),
                     state=state,
                     key_type=key_type,
                     stop_at_quorum=stop_at_quorum,
                     label=label,
-                ),
+                )
+            return (
+                fallback_files,
+                payload_files,
+                frames,
             )
 
         try:
@@ -311,8 +316,8 @@ def prompt_passphrase_unlock_material(
     collect_all_shards: bool = False,
     choice_prompt: str = "How do you want to unlock the backup",
     passphrase_choice_label: str = "I have the passphrase",
-    shard_choice_label: str = "I have recovery shard documents",
-    choice_help_text: str = "Choose the recovery material you have available.",
+    shard_choice_label: str = "I have printed shard documents",
+    choice_help_text: str = "Choose the unlock information you have available.",
     passphrase_prompt: str = "Enter passphrase",
     passphrase_help_text: str = "Enter the recovery passphrase for this backup.",
     allow_existing_review: bool = False,
@@ -323,34 +328,39 @@ def prompt_passphrase_unlock_material(
     scan_files = list(shard_scan or [])
     shard_frames: list[Frame] = []
 
-    prefilled_unlock_material = bool(
+    prefilled_unlock_information = bool(
         resolved_passphrase or fallback_files or payload_files or scan_files
     )
-    if prefilled_unlock_material and allow_existing_review:
-        choice = prompt_choice(
-            choice_prompt,
-            {
-                "keep": "Use the unlock material already provided",
-                "passphrase": passphrase_choice_label,
-                "shards": shard_choice_label,
-            },
-            default="keep",
-            help_text=("Review or replace the unlock material already provided before continuing."),
-        )
+    if prefilled_unlock_information and allow_existing_review:
+        with wizard_substep("Choose unlock source"):
+            choice = prompt_choice(
+                choice_prompt,
+                {
+                    "keep": "Use the unlock information already provided",
+                    "passphrase": passphrase_choice_label,
+                    "shards": shard_choice_label,
+                },
+                default="keep",
+                help_text=(
+                    "Review or replace the unlock information already provided before continuing."
+                ),
+            )
         if choice == "keep":
             return resolved_passphrase, fallback_files, payload_files, scan_files, shard_frames
         if choice == "passphrase":
             if resolved_passphrase is not None:
-                entered = prompt_optional_secret(
-                    passphrase_prompt,
-                    help_text="Leave blank to keep the passphrase already provided.",
-                )
+                with wizard_substep("Enter passphrase"):
+                    entered = prompt_optional_secret(
+                        passphrase_prompt,
+                        help_text="Leave blank to keep the passphrase already provided.",
+                    )
                 resolved_passphrase = entered if entered is not None else resolved_passphrase
             else:
-                resolved_passphrase = prompt_required_secret(
-                    passphrase_prompt,
-                    help_text=passphrase_help_text,
-                )
+                with wizard_substep("Enter passphrase"):
+                    resolved_passphrase = prompt_required_secret(
+                        passphrase_prompt,
+                        help_text=passphrase_help_text,
+                    )
             return resolved_passphrase, [], [], [], shard_frames
 
         fallback_files = []
@@ -358,21 +368,23 @@ def prompt_passphrase_unlock_material(
         scan_files = []
         resolved_passphrase = None
 
-    if not prefilled_unlock_material:
-        choice = prompt_choice(
-            choice_prompt,
-            {
-                "passphrase": passphrase_choice_label,
-                "shards": shard_choice_label,
-            },
-            default="passphrase",
-            help_text=choice_help_text,
-        )
-        if choice == "passphrase":
-            resolved_passphrase = prompt_required_secret(
-                passphrase_prompt,
-                help_text=passphrase_help_text,
+    if not prefilled_unlock_information:
+        with wizard_substep("Choose unlock source"):
+            choice = prompt_choice(
+                choice_prompt,
+                {
+                    "passphrase": passphrase_choice_label,
+                    "shards": shard_choice_label,
+                },
+                default="passphrase",
+                help_text=choice_help_text,
             )
+        if choice == "passphrase":
+            with wizard_substep("Enter passphrase"):
+                resolved_passphrase = prompt_required_secret(
+                    passphrase_prompt,
+                    help_text=passphrase_help_text,
+                )
             return resolved_passphrase, fallback_files, payload_files, scan_files, shard_frames
 
     fallback_files, payload_inputs, shard_frames = _prompt_shard_inputs(
@@ -403,7 +415,7 @@ def _classify_shard_input_paths(paths: list[str]) -> tuple[list[str], list[str]]
         except ValueError:
             _frames_from_payload_lines(
                 lines,
-                label="shard QR payloads",
+                label="shard text lines",
                 source=path,
             )
             payload_files.append(path)
@@ -436,13 +448,13 @@ def _ingest_shard_frame(
 ) -> bool:
     if frame.frame_type != FrameType.KEY_DOCUMENT:
         console_err.print(
-            "[error]That payload isn't a shard document. Use shard recovery text or QR "
-            "payloads for passphrase shards only.[/error]"
+            "[error]That entry isn't a shard document. Use shard recovery text or shard text "
+            "lines for passphrase shards only.[/error]"
         )
         return False
     if frame.total != 1 or frame.index != 0:
         console_err.print(
-            "[error]Shard QR payloads are single-frame; paste one payload line at a time.[/error]"
+            "[error]Shard text lines are single-frame; paste one line at a time.[/error]"
         )
         return False
 
@@ -470,7 +482,7 @@ def _ingest_shard_frame(
     else:
         if state.expected_version is not None and payload.version != state.expected_version:
             console_err.print(
-                "[error]This shard uses a different shard-payload version than the previous ones. "
+                "[error]This shard uses a different format version than the previous ones. "
                 "Use shards from one shard set.[/error]"
             )
             return False
@@ -561,7 +573,7 @@ def _prompt_shard_fallback_paste(
     initial_lines: list[str] | None = None,
     state: _ShardPasteState | None = None,
     key_type: str = KEY_TYPE_PASSPHRASE,
-    label: str = "Shard documents",
+    label: str = "Printed shard documents",
     stop_at_quorum: bool = True,
 ) -> list[Frame]:
     state = state or _ShardPasteState(frames=[], seen_shares=set())
@@ -656,7 +668,7 @@ def _prompt_shard_text_or_payloads_stdin(
     preferred_kind: ShardTextInputKind = "auto",
     state: _ShardPasteState | None = None,
     key_type: str = KEY_TYPE_PASSPHRASE,
-    label: str = "Shard documents",
+    label: str = "Printed shard documents",
     stop_at_quorum: bool = True,
 ) -> list[Frame]:
     state = state or _ShardPasteState(frames=[], seen_shares=set())
@@ -698,7 +710,7 @@ def _prompt_shard_text_or_payloads_stdin(
         try:
             frames = _frames_from_payload_lines(
                 lines,
-                label="shard QR payloads",
+                label="shard text lines",
                 source="stdin",
             )
         except ValueError as exc:
@@ -728,18 +740,20 @@ def _prompt_shard_text_or_payloads_stdin(
 
 
 def _prompt_shard_text_input_kind() -> ShardTextInputKind:
-    selected = prompt_choice(
-        "What kind of shard text do you have",
-        {
-            "fallback": "Shard recovery text",
-            "payload": "Shard QR payload lines",
-            "auto": "Let Ethernity detect it",
-        },
-        default="fallback",
-        help_text=(
-            "Choose the exact artifact when you know it. Use auto-detect only if you're not sure."
-        ),
-    )
+    with wizard_substep("Choose text type"):
+        selected = prompt_choice(
+            "What kind of shard text do you have",
+            {
+                "fallback": "Shard recovery text",
+                "payload": "Shard text lines",
+                "auto": "I'm not sure",
+            },
+            default="fallback",
+            help_text=(
+                "Choose the exact artifact when you know it. Use 'I'm not sure' only if you need "
+                "Ethernity to figure it out."
+            ),
+        )
     return cast(ShardTextInputKind, selected)
 
 
@@ -747,17 +761,17 @@ def _shard_text_stdin_prompt(input_kind: ShardTextInputKind) -> str:
     if input_kind == "fallback":
         return "Shard recovery text"
     if input_kind == "payload":
-        return "Shard QR payload lines"
-    return "Shard recovery text or QR payload"
+        return "Shard text lines"
+    return "Shard recovery text or shard text lines"
 
 
 def _shard_text_stdin_help(input_kind: ShardTextInputKind) -> str:
     if input_kind == "fallback":
         return "Paste shard recovery text. You can paste one section or a full block."
     if input_kind == "payload":
-        return "Paste one shard QR payload per line. You can paste several lines at once."
+        return "Paste one shard text line per line. You can paste several lines at once."
     return (
-        "Paste shard recovery text or shard QR payload lines. If detection is wrong, go back "
+        "Paste shard recovery text or shard text lines. If detection is wrong, go back "
         "and choose the exact artifact type."
     )
 
@@ -771,7 +785,7 @@ def _nonempty_prompt_lines(entry: str) -> list[str]:
 
 def _parse_initial_shard_payload_frames(lines: list[str]) -> list[Frame]:
     try:
-        return _frames_from_payload_lines(lines, label="shard QR payloads", source="stdin")
+        return _frames_from_payload_lines(lines, label="shard text lines", source="stdin")
     except ValueError as exc:
         console_err.print(f"[error]{_format_shard_payload_error(exc)}[/error]")
         return []
@@ -794,8 +808,8 @@ def _frames_from_shard_text_or_payload_files(paths: list[str]) -> list[Frame]:
     if not frames:
         raise ValueError(
             "No valid shard data found in provided files.\n"
-            "  - Check that files contain shard recovery text or QR payloads\n"
-            "  - PDFs/images are scanned for QR payloads automatically\n"
+            "  - Check that files contain shard recovery text or shard text lines\n"
+            "  - PDFs/images are scanned for shard text lines automatically\n"
             "  - Ensure each file has valid content"
         )
     return frames
@@ -816,14 +830,14 @@ def _frames_from_shard_text_or_payload_lines(
     try:
         return _frames_from_payload_lines(
             lines,
-            label="shard QR payloads",
+            label="shard text lines",
             source=source,
         )
     except ValueError as exc:
         errors.append(str(exc))
         detail = "; ".join(errors)
         raise ValueError(
-            f"unable to parse shard recovery text or QR payloads from {source}: {detail}"
+            f"unable to parse shard recovery text or shard text lines from {source}: {detail}"
         ) from exc
 
 
@@ -847,17 +861,18 @@ def _prompt_shard_payload_paste(
     initial_frames: list[Frame] | None = None,
     state: _ShardPasteState | None = None,
     key_type: str = KEY_TYPE_PASSPHRASE,
-    label: str = "Shard payloads",
+    label: str = "Printed shard documents",
     stop_at_quorum: bool = True,
 ) -> list[Frame]:
     if stop_at_quorum:
         help_text: str | None = (
-            "Paste one shard QR payload per line; we'll stop once enough shards are collected."
+            "Paste one shard text line per line; we'll stop once enough "
+            "printed shards are collected."
         )
     else:
         help_text = (
-            "Paste one shard QR payload per line; after quorum you can add more shards from the "
-            "same set."
+            "Paste one shard text line per line; after quorum you can add more printed shards from "
+            "the same set."
         )
     state = state or _ShardPasteState(frames=[], seen_shares=set())
     if state.expected_threshold is not None:
@@ -867,14 +882,14 @@ def _prompt_shard_payload_paste(
     if stop_at_quorum:
         console.print(
             "[subtitle]"
-            "Paste one shard QR payload per line. We'll stop once the threshold is met."
+            "Paste one shard text line per line. We'll stop once the threshold is met."
             "[/subtitle]"
         )
     else:
         console.print(
             "[subtitle]"
-            "Paste one shard QR payload per line. After quorum, you can add more shards from the "
-            "same set."
+            "Paste one shard text line per line. After quorum, you can add more printed shards "
+            "from the same set."
             "[/subtitle]"
         )
 
@@ -892,15 +907,15 @@ def _prompt_shard_payload_paste(
 
     while True:
         if state.expected_threshold is None:
-            prompt = "Shard QR payload"
+            prompt = "Shard text line"
         else:
             remaining = max(state.expected_threshold - len(state.seen_shares), 0)
             if remaining == 1:
-                prompt = "Shard QR payload (1 remaining)"
+                prompt = "Shard text line (1 remaining)"
             elif remaining == 0 and not stop_at_quorum:
-                prompt = "Shard QR payload (quorum met)"
+                prompt = "Shard text line (quorum met)"
             else:
-                prompt = f"Shard QR payload ({remaining} remaining)"
+                prompt = f"Shard text line ({remaining} remaining)"
 
         payload_text = prompt_required(prompt, help_text=help_text)
         help_text = None

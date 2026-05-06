@@ -35,7 +35,10 @@ from ethernity.cli.features.recover.chain import (
     detect_recovery_root_dir,
     discover_recovery_extensions,
 )
-from ethernity.cli.features.recover.input_collection import prompt_recovery_input_interactive
+from ethernity.cli.features.recover.input_collection import (
+    RECOVERY_SCAN_LABEL,
+    prompt_recovery_input_interactive,
+)
 from ethernity.cli.features.recover.key_recovery import (
     InsufficientShardError,
     _signing_seed_from_shard_frames,
@@ -72,6 +75,7 @@ from ethernity.cli.shared.ui_api import (
     ui_screen_mode,
     wizard_flow,
     wizard_stage,
+    wizard_substep,
 )
 from ethernity.config import apply_template_design, load_app_config
 from ethernity.core.models import ShardingConfig
@@ -389,19 +393,22 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
 
             while stage_index < 6:
                 if stage_index == 0:
-                    with wizard_stage("Input", step_number=1):
+                    with wizard_stage("Input", step_number=1, density="dense"):
                         frames, input_label, input_detail = prompt_recovery_input_interactive(
                             allow_unsigned=False,
                             quiet=quiet,
                         )
-                    if input_label in {"Scan", "Backup root directory"} and input_detail:
+                    if (
+                        input_label in {RECOVERY_SCAN_LABEL, "Backup root directory"}
+                        and input_detail
+                    ):
                         working_args.scan = [input_detail]
                         recover_args = _recover_args_from_mint_args(working_args)
                     stage_index += 1
                     continue
 
                 if stage_index == 1:
-                    with wizard_stage("Keys", step_number=2):
+                    with wizard_stage("Keys", step_number=2, density="dense"):
                         key_material = _prompt_key_material(
                             recover_args,
                             quiet=quiet,
@@ -504,7 +511,7 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                 review_step_number = quorum_step_number + 1
 
                 if stage_index == 2 and needs_signing_authority:
-                    with wizard_stage("Signing authority", step_number=3):
+                    with wizard_stage("Signing authority", step_number=3, density="dense"):
                         if not output_state.signing_key_frames:
                             (
                                 _fallback_files,
@@ -532,7 +539,7 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                     continue
 
                 if stage_index == 3:
-                    with wizard_stage("Scope", step_number=scope_step_number):
+                    with wizard_stage("Scope", step_number=scope_step_number, density="dense"):
                         output_state = _resolve_mint_scope(
                             working_args=working_args,
                             output_state=output_state,
@@ -545,7 +552,7 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                     continue
 
                 if stage_index == 4:
-                    with wizard_stage("Quorum", step_number=quorum_step_number):
+                    with wizard_stage("Quorum", step_number=quorum_step_number, density="dense"):
                         output_state = _resolve_mint_quorums(
                             output_state=output_state,
                             quiet=quiet,
@@ -637,15 +644,17 @@ def _resolve_mint_scope(
 ) -> _MintWizardOutputState:
     resolved = replace(output_state)
     if not _passphrase_output_is_preset(working_args):
-        resolved.mint_passphrase_shards = prompt_yes_no(
-            "Create new passphrase shard documents",
-            default=True,
-        )
+        with wizard_substep("Choose outputs"):
+            resolved.mint_passphrase_shards = prompt_yes_no(
+                "Create new passphrase shard documents",
+                default=True,
+            )
     if not _signing_key_output_is_preset(working_args):
-        resolved.mint_signing_key_shards = prompt_yes_no(
-            "Create new signing-key shard documents",
-            default=True,
-        )
+        with wizard_substep("Choose outputs"):
+            resolved.mint_signing_key_shards = prompt_yes_no(
+                "Create new signing-key shard documents",
+                default=True,
+            )
     if not resolved.mint_passphrase_shards and not resolved.mint_signing_key_shards:
         raise ValueError("mint must create at least one shard document type")
 
@@ -669,18 +678,20 @@ def _resolve_mint_scope(
                 list(resolved.passphrase_resolution.payloads)
             )
             if missing_count > 0:
-                mode = _prompt_shard_mint_mode(
-                    label="passphrase",
-                    threshold=resolved.passphrase_resolution.payloads[0].threshold,
-                    share_count=resolved.passphrase_resolution.payloads[0].share_count,
-                    missing_count=missing_count,
-                )
-                if mode == "replacement":
-                    resolved.passphrase_replacement_count = (
-                        1
-                        if missing_count == 1
-                        else _prompt_replacement_count("passphrase", maximum=missing_count)
+                with wizard_substep("Passphrase shards"):
+                    mode = _prompt_shard_mint_mode(
+                        label="passphrase",
+                        threshold=resolved.passphrase_resolution.payloads[0].threshold,
+                        share_count=resolved.passphrase_resolution.payloads[0].share_count,
+                        missing_count=missing_count,
                     )
+                if mode == "replacement":
+                    with wizard_substep("Passphrase shards"):
+                        resolved.passphrase_replacement_count = (
+                            1
+                            if missing_count == 1
+                            else _prompt_replacement_count("passphrase", maximum=missing_count)
+                        )
     if resolved.mint_signing_key_shards:
         if (
             resolved.signing_key_replacement_count is None
@@ -688,26 +699,28 @@ def _resolve_mint_scope(
             and not resolved.signing_key_frames
             and manifest.signing_seed is not None
         ):
-            use_existing_signing_key_shards = prompt_yes_no(
-                "Use existing signing-key shards to fill missing slots",
-                default=False,
-                help_text=(
-                    "Choose yes if you already have signing-key shard documents from this backup "
-                    "and want compatible replacements to fill only the missing slots. Choose no "
-                    "to create a full new set."
-                ),
-            )
-            if use_existing_signing_key_shards:
-                (
-                    _fallback_files,
-                    _payload_files,
-                    resolved.signing_key_frames,
-                ) = _prompt_shard_inputs(
-                    quiet=quiet,
-                    key_type=KEY_TYPE_SIGNING_SEED,
-                    label="Signing-key shard documents",
-                    stop_at_quorum=False,
+            with wizard_substep("Signing-key shards"):
+                use_existing_signing_key_shards = prompt_yes_no(
+                    "Use existing signing-key shards to fill missing slots",
+                    default=False,
+                    help_text=(
+                        "Choose yes if you already have signing-key shard documents from this "
+                        "backup and want compatible replacements to fill only the missing slots. "
+                        "Choose no to create a full new set."
+                    ),
                 )
+            if use_existing_signing_key_shards:
+                with wizard_substep("Signing-key shards"):
+                    (
+                        _fallback_files,
+                        _payload_files,
+                        resolved.signing_key_frames,
+                    ) = _prompt_shard_inputs(
+                        quiet=quiet,
+                        key_type=KEY_TYPE_SIGNING_SEED,
+                        label="Signing-key shard documents",
+                        stop_at_quorum=False,
+                    )
         resolved.signing_resolution = _resolve_output_replacement_scope(
             existing_frames=resolved.signing_key_frames,
             doc_id=plan.doc_id,
@@ -725,18 +738,20 @@ def _resolve_mint_scope(
         ):
             missing_count = _missing_replacement_count(list(resolved.signing_resolution.payloads))
             if missing_count > 0:
-                mode = _prompt_shard_mint_mode(
-                    label="signing-key",
-                    threshold=resolved.signing_resolution.payloads[0].threshold,
-                    share_count=resolved.signing_resolution.payloads[0].share_count,
-                    missing_count=missing_count,
-                )
-                if mode == "replacement":
-                    resolved.signing_key_replacement_count = (
-                        1
-                        if missing_count == 1
-                        else _prompt_replacement_count("signing-key", maximum=missing_count)
+                with wizard_substep("Signing-key shards"):
+                    mode = _prompt_shard_mint_mode(
+                        label="signing-key",
+                        threshold=resolved.signing_resolution.payloads[0].threshold,
+                        share_count=resolved.signing_resolution.payloads[0].share_count,
+                        missing_count=missing_count,
                     )
+                if mode == "replacement":
+                    with wizard_substep("Signing-key shards"):
+                        resolved.signing_key_replacement_count = (
+                            1
+                            if missing_count == 1
+                            else _prompt_replacement_count("signing-key", maximum=missing_count)
+                        )
     return resolved
 
 
@@ -788,13 +803,14 @@ def _resolve_mint_quorums(
         and resolved.passphrase_replacement_count is None
         and resolved.passphrase_sharding is None
     ):
-        resolved.passphrase_sharding = _prompt_quorum_choice(
-            title="Passphrase shard quorum",
-            help_text=(
-                "Choose how many fresh passphrase shard documents to create and how many are "
-                "required to recover."
-            ),
-        )
+        with wizard_substep("Passphrase quorum"):
+            resolved.passphrase_sharding = _prompt_quorum_choice(
+                title="Passphrase shard quorum",
+                help_text=(
+                    "Choose how many fresh passphrase shard documents to create and how many are "
+                    "required to recover."
+                ),
+            )
 
     if not resolved.mint_signing_key_shards:
         return resolved
@@ -804,25 +820,27 @@ def _resolve_mint_quorums(
     ):
         return resolved
     if resolved.passphrase_sharding is not None:
-        use_same = prompt_yes_no(
-            (
-                "Use same quorum for signing-key shards "
-                f"({resolved.passphrase_sharding.threshold} "
-                f"of {resolved.passphrase_sharding.shares})"
-            ),
-            default=True,
-            help_text="Choose no if you want a different signing-key shard set size.",
-        )
+        with wizard_substep("Signing-key quorum"):
+            use_same = prompt_yes_no(
+                (
+                    "Use same quorum for signing-key shards "
+                    f"({resolved.passphrase_sharding.threshold} "
+                    f"of {resolved.passphrase_sharding.shares})"
+                ),
+                default=True,
+                help_text="Choose no if you want a different signing-key shard set size.",
+            )
         if use_same:
             resolved.signing_key_sharding = None
             return resolved
-    resolved.signing_key_sharding = _prompt_quorum_choice(
-        title="Signing-key shard quorum",
-        help_text=(
-            "Choose how many fresh signing-key shard documents to create and how many are "
-            "required to recover."
-        ),
-    )
+    with wizard_substep("Signing-key quorum"):
+        resolved.signing_key_sharding = _prompt_quorum_choice(
+            title="Signing-key shard quorum",
+            help_text=(
+                "Choose how many fresh signing-key shard documents to create and how many are "
+                "required to recover."
+            ),
+        )
     return resolved
 
 

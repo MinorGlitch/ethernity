@@ -65,6 +65,7 @@ from ethernity.cli.shared.ui.runtime import (
     ui_screen_mode,
     wizard_flow,
     wizard_stage,
+    wizard_substep,
 )
 from ethernity.cli.shared.ui.state import WizardState, format_hint
 
@@ -113,4 +114,5 @@ __all__ = [
     "validate_path",
     "wizard_flow",
     "wizard_stage",
+    "wizard_substep",
 ]

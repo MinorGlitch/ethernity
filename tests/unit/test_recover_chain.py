@@ -30,7 +30,9 @@ from ethernity.cli.features.recover.chain import (
     scan_extension_carriers,
 )
 from ethernity.cli.features.recover.planning import RecoveryPlan
+from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
+from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import InputFile
 from ethernity.crypto.signing import AuthPayload, derive_public_key, encode_auth_payload, sign_auth
 from ethernity.encoding.framing import VERSION, Frame, FrameType
@@ -1110,7 +1112,7 @@ class TestRecoverChain(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "signing key does not match root authority"):
                 recover_chain_entries(plan, quiet=True, debug=False)
 
-    def test_recover_chain_entries_defaults_to_latest_validated_prefix_when_later_extension_fails(
+    def test_recover_chain_entries_blocks_default_latest_replay_when_later_extension_fails(
         self,
     ) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
@@ -1121,8 +1123,7 @@ class TestRecoverChain(unittest.TestCase):
             data=b"root!",
         )
         first_doc_id, first_doc_hash = _doc_id_and_hash_from_ciphertext(first_ciphertext)
-        first_plaintext = first_ciphertext
-        first_version, first_decoded = decode_any_envelope(first_plaintext)
+        first_version, first_decoded = decode_any_envelope(first_ciphertext)
         assert first_version == 2
         assert isinstance(first_decoded, ExtensionEnvelope)
         first_link = DecodedExtensionLink(
@@ -1138,23 +1139,32 @@ class TestRecoverChain(unittest.TestCase):
         )
         second_doc_id = b"\x44" * 16
         second_doc_hash = b"\x55" * 32
-        inventory = (
-            DiscoveredRecoveryExtension(
-                index=1,
-                dir_name="01",
-                doc_id_hex=first_doc_id.hex(),
-                doc_hash=first_doc_hash,
-                ciphertext=first_ciphertext,
-                auth_frames=(),
+        inventory = recover_chain_module.RecoveryExtensionInventory(
+            extensions=(
+                DiscoveredRecoveryExtension(
+                    index=1,
+                    dir_name="01",
+                    doc_id_hex=first_doc_id.hex(),
+                    doc_hash=first_doc_hash,
+                    ciphertext=first_ciphertext,
+                    auth_frames=(),
+                ),
+                DiscoveredRecoveryExtension(
+                    index=2,
+                    dir_name="02",
+                    doc_id_hex=second_doc_id.hex(),
+                    doc_hash=second_doc_hash,
+                    ciphertext=b"bad",
+                    auth_frames=(),
+                ),
             ),
-            DiscoveredRecoveryExtension(
-                index=2,
-                dir_name="02",
-                doc_id_hex=second_doc_id.hex(),
-                doc_hash=second_doc_hash,
-                ciphertext=b"bad",
-                auth_frames=(),
-            ),
+            explicit_selection=False,
+            requested_head_index=None,
+            requested_head_doc_hash=None,
+            requested_target_matched=False,
+            latest_head_index=2,
+            latest_head_doc_hash=second_doc_hash.hex(),
+            latest_head_dir_name="02",
         )
         plan = _recovery_plan(
             root_ciphertext,
@@ -1165,7 +1175,7 @@ class TestRecoverChain(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.chain.discover_recovery_extensions",
+                "ethernity.cli.features.recover.chain._discover_recovery_extension_inventory",
                 return_value=inventory,
             ),
             mock.patch(
@@ -1180,12 +1190,225 @@ class TestRecoverChain(unittest.TestCase):
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
         ):
-            result = recover_chain_entries(plan, quiet=True, debug=False)
+            with self.assertRaises(ApiCommandError) as exc_info:
+                recover_chain_entries(plan, quiet=True, debug=False)
 
-        self.assertEqual(result.selected_extension_index, 1)
-        self.assertEqual(result.selected_extension_doc_hash, first_doc_hash.hex())
-        self.assertEqual(len(result.extracted), 1)
-        self.assertEqual(result.extracted[0][1], b"root!")
+        exc = exc_info.exception
+        self.assertEqual(exc.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(
+            str(exc),
+            "latest recovery head could not be trusted: extension 02 AUTH signing key does not match root authority",
+        )
+        self.assertEqual(exc.details["stage"], "replay")
+        self.assertEqual(exc.details["failure_stage"], "auth")
+        self.assertEqual(exc.details["failure_head_index"], 2)
+        self.assertEqual(exc.details["failure_head_doc_hash"], second_doc_hash.hex())
+        self.assertEqual(exc.details["failure_head_dir_name"], "02")
+        self.assertEqual(exc.details["latest_head_index"], 2)
+        self.assertEqual(exc.details["latest_head_doc_hash"], second_doc_hash.hex())
+        self.assertEqual(exc.details["requested_head_index"], None)
+        self.assertEqual(exc.details["validated_head_index"], 1)
+        self.assertEqual(exc.details["validated_head_doc_hash"], first_doc_hash.hex())
+        self.assertEqual(exc.details["validated_head_auth_status"], "verified")
+        self.assertEqual(exc.details["validated_head_root_authority_verified"], True)
+        self.assertEqual(exc.details["explicit_selection"], False)
+
+    def test_recover_chain_entries_blocks_default_latest_replay_when_discovery_marks_invalid_suffix(
+        self,
+    ) -> None:
+        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+        first_ciphertext = _extension_ciphertext(root_doc_hash)
+        first_doc_id, first_doc_hash = _doc_id_and_hash_from_ciphertext(first_ciphertext)
+        extension_auth = _extension_auth_frame(first_doc_id, first_doc_hash)
+        plan = _recovery_plan(
+            root_ciphertext,
+            root_doc_id,
+            root_doc_hash,
+            extension_index=None,
+        )
+
+        discovered = (
+            DiscoveredExtensionDirectory(
+                index=1,
+                dir_name="01",
+                path=Path("/tmp/root/extensions/01"),
+                doc_id_hex=first_doc_id.hex(),
+                main_carriers=(
+                    DiscoveredExtensionMainCarrier(
+                        doc_type="qr_document",
+                        path=Path("/tmp/root/extensions/01/qr.pdf"),
+                        filename=f"qr_document-01-{first_doc_id.hex()}.pdf",
+                        doc_id_hex=first_doc_id.hex(),
+                    ),
+                ),
+                shard_carriers=(),
+            ),
+        )
+        frames_by_path = {
+            "/tmp/root/extensions/01/qr.pdf": [
+                Frame(
+                    version=1,
+                    frame_type=FrameType.MAIN_DOCUMENT,
+                    doc_id=first_doc_id,
+                    index=0,
+                    total=1,
+                    data=first_ciphertext,
+                ),
+                extension_auth,
+            ]
+        }
+
+        def _scan(paths: list[str], *, quiet: bool = False):
+            _ = quiet
+            return list(frames_by_path[paths[0]])
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.chain.discover_validated_extension_directories",
+                return_value=_validated_discovery(
+                    *discovered,
+                    first_invalid_dir_name="02",
+                    first_invalid_message=(
+                        "extension directory 02 is missing required payload MAIN carriers: "
+                        "recovery_document"
+                    ),
+                ),
+            ),
+            mock.patch(
+                "ethernity.cli.features.recover.chain._recovery_frames_from_scan",
+                side_effect=_scan,
+            ),
+            mock.patch(
+                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                side_effect=lambda data, *, passphrase, debug=False: data,
+            ),
+        ):
+            with self.assertRaises(ApiCommandError) as exc_info:
+                recover_chain_entries(plan, quiet=True, debug=False)
+
+        exc = exc_info.exception
+        self.assertEqual(exc.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(exc.details["stage"], "replay")
+        self.assertEqual(exc.details["failure_stage"], "discovery")
+        self.assertEqual(exc.details["failure_head_index"], 2)
+        self.assertEqual(exc.details["latest_head_index"], 2)
+        self.assertEqual(exc.details["requested_head_index"], None)
+        self.assertEqual(exc.details["validated_head_index"], 0)
+        self.assertEqual(exc.details["validated_head_doc_hash"], root_doc_hash.hex())
+        self.assertEqual(exc.details["explicit_selection"], False)
+
+    def test_recover_chain_entries_rejects_selected_doc_hash_when_requested_head_is_untrusted(
+        self,
+    ) -> None:
+        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+        first_ciphertext = _extension_ciphertext(root_doc_hash, index=1, data=b"root!")
+        first_doc_id, first_doc_hash = _doc_id_and_hash_from_ciphertext(first_ciphertext)
+        second_ciphertext = _extension_ciphertext(
+            root_doc_hash,
+            index=2,
+            parent_doc_hash=first_doc_hash,
+            data=b"root!!",
+        )
+        second_doc_id, second_doc_hash = _doc_id_and_hash_from_ciphertext(second_ciphertext)
+        first_auth = _extension_auth_frame(first_doc_id, first_doc_hash)
+        second_auth = _extension_auth_frame(second_doc_id, second_doc_hash, signing_seed=b"\x77" * 32)
+        plan = _recovery_plan(
+            root_ciphertext,
+            root_doc_id,
+            root_doc_hash,
+            extension_index=None,
+            extension_doc_hash=second_doc_hash.hex(),
+        )
+
+        discovered = (
+            DiscoveredExtensionDirectory(
+                index=1,
+                dir_name="01",
+                path=Path("/tmp/root/extensions/01"),
+                doc_id_hex=first_doc_id.hex(),
+                main_carriers=(
+                    DiscoveredExtensionMainCarrier(
+                        doc_type="qr_document",
+                        path=Path("/tmp/root/extensions/01/qr.pdf"),
+                        filename=f"qr_document-01-{first_doc_id.hex()}.pdf",
+                        doc_id_hex=first_doc_id.hex(),
+                    ),
+                ),
+                shard_carriers=(),
+            ),
+            DiscoveredExtensionDirectory(
+                index=2,
+                dir_name="02",
+                path=Path("/tmp/root/extensions/02"),
+                doc_id_hex=second_doc_id.hex(),
+                main_carriers=(
+                    DiscoveredExtensionMainCarrier(
+                        doc_type="qr_document",
+                        path=Path("/tmp/root/extensions/02/qr.pdf"),
+                        filename=f"qr_document-02-{second_doc_id.hex()}.pdf",
+                        doc_id_hex=second_doc_id.hex(),
+                    ),
+                ),
+                shard_carriers=(),
+            ),
+        )
+        frames_by_path = {
+            "/tmp/root/extensions/01/qr.pdf": [
+                Frame(
+                    version=1,
+                    frame_type=FrameType.MAIN_DOCUMENT,
+                    doc_id=first_doc_id,
+                    index=0,
+                    total=1,
+                    data=first_ciphertext,
+                ),
+                first_auth,
+            ],
+            "/tmp/root/extensions/02/qr.pdf": [
+                Frame(
+                    version=1,
+                    frame_type=FrameType.MAIN_DOCUMENT,
+                    doc_id=second_doc_id,
+                    index=0,
+                    total=1,
+                    data=second_ciphertext,
+                ),
+                second_auth,
+            ],
+        }
+
+        def _scan(paths: list[str], *, quiet: bool = False):
+            _ = quiet
+            return list(frames_by_path[paths[0]])
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.chain.discover_validated_extension_directories",
+                return_value=_validated_discovery(*discovered),
+            ),
+            mock.patch(
+                "ethernity.cli.features.recover.chain._recovery_frames_from_scan",
+                side_effect=_scan,
+            ),
+            mock.patch(
+                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                side_effect=lambda data, *, passphrase, debug=False: data,
+            ),
+        ):
+            with self.assertRaises(ApiCommandError) as exc_info:
+                recover_chain_entries(plan, quiet=True, debug=False)
+
+        exc = exc_info.exception
+        self.assertEqual(exc.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(exc.details["stage"], "replay")
+        self.assertEqual(exc.details["failure_stage"], "auth")
+        self.assertEqual(exc.details["failure_head_index"], 2)
+        self.assertEqual(exc.details["failure_head_doc_hash"], second_doc_hash.hex())
+        self.assertEqual(exc.details["requested_head_index"], 2)
+        self.assertEqual(exc.details["requested_head_doc_hash"], second_doc_hash.hex())
+        self.assertEqual(exc.details["validated_head_index"], 1)
+        self.assertEqual(exc.details["validated_head_doc_hash"], first_doc_hash.hex())
+        self.assertEqual(exc.details["explicit_selection"], True)
 
     def test_decode_authenticated_extension_link_rejects_missing_auth_even_when_unsigned_allowed(
         self,

@@ -25,14 +25,15 @@ from ethernity.cli.shared.paths import expanduser_cli_path
 from ethernity.cli.shared.ui.prompts_core import (
     QUESTIONARY_STYLE,
     _ask_question,
+    _question_message,
     _resolve_context,
+    print_prompt_header,
     prompt_choice,
     prompt_choice_list,
     prompt_multiline,
     prompt_optional,
     prompt_required,
 )
-from ethernity.cli.shared.ui.renderables import hint_box
 from ethernity.cli.shared.ui.state import UIContext
 
 
@@ -115,8 +116,6 @@ def _run_picker_flow(
             context=context,
         )
         if input_mode == "select":
-            if picker_help_text:
-                context.console.print(hint_box([picker_help_text]))
             directory = prompt_optional_path(
                 directory_prompt,
                 kind="dir",
@@ -163,11 +162,10 @@ def _prompt_select_entries(
         )
     choices = [questionary.Choice(title=label, value=value) for value, label in entries]
     while True:
-        if help_text:
-            context.console.print(hint_box([help_text]))
+        print_prompt_header(prompt, help_text, context=context)
         values = _ask_question(
             questionary.checkbox(
-                prompt,
+                _question_message(prompt, context=context),
                 choices=choices,
                 qmark="",
                 style=QUESTIONARY_STYLE,

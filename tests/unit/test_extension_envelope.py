@@ -53,6 +53,59 @@ def _make_profile() -> ExtensionChunkingProfile:
     )
 
 
+def _make_test_envelope() -> ExtensionEnvelope:
+    chunk_bytes = b"hello extension"
+    chunk_id = hashlib.sha256(chunk_bytes).digest()
+    return ExtensionEnvelope(
+        header=build_extension_header(
+            index=1,
+            parent_doc_hash=TEST_DOC_HASH,
+            root_doc_hash=TEST_ROOT_DOC_HASH,
+            chunking=_make_profile(),
+            input_origin="file",
+            input_roots=(),
+            created_at=123,
+        ),
+        files=(
+            ExtensionFile(
+                path="docs/update.txt",
+                size=len(chunk_bytes),
+                sha256=chunk_id,
+                mtime=1,
+                chunk_refs=(
+                    ExtensionChunkRef(
+                        chunk_id=chunk_id,
+                        uncompressed_len=len(chunk_bytes),
+                    ),
+                ),
+            ),
+        ),
+        chunks=(
+            ExtensionChunkRecord(
+                chunk_id=chunk_id,
+                codec=CHUNK_CODEC_RAW,
+                raw_len=len(chunk_bytes),
+                data=chunk_bytes,
+            ),
+        ),
+    )
+
+
+def _encode_sections(header: dict[int, object], body: dict[int, object]) -> bytes:
+    header_bytes = dumps_canonical(header)
+    body_bytes = dumps_canonical(body)
+    return b"".join(
+        (
+            MAGIC,
+            encode_uvarint(2),
+            encode_uvarint(len(header_bytes)),
+            header_bytes,
+            encode_uvarint(len(body_bytes)),
+            body_bytes,
+        )
+    )
+
+
 class TestExtensionEnvelope(unittest.TestCase):
     def test_roundtrip_with_raw_chunk(self) -> None:
         chunk_bytes = b"hello extension"
@@ -559,6 +612,68 @@ class TestExtensionEnvelope(unittest.TestCase):
                     ),
                 ),
             )
+
+    def test_decode_rejects_non_canonical_version_uvarint(self) -> None:
+        envelope = _make_test_envelope()
+        header, body = envelope.to_cbor_sections()
+        header_bytes = dumps_canonical(header)
+        body_bytes = dumps_canonical(body)
+        malformed = b"".join(
+            (
+                MAGIC,
+                b"\x82\x00",
+                encode_uvarint(len(header_bytes)),
+                header_bytes,
+                encode_uvarint(len(body_bytes)),
+                body_bytes,
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "non-canonical varint"):
+            ExtensionEnvelope.decode(malformed)
+
+    def test_decode_rejects_truncated_header_bytes(self) -> None:
+        envelope = _make_test_envelope()
+        header, _body = envelope.to_cbor_sections()
+        header_bytes = dumps_canonical(header)
+        malformed = b"".join(
+            (
+                MAGIC,
+                encode_uvarint(2),
+                encode_uvarint(len(header_bytes)),
+                header_bytes[:-1],
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "truncated extension header"):
+            ExtensionEnvelope.decode(malformed)
+
+    def test_decode_rejects_truncated_body_bytes(self) -> None:
+        envelope = _make_test_envelope()
+        header, body = envelope.to_cbor_sections()
+        header_bytes = dumps_canonical(header)
+        body_bytes = dumps_canonical(body)
+        malformed = b"".join(
+            (
+                MAGIC,
+                encode_uvarint(2),
+                encode_uvarint(len(header_bytes)),
+                header_bytes,
+                encode_uvarint(len(body_bytes)),
+                body_bytes[:-1],
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "extension body length mismatch"):
+            ExtensionEnvelope.decode(malformed)
+
+    def test_decode_rejects_duplicate_chunk_ids_in_body(self) -> None:
+        envelope = _make_test_envelope()
+        header, body = envelope.to_cbor_sections()
+        body[2] = [*body[2], body[2][0]]
+
+        with self.assertRaisesRegex(ValueError, "duplicate extension chunk_id"):
+            ExtensionEnvelope.decode(_encode_sections(header, body))
 
     def test_extension_codec_dispatch_helpers(self) -> None:
         chunk_bytes = b"dispatch"

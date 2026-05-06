@@ -77,6 +77,8 @@ class TestPromptPrimitives(unittest.TestCase):
         prompts_module.print_prompt_header("Second", "hint", context=context)
         self.assertEqual(context.stage_prompt_count, 2)
         self.assertEqual(context.console.print.call_count, 4)
+        first_prompt = context.console.print.call_args_list[0].args[0]
+        self.assertEqual(getattr(first_prompt, "plain", ""), "First\n")
 
     @mock.patch("ethernity.cli.shared.ui.prompts_core.clear_screen")
     def test_print_prompt_header_screen_mode_preserves_first_rendered_home_screen(
@@ -101,7 +103,7 @@ class TestPromptPrimitives(unittest.TestCase):
         context.current_stage_title = "Input"
         context.console.print = mock.MagicMock()
         prompts_module.print_prompt_header("First", "hint", context=context)
-        clear_screen.assert_called_once_with(context=context)
+        clear_screen.assert_not_called()
 
     def test_print_prompt_header_screen_mode_uses_stage_title_when_no_help_text(self) -> None:
         context = _context()
@@ -116,6 +118,30 @@ class TestPromptPrimitives(unittest.TestCase):
             str(call.args[0]) if call.args else "" for call in context.console.print.call_args_list
         ]
         self.assertTrue(any("Input" in entry for entry in printed))
+
+    def test_print_prompt_header_screen_mode_renders_dense_substep_context(self) -> None:
+        context = _context()
+        context.screen_mode = True
+        context.compact_prompt_headers = True
+        context.current_stage_title = "Input"
+        context.current_stage_density = "dense"
+        context.current_substep_title = "Choose source"
+        context.current_substep_help_text = "Pick the backup artifact you already have."
+        context.console.print = mock.MagicMock()
+
+        prompts_module.print_prompt_header(
+            "How do you want to provide the backup",
+            None,
+            context=context,
+        )
+
+        printed = [
+            getattr(call.args[0], "plain", str(call.args[0]))
+            for call in context.console.print.call_args_list
+            if call.args
+        ]
+        self.assertTrue(any("Choose source" in entry for entry in printed))
+        self.assertEqual(context.console.print.call_count, 3)
 
     def test_print_prompt_header_non_compact_prints_each_time(self) -> None:
         context = _context()
@@ -262,6 +288,24 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
         self.assertEqual(value, "chosen")
         select_mock.assert_called_once()
         self.assertEqual(select_mock.call_args.kwargs["initial_choice"], "b")
+
+    @mock.patch(
+        "ethernity.cli.shared.ui.prompts_core._select_with_initial_choice",
+        return_value=_Ask(["chosen"]),
+    )
+    def test_prompt_choice_list_hides_inline_question_text_in_screen_mode(
+        self,
+        select_mock: mock.MagicMock,
+    ) -> None:
+        context = _context()
+        context.screen_mode = True
+        prompts_module.prompt_choice_list(
+            [("a", "A")],
+            default="a",
+            title="Pick one",
+            context=context,
+        )
+        self.assertEqual(select_mock.call_args.args[0], "")
 
     def test_questionary_style_highlights_current_choice(self) -> None:
         self.assertIn(
@@ -517,7 +561,7 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
             checkbox = _Ask([[], ["ok"]])
             with mock.patch(
                 "ethernity.cli.shared.ui.picker.questionary.checkbox", return_value=checkbox
-            ):
+            ) as checkbox_mock:
                 values = picker_module._prompt_select_entries(
                     "Pick many",
                     directory=tmp,
@@ -529,7 +573,31 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
                     context=context,
                 )
         self.assertEqual(values, ["ok"])
+        self.assertEqual(checkbox_mock.call_args.args[0], "Pick many")
         context.console_err.print.assert_called()
+
+    def test_prompt_select_entries_multi_hides_inline_question_text_in_screen_mode(self) -> None:
+        context = _context()
+        context.screen_mode = True
+        context.console.print = mock.MagicMock()
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "a.txt").write_text("x", encoding="utf-8")
+            checkbox = _Ask([["ok"]])
+            with mock.patch(
+                "ethernity.cli.shared.ui.picker.questionary.checkbox", return_value=checkbox
+            ) as checkbox_mock:
+                values = picker_module._prompt_select_entries(
+                    "Pick many",
+                    directory=tmp,
+                    allow_files=True,
+                    allow_dirs=False,
+                    include_hidden=False,
+                    help_text="help",
+                    multi=True,
+                    context=context,
+                )
+        self.assertEqual(values, ["ok"])
+        self.assertEqual(checkbox_mock.call_args.args[0], "")
 
     @mock.patch("ethernity.cli.shared.ui.picker._prompt_select_entries", return_value=["a", "b"])
     def test_prompt_select_paths_wrapper(self, _prompt_select_entries: mock.MagicMock) -> None:

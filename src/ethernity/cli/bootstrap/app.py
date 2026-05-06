@@ -270,43 +270,45 @@ def _split_existing_paths(paths: Sequence[str]) -> tuple[list[str], list[str]]:
 
 def _prompt_home_auth_inputs() -> tuple[str | None, str | None]:
     if not prompt_yes_no(
-        "Add a separate authenticity file",
+        "Add extra verification data",
         default=False,
         help_text=(
             "Use this only when the backup documents do not already include "
-            "valid authenticity data."
+            "usable verification data."
         ),
     ):
         return None, None
 
     auth_input_kind = prompt_choice(
-        "How is the authenticity data stored",
+        "How is the extra verification data stored",
         {
             "fallback": "Recovery text file",
-            "payloads": "QR payload file",
+            "payloads": "Text line file",
         },
         default="payloads",
-        help_text="Choose the file format for the extra authenticity data you want to supply.",
+        help_text="Choose the file format for the extra verification data you want to supply.",
     )
     if auth_input_kind == "fallback":
         return (
             prompt_path_with_picker(
-                "Authenticity recovery text file",
+                "Verification recovery text file",
                 kind="file",
-                help_text="Choose the recovery text file that contains the authenticity lines.",
-                picker_prompt="Select authenticity recovery text",
-                picker_help_text="Choose the authenticity recovery text file.",
+                help_text=(
+                    "Choose the recovery text file that contains the extra verification lines."
+                ),
+                picker_prompt="Select verification recovery text",
+                picker_help_text="Choose the verification recovery text file.",
             ),
             None,
         )
     return (
         None,
         prompt_path_with_picker(
-            "Authenticity QR payload file",
+            "Verification text line file",
             kind="file",
-            help_text="Choose the text file that contains the authenticity QR payload line.",
-            picker_prompt="Select authenticity QR payload file",
-            picker_help_text="Choose the authenticity QR payload file.",
+            help_text="Choose the text file that contains the extra verification line.",
+            picker_prompt="Select verification text line file",
+            picker_help_text="Choose the verification text line file.",
         ),
     )
 
@@ -339,9 +341,9 @@ def _prompt_home_extend_args(
         quiet=quiet,
         choice_prompt="How do you want to unlock this backup",
         passphrase_choice_label="I have the passphrase",
-        shard_choice_label="I have recovery shard documents",
+        shard_choice_label="I have printed shard documents",
         choice_help_text=(
-            "Choose the unlock method for the existing backup before selecting files to add."
+            "Choose the unlock information for the existing backup before selecting files to add."
         ),
         passphrase_prompt="Passphrase",
         passphrase_help_text="Enter the passphrase for the backup you are updating.",
@@ -410,7 +412,7 @@ def _prompt_home_compact_args(
         quiet=quiet,
         choice_prompt="How do you want to unlock this backup",
         passphrase_choice_label="I have the passphrase",
-        shard_choice_label="I have recovery shard documents",
+        shard_choice_label="I have printed shard documents",
         choice_help_text=("Choose the unlock method for the existing backup before compacting it."),
         passphrase_prompt="Passphrase",
         passphrase_help_text="Enter the passphrase for the backup you are compacting.",

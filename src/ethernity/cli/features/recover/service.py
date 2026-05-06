@@ -21,9 +21,8 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Literal
 
-from ethernity.cli.features.recover.chain import recover_chain_entries
 from ethernity.cli.features.recover.execution import (
-    decrypt_manifest_and_extract,
+    decrypt_manifest_extract_selection,
     write_recovered_outputs,
 )
 from ethernity.cli.features.recover.planning import RecoveryPlan, plan_from_args
@@ -62,6 +61,8 @@ class RecoverExecutionResult:
     output_path: str
     output_path_kind: Literal["file", "directory", "stdout"]
     single_entry_output_is_directory: bool
+    requested_extension_index: int | None = None
+    requested_extension_doc_hash: str | None = None
     selected_extension_index: int | None = None
     selected_extension_doc_hash: str | None = None
 
@@ -143,8 +144,6 @@ def execute_recover_plan(
 ) -> RecoverExecutionResult:
     with event_session(event_sink):
         file_payloads: list[dict[str, object]] = []
-        selected_extension_index: int | None = None
-        selected_extension_doc_hash: str | None = None
 
         def _on_file_written(
             entry: object,
@@ -179,14 +178,9 @@ def execute_recover_plan(
                 emit_artifact(kind="recovered_file", path=written_path, details=file_payload)
 
         emit_phase(phase="decrypt", label="Decrypting and extracting payload")
-        if getattr(plan, "root_dir", None):
-            chain = recover_chain_entries(plan, quiet=quiet, debug=debug)
-            manifest = chain.manifest
-            extracted = list(chain.extracted)
-            selected_extension_index = chain.selected_extension_index
-            selected_extension_doc_hash = chain.selected_extension_doc_hash
-        else:
-            manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
+        decrypted = decrypt_manifest_extract_selection(plan, quiet=quiet, debug=debug)
+        manifest = decrypted.manifest
+        extracted = list(decrypted.extracted)
         emit_progress(
             phase="decrypt",
             current=1,
@@ -225,6 +219,10 @@ def execute_recover_plan(
             allow_unsigned=plan.allow_unsigned,
             quiet=quiet,
             single_entry_output_is_directory=single_entry_output_is_directory,
+            requested_extension_index=getattr(plan, "extension_index", None),
+            requested_extension_doc_hash=getattr(plan, "extension_doc_hash", None),
+            selected_extension_index=decrypted.selected_extension_index,
+            selected_extension_doc_hash=decrypted.selected_extension_doc_hash,
             on_file_written=_on_file_written,
         )
         if written_paths:
@@ -246,8 +244,10 @@ def execute_recover_plan(
             output_path=emitted_output_path,
             output_path_kind=output_path_kind,
             single_entry_output_is_directory=single_entry_output_is_directory,
-            selected_extension_index=selected_extension_index,
-            selected_extension_doc_hash=selected_extension_doc_hash,
+            requested_extension_index=getattr(plan, "extension_index", None),
+            requested_extension_doc_hash=getattr(plan, "extension_doc_hash", None),
+            selected_extension_index=decrypted.selected_extension_index,
+            selected_extension_doc_hash=decrypted.selected_extension_doc_hash,
         )
 
 

@@ -57,6 +57,7 @@ from ethernity.cli.shared.ui_api import (
     ui_screen_mode,
     wizard_flow,
     wizard_stage,
+    wizard_substep,
 )
 from ethernity.config import (
     DEFAULT_PAPER_SIZE,
@@ -122,20 +123,23 @@ def _prompt_encryption(
     passphrase_words = args.passphrase_words if args is not None else None
 
     if passphrase is not None:
-        entered = prompt_optional_secret(
-            "Enter passphrase",
-            help_text="Leave blank to keep the passphrase provided via flags.",
-        )
+        with wizard_substep("Passphrase"):
+            entered = prompt_optional_secret(
+                "Enter passphrase",
+                help_text="Leave blank to keep the passphrase provided via flags.",
+            )
         if entered is not None:
             passphrase = entered
     else:
         help_text = "Leave blank to auto-generate a strong passphrase."
         if passphrase_generate:
             help_text = "Leave blank to auto-generate a strong passphrase (as requested)."
-        passphrase = prompt_optional_secret("Enter passphrase", help_text=help_text)
+        with wizard_substep("Passphrase"):
+            passphrase = prompt_optional_secret("Enter passphrase", help_text=help_text)
         if passphrase is None:
             if passphrase_words is None:
-                passphrase_words = prompt_passphrase_words()
+                with wizard_substep("Passphrase length"):
+                    passphrase_words = prompt_passphrase_words()
             else:
                 _validate_passphrase_words(passphrase_words)
 
@@ -161,6 +165,29 @@ def _prompt_recovery_options(
 
     Returns (sealed, debug, signing_seed_mode, sharding, signing_seed_sharding).
     """
+    if _should_offer_recommended_recovery_setup(args, prompt_sharding_when_missing):
+        with wizard_substep("Recovery setup"):
+            recovery_setup = prompt_choice(
+                "Recovery setup",
+                {
+                    "recommended": "Use the recommended recovery setup",
+                    "custom": "Customize recovery setup",
+                },
+                default="recommended",
+                help_text=(
+                    "Recommended setup creates 3 recovery shards, needs any 2, keeps the backup "
+                    "unsealed, and stores the signing key in the main document."
+                ),
+            )
+        if recovery_setup == "recommended":
+            return (
+                False,
+                bool(debug_override),
+                SigningSeedMode.EMBEDDED,
+                ShardingConfig(threshold=2, shares=3),
+                None,
+            )
+
     sharding = resolve_passphrase_sharding(
         args=args,
         confirm_existing=confirm_existing_quorums,
@@ -172,18 +199,22 @@ def _prompt_recovery_options(
     elif args is not None and args.sealed:
         sealed = True
     else:
-        sealed = prompt_yes_no(
-            "Seal backup (disallow new shards)",
-            default=False,
-            help_text="Sealed backups prevent creating new shard docs later.",
-        )
+        with wizard_substep("Backup policy"):
+            sealed = prompt_yes_no(
+                "Seal backup (disallow new shards)",
+                default=False,
+                help_text="Sealed backups prevent creating new shard docs later.",
+            )
 
     if debug_override is None:
-        debug = prompt_yes_no(
-            "Show sensitive debug details before encryption",
-            default=False,
-            help_text="This can reveal plaintext details. Use it only for local troubleshooting.",
-        )
+        with wizard_substep("Debug"):
+            debug = prompt_yes_no(
+                "Show sensitive debug details before encryption",
+                default=False,
+                help_text=(
+                    "This can reveal plaintext details. Use it only for local troubleshooting."
+                ),
+            )
     else:
         debug = debug_override
 
@@ -207,6 +238,24 @@ def _prompt_recovery_options(
     return sealed, debug, signing_seed_mode, sharding, signing_seed_sharding
 
 
+def _should_offer_recommended_recovery_setup(
+    args: BackupArgs | None,
+    prompt_sharding_when_missing: bool,
+) -> bool:
+    if not prompt_sharding_when_missing or args is None:
+        return args is None and prompt_sharding_when_missing
+    return not any(
+        (
+            args.sealed,
+            args.shard_threshold is not None,
+            args.shard_count is not None,
+            args.signing_key_mode is not None,
+            args.signing_key_shard_threshold is not None,
+            args.signing_key_shard_count is not None,
+        )
+    )
+
+
 def _prompt_layout(
     config_path: str | None,
     paper_size: str | None,
@@ -221,19 +270,21 @@ def _prompt_layout(
             "letter": "Letter",
             "custom": "Custom config file (TOML)",
         }
-        layout_choice = prompt_choice(
-            "Choose paper size",
-            layout_choices,
-            default=DEFAULT_PAPER_SIZE.lower(),
-            help_text="Choose a paper size or select a custom TOML config.",
-        )
-        if layout_choice == "custom":
-            config_path = prompt_path_with_picker(
-                "Config file path",
-                kind="file",
-                help_text="Provide a TOML config file.",
-                picker_prompt="Select a config file",
+        with wizard_substep("Paper"):
+            layout_choice = prompt_choice(
+                "Choose paper size",
+                layout_choices,
+                default=DEFAULT_PAPER_SIZE.lower(),
+                help_text="Choose a paper size or select a custom TOML config.",
             )
+        if layout_choice == "custom":
+            with wizard_substep("Config file"):
+                config_path = prompt_path_with_picker(
+                    "Config file path",
+                    kind="file",
+                    help_text="Provide a TOML config file.",
+                    picker_prompt="Select a config file",
+                )
         else:
             paper = layout_choice.upper()
     elif paper:
@@ -286,12 +337,15 @@ def _prompt_design(args: BackupArgs | None, *, prompt_when_unset: bool = True) -
         name: "sentinel (recommended)" if name.lower() == "sentinel" else name
         for name in design_names
     }
-    return prompt_choice(
-        "Choose print design",
-        choices,
-        default=default,
-        help_text="Design folders are discovered from packaged templates (copied to user config).",
-    )
+    with wizard_substep("Design"):
+        return prompt_choice(
+            "Choose print design",
+            choices,
+            default=default,
+            help_text=(
+                "Design folders are discovered from packaged templates (copied to user config)."
+            ),
+        )
 
 
 def _prompt_backup_setup_mode(*, offer_quick: bool) -> bool:
@@ -299,18 +353,19 @@ def _prompt_backup_setup_mode(*, offer_quick: bool) -> bool:
 
     if not offer_quick:
         return False
-    mode = prompt_choice(
-        "How much setup do you want",
-        {
-            "quick": "Use saved defaults where possible",
-            "advanced": "Review every backup option",
-        },
-        default="quick",
-        help_text=(
-            "Quick mode skips prompts for settings already saved during onboarding. "
-            "Choose the full review if this backup needs custom settings."
-        ),
-    )
+    with wizard_substep("Setup"):
+        mode = prompt_choice(
+            "How much setup do you want",
+            {
+                "quick": "Use saved defaults where possible",
+                "advanced": "Review every backup option",
+            },
+            default="quick",
+            help_text=(
+                "Quick mode skips prompts for settings already saved during onboarding. "
+                "Choose the full review if this backup needs custom settings."
+            ),
+        )
     return mode == "quick"
 
 
@@ -326,15 +381,16 @@ def _prompt_inputs(
     Returns (input_files, resolved_base, output_dir, input_origin, input_roots).
     """
     while True:
-        input_values = prompt_paths_with_picker(
-            "Input paths (files or directories, blank to finish)",
-            picker_prompt="Select files or folders",
-            kind="path",
-            manual_help_text="Enter file or directory paths; blank line to finish.",
-            picker_help_text="Use space to toggle, Enter to confirm.",
-            empty_message="At least one input path is required.",
-            stdin_message="Stdin input is not supported in the wizard.",
-        )
+        with wizard_substep("Choose files"):
+            input_values = prompt_paths_with_picker(
+                "Input paths (files or directories, blank to finish)",
+                picker_prompt="Select files or folders",
+                kind="path",
+                manual_help_text="Enter file or directory paths; blank line to finish.",
+                picker_help_text="Use space to toggle, Enter to confirm.",
+                empty_message="At least one input path is required.",
+                stdin_message="Stdin input is not supported in the wizard.",
+            )
         base_dir = args.base_dir if args is not None else None
         output_dir = args.output_dir if args is not None else None
         if show_output_prompt:
@@ -344,10 +400,11 @@ def _prompt_inputs(
                 if output_dir
                 else "Leave blank to create a backup-<id> folder in the current directory."
             )
-            selected_output_dir = prompt_optional(
-                "Output folder",
-                help_text=output_help,
-            )
+            with wizard_substep("Output folder"):
+                selected_output_dir = prompt_optional(
+                    "Output folder",
+                    help_text=output_help,
+                )
             if selected_output_dir is not None:
                 output_dir = selected_output_dir
 
@@ -707,7 +764,7 @@ def run_wizard(
 
             while stage_index < 5:
                 if stage_index == 0:
-                    with wizard_stage("Encryption", step_number=1):
+                    with wizard_stage("Encryption", step_number=1, density="dense"):
                         quick_mode = _prompt_backup_setup_mode(
                             offer_quick=offer_quick_mode and not quiet
                         )
@@ -727,7 +784,7 @@ def run_wizard(
                 )
 
                 if stage_index == 1:
-                    with wizard_stage("Recovery", step_number=2):
+                    with wizard_stage("Recovery", step_number=2, density="dense"):
                         recovery_args = working_args
                         if not use_saved_sharding:
                             recovery_args = replace(
@@ -762,7 +819,7 @@ def run_wizard(
                     continue
 
                 if stage_index == 2:
-                    with wizard_stage("Layout", step_number=3):
+                    with wizard_stage("Layout", step_number=3, density="dense"):
                         config_path, paper = _prompt_layout(
                             config_path,
                             paper_size,
@@ -779,7 +836,7 @@ def run_wizard(
                     continue
 
                 if stage_index == 3:
-                    with wizard_stage("Inputs", step_number=4):
+                    with wizard_stage("Inputs", step_number=4, density="dense"):
                         input_files, resolved_base, output_dir, input_origin, input_roots = (
                             _prompt_inputs(
                                 working_args,

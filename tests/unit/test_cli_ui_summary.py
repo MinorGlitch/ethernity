@@ -163,6 +163,64 @@ class TestUISummary(unittest.TestCase):
         )
         self.assertEqual(print_err.call_count, 2)
 
+    @mock.patch("ethernity.cli.shared.ui.summary.panel")
+    @mock.patch("ethernity.cli.shared.ui.summary.build_kv_table")
+    @mock.patch("ethernity.cli.shared.ui.summary.build_recovered_tree")
+    def test_print_recover_summary_reports_operator_selected_extension_target(
+        self,
+        build_recovered_tree: mock.MagicMock,
+        build_kv_table: mock.MagicMock,
+        panel: mock.MagicMock,
+    ) -> None:
+        entries = [(SimpleNamespace(path="a.txt"), b"x")]
+        build_recovered_tree.return_value = None
+        build_kv_table.return_value = "TABLE"
+        panel.side_effect = ["SUMMARY_PANEL"]
+
+        with mock.patch("ethernity.cli.shared.ui.summary.console_err.print") as print_err:
+            summary_module.print_recover_summary(
+                entries,
+                output_path="out-dir",
+                auth_status="verified",
+                quiet=False,
+                requested_extension_index=1,
+                selected_extension_index=1,
+                selected_extension_doc_hash="ab" * 32,
+            )
+
+        rows = build_kv_table.call_args.args[0]
+        self.assertIn(("Replay target", "explicit selection: extension 1"), rows)
+        self.assertIn(("Target doc hash", "ab" * 32), rows)
+        print_err.assert_called_once_with("SUMMARY_PANEL")
+
+    @mock.patch("ethernity.cli.shared.ui.summary.panel")
+    @mock.patch("ethernity.cli.shared.ui.summary.build_kv_table")
+    @mock.patch("ethernity.cli.shared.ui.summary.build_recovered_tree")
+    def test_print_recover_summary_keeps_default_latest_output_unchanged(
+        self,
+        build_recovered_tree: mock.MagicMock,
+        build_kv_table: mock.MagicMock,
+        panel: mock.MagicMock,
+    ) -> None:
+        entries = [(SimpleNamespace(path="a.txt"), b"x")]
+        build_recovered_tree.return_value = None
+        build_kv_table.return_value = "TABLE"
+        panel.side_effect = ["SUMMARY_PANEL"]
+
+        with mock.patch("ethernity.cli.shared.ui.summary.console_err.print"):
+            summary_module.print_recover_summary(
+                entries,
+                output_path="out-dir",
+                auth_status="verified",
+                quiet=False,
+                selected_extension_index=2,
+                selected_extension_doc_hash="cd" * 32,
+            )
+
+        rows = build_kv_table.call_args.args[0]
+        self.assertNotIn(("Replay target", "explicit selection: extension 2"), rows)
+        self.assertNotIn(("Target doc hash", "cd" * 32), rows)
+
     def test_print_recover_summary_quiet_noop(self) -> None:
         with mock.patch("ethernity.cli.shared.ui.summary.console_err.print") as print_err:
             summary_module.print_recover_summary([], "x", auth_status=None, quiet=True)

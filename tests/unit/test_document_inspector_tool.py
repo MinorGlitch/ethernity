@@ -85,6 +85,29 @@ def _extension_frames_with_auth(
 
 
 class TestDocumentInspectorTool(unittest.TestCase):
+    def _decoded_trust_report(self, result: inspector.InspectionResult) -> dict[str, object]:
+        decoded_report = json.loads(result.report_json)
+        report_trust = decoded_report.get("trust_diagnostic")
+        if result.trust_diagnostic is None:
+            self.assertIsNone(report_trust)
+            return decoded_report
+
+        self.assertIsNotNone(report_trust)
+        self.assertEqual(report_trust["status"], result.trust_diagnostic.status)
+        self.assertEqual(report_trust["code"], result.trust_diagnostic.code)
+        self.assertEqual(report_trust["message"], result.trust_diagnostic.message)
+        self.assertEqual(report_trust["details"], result.trust_diagnostic.details)
+        self.assertIn(
+            f"Trust message: {result.trust_diagnostic.message}",
+            result.projection_diagnostics_text,
+        )
+        if result.trust_diagnostic.code is not None:
+            self.assertIn(
+                f"Trust code: {result.trust_diagnostic.code}",
+                result.projection_diagnostics_text,
+            )
+        return decoded_report
+
     def test_inspect_main_payloads_exposes_round_trip_views(self) -> None:
         payload_text = (_V1_0_FIXTURES_ROOT / "file_no_shard" / "main_payloads.txt").read_text(
             encoding="utf-8"
@@ -104,8 +127,10 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertIsNotNone(result.document_json_text)
         self.assertEqual(len(result.files), 1)
         self.assertIn("format_version", result.document_json_text or "")
-        decoded_report = json.loads(result.report_json)
+        decoded_report = self._decoded_trust_report(result)
         self.assertIn("document", decoded_report)
+        self.assertEqual(result.trust_diagnostic.code, None)
+        self.assertEqual(result.trust_diagnostic.message, "root backup authority verified")
 
     def test_inspect_shard_payloads_recovers_passphrase(self) -> None:
         payload_text = (
@@ -219,15 +244,18 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertEqual(result.files, ())
         self.assertIn(
             (
-                "Document decode failed: extension preview requires the root backup "
-                "to validate root authority"
+                "Document decode failed: latest recovery head could not be trusted: "
+                "extension preview requires the root backup to validate root authority"
             ),
             result.diagnostics_text,
         )
-        self.assertEqual(
-            result.projection_diagnostics_text,
-            "No projection diagnostics available.\n",
-        )
+        self.assertIn("Trust status: refused", result.projection_diagnostics_text)
+        self.assertIn("Failure stage: authority_context", result.projection_diagnostics_text)
+        self.assertIn("Validated head: none", result.projection_diagnostics_text)
+        self._decoded_trust_report(result)
+        self.assertIsNotNone(result.trust_diagnostic)
+        self.assertEqual(result.trust_diagnostic.code, "RECOVERY_HEAD_UNTRUSTED")
+        self.assertEqual(result.trust_diagnostic.details["latest_head_index"], 1)
 
     def test_inspect_root_payloads_rejects_invalid_auth(self) -> None:
         manifest, payload = build_manifest_and_payload(
@@ -276,10 +304,12 @@ class TestDocumentInspectorTool(unittest.TestCase):
             ),
             result.diagnostics_text,
         )
-        self.assertEqual(
-            result.projection_diagnostics_text,
-            "No projection diagnostics available.\n",
-        )
+        self.assertIn("Trust code: ROOT_AUTHORITY_MISMATCH", result.projection_diagnostics_text)
+        self.assertIn("Failure stage: root_authority", result.projection_diagnostics_text)
+        self._decoded_trust_report(result)
+        self.assertIsNotNone(result.trust_diagnostic)
+        self.assertEqual(result.trust_diagnostic.code, "ROOT_AUTHORITY_MISMATCH")
+        self.assertEqual(result.trust_diagnostic.details["validated_head_index"], None)
 
     def test_chain_projection_requires_verified_root_auth(self) -> None:
         root_manifest, root_payload = build_manifest_and_payload(
@@ -326,13 +356,19 @@ class TestDocumentInspectorTool(unittest.TestCase):
 
         self.assertIsNone(result.document_json_text)
         self.assertIn(
-            "Document decode failed: root AUTH validation failed (skipped)",
+            (
+                "Document decode failed: latest recovery head could not be trusted: "
+                "root AUTH validation failed (skipped)"
+            ),
             result.diagnostics_text,
         )
-        self.assertEqual(
-            result.projection_diagnostics_text,
-            "No projection diagnostics available.\n",
-        )
+        self.assertIn("Trust code: RECOVERY_HEAD_UNTRUSTED", result.projection_diagnostics_text)
+        self.assertIn("Failure stage: auth", result.projection_diagnostics_text)
+        self._decoded_trust_report(result)
+        self.assertIsNotNone(result.trust_diagnostic)
+        self.assertEqual(result.trust_diagnostic.code, "RECOVERY_HEAD_UNTRUSTED")
+        self.assertEqual(result.trust_diagnostic.details["latest_head_index"], 1)
+        self.assertEqual(result.trust_diagnostic.details["validated_head_index"], None)
 
     def test_chain_projection_rejects_root_authority_mismatch(self) -> None:
         root_manifest, root_payload = build_manifest_and_payload(
@@ -402,10 +438,13 @@ class TestDocumentInspectorTool(unittest.TestCase):
             ),
             result.diagnostics_text,
         )
-        self.assertEqual(
-            result.projection_diagnostics_text,
-            "No projection diagnostics available.\n",
-        )
+        self.assertIn("Trust code: ROOT_AUTHORITY_MISMATCH", result.projection_diagnostics_text)
+        self.assertIn("Failure stage: root_authority", result.projection_diagnostics_text)
+        self._decoded_trust_report(result)
+        self.assertIsNotNone(result.trust_diagnostic)
+        self.assertEqual(result.trust_diagnostic.code, "ROOT_AUTHORITY_MISMATCH")
+        self.assertEqual(result.trust_diagnostic.details["latest_head_index"], 1)
+        self.assertEqual(result.trust_diagnostic.details["validated_head_index"], None)
 
     def test_inspect_extension_payloads_requiring_reused_chunks_fails_closed(self) -> None:
         root_chunk = b"root"
@@ -444,15 +483,16 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertEqual(result.files, ())
         self.assertIn(
             (
-                "Document decode failed: extension preview requires the root backup "
-                "to validate root authority"
+                "Document decode failed: latest recovery head could not be trusted: "
+                "extension preview requires the root backup to validate root authority"
             ),
             result.diagnostics_text,
         )
-        self.assertEqual(
-            result.projection_diagnostics_text,
-            "No projection diagnostics available.\n",
-        )
+        self.assertIn("Trust status: refused", result.projection_diagnostics_text)
+        self.assertIn("Failure stage: authority_context", result.projection_diagnostics_text)
+        self._decoded_trust_report(result)
+        self.assertIsNotNone(result.trust_diagnostic)
+        self.assertEqual(result.trust_diagnostic.code, "RECOVERY_HEAD_UNTRUSTED")
 
     def test_inspect_root_and_extension_payloads_reconstructs_latest_state(self) -> None:
         manifest, payload = build_manifest_and_payload(
@@ -523,6 +563,15 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertEqual(decoded["root"]["auth_status"], "verified")
         self.assertTrue(decoded["root"]["root_authority_verified"])
         self.assertEqual(decoded["latest_state"]["file_count"], 2)
+        self._decoded_trust_report(result)
+        self.assertIsNotNone(result.trust_diagnostic)
+        self.assertEqual(result.trust_diagnostic.code, None)
+        self.assertEqual(result.trust_diagnostic.message, "latest recovery head trusted")
+        self.assertEqual(result.trust_diagnostic.details["validated_head_index"], 1)
+        self.assertEqual(result.trust_diagnostic.details["validated_head_auth_status"], "verified")
+        self.assertEqual(
+            result.trust_diagnostic.details["validated_head_root_authority_verified"], True
+        )
         self.assertIn(
             "Authority model: root-derived via root backup",
             result.projection_diagnostics_text,
@@ -596,13 +645,20 @@ class TestDocumentInspectorTool(unittest.TestCase):
 
         self.assertIsNone(result.document_json_text)
         self.assertIn(
-            "Document decode failed: extension 1 AUTH does not match root authority",
+            (
+                "Document decode failed: latest recovery head could not be trusted: "
+                "extension 1 AUTH does not match root authority"
+            ),
             result.diagnostics_text,
         )
-        self.assertEqual(
-            result.projection_diagnostics_text,
-            "No projection diagnostics available.\n",
-        )
+        self.assertIn("Trust code: RECOVERY_HEAD_UNTRUSTED", result.projection_diagnostics_text)
+        self.assertIn("Failure stage: auth", result.projection_diagnostics_text)
+        self.assertIn("Validated head: index=0", result.projection_diagnostics_text)
+        self._decoded_trust_report(result)
+        self.assertIsNotNone(result.trust_diagnostic)
+        self.assertEqual(result.trust_diagnostic.code, "RECOVERY_HEAD_UNTRUSTED")
+        self.assertEqual(result.trust_diagnostic.details["latest_head_index"], 1)
+        self.assertEqual(result.trust_diagnostic.details["validated_head_index"], 0)
 
     def test_inspect_valid_root_and_bad_extension_refuses_partial_projection(self) -> None:
         manifest, payload = build_manifest_and_payload(
@@ -680,15 +736,19 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertIsNone(result.document_json_text)
         self.assertIn(
             (
-                "Document decode failed: some decoded documents failed reassembly or "
-                "envelope decoding; refusing partial projection"
+                "Document decode failed: latest recovery head could not be trusted: "
+                "some decoded documents failed reassembly or envelope decoding; "
+                "refusing partial projection"
             ),
             result.diagnostics_text,
         )
-        self.assertEqual(
-            result.projection_diagnostics_text,
-            "No projection diagnostics available.\n",
-        )
+        self.assertIn("Trust code: RECOVERY_HEAD_UNTRUSTED", result.projection_diagnostics_text)
+        self.assertIn("Failure stage: decode", result.projection_diagnostics_text)
+        self.assertIn("Validated head: index=0", result.projection_diagnostics_text)
+        self._decoded_trust_report(result)
+        self.assertIsNotNone(result.trust_diagnostic)
+        self.assertEqual(result.trust_diagnostic.code, "RECOVERY_HEAD_UNTRUSTED")
+        self.assertEqual(result.trust_diagnostic.details["validated_head_index"], 0)
 
     def test_build_batch_report_includes_success_and_error_entries(self) -> None:
         entries = [

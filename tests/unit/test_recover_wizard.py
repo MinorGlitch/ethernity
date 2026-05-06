@@ -108,7 +108,7 @@ class TestPromptRecoveryInput(unittest.TestCase):
 
     @mock.patch("ethernity.cli.features.recover.wizard.collect_payload_frames")
     @mock.patch("ethernity.cli.features.recover.wizard.sys.stdin.isatty", return_value=True)
-    def test_payload_stdin_interactive_collects_payloads(
+    def test_payload_stdin_interactive_collects_backup_text_lines(
         self,
         _stdin_tty: mock.MagicMock,
         collect_payload_frames: mock.MagicMock,
@@ -123,7 +123,7 @@ class TestPromptRecoveryInput(unittest.TestCase):
         )
 
         self.assertEqual(frames, [main])
-        self.assertEqual((label, detail), ("QR payloads", "stdin"))
+        self.assertEqual((label, detail), ("Backup text lines", "stdin"))
         collect_payload_frames.assert_called_once_with(allow_unsigned=True, quiet=False)
 
     @mock.patch("ethernity.cli.features.recover.wizard._frames_from_payloads")
@@ -145,7 +145,7 @@ class TestPromptRecoveryInput(unittest.TestCase):
         )
 
         self.assertEqual(frames, [main])
-        self.assertEqual((label, detail), ("QR payloads", "payloads.txt"))
+        self.assertEqual((label, detail), ("Backup text lines", "payloads.txt"))
         frames_from_payloads.assert_called_once_with("payloads.txt", label="frame")
 
     @mock.patch("ethernity.cli.features.recover.wizard._recovery_frames_from_scan")
@@ -167,7 +167,7 @@ class TestPromptRecoveryInput(unittest.TestCase):
         )
 
         self.assertEqual(frames, [main])
-        self.assertEqual((label, detail), ("Scan", "a.png, b.png"))
+        self.assertEqual((label, detail), ("Backup PDF or images", "a.png, b.png"))
         recovery_frames_from_scan.assert_called_once_with(["a.png", "b.png"], quiet=False)
 
     @mock.patch("ethernity.cli.features.recover.wizard.prompt_recovery_input_interactive")
@@ -195,7 +195,11 @@ class TestPromptRecoveryInput(unittest.TestCase):
     ) -> None:
         main = _frame(FrameType.MAIN_DOCUMENT)
         args = RecoverArgs(extension_index=1)
-        prompt_recovery_input_interactive.return_value = ([main], "Scan", "/tmp/root")
+        prompt_recovery_input_interactive.return_value = (
+            [main],
+            "Backup PDF or images",
+            "/tmp/root",
+        )
 
         frames, label, detail = wizard._prompt_recovery_input(
             args,
@@ -204,7 +208,7 @@ class TestPromptRecoveryInput(unittest.TestCase):
         )
 
         self.assertEqual(frames, [main])
-        self.assertEqual((label, detail), ("Scan", "/tmp/root"))
+        self.assertEqual((label, detail), ("Backup PDF or images", "/tmp/root"))
         self.assertEqual(args.scan, ["/tmp/root"])
 
     @mock.patch("ethernity.cli.features.recover.wizard.prompt_recovery_input_interactive")
@@ -314,7 +318,7 @@ class TestRecoveryWizardHelpers(unittest.TestCase):
             shard_frames=(_frame(FrameType.KEY_DOCUMENT),),
             auth_status="missing",
             allow_unsigned=True,
-            input_label="Scan",
+            input_label="Backup PDF or images",
             input_detail="a.png",
             main_frames=(_frame(FrameType.MAIN_DOCUMENT), _frame(FrameType.MAIN_DOCUMENT)),
             auth_frames=(),
@@ -324,11 +328,11 @@ class TestRecoveryWizardHelpers(unittest.TestCase):
         )
 
         rows = wizard._build_recovery_review_rows(plan, RecoverArgs(output="out-dir"))
-        self.assertIn(("Unlock method", "shard documents"), rows)
+        self.assertIn(("Unlock method", "printed shard documents"), rows)
         self.assertIn(("Allow unsigned", "yes"), rows)
-        self.assertIn(("Input source", "Scan: a.png"), rows)
-        self.assertIn(("Main QR payloads", "2"), rows)
-        self.assertIn(("Auth QR payloads", "none"), rows)
+        self.assertIn(("Input source", "Backup PDF or images: a.png"), rows)
+        self.assertIn(("Backup text lines", "2"), rows)
+        self.assertIn(("Verification text lines", "none"), rows)
 
     def test_build_review_rows_passphrase_defaults(self) -> None:
         plan = SimpleNamespace(
@@ -346,7 +350,7 @@ class TestRecoveryWizardHelpers(unittest.TestCase):
         rows = wizard._build_recovery_review_rows(plan, RecoverArgs(output=None))
         self.assertIn(("Unlock method", "passphrase"), rows)
         self.assertIn(("Output target", "prompt after recovery"), rows)
-        self.assertIn(("Auth QR payloads", "1"), rows)
+        self.assertIn(("Verification text lines", "1"), rows)
 
     @mock.patch("ethernity.cli.features.recover.wizard._auth_frames_from_payloads")
     @mock.patch("ethernity.cli.features.recover.wizard._auth_frames_from_fallback")
@@ -551,13 +555,13 @@ class TestRunRecoverWizard(unittest.TestCase):
         console_print: mock.MagicMock,
     ) -> None:
         main = _frame(FrameType.MAIN_DOCUMENT)
-        prompt_recovery_input.return_value = ([main], "Scan", "/tmp/root")
+        prompt_recovery_input.return_value = ([main], "Backup PDF or images", "/tmp/root")
         detect_recovery_root_dir.return_value = Path("/tmp/root")
         build_recovery_plan.return_value = SimpleNamespace(
             allow_unsigned=False,
             shard_frames=(),
             auth_status="verified",
-            input_label="Scan",
+            input_label="Backup PDF or images",
             input_detail="/tmp/root",
             main_frames=(main,),
             auth_frames=(),
@@ -620,7 +624,7 @@ class TestRunRecoverWizard(unittest.TestCase):
 
         def _prompt_input(args, *_args):
             args.scan = ["/tmp/root"]
-            return [main], "Scan", "/tmp/root"
+            return [main], "Backup PDF or images", "/tmp/root"
 
         prompt_recovery_input.side_effect = _prompt_input
         detect_recovery_root_dir.return_value = Path("/tmp/root")
@@ -628,7 +632,7 @@ class TestRunRecoverWizard(unittest.TestCase):
             allow_unsigned=False,
             shard_frames=(),
             auth_status="verified",
-            input_label="Scan",
+            input_label="Backup PDF or images",
             input_detail="/tmp/root",
             main_frames=(main,),
             auth_frames=(),

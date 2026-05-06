@@ -64,17 +64,21 @@ def _ask_question(question: object):
 
 
 def print_prompt_header(
-    _prompt: str,
+    prompt: str,
     help_text: str | None,
     *,
     context: UIContext | None = None,
 ) -> None:
     context = _resolve_context(context)
     if context.screen_mode:
-        should_redraw = context.stage_prompt_count > 0 or context.current_stage_title is not None
-        if should_redraw:
+        if context.stage_prompt_count > 0:
             clear_screen(context=context)
-        _print_screen_prompt_context(help_text, context=context)
+            _print_screen_prompt_context(help_text, context=context)
+        elif context.current_substep_title is not None:
+            _print_initial_screen_prompt_context(help_text, context=context)
+        elif help_text and context.current_stage_title is None:
+            context.console.print(hint_box([help_text]))
+        context.console.print(Text(f"{prompt}\n", style="bold"))
         context.stage_prompt_count += 1
         return
     output = context.console
@@ -97,14 +101,42 @@ def _print_screen_prompt_context(
         output.print(Text(step_label, style="title"))
     elif context.current_stage_title:
         output.print(Text(context.current_stage_title, style="title"))
-    stage_help_text = context.current_stage_help_text
-    hint_messages: list[str] = []
-    if stage_help_text:
-        hint_messages.append(stage_help_text)
-    if help_text and help_text != stage_help_text:
-        hint_messages.append(help_text)
-    if hint_messages:
-        output.print(hint_box(hint_messages))
+    if context.current_stage_density == "dense" and context.current_substep_title:
+        output.print(Text(context.current_substep_title, style="accent"))
+
+    hint_text: str | None = None
+    if help_text:
+        hint_text = help_text
+    elif context.current_stage_density == "dense":
+        hint_text = context.current_substep_help_text or context.current_stage_help_text
+
+    if hint_text:
+        output.print(hint_box([hint_text]))
+
+
+def _print_initial_screen_prompt_context(
+    help_text: str | None,
+    *,
+    context: UIContext,
+) -> None:
+    output = context.console
+    if context.current_stage_density == "dense" and context.current_substep_title:
+        output.print(Text(context.current_substep_title, style="accent"))
+
+    hint_text: str | None = None
+    if help_text:
+        hint_text = help_text
+    elif context.current_stage_density == "dense":
+        hint_text = context.current_substep_help_text or context.current_stage_help_text
+
+    if hint_text:
+        output.print(hint_box([hint_text]))
+
+
+def _question_message(prompt: str, *, context: UIContext) -> str:
+    if context.screen_mode:
+        return ""
+    return prompt
 
 
 def prompt_optional_secret(
@@ -113,8 +145,15 @@ def prompt_optional_secret(
     help_text: str | None = None,
     context: UIContext | None = None,
 ) -> str | None:
+    context = _resolve_context(context)
     print_prompt_header(prompt, help_text, context=context)
-    value = _ask_question(questionary.password(prompt, qmark="", style=QUESTIONARY_STYLE))
+    value = _ask_question(
+        questionary.password(
+            _question_message(prompt, context=context),
+            qmark="",
+            style=QUESTIONARY_STYLE,
+        )
+    )
     if value is None:
         raise KeyboardInterrupt
     return value or None
@@ -129,7 +168,13 @@ def prompt_required_secret(
     context = _resolve_context(context)
     print_prompt_header(prompt, help_text, context=context)
     while True:
-        value = _ask_question(questionary.password(prompt, qmark="", style=QUESTIONARY_STYLE))
+        value = _ask_question(
+            questionary.password(
+                _question_message(prompt, context=context),
+                qmark="",
+                style=QUESTIONARY_STYLE,
+            )
+        )
         if value is None:
             raise KeyboardInterrupt
         if value:
@@ -162,10 +207,11 @@ def prompt_yes_no(
     help_text: str | None = None,
     context: UIContext | None = None,
 ) -> bool:
+    context = _resolve_context(context)
     print_prompt_header(prompt, help_text, context=context)
     value = _ask_question(
         questionary.confirm(
-            prompt,
+            _question_message(prompt, context=context),
             default=default,
             qmark="",
             style=QUESTIONARY_STYLE,
@@ -196,7 +242,7 @@ def prompt_choice_list(
     ]
     print_prompt_header(title or "Select an option", help_text, context=context)
     value = _select_with_initial_choice(
-        title or "Select an option",
+        _question_message(title or "Select an option", context=context),
         choices=choices,
         initial_choice=default,
         qmark="",
@@ -234,8 +280,12 @@ def _select_with_initial_choice(
     )
 
     def get_prompt_tokens():
-        tokens = [("class:qmark", qmark), ("class:question", f" {message} ")]
-        if ic.is_answered:
+        tokens = []
+        if qmark:
+            tokens.append(("class:qmark", qmark))
+        if message:
+            tokens.append(("class:question", f" {message} "))
+        if ic.is_answered and message:
             current = ic.get_pointed_at()
             if isinstance(current.title, list):
                 tokens.append(("class:answer", "".join(token[1] for token in current.title)))
@@ -320,7 +370,13 @@ def prompt_int(
             help_text = f"Enter a whole number between {minimum} and {maximum}."
     print_prompt_header(prompt, help_text, context=context)
     while True:
-        raw = _ask_question(questionary.text(prompt, qmark="", style=QUESTIONARY_STYLE))
+        raw = _ask_question(
+            questionary.text(
+                _question_message(prompt, context=context),
+                qmark="",
+                style=QUESTIONARY_STYLE,
+            )
+        )
         if raw is None:
             raise KeyboardInterrupt
         if not raw.strip():
@@ -346,8 +402,15 @@ def prompt_optional(
     help_text: str | None = None,
     context: UIContext | None = None,
 ) -> str | None:
+    context = _resolve_context(context)
     print_prompt_header(prompt, help_text, context=context)
-    value = _ask_question(questionary.text(prompt, qmark="", style=QUESTIONARY_STYLE))
+    value = _ask_question(
+        questionary.text(
+            _question_message(prompt, context=context),
+            qmark="",
+            style=QUESTIONARY_STYLE,
+        )
+    )
     if value is None:
         raise KeyboardInterrupt
     return value.strip() or None
@@ -362,7 +425,13 @@ def prompt_required(
     context = _resolve_context(context)
     print_prompt_header(prompt, help_text, context=context)
     while True:
-        value = _ask_question(questionary.text(prompt, qmark="", style=QUESTIONARY_STYLE))
+        value = _ask_question(
+            questionary.text(
+                _question_message(prompt, context=context),
+                qmark="",
+                style=QUESTIONARY_STYLE,
+            )
+        )
         if value is None:
             raise KeyboardInterrupt
         if value.strip():
@@ -377,10 +446,17 @@ def prompt_multiline(
     stop_on_dash: bool = False,
     context: UIContext | None = None,
 ) -> list[str]:
+    context = _resolve_context(context)
     print_prompt_header(prompt, help_text, context=context)
     items: list[str] = []
     while True:
-        line = _ask_question(questionary.text(prompt, qmark="", style=QUESTIONARY_STYLE))
+        line = _ask_question(
+            questionary.text(
+                _question_message(prompt, context=context),
+                qmark="",
+                style=QUESTIONARY_STYLE,
+            )
+        )
         if line is None:
             raise KeyboardInterrupt
         if not line:

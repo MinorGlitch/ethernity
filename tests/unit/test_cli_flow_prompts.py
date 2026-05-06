@@ -105,7 +105,7 @@ class TestCliFlowPrompts(unittest.TestCase):
             with self.assertRaisesRegex(
                 ValueError,
                 (
-                    "unable to parse shard recovery text or QR payloads from stdin: "
+                    "unable to parse shard recovery text or shard text lines from stdin: "
                     "fallback detail; payload bad"
                 ),
             ):
@@ -181,16 +181,16 @@ class TestCliFlowPrompts(unittest.TestCase):
             )
         self.assertEqual(frames, [frame_one])
         prompt_required.assert_called_once_with(
-            "Shard QR payload (quorum met)",
+            "Shard text line (quorum met)",
             help_text=(
-                "Paste one shard QR payload per line; after quorum you can add more shards from "
-                "the same set."
+                "Paste one shard text line per line; after quorum you can add more printed "
+                "shards from the same set."
             ),
         )
         ingest.assert_called_once_with(
             frame=frame_two,
             state=done_state,
-            label="Shard payloads",
+            label="Printed shard documents",
             key_type=KEY_TYPE_PASSPHRASE,
             stop_at_quorum=False,
         )
@@ -220,12 +220,10 @@ class TestCliFlowPrompts(unittest.TestCase):
             state = _ShardPasteState(frames=[], seen_shares=set(), expected_threshold=1)
             frames = prompts._prompt_shard_payload_paste(state=state)
         self.assertEqual(frames, [])
-        self.assertEqual(
-            prompt_required.call_args_list[0].args[0], "Shard QR payload (1 remaining)"
-        )
+        self.assertEqual(prompt_required.call_args_list[0].args[0], "Shard text line (1 remaining)")
         self.assertTrue(
             any(
-                "Paste one shard QR payload per line" in str(call)
+                "Paste one shard text line per line" in str(call)
                 for call in info_print.call_args_list
             )
         )
@@ -243,7 +241,7 @@ class TestCliFlowPrompts(unittest.TestCase):
             )
         self.assertTrue(
             any(
-                "After quorum, you can add more shards" in str(call)
+                "After quorum, you can add more printed shards" in str(call)
                 for call in info_print.call_args_list
             )
         )
@@ -325,7 +323,7 @@ class TestCliFlowPrompts(unittest.TestCase):
         ingest.assert_called_once_with(
             frame=frame_two,
             state=done_state,
-            label="Shard documents",
+            label="Printed shard documents",
             key_type=KEY_TYPE_PASSPHRASE,
             stop_at_quorum=False,
         )

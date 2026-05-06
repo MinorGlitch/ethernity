@@ -1130,6 +1130,7 @@
         "unlock",
         "discovered_extension_dirs",
         "validated_head_index",
+        "validated_head_doc_hash",
         "validated_head_auth_status",
         "validated_head_root_authority_verified",
         "available_extensions",
@@ -1279,7 +1280,14 @@
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
+        },
+        "validated_head_doc_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]+$"
         },
         "validated_head_auth_status": {
           "type": [

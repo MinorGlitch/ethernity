@@ -20,6 +20,8 @@ from types import SimpleNamespace
 from unittest import mock
 
 from ethernity.cli.features.compact.service import run_compact
+from ethernity.cli.shared import api_codes
+from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import CompactArgs, RecoverArgs
 from ethernity.crypto.signing import derive_public_key
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
@@ -58,6 +60,133 @@ class TestCompactService(unittest.TestCase):
                         quiet=True,
                     )
                 )
+
+    @mock.patch("ethernity.cli.features.compact.service.run_backup")
+    @mock.patch(
+        "ethernity.cli.features.compact.service.recover_chain_entries",
+        side_effect=ApiCommandError(
+            code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+            message=(
+                "latest recovery head could not be trusted: "
+                "missing required payload MAIN carriers"
+            ),
+            details={
+                "stage": "replay",
+                "failure_stage": "discovery",
+                "failure_message": "missing required payload MAIN carriers",
+                "failure_head_index": 2,
+                "failure_head_doc_hash": None,
+                "failure_head_dir_name": "02",
+                "latest_head_index": 2,
+                "latest_head_doc_hash": None,
+                "latest_head_dir_name": "02",
+                "requested_head_index": None,
+                "requested_head_doc_hash": None,
+                "validated_head_index": 0,
+                "validated_head_doc_hash": "44" * 32,
+                "validated_head_auth_status": None,
+                "validated_head_root_authority_verified": None,
+                "explicit_selection": False,
+            },
+        ),
+    )
+    @mock.patch(
+        "ethernity.cli.features.compact.service.plan_recover_from_args",
+        return_value=SimpleNamespace(
+            passphrase="secret",
+            doc_id=b"\x22" * 16,
+            doc_hash=b"\x44" * 32,
+            auth_payload=None,
+        ),
+    )
+    @mock.patch(
+        "ethernity.cli.features.compact.service._validated_compact_root_dir",
+        return_value=Path("/tmp/root"),
+    )
+    def test_run_compact_translates_head_untrusted_into_no_checkpoint_refusal(
+        self,
+        _validated_compact_root_dir: mock.MagicMock,
+        _plan_recover_from_args: mock.MagicMock,
+        _recover_chain_entries: mock.MagicMock,
+        run_backup_mock: mock.MagicMock,
+    ) -> None:
+        with self.assertRaises(ApiCommandError) as ctx:
+            run_compact(
+                CompactArgs(
+                    root_dir="/tmp/root",
+                    output_dir="/tmp/out",
+                    passphrase="secret",
+                    quiet=True,
+                )
+            )
+
+        exc = ctx.exception
+        self.assertEqual(exc.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(
+            str(exc),
+            (
+                "latest compact head could not be trusted; no checkpoint was created: "
+                "missing required payload MAIN carriers"
+            ),
+        )
+        self.assertEqual(exc.details["stage"], "replay")
+        self.assertEqual(exc.details["failure_stage"], "discovery")
+        self.assertEqual(exc.details["failure_head_index"], 2)
+        self.assertEqual(exc.details["latest_head_index"], 2)
+        self.assertEqual(exc.details["validated_head_index"], 0)
+        self.assertFalse(exc.details["explicit_selection"])
+        self.assertFalse(exc.details["checkpoint_created"])
+        self.assertIsNone(exc.details["failure_head_doc_hash"])
+        self.assertIsNone(exc.details["latest_head_doc_hash"])
+        run_backup_mock.assert_not_called()
+
+    @mock.patch("ethernity.cli.features.compact.service.run_backup")
+    @mock.patch(
+        "ethernity.cli.features.compact.service.recover_chain_entries",
+        side_effect=ApiCommandError(
+            code=api_codes.ROOT_AUTHORITY_MISMATCH,
+            message="embedded signing seed does not match the verified root AUTH authority",
+            details={"stage": "replay"},
+        ),
+    )
+    @mock.patch(
+        "ethernity.cli.features.compact.service.plan_recover_from_args",
+        return_value=SimpleNamespace(
+            passphrase="secret",
+            doc_id=b"\x22" * 16,
+            doc_hash=b"\x44" * 32,
+            auth_payload=None,
+        ),
+    )
+    @mock.patch(
+        "ethernity.cli.features.compact.service._validated_compact_root_dir",
+        return_value=Path("/tmp/root"),
+    )
+    def test_run_compact_preserves_non_trust_api_command_errors(
+        self,
+        _validated_compact_root_dir: mock.MagicMock,
+        _plan_recover_from_args: mock.MagicMock,
+        _recover_chain_entries: mock.MagicMock,
+        run_backup_mock: mock.MagicMock,
+    ) -> None:
+        with self.assertRaises(ApiCommandError) as ctx:
+            run_compact(
+                CompactArgs(
+                    root_dir="/tmp/root",
+                    output_dir="/tmp/out",
+                    passphrase="secret",
+                    quiet=True,
+                )
+            )
+
+        exc = ctx.exception
+        self.assertEqual(exc.code, api_codes.ROOT_AUTHORITY_MISMATCH)
+        self.assertEqual(
+            str(exc),
+            "embedded signing seed does not match the verified root AUTH authority",
+        )
+        self.assertEqual(exc.details, {"stage": "replay"})
+        run_backup_mock.assert_not_called()
 
     @mock.patch("ethernity.cli.features.compact.service.run_backup", return_value="backup-result")
     @mock.patch(

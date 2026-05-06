@@ -33,7 +33,14 @@ from rich.progress import (
 from rich.spinner import Spinner
 from rich.text import Text
 
-from ethernity.cli.shared.ui.state import UIContext, WizardState, format_hint, get_context, isatty
+from ethernity.cli.shared.ui.state import (
+    StageDensity,
+    UIContext,
+    WizardState,
+    format_hint,
+    get_context,
+    isatty,
+)
 
 DEBUG_MAX_BYTES_DEFAULT = 1024
 
@@ -80,6 +87,9 @@ def ui_screen_mode(
     previous_stage_prompt_count = context.stage_prompt_count
     previous_stage_title = context.current_stage_title
     previous_stage_help_text = context.current_stage_help_text
+    previous_stage_density = context.current_stage_density
+    previous_substep_title = context.current_substep_title
+    previous_substep_help_text = context.current_substep_help_text
     previous_choice_navigation_hint_seen = context.choice_navigation_hint_seen
     active = enabled and not quiet
     context.screen_mode = active
@@ -87,6 +97,9 @@ def ui_screen_mode(
     context.stage_prompt_count = 0
     context.current_stage_title = None
     context.current_stage_help_text = None
+    context.current_stage_density = "minimal"
+    context.current_substep_title = None
+    context.current_substep_help_text = None
     context.choice_navigation_hint_seen = False
     try:
         if active:
@@ -98,6 +111,9 @@ def ui_screen_mode(
         context.stage_prompt_count = previous_stage_prompt_count
         context.current_stage_title = previous_stage_title
         context.current_stage_help_text = previous_stage_help_text
+        context.current_stage_density = previous_stage_density
+        context.current_substep_title = previous_substep_title
+        context.current_substep_help_text = previous_substep_help_text
         context.choice_navigation_hint_seen = previous_choice_navigation_hint_seen
 
 
@@ -120,14 +136,21 @@ def wizard_stage(
     *,
     help_text: str | None = None,
     step_number: int | None = None,
+    density: StageDensity = "minimal",
     context: UIContext | None = None,
 ) -> Generator[None, None, None]:
     context = _resolve_context(context)
     state = context.wizard_state
     previous_stage_title = context.current_stage_title
     previous_stage_help_text = context.current_stage_help_text
+    previous_stage_density = context.current_stage_density
+    previous_substep_title = context.current_substep_title
+    previous_substep_help_text = context.current_substep_help_text
     context.current_stage_title = title
     context.current_stage_help_text = help_text
+    context.current_stage_density = density
+    context.current_substep_title = None
+    context.current_substep_help_text = None
     context.stage_prompt_count = 0
     try:
         if state is not None and not state.quiet:
@@ -144,6 +167,28 @@ def wizard_stage(
     finally:
         context.current_stage_title = previous_stage_title
         context.current_stage_help_text = previous_stage_help_text
+        context.current_stage_density = previous_stage_density
+        context.current_substep_title = previous_substep_title
+        context.current_substep_help_text = previous_substep_help_text
+
+
+@contextmanager
+def wizard_substep(
+    title: str,
+    *,
+    help_text: str | None = None,
+    context: UIContext | None = None,
+) -> Generator[None, None, None]:
+    context = _resolve_context(context)
+    previous_substep_title = context.current_substep_title
+    previous_substep_help_text = context.current_substep_help_text
+    context.current_substep_title = title
+    context.current_substep_help_text = help_text
+    try:
+        yield
+    finally:
+        context.current_substep_title = previous_substep_title
+        context.current_substep_help_text = previous_substep_help_text
 
 
 @contextmanager

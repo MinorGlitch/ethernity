@@ -29,6 +29,8 @@ from ethernity.cli.features.recover.chain import (
     validated_root_recovery_scan_paths,
 )
 from ethernity.cli.features.recover.planning import plan_from_args as plan_recover_from_args
+from ethernity.cli.shared import api_codes
+from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import BackupArgs, BackupResult, CompactArgs, InputFile, RecoverArgs
 from ethernity.config import apply_template_design, load_app_config
 from ethernity.crypto.signing import derive_public_key
@@ -60,6 +62,17 @@ def _validated_compact_root_dir(root_dir_value: str | None) -> Path:
     return root_dir
 
 
+def _translate_compact_head_untrusted(exc: ApiCommandError) -> ApiCommandError:
+    head_label = "requested" if exc.details.get("explicit_selection") else "latest"
+    message = f"{head_label} compact head could not be trusted; no checkpoint was created"
+    failure_message = exc.details.get("failure_message")
+    if isinstance(failure_message, str) and failure_message:
+        message = f"{message}: {failure_message}"
+    details = dict(exc.details)
+    details["checkpoint_created"] = False
+    return ApiCommandError(code=exc.code, message=message, details=details)
+
+
 def run_compact(args: CompactArgs) -> BackupResult:
     root_dir = _validated_compact_root_dir(args.root_dir)
     if not args.output_dir:
@@ -80,7 +93,12 @@ def run_compact(args: CompactArgs) -> BackupResult:
             quiet=args.quiet,
         )
     )
-    chain = recover_chain_entries(recover_plan, quiet=args.quiet, debug=False)
+    try:
+        chain = recover_chain_entries(recover_plan, quiet=args.quiet, debug=False)
+    except ApiCommandError as exc:
+        if exc.code != api_codes.RECOVERY_HEAD_UNTRUSTED:
+            raise
+        raise _translate_compact_head_untrusted(exc) from exc
     manifest = chain.manifest
 
     sign_pub = (

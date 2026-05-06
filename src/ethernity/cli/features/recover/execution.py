@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from ethernity.cli.features.recover.chain import (
     recover_chain_entries,
@@ -37,6 +38,39 @@ from ethernity.formats.envelope_codec import decode_envelope, extract_payloads
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
 
 
+@dataclass(frozen=True)
+class RecoverDecryptResult:
+    manifest: EnvelopeManifest
+    extracted: list[tuple[ManifestFile, bytes]]
+    selected_extension_index: int | None = None
+    selected_extension_doc_hash: str | None = None
+
+
+def decrypt_manifest_extract_selection(
+    plan: RecoveryPlan,
+    *,
+    quiet: bool,
+    debug: bool = False,
+) -> RecoverDecryptResult:
+    """Decrypt a recovery plan and preserve any explicit replay-target metadata."""
+
+    if plan.root_dir:
+        chain = recover_chain_entries(plan, quiet=quiet, debug=debug)
+        return RecoverDecryptResult(
+            manifest=chain.manifest,
+            extracted=list(chain.extracted),
+            selected_extension_index=chain.selected_extension_index,
+            selected_extension_doc_hash=chain.selected_extension_doc_hash,
+        )
+
+    with status("Decrypting and unpacking payload...", quiet=quiet):
+        plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
+        manifest, payload = decode_envelope(plaintext)
+        extracted = extract_payloads(manifest, payload)
+    validate_root_manifest_authority(manifest, plan.auth_payload)
+    return RecoverDecryptResult(manifest=manifest, extracted=extracted)
+
+
 def decrypt_manifest_and_extract(
     plan: RecoveryPlan,
     *,
@@ -45,16 +79,8 @@ def decrypt_manifest_and_extract(
 ) -> tuple[EnvelopeManifest, list[tuple[ManifestFile, bytes]]]:
     """Decrypt a recovery plan ciphertext and extract manifest payload entries."""
 
-    if plan.root_dir:
-        chain = recover_chain_entries(plan, quiet=quiet, debug=debug)
-        return chain.manifest, list(chain.extracted)
-
-    with status("Decrypting and unpacking payload...", quiet=quiet):
-        plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
-        manifest, payload = decode_envelope(plaintext)
-        extracted = extract_payloads(manifest, payload)
-    validate_root_manifest_authority(manifest, plan.auth_payload)
-    return manifest, extracted
+    result = decrypt_manifest_extract_selection(plan, quiet=quiet, debug=debug)
+    return result.manifest, result.extracted
 
 
 def decrypt_and_extract(
@@ -77,6 +103,10 @@ def write_recovered_outputs(
     allow_unsigned: bool,
     quiet: bool,
     single_entry_output_is_directory: bool = False,
+    requested_extension_index: int | None = None,
+    requested_extension_doc_hash: str | None = None,
+    selected_extension_index: int | None = None,
+    selected_extension_doc_hash: str | None = None,
     on_file_written: Callable[[object, bytes, str, int, int], None] | None = None,
 ) -> list[str]:
     """Write recovered outputs and print the post-recovery summary."""
@@ -94,6 +124,10 @@ def write_recovered_outputs(
         auth_status=auth_label,
         quiet=quiet,
         single_entry_output_is_directory=single_entry_output_is_directory,
+        requested_extension_index=requested_extension_index,
+        requested_extension_doc_hash=requested_extension_doc_hash,
+        selected_extension_index=selected_extension_index,
+        selected_extension_doc_hash=selected_extension_doc_hash,
     )
     if not quiet:
         actions = [f"Saved to {output_path}" if output_path else "Wrote recovered data to stdout."]
@@ -115,7 +149,9 @@ def run_recover_plan(
     debug_reveal_secrets: bool = False,
 ) -> int:
     """Execute a prepared recovery plan end to end."""
-    manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
+    decrypted = decrypt_manifest_extract_selection(plan, quiet=quiet, debug=debug)
+    manifest = decrypted.manifest
+    extracted = decrypted.extracted
     if debug:
         print_recover_debug(
             manifest=manifest,
@@ -144,5 +180,9 @@ def run_recover_plan(
         allow_unsigned=plan.allow_unsigned,
         quiet=quiet,
         single_entry_output_is_directory=single_entry_output_is_directory,
+        requested_extension_index=getattr(plan, "extension_index", None),
+        requested_extension_doc_hash=getattr(plan, "extension_doc_hash", None),
+        selected_extension_index=decrypted.selected_extension_index,
+        selected_extension_doc_hash=decrypted.selected_extension_doc_hash,
     )
     return 0

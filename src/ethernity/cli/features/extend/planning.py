@@ -29,10 +29,9 @@ from ethernity.cli.features.extend.scope import (
     summarize_scope_diff,
 )
 from ethernity.cli.features.recover.chain import (
-    DecodedExtensionLink,
-    DiscoveredRecoveryExtension,
-    decode_authenticated_extension_link,
+    RecoveryChainInspection,
     decode_root_manifest as _decode_root_manifest_shared,
+    inspect_recovery_extension_chain,
     resolve_root_manifest_authority,
     scan_discovered_extension_directory,
     scan_extension_carriers,
@@ -51,15 +50,8 @@ from ethernity.cli.shared.io.frames import (
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.paths import expanduser_cli_paths
 from ethernity.cli.shared.types import ExtendArgs
-from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import Frame
-from ethernity.extensions.build import build_virtual_chunk_source, default_extension_chunker
-from ethernity.extensions.chain import (
-    LogicalFileState,
-    extract_root_logical_state,
-    reconstruct_latest_logical_state,
-    validate_extension_chain,
-)
+from ethernity.extensions.chain import LogicalFileState, extract_root_logical_state
 from ethernity.extensions.discovery import (
     discover_validated_extension_directories,
     require_backup_root_dir,
@@ -88,6 +80,7 @@ class ExtendInspection:
     unlock: dict[str, object]
     discovered_extension_dirs: tuple[int, ...]
     validated_head_index: int | None
+    validated_head_doc_hash: str | None
     available_extensions: tuple[dict[str, object], ...]
     ancestry_valid: bool | None
     validated_head_auth_status: str | None
@@ -166,6 +159,9 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
     input_kind = "standalone_root"
     extension_inventory: tuple[_DiscoveredExtensionCiphertext, ...] = ()
     discovery = discover_validated_extension_directories(root_dir)
+    extension_chain_present = (
+        bool(discovery.directories) or discovery.first_invalid_message is not None
+    )
     if discovery.first_invalid_message is not None:
         blocking_issues.append(
             {
@@ -227,6 +223,7 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
     chain_id_hex = derive_chain_id(root_inspection.doc_hash).hex()
     source_summary: dict[str, object] | None = None
     validated_head_index: int | None = None
+    validated_head_doc_hash: str | None = None
     ancestry_valid: bool | None = None
     validated_head_auth_status: str | None = None
     validated_head_root_authority_verified: bool | None = None
@@ -286,10 +283,11 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
                         "source": "embedded_seed",
                     }
 
-                    if extension_inventory and not manifest.sealed:
+                    if extension_chain_present and not manifest.sealed:
                         (
                             current_state,
                             validated_head_index,
+                            validated_head_doc_hash,
                             ancestry_valid,
                             parent_doc_hash,
                             next_index,
@@ -297,15 +295,26 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
                             available_extensions,
                             validated_head_auth_status,
                             validated_head_root_authority_verified,
+                            discovered_extension_dirs,
+                            input_kind,
                         ) = _reconstruct_extension_state(
+                            root_dir=root_dir,
                             manifest=manifest,
                             payload=payload,
                             root_doc_hash=root_inspection.doc_hash,
-                            extension_inventory=extension_inventory,
                             passphrase=root_inspection.unlock.resolved_passphrase,
+                            expected_sign_pub=authority.embedded_sign_pub,
                             blocking_issues=blocking_issues,
+                            quiet=args.quiet,
                         )
                     else:
+                        validated_head_index = 0
+                        validated_head_doc_hash = root_inspection.doc_hash.hex()
+                        ancestry_valid = True
+                        validated_head_auth_status = root_inspection.auth_status
+                        validated_head_root_authority_verified = (
+                            authority.embedded_sign_pub is not None
+                        )
                         parent_doc_hash = root_inspection.doc_hash
                         next_index = 1
                         chunking = _default_chunking_profile()
@@ -358,6 +367,7 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
         },
         discovered_extension_dirs=discovered_extension_dirs,
         validated_head_index=validated_head_index,
+        validated_head_doc_hash=validated_head_doc_hash,
         available_extensions=available_extensions,
         ancestry_valid=ancestry_valid,
         validated_head_auth_status=validated_head_auth_status,
@@ -486,17 +496,38 @@ def _decode_root_manifest(ciphertext: bytes, *, passphrase: str) -> tuple[Envelo
     return _decode_root_manifest_shared(ciphertext=ciphertext, passphrase=passphrase, debug=False)
 
 
+def _available_extensions_from_recovery_chain(
+    chain_inspection: RecoveryChainInspection,
+) -> tuple[dict[str, object], ...]:
+    available_extensions: list[dict[str, object]] = []
+    for index, item in enumerate(chain_inspection.inventory.extensions):
+        extension_payload: dict[str, object] = {
+            "dir_name": item.dir_name,
+            "doc_id": item.doc_id_hex,
+            "doc_hash": item.doc_hash.hex(),
+        }
+        if index < len(chain_inspection.links):
+            decoded_link = chain_inspection.links[index]
+            extension_payload["auth_status"] = decoded_link.auth_status
+            extension_payload["root_authority_verified"] = decoded_link.root_authority_verified
+        available_extensions.append(extension_payload)
+    return tuple(available_extensions)
+
+
 def _reconstruct_extension_state(
     *,
+    root_dir: Path,
     manifest: EnvelopeManifest,
     payload: bytes,
     root_doc_hash: bytes,
-    extension_inventory: tuple[_DiscoveredExtensionCiphertext, ...],
     passphrase: str,
+    expected_sign_pub: bytes | None,
     blocking_issues: list[dict[str, object]],
+    quiet: bool,
 ) -> tuple[
-    tuple[LogicalFileState, ...],
+    tuple[LogicalFileState, ...] | None,
     int | None,
+    str | None,
     bool | None,
     bytes | None,
     int | None,
@@ -504,120 +535,85 @@ def _reconstruct_extension_state(
     tuple[dict[str, object], ...],
     str | None,
     bool | None,
+    tuple[int, ...],
+    str,
 ]:
-    links: list[DecodedExtensionLink] = []
-    available_extensions: list[dict[str, object]] = []
-    expected_sign_pub = derive_public_key(manifest.signing_seed) if manifest.signing_seed else None
-    for item in extension_inventory:
-        if item.ciphertext is None or item.doc_hash is None:
-            blocking_issues.append(
-                _blocking_issue(
-                    "CHAIN_INVALID",
-                    f"extension {item.dir_name} MAIN carriers could not be reconstructed",
-                    details={"dir_name": item.dir_name},
-                )
-            )
-            root_state = extract_root_logical_state(manifest, payload)
-            return (
-                root_state,
-                None,
-                False,
-                None,
-                None,
-                None,
-                tuple(available_extensions),
-                None,
-                None,
-            )
-        discovered = DiscoveredRecoveryExtension(
-            index=item.index,
-            dir_name=item.dir_name,
-            doc_id_hex=item.doc_id_hex,
-            doc_hash=item.doc_hash,
-            ciphertext=item.ciphertext,
-            auth_frames=item.auth_frames,
+    if expected_sign_pub is None:
+        raise ValueError("root backup manifest is missing an embedded signing seed")
+
+    chain_inspection = inspect_recovery_extension_chain(
+        root_dir,
+        manifest=manifest,
+        payload=payload,
+        root_doc_hash=root_doc_hash,
+        passphrase=passphrase,
+        expected_sign_pub=expected_sign_pub,
+        allow_unsigned=False,
+        quiet=quiet,
+        debug=False,
+    )
+    discovered_extension_dirs = tuple(item.index for item in chain_inspection.inventory.extensions)
+    input_kind = "extended_root" if discovered_extension_dirs else "standalone_root"
+    available_extensions = _available_extensions_from_recovery_chain(chain_inspection)
+
+    if chain_inspection.refusal is not None:
+        blocking_issues[:] = [
+            issue
+            for issue in blocking_issues
+            if issue.get("code") not in {"EXTENSION_LAYOUT_INVALID", "CHAIN_INVALID"}
+        ]
+        blocking_issues.insert(
+            0,
+            _blocking_issue(
+                chain_inspection.refusal.code,
+                chain_inspection.refusal.message,
+                details=dict(chain_inspection.refusal.details),
+            ),
         )
-        try:
-            decoded_link = decode_authenticated_extension_link(
-                discovered,
-                passphrase=passphrase,
-                expected_sign_pub=expected_sign_pub,
-                allow_unsigned=False,
-                quiet=True,
-                debug=False,
-            )
-        except ValueError as exc:
-            blocking_issues.append(
-                _blocking_issue(
-                    "CHAIN_INVALID",
-                    str(exc),
-                    details={"dir_name": item.dir_name},
-                )
-            )
-            root_state = extract_root_logical_state(manifest, payload)
-            return (
-                root_state,
-                None,
-                False,
-                None,
-                None,
-                None,
-                tuple(available_extensions),
-                None,
-                None,
-            )
-        links.append(decoded_link)
-        available_extensions.append(
-            {
-                "dir_name": item.dir_name,
-                "doc_id": item.doc_id_hex,
-                "doc_hash": item.doc_hash.hex(),
-                "auth_status": decoded_link.auth_status,
-                "root_authority_verified": decoded_link.root_authority_verified,
-            }
+        return (
+            None,
+            chain_inspection.validated_head_index,
+            chain_inspection.validated_head_doc_hash,
+            False,
+            None,
+            None,
+            None,
+            available_extensions,
+            chain_inspection.validated_head_auth_status,
+            chain_inspection.validated_head_root_authority_verified,
+            discovered_extension_dirs,
+            input_kind,
         )
 
-    root_state = extract_root_logical_state(manifest, payload)
-    try:
-        locked_chunking = validate_extension_chain(
-            root_doc_hash=root_doc_hash,
-            extensions=tuple(item.link for item in links),
+    if not chain_inspection.links or chain_inspection.latest_state is None:
+        return (
+            extract_root_logical_state(manifest, payload),
+            chain_inspection.validated_head_index,
+            chain_inspection.validated_head_doc_hash,
+            True,
+            root_doc_hash,
+            1,
+            _default_chunking_profile(),
+            available_extensions,
+            chain_inspection.validated_head_auth_status,
+            chain_inspection.validated_head_root_authority_verified,
+            discovered_extension_dirs,
+            input_kind,
         )
-        virtual_root_chunks = (
-            {}
-            if locked_chunking is None
-            else build_virtual_chunk_source(
-                tuple(item.data for item in root_state),
-                chunking=locked_chunking,
-                chunker=default_extension_chunker,
-            )
-        )
-        latest_state = reconstruct_latest_logical_state(
-            manifest,
-            payload,
-            root_doc_hash=root_doc_hash,
-            extensions=tuple(item.link for item in links),
-            virtual_root_chunks=virtual_root_chunks,
-        )
-    except ValueError as exc:
-        blocking_issues.append(
-            _blocking_issue(
-                "CHAIN_INVALID",
-                str(exc),
-            )
-        )
-        return root_state, None, False, None, None, None, tuple(available_extensions), None, None
 
     return (
-        latest_state,
-        len(links),
+        chain_inspection.latest_state,
+        chain_inspection.validated_head_index,
+        chain_inspection.validated_head_doc_hash,
         True,
-        links[-1].link.doc_hash,
-        len(links) + 1,
-        locked_chunking,
-        tuple(available_extensions),
-        links[-1].auth_status,
-        links[-1].root_authority_verified,
+        chain_inspection.links[-1].link.doc_hash,
+        chain_inspection.validated_head_index + 1,
+        chain_inspection.locked_chunking,
+        available_extensions,
+        chain_inspection.validated_head_auth_status,
+        chain_inspection.validated_head_root_authority_verified,
+        discovered_extension_dirs,
+        input_kind,
     )
 
 

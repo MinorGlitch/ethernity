@@ -1380,6 +1380,15 @@ class TestCliApi(unittest.TestCase):
             quiet=True,
         )
         inspection = _extend_root_inspection(passphrase="secret", satisfied=True)
+        trust_details = {
+            "stage": "replay",
+            "failure_stage": "reconstruction",
+            "latest_head_index": 2,
+            "requested_head_doc_hash": "ab" * 32,
+            "validated_head_index": 1,
+            "validated_head_doc_hash": "cd" * 32,
+            "explicit_selection": True,
+        }
         buffer = io.StringIO()
         with (
             mock.patch(
@@ -1389,9 +1398,9 @@ class TestCliApi(unittest.TestCase):
             mock.patch(
                 "ethernity.cli.features.recover.api_handlers.plan_from_args",
                 side_effect=ApiCommandError(
-                    code="CHAIN_INVALID",
-                    message="extension doc_hash was not found",
-                    details={"stage": "replay"},
+                    code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+                    message="requested recovery head could not be trusted: latest suffix degraded",
+                    details=trust_details,
                 ),
             ),
             ndjson_session(stream=buffer),
@@ -1406,9 +1415,11 @@ class TestCliApi(unittest.TestCase):
             events[-1]["blocking_issues"],
             [
                 {
-                    "code": "CHAIN_INVALID",
-                    "message": "extension doc_hash was not found",
-                    "details": {"stage": "replay"},
+                    "code": api_codes.RECOVERY_HEAD_UNTRUSTED,
+                    "message": (
+                        "requested recovery head could not be trusted: latest suffix degraded"
+                    ),
+                    "details": trust_details,
                 }
             ],
         )
@@ -1611,7 +1622,7 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["available_extensions"], [])
         self.assertEqual(events[-1]["blocking_issues"][0]["code"], "EXTENSION_LAYOUT_INVALID")
 
-    def test_api_inspect_extend_emits_trust_metadata_fields(self) -> None:
+    def test_api_inspect_extend_emits_root_only_trust_metadata_fields(self) -> None:
         inspection = SimpleNamespace(
             doc_id="11111111111111111111111111111111",
             input_label="Backup root directory",
@@ -1630,17 +1641,10 @@ class TestCliApi(unittest.TestCase):
                 "required_shard_threshold": None,
                 "satisfied": True,
             },
-            discovered_extension_dirs=(1,),
-            validated_head_index=1,
-            available_extensions=(
-                {
-                    "dir_name": "01",
-                    "doc_id": "deadbeefcafebabe",
-                    "doc_hash": "cafebabe",
-                    "auth_status": "verified",
-                    "root_authority_verified": True,
-                },
-            ),
+            discovered_extension_dirs=(),
+            validated_head_index=0,
+            validated_head_doc_hash="22" * 32,
+            available_extensions=(),
             ancestry_valid=True,
             validated_head_auth_status="verified",
             validated_head_root_authority_verified=True,
@@ -1663,17 +1667,191 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(result, 0)
         events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
         self._assert_valid_events(events)
+        self.assertEqual(events[-1]["validated_head_index"], 0)
+        self.assertEqual(events[-1]["validated_head_doc_hash"], "22" * 32)
         self.assertEqual(events[-1]["validated_head_auth_status"], "verified")
         self.assertEqual(events[-1]["validated_head_root_authority_verified"], True)
-        self.assertEqual(
-            events[-1]["available_extensions"],
-            [
+        self.assertEqual(events[-1]["available_extensions"], [])
+
+    def test_api_inspect_extend_preserves_null_validated_head_trust_fields(self) -> None:
+        trust_details = {
+            "stage": "replay",
+            "failure_stage": "discovery",
+            "failure_message": "missing required payload MAIN carriers",
+            "failure_head_index": 2,
+            "failure_head_doc_hash": None,
+            "failure_head_dir_name": "02",
+            "latest_head_index": 2,
+            "latest_head_doc_hash": None,
+            "latest_head_dir_name": "02",
+            "requested_head_index": None,
+            "requested_head_doc_hash": None,
+            "validated_head_index": 0,
+            "validated_head_doc_hash": "22" * 32,
+            "validated_head_auth_status": None,
+            "validated_head_root_authority_verified": None,
+            "explicit_selection": False,
+        }
+        inspection = SimpleNamespace(
+            doc_id="11111111111111111111111111111111",
+            input_label="Backup root directory",
+            input_detail="/tmp/root",
+            input_kind="extended_root",
+            source_summary=None,
+            frame_counts={"main": 0, "auth": 0, "shard": 0},
+            root_doc_id="11111111111111111111111111111111",
+            root_doc_hash="22" * 32,
+            chain_id="33" * 32,
+            auth_status="verified",
+            unlock={
+                "mode": "passphrase",
+                "passphrase_provided": True,
+                "validated_shard_count": 0,
+                "required_shard_threshold": None,
+                "satisfied": True,
+            },
+            discovered_extension_dirs=(1,),
+            validated_head_index=0,
+            validated_head_doc_hash="22" * 32,
+            available_extensions=(
                 {
                     "dir_name": "01",
                     "doc_id": "deadbeefcafebabe",
-                    "doc_hash": "cafebabe",
+                    "doc_hash": "aa" * 32,
+                },
+            ),
+            ancestry_valid=False,
+            validated_head_auth_status=None,
+            validated_head_root_authority_verified=None,
+            signing_authority={"available": True, "satisfied": True, "source": "embedded_seed"},
+            selected_scope=None,
+            diff_summary=None,
+            blocking_issues=(
+                {
+                    "code": api_codes.RECOVERY_HEAD_UNTRUSTED,
+                    "message": (
+                        "latest recovery head could not be trusted: "
+                        "missing required payload MAIN carriers"
+                    ),
+                    "details": trust_details,
+                },
+            ),
+            root_dir="/tmp/root",
+        )
+        buffer = io.StringIO()
+        with (
+            mock.patch(
+                "ethernity.cli.features.extend.api_handlers.inspect_from_args",
+                return_value=inspection,
+            ),
+            ndjson_session(stream=buffer),
+        ):
+            result = run_extend_inspect_api_command(ExtendArgs(root_dir="/tmp/root", quiet=True))
+
+        self.assertEqual(result, 0)
+        events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertIsNone(events[-1]["validated_head_auth_status"])
+        self.assertIsNone(events[-1]["validated_head_root_authority_verified"])
+        self.assertEqual(events[-1]["blocking_issues"][0]["details"], trust_details)
+
+    def test_api_inspect_extend_preserves_recovery_head_untrusted_blocking_issue(self) -> None:
+        trust_details = {
+            "stage": "replay",
+            "failure_stage": "discovery",
+            "failure_message": "missing required payload MAIN carriers",
+            "failure_head_index": 2,
+            "failure_head_doc_hash": None,
+            "failure_head_dir_name": "02",
+            "latest_head_index": 2,
+            "latest_head_doc_hash": None,
+            "latest_head_dir_name": "02",
+            "requested_head_index": None,
+            "requested_head_doc_hash": None,
+            "validated_head_index": 1,
+            "validated_head_doc_hash": "aa" * 32,
+            "validated_head_auth_status": "verified",
+            "validated_head_root_authority_verified": True,
+            "explicit_selection": False,
+        }
+        inspection = SimpleNamespace(
+            doc_id="11111111111111111111111111111111",
+            input_label="Backup root directory",
+            input_detail="/tmp/root",
+            input_kind="extended_root",
+            source_summary=None,
+            frame_counts={"main": 0, "auth": 0, "shard": 0},
+            root_doc_id="11111111111111111111111111111111",
+            root_doc_hash="22" * 32,
+            chain_id="33" * 32,
+            auth_status="verified",
+            unlock={
+                "mode": "passphrase",
+                "passphrase_provided": True,
+                "validated_shard_count": 0,
+                "required_shard_threshold": None,
+                "satisfied": True,
+            },
+            discovered_extension_dirs=(1,),
+            validated_head_index=1,
+            validated_head_doc_hash="aa" * 32,
+            available_extensions=(
+                {
+                    "dir_name": "01",
+                    "doc_id": "deadbeefcafebabe",
+                    "doc_hash": "aa" * 32,
                     "auth_status": "verified",
                     "root_authority_verified": True,
+                },
+            ),
+            ancestry_valid=False,
+            validated_head_auth_status="verified",
+            validated_head_root_authority_verified=True,
+            signing_authority={"available": True, "satisfied": True, "source": "embedded_seed"},
+            selected_scope=None,
+            diff_summary={"changed_paths": ["alpha.txt"], "new_paths": [], "unchanged_paths": []},
+            blocking_issues=(
+                {
+                    "code": api_codes.RECOVERY_HEAD_UNTRUSTED,
+                    "message": (
+                        "latest recovery head could not be trusted: "
+                        "missing required payload MAIN carriers"
+                    ),
+                    "details": trust_details,
+                },
+            ),
+            root_dir="/tmp/root",
+        )
+        buffer = io.StringIO()
+        with (
+            mock.patch(
+                "ethernity.cli.features.extend.api_handlers.inspect_from_args",
+                return_value=inspection,
+            ),
+            ndjson_session(stream=buffer),
+        ):
+            result = run_extend_inspect_api_command(
+                ExtendArgs(
+                    root_dir="/tmp/root",
+                    input=["/tmp/root/alpha.txt"],
+                    quiet=True,
+                )
+            )
+
+        self.assertEqual(result, 0)
+        events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(events[-1]["validated_head_doc_hash"], "aa" * 32)
+        self.assertEqual(
+            events[-1]["blocking_issues"],
+            [
+                {
+                    "code": api_codes.RECOVERY_HEAD_UNTRUSTED,
+                    "message": (
+                        "latest recovery head could not be trusted: "
+                        "missing required payload MAIN carriers"
+                    ),
+                    "details": trust_details,
                 }
             ],
         )
@@ -1702,6 +1880,7 @@ class TestCliApi(unittest.TestCase):
             },
             discovered_extension_dirs=(),
             validated_head_index=None,
+            validated_head_doc_hash=None,
             available_extensions=(),
             ancestry_valid=True,
             validated_head_auth_status=None,
@@ -2176,6 +2355,8 @@ class TestCliApi(unittest.TestCase):
                 file_payloads=(),
                 output_path=output_path,
                 output_path_kind="file",
+                selected_extension_index=None,
+                selected_extension_doc_hash=None,
             )
 
         with (
@@ -2834,6 +3015,81 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["root_dir"], "/tmp/root")
         self.assertEqual(events[-1]["output_dir"], "/tmp/out")
 
+    def test_api_compact_head_untrusted_emits_started_then_error_without_artifacts(self) -> None:
+        trust_details = {
+            "stage": "replay",
+            "failure_stage": "discovery",
+            "failure_message": "missing required payload MAIN carriers",
+            "failure_head_index": 2,
+            "failure_head_doc_hash": None,
+            "failure_head_dir_name": "02",
+            "latest_head_index": 2,
+            "latest_head_doc_hash": None,
+            "latest_head_dir_name": "02",
+            "requested_head_index": None,
+            "requested_head_doc_hash": None,
+            "validated_head_index": 0,
+            "validated_head_doc_hash": "44" * 32,
+            "validated_head_auth_status": None,
+            "validated_head_root_authority_verified": None,
+            "explicit_selection": False,
+            "checkpoint_created": False,
+        }
+
+        with (
+            mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False),
+            mock.patch(
+                "ethernity.cli.features.compact.api_handlers.ensure_playwright_browsers"
+            ),
+            mock.patch(
+                "ethernity.cli.features.compact.api_handlers.run_compact",
+                side_effect=ApiCommandError(
+                    code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+                    message=(
+                        "latest compact head could not be trusted; "
+                        "no checkpoint was created: missing required payload MAIN carriers"
+                    ),
+                    details=trust_details,
+                ),
+            ),
+        ):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "compact",
+                    "--root-dir",
+                    "/tmp/root",
+                    "--output-dir",
+                    "/tmp/out",
+                    "--passphrase",
+                    "secret",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 2)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual([event["type"] for event in events], ["started", "error"])
+        self.assertEqual(events[0]["command"], "compact")
+        self.assertEqual(events[0]["args"]["root_dir"], "/tmp/root")
+        self.assertEqual(events[-1]["code"], api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(
+            events[-1]["message"],
+            (
+                "latest compact head could not be trusted; "
+                "no checkpoint was created: missing required payload MAIN carriers"
+            ),
+        )
+        self.assertEqual(
+            events[-1]["details"],
+            {"error_type": "CommandError", **trust_details},
+        )
+        self.assertEqual([event for event in events if event["type"] == "artifact"], [])
+        self.assertEqual([event for event in events if event["type"] == "result"], [])
+
     def test_run_compact_api_command_requires_root_dir_with_stable_code(self) -> None:
         buffer = io.StringIO()
         with ndjson_session(stream=buffer):
@@ -3288,6 +3544,50 @@ class TestCliApi(unittest.TestCase):
         layout_artifacts = [event for event in events if event.get("kind") == "layout_debug_json"]
         self.assertEqual(len(layout_artifacts), 3)
 
+    def test_execute_recover_plan_preserves_requested_and_selected_extension_metadata(self) -> None:
+        manifest = EnvelopeManifest(
+            format_version=1,
+            created_at=0.0,
+            input_origin="directory",
+            input_roots=("selected",),
+            sealed=False,
+            signing_seed=None,
+            payload_codec="raw",
+            payload_raw_len=None,
+            files=(ManifestFile(path="updated.txt", size=7, sha256=b"\x44" * 32, mtime=2),),
+        )
+        plan = SimpleNamespace(
+            ciphertext=b"ciphertext",
+            passphrase="stable passphrase",
+            auth_status="verified",
+            allow_unsigned=False,
+            output_path="/tmp/out",
+            extension_index=1,
+            extension_doc_hash=None,
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.service.decrypt_manifest_extract_selection",
+                return_value=SimpleNamespace(
+                    manifest=manifest,
+                    extracted=[(manifest.files[0], b"updated")],
+                    selected_extension_index=1,
+                    selected_extension_doc_hash="ab" * 32,
+                ),
+            ),
+            mock.patch(
+                "ethernity.cli.features.recover.service.write_recovered_outputs",
+                return_value=["/tmp/out/updated.txt"],
+            ),
+        ):
+            execution = execute_recover_plan(cast(Any, plan), quiet=True, emit_file_artifacts=False)
+
+        self.assertEqual(execution.requested_extension_index, 1)
+        self.assertIsNone(execution.requested_extension_doc_hash)
+        self.assertEqual(execution.selected_extension_index, 1)
+        self.assertEqual(execution.selected_extension_doc_hash, "ab" * 32)
+
     def test_execute_recover_plan_emits_write_events_per_file(self) -> None:
         manifest = EnvelopeManifest(
             format_version=1,
@@ -3318,8 +3618,13 @@ class TestCliApi(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             mock.patch(
-                "ethernity.cli.features.recover.service.decrypt_manifest_and_extract",
-                return_value=(manifest, extracted),
+                "ethernity.cli.features.recover.service.decrypt_manifest_extract_selection",
+                return_value=SimpleNamespace(
+                    manifest=manifest,
+                    extracted=extracted,
+                    selected_extension_index=None,
+                    selected_extension_doc_hash=None,
+                ),
             ),
             ndjson_session(stream=buffer),
         ):
@@ -3358,8 +3663,13 @@ class TestCliApi(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with mock.patch(
-                "ethernity.cli.features.recover.service.decrypt_manifest_and_extract",
-                return_value=(manifest, extracted),
+                "ethernity.cli.features.recover.service.decrypt_manifest_extract_selection",
+                return_value=SimpleNamespace(
+                    manifest=manifest,
+                    extracted=extracted,
+                    selected_extension_index=None,
+                    selected_extension_doc_hash=None,
+                ),
             ):
                 plan.output_path = tmpdir
                 execution = execute_recover_plan(
@@ -3395,8 +3705,13 @@ class TestCliApi(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with mock.patch(
-                "ethernity.cli.features.recover.service.decrypt_manifest_and_extract",
-                return_value=(manifest, extracted),
+                "ethernity.cli.features.recover.service.decrypt_manifest_extract_selection",
+                return_value=SimpleNamespace(
+                    manifest=manifest,
+                    extracted=extracted,
+                    selected_extension_index=None,
+                    selected_extension_doc_hash=None,
+                ),
             ):
                 plan.output_path = tmpdir
                 execution = execute_recover_plan(
@@ -3436,8 +3751,13 @@ class TestCliApi(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with mock.patch(
-                "ethernity.cli.features.recover.service.decrypt_manifest_and_extract",
-                return_value=(manifest, extracted),
+                "ethernity.cli.features.recover.service.decrypt_manifest_extract_selection",
+                return_value=SimpleNamespace(
+                    manifest=manifest,
+                    extracted=extracted,
+                    selected_extension_index=None,
+                    selected_extension_doc_hash=None,
+                ),
             ):
                 plan.output_path = tmpdir
                 execution = execute_recover_plan(
@@ -3670,8 +3990,13 @@ class TestCliApi(unittest.TestCase):
         extracted = []
         with (
             mock.patch(
-                "ethernity.cli.features.recover.service.decrypt_manifest_and_extract",
-                return_value=(manifest, extracted),
+                "ethernity.cli.features.recover.service.decrypt_manifest_extract_selection",
+                return_value=SimpleNamespace(
+                    manifest=manifest,
+                    extracted=extracted,
+                    selected_extension_index=None,
+                    selected_extension_doc_hash=None,
+                ),
             ),
             mock.patch(
                 "ethernity.cli.features.recover.service.write_recovered_outputs",

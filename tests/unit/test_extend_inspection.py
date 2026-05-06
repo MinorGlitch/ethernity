@@ -19,7 +19,15 @@ from pathlib import Path
 from unittest import mock
 
 from ethernity.cli.features.extend.planning import _shard_frames_from_extend_args, inspect_from_args
+from ethernity.cli.features.recover.chain import (
+    DiscoveredRecoveryExtension,
+    RecoveryChainInspection,
+    RecoveryExtensionInventory,
+    RecoveryHeadTrustRefusal,
+    RecoveryReplayFailure,
+)
 from ethernity.cli.features.recover.planning import RecoveryInspection, RecoveryUnlockStatus
+from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.crypto.signing import AuthPayload
@@ -55,6 +63,41 @@ def _root_inspection(*, passphrase: str | None = None) -> RecoveryInspection:
             blocking_issues=(),
         ),
         blocking_issues=(),
+    )
+
+
+def _recovery_chain_inspection(
+    *,
+    extensions: tuple[DiscoveredRecoveryExtension, ...] = (),
+    refusal: RecoveryHeadTrustRefusal | None = None,
+    validated_head_index: int = 0,
+    validated_head_doc_hash: str = "22" * 32,
+    validated_head_auth_status: str | None = None,
+    validated_head_root_authority_verified: bool | None = None,
+    latest_state: tuple[LogicalFileState, ...] | None = None,
+    locked_chunking=mock.sentinel.locked_chunking,
+    links: tuple[object, ...] = (),
+) -> RecoveryChainInspection:
+    return RecoveryChainInspection(
+        inventory=RecoveryExtensionInventory(
+            extensions=extensions,
+            explicit_selection=False,
+            requested_head_index=None,
+            requested_head_doc_hash=None,
+            requested_target_matched=False,
+            latest_head_index=extensions[-1].index if extensions else None,
+            latest_head_doc_hash=extensions[-1].doc_hash.hex() if extensions else None,
+            latest_head_dir_name=extensions[-1].dir_name if extensions else None,
+            failure=None,
+        ),
+        links=links,
+        latest_state=latest_state,
+        locked_chunking=locked_chunking,
+        refusal=refusal,
+        validated_head_index=validated_head_index,
+        validated_head_doc_hash=validated_head_doc_hash,
+        validated_head_auth_status=validated_head_auth_status,
+        validated_head_root_authority_verified=validated_head_root_authority_verified,
     )
 
 
@@ -445,6 +488,13 @@ class TestExtendInspection(unittest.TestCase):
         )
         self.assertIsNotNone(inspection.chain_id)
         self.assertEqual(inspection.source_summary["file_count"], 1)
+        self.assertEqual(inspection.validated_head_index, 0)
+        self.assertEqual(
+            inspection.validated_head_doc_hash,
+            "2222222222222222222222222222222222222222222222222222222222222222",
+        )
+        self.assertEqual(inspection.validated_head_auth_status, "verified")
+        self.assertEqual(inspection.validated_head_root_authority_verified, True)
         self.assertEqual(
             inspection.signing_authority,
             {"available": True, "satisfied": True, "source": "embedded_seed"},
@@ -531,3 +581,301 @@ class TestExtendInspection(unittest.TestCase):
         self.assertEqual(inspection.signing_authority["satisfied"], False)
         self.assertIsNone(inspection.signing_authority["source"])
         self.assertEqual(inspection.blocking_issues[0]["code"], "ROOT_AUTHORITY_MISMATCH")
+
+    def test_inspect_from_args_uses_shared_recovery_head_refusal_for_degraded_latest_chain(
+        self,
+    ) -> None:
+        manifest, payload = build_manifest_and_payload(
+            (PayloadPart(path="alpha.txt", data=b"alpha", mtime=1),),
+            sealed=False,
+            signing_seed=b"\x33" * 32,
+            created_at=1.0,
+            input_origin="file",
+            input_roots=(),
+        )
+        unlocked_root = RecoveryInspection(
+            **{
+                **_root_inspection(passphrase="secret").__dict__,
+                "unlock": RecoveryUnlockStatus(
+                    mode="passphrase",
+                    passphrase_provided=True,
+                    validated_shard_count=0,
+                    required_shard_threshold=None,
+                    satisfied=True,
+                    resolved_passphrase="secret",
+                    blocking_issues=(),
+                ),
+            }
+        )
+        degraded_refusal = RecoveryHeadTrustRefusal(
+            code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+            message=(
+                "latest recovery head could not be trusted: extension directory 02 is missing "
+                "required payload MAIN carriers: recovery_document"
+            ),
+            details={
+                "stage": "replay",
+                "failure_stage": "discovery",
+                "failure_message": (
+                    "extension directory 02 is missing required payload MAIN carriers: "
+                    "recovery_document"
+                ),
+                "failure_head_index": 2,
+                "failure_head_doc_hash": None,
+                "failure_head_dir_name": "02",
+                "latest_head_index": 2,
+                "latest_head_doc_hash": None,
+                "latest_head_dir_name": "02",
+                "requested_head_index": None,
+                "requested_head_doc_hash": None,
+                "validated_head_index": 0,
+                "validated_head_doc_hash": "22" * 32,
+                "validated_head_auth_status": None,
+                "validated_head_root_authority_verified": None,
+                "explicit_selection": False,
+            },
+        )
+        extension = DiscoveredRecoveryExtension(
+            index=1,
+            dir_name="01",
+            doc_id_hex="de" * 8,
+            doc_hash=b"\xaa" * 32,
+            ciphertext=b"extension-01",
+            auth_frames=(),
+        )
+        chain_inspection = _recovery_chain_inspection(
+            extensions=(extension,),
+            refusal=degraded_refusal,
+            latest_state=None,
+            locked_chunking=None,
+        )
+        chain_inspection = RecoveryChainInspection(
+            inventory=RecoveryExtensionInventory(
+                **{
+                    **chain_inspection.inventory.__dict__,
+                    "latest_head_index": 2,
+                    "latest_head_doc_hash": None,
+                    "latest_head_dir_name": "02",
+                    "failure": RecoveryReplayFailure(
+                        stage="discovery",
+                        message=(
+                            "extension directory 02 is missing required payload MAIN carriers: "
+                            "recovery_document"
+                        ),
+                        head_index=2,
+                        head_dir_name="02",
+                    ),
+                }
+            ),
+            links=chain_inspection.links,
+            latest_state=chain_inspection.latest_state,
+            locked_chunking=chain_inspection.locked_chunking,
+            refusal=chain_inspection.refusal,
+            validated_head_index=chain_inspection.validated_head_index,
+            validated_head_doc_hash=chain_inspection.validated_head_doc_hash,
+            validated_head_auth_status=chain_inspection.validated_head_auth_status,
+            validated_head_root_authority_verified=(
+                chain_inspection.validated_head_root_authority_verified
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "backup-root"
+            root_dir.mkdir()
+            (root_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.planning.discover_validated_extension_directories",
+                    return_value=mock.Mock(
+                        directories=(mock.Mock(index=1, dir_name="01"),),
+                        first_invalid_message=(
+                            "extension directory 02 is missing required payload MAIN carriers: "
+                            "recovery_document"
+                        ),
+                        first_invalid_dir_name="02",
+                    ),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    return_value=unlocked_root,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    return_value=(manifest, payload),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                    return_value=(
+                        LogicalFileState(
+                            path="alpha.txt",
+                            size=5,
+                            sha256=manifest.files[0].sha256,
+                            mtime=1,
+                            data=b"alpha",
+                        ),
+                    ),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning.inspect_recovery_extension_chain",
+                    return_value=chain_inspection,
+                ),
+            ):
+                inspection = inspect_from_args(
+                    ExtendArgs(
+                        root_dir=str(root_dir),
+                        input=[str(root_dir / "alpha.txt")],
+                        passphrase="secret",
+                    )
+                )
+
+        self.assertEqual(inspection.input_kind, "extended_root")
+        self.assertEqual(inspection.discovered_extension_dirs, (1,))
+        self.assertEqual(inspection.validated_head_index, 0)
+        self.assertEqual(inspection.validated_head_doc_hash, "22" * 32)
+        self.assertIsNone(inspection.validated_head_auth_status)
+        self.assertIsNone(inspection.validated_head_root_authority_verified)
+        self.assertEqual(
+            inspection.available_extensions,
+            ({"dir_name": "01", "doc_id": "de" * 8, "doc_hash": "aa" * 32},),
+        )
+        self.assertEqual(inspection.blocking_issues[0]["code"], api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(inspection.blocking_issues[0]["details"], degraded_refusal.details)
+        self.assertEqual(inspection.blocking_issues[0]["details"]["failure_stage"], "discovery")
+        self.assertEqual(inspection.blocking_issues[0]["details"]["validated_head_index"], 0)
+        self.assertNotIn("CHAIN_INVALID", [issue["code"] for issue in inspection.blocking_issues])
+        self.assertNotIn(
+            "EXTENSION_LAYOUT_INVALID",
+            [issue["code"] for issue in inspection.blocking_issues],
+        )
+
+    def test_inspect_from_args_adds_auth_metadata_from_shared_chain_inspection(self) -> None:
+        manifest, payload = build_manifest_and_payload(
+            (PayloadPart(path="alpha.txt", data=b"alpha", mtime=1),),
+            sealed=False,
+            signing_seed=b"\x33" * 32,
+            created_at=1.0,
+            input_origin="file",
+            input_roots=(),
+        )
+        unlocked_root = RecoveryInspection(
+            **{
+                **_root_inspection(passphrase="secret").__dict__,
+                "unlock": RecoveryUnlockStatus(
+                    mode="passphrase",
+                    passphrase_provided=True,
+                    validated_shard_count=0,
+                    required_shard_threshold=None,
+                    satisfied=True,
+                    resolved_passphrase="secret",
+                    blocking_issues=(),
+                ),
+            }
+        )
+        extension = DiscoveredRecoveryExtension(
+            index=1,
+            dir_name="01",
+            doc_id_hex="de" * 8,
+            doc_hash=b"\xaa" * 32,
+            ciphertext=b"extension-01",
+            auth_frames=(),
+        )
+        decoded_link = mock.Mock(
+            auth_status="verified",
+            root_authority_verified=True,
+            link=mock.Mock(doc_hash=b"\xaa" * 32),
+        )
+        decoded_link.link.document.header.index = 1
+        chain_inspection = _recovery_chain_inspection(
+            extensions=(extension,),
+            links=(decoded_link,),
+            latest_state=(
+                LogicalFileState(
+                    path="alpha.txt",
+                    size=5,
+                    sha256=manifest.files[0].sha256,
+                    mtime=1,
+                    data=b"alpha",
+                ),
+            ),
+            validated_head_index=1,
+            validated_head_doc_hash="aa" * 32,
+            validated_head_auth_status="verified",
+            validated_head_root_authority_verified=True,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "backup-root"
+            root_dir.mkdir()
+            (root_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    return_value=unlocked_root,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    return_value=(manifest, payload),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                    return_value=(
+                        LogicalFileState(
+                            path="alpha.txt",
+                            size=5,
+                            sha256=manifest.files[0].sha256,
+                            mtime=1,
+                            data=b"alpha",
+                        ),
+                    ),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning.discover_validated_extension_directories",
+                    return_value=mock.Mock(
+                        directories=(mock.Mock(index=1, dir_name="01"),),
+                        first_invalid_message=None,
+                        first_invalid_dir_name=None,
+                    ),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning._inspect_discovered_extensions",
+                    return_value=(
+                        mock.Mock(
+                            dir_name="01",
+                            doc_id_hex="de" * 8,
+                            doc_hash_hex="aa" * 32,
+                            doc_hash=b"\xaa" * 32,
+                            ciphertext=b"extension-01",
+                            auth_frames=(),
+                        ),
+                    ),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning.inspect_recovery_extension_chain",
+                    return_value=chain_inspection,
+                ),
+            ):
+                inspection = inspect_from_args(
+                    ExtendArgs(
+                        root_dir=str(root_dir),
+                        input=[str(root_dir / "alpha.txt")],
+                        passphrase="secret",
+                    )
+                )
+
+        self.assertEqual(inspection.discovered_extension_dirs, (1,))
+        self.assertEqual(inspection.validated_head_index, 1)
+        self.assertEqual(inspection.validated_head_doc_hash, "aa" * 32)
+        self.assertEqual(inspection.validated_head_auth_status, "verified")
+        self.assertEqual(inspection.validated_head_root_authority_verified, True)
+        self.assertEqual(
+            inspection.available_extensions,
+            (
+                {
+                    "dir_name": "01",
+                    "doc_id": "de" * 8,
+                    "doc_hash": "aa" * 32,
+                    "auth_status": "verified",
+                    "root_authority_verified": True,
+                },
+            ),
+        )

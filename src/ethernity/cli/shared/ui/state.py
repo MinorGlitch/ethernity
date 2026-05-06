@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
+from typing import Literal
 
 from rich.console import Console
 from rich.text import Text
@@ -49,6 +50,9 @@ THEME = Theme(
 )
 
 
+StageDensity = Literal["minimal", "dense"]
+
+
 @dataclass
 class WizardState:
     name: str
@@ -69,6 +73,9 @@ class UIContext:
     stage_prompt_count: int = 0
     current_stage_title: str | None = None
     current_stage_help_text: str | None = None
+    current_stage_density: StageDensity = "minimal"
+    current_substep_title: str | None = None
+    current_substep_help_text: str | None = None
     choice_navigation_hint_seen: bool = False
     last_picker_dir: str = "."
 

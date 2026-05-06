@@ -20,6 +20,8 @@ from pathlib import Path
 from ethernity.cli import run_compact, run_extend
 from ethernity.cli.features.backup.orchestrator import run_backup_command
 from ethernity.cli.features.recover.orchestrator import run_recover_command
+from ethernity.cli.shared import api_codes
+from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import BackupArgs, CompactArgs, ExtendArgs, RecoverArgs
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from tests.test_support import ensure_playwright_browsers, suppress_output, temp_env
@@ -66,13 +68,37 @@ class TestIntegrationExtensions(unittest.TestCase):
                     },
                 )
 
-                first_dir = tmp_path / "recovered-first"
-                self._run_recover(root_dir=root_dir, output_dir=first_dir, extension_index=1)
                 expected_first = {
                     "alpha.txt": b"first-alpha",
                     "gamma.txt": b"gamma-one",
                     "nested/beta.txt": b"root-beta",
                 }
+
+                later_extension_dir = root_dir / "extensions" / "02"
+                (
+                    later_extension_dir
+                    / f"recovery_document-02-{second_extension.doc_id.hex()}.pdf"
+                ).unlink(missing_ok=True)
+
+                degraded_latest_dir = tmp_path / "recovered-latest-degraded"
+                self._assert_recover_head_untrusted(
+                    root_dir=root_dir,
+                    output_dir=degraded_latest_dir,
+                    expected_latest_head_index=2,
+                )
+
+                (source_dir / "alpha.txt").write_text("blocked-third-alpha", encoding="utf-8")
+                blocked_extension_dir = root_dir / "extensions" / "03"
+                self._assert_extend_head_untrusted(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    expected_latest_head_index=2,
+                    expected_validated_head_index=0,
+                    blocked_extension_dir=blocked_extension_dir,
+                )
+
+                first_dir = tmp_path / "recovered-first"
+                self._run_recover(root_dir=root_dir, output_dir=first_dir, extension_index=1)
                 self.assertEqual(self._snapshot_tree(first_dir), expected_first)
 
                 first_hash_dir = tmp_path / "recovered-first-hash"
@@ -83,67 +109,115 @@ class TestIntegrationExtensions(unittest.TestCase):
                 )
                 self.assertEqual(self._snapshot_tree(first_hash_dir), expected_first)
 
-                later_extension_dir = root_dir / "extensions" / "02"
-                (
-                    later_extension_dir
-                    / f"recovery_document-02-{second_extension.doc_id.hex()}.pdf"
-                ).unlink(missing_ok=True)
-                broken_target_dir = tmp_path / "recovered-first-broken-later"
-                self._run_recover(
-                    root_dir=root_dir,
-                    output_dir=broken_target_dir,
-                    extension_index=1,
-                )
-                self.assertEqual(self._snapshot_tree(broken_target_dir), expected_first)
-
-                latest_validated_dir = tmp_path / "recovered-latest-validated"
-                self._run_recover(root_dir=root_dir, output_dir=latest_validated_dir)
-                self.assertEqual(self._snapshot_tree(latest_validated_dir), expected_first)
-
-    def test_compact_preserves_latest_chain_state(self) -> None:
+    def test_compact_preserves_latest_state_and_refuses_degraded_latest_head(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
             source_dir = tmp_path / "source"
             root_dir = tmp_path / "backup-root"
-            compacted_dir = tmp_path / "compacted-root"
+            healthy_compacted_dir = tmp_path / "healthy-compacted-root"
             source_dir.mkdir()
             (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
-            (source_dir / "beta.txt").write_text("root-beta", encoding="utf-8")
+            (source_dir / "nested").mkdir()
+            (source_dir / "nested" / "beta.txt").write_text("root-beta", encoding="utf-8")
+
+            expected_latest_state = {
+                "alpha.txt": b"second-alpha",
+                "gamma.txt": b"gamma-two",
+                "nested/beta.txt": b"root-beta",
+                "nested/delta.txt": b"delta",
+            }
 
             with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
                 self._run_backup(source_dir=source_dir, root_dir=root_dir)
-                (source_dir / "alpha.txt").write_text("updated-alpha", encoding="utf-8")
-                (source_dir / "gamma.txt").write_text("gamma", encoding="utf-8")
-                self._run_extend(source_dir=source_dir, root_dir=root_dir)
-                (source_dir / "alpha.txt").write_text("updated-alpha-2", encoding="utf-8")
-                (source_dir / "delta.txt").write_text("delta", encoding="utf-8")
+
+                (source_dir / "alpha.txt").write_text("first-alpha", encoding="utf-8")
+                (source_dir / "gamma.txt").write_text("gamma-one", encoding="utf-8")
                 self._run_extend(source_dir=source_dir, root_dir=root_dir)
 
-                with suppress_output():
-                    compact_result = run_compact(
-                        CompactArgs(
-                            config=str(DEFAULT_CONFIG_PATH),
-                            root_dir=str(root_dir),
-                            output_dir=str(compacted_dir),
-                            passphrase=TEST_PASSPHRASE,
-                            quiet=True,
-                        )
-                    )
+                (source_dir / "alpha.txt").write_text("second-alpha", encoding="utf-8")
+                (source_dir / "gamma.txt").write_text("gamma-two", encoding="utf-8")
+                (source_dir / "nested" / "delta.txt").write_text("delta", encoding="utf-8")
+                latest_extension = self._run_extend(source_dir=source_dir, root_dir=root_dir)
+
+                healthy_latest_dir = tmp_path / "healthy-latest"
+                self._run_recover(root_dir=root_dir, output_dir=healthy_latest_dir)
+                self.assertEqual(self._snapshot_tree(healthy_latest_dir), expected_latest_state)
+
+                healthy_compact_result = self._run_compact(
+                    root_dir=root_dir,
+                    output_dir=healthy_compacted_dir,
+                )
+
+                self.assertTrue(Path(healthy_compact_result.qr_path).exists())
+                self.assertTrue(Path(healthy_compact_result.recovery_path).exists())
+
+                healthy_compacted_recovered_dir = tmp_path / "healthy-compacted-state"
+                self._run_recover(
+                    root_dir=healthy_compacted_dir,
+                    output_dir=healthy_compacted_recovered_dir,
+                )
+                self.assertEqual(
+                    self._snapshot_tree(healthy_compacted_recovered_dir),
+                    expected_latest_state,
+                )
+
+                degraded_carrier = (
+                    root_dir
+                    / "extensions"
+                    / "02"
+                    / f"recovery_document-02-{latest_extension.doc_id.hex()}.pdf"
+                )
+                self.assertTrue(degraded_carrier.exists())
+                degraded_carrier.unlink()
+
+                degraded_latest_dir = tmp_path / "degraded-latest"
+                self._assert_recover_head_untrusted(
+                    root_dir=root_dir,
+                    output_dir=degraded_latest_dir,
+                    expected_latest_head_index=2,
+                )
+
+                degraded_compacted_dir = tmp_path / "degraded-compacted-root"
+                self._assert_compact_head_untrusted(
+                    root_dir=root_dir,
+                    output_dir=degraded_compacted_dir,
+                    expected_latest_head_index=2,
+                )
+
+    def test_compact_sealed_root_without_auth_inputs_round_trips_through_recover(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "sealed-source"
+            root_dir = tmp_path / "sealed-backup-root"
+            compacted_dir = tmp_path / "sealed-compacted-root"
+            recovered_dir = tmp_path / "sealed-compacted-recovered"
+            source_dir.mkdir()
+            (source_dir / "alpha.txt").write_text("sealed-alpha", encoding="utf-8")
+            (source_dir / "nested").mkdir()
+            (source_dir / "nested" / "beta.txt").write_text("sealed-beta", encoding="utf-8")
+
+            expected_tree = {
+                "alpha.txt": b"sealed-alpha",
+                "nested/beta.txt": b"sealed-beta",
+            }
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(source_dir=source_dir, root_dir=root_dir, sealed=True)
+
+                compact_result = self._run_compact(
+                    root_dir=root_dir,
+                    output_dir=compacted_dir,
+                )
 
                 self.assertTrue(Path(compact_result.qr_path).exists())
                 self.assertTrue(Path(compact_result.recovery_path).exists())
 
-                latest_dir = tmp_path / "latest-state"
-                compacted_recovered_dir = tmp_path / "compacted-state"
-                self._run_recover(root_dir=root_dir, output_dir=latest_dir)
-                self._run_recover(root_dir=compacted_dir, output_dir=compacted_recovered_dir)
+                self._run_recover(root_dir=compacted_dir, output_dir=recovered_dir)
+                self.assertEqual(self._snapshot_tree(recovered_dir), expected_tree)
 
-                self.assertEqual(
-                    self._snapshot_tree(compacted_recovered_dir),
-                    self._snapshot_tree(latest_dir),
-                )
-
-    def _run_backup(self, *, source_dir: Path, root_dir: Path) -> None:
+    def _run_backup(self, *, source_dir: Path, root_dir: Path, sealed: bool = False) -> None:
         with suppress_output():
             exit_code = run_backup_command(
                 BackupArgs(
@@ -152,11 +226,23 @@ class TestIntegrationExtensions(unittest.TestCase):
                     base_dir=str(source_dir),
                     output_dir=str(root_dir),
                     passphrase=TEST_PASSPHRASE,
-                    sealed=False,
+                    sealed=sealed,
                     quiet=True,
                 )
             )
         self.assertEqual(exit_code, 0)
+
+    def _run_compact(self, *, root_dir: Path, output_dir: Path):
+        with suppress_output():
+            return run_compact(
+                CompactArgs(
+                    config=str(DEFAULT_CONFIG_PATH),
+                    root_dir=str(root_dir),
+                    output_dir=str(output_dir),
+                    passphrase=TEST_PASSPHRASE,
+                    quiet=True,
+                )
+            )
 
     def _run_extend(self, *, source_dir: Path, root_dir: Path):
         with suppress_output():
@@ -170,6 +256,38 @@ class TestIntegrationExtensions(unittest.TestCase):
                     quiet=True,
                 )
             )
+
+    def _assert_extend_head_untrusted(
+        self,
+        *,
+        source_dir: Path,
+        root_dir: Path,
+        expected_latest_head_index: int,
+        expected_validated_head_index: int,
+        blocked_extension_dir: Path,
+    ) -> ApiCommandError:
+        with self.assertRaises(ApiCommandError) as ctx:
+            self._run_extend(source_dir=source_dir, root_dir=root_dir)
+
+        exc = ctx.exception
+        self.assertEqual(exc.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(exc.details["stage"], "replay")
+        self.assertEqual(exc.details["failure_stage"], "discovery")
+        self.assertEqual(exc.details["failure_head_index"], expected_latest_head_index)
+        self.assertEqual(exc.details["failure_head_dir_name"], f"{expected_latest_head_index:02d}")
+        self.assertEqual(exc.details["latest_head_index"], expected_latest_head_index)
+        self.assertEqual(exc.details["latest_head_dir_name"], f"{expected_latest_head_index:02d}")
+        self.assertIsNone(exc.details["requested_head_index"])
+        self.assertIsNone(exc.details["requested_head_doc_hash"])
+        self.assertEqual(exc.details["validated_head_index"], expected_validated_head_index)
+        self.assertIsInstance(exc.details["validated_head_doc_hash"], str)
+        self.assertEqual(len(exc.details["validated_head_doc_hash"]), 64)
+        self.assertFalse(exc.details["explicit_selection"])
+        self.assertIn("latest recovery head could not be trusted", str(exc))
+        self.assertIn("missing required payload MAIN carriers", str(exc))
+        self.assertFalse(blocked_extension_dir.exists())
+        self.assertEqual(list((root_dir / "extensions").glob(".staging-*")), [])
+        return exc
 
     def _run_recover(
         self,
@@ -194,6 +312,76 @@ class TestIntegrationExtensions(unittest.TestCase):
                 )
             )
         self.assertEqual(exit_code, 0)
+
+    def _assert_recover_head_untrusted(
+        self,
+        *,
+        root_dir: Path,
+        output_dir: Path,
+        expected_latest_head_index: int,
+    ) -> ApiCommandError:
+        with self.assertRaises(ApiCommandError) as ctx:
+            self._run_recover(root_dir=root_dir, output_dir=output_dir)
+
+        exc = ctx.exception
+        self._assert_head_untrusted_error(
+            exc,
+            output_dir=output_dir,
+            expected_latest_head_index=expected_latest_head_index,
+            expected_message_fragment="latest recovery head could not be trusted",
+            checkpoint_created=None,
+        )
+        return exc
+
+    def _assert_compact_head_untrusted(
+        self,
+        *,
+        root_dir: Path,
+        output_dir: Path,
+        expected_latest_head_index: int,
+    ) -> ApiCommandError:
+        with self.assertRaises(ApiCommandError) as ctx:
+            self._run_compact(root_dir=root_dir, output_dir=output_dir)
+
+        exc = ctx.exception
+        self._assert_head_untrusted_error(
+            exc,
+            output_dir=output_dir,
+            expected_latest_head_index=expected_latest_head_index,
+            expected_message_fragment=(
+                "latest compact head could not be trusted; no checkpoint was created"
+            ),
+            checkpoint_created=False,
+        )
+        return exc
+
+    def _assert_head_untrusted_error(
+        self,
+        exc: ApiCommandError,
+        *,
+        output_dir: Path,
+        expected_latest_head_index: int,
+        expected_message_fragment: str,
+        checkpoint_created: bool | None,
+    ) -> None:
+        self.assertEqual(exc.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(exc.details["stage"], "replay")
+        self.assertEqual(exc.details["failure_stage"], "discovery")
+        self.assertEqual(exc.details["failure_head_index"], expected_latest_head_index)
+        self.assertEqual(exc.details["failure_head_dir_name"], f"{expected_latest_head_index:02d}")
+        self.assertEqual(exc.details["latest_head_index"], expected_latest_head_index)
+        self.assertEqual(exc.details["latest_head_dir_name"], f"{expected_latest_head_index:02d}")
+        self.assertIsNone(exc.details["requested_head_index"])
+        self.assertIsNone(exc.details["requested_head_doc_hash"])
+        self.assertEqual(exc.details["validated_head_index"], 0)
+        self.assertFalse(exc.details["explicit_selection"])
+        self.assertIn(expected_message_fragment, str(exc))
+        self.assertIn("missing required payload MAIN carriers", str(exc))
+        if checkpoint_created is None:
+            self.assertNotIn("checkpoint_created", exc.details)
+        else:
+            self.assertEqual(exc.details["checkpoint_created"], checkpoint_created)
+        self.assertFalse(output_dir.exists())
 
     @staticmethod
     def _snapshot_tree(root: Path) -> dict[str, bytes]:

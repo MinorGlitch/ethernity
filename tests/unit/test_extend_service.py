@@ -83,6 +83,7 @@ def _inspection(
         },
         discovered_extension_dirs=(),
         validated_head_index=0,
+        validated_head_doc_hash="cafebabe",
         available_extensions=(),
         validated_head_auth_status=None,
         validated_head_root_authority_verified=None,
@@ -420,6 +421,54 @@ class TestExtendService(unittest.TestCase):
                 )
         self.assertEqual(ctx.exception.code, "SEALED_ROOT_NOT_EXTENDABLE")
 
+    def test_prepare_extend_run_preserves_recovery_head_untrusted_details(self) -> None:
+        trust_details = {
+            "stage": "replay",
+            "failure_stage": "discovery",
+            "failure_message": "missing required payload MAIN carriers",
+            "failure_head_index": 2,
+            "failure_head_doc_hash": None,
+            "failure_head_dir_name": "02",
+            "latest_head_index": 2,
+            "latest_head_doc_hash": None,
+            "latest_head_dir_name": "02",
+            "requested_head_index": None,
+            "requested_head_doc_hash": None,
+            "validated_head_index": 1,
+            "validated_head_doc_hash": "aa" * 32,
+            "validated_head_auth_status": "verified",
+            "validated_head_root_authority_verified": True,
+            "explicit_selection": False,
+        }
+
+        with mock.patch(
+            "ethernity.cli.features.extend.prepare.resolve_extend_state",
+            return_value=_resolved_state(
+                diff_summary=None,
+                blocking_issues=(
+                    {
+                        "code": "RECOVERY_HEAD_UNTRUSTED",
+                        "message": (
+                            "latest recovery head could not be trusted: "
+                            "missing required payload MAIN carriers"
+                        ),
+                        "details": trust_details,
+                    },
+                ),
+            ),
+        ):
+            with self.assertRaises(ApiCommandError) as ctx:
+                prepare_extend_run(
+                    ExtendArgs(root_dir="/tmp/root", input=["/tmp/root/example.txt"])
+                )
+
+        self.assertEqual(ctx.exception.code, "RECOVERY_HEAD_UNTRUSTED")
+        self.assertEqual(
+            str(ctx.exception),
+            "latest recovery head could not be trusted: missing required payload MAIN carriers",
+        )
+        self.assertEqual(ctx.exception.details, trust_details)
+
     def test_prepare_extend_run_rejects_noop_diffs(self) -> None:
         with mock.patch(
             "ethernity.cli.features.extend.prepare.resolve_extend_state",
@@ -458,6 +507,65 @@ class TestExtendService(unittest.TestCase):
         self.assertEqual(prepared.new_paths, ("new.txt",))
         self.assertEqual(prepared.changed_paths, ("updated.txt",))
         self.assertEqual(prepared.unchanged_paths, ("same.txt",))
+
+    def test_run_extend_fails_closed_before_artifact_creation_on_untrusted_latest_head(
+        self,
+    ) -> None:
+        trust_details = {
+            "stage": "replay",
+            "failure_stage": "discovery",
+            "failure_message": "missing required payload MAIN carriers",
+            "failure_head_index": 2,
+            "failure_head_doc_hash": None,
+            "failure_head_dir_name": "02",
+            "latest_head_index": 2,
+            "latest_head_doc_hash": None,
+            "latest_head_dir_name": "02",
+            "requested_head_index": None,
+            "requested_head_doc_hash": None,
+            "validated_head_index": 1,
+            "validated_head_doc_hash": "aa" * 32,
+            "validated_head_auth_status": "verified",
+            "validated_head_root_authority_verified": True,
+            "explicit_selection": False,
+        }
+
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            existing_head = root_dir / "extensions" / "01"
+            existing_head.mkdir(parents=True)
+            (existing_head / "keep.txt").write_text("keep", encoding="utf-8")
+
+            with mock.patch(
+                "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                return_value=_resolved_state(
+                    diff_summary=None,
+                    blocking_issues=(
+                        {
+                            "code": "RECOVERY_HEAD_UNTRUSTED",
+                            "message": (
+                                "latest recovery head could not be trusted: "
+                                "missing required payload MAIN carriers"
+                            ),
+                            "details": trust_details,
+                        },
+                    ),
+                ),
+            ):
+                with self.assertRaises(ApiCommandError) as ctx:
+                    run_extend(
+                        ExtendArgs(
+                            root_dir=str(root_dir),
+                            input=["/tmp/root/example.txt"],
+                        ),
+                        chunker=lambda data, _profile: (data,),
+                        nonce="abc123",
+                    )
+
+        self.assertEqual(ctx.exception.code, "RECOVERY_HEAD_UNTRUSTED")
+        self.assertEqual(ctx.exception.details, trust_details)
+        self.assertFalse((root_dir / "extensions" / "02").exists())
+        self.assertEqual(list((root_dir / "extensions").glob(".staging-*")), [])
 
     def test_assemble_prepared_extension_document_uses_changed_and_new_paths(self) -> None:
         resolved = _resolved_state(
@@ -1643,6 +1751,104 @@ class TestExtendService(unittest.TestCase):
 
         self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
         self.assertIn("missing auth payload", str(ctx.exception))
+
+    def test_validate_single_main_carrier_does_not_fallback_when_recovery_scan_lacks_auth(
+        self,
+    ) -> None:
+        ciphertext = b"enc:extension"
+        doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+        main_frame = Frame(
+            version=VERSION,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=doc_id,
+            index=0,
+            total=1,
+            data=ciphertext,
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.extend.execution._recovery_frames_from_scan",
+                return_value=[main_frame],
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.execution._validate_fallback_recovery_document"
+            ) as validate_fallback,
+        ):
+            with self.assertRaises(ApiCommandError) as ctx:
+                _validate_single_main_carrier(
+                    path=Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf"),
+                    expected_ciphertext=ciphertext,
+                    expected_doc_id=doc_id,
+                    expected_doc_hash=doc_hash,
+                    expected_sign_pub=b"\x44" * 32,
+                    expected_recovery_fallback_lines=("main-line",),
+                    require_auth=True,
+                    quiet=True,
+                )
+
+        self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
+        self.assertIn("missing auth payload", str(ctx.exception))
+        validate_fallback.assert_not_called()
+
+    def test_validate_single_main_carrier_rejects_mismatched_auth_for_recovery_document_scan(
+        self,
+    ) -> None:
+        ciphertext = b"enc:extension"
+        doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+        main_frame = Frame(
+            version=VERSION,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=doc_id,
+            index=0,
+            total=1,
+            data=ciphertext,
+        )
+        auth_frame = Frame(
+            version=VERSION,
+            frame_type=FrameType.AUTH,
+            doc_id=doc_id,
+            index=0,
+            total=1,
+            data=b"auth",
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.extend.execution._recovery_frames_from_scan",
+                return_value=[main_frame, auth_frame],
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.execution._resolve_auth_payload",
+                return_value=(
+                    AuthPayload(
+                        version=1,
+                        doc_hash=doc_hash,
+                        sign_pub=b"\x99" * 32,
+                        signature=b"\x55" * 64,
+                    ),
+                    "verified",
+                ),
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.execution._validate_fallback_recovery_document"
+            ) as validate_fallback,
+        ):
+            with self.assertRaises(ApiCommandError) as ctx:
+                _validate_single_main_carrier(
+                    path=Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf"),
+                    expected_ciphertext=ciphertext,
+                    expected_doc_id=doc_id,
+                    expected_doc_hash=doc_hash,
+                    expected_sign_pub=b"\x44" * 32,
+                    expected_recovery_fallback_lines=("main-line",),
+                    require_auth=True,
+                    quiet=True,
+                )
+
+        self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
+        self.assertIn("root-derived signing authority", str(ctx.exception))
+        validate_fallback.assert_not_called()
 
     def test_validate_single_main_carrier_uses_fallback_when_recovery_scan_has_no_qr(
         self,

@@ -79,6 +79,9 @@ class TestContextState(unittest.TestCase):
         self.assertEqual(context.stage_prompt_count, 0)
         self.assertIsNone(context.current_stage_title)
         self.assertIsNone(context.current_stage_help_text)
+        self.assertEqual(context.current_stage_density, "minimal")
+        self.assertIsNone(context.current_substep_title)
+        self.assertIsNone(context.current_substep_help_text)
         self.assertFalse(context.choice_navigation_hint_seen)
         self.assertEqual(context.last_picker_dir, ".")
         self.assertIsNotNone(context.console)
@@ -207,6 +210,9 @@ class TestUIHelpers(unittest.TestCase):
         previous_compact = context.compact_prompt_headers
         context.current_stage_title = "Previous"
         context.current_stage_help_text = "hint"
+        context.current_stage_density = "dense"
+        context.current_substep_title = "Choose source"
+        context.current_substep_help_text = "Substep hint"
         context.choice_navigation_hint_seen = True
         context.stage_prompt_count = 4
         with ui_module.ui_screen_mode(quiet=False, context=context):
@@ -215,12 +221,18 @@ class TestUIHelpers(unittest.TestCase):
             self.assertEqual(context.stage_prompt_count, 0)
             self.assertIsNone(context.current_stage_title)
             self.assertIsNone(context.current_stage_help_text)
+            self.assertEqual(context.current_stage_density, "minimal")
+            self.assertIsNone(context.current_substep_title)
+            self.assertIsNone(context.current_substep_help_text)
             self.assertFalse(context.choice_navigation_hint_seen)
         self.assertEqual(context.screen_mode, previous)
         self.assertEqual(context.compact_prompt_headers, previous_compact)
         self.assertEqual(context.stage_prompt_count, 4)
         self.assertEqual(context.current_stage_title, "Previous")
         self.assertEqual(context.current_stage_help_text, "hint")
+        self.assertEqual(context.current_stage_density, "dense")
+        self.assertEqual(context.current_substep_title, "Choose source")
+        self.assertEqual(context.current_substep_help_text, "Substep hint")
         self.assertTrue(context.choice_navigation_hint_seen)
         clear_screen.assert_called_once_with(context=context)
 
@@ -235,6 +247,9 @@ class TestUIHelpers(unittest.TestCase):
         context.stage_prompt_count = 2
         context.current_stage_title = "Previous"
         context.current_stage_help_text = "hint"
+        context.current_stage_density = "dense"
+        context.current_substep_title = "Choose source"
+        context.current_substep_help_text = "Substep hint"
         context.choice_navigation_hint_seen = True
         with ui_module.ui_screen_mode(quiet=True, context=context):
             self.assertFalse(context.screen_mode)
@@ -242,11 +257,17 @@ class TestUIHelpers(unittest.TestCase):
             self.assertEqual(context.stage_prompt_count, 0)
             self.assertIsNone(context.current_stage_title)
             self.assertIsNone(context.current_stage_help_text)
+            self.assertEqual(context.current_stage_density, "minimal")
+            self.assertIsNone(context.current_substep_title)
+            self.assertIsNone(context.current_substep_help_text)
             self.assertFalse(context.choice_navigation_hint_seen)
         self.assertFalse(context.compact_prompt_headers)
         self.assertEqual(context.stage_prompt_count, 2)
         self.assertEqual(context.current_stage_title, "Previous")
         self.assertEqual(context.current_stage_help_text, "hint")
+        self.assertEqual(context.current_stage_density, "dense")
+        self.assertEqual(context.current_substep_title, "Choose source")
+        self.assertEqual(context.current_substep_help_text, "Substep hint")
         self.assertTrue(context.choice_navigation_hint_seen)
         clear_screen.assert_not_called()
 
@@ -264,20 +285,36 @@ class TestUIHelpers(unittest.TestCase):
         with ui_module.wizard_stage("Input", help_text="Collect frames", context=context):
             self.assertEqual(context.current_stage_title, "Input")
             self.assertEqual(context.current_stage_help_text, "Collect frames")
+            self.assertEqual(context.current_stage_density, "minimal")
         self.assertEqual(context.wizard_state.step, 1)
         self.assertEqual(context.stage_prompt_count, 0)
         self.assertIsNone(context.current_stage_title)
         self.assertIsNone(context.current_stage_help_text)
+        self.assertEqual(context.current_stage_density, "minimal")
         clear_screen.assert_not_called()
 
-        with ui_module.wizard_stage("Keys", context=context):
+        with ui_module.wizard_stage("Keys", density="dense", context=context):
             self.assertEqual(context.current_stage_title, "Keys")
             self.assertIsNone(context.current_stage_help_text)
+            self.assertEqual(context.current_stage_density, "dense")
         self.assertEqual(context.wizard_state.step, 2)
         self.assertIsNone(context.current_stage_title)
         self.assertIsNone(context.current_stage_help_text)
+        self.assertEqual(context.current_stage_density, "minimal")
         clear_screen.assert_called_once_with(context=context)
         self.assertGreaterEqual(context.console.print.call_count, 3)
+
+    def test_wizard_substep_restores_previous_state(self) -> None:
+        context = self._context()
+        context.current_substep_title = "Previous"
+        context.current_substep_help_text = "hint"
+
+        with ui_module.wizard_substep("Choose source", help_text="Pick one", context=context):
+            self.assertEqual(context.current_substep_title, "Choose source")
+            self.assertEqual(context.current_substep_help_text, "Pick one")
+
+        self.assertEqual(context.current_substep_title, "Previous")
+        self.assertEqual(context.current_substep_help_text, "hint")
 
     def test_progress_quiet_returns_none(self) -> None:
         with ui_module.progress(quiet=True) as prog:

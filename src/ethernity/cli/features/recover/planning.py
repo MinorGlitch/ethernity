@@ -26,6 +26,10 @@ from ethernity.cli.features.recover.chain import (
     detect_recovery_root_dir,
     validated_root_recovery_scan_paths,
 )
+from ethernity.cli.features.recover.input_collection import (
+    RECOVERY_QR_TEXT_LABEL,
+    RECOVERY_SCAN_LABEL,
+)
 from ethernity.cli.features.recover.key_recovery import (
     InsufficientShardError,
     _passphrase_from_shard_frames,
@@ -255,9 +259,9 @@ def inspect_recovery_inputs(
 
     if not frames:
         hint = "Check the input path and try again."
-        if input_label == "Scan":
+        if input_label == RECOVERY_SCAN_LABEL:
             hint = "Check the scan path and image quality, then try again."
-        raise ValueError(f"no payloads found. {hint}")
+        raise ValueError(f"no backup data found. {hint}")
 
     deduped = _dedupe_frames(frames)
     main_frames, auth_frames = _split_main_and_auth_frames(deduped)
@@ -328,9 +332,9 @@ def build_recovery_plan(
 
     if not frames:
         hint = "Check the input path and try again."
-        if input_label == "Scan":
+        if input_label == RECOVERY_SCAN_LABEL:
             hint = "Check the scan path and image quality, then try again."
-        raise ValueError(f"no payloads found. {hint}")
+        raise ValueError(f"no backup data found. {hint}")
 
     deduped = _dedupe_frames(frames)
     main_frames, auth_frames = _split_main_and_auth_frames(deduped)
@@ -719,7 +723,7 @@ def _frames_from_args(
                 ) from exc
             raise ValueError(format_fallback_error(exc, context="Recovery text")) from exc
     elif payloads_file:
-        input_label = "QR payloads"
+        input_label = RECOVERY_QR_TEXT_LABEL
         input_detail = payloads_file
         try:
             frames = _frames_from_payloads(payloads_file)
@@ -739,7 +743,7 @@ def _frames_from_args(
             input_detail = str(root_dir.resolve())
             scan = validated_root_recovery_scan_paths(root_dir)
         else:
-            input_label = "Scan"
+            input_label = RECOVERY_SCAN_LABEL
             input_detail = ", ".join(scan)
         try:
             frames = _recovery_frames_from_scan(scan, quiet=quiet)
@@ -797,7 +801,7 @@ def _shard_frames_from_args(
             raise ValueError(format_fallback_error(exc, context="Shard recovery text")) from exc
     for path in shard_payloads_file:
         try:
-            shard_frames.extend(_frames_from_payloads(path, label="shard QR payloads"))
+            shard_frames.extend(_frames_from_payloads(path, label="shard text lines"))
         except ValueError as exc:
             raise ValueError(format_shard_input_error(exc)) from exc
     if shard_scan:
@@ -808,5 +812,5 @@ def _shard_frames_from_args(
     if (
         args.shard_frames or shard_fallback_files or shard_payloads_file or shard_scan
     ) and not shard_frames:
-        raise ValueError("no shard payloads found; check shard inputs and try again")
+        raise ValueError("no shard text lines found; check shard inputs and try again")
     return shard_frames, shard_fallback_files, shard_payloads_file, shard_scan

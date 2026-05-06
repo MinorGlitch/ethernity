@@ -28,6 +28,8 @@ from ethernity.cli.features.recover.execution import (
     write_recovered_outputs,
 )
 from ethernity.cli.features.recover.input_collection import (
+    RECOVERY_QR_TEXT_LABEL,
+    RECOVERY_SCAN_LABEL,
     collect_fallback_frames,
     collect_payload_frames,
     prompt_recovery_input_interactive,
@@ -68,6 +70,7 @@ from ethernity.cli.shared.ui_api import (
     ui_screen_mode,
     wizard_flow,
     wizard_stage,
+    wizard_substep,
 )
 from ethernity.encoding.framing import Frame
 
@@ -103,7 +106,7 @@ def _prompt_recovery_input(
             except ValueError as exc:
                 raise ValueError(format_fallback_error(exc, context="Recovery text")) from exc
     elif args.payloads_file:
-        input_label = "QR payloads"
+        input_label = RECOVERY_QR_TEXT_LABEL
         input_detail = args.payloads_file
         if args.payloads_file == "-" and sys.stdin.isatty():
             input_detail = "stdin"
@@ -112,13 +115,13 @@ def _prompt_recovery_input(
                 quiet=quiet,
             )
         else:
-            with status("Reading QR payloads...", quiet=quiet):
+            with status("Reading backup text lines...", quiet=quiet):
                 frames = _frames_from_payloads(
                     args.payloads_file,
                     label="frame",
                 )
     elif args.scan:
-        input_label = "Scan"
+        input_label = RECOVERY_SCAN_LABEL
         input_detail = ", ".join(args.scan)
         with status("Scanning QR images...", quiet=quiet):
             frames = _recovery_frames_from_scan(args.scan, quiet=quiet)
@@ -127,7 +130,7 @@ def _prompt_recovery_input(
             allow_unsigned=allow_unsigned,
             quiet=quiet,
         )
-        if input_label in {"Scan", "Backup root directory"} and input_detail:
+        if input_label in {RECOVERY_SCAN_LABEL, "Backup root directory"} and input_detail:
             args.scan = [input_detail]
 
     return frames or [], input_label, input_detail
@@ -159,7 +162,7 @@ def _build_recovery_review_rows(
     args: RecoverArgs,
 ) -> list[tuple[str, str | None]]:
     """Build the recovery review table rows."""
-    key_method = "shard documents" if plan.shard_frames else "passphrase"
+    key_method = "printed shard documents" if plan.shard_frames else "passphrase"
     auth_label = format_auth_status(plan.auth_status, allow_unsigned=plan.allow_unsigned)
 
     review_rows: list[tuple[str, str | None]] = []
@@ -169,9 +172,9 @@ def _build_recovery_review_rows(
             f"{plan.input_label}: {plan.input_detail}" if plan.input_detail else plan.input_label
         )
         review_rows.append(("Input source", detail))
-    review_rows.append(("Main QR payloads", str(len(plan.main_frames))))
+    review_rows.append(("Backup text lines", str(len(plan.main_frames))))
     auth_frames_label = str(len(plan.auth_frames)) if plan.auth_frames else "none"
-    review_rows.append(("Auth QR payloads", auth_frames_label))
+    review_rows.append(("Verification text lines", auth_frames_label))
     review_rows.append(("Keys", None))
     review_rows.append(("Auth verification", auth_label))
     review_rows.append(("Unlock method", key_method))
@@ -181,12 +184,12 @@ def _build_recovery_review_rows(
         if plan.shard_fallback_files:
             shard_sources.append(f"{len(plan.shard_fallback_files)} fallback file(s)")
         if plan.shard_payloads_file:
-            shard_sources.append(f"{len(plan.shard_payloads_file)} payload file(s)")
+            shard_sources.append(f"{len(plan.shard_payloads_file)} text file(s)")
         if plan.shard_scan:
             shard_sources.append(f"{len(plan.shard_scan)} scan path(s)")
         shard_label = ", ".join(shard_sources) if shard_sources else "provided"
         review_rows.append(
-            ("Recovery shards", f"{len(plan.shard_frames)} payload(s), {shard_label}")
+            ("Printed shard documents", f"{len(plan.shard_frames)} shard(s), {shard_label}")
         )
 
     if plan.allow_unsigned:
@@ -216,7 +219,7 @@ def _prompt_recovery_retry_stage(exc: Exception) -> str:
     recommended = _recommended_retry_stage(exc)
     choices = {
         "input": "Edit recovery input",
-        "keys": "Edit unlock material",
+        "keys": "Edit unlock information",
         "cancel": "Cancel recovery",
     }
     return prompt_choice(
@@ -272,7 +275,7 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
 
             while stage_index < 4:
                 if stage_index == 0:
-                    with wizard_stage("Input", step_number=1):
+                    with wizard_stage("Input", step_number=1, density="dense"):
                         frames, input_label, input_detail = _prompt_recovery_input(
                             working_args, allow_unsigned, quiet
                         )
@@ -280,7 +283,7 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                     continue
 
                 if stage_index == 1:
-                    with wizard_stage("Keys", step_number=2):
+                    with wizard_stage("Keys", step_number=2, density="dense"):
                         (
                             passphrase,
                             shard_fallback_files,
@@ -389,23 +392,26 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                     stage_index += 1
                     continue
 
-                with wizard_stage("Output", step_number=4):
+                with wizard_stage("Output", step_number=4, density="dense"):
                     plan = cast(Any, plan)
                     manifest = cast(Any, manifest)
-                    output_path = _resolve_recover_output(
-                        extracted,
-                        working_args.output,
-                        interactive=True,
-                        doc_id=plan.doc_id,
-                        input_origin=manifest.input_origin,
-                        input_roots=manifest.input_roots,
-                    )
+                    with wizard_substep("Choose output"):
+                        output_path = _resolve_recover_output(
+                            extracted,
+                            working_args.output,
+                            interactive=True,
+                            doc_id=plan.doc_id,
+                            input_origin=manifest.input_origin,
+                            input_roots=manifest.input_roots,
+                        )
                     working_args.output = output_path
-                    if not assume_yes and not prompt_yes_no(
-                        "Write recovered files",
-                        default=True,
-                        help_text="Select no to stop here without writing files.",
-                    ):
+                    with wizard_substep("Confirm"):
+                        should_write = assume_yes or prompt_yes_no(
+                            "Write recovered files",
+                            default=True,
+                            help_text="Select no to stop here without writing files.",
+                        )
+                    if not should_write:
                         console.print("Recovery cancelled.")
                         return 1
                 break
@@ -477,7 +483,7 @@ def _load_shard_frames(
                     ) from exc
             for path in shard_payloads_file:
                 try:
-                    shard_frames.extend(_frames_from_payloads(path, label="shard QR payloads"))
+                    shard_frames.extend(_frames_from_payloads(path, label="shard text lines"))
                 except ValueError as exc:
                     raise ValueError(format_shard_input_error(exc)) from exc
             if shard_scan:
@@ -488,8 +494,8 @@ def _load_shard_frames(
     if not shard_frames:
         raise ValueError(
             "No valid shard data found in provided files.\n"
-            "  - Check that files contain shard recovery text or QR payloads\n"
-            "  - PDFs/images are scanned for shard QR payloads automatically\n"
+            "  - Check that files contain shard recovery text or shard text lines\n"
+            "  - PDFs/images are scanned for shard text lines automatically\n"
             "  - Ensure each shard file has valid content"
         )
     return shard_frames

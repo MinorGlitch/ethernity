@@ -64,6 +64,12 @@ class TestDocumentInspectorAppSupport(unittest.TestCase):
             export_name="passphrase.txt",
             export_text="secret",
         )
+        trust_diagnostic = models.TrustDiagnostic(
+            status="refused",
+            code="RECOVERY_HEAD_UNTRUSTED",
+            message="latest recovery head could not be trusted: test fixture",
+            details={"failure_stage": "decode"},
+        )
         inspection = models.InspectionResult(
             source_label="clipboard",
             input_mode="payloads",
@@ -80,6 +86,7 @@ class TestDocumentInspectorAppSupport(unittest.TestCase):
             frame_records=(frame_record,),
             files=(file_record,),
             recovered_secrets=(secret_record,),
+            trust_diagnostic=trust_diagnostic,
             report_json="{}",
         )
         batch_entry = models.BatchReportEntry(
@@ -95,6 +102,7 @@ class TestDocumentInspectorAppSupport(unittest.TestCase):
         self.assertEqual(inspection.frame_records[0].frame, frame)
         self.assertEqual(inspection.files[0].data, b"hello")
         self.assertEqual(inspection.recovered_secrets[0].label, "passphrase")
+        self.assertEqual(inspection.trust_diagnostic.code, "RECOVERY_HEAD_UNTRUSTED")
         self.assertEqual(batch_entry.source_path, "/tmp/input.txt")
 
     def test_detect_system_theme_name_uses_gtk_theme_hint(self) -> None:

@@ -31,6 +31,30 @@ from ethernity.cli.shared.ui import (
 from ethernity.core.models import DocumentPlan
 
 
+def _recover_target_rows(
+    *,
+    requested_extension_index: int | None,
+    requested_extension_doc_hash: str | None,
+    selected_extension_index: int | None,
+    selected_extension_doc_hash: str | None,
+) -> list[tuple[str, str]]:
+    if requested_extension_index is None and requested_extension_doc_hash is None:
+        return []
+    if requested_extension_index == 0:
+        return [("Replay target", "explicit selection: root backup (extension 0)")]
+
+    rows: list[tuple[str, str]] = []
+    if selected_extension_index is not None:
+        rows.append(("Replay target", f"explicit selection: extension {selected_extension_index}"))
+    else:
+        rows.append(("Replay target", "explicit selection"))
+
+    target_doc_hash = selected_extension_doc_hash or requested_extension_doc_hash
+    if target_doc_hash is not None:
+        rows.append(("Target doc hash", target_doc_hash))
+    return rows
+
+
 def print_backup_summary(
     result: BackupResult,
     plan: DocumentPlan,
@@ -63,6 +87,10 @@ def print_recover_summary(
     auth_status: str | None,
     quiet: bool,
     single_entry_output_is_directory: bool = False,
+    requested_extension_index: int | None = None,
+    requested_extension_doc_hash: str | None = None,
+    selected_extension_index: int | None = None,
+    selected_extension_doc_hash: str | None = None,
 ) -> None:
     if quiet:
         return
@@ -75,6 +103,14 @@ def print_recover_summary(
         rows.append(("Output", "stdout"))
     if auth_status:
         rows.append(("Auth verification", auth_status))
+    rows.extend(
+        _recover_target_rows(
+            requested_extension_index=requested_extension_index,
+            requested_extension_doc_hash=requested_extension_doc_hash,
+            selected_extension_index=selected_extension_index,
+            selected_extension_doc_hash=selected_extension_doc_hash,
+        )
+    )
     console_err.print(panel("Recovery summary", build_kv_table(rows)))
     tree = build_recovered_tree(
         entries,

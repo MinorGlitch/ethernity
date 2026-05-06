@@ -84,13 +84,29 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
         prompt_words.assert_not_called()
 
     def test_prompt_recovery_options_branches(self) -> None:
+        with mock.patch.object(backup, "prompt_choice", return_value="recommended"):
+            sealed, debug, mode, sharding, signing_seed_sharding = backup._prompt_recovery_options(
+                BackupArgs(),
+                debug_override=None,
+                quiet=True,
+            )
+        self.assertFalse(sealed)
+        self.assertFalse(debug)
+        self.assertEqual(mode, SigningSeedMode.EMBEDDED)
+        self.assertEqual(sharding, ShardingConfig(threshold=2, shares=3))
+        self.assertIsNone(signing_seed_sharding)
+
         no_shard_args = BackupArgs(sealed=True)
-        with mock.patch.object(backup, "resolve_passphrase_sharding", return_value=None):
+        with (
+            mock.patch.object(backup, "resolve_passphrase_sharding", return_value=None),
+            mock.patch.object(backup, "prompt_choice") as recovery_setup_choice,
+        ):
             sealed, debug, mode, sharding, signing_seed_sharding = backup._prompt_recovery_options(
                 no_shard_args,
                 debug_override=True,
                 quiet=True,
             )
+        recovery_setup_choice.assert_not_called()
         self.assertTrue(sealed)
         self.assertTrue(debug)
         self.assertEqual(mode, SigningSeedMode.EMBEDDED)
@@ -100,6 +116,7 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
         sharding = ShardingConfig(threshold=2, shares=3)
         sharded_args = BackupArgs(sealed=False)
         with (
+            mock.patch.object(backup, "prompt_choice", return_value="custom"),
             mock.patch.object(backup, "resolve_passphrase_sharding", return_value=sharding),
             mock.patch.object(backup, "prompt_yes_no", side_effect=[True, False]),
             mock.patch.object(

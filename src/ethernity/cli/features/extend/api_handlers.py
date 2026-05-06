@@ -291,6 +291,7 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
             unlock=inspection.unlock,
             discovered_extension_dirs=list(inspection.discovered_extension_dirs),
             validated_head_index=inspection.validated_head_index,
+            validated_head_doc_hash=inspection.validated_head_doc_hash,
             available_extensions=list(inspection.available_extensions),
             ancestry_valid=inspection.ancestry_valid,
             validated_head_auth_status=inspection.validated_head_auth_status,
