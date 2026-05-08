@@ -262,6 +262,13 @@ def _snapshot_values_from_loaded(
         },
         "page": {"size": config.paper_size},
         "qr": {"error": config.qr_config.error, "chunk_size": config.qr_chunk_size},
+        "extension": {
+            "chunking": {
+                "target_size": config.extension_chunking.target_size,
+                "min_size": config.extension_chunking.min_size,
+                "max_size": config.extension_chunking.max_size,
+            },
+        },
         "defaults": {
             "backup": {
                 "base_dir": cli_defaults.backup.base_dir,
@@ -291,6 +298,8 @@ def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
     templates = cast(dict[str, object], values["templates"])
     page = cast(dict[str, object], values["page"])
     qr = cast(dict[str, object], values["qr"])
+    extension = cast(dict[str, object], values["extension"])
+    extension_chunking = cast(dict[str, object], extension["chunking"])
     defaults = cast(dict[str, object], values["defaults"])
     backup = cast(dict[str, object], defaults["backup"])
     recover = cast(dict[str, object], defaults["recover"])
@@ -310,6 +319,7 @@ def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
 
     page_table = _raw_table(raw, "page")
     qr_table = _raw_table(raw, "qr")
+    extension_chunking_table = _raw_table(_raw_table(raw, "extension"), "chunking")
     backup_table = _raw_table(_raw_table(raw, "defaults"), "backup")
     recover_table = _raw_table(_raw_table(raw, "defaults"), "recover")
     ui_table = _raw_table(raw, "ui")
@@ -322,6 +332,18 @@ def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
     )
     qr["chunk_size"] = _coerce_optional_positive_int(
         qr_table.get("chunk_size"), fallback=qr["chunk_size"]
+    )
+    extension_chunking["target_size"] = _coerce_optional_positive_int(
+        extension_chunking_table.get("target_size"),
+        fallback=extension_chunking["target_size"],
+    )
+    extension_chunking["min_size"] = _coerce_optional_positive_int(
+        extension_chunking_table.get("min_size"),
+        fallback=extension_chunking["min_size"],
+    )
+    extension_chunking["max_size"] = _coerce_optional_positive_int(
+        extension_chunking_table.get("max_size"),
+        fallback=extension_chunking["max_size"],
     )
 
     backup["base_dir"] = _coerce_optional_string(
@@ -489,6 +511,8 @@ def _validate_config_values(values: dict[str, object]) -> dict[str, object]:
     templates = _expect_section(values, "templates")
     page = _expect_section(values, "page")
     qr = _expect_section(values, "qr")
+    extension = _expect_section(values, "extension")
+    extension_chunking = _expect_section(extension, "chunking", prefix="extension")
     defaults = _expect_section(values, "defaults")
     backup = _expect_section(defaults, "backup", prefix="defaults")
     recover = _expect_section(defaults, "recover", prefix="defaults")
@@ -521,6 +545,24 @@ def _validate_config_values(values: dict[str, object]) -> dict[str, object]:
     page_size = _validate_enum(page.get("size"), field="values.page.size", allowed=_PAGE_SIZES)
     qr_error = _validate_enum(qr.get("error"), field="values.qr.error", allowed=_QR_ERROR_LEVELS)
     qr_chunk_size = _validate_positive_int(qr.get("chunk_size"), field="values.qr.chunk_size")
+    chunking_target_size = _validate_positive_int(
+        extension_chunking.get("target_size"),
+        field="values.extension.chunking.target_size",
+    )
+    chunking_min_size = _validate_positive_int(
+        extension_chunking.get("min_size"),
+        field="values.extension.chunking.min_size",
+    )
+    chunking_max_size = _validate_positive_int(
+        extension_chunking.get("max_size"),
+        field="values.extension.chunking.max_size",
+    )
+    if not chunking_min_size <= chunking_target_size <= chunking_max_size:
+        raise ConfigPatchError(
+            code="CONFIG_CONFLICT",
+            message=("extension.chunking sizes must satisfy min_size <= target_size <= max_size"),
+            details={"field": "values.extension.chunking"},
+        )
 
     shard_threshold = _validate_optional_count(
         backup.get("shard_threshold"),
@@ -618,6 +660,13 @@ def _validate_config_values(values: dict[str, object]) -> dict[str, object]:
         "qr": {
             "error": qr_error,
             "chunk_size": qr_chunk_size,
+        },
+        "extension": {
+            "chunking": {
+                "target_size": chunking_target_size,
+                "min_size": chunking_min_size,
+                "max_size": chunking_max_size,
+            },
         },
         "defaults": {
             "backup": {
@@ -822,6 +871,8 @@ def _apply_values_to_text(original: str, values: dict[str, object]) -> str:
     templates = cast(dict[str, object], values["templates"])
     page = cast(dict[str, object], values["page"])
     qr = cast(dict[str, object], values["qr"])
+    extension = cast(dict[str, object], values["extension"])
+    extension_chunking = cast(dict[str, object], extension["chunking"])
     defaults = cast(dict[str, object], values["defaults"])
     backup = cast(dict[str, object], defaults["backup"])
     recover = cast(dict[str, object], defaults["recover"])
@@ -881,6 +932,24 @@ def _apply_values_to_text(original: str, values: dict[str, object]) -> str:
         table="qr",
         key="chunk_size",
         value=str(cast(int, qr["chunk_size"])),
+    )
+    updated = _upsert_table_key(
+        updated,
+        table="extension.chunking",
+        key="target_size",
+        value=str(cast(int, extension_chunking["target_size"])),
+    )
+    updated = _upsert_table_key(
+        updated,
+        table="extension.chunking",
+        key="min_size",
+        value=str(cast(int, extension_chunking["min_size"])),
+    )
+    updated = _upsert_table_key(
+        updated,
+        table="extension.chunking",
+        key="max_size",
+        value=str(cast(int, extension_chunking["max_size"])),
     )
 
     updated = _upsert_table_key(

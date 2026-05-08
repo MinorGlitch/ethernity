@@ -42,7 +42,74 @@ def _profile() -> ExtensionChunkingProfile:
     )
 
 
+def _text_profile() -> ExtensionChunkingProfile:
+    return ExtensionChunkingProfile(
+        algorithm_id=CHUNK_ALGORITHM_FASTCDC,
+        target_size=16 * 1024,
+        min_size=4 * 1024,
+        max_size=64 * 1024,
+    )
+
+
+def _chunk_offsets_and_hashes(chunks: tuple[bytes, ...]) -> tuple[list[int], list[str]]:
+    offsets: list[int] = []
+    offset = 0
+    for chunk in chunks:
+        offset += len(chunk)
+        offsets.append(offset)
+    hashes = [hashlib.sha256(chunk).hexdigest() for chunk in chunks]
+    return offsets, hashes
+
+
 class TestExtensionBuild(unittest.TestCase):
+    def test_default_extension_chunker_matches_algorithm_1_conformance_vectors(self) -> None:
+        profile = _text_profile()
+        vectors = (
+            (b"", [], []),
+            (
+                bytes(range(256)) * 512,
+                [65536, 131072],
+                [
+                    "7daca2095d0438260fa849183dfc67faa459fdf4936e1bc91eec6b281b27e4c2",
+                    "7daca2095d0438260fa849183dfc67faa459fdf4936e1bc91eec6b281b27e4c2",
+                ],
+            ),
+            (
+                b"".join(
+                    hashlib.sha256(index.to_bytes(4, "big")).digest() for index in range(4096)
+                ),
+                [18096, 26931, 43917, 62046, 73496, 93396, 110690, 125496, 130017, 131072],
+                [
+                    "2ee1e2166281185f001965a7c45631c880b8732f3f48a3f23d61805da105dda8",
+                    "eb1e03f0bac68f0171871be76601ab5e8ff1cd0b6ebe65fec952d4008d49d8ba",
+                    "715518ae12c7f500032a27dd79d7605f65e3b407ee2fe4b069f6deb8234ad476",
+                    "878633ff4a700041ebd6d4d852aed0215f6710cf6991d4f321a3b2fd2b2be830",
+                    "782c360b17d0e7cf76562843a8a199572c79e424f914ec72a79b35c2a5953480",
+                    "da2fa8816f90d81e80df05a7728bc46329dc0d77ea994cf91a21d4a4ae7d5fb1",
+                    "67b130801247f8d07cd21510e6bc3f37bb5b6a382b68ce9d622e464585647b38",
+                    "e8b033381f576d7d299a60c4fde4a718d3ebe2d15f6a914d2e5d5188108cc701",
+                    "eb32376d8f8546f442fac429456036034c22a9cee10c70fd39c3f575abe5696e",
+                    "dfd9fa02180e25f17871e98fd975ba8145952dc3e48f01b28ba4f1f8bee17df5",
+                ],
+            ),
+            (
+                ("alpha beta gamma delta\n" * 4096).encode("utf-8"),
+                [65536, 94208],
+                [
+                    "bfa07175ee95b43642ae3fbcad382d7ecf5dd7fad2d496933ad68e7f14f803af",
+                    "d4ffdf00862a1b920325b2fabc25e8621cbb7ce8171803702285b078fd0259c2",
+                ],
+            ),
+        )
+
+        for data, expected_offsets, expected_hashes in vectors:
+            with self.subTest(size=len(data), chunks=len(expected_offsets)):
+                chunks = default_extension_chunker(data, profile)
+                offsets, hashes = _chunk_offsets_and_hashes(chunks)
+
+                self.assertEqual(offsets, expected_offsets)
+                self.assertEqual(hashes, expected_hashes)
+
     def test_default_extension_chunker_is_deterministic_and_honors_bounds(self) -> None:
         profile = _profile()
         data = bytes(range(256)) * 2048

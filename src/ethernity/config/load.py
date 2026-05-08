@@ -37,6 +37,7 @@ from ethernity.config.types import (
     BackupDefaults,
     CliDefaults,
     DebugDefaults,
+    ExtensionChunkingDefaults,
     RecoverDefaults,
     RuntimeDefaults,
     UiDefaults,
@@ -96,6 +97,9 @@ def load_app_config(path: str | Path | None = None, *, paper_size: str | None = 
     qr_chunk_size = DEFAULT_CHUNK_SIZE if qr_chunk_size_value is None else qr_chunk_size_value
     if qr_chunk_size <= 0:
         raise ValueError("qr.chunk_size must be a positive integer")
+    extension_chunking = _parse_extension_chunking_defaults(
+        _get_nested_dict(data, "extension", "chunking")
+    )
     return AppConfig(
         template_path=template_path,
         recovery_template_path=recovery_path,
@@ -105,6 +109,7 @@ def load_app_config(path: str | Path | None = None, *, paper_size: str | None = 
         paper_size=resolved_paper_size,
         qr_config=qr_config,
         qr_chunk_size=qr_chunk_size,
+        extension_chunking=extension_chunking,
         cli_defaults=cli_defaults,
     )
 
@@ -247,6 +252,29 @@ def _parse_runtime_defaults(cfg: dict[str, object]) -> RuntimeDefaults:
             field="runtime.render_jobs",
         ),
     )
+
+
+def _parse_extension_chunking_defaults(cfg: dict[str, object]) -> ExtensionChunkingDefaults:
+    target_size = _parse_optional_int(cfg.get("target_size"))
+    min_size = _parse_optional_int(cfg.get("min_size"))
+    max_size = _parse_optional_int(cfg.get("max_size"))
+    defaults = ExtensionChunkingDefaults()
+    chunking = ExtensionChunkingDefaults(
+        target_size=defaults.target_size if target_size is None else target_size,
+        min_size=defaults.min_size if min_size is None else min_size,
+        max_size=defaults.max_size if max_size is None else max_size,
+    )
+    if chunking.target_size <= 0:
+        raise ValueError("extension.chunking.target_size must be a positive integer")
+    if chunking.min_size <= 0:
+        raise ValueError("extension.chunking.min_size must be a positive integer")
+    if chunking.max_size <= 0:
+        raise ValueError("extension.chunking.max_size must be a positive integer")
+    if not chunking.min_size <= chunking.target_size <= chunking.max_size:
+        raise ValueError(
+            "extension.chunking sizes must satisfy min_size <= target_size <= max_size"
+        )
+    return chunking
 
 
 def _resolve_default_template_design_path(cfg: dict[str, object]) -> Path | None:

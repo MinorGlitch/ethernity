@@ -21,24 +21,34 @@ from __future__ import annotations
 from pathlib import Path
 
 from ethernity.cli.features.backup import execution as backup_execution
-from ethernity.cli.features.recover.key_recovery import _validated_shard_payloads_from_frames
+from ethernity.cli.features.recover.key_recovery import (
+    InsufficientShardError,
+    _validated_shard_payloads_from_frames,
+)
 from ethernity.cli.shared.io.frames import _shard_frames_from_scan
 from ethernity.cli.shared.ndjson import ApiCommandError
-from ethernity.config import apply_template_design, load_app_config
+from ethernity.cli.shared.types import ExtendArgs
+from ethernity.config import BackupDefaults, apply_template_design, load_app_config
 from ethernity.crypto import sharding as sharding_module
 from ethernity.crypto.signing import derive_public_key
-from ethernity.extensions.staging import ExtensionPublishPolicy
 
 from .models import (
     EXTENSION_INVALID_POLICY,
+    ExtensionPassphraseShards,
+    ExtensionSigningKeyShards,
     InheritedRootPublishPolicy,
+    PassphraseStoragePolicy,
+    PlaintextPassphrase,
     PreparedExtendRun,
+    ResolvedExtendPolicy,
     ResolvedExtendRuntime,
+    ReuseRootPassphraseShards,
+    SigningKeyNotStored,
+    SigningKeyStoragePolicy,
 )
 
 
-def resolve_unlock_policy(prepared: PreparedExtendRun) -> str:
-    policy = prepared.args.unlock_policy
+def resolve_unlock_policy(policy: str | None) -> str:
     if policy is None:
         return "self-contained"
     if policy not in {"self-contained", "reuse-root"}:
@@ -49,17 +59,17 @@ def resolve_unlock_policy(prepared: PreparedExtendRun) -> str:
     return policy
 
 
-def require_policy_only_shard_defaults(prepared: PreparedExtendRun) -> None:
+def reject_reuse_root_shard_overrides(args: ExtendArgs) -> None:
     conflicting_options: list[str] = []
-    if prepared.args.shard_threshold is not None:
+    if args.shard_threshold is not None:
         conflicting_options.append("--shard-threshold")
-    if prepared.args.shard_count is not None:
+    if args.shard_count is not None:
         conflicting_options.append("--shard-count")
-    if prepared.args.signing_key_mode is not None:
+    if args.signing_key_mode is not None:
         conflicting_options.append("--signing-key-mode")
-    if prepared.args.signing_key_shard_threshold is not None:
+    if args.signing_key_shard_threshold is not None:
         conflicting_options.append("--signing-key-shard-threshold")
-    if prepared.args.signing_key_shard_count is not None:
+    if args.signing_key_shard_count is not None:
         conflicting_options.append("--signing-key-shard-count")
     if conflicting_options:
         raise ApiCommandError(
@@ -69,6 +79,99 @@ def require_policy_only_shard_defaults(prepared: PreparedExtendRun) -> None:
                 + ", ".join(conflicting_options)
             ),
         )
+
+
+def resolve_extend_policy(
+    *,
+    args: ExtendArgs,
+    defaults: BackupDefaults,
+    inherited: InheritedRootPublishPolicy,
+    require_recovery_kit_index: bool,
+) -> ResolvedExtendPolicy:
+    unlock_policy = resolve_unlock_policy(args.unlock_policy)
+    if unlock_policy == "reuse-root":
+        reject_reuse_root_shard_overrides(args)
+        if inherited.passphrase_shard_threshold is None or inherited.passphrase_shard_count <= 0:
+            raise ApiCommandError(
+                code=EXTENSION_INVALID_POLICY,
+                message=(
+                    "unlock_policy=reuse-root requires passphrase shard PDFs on the root backup"
+                ),
+            )
+        return ResolvedExtendPolicy(
+            require_recovery_kit_index=require_recovery_kit_index,
+            passphrase=ReuseRootPassphraseShards(
+                threshold=inherited.passphrase_shard_threshold,
+                share_count=inherited.passphrase_shard_count,
+            ),
+            signing_key=SigningKeyNotStored(),
+        )
+
+    passphrase_shard_threshold, passphrase_shard_count = resolve_quorum_override(
+        label="passphrase shards",
+        requested_threshold=(
+            args.shard_threshold if args.shard_threshold is not None else defaults.shard_threshold
+        ),
+        requested_count=args.shard_count if args.shard_count is not None else defaults.shard_count,
+        inherited_threshold=inherited.passphrase_shard_threshold,
+        inherited_count=inherited.passphrase_shard_count,
+    )
+
+    signing_key_mode = (
+        args.signing_key_mode
+        or defaults.signing_key_mode
+        or ("sharded" if inherited.signing_key_shard_count else "embedded")
+    )
+    signing_key_policy: SigningKeyStoragePolicy
+    if signing_key_mode == "embedded":
+        signing_key_policy = SigningKeyNotStored()
+    else:
+        if passphrase_shard_count <= 0:
+            raise ApiCommandError(
+                code=EXTENSION_INVALID_POLICY,
+                message="signing-key shard PDFs require passphrase shard PDFs",
+            )
+        signing_key_shard_threshold, signing_key_shard_count = resolve_quorum_override(
+            label="signing-key shards",
+            requested_threshold=(
+                args.signing_key_shard_threshold
+                if args.signing_key_shard_threshold is not None
+                else defaults.signing_key_shard_threshold
+            ),
+            requested_count=(
+                args.signing_key_shard_count
+                if args.signing_key_shard_count is not None
+                else defaults.signing_key_shard_count
+            ),
+            inherited_threshold=inherited.signing_key_shard_threshold,
+            inherited_count=inherited.signing_key_shard_count,
+        )
+        if signing_key_shard_count <= 0:
+            raise ApiCommandError(
+                code=EXTENSION_INVALID_POLICY,
+                message="signing-key-mode=sharded requires at least one signing-key shard PDF",
+            )
+        assert signing_key_shard_threshold is not None
+        signing_key_policy = ExtensionSigningKeyShards(
+            threshold=signing_key_shard_threshold,
+            share_count=signing_key_shard_count,
+        )
+
+    passphrase_policy: PassphraseStoragePolicy
+    if passphrase_shard_count > 0:
+        assert passphrase_shard_threshold is not None
+        passphrase_policy = ExtensionPassphraseShards(
+            threshold=passphrase_shard_threshold,
+            share_count=passphrase_shard_count,
+        )
+    else:
+        passphrase_policy = PlaintextPassphrase()
+
+    return ResolvedExtendPolicy(
+        require_recovery_kit_index=require_recovery_kit_index,
+        passphrase=passphrase_policy,
+        signing_key=signing_key_policy,
+    )
 
 
 def resolve_extend_runtime(
@@ -81,95 +184,23 @@ def resolve_extend_runtime(
         prepared.args.design,
     )
     sign_pub = derive_public_key(prepared.signing_seed)
+    unlock_policy = resolve_unlock_policy(prepared.args.unlock_policy)
     inherited = infer_root_publish_policy(
         root_dir=prepared.args.root_dir,
         root_doc_id_hex=prepared.inspection.root_doc_id,
         root_doc_hash=prepared.root_doc_hash,
         sign_pub=sign_pub,
         quiet=prepared.args.quiet,
+        require_quorum=unlock_policy == "reuse-root",
     )
-    unlock_policy = resolve_unlock_policy(prepared)
-    if unlock_policy == "reuse-root":
-        require_policy_only_shard_defaults(prepared)
-        if inherited.passphrase_shard_threshold is None or inherited.passphrase_shard_count <= 0:
-            raise ApiCommandError(
-                code=EXTENSION_INVALID_POLICY,
-                message=(
-                    "unlock_policy=reuse-root requires passphrase shard PDFs on the root backup"
-                ),
-            )
-        require_recovery_kit_index = inherited.require_recovery_kit_index
-        kit_index_template_path = backup_execution._resolve_kit_index_template_path(config)
-        if require_recovery_kit_index and kit_index_template_path is None:
-            raise ApiCommandError(
-                code=EXTENSION_INVALID_POLICY,
-                message="active design cannot render an inherited recovery_kit_index document",
-            )
-        qr_chunk_size = resolve_qr_chunk_size(
-            requested=prepared.args.qr_chunk_size,
-            default=config.qr_chunk_size,
-        )
-        return ResolvedExtendRuntime(
-            config=config,
-            qr_chunk_size=qr_chunk_size,
-            qr_payload_codec=config.cli_defaults.backup.qr_payload_codec,
-            layout_debug_dir=backup_execution._resolve_layout_debug_dir(
-                prepared.args.layout_debug_dir
-            ),
-            publish_policy=ExtensionPublishPolicy(
-                require_recovery_kit_index=require_recovery_kit_index,
-                passphrase_shard_count=0,
-                signing_key_shard_count=0,
-            ),
-            passphrase_shard_threshold=None,
-            recovery_quorum_threshold=inherited.passphrase_shard_threshold,
-            recovery_quorum_shares=inherited.passphrase_shard_count,
-            signing_key_shard_threshold=None,
-            sign_pub=sign_pub,
-            kit_index_template_path=kit_index_template_path,
-            reuse_root_unlock=True,
-        )
-
-    passphrase_shard_threshold, passphrase_shard_count = resolve_quorum_override(
-        label="passphrase shards",
-        requested_threshold=prepared.args.shard_threshold,
-        requested_count=prepared.args.shard_count,
-        inherited_threshold=inherited.passphrase_shard_threshold,
-        inherited_count=inherited.passphrase_shard_count,
-    )
-
-    signing_key_mode = prepared.args.signing_key_mode or (
-        "sharded" if inherited.signing_key_shard_count else "embedded"
-    )
-    if signing_key_mode == "embedded":
-        signing_key_shard_threshold = None
-        signing_key_shard_count = 0
-    else:
-        if passphrase_shard_count <= 0:
-            raise ApiCommandError(
-                code=EXTENSION_INVALID_POLICY,
-                message="signing-key shard PDFs require passphrase shard PDFs",
-            )
-        signing_key_shard_threshold, signing_key_shard_count = resolve_quorum_override(
-            label="signing-key shards",
-            requested_threshold=prepared.args.signing_key_shard_threshold,
-            requested_count=prepared.args.signing_key_shard_count,
-            inherited_threshold=inherited.signing_key_shard_threshold,
-            inherited_count=inherited.signing_key_shard_count,
-        )
-        if signing_key_shard_count <= 0:
-            raise ApiCommandError(
-                code=EXTENSION_INVALID_POLICY,
-                message="signing-key-mode=sharded requires at least one signing-key shard PDF",
-            )
-
-    require_recovery_kit_index = inherited.require_recovery_kit_index
     kit_index_template_path = backup_execution._resolve_kit_index_template_path(config)
-    if require_recovery_kit_index and kit_index_template_path is None:
-        raise ApiCommandError(
-            code=EXTENSION_INVALID_POLICY,
-            message="active design cannot render an inherited recovery_kit_index document",
-        )
+    require_recovery_kit_index = kit_index_template_path is not None
+    policy = resolve_extend_policy(
+        args=prepared.args,
+        defaults=config.cli_defaults.backup,
+        inherited=inherited,
+        require_recovery_kit_index=require_recovery_kit_index,
+    )
 
     qr_chunk_size = resolve_qr_chunk_size(
         requested=prepared.args.qr_chunk_size,
@@ -181,18 +212,10 @@ def resolve_extend_runtime(
         qr_chunk_size=qr_chunk_size,
         qr_payload_codec=config.cli_defaults.backup.qr_payload_codec,
         layout_debug_dir=backup_execution._resolve_layout_debug_dir(prepared.args.layout_debug_dir),
-        publish_policy=ExtensionPublishPolicy(
-            require_recovery_kit_index=require_recovery_kit_index,
-            passphrase_shard_count=passphrase_shard_count,
-            signing_key_shard_count=signing_key_shard_count,
-        ),
-        passphrase_shard_threshold=passphrase_shard_threshold,
-        recovery_quorum_threshold=passphrase_shard_threshold,
-        recovery_quorum_shares=passphrase_shard_count or None,
-        signing_key_shard_threshold=signing_key_shard_threshold,
+        passphrase=policy.passphrase,
+        signing_key=policy.signing_key,
         sign_pub=sign_pub,
         kit_index_template_path=kit_index_template_path,
-        reuse_root_unlock=False,
     )
 
 
@@ -249,6 +272,7 @@ def infer_root_publish_policy(
     root_doc_hash: bytes,
     sign_pub: bytes | None,
     allow_unsigned: bool = False,
+    require_quorum: bool = True,
     quiet: bool,
 ) -> InheritedRootPublishPolicy:
     if not root_dir:
@@ -275,6 +299,7 @@ def infer_root_publish_policy(
         expected_doc_hash=root_doc_hash,
         sign_pub=sign_pub,
         allow_unsigned=allow_unsigned,
+        require_quorum=require_quorum,
         quiet=quiet,
         key_type=sharding_module.KEY_TYPE_PASSPHRASE,
         secret_label="passphrase",
@@ -285,12 +310,12 @@ def infer_root_publish_policy(
         expected_doc_hash=root_doc_hash,
         sign_pub=sign_pub,
         allow_unsigned=allow_unsigned,
+        require_quorum=require_quorum,
         quiet=quiet,
         key_type=sharding_module.KEY_TYPE_SIGNING_SEED,
         secret_label="signing key",
     )
     return InheritedRootPublishPolicy(
-        require_recovery_kit_index=(root_path / "recovery_kit_index.pdf").is_file(),
         passphrase_shard_threshold=passphrase_threshold,
         passphrase_shard_count=passphrase_count,
         signing_key_shard_threshold=signing_key_threshold,
@@ -305,6 +330,7 @@ def infer_root_quorum(
     expected_doc_hash: bytes,
     sign_pub: bytes | None,
     allow_unsigned: bool,
+    require_quorum: bool = True,
     quiet: bool,
     key_type: str,
     secret_label: str,
@@ -312,14 +338,25 @@ def infer_root_quorum(
     if not paths:
         return None, 0
     frames = _shard_frames_from_scan([str(path) for path in paths], quiet=quiet)
-    shares = _validated_shard_payloads_from_frames(
-        frames,
-        expected_doc_id=expected_doc_id,
-        expected_doc_hash=expected_doc_hash,
-        expected_sign_pub=sign_pub,
-        allow_unsigned=allow_unsigned,
-        key_type=key_type,
-        secret_label=secret_label,
-    )
+    try:
+        shares = _validated_shard_payloads_from_frames(
+            frames,
+            expected_doc_id=expected_doc_id,
+            expected_doc_hash=expected_doc_hash,
+            expected_sign_pub=sign_pub,
+            allow_unsigned=allow_unsigned,
+            key_type=key_type,
+            secret_label=secret_label,
+        )
+    except InsufficientShardError as exc:
+        if not require_quorum and exc.share_count is not None:
+            return exc.threshold, exc.share_count
+        raise ApiCommandError(
+            code=EXTENSION_INVALID_POLICY,
+            message=(
+                f"root {secret_label} shards are under quorum; "
+                f"need at least {exc.threshold}, found {exc.provided_count}"
+            ),
+        ) from exc
     first = shares[0]
     return first.threshold, first.share_count

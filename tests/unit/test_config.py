@@ -78,6 +78,9 @@ light = [4, 5, 6, 7]
         self.assertEqual(config.qr_config.light, (4, 5, 6, 7))
         self.assertFalse(config.qr_config.boost_error)
         self.assertEqual(config.qr_chunk_size, DEFAULT_CHUNK_SIZE)
+        self.assertEqual(config.extension_chunking.target_size, 16 * 1024)
+        self.assertEqual(config.extension_chunking.min_size, 4 * 1024)
+        self.assertEqual(config.extension_chunking.max_size, 64 * 1024)
 
     def test_load_app_config_with_defaults(self) -> None:
         """Test loading config with minimal content uses defaults."""
@@ -163,6 +166,35 @@ chunk_size = 0
             path = Path(tmpdir) / "config.toml"
             path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             with self.assertRaises(ValueError):
+                load_app_config(path=path)
+
+    def test_load_app_config_parses_extension_chunking(self) -> None:
+        toml = """
+[extension.chunking]
+target_size = 16384
+min_size = 4096
+max_size = 65536
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
+            config = load_app_config(path=path)
+
+        self.assertEqual(config.extension_chunking.target_size, 16384)
+        self.assertEqual(config.extension_chunking.min_size, 4096)
+        self.assertEqual(config.extension_chunking.max_size, 65536)
+
+    def test_load_app_config_rejects_invalid_extension_chunking_order(self) -> None:
+        toml = """
+[extension.chunking]
+target_size = 4096
+min_size = 16384
+max_size = 65536
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "min_size <= target_size <= max_size"):
                 load_app_config(path=path)
 
     def test_load_app_config_ignores_payload_encoding_key(self) -> None:

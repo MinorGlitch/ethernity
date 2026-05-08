@@ -793,9 +793,8 @@ class TestMintFlow(unittest.TestCase):
 
     @mock.patch(
         "ethernity.cli.features.mint.workflow.prompt_recovery_input_interactive",
-        return_value=([], "Backup root directory", "/tmp/root"),
+        return_value=([], "Backup PDF or images", "/tmp/root"),
     )
-    @mock.patch("ethernity.cli.features.mint.workflow.detect_recovery_root_dir")
     @mock.patch("ethernity.cli.features.mint.workflow._prompt_key_material")
     @mock.patch(
         "ethernity.cli.features.mint.workflow.apply_template_design",
@@ -828,11 +827,9 @@ class TestMintFlow(unittest.TestCase):
         _load_app_config: mock.MagicMock,
         _apply_template_design: mock.MagicMock,
         prompt_key_material: mock.MagicMock,
-        detect_recovery_root_dir: mock.MagicMock,
         _prompt_recovery_input_interactive: mock.MagicMock,
     ) -> None:
         prompt_key_material.return_value = ("passphrase", [], None, [])
-        detect_recovery_root_dir.return_value = Path("/tmp/root")
 
         with (
             mock.patch(
@@ -881,7 +878,7 @@ class TestMintFlow(unittest.TestCase):
             result = mint_flow.run_mint_wizard(MintArgs(quiet=True), debug=False, show_header=False)
 
         self.assertEqual(result, 0)
-        self.assertEqual(build_recovery_plan.call_args.kwargs["root_dir"], "/tmp/root")
+        self.assertIsNone(build_recovery_plan.call_args.kwargs["root_dir"])
 
     @mock.patch(
         "ethernity.cli.features.mint.workflow.prompt_recovery_input_interactive",

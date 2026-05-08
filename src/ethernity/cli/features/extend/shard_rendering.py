@@ -27,7 +27,12 @@ from ethernity.render.doc_types import DOC_TYPE_KIT_INDEX, DOC_TYPE_SIGNING_KEY_
 from ethernity.render.service import RenderService
 from ethernity.render.types import RenderInputs, RenderLineage
 
-from .models import PreparedExtensionPublishPlan, ResolvedExtendRuntime
+from .models import (
+    ExtensionPassphraseShards,
+    ExtensionSigningKeyShards,
+    PreparedExtensionPublishPlan,
+    ResolvedExtendRuntime,
+)
 
 
 def build_passphrase_shards(
@@ -35,18 +40,12 @@ def build_passphrase_shards(
     *,
     runtime: ResolvedExtendRuntime,
 ) -> list[sharding_module.ShardPayload]:
-    if runtime.publish_policy.passphrase_shard_count <= 0:
+    if not isinstance(runtime.passphrase, ExtensionPassphraseShards):
         return []
-    threshold = runtime.passphrase_shard_threshold
-    if threshold is None:
-        raise ApiCommandError(
-            code="RUNTIME_ERROR",
-            message="passphrase shard threshold was not resolved",
-        )
     return sharding_module.split_passphrase(
         plan.prepared.encryption_passphrase,
-        threshold=threshold,
-        shares=runtime.publish_policy.passphrase_shard_count,
+        threshold=runtime.passphrase.threshold,
+        shares=runtime.passphrase.share_count,
         doc_hash=plan.encrypted.doc_hash,
         sign_priv=plan.prepared.signing_seed,
         sign_pub=runtime.sign_pub,
@@ -58,18 +57,12 @@ def build_signing_key_shards(
     *,
     runtime: ResolvedExtendRuntime,
 ) -> list[sharding_module.ShardPayload]:
-    if runtime.publish_policy.signing_key_shard_count <= 0:
+    if not isinstance(runtime.signing_key, ExtensionSigningKeyShards):
         return []
-    threshold = runtime.signing_key_shard_threshold
-    if threshold is None:
-        raise ApiCommandError(
-            code="RUNTIME_ERROR",
-            message="signing-key shard threshold was not resolved",
-        )
     return sharding_module.split_signing_seed(
         plan.prepared.signing_seed,
-        threshold=threshold,
-        shares=runtime.publish_policy.signing_key_shard_count,
+        threshold=runtime.signing_key.threshold,
+        shares=runtime.signing_key.share_count,
         doc_hash=plan.encrypted.doc_hash,
         sign_priv=plan.prepared.signing_seed,
         sign_pub=runtime.sign_pub,
@@ -97,14 +90,18 @@ def build_kit_index_inputs(
             code="RUNTIME_ERROR",
             message="recovery_kit_index output was planned without a compatible template",
         )
-    context = render_service.base_context(
+    inventory_rows = [
         {
-            "inventory_rows": build_kit_index_inventory_rows(
-                shard_payloads=list(passphrase_shards),
-                signing_key_shard_payloads=list(signing_key_shards),
-            )
-        }
-    )
+            "component_id": f"Extension {plan.prepared.next_index:02d}",
+            "detail": f"Document ID {plan.encrypted.doc_id.hex()}",
+            "status": "Generated",
+        },
+        *build_kit_index_inventory_rows(
+            shard_payloads=list(passphrase_shards),
+            signing_key_shard_payloads=list(signing_key_shards),
+        ),
+    ]
+    context = render_service.base_context({"inventory_rows": inventory_rows})
     return render_service.kit_inputs(
         qr_frames,
         output_path,

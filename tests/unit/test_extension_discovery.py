@@ -204,6 +204,18 @@ class TestExtensionDiscovery(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "shard carrier doc_id does not match MAIN"):
                 discover_extension_directories(tmpdir)
 
+    def test_rejects_duplicate_shard_share_index_with_different_share_count(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            extensions_dir = Path(tmpdir) / "extensions"
+            (extensions_dir / "01").mkdir(parents=True)
+            self._write(extensions_dir / "01" / "qr_document-01-deadbeefcafebabe.pdf")
+            self._write(extensions_dir / "01" / "recovery_document-01-deadbeefcafebabe.pdf")
+            self._write(extensions_dir / "01" / "shard-01-deadbeefcafebabe-1-of-2.pdf")
+            self._write(extensions_dir / "01" / "shard-01-deadbeefcafebabe-1-of-3.pdf")
+
+            with self.assertRaisesRegex(ValueError, "duplicate shard carrier shard 1-of-3"):
+                discover_extension_directories(tmpdir)
+
     def test_rejects_duplicate_main_doc_type(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             extensions_dir = Path(tmpdir) / "extensions"

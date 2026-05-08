@@ -19,9 +19,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable
 
+from ethernity.cli.shared.io.frames import _shard_frames_from_scan
 from ethernity.cli.shared.ndjson import ApiCommandError
+from ethernity.crypto import sharding as sharding_module
+from ethernity.crypto.signing import verify_shard
 
 from .models import (
     EXTENSION_SHARD_CARRIER_INVALID,
@@ -33,11 +35,9 @@ from .models import (
 def validate_staged_shard_carriers(
     plan: PreparedExtensionPublishPlan,
     rendered: RenderedExtensionArtifacts,
-    *,
-    validate_rendered_shard_carrier_fn: Callable[..., None],
 ) -> None:
     for path, expected in zip(plan.artifacts.shard_paths, rendered.passphrase_shards, strict=True):
-        validate_rendered_shard_carrier_fn(
+        validate_rendered_shard_carrier(
             path=path,
             expected_payload=expected,
             expected_doc_id=plan.encrypted.doc_id,
@@ -50,7 +50,7 @@ def validate_staged_shard_carriers(
         rendered.signing_key_shards,
         strict=True,
     ):
-        validate_rendered_shard_carrier_fn(
+        validate_rendered_shard_carrier(
             path=path,
             expected_payload=expected,
             expected_doc_id=plan.encrypted.doc_id,
@@ -63,16 +63,13 @@ def validate_staged_shard_carriers(
 def validate_rendered_shard_carrier(
     *,
     path: Path,
-    expected_payload: Any,
+    expected_payload: sharding_module.ShardPayload,
     expected_doc_id: bytes,
     expected_doc_hash: bytes,
     quiet: bool,
     secret_label: str,
-    shard_frames_from_scan: Callable[..., list[Any]],
-    decode_shard_payload: Callable[[bytes], Any],
-    verify_shard_fn: Callable[..., bool],
 ) -> None:
-    frames = shard_frames_from_scan([str(path)], quiet=quiet)
+    frames = _shard_frames_from_scan([str(path)], quiet=quiet)
     if len(frames) != 1:
         raise ApiCommandError(
             code=EXTENSION_SHARD_CARRIER_INVALID,
@@ -94,7 +91,7 @@ def validate_rendered_shard_carrier(
             details={"path": str(path)},
         )
 
-    payload = decode_shard_payload(frame.data)
+    payload = sharding_module.decode_shard_payload(frame.data)
     if payload != expected_payload:
         raise ApiCommandError(
             code=EXTENSION_SHARD_CARRIER_INVALID,
@@ -107,7 +104,7 @@ def validate_rendered_shard_carrier(
             message=f"rendered {secret_label} doc_hash does not match the extension ciphertext",
             details={"path": str(path)},
         )
-    if not verify_shard_fn(
+    if not verify_shard(
         payload.doc_hash,
         shard_version=payload.version,
         key_type=payload.key_type,

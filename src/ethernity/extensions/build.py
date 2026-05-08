@@ -327,9 +327,7 @@ def _next_chunk_boundary(
             window[window_pos] = byte_value
             window_pos = (window_pos + 1) % _ROLLING_WINDOW_SIZE
             fingerprint = (
-                _rotate_left(fingerprint, 1)
-                ^ _rotate_left(_GEAR_TABLE[outgoing], _ROLLING_WINDOW_SIZE)
-                ^ _GEAR_TABLE[byte_value]
+                _rotate_left(fingerprint, 1) ^ _GEAR_TABLE[outgoing] ^ _GEAR_TABLE[byte_value]
             ) & _ROLLING_HASH_MASK
         if index + 1 < min_end:
             continue

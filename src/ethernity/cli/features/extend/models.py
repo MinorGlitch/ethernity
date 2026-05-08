@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, TypeAlias
 
 from ethernity.cli.features.extend.planning import ExtendInspection
 from ethernity.cli.features.extend.scope import SelectedExtendScope
@@ -87,7 +87,6 @@ class RenderedExtensionArtifacts:
 
     passphrase_shards: tuple[sharding_module.ShardPayload, ...]
     signing_key_shards: tuple[sharding_module.ShardPayload, ...]
-    expected_recovery_fallback_lines: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -116,6 +115,69 @@ class ExecutedExtendRun:
 
 
 @dataclass(frozen=True)
+class PlaintextPassphrase:
+    """Extension recovery document carries the plaintext passphrase."""
+
+
+@dataclass(frozen=True)
+class ExtensionPassphraseShards:
+    """Extension-local passphrase shards unlock this extension."""
+
+    threshold: int
+    share_count: int
+
+
+@dataclass(frozen=True)
+class ReuseRootPassphraseShards:
+    """Root passphrase shards unlock this extension."""
+
+    threshold: int
+    share_count: int
+
+
+PassphraseStoragePolicy: TypeAlias = (
+    PlaintextPassphrase | ExtensionPassphraseShards | ReuseRootPassphraseShards
+)
+
+
+@dataclass(frozen=True)
+class SigningKeyNotStored:
+    """Extension signing private key is not stored in extension artifacts."""
+
+
+@dataclass(frozen=True)
+class ExtensionSigningKeyShards:
+    """Extension-local signing-key shards store signing-key recovery material."""
+
+    threshold: int
+    share_count: int
+
+
+SigningKeyStoragePolicy: TypeAlias = SigningKeyNotStored | ExtensionSigningKeyShards
+
+
+def publish_policy_from_storage(
+    *,
+    require_recovery_kit_index: bool,
+    passphrase: PassphraseStoragePolicy,
+    signing_key: SigningKeyStoragePolicy,
+) -> ExtensionPublishPolicy:
+    """Convert resolved storage policy into the staging artifact contract."""
+
+    passphrase_shard_count = (
+        passphrase.share_count if isinstance(passphrase, ExtensionPassphraseShards) else 0
+    )
+    signing_key_shard_count = (
+        signing_key.share_count if isinstance(signing_key, ExtensionSigningKeyShards) else 0
+    )
+    return ExtensionPublishPolicy(
+        require_recovery_kit_index=require_recovery_kit_index,
+        passphrase_shard_count=passphrase_shard_count,
+        signing_key_shard_count=signing_key_shard_count,
+    )
+
+
+@dataclass(frozen=True)
 class ResolvedExtendRuntime:
     """Resolved render and publish settings for an extension execution."""
 
@@ -123,29 +185,50 @@ class ResolvedExtendRuntime:
     qr_chunk_size: int
     qr_payload_codec: QrPayloadCodec
     layout_debug_dir: str | None
-    publish_policy: ExtensionPublishPolicy
-    passphrase_shard_threshold: int | None
-    recovery_quorum_threshold: int | None
-    recovery_quorum_shares: int | None
-    signing_key_shard_threshold: int | None
+    passphrase: PassphraseStoragePolicy
+    signing_key: SigningKeyStoragePolicy
     sign_pub: bytes
     kit_index_template_path: Path | None
-    reuse_root_unlock: bool
+
+    def to_publish_policy(self) -> ExtensionPublishPolicy:
+        return publish_policy_from_storage(
+            require_recovery_kit_index=self.kit_index_template_path is not None,
+            passphrase=self.passphrase,
+            signing_key=self.signing_key,
+        )
+
+
+@dataclass(frozen=True)
+class ResolvedExtendPolicy:
+    """Resolved extension shard and unlock policy."""
+
+    require_recovery_kit_index: bool
+    passphrase: PassphraseStoragePolicy
+    signing_key: SigningKeyStoragePolicy
+
+    def to_publish_policy(self) -> ExtensionPublishPolicy:
+        return publish_policy_from_storage(
+            require_recovery_kit_index=self.require_recovery_kit_index,
+            passphrase=self.passphrase,
+            signing_key=self.signing_key,
+        )
 
 
 @dataclass(frozen=True)
 class InheritedRootPublishPolicy:
     """Publish-policy details inferred from the writable root backup directory."""
 
-    require_recovery_kit_index: bool
     passphrase_shard_threshold: int | None
     passphrase_shard_count: int
     signing_key_shard_threshold: int | None
     signing_key_shard_count: int
 
 
-ExtensionArtifactRenderer = Callable[[PreparedExtensionPublishPlan], object | None]
-ExtensionArtifactPostValidator = Callable[[PreparedExtensionPublishPlan, object | None], None]
+ExtensionArtifactRenderer = Callable[[PreparedExtensionPublishPlan], RenderedExtensionArtifacts]
+ExtensionArtifactPostValidator = Callable[
+    [PreparedExtensionPublishPlan, RenderedExtensionArtifacts],
+    None,
+]
 
 
 __all__ = [
@@ -156,12 +239,21 @@ __all__ = [
     "EXTENSION_MAIN_CARRIER_INVALID",
     "EXTENSION_NO_CHANGES",
     "EXTENSION_SHARD_CARRIER_INVALID",
+    "ExtensionPassphraseShards",
+    "ExtensionSigningKeyShards",
     "ExtensionArtifactPostValidator",
     "ExtensionArtifactRenderer",
     "InheritedRootPublishPolicy",
+    "PassphraseStoragePolicy",
+    "PlaintextPassphrase",
     "PreparedExtensionPublishPlan",
     "PreparedExtendRun",
     "PublishedExtensionResult",
     "RenderedExtensionArtifacts",
+    "ResolvedExtendPolicy",
     "ResolvedExtendRuntime",
+    "ReuseRootPassphraseShards",
+    "SigningKeyNotStored",
+    "SigningKeyStoragePolicy",
+    "publish_policy_from_storage",
 ]

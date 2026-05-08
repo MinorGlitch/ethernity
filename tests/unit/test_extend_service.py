@@ -20,12 +20,18 @@ from unittest import mock
 
 from fpdf import FPDF
 
-from ethernity.cli.features.extend.execution import (
-    _validate_rendered_shard_carrier,
-    _validate_single_main_carrier,
-    _validate_staged_recovery_kit_index_document,
+from ethernity.cli.features.extend.main_carrier_validation import (
+    validate_single_main_carrier as _validate_single_main_carrier,
+    validate_staged_recovery_kit_index_document as _validate_staged_recovery_kit_index_document,
+)
+from ethernity.cli.features.extend.models import (
+    ExtensionPassphraseShards,
+    ExtensionSigningKeyShards,
+    InheritedRootPublishPolicy,
+    ReuseRootPassphraseShards,
 )
 from ethernity.cli.features.extend.planning import ExtendInspection, ResolvedExtendState
+from ethernity.cli.features.extend.runtime import resolve_extend_policy
 from ethernity.cli.features.extend.scope import SelectedExtendScope
 from ethernity.cli.features.extend.service import (
     EXTENSION_INPUT_REQUIRED,
@@ -41,14 +47,15 @@ from ethernity.cli.features.extend.service import (
     resolve_extend_runtime,
     run_extend,
 )
-from ethernity.cli.features.extend.validation import (
-    extract_pdf_fallback_lines as _extract_pdf_fallback_lines,
-    validate_pdf_fallback_main_section as _validate_pdf_fallback_main_section,
+from ethernity.cli.features.extend.shard_validation import (
+    validate_rendered_shard_carrier as _validate_rendered_shard_carrier,
 )
-from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
+from ethernity.cli.features.recover.key_recovery import InsufficientShardError
+from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL
 from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import ExtendArgs, InputFile
+from ethernity.config import BackupDefaults
 from ethernity.crypto.sharding import ShardPayload, encode_shard_payload
 from ethernity.crypto.signing import AuthPayload, derive_public_key
 from ethernity.encoding.framing import VERSION, Frame, FrameType
@@ -165,237 +172,12 @@ def _shard_payload(
     )
 
 
+def _config_with_no_shard_defaults(path: Path) -> Path:
+    path.write_text('[defaults.backup]\nqr_payload_codec = "raw"\n', encoding="utf-8")
+    return path
+
+
 class TestExtendService(unittest.TestCase):
-    def test_extract_pdf_fallback_lines_ignores_document_chrome_and_strips_numbers(
-        self,
-    ) -> None:
-        extracted = _extract_pdf_fallback_lines(
-            [
-                "CRITICAL SECURITY WARNING",
-                "AUTH FRAME",
-                "01. efey noqg 8wo1 858f z1io yyc7 yg1g ghdi cjcn bhew xddr ebp3 f7d3 it74",
-                "02. o5ak se8w qtsg rnjf c861 81wj wkdk shhi cp3s 134a edte 5x5n tupb 79qa",
-                "MAIN FRAME",
-                "01. efey ntgg 8wo1 858f z1io yyqg ytos q3jp cizg ghu3 qb4g 155q f3zz r33x",
-                "02. qaao wmj6 rb3s ghu3 qb4n y7uq gf8r si43 j73u gi5j pf1i w71e g3ds 474b",
-                "PASSPHRASE",
-                "extension-integration-passphrase",
-            ]
-        )
-
-        self.assertEqual(
-            extracted,
-            [
-                AUTH_FALLBACK_LABEL,
-                "efey noqg 8wo1 858f z1io yyc7 yg1g ghdi cjcn bhew xddr ebp3 f7d3 it74",
-                "o5ak se8w qtsg rnjf c861 81wj wkdk shhi cp3s 134a edte 5x5n tupb 79qa",
-                "Main Frame",
-                "efey ntgg 8wo1 858f z1io yyqg ytos q3jp cizg ghu3 qb4g 155q f3zz r33x",
-                "qaao wmj6 rb3s ghu3 qb4n y7uq gf8r si43 j73u gi5j pf1i w71e g3ds 474b",
-            ],
-        )
-
-    def test_extract_pdf_fallback_lines_handles_split_pdf_text_pieces(self) -> None:
-        extracted = _extract_pdf_fallback_lines(
-            [
-                "AUTH FRAME",
-                "01.",
-                " efey noqg 8wo1 858f z1io yyc7 yg1g ghdi cjcn bhew xddr ebp3 f7d3 it74",
-                "02.",
-                " o5ak se8w qtsg rnjf c861 81wj wkdk shhi cp3s 134a edte 5x5n tupb 79qa",
-                "MAIN FRAME",
-                "01.",
-                " efey ntgg 8wo1 858f z1io yyqg ytos q3jp cizg ghu3 qb4g 155q f3zz r33x",
-                "02.",
-                " qaao wmj6 rb3s ghu3 qb4n y7uq gf8r si43 j73u gi5j pf1i w71e g3ds 474b",
-                "PASSPHRASE",
-                "extension-integration-passphrase",
-            ]
-        )
-
-        self.assertEqual(
-            extracted,
-            [
-                AUTH_FALLBACK_LABEL,
-                "efey noqg 8wo1 858f z1io yyc7 yg1g ghdi cjcn bhew xddr ebp3 f7d3 it74",
-                "o5ak se8w qtsg rnjf c861 81wj wkdk shhi cp3s 134a edte 5x5n tupb 79qa",
-                "Main Frame",
-                "efey ntgg 8wo1 858f z1io yyqg ytos q3jp cizg ghu3 qb4g 155q f3zz r33x",
-                "qaao wmj6 rb3s ghu3 qb4n y7uq gf8r si43 j73u gi5j pf1i w71e g3ds 474b",
-            ],
-        )
-
-    def test_extract_pdf_fallback_lines_accepts_indexed_continuation_rows(self) -> None:
-        extracted = _extract_pdf_fallback_lines(
-            [
-                "MAIN FRAME",
-                "01 efey ntgg 8wo1 858f z1io yyqg ytos q3jp cizg ghu3 qb4g 155q f3zz r33x *",
-            ]
-        )
-
-        self.assertEqual(
-            extracted,
-            [
-                "Main Frame",
-                "efey ntgg 8wo1 858f z1io yyqg ytos q3jp cizg ghu3 qb4g 155q f3zz r33x",
-            ],
-        )
-
-    def test_extract_pdf_fallback_lines_ignores_numbered_instructions_before_sections(
-        self,
-    ) -> None:
-        extracted = _extract_pdf_fallback_lines(
-            [
-                "INSTRUCTIONS",
-                "1.",
-                "Keep it separate from the main document.",
-                "2.",
-                "Fallback includes AUTH + MAIN sections; keep the labels when transcribing.",
-                "AUTH FRAME",
-                "01.",
-                " efey noqg 8wo1 858f z1io yyc7 yg1g ghdi cjcn bhew xddr ebp3 f7d3 it74",
-                "MAIN FRAME",
-                "01.",
-                " efey ntgg 8wo1 858f z1io yyqg ytos q3jp cizg ghu3 qb4g 155q f3zz r33x",
-            ]
-        )
-
-        self.assertEqual(
-            extracted,
-            [
-                AUTH_FALLBACK_LABEL,
-                "efey noqg 8wo1 858f z1io yyc7 yg1g ghdi cjcn bhew xddr ebp3 f7d3 it74",
-                MAIN_FALLBACK_LABEL,
-                "efey ntgg 8wo1 858f z1io yyqg ytos q3jp cizg ghu3 qb4g 155q f3zz r33x",
-            ],
-        )
-
-    def test_extract_pdf_fallback_lines_ignores_known_chrome_inside_sections(self) -> None:
-        extracted = _extract_pdf_fallback_lines(
-            [
-                "MAIN FRAME",
-                "01.",
-                " efey ntgg 8wo1 858f z1io yyqg ytos q3jp cizg ghu3 qb4g 155q f3zz r33x",
-                "BACKUP SET",
-                "02.",
-                " qaao wmj6 rb3s ghu3 qb4n y7uq gf8r si43 j73u gi5j pf1i w71e g3ds 474b",
-                "DOCUMENT",
-            ]
-        )
-
-        self.assertEqual(
-            extracted,
-            [
-                MAIN_FALLBACK_LABEL,
-                "efey ntgg 8wo1 858f z1io yyqg ytos q3jp cizg ghu3 qb4g 155q f3zz r33x",
-                "qaao wmj6 rb3s ghu3 qb4n y7uq gf8r si43 j73u gi5j pf1i w71e g3ds 474b",
-            ],
-        )
-
-    def test_extract_pdf_fallback_lines_accepts_payload_before_number_pieces(self) -> None:
-        extracted = _extract_pdf_fallback_lines(
-            [
-                "MAIN FRAME",
-                "efey ntgg 8wo1 858f z1io yyqg ytos q3jp cizg ghu3 qb4g 155q f3zz r33x",
-                "01",
-                "qaao wmj6 rb3s ghu3 qb4n y7uq gf8r si43 j73u gi5j pf1i w71e g3ds 474b",
-                "02",
-            ]
-        )
-
-        self.assertEqual(
-            extracted,
-            [
-                MAIN_FALLBACK_LABEL,
-                "efey ntgg 8wo1 858f z1io yyqg ytos q3jp cizg ghu3 qb4g 155q f3zz r33x",
-                "qaao wmj6 rb3s ghu3 qb4n y7uq gf8r si43 j73u gi5j pf1i w71e g3ds 474b",
-            ],
-        )
-
-    def test_extract_pdf_fallback_lines_splits_reordered_auth_and_main_groups(self) -> None:
-        extracted = _extract_pdf_fallback_lines(
-            [
-                "AUTH FRAME",
-                "MAIN FRAME",
-                "efey noqg 8wo1 858f z1io yyc7 yg1g ghdi cjcn bhew xddr ebp3 f7d3 it74",
-                "01",
-                "o5ak se8w qtsg rnjf c861 81wj wkdk shhi cp3s 134a edte 5x5n tupb 79qa",
-                "02",
-                "efey ntgg 8wo1 858f z1io yyqg ytos q3jp cizg ghu3 qb4g 155q f3zz r33x",
-                "01",
-                "qaao wmj6 rb3s ghu3 qb4n y7uq gf8r si43 j73u gi5j pf1i w71e g3ds 474b",
-                "02",
-            ]
-        )
-
-        self.assertEqual(
-            extracted,
-            [
-                AUTH_FALLBACK_LABEL,
-                "efey noqg 8wo1 858f z1io yyc7 yg1g ghdi cjcn bhew xddr ebp3 f7d3 it74",
-                "o5ak se8w qtsg rnjf c861 81wj wkdk shhi cp3s 134a edte 5x5n tupb 79qa",
-                MAIN_FALLBACK_LABEL,
-                "efey ntgg 8wo1 858f z1io yyqg ytos q3jp cizg ghu3 qb4g 155q f3zz r33x",
-                "qaao wmj6 rb3s ghu3 qb4n y7uq gf8r si43 j73u gi5j pf1i w71e g3ds 474b",
-            ],
-        )
-
-    def test_extract_pdf_fallback_lines_ignores_out_of_sequence_indexed_rows(self) -> None:
-        extracted = _extract_pdf_fallback_lines(
-            [
-                "MAIN FRAME",
-                "01. efey ntgg 8wo1 858f z1io yyqg ytos q3jp cizg ghu3 qb4g 155q f3zz r33x",
-                "5 fe66 1af9 f6fa 277f",
-            ]
-        )
-
-        self.assertEqual(
-            extracted,
-            [
-                "Main Frame",
-                "efey ntgg 8wo1 858f z1io yyqg ytos q3jp cizg ghu3 qb4g 155q f3zz r33x",
-            ],
-        )
-
-    def test_extract_pdf_fallback_lines_rejects_invalid_split_payload_fragment(self) -> None:
-        with self.assertRaisesRegex(ValueError, "outside the z-base-32 alphabet"):
-            _extract_pdf_fallback_lines(
-                [
-                    "KEY FRAME",
-                    "01. ybndr fghj kmnp qrst",
-                    "02.",
-                    "%%%INVALID%%%",
-                    "02. ybndr fghj kmnp qrst",
-                ]
-            )
-
-    def test_validate_pdf_fallback_main_section_rejects_payload_mismatch(self) -> None:
-        with self.assertRaisesRegex(
-            ValueError,
-            "fallback MAIN payload does not match the planned extension ciphertext",
-        ):
-            _validate_pdf_fallback_main_section(
-                section_lines=[
-                    "efey ntgg 8wo1 858f z1io yyqg ytos q3jp cizg ghu3 qb4g 155q f3zz r33x",
-                ],
-                expected_lines=(
-                    "MAIN FRAME",
-                    "qaao wmj6 rb3s ghu3 qb4n y7uq gf8r si43 j73u gi5j pf1i w71e g3ds 474b",
-                ),
-            )
-
-    def test_validate_pdf_fallback_main_section_accepts_different_line_wraps(self) -> None:
-        _validate_pdf_fallback_main_section(
-            section_lines=[
-                "efey ntgg 8wo1 858f z1io yyqg",
-                "ytos q3jp cizg ghu3 qb4g 155q f3zz r33x",
-            ],
-            expected_lines=(
-                "MAIN FRAME",
-                "efey ntgg 8wo1 858f z1io yyqg ytos q3jp cizg ghu3 qb4g 155q f3zz r33x",
-            ),
-        )
-
     def test_prepare_extend_run_requires_explicit_scope(self) -> None:
         with self.assertRaises(ApiCommandError) as ctx:
             prepare_extend_run(ExtendArgs(root_dir="/tmp/root"))
@@ -508,6 +290,64 @@ class TestExtendService(unittest.TestCase):
         self.assertEqual(prepared.changed_paths, ("updated.txt",))
         self.assertEqual(prepared.unchanged_paths, ("same.txt",))
 
+    def test_resolve_extend_policy_applies_backup_defaults_for_self_contained(self) -> None:
+        policy = resolve_extend_policy(
+            args=ExtendArgs(),
+            defaults=BackupDefaults(
+                shard_threshold=2,
+                shard_count=3,
+                signing_key_mode="sharded",
+                signing_key_shard_threshold=2,
+                signing_key_shard_count=3,
+            ),
+            inherited=InheritedRootPublishPolicy(
+                passphrase_shard_threshold=None,
+                passphrase_shard_count=0,
+                signing_key_shard_threshold=None,
+                signing_key_shard_count=0,
+            ),
+            require_recovery_kit_index=True,
+        )
+
+        self.assertEqual(
+            policy.passphrase,
+            ExtensionPassphraseShards(threshold=2, share_count=3),
+        )
+        self.assertEqual(
+            policy.signing_key,
+            ExtensionSigningKeyShards(threshold=2, share_count=3),
+        )
+        self.assertTrue(policy.require_recovery_kit_index)
+        self.assertEqual(policy.to_publish_policy().passphrase_shard_count, 3)
+        self.assertEqual(policy.to_publish_policy().signing_key_shard_count, 3)
+
+    def test_resolve_extend_policy_ignores_backup_defaults_for_reuse_root(self) -> None:
+        policy = resolve_extend_policy(
+            args=ExtendArgs(unlock_policy="reuse-root"),
+            defaults=BackupDefaults(
+                shard_threshold=2,
+                shard_count=3,
+                signing_key_mode="sharded",
+                signing_key_shard_threshold=2,
+                signing_key_shard_count=3,
+            ),
+            inherited=InheritedRootPublishPolicy(
+                passphrase_shard_threshold=2,
+                passphrase_shard_count=2,
+                signing_key_shard_threshold=1,
+                signing_key_shard_count=1,
+            ),
+            require_recovery_kit_index=True,
+        )
+
+        self.assertEqual(
+            policy.passphrase,
+            ReuseRootPassphraseShards(threshold=2, share_count=2),
+        )
+        self.assertEqual(policy.to_publish_policy().passphrase_shard_count, 0)
+        self.assertEqual(policy.to_publish_policy().signing_key_shard_count, 0)
+        self.assertTrue(policy.require_recovery_kit_index)
+
     def test_run_extend_fails_closed_before_artifact_creation_on_untrusted_latest_head(
         self,
     ) -> None:
@@ -532,6 +372,7 @@ class TestExtendService(unittest.TestCase):
 
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
             existing_head = root_dir / "extensions" / "01"
             existing_head.mkdir(parents=True)
             (existing_head / "keep.txt").write_text("keep", encoding="utf-8")
@@ -628,6 +469,7 @@ class TestExtendService(unittest.TestCase):
     def test_prepare_staged_extension_publish_plans_canonical_targets(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
             resolved = _resolved_state(
                 diff_summary={
                     "new_paths": ["new.txt"],
@@ -696,6 +538,7 @@ class TestExtendService(unittest.TestCase):
     def test_execute_staged_extension_publish_promotes_valid_artifacts(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
             resolved = _resolved_state(
                 diff_summary={
                     "new_paths": ["new.txt"],
@@ -748,7 +591,11 @@ class TestExtendService(unittest.TestCase):
                 for path in plan.artifacts.shard_paths:
                     path.write_bytes(b"shard")
 
-            result = execute_staged_extension_publish(publish, renderer=_renderer)
+            result = execute_staged_extension_publish(
+                publish,
+                renderer=_renderer,
+                post_validate=lambda _plan, _result: None,
+            )
 
             self.assertEqual(result.index, 2)
             self.assertEqual(result.final_dir.name, "02")
@@ -767,6 +614,7 @@ class TestExtendService(unittest.TestCase):
     def test_validate_staged_recovery_kit_index_document_rejects_invalid_pdf(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
             resolved = _resolved_state(
                 diff_summary={
                     "new_paths": ["new.txt"],
@@ -805,6 +653,7 @@ class TestExtendService(unittest.TestCase):
     def test_validate_staged_recovery_kit_index_document_accepts_valid_pdf(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
             resolved = _resolved_state(
                 diff_summary={
                     "new_paths": ["new.txt"],
@@ -840,6 +689,8 @@ class TestExtendService(unittest.TestCase):
                 text="\n".join(
                     [
                         "Recovery Kit Index",
+                        publish.encrypted.doc_id.hex(),
+                        "Extension 02",
                         "QR-DOC-01",
                         "RECOVERY-DOC-01",
                     ]
@@ -849,11 +700,68 @@ class TestExtendService(unittest.TestCase):
 
             _validate_staged_recovery_kit_index_document(publish)
 
+    def test_validate_staged_recovery_kit_index_document_rejects_wrong_doc_identity(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
+            resolved = _resolved_state(
+                diff_summary={
+                    "new_paths": ["new.txt"],
+                    "changed_paths": ["updated.txt"],
+                    "unchanged_paths": [],
+                    "missing_paths": [],
+                },
+            )
+            with mock.patch(
+                "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                return_value=resolved,
+            ):
+                prepared = prepare_extend_run(
+                    ExtendArgs(root_dir=str(root_dir), input=["/tmp/root/example.txt"])
+                )
+                with mock.patch(
+                    "ethernity.cli.features.extend.prepare.encrypt_bytes_with_passphrase",
+                    side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
+                ):
+                    publish = prepare_staged_extension_publish(
+                        prepared,
+                        chunker=lambda data, _profile: (data,),
+                        nonce="abc123",
+                        publish_policy=ExtensionPublishPolicy(require_recovery_kit_index=True),
+                    )
+
+            assert publish.artifacts.recovery_kit_index_path is not None
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Helvetica", size=12)
+            pdf.multi_cell(
+                w=0,
+                text="\n".join(
+                    [
+                        "Recovery Kit Index",
+                        "wrong-doc-id",
+                        "Extension 02",
+                        "QR-DOC-01",
+                        "RECOVERY-DOC-01",
+                    ]
+                ),
+            )
+            pdf.output(str(publish.artifacts.recovery_kit_index_path))
+
+            with self.assertRaises(ApiCommandError) as ctx:
+                _validate_staged_recovery_kit_index_document(publish)
+
+            self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
+            self.assertIn("missing expected inventory rows", str(ctx.exception))
+
     def test_validate_staged_recovery_kit_index_document_rejects_missing_inventory_rows(
         self,
     ) -> None:
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
             resolved = _resolved_state(
                 diff_summary={
                     "new_paths": ["new.txt"],
@@ -896,6 +804,7 @@ class TestExtendService(unittest.TestCase):
     def test_execute_staged_extension_publish_discards_failed_staging_dir(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
             resolved = _resolved_state(
                 diff_summary={
                     "new_paths": ["new.txt"],
@@ -926,13 +835,64 @@ class TestExtendService(unittest.TestCase):
                 plan.artifacts.qr_document_path.write_bytes(b"qr-only")
 
             with self.assertRaisesRegex(ValueError, "missing required MAIN artifacts"):
-                execute_staged_extension_publish(publish, renderer=_renderer)
+                execute_staged_extension_publish(
+                    publish,
+                    renderer=_renderer,
+                    post_validate=lambda _plan, _result: None,
+                )
+
+            self.assertFalse(publish.artifacts.staging_dir.exists())
+
+    def test_execute_staged_extension_publish_rejects_post_validation_file_swap(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
+            resolved = _resolved_state(
+                diff_summary={
+                    "new_paths": ["new.txt"],
+                    "changed_paths": ["updated.txt"],
+                    "unchanged_paths": [],
+                    "missing_paths": [],
+                },
+            )
+            with mock.patch(
+                "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                return_value=resolved,
+            ):
+                prepared = prepare_extend_run(
+                    ExtendArgs(root_dir=str(root_dir), input=["/tmp/root/example.txt"])
+                )
+                with mock.patch(
+                    "ethernity.cli.features.extend.prepare.encrypt_bytes_with_passphrase",
+                    side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
+                ):
+                    publish = prepare_staged_extension_publish(
+                        prepared,
+                        chunker=lambda data, _profile: (data,),
+                        nonce="abc123",
+                        publish_policy=ExtensionPublishPolicy(),
+                    )
+
+            def _renderer(plan) -> None:
+                plan.artifacts.qr_document_path.write_bytes(b"qr")
+                plan.artifacts.recovery_document_path.write_bytes(b"recovery")
+
+            def _post_validate(plan, _render_result) -> None:
+                plan.artifacts.qr_document_path.write_bytes(b"swapped regular file")
+
+            with self.assertRaisesRegex(ValueError, "artifacts changed before promotion"):
+                execute_staged_extension_publish(
+                    publish,
+                    renderer=_renderer,
+                    post_validate=_post_validate,
+                )
 
             self.assertFalse(publish.artifacts.staging_dir.exists())
 
     def test_run_extend_promotes_rendered_extension_with_inherited_shards(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
             existing_head = root_dir / "extensions" / "01"
             existing_head.mkdir(parents=True)
             (existing_head / "qr_document-01-existing.pdf").write_bytes(b"existing")
@@ -940,6 +900,7 @@ class TestExtendService(unittest.TestCase):
             (root_dir / "shard-root-1.pdf").write_bytes(b"root-shard-1")
             (root_dir / "shard-root-2.pdf").write_bytes(b"root-shard-2")
             (root_dir / "signing-key-shard-root-1.pdf").write_bytes(b"root-signing-shard")
+            config_path = _config_with_no_shard_defaults(Path(tmpdir) / "config.toml")
 
             resolved = _resolved_state(
                 diff_summary={
@@ -968,6 +929,8 @@ class TestExtendService(unittest.TestCase):
                         text="\n".join(
                             [
                                 "Recovery Kit Index",
+                                inputs.frames[0].doc_id.hex(),
+                                "Extension 02",
                                 "QR-DOC-01",
                                 "RECOVERY-DOC-01",
                                 "SHARD-01",
@@ -1013,7 +976,7 @@ class TestExtendService(unittest.TestCase):
                     side_effect=[(2, 2), (1, 1)],
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.execution._shard_frames_from_scan",
+                    "ethernity.cli.features.extend.shard_validation._shard_frames_from_scan",
                     side_effect=lambda paths, **_kwargs: shard_frames_by_path[str(paths[0])],
                 ),
                 mock.patch(
@@ -1021,15 +984,13 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.execution._recovery_frames_from_scan",
+                    "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
                     side_effect=_scan_main_carrier,
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.execution._validate_fallback_recovery_document"
                 ),
             ):
                 result = run_extend(
                     ExtendArgs(
+                        config=str(config_path),
                         root_dir=str(root_dir),
                         input=["/tmp/root/example.txt"],
                     ),
@@ -1069,6 +1030,7 @@ class TestExtendService(unittest.TestCase):
     def test_run_extend_keeps_previous_head_when_main_validation_fails(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
             existing_head = root_dir / "extensions" / "01"
             existing_head.mkdir(parents=True)
             marker = existing_head / "keep.txt"
@@ -1109,7 +1071,7 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.execution._recovery_frames_from_scan",
+                    "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
                     side_effect=lambda *_args, **_kwargs: [
                         Frame(
                             version=VERSION,
@@ -1138,150 +1100,10 @@ class TestExtendService(unittest.TestCase):
             self.assertFalse((root_dir / "extensions" / "02").exists())
             self.assertFalse((root_dir / "extensions" / ".staging-2-abc123").exists())
 
-    def test_run_extend_rejects_recovery_document_that_piggybacks_on_valid_qr_document(
-        self,
-    ) -> None:
-        with TemporaryDirectory() as tmpdir:
-            root_dir = Path(tmpdir) / "root"
-            existing_head = root_dir / "extensions" / "01"
-            existing_head.mkdir(parents=True)
-
-            resolved = _resolved_state(
-                diff_summary={
-                    "new_paths": ["new.txt"],
-                    "changed_paths": ["updated.txt"],
-                    "unchanged_paths": [],
-                    "missing_paths": [],
-                },
-            )
-            captured: dict[str, list[Frame]] = {}
-
-            def _fake_render(inputs) -> None:
-                output_path = Path(inputs.output_path)
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                output_path.write_bytes(output_path.name.encode("utf-8"))
-                captured[output_path.name] = list(inputs.frames)
-
-            def _scan(paths: list[str], *, quiet: bool) -> list[Frame]:
-                del quiet
-                filename = Path(paths[0]).name
-                if filename.startswith("qr_document-"):
-                    return list(captured[filename])
-                qr_filename = next(name for name in captured if name.startswith("qr_document-"))
-                qr_doc_id = captured[qr_filename][0].doc_id
-                return [
-                    Frame(
-                        version=VERSION,
-                        frame_type=FrameType.MAIN_DOCUMENT,
-                        doc_id=qr_doc_id,
-                        index=0,
-                        total=1,
-                        data=b"wrong",
-                    )
-                ]
-
-            with (
-                mock.patch(
-                    "ethernity.cli.features.extend.prepare.resolve_extend_state",
-                    return_value=resolved,
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.prepare.encrypt_bytes_with_passphrase",
-                    side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.runtime.infer_root_quorum",
-                    return_value=(None, 0),
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.execution.render_module.render_frames_to_pdf",
-                    side_effect=_fake_render,
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.execution._recovery_frames_from_scan",
-                    side_effect=_scan,
-                ),
-            ):
-                with self.assertRaises(ApiCommandError) as ctx:
-                    run_extend(
-                        ExtendArgs(
-                            root_dir=str(root_dir),
-                            input=["/tmp/root/example.txt"],
-                        ),
-                        chunker=lambda data, _profile: (data,),
-                        nonce="abc123",
-                    )
-
-            self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
-            self.assertIn("recovery_document-", str(ctx.exception))
-
-    def test_run_extend_rejects_recovery_document_without_recoverable_main_payload(self) -> None:
-        with TemporaryDirectory() as tmpdir:
-            root_dir = Path(tmpdir) / "root"
-            existing_head = root_dir / "extensions" / "01"
-            existing_head.mkdir(parents=True)
-
-            resolved = _resolved_state(
-                diff_summary={
-                    "new_paths": ["new.txt"],
-                    "changed_paths": ["updated.txt"],
-                    "unchanged_paths": [],
-                    "missing_paths": [],
-                },
-            )
-            captured: dict[str, list[Frame]] = {}
-
-            def _fake_render(inputs) -> None:
-                output_path = Path(inputs.output_path)
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-                output_path.write_bytes(b"not a valid recovery document")
-                captured[output_path.name] = list(inputs.frames)
-
-            def _scan(paths: list[str], *, quiet: bool) -> list[Frame]:
-                del quiet
-                filename = Path(paths[0]).name
-                if filename.startswith("qr_document-"):
-                    return list(captured[filename])
-                raise ValueError("no QR codes found in scan inputs")
-
-            with (
-                mock.patch(
-                    "ethernity.cli.features.extend.prepare.resolve_extend_state",
-                    return_value=resolved,
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.prepare.encrypt_bytes_with_passphrase",
-                    side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.runtime.infer_root_quorum",
-                    return_value=(None, 0),
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.execution.render_module.render_frames_to_pdf",
-                    side_effect=_fake_render,
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.execution._recovery_frames_from_scan",
-                    side_effect=_scan,
-                ),
-            ):
-                with self.assertRaises(ApiCommandError) as ctx:
-                    run_extend(
-                        ExtendArgs(
-                            root_dir=str(root_dir),
-                            input=["/tmp/root/example.txt"],
-                        ),
-                        chunker=lambda data, _profile: (data,),
-                        nonce="abc123",
-                    )
-
-            self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
-            self.assertIn("recovery_document-", str(ctx.exception))
-
     def test_run_extend_keeps_previous_head_when_shard_validation_fails(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
             existing_head = root_dir / "extensions" / "01"
             existing_head.mkdir(parents=True)
             marker = existing_head / "keep.txt"
@@ -1335,7 +1157,7 @@ class TestExtendService(unittest.TestCase):
                     side_effect=[(1, 1), (None, 0)],
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.execution._shard_frames_from_scan",
+                    "ethernity.cli.features.extend.shard_validation._shard_frames_from_scan",
                     return_value=[invalid_frame],
                 ),
                 mock.patch(
@@ -1343,14 +1165,11 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.execution._recovery_frames_from_scan",
+                    "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
                     side_effect=lambda *_args, **_kwargs: list(captured["frames"]),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.execution._validate_fallback_recovery_document"
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.execution._resolve_auth_payload",
+                    "ethernity.cli.features.extend.main_carrier_validation._resolve_auth_payload",
                     return_value=(
                         AuthPayload(
                             version=1,
@@ -1400,10 +1219,13 @@ class TestExtendService(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.extend.execution._shard_frames_from_scan",
+                "ethernity.cli.features.extend.shard_validation._shard_frames_from_scan",
                 return_value=[frame],
             ),
-            mock.patch("ethernity.cli.features.extend.execution.verify_shard", return_value=False),
+            mock.patch(
+                "ethernity.cli.features.extend.shard_validation.verify_shard",
+                return_value=False,
+            ),
         ):
             with self.assertRaises(ApiCommandError) as ctx:
                 _validate_rendered_shard_carrier(
@@ -1421,6 +1243,7 @@ class TestExtendService(unittest.TestCase):
     def test_run_extend_reuse_root_unlock_policy_emits_no_extension_shards(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
             existing_head = root_dir / "extensions" / "01"
             existing_head.mkdir(parents=True)
             (root_dir / "shard-root-1.pdf").write_bytes(b"root-shard-1")
@@ -1441,7 +1264,25 @@ class TestExtendService(unittest.TestCase):
             def _fake_render(inputs) -> None:
                 output_path = Path(inputs.output_path)
                 output_path.parent.mkdir(parents=True, exist_ok=True)
-                output_path.write_bytes(output_path.name.encode("utf-8"))
+                if output_path.name.startswith("recovery_kit_index-"):
+                    pdf = FPDF()
+                    pdf.add_page()
+                    pdf.set_font("Helvetica", size=12)
+                    pdf.multi_cell(
+                        w=0,
+                        text="\n".join(
+                            [
+                                "Recovery Kit Index",
+                                inputs.frames[0].doc_id.hex(),
+                                "Extension 02",
+                                "QR-DOC-01",
+                                "RECOVERY-DOC-01",
+                            ]
+                        ),
+                    )
+                    pdf.output(str(output_path))
+                else:
+                    output_path.write_bytes(output_path.name.encode("utf-8"))
                 rendered_inputs[output_path.name] = inputs
                 if output_path.name.startswith(("qr_document-", "recovery_document-")):
                     captured["frames"] = list(inputs.frames)
@@ -1464,14 +1305,11 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.execution._recovery_frames_from_scan",
+                    "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
                     side_effect=lambda *_args, **_kwargs: list(captured["frames"]),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.execution._validate_fallback_recovery_document"
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.execution._resolve_auth_payload",
+                    "ethernity.cli.features.extend.main_carrier_validation._resolve_auth_payload",
                     return_value=(
                         AuthPayload(
                             version=1,
@@ -1496,6 +1334,7 @@ class TestExtendService(unittest.TestCase):
             self.assertEqual(result.final_dir.name, "02")
             self.assertEqual(len(result.shard_paths), 0)
             self.assertEqual(len(result.signing_key_shard_paths), 0)
+            self.assertIsNotNone(result.recovery_kit_index_path)
             recovery_inputs = rendered_inputs[result.recovery_document_path.name]
             self.assertIsNone(recovery_inputs.recovery_meta.passphrase)
             self.assertEqual(recovery_inputs.recovery_meta.quorum_value, "2 of 2")
@@ -1550,6 +1389,99 @@ class TestExtendService(unittest.TestCase):
 
         self.assertEqual(ctx.exception.code, EXTENSION_INVALID_POLICY)
 
+    def test_resolve_extend_runtime_self_contained_allows_partial_root_shards(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir()
+            (root_dir / "shard-root-1.pdf").write_bytes(b"partial-root-shard")
+            config_path = _config_with_no_shard_defaults(Path(tmpdir) / "config.toml")
+            resolved = _resolved_state(
+                diff_summary={
+                    "new_paths": ["new.txt"],
+                    "changed_paths": ["updated.txt"],
+                    "unchanged_paths": [],
+                    "missing_paths": [],
+                },
+            )
+            with mock.patch(
+                "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                return_value=resolved,
+            ):
+                prepared = prepare_extend_run(
+                    ExtendArgs(
+                        config=str(config_path),
+                        root_dir=str(root_dir),
+                        input=["/tmp/root/example.txt"],
+                    )
+                )
+
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.runtime._shard_frames_from_scan",
+                    return_value=[mock.sentinel.frame],
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.runtime._validated_shard_payloads_from_frames",
+                    side_effect=InsufficientShardError(
+                        threshold=2,
+                        provided_count=1,
+                        share_count=3,
+                        secret_label="passphrase",
+                    ),
+                ),
+            ):
+                runtime = resolve_extend_runtime(prepared)
+
+        self.assertEqual(runtime.passphrase, ExtensionPassphraseShards(threshold=2, share_count=3))
+
+    def test_resolve_extend_runtime_reuse_root_rejects_partial_root_shards(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir()
+            (root_dir / "shard-root-1.pdf").write_bytes(b"partial-root-shard")
+            config_path = _config_with_no_shard_defaults(Path(tmpdir) / "config.toml")
+            resolved = _resolved_state(
+                diff_summary={
+                    "new_paths": ["new.txt"],
+                    "changed_paths": ["updated.txt"],
+                    "unchanged_paths": [],
+                    "missing_paths": [],
+                },
+            )
+            with mock.patch(
+                "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                return_value=resolved,
+            ):
+                prepared = prepare_extend_run(
+                    ExtendArgs(
+                        config=str(config_path),
+                        root_dir=str(root_dir),
+                        input=["/tmp/root/example.txt"],
+                        unlock_policy="reuse-root",
+                    )
+                )
+
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.runtime._shard_frames_from_scan",
+                    return_value=[mock.sentinel.frame],
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.runtime._validated_shard_payloads_from_frames",
+                    side_effect=InsufficientShardError(
+                        threshold=2,
+                        provided_count=1,
+                        share_count=3,
+                        secret_label="passphrase",
+                    ),
+                ),
+            ):
+                with self.assertRaises(ApiCommandError) as ctx:
+                    resolve_extend_runtime(prepared)
+
+        self.assertEqual(ctx.exception.code, EXTENSION_INVALID_POLICY)
+        self.assertIn("root passphrase shards are under quorum", str(ctx.exception))
+
     def test_resolve_extend_runtime_rejects_explicit_zero_qr_chunk_size(self) -> None:
         resolved = _resolved_state(
             diff_summary={
@@ -1586,6 +1518,85 @@ class TestExtendService(unittest.TestCase):
 
         self.assertEqual(ctx.exception.code, EXTENSION_INVALID_POLICY)
         self.assertIn("qr_chunk_size must be a positive integer", str(ctx.exception))
+
+    def test_resolve_extend_runtime_emits_kit_index_when_design_supports_it(self) -> None:
+        resolved = _resolved_state(
+            diff_summary={
+                "new_paths": ["new.txt"],
+                "changed_paths": ["updated.txt"],
+                "unchanged_paths": [],
+                "missing_paths": [],
+            },
+        )
+        with mock.patch(
+            "ethernity.cli.features.extend.prepare.resolve_extend_state",
+            return_value=resolved,
+        ):
+            prepared = prepare_extend_run(
+                ExtendArgs(root_dir="/tmp/root", input=["/tmp/root/example.txt"])
+            )
+
+        kit_index_template_path = Path("/tmp/kit_index_document.html.j2")
+        with (
+            mock.patch(
+                "ethernity.cli.features.extend.runtime.infer_root_publish_policy",
+                return_value=mock.Mock(
+                    require_recovery_kit_index=False,
+                    passphrase_shard_threshold=None,
+                    passphrase_shard_count=0,
+                    signing_key_shard_threshold=None,
+                    signing_key_shard_count=0,
+                ),
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.runtime.backup_execution."
+                "_resolve_kit_index_template_path",
+                return_value=kit_index_template_path,
+            ),
+        ):
+            runtime = resolve_extend_runtime(prepared)
+
+        self.assertTrue(runtime.to_publish_policy().require_recovery_kit_index)
+        self.assertEqual(runtime.kit_index_template_path, kit_index_template_path)
+
+    def test_resolve_extend_runtime_omits_kit_index_when_design_lacks_template(self) -> None:
+        resolved = _resolved_state(
+            diff_summary={
+                "new_paths": ["new.txt"],
+                "changed_paths": ["updated.txt"],
+                "unchanged_paths": [],
+                "missing_paths": [],
+            },
+        )
+        with mock.patch(
+            "ethernity.cli.features.extend.prepare.resolve_extend_state",
+            return_value=resolved,
+        ):
+            prepared = prepare_extend_run(
+                ExtendArgs(root_dir="/tmp/root", input=["/tmp/root/example.txt"])
+            )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.extend.runtime.infer_root_publish_policy",
+                return_value=mock.Mock(
+                    require_recovery_kit_index=True,
+                    passphrase_shard_threshold=None,
+                    passphrase_shard_count=0,
+                    signing_key_shard_threshold=None,
+                    signing_key_shard_count=0,
+                ),
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.runtime.backup_execution."
+                "_resolve_kit_index_template_path",
+                return_value=None,
+            ),
+        ):
+            runtime = resolve_extend_runtime(prepared)
+
+        self.assertFalse(runtime.to_publish_policy().require_recovery_kit_index)
+        self.assertIsNone(runtime.kit_index_template_path)
 
     def test_resolve_extend_runtime_reuse_root_rejects_explicit_zero_qr_chunk_size(self) -> None:
         resolved = _resolved_state(
@@ -1663,6 +1674,7 @@ class TestExtendService(unittest.TestCase):
     def test_run_extend_rejects_missing_extension_auth(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
             resolved = _resolved_state(
                 diff_summary={
                     "new_paths": ["new.txt"],
@@ -1702,7 +1714,7 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.execution._recovery_frames_from_scan",
+                    "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
                     side_effect=lambda *_args, **_kwargs: list(captured["frames"]),
                 ),
             ):
@@ -1734,62 +1746,21 @@ class TestExtendService(unittest.TestCase):
         )
 
         with mock.patch(
-            "ethernity.cli.features.extend.execution._recovery_frames_from_scan",
+            "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
             return_value=[main_frame],
         ):
             with self.assertRaises(ApiCommandError) as ctx:
                 _validate_single_main_carrier(
                     path=Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf"),
-                    expected_ciphertext=ciphertext,
                     expected_doc_id=doc_id,
                     expected_doc_hash=doc_hash,
                     expected_sign_pub=b"\x44" * 32,
-                    expected_recovery_fallback_lines=None,
                     require_auth=True,
                     quiet=True,
                 )
 
         self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
         self.assertIn("missing auth payload", str(ctx.exception))
-
-    def test_validate_single_main_carrier_does_not_fallback_when_recovery_scan_lacks_auth(
-        self,
-    ) -> None:
-        ciphertext = b"enc:extension"
-        doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
-        main_frame = Frame(
-            version=VERSION,
-            frame_type=FrameType.MAIN_DOCUMENT,
-            doc_id=doc_id,
-            index=0,
-            total=1,
-            data=ciphertext,
-        )
-
-        with (
-            mock.patch(
-                "ethernity.cli.features.extend.execution._recovery_frames_from_scan",
-                return_value=[main_frame],
-            ),
-            mock.patch(
-                "ethernity.cli.features.extend.execution._validate_fallback_recovery_document"
-            ) as validate_fallback,
-        ):
-            with self.assertRaises(ApiCommandError) as ctx:
-                _validate_single_main_carrier(
-                    path=Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf"),
-                    expected_ciphertext=ciphertext,
-                    expected_doc_id=doc_id,
-                    expected_doc_hash=doc_hash,
-                    expected_sign_pub=b"\x44" * 32,
-                    expected_recovery_fallback_lines=("main-line",),
-                    require_auth=True,
-                    quiet=True,
-                )
-
-        self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
-        self.assertIn("missing auth payload", str(ctx.exception))
-        validate_fallback.assert_not_called()
 
     def test_validate_single_main_carrier_rejects_mismatched_auth_for_recovery_document_scan(
         self,
@@ -1815,11 +1786,11 @@ class TestExtendService(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.extend.execution._recovery_frames_from_scan",
+                "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
                 return_value=[main_frame, auth_frame],
             ),
             mock.patch(
-                "ethernity.cli.features.extend.execution._resolve_auth_payload",
+                "ethernity.cli.features.extend.main_carrier_validation._resolve_auth_payload",
                 return_value=(
                     AuthPayload(
                         version=1,
@@ -1830,106 +1801,39 @@ class TestExtendService(unittest.TestCase):
                     "verified",
                 ),
             ),
-            mock.patch(
-                "ethernity.cli.features.extend.execution._validate_fallback_recovery_document"
-            ) as validate_fallback,
         ):
             with self.assertRaises(ApiCommandError) as ctx:
                 _validate_single_main_carrier(
                     path=Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf"),
-                    expected_ciphertext=ciphertext,
                     expected_doc_id=doc_id,
                     expected_doc_hash=doc_hash,
                     expected_sign_pub=b"\x44" * 32,
-                    expected_recovery_fallback_lines=("main-line",),
                     require_auth=True,
                     quiet=True,
                 )
 
         self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
         self.assertIn("root-derived signing authority", str(ctx.exception))
-        validate_fallback.assert_not_called()
 
-    def test_validate_single_main_carrier_uses_fallback_when_recovery_scan_has_no_qr(
+    def test_validate_single_main_carrier_rejects_recovery_scan_with_no_qr(
         self,
     ) -> None:
         ciphertext = b"enc:extension"
         doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
 
-        with (
-            mock.patch(
-                "ethernity.cli.features.extend.execution._recovery_frames_from_scan",
-                side_effect=ValueError("scan failed: no QR codes found in scan inputs"),
-            ),
-            mock.patch(
-                "ethernity.cli.features.extend.execution._validate_fallback_recovery_document"
-            ) as validate_fallback,
+        with mock.patch(
+            "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
+            side_effect=ValueError("scan failed: no QR codes found in scan inputs"),
         ):
-            _validate_single_main_carrier(
-                path=Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf"),
-                expected_ciphertext=ciphertext,
-                expected_doc_id=doc_id,
-                expected_doc_hash=doc_hash,
-                expected_sign_pub=b"\x44" * 32,
-                expected_recovery_fallback_lines=("main-line",),
-                require_auth=True,
-                quiet=True,
-            )
+            with self.assertRaises(ApiCommandError) as ctx:
+                _validate_single_main_carrier(
+                    path=Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf"),
+                    expected_doc_id=doc_id,
+                    expected_doc_hash=doc_hash,
+                    expected_sign_pub=b"\x44" * 32,
+                    require_auth=True,
+                    quiet=True,
+                )
 
-        validate_fallback.assert_called_once()
-
-    def test_validate_single_main_carrier_checks_recovery_fallback_after_successful_scan(
-        self,
-    ) -> None:
-        ciphertext = b"enc:extension"
-        doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
-        main_frame = Frame(
-            version=VERSION,
-            frame_type=FrameType.MAIN_DOCUMENT,
-            doc_id=doc_id,
-            index=0,
-            total=1,
-            data=ciphertext,
-        )
-        auth_frame = Frame(
-            version=VERSION,
-            frame_type=FrameType.AUTH,
-            doc_id=doc_id,
-            index=0,
-            total=1,
-            data=b"auth",
-        )
-
-        with (
-            mock.patch(
-                "ethernity.cli.features.extend.execution._recovery_frames_from_scan",
-                return_value=[main_frame, auth_frame],
-            ),
-            mock.patch(
-                "ethernity.cli.features.extend.execution._resolve_auth_payload",
-                return_value=(
-                    AuthPayload(
-                        version=1,
-                        doc_hash=doc_hash,
-                        sign_pub=b"\x44" * 32,
-                        signature=b"\x55" * 64,
-                    ),
-                    "verified",
-                ),
-            ),
-            mock.patch(
-                "ethernity.cli.features.extend.execution._validate_fallback_recovery_document"
-            ) as validate_fallback,
-        ):
-            _validate_single_main_carrier(
-                path=Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf"),
-                expected_ciphertext=ciphertext,
-                expected_doc_id=doc_id,
-                expected_doc_hash=doc_hash,
-                expected_sign_pub=b"\x44" * 32,
-                expected_recovery_fallback_lines=("main-line",),
-                require_auth=True,
-                quiet=True,
-            )
-
-        validate_fallback.assert_called_once()
+        self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
+        self.assertIn("no QR codes found", str(ctx.exception))

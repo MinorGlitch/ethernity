@@ -31,7 +31,7 @@ from .models import (
     RenderedExtensionArtifacts,
     ResolvedExtendRuntime,
 )
-from .recovery_rendering import build_recovery_inputs, expected_recovery_fallback_lines
+from .recovery_rendering import build_recovery_inputs
 from .shard_rendering import (
     SIGNING_KEY_SHARD_DOC_TYPE,
     build_kit_index_inputs,
@@ -136,5 +136,4 @@ def render_extension_artifacts(
     return RenderedExtensionArtifacts(
         passphrase_shards=passphrase_shards,
         signing_key_shards=signing_key_shards,
-        expected_recovery_fallback_lines=expected_recovery_fallback_lines(recovery_inputs),
     )

@@ -19,44 +19,34 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable
 
 from pypdf import PdfReader
 
+from ethernity.cli.features.recover.key_recovery import _resolve_auth_payload
+from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
+from ethernity.cli.shared.io.frames import (
+    _dedupe_frames,
+    _recovery_frames_from_scan,
+    _split_main_and_auth_frames,
+)
 from ethernity.cli.shared.ndjson import ApiCommandError
+from ethernity.crypto.signing import derive_public_key
+from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import FrameType
 
 from .models import (
     EXTENSION_MAIN_CARRIER_INVALID,
     PreparedExtensionPublishPlan,
-    RenderedExtensionArtifacts,
 )
 
 
-def validate_staged_main_carriers(
-    plan: PreparedExtensionPublishPlan,
-    rendered: RenderedExtensionArtifacts,
-    *,
-    derive_public_key: Callable[[bytes], bytes],
-    validate_single_main_carrier_fn: Callable[..., None],
-) -> None:
+def validate_staged_main_carrier(plan: PreparedExtensionPublishPlan) -> None:
     expected_sign_pub = derive_public_key(plan.prepared.signing_seed)
-    validate_single_main_carrier_fn(
+    validate_single_main_carrier(
         path=plan.artifacts.qr_document_path,
-        expected_ciphertext=plan.encrypted.ciphertext,
         expected_doc_id=plan.encrypted.doc_id,
         expected_doc_hash=plan.encrypted.doc_hash,
         expected_sign_pub=expected_sign_pub,
-        require_auth=True,
-        quiet=plan.prepared.args.quiet,
-    )
-    validate_single_main_carrier_fn(
-        path=plan.artifacts.recovery_document_path,
-        expected_ciphertext=plan.encrypted.ciphertext,
-        expected_doc_id=plan.encrypted.doc_id,
-        expected_doc_hash=plan.encrypted.doc_hash,
-        expected_sign_pub=expected_sign_pub,
-        expected_recovery_fallback_lines=rendered.expected_recovery_fallback_lines,
         require_auth=True,
         quiet=plan.prepared.args.quiet,
     )
@@ -65,32 +55,21 @@ def validate_staged_main_carriers(
 def validate_single_main_carrier(
     *,
     path: Path,
-    expected_ciphertext: bytes,
     expected_doc_id: bytes,
     expected_doc_hash: bytes,
     expected_sign_pub: bytes,
-    expected_recovery_fallback_lines: tuple[str, ...] | None = None,
     require_auth: bool,
     quiet: bool,
-    recovery_frames_from_scan: Callable[..., list[Any]],
-    dedupe_frames: Callable[[list[Any]], list[Any]],
-    split_main_and_auth_frames: Callable[[list[Any]], tuple[list[Any], list[Any]]],
-    reassemble_payload: Callable[..., bytes],
-    doc_id_and_hash_from_ciphertext: Callable[[bytes], tuple[bytes, bytes]],
-    resolve_auth_payload: Callable[..., tuple[Any, str]],
-    validate_fallback_recovery_document_fn: Callable[..., None],
-    is_qr_absent_scan_error: Callable[[Exception], bool],
 ) -> None:
-    allow_fallback_validation = expected_recovery_fallback_lines is not None
     try:
-        frames = recovery_frames_from_scan([str(path)], quiet=quiet)
-        deduped = dedupe_frames(frames)
-        main_frames, auth_frames = split_main_and_auth_frames(deduped)
+        frames = _recovery_frames_from_scan([str(path)], quiet=quiet)
+        deduped = _dedupe_frames(frames)
+        main_frames, auth_frames = _split_main_and_auth_frames(deduped)
         ciphertext = reassemble_payload(
             main_frames,
             expected_frame_type=FrameType.MAIN_DOCUMENT,
         )
-        doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
+        doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
         if doc_id != expected_doc_id or doc_hash != expected_doc_hash:
             raise ApiCommandError(
                 code=EXTENSION_MAIN_CARRIER_INVALID,
@@ -99,7 +78,7 @@ def validate_single_main_carrier(
                     "extension ciphertext"
                 ),
             )
-        auth_payload, _auth_status = resolve_auth_payload(
+        auth_payload, _auth_status = _resolve_auth_payload(
             auth_frames,
             doc_id=expected_doc_id,
             doc_hash=expected_doc_hash,
@@ -110,17 +89,6 @@ def validate_single_main_carrier(
     except ApiCommandError:
         raise
     except Exception as exc:
-        if allow_fallback_validation and is_qr_absent_scan_error(exc):
-            validate_fallback_recovery_document_fn(
-                path=path,
-                expected_ciphertext=expected_ciphertext,
-                expected_doc_id=expected_doc_id,
-                expected_doc_hash=expected_doc_hash,
-                expected_sign_pub=expected_sign_pub,
-                expected_recovery_fallback_lines=expected_recovery_fallback_lines,
-                quiet=quiet,
-            )
-            return
         raise ApiCommandError(
             code=EXTENSION_MAIN_CARRIER_INVALID,
             message=f"rendered MAIN carrier {path.name} is invalid: {exc}",
@@ -134,29 +102,16 @@ def validate_single_main_carrier(
                 "root-derived signing authority"
             ),
         )
-    if expected_recovery_fallback_lines is not None:
-        validate_fallback_recovery_document_fn(
-            path=path,
-            expected_ciphertext=expected_ciphertext,
-            expected_doc_id=expected_doc_id,
-            expected_doc_hash=expected_doc_hash,
-            expected_sign_pub=expected_sign_pub,
-            expected_recovery_fallback_lines=expected_recovery_fallback_lines,
-            quiet=quiet,
-        )
 
 
 def validate_staged_recovery_kit_index_document(
     plan: PreparedExtensionPublishPlan,
-    *,
-    pdf_reader_factory: Callable[[str], PdfReader],
-    expected_component_ids_fn: Callable[[PreparedExtensionPublishPlan], tuple[str, ...]],
 ) -> None:
     path = plan.artifacts.recovery_kit_index_path
     if path is None:
         return
     try:
-        reader = pdf_reader_factory(str(path))
+        reader = PdfReader(str(path))
     except Exception as exc:
         raise ApiCommandError(
             code=EXTENSION_MAIN_CARRIER_INVALID,
@@ -172,7 +127,7 @@ def validate_staged_recovery_kit_index_document(
     extracted_text = "\n".join((page.extract_text() or "") for page in reader.pages)
     missing_component_ids = [
         component_id
-        for component_id in expected_component_ids_fn(plan)
+        for component_id in expected_recovery_kit_index_component_ids(plan)
         if component_id not in extracted_text
     ]
     if missing_component_ids:
@@ -189,7 +144,12 @@ def validate_staged_recovery_kit_index_document(
 def expected_recovery_kit_index_component_ids(
     plan: PreparedExtensionPublishPlan,
 ) -> tuple[str, ...]:
-    component_ids = ["QR-DOC-01", "RECOVERY-DOC-01"]
+    component_ids = [
+        plan.encrypted.doc_id.hex(),
+        f"Extension {plan.prepared.next_index:02d}",
+        "QR-DOC-01",
+        "RECOVERY-DOC-01",
+    ]
     component_ids.extend(
         f"SHARD-{share_index:02d}"
         for share_index in range(1, plan.publish_policy.passphrase_shard_count + 1)

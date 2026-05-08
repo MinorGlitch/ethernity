@@ -110,6 +110,13 @@ class TestApiConfigService(unittest.TestCase):
                         "values": {
                             "templates": {"template_name": "ledger"},
                             "page": {"size": "LETTER"},
+                            "extension": {
+                                "chunking": {
+                                    "target_size": 16384,
+                                    "min_size": 4096,
+                                    "max_size": 65536,
+                                }
+                            },
                             "defaults": {"backup": {"output_dir": "/tmp/backups"}},
                         },
                         "onboarding": {
@@ -135,6 +142,9 @@ class TestApiConfigService(unittest.TestCase):
         )
         self.assertEqual(parsed["page"]["size"], "LETTER")
         self.assertEqual(parsed["template"]["name"], "ledger")
+        self.assertEqual(parsed["extension"]["chunking"]["target_size"], 16384)
+        self.assertEqual(parsed["extension"]["chunking"]["min_size"], 4096)
+        self.assertEqual(parsed["extension"]["chunking"]["max_size"], 65536)
         self.assertEqual(parsed["defaults"]["backup"]["output_dir"], "/tmp/backups")
 
     def test_get_api_config_snapshot_reports_invalid_toml_and_defaults(self) -> None:
@@ -348,6 +358,26 @@ class TestApiConfigService(unittest.TestCase):
                 )
 
         self.assertEqual(raised.exception.code, "CONFIG_UNKNOWN_FIELD")
+
+    def test_apply_api_config_patch_rejects_invalid_extension_chunking_order(self) -> None:
+        with _temporary_config_path(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) as path:
+            with self.assertRaises(api_config.ConfigPatchError) as raised:
+                api_config.apply_api_config_patch(
+                    path,
+                    {
+                        "values": {
+                            "extension": {
+                                "chunking": {
+                                    "target_size": 4096,
+                                    "min_size": 16384,
+                                    "max_size": 65536,
+                                }
+                            }
+                        }
+                    },
+                )
+
+        self.assertEqual(raised.exception.code, "CONFIG_CONFLICT")
 
     def test_apply_api_config_patch_rejects_onboarding_for_explicit_config(self) -> None:
         with _temporary_config_path(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) as path:

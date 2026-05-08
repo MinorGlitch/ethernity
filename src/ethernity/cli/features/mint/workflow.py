@@ -30,11 +30,7 @@ from ethernity.cli.features.backup.execution import (
     _resolve_layout_debug_dir,
 )
 from ethernity.cli.features.backup.wizard import _prompt_quorum_choice
-from ethernity.cli.features.recover.chain import (
-    decode_authenticated_extension_link,
-    detect_recovery_root_dir,
-    discover_recovery_extensions,
-)
+from ethernity.cli.features.recover.chain import decode_imported_extension_link
 from ethernity.cli.features.recover.input_collection import (
     RECOVERY_SCAN_LABEL,
     prompt_recovery_input_interactive,
@@ -54,7 +50,6 @@ from ethernity.cli.features.recover.planning import (
     validate_recover_args,
 )
 from ethernity.cli.features.recover.wizard import _load_shard_frames, _prompt_key_material
-from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.events import EventSink, emit_phase, emit_progress, event_session
 from ethernity.cli.shared.io.outputs import (
     _commit_prepared_output_dir,
@@ -91,8 +86,10 @@ from ethernity.crypto.sharding import (
 )
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import Frame
-from ethernity.formats.envelope_codec import decode_envelope
+from ethernity.extensions.chain import validate_extension_chain
+from ethernity.formats.envelope_codec import decode_any_envelope, decode_envelope
 from ethernity.formats.envelope_types import EnvelopeManifest
+from ethernity.formats.extension_envelope import ExtensionEnvelope
 from ethernity.render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
 from ethernity.render.service import RenderService
 
@@ -204,7 +201,7 @@ def execute_mint(
             shard_payloads_file=recovery_shard_payloads_file,
             shard_scan=list(state.shard_scan),
             output_path=None,
-            root_dir=state.root_dir,
+            root_dir=None,
             extension_index=None,
             extension_doc_hash=None,
             args=state.recover_args,
@@ -398,10 +395,7 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                             allow_unsigned=False,
                             quiet=quiet,
                         )
-                    if (
-                        input_label in {RECOVERY_SCAN_LABEL, "Backup root directory"}
-                        and input_detail
-                    ):
+                    if input_label == RECOVERY_SCAN_LABEL and input_detail:
                         working_args.scan = [input_detail]
                         recover_args = _recover_args_from_mint_args(working_args)
                     stage_index += 1
@@ -475,11 +469,6 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                     shard_fallback_files=shard_fallback_files,
                     shard_payloads_file=shard_payloads_file,
                 )
-                detected_root_dir = None
-                if working_args.scan:
-                    resolved_root_dir = detect_recovery_root_dir(list(working_args.scan))
-                    if resolved_root_dir is not None:
-                        detected_root_dir = str(resolved_root_dir)
                 plan = build_recovery_plan(
                     frames=frames,
                     extra_auth_frames=extra_auth_frames,
@@ -492,7 +481,7 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                     shard_payloads_file=recovery_shard_payloads_file,
                     shard_scan=list(working_args.shard_scan or []),
                     output_path=None,
-                    root_dir=detected_root_dir,
+                    root_dir=None,
                     extension_index=None,
                     extension_doc_hash=None,
                     args=recover_args,
@@ -1168,33 +1157,76 @@ def _resolve_mint_chain_target(
     quiet: bool,
     debug: bool,
 ) -> Any:
-    root_dir = getattr(plan, "root_dir", None)
     auth_payload = getattr(plan, "auth_payload", None)
     passphrase = getattr(plan, "passphrase", None)
-    if root_dir is None or auth_payload is None or passphrase is None:
+    import_documents = getattr(plan, "import_documents", ())
+    if len(import_documents) <= 1 or auth_payload is None or passphrase is None:
         return plan
 
-    inventory = discover_recovery_extensions(Path(root_dir), quiet=quiet)
-    if not inventory:
+    decoded_links = []
+    documents_by_doc_hash = {document.doc_hash: document for document in import_documents}
+    for document in import_documents:
+        if document.doc_hash == plan.doc_hash or document.doc_id == plan.doc_id:
+            continue
+        try:
+            decoded = decode_imported_extension_link(
+                document,
+                passphrase=passphrase,
+                expected_sign_pub=auth_payload.sign_pub,
+                quiet=quiet,
+                debug=debug,
+            )
+        except ValueError as exc:
+            if _mint_document_targets_current_root(
+                document,
+                passphrase=passphrase,
+                root_doc_hash=plan.doc_hash,
+                debug=debug,
+            ):
+                raise ValueError(f"imported extension could not be trusted: {exc}") from exc
+            continue
+        if decoded.link.document.header.root_doc_hash != plan.doc_hash:
+            continue
+        decoded_links.append(decoded)
+    if not decoded_links:
         return plan
+    decoded_links.sort(key=lambda item: item.link.document.header.index)
+    try:
+        validate_extension_chain(
+            root_doc_hash=plan.doc_hash,
+            extensions=tuple(item.link for item in decoded_links),
+        )
+    except ValueError as exc:
+        raise ValueError(f"imported extension chain could not be trusted: {exc}") from exc
+    latest_decoded = decoded_links[-1]
+    latest = documents_by_doc_hash[latest_decoded.link.doc_hash]
 
-    latest = inventory[-1]
-    decoded = decode_authenticated_extension_link(
-        latest,
-        passphrase=passphrase,
-        expected_sign_pub=auth_payload.sign_pub,
-        allow_unsigned=False,
-        quiet=quiet,
-        debug=debug,
-    )
-    doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(latest.ciphertext)
     return replace(
         plan,
         ciphertext=latest.ciphertext,
-        doc_id=doc_id,
-        doc_hash=doc_hash,
-        auth_payload=decoded.auth_payload,
-        auth_status=decoded.auth_status,
+        doc_id=latest.doc_id,
+        doc_hash=latest.doc_hash,
+        auth_payload=latest_decoded.auth_payload,
+        auth_status=latest_decoded.auth_status,
+    )
+
+
+def _mint_document_targets_current_root(
+    document: Any,
+    *,
+    passphrase: str,
+    root_doc_hash: bytes,
+    debug: bool,
+) -> bool:
+    try:
+        plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
+        version, decoded = decode_any_envelope(plaintext)
+    except Exception:
+        return False
+    return (
+        version == 2
+        and isinstance(decoded, ExtensionEnvelope)
+        and decoded.header.root_doc_hash == root_doc_hash
     )
 
 

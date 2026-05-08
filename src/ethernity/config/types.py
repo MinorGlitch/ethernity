@@ -61,6 +61,15 @@ class RuntimeDefaults:
 
 
 @dataclass(frozen=True)
+class ExtensionChunkingDefaults:
+    """Default content-defined chunking profile for new extension chains."""
+
+    target_size: int = 16 * 1024
+    min_size: int = 4 * 1024
+    max_size: int = 64 * 1024
+
+
+@dataclass(frozen=True)
 class CliDefaults:
     """Grouped defaults for CLI subcommands and UI behavior."""
 
@@ -83,4 +92,5 @@ class AppConfig:
     paper_size: str
     qr_config: QrConfig
     qr_chunk_size: int
+    extension_chunking: ExtensionChunkingDefaults = field(default_factory=ExtensionChunkingDefaults)
     cli_defaults: CliDefaults = field(default_factory=CliDefaults)

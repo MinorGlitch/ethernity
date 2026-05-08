@@ -18,7 +18,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from ethernity.cli.features.extend.planning import _shard_frames_from_extend_args, inspect_from_args
+from ethernity.cli.features.extend.planning import (
+    _shard_frames_from_extend_args,
+    inspect_from_args,
+    resolve_extend_state,
+)
 from ethernity.cli.features.recover.chain import (
     DiscoveredRecoveryExtension,
     RecoveryChainInspection,
@@ -101,6 +105,53 @@ def _recovery_chain_inspection(
     )
 
 
+def _extension_inventory(
+    *,
+    extensions: tuple[DiscoveredRecoveryExtension, ...] = (),
+    failure: RecoveryReplayFailure | None = None,
+) -> RecoveryExtensionInventory:
+    return RecoveryExtensionInventory(
+        extensions=extensions,
+        explicit_selection=False,
+        requested_head_index=None,
+        requested_head_doc_hash=None,
+        requested_target_matched=False,
+        latest_head_index=(
+            failure.head_index
+            if failure is not None
+            else extensions[-1].index
+            if extensions
+            else None
+        ),
+        latest_head_doc_hash=extensions[-1].doc_hash.hex() if extensions else None,
+        latest_head_dir_name=(
+            failure.head_dir_name
+            if failure is not None
+            else extensions[-1].dir_name
+            if extensions
+            else None
+        ),
+        failure=failure,
+    )
+
+
+def _discovered_extension(
+    *,
+    index: int = 1,
+    dir_name: str = "01",
+    doc_id_hex: str = "deadbeefcafebabe",
+    doc_hash: bytes = b"\xca\xfe\xba\xbe",
+) -> DiscoveredRecoveryExtension:
+    return DiscoveredRecoveryExtension(
+        index=index,
+        dir_name=dir_name,
+        doc_id_hex=doc_id_hex,
+        doc_hash=doc_hash,
+        ciphertext=b"extension",
+        auth_frames=(),
+    )
+
+
 class TestExtendInspection(unittest.TestCase):
     def test_inspect_from_args_requires_root_dir(self) -> None:
         with self.assertRaises(ApiCommandError):
@@ -147,15 +198,9 @@ class TestExtendInspection(unittest.TestCase):
                 return_value=_root_inspection(),
             ),
             mock.patch(
-                "ethernity.cli.features.extend.planning._inspect_discovered_extensions",
-                return_value=(
-                    mock.Mock(
-                        dir_name="01",
-                        doc_id_hex="deadbeefcafebabe",
-                        doc_hash_hex="cafebabe",
-                        doc_hash=None,
-                        ciphertext=None,
-                    ),
+                "ethernity.cli.features.extend.planning._inspect_published_extension_inventory",
+                return_value=_extension_inventory(
+                    extensions=(_discovered_extension(doc_hash=b"\xca\xfe\xba\xbe"),),
                 ),
             ),
         ):
@@ -248,8 +293,15 @@ class TestExtendInspection(unittest.TestCase):
                 return_value=_root_inspection(),
             ),
             mock.patch(
-                "ethernity.cli.features.extend.planning.scan_extension_carriers",
-                side_effect=ValueError("unreadable MAIN data"),
+                "ethernity.cli.features.extend.planning._inspect_published_extension_inventory",
+                return_value=_extension_inventory(
+                    failure=RecoveryReplayFailure(
+                        stage="discovery",
+                        message="extension 01 MAIN carriers could not be reconstructed",
+                        head_index=1,
+                        head_dir_name="01",
+                    )
+                ),
             ),
         ):
             root_dir = Path(tmpdir) / "backup-root"
@@ -350,11 +402,11 @@ class TestExtendInspection(unittest.TestCase):
             ):
                 inspection = inspect_from_args(ExtendArgs(root_dir=str(root_dir)))
 
-        self.assertEqual(inspection.discovered_extension_dirs, (1,))
+        self.assertEqual(inspection.discovered_extension_dirs, ())
         self.assertEqual(inspection.available_extensions, ())
         self.assertEqual(inspection.blocking_issues[0]["code"], "EXTENSION_LAYOUT_INVALID")
         self.assertIn(
-            "extension 01 MAIN carriers could not be reconstructed",
+            "doc_id must be 8 bytes",
             inspection.blocking_issues[0]["message"],
         )
 
@@ -366,14 +418,14 @@ class TestExtendInspection(unittest.TestCase):
                 return_value=_root_inspection(),
             ),
             mock.patch(
-                "ethernity.cli.features.extend.planning._inspect_discovered_extensions",
-                return_value=(
-                    mock.Mock(
-                        dir_name="01",
-                        doc_id_hex="deadbeefcafebabe",
-                        doc_hash_hex="cafebabe",
-                        doc_hash=None,
-                        ciphertext=None,
+                "ethernity.cli.features.extend.planning._inspect_published_extension_inventory",
+                return_value=_extension_inventory(
+                    extensions=(_discovered_extension(),),
+                    failure=RecoveryReplayFailure(
+                        stage="discovery",
+                        message="missing required payload MAIN carriers",
+                        head_index=2,
+                        head_dir_name="02",
                     ),
                 ),
             ),
@@ -512,6 +564,82 @@ class TestExtendInspection(unittest.TestCase):
                 "missing_count": 0,
             },
         )
+
+    def test_resolve_extend_state_uses_configured_chunking_for_new_chain(self) -> None:
+        manifest, payload = build_manifest_and_payload(
+            (PayloadPart(path="alpha.txt", data=b"alpha", mtime=1),),
+            sealed=False,
+            signing_seed=b"\x33" * 32,
+            created_at=1.0,
+            input_origin="file",
+            input_roots=(),
+        )
+        unlocked_root = RecoveryInspection(
+            **{
+                **_root_inspection(passphrase="secret").__dict__,
+                "unlock": RecoveryUnlockStatus(
+                    mode="passphrase",
+                    passphrase_provided=True,
+                    validated_shard_count=0,
+                    required_shard_threshold=None,
+                    satisfied=True,
+                    resolved_passphrase="secret",
+                    blocking_issues=(),
+                ),
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "backup-root"
+            config_path = Path(tmpdir) / "config.toml"
+            root_dir.mkdir()
+            config_path.write_text(
+                """
+[defaults.backup]
+qr_payload_codec = "raw"
+
+[extension.chunking]
+target_size = 16384
+min_size = 4096
+max_size = 65536
+""",
+                encoding="utf-8",
+            )
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    return_value=unlocked_root,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    return_value=(manifest, payload),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                    return_value=(
+                        LogicalFileState(
+                            path="alpha.txt",
+                            size=5,
+                            sha256=manifest.files[0].sha256,
+                            mtime=1,
+                            data=b"alpha",
+                        ),
+                    ),
+                ),
+            ):
+                resolved = resolve_extend_state(
+                    ExtendArgs(
+                        config=str(config_path),
+                        root_dir=str(root_dir),
+                        passphrase="secret",
+                    )
+                )
+
+        self.assertIsNotNone(resolved.chunking)
+        assert resolved.chunking is not None
+        self.assertEqual(resolved.chunking.target_size, 16384)
+        self.assertEqual(resolved.chunking.min_size, 4096)
+        self.assertEqual(resolved.chunking.max_size, 65536)
 
     def test_inspect_from_args_blocks_root_authority_mismatch(self) -> None:
         manifest, payload = build_manifest_and_payload(
@@ -685,15 +813,8 @@ class TestExtendInspection(unittest.TestCase):
             (root_dir / "alpha.txt").write_text("alpha", encoding="utf-8")
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.discover_validated_extension_directories",
-                    return_value=mock.Mock(
-                        directories=(mock.Mock(index=1, dir_name="01"),),
-                        first_invalid_message=(
-                            "extension directory 02 is missing required payload MAIN carriers: "
-                            "recovery_document"
-                        ),
-                        first_invalid_dir_name="02",
-                    ),
+                    "ethernity.cli.features.extend.planning._inspect_published_extension_inventory",
+                    return_value=chain_inspection.inventory,
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.planning._inspect_root_recovery",
@@ -716,7 +837,7 @@ class TestExtendInspection(unittest.TestCase):
                     ),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.inspect_recovery_extension_chain",
+                    "ethernity.cli.features.extend.planning._inspect_published_extension_chain",
                     return_value=chain_inspection,
                 ),
             ):
@@ -732,14 +853,19 @@ class TestExtendInspection(unittest.TestCase):
         self.assertEqual(inspection.discovered_extension_dirs, (1,))
         self.assertEqual(inspection.validated_head_index, 0)
         self.assertEqual(inspection.validated_head_doc_hash, "22" * 32)
-        self.assertIsNone(inspection.validated_head_auth_status)
-        self.assertIsNone(inspection.validated_head_root_authority_verified)
+        self.assertEqual(inspection.validated_head_auth_status, "verified")
+        self.assertTrue(inspection.validated_head_root_authority_verified)
         self.assertEqual(
             inspection.available_extensions,
             ({"dir_name": "01", "doc_id": "de" * 8, "doc_hash": "aa" * 32},),
         )
+        expected_details = {
+            **degraded_refusal.details,
+            "validated_head_auth_status": "verified",
+            "validated_head_root_authority_verified": True,
+        }
         self.assertEqual(inspection.blocking_issues[0]["code"], api_codes.RECOVERY_HEAD_UNTRUSTED)
-        self.assertEqual(inspection.blocking_issues[0]["details"], degraded_refusal.details)
+        self.assertEqual(inspection.blocking_issues[0]["details"], expected_details)
         self.assertEqual(inspection.blocking_issues[0]["details"]["failure_stage"], "discovery")
         self.assertEqual(inspection.blocking_issues[0]["details"]["validated_head_index"], 0)
         self.assertNotIn("CHAIN_INVALID", [issue["code"] for issue in inspection.blocking_issues])
@@ -829,28 +955,11 @@ class TestExtendInspection(unittest.TestCase):
                     ),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.discover_validated_extension_directories",
-                    return_value=mock.Mock(
-                        directories=(mock.Mock(index=1, dir_name="01"),),
-                        first_invalid_message=None,
-                        first_invalid_dir_name=None,
-                    ),
+                    "ethernity.cli.features.extend.planning._inspect_published_extension_inventory",
+                    return_value=_extension_inventory(extensions=(extension,)),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._inspect_discovered_extensions",
-                    return_value=(
-                        mock.Mock(
-                            dir_name="01",
-                            doc_id_hex="de" * 8,
-                            doc_hash_hex="aa" * 32,
-                            doc_hash=b"\xaa" * 32,
-                            ciphertext=b"extension-01",
-                            auth_frames=(),
-                        ),
-                    ),
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.planning.inspect_recovery_extension_chain",
+                    "ethernity.cli.features.extend.planning._inspect_published_extension_chain",
                     return_value=chain_inspection,
                 ),
             ):

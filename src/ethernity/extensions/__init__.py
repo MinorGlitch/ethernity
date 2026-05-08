@@ -61,6 +61,7 @@ from ethernity.extensions.staging import (
     create_extension_staging_dir,
     create_staged_extension_artifact_plan,
     promote_staged_extension_dir,
+    snapshot_staged_extension_dir,
     validate_staged_extension_dir,
 )
 
@@ -100,6 +101,7 @@ __all__ = [
     "payload_main_carriers",
     "promote_staged_extension_dir",
     "reconstruct_latest_logical_state",
+    "snapshot_staged_extension_dir",
     "validate_staged_extension_dir",
     "validate_extension_chain",
 ]

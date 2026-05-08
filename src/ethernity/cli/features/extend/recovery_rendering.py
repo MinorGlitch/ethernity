@@ -18,56 +18,25 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-from typing import Any, Callable, cast
-
-from fpdf import FPDF
+from typing import Callable
 
 from ethernity import render as render_module
 from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.ui.debug import _append_signing_key_lines
 from ethernity.encoding.framing import VERSION, Frame, FrameType
-from ethernity.render.doc_types import DOC_TYPE_RECOVERY
-from ethernity.render.layout import compute_layout
-from ethernity.render.recovery_meta import build_recovery_meta, recovery_meta_lines_extra
+from ethernity.render.recovery_meta import build_recovery_meta
 from ethernity.render.service import RenderService
-from ethernity.render.spec import document_spec
-from ethernity.render.text import page_format
 from ethernity.render.types import RenderInputs, RenderLineage
 
-from .models import PreparedExtensionPublishPlan, ResolvedExtendRuntime
-
-
-def expected_recovery_fallback_lines(inputs: RenderInputs) -> tuple[str, ...]:
-    base_context = dict(inputs.context)
-    paper_size = str(base_context.get("paper_size") or "A4")
-    doc_id = base_context.get("doc_id")
-    if not isinstance(doc_id, str):
-        doc_id = inputs.frames[0].doc_id.hex()
-    spec = document_spec(inputs.doc_type, paper_size, base_context)
-    if inputs.doc_type.strip().lower() == DOC_TYPE_RECOVERY:
-        if inputs.recovery_meta is None:
-            raise ValueError("recovery metadata is required for recovery fallback validation")
-        spec = replace(
-            spec,
-            header=replace(
-                spec.header,
-                meta_lines_extra=recovery_meta_lines_extra(inputs.recovery_meta),
-            ),
-        )
-    layout_spec = spec.with_header(doc_id=doc_id, page_label="Page 1 / 1")
-    pdf = FPDF(unit="mm", format=cast(Any, page_format(layout_spec.page)))
-    pdf.set_auto_page_break(False)
-    _layout, fallback_lines = compute_layout(
-        inputs,
-        layout_spec,
-        pdf,
-        list(inputs.key_lines or ()),
-        include_keys=False,
-        include_instructions=True,
-    )
-    return tuple(line for line in fallback_lines if line.strip())
+from .models import (
+    ExtensionPassphraseShards,
+    ExtensionSigningKeyShards,
+    PlaintextPassphrase,
+    PreparedExtensionPublishPlan,
+    ResolvedExtendRuntime,
+    ReuseRootPassphraseShards,
+)
 
 
 def build_recovery_inputs(
@@ -81,14 +50,25 @@ def build_recovery_inputs(
     lineage: RenderLineage,
 ) -> RenderInputs:
     key_lines = build_recovery_key_lines(plan, runtime=runtime)
+    passphrase_value = (
+        plan.prepared.encryption_passphrase
+        if isinstance(runtime.passphrase, PlaintextPassphrase)
+        else None
+    )
+    quorum_threshold = (
+        runtime.passphrase.threshold
+        if isinstance(runtime.passphrase, ExtensionPassphraseShards | ReuseRootPassphraseShards)
+        else None
+    )
+    quorum_shares = (
+        runtime.passphrase.share_count
+        if isinstance(runtime.passphrase, ExtensionPassphraseShards | ReuseRootPassphraseShards)
+        else None
+    )
     recovery_meta = build_recovery_meta(
-        passphrase=(
-            None
-            if runtime.recovery_quorum_shares is not None
-            else plan.prepared.encryption_passphrase
-        ),
-        quorum_threshold=runtime.recovery_quorum_threshold,
-        quorum_shares=runtime.recovery_quorum_shares,
+        passphrase=passphrase_value,
+        quorum_threshold=quorum_threshold,
+        quorum_shares=quorum_shares,
         signing_pub=runtime.sign_pub,
     )
     fallback_sections = [
@@ -124,40 +104,37 @@ def build_recovery_key_lines(
     *,
     runtime: ResolvedExtendRuntime,
 ) -> list[str]:
-    if runtime.reuse_root_unlock:
-        threshold = runtime.recovery_quorum_threshold
-        shares = runtime.recovery_quorum_shares
-        if threshold is None or shares is None:
-            raise ApiCommandError(
-                code="RUNTIME_ERROR",
-                message="root shard quorum was not resolved for unlock_policy=reuse-root",
-            )
+    if isinstance(runtime.passphrase, ReuseRootPassphraseShards):
         key_lines = [
             "Passphrase is stored in the root backup shard documents.",
-            f"Recover with {threshold} of {shares} root shard documents.",
+            (
+                "Recover with "
+                f"{runtime.passphrase.threshold} of {runtime.passphrase.share_count} "
+                "root shard documents."
+            ),
         ]
-    elif runtime.publish_policy.passphrase_shard_count > 0:
-        threshold = runtime.passphrase_shard_threshold
-        if threshold is None:
-            raise ApiCommandError(
-                code="RUNTIME_ERROR",
-                message="passphrase shard threshold was not resolved",
-            )
+    elif isinstance(runtime.passphrase, ExtensionPassphraseShards):
         key_lines = [
             "Passphrase is sharded.",
             (
                 "Recover with "
-                f"{threshold} of {runtime.publish_policy.passphrase_shard_count} shard documents."
+                f"{runtime.passphrase.threshold} of {runtime.passphrase.share_count} "
+                "shard documents."
             ),
         ]
-    else:
+    elif isinstance(runtime.passphrase, PlaintextPassphrase):
         key_lines = ["Passphrase:", plan.prepared.encryption_passphrase]
+    else:
+        raise ApiCommandError(
+            code="RUNTIME_ERROR",
+            message="unknown extension passphrase storage policy",
+        )
     _append_signing_key_lines(
         key_lines,
         sign_pub=runtime.sign_pub,
         sealed=False,
         stored_in_main=False,
-        stored_as_shards=runtime.publish_policy.signing_key_shard_count > 0,
+        stored_as_shards=isinstance(runtime.signing_key, ExtensionSigningKeyShards),
         not_stored_message="Signing private key not stored in this extension document.",
     )
     return key_lines

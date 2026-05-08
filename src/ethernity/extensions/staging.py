@@ -18,6 +18,8 @@
 
 from __future__ import annotations
 
+import hashlib
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,6 +55,11 @@ class ValidatedStagedExtension:
     staging_dir: Path
     final_dir_name: str
     doc_id_hex: str
+    expected_index: int
+    publish_policy: ExtensionPublishPolicy
+
+
+StagedExtensionSnapshot = tuple[tuple[str, int, str], ...]
 
 
 @dataclass(frozen=True)
@@ -72,7 +79,9 @@ def create_extension_staging_dir(root_dir: str | Path, *, index: int, nonce: str
     root_path = Path(root_dir).expanduser()
     if root_path.is_symlink():
         raise ValueError("root backup directory must not be a symlink")
-    if root_path.exists() and not root_path.is_dir():
+    if not root_path.exists():
+        raise ValueError(f"root backup directory not found: {root_dir}")
+    if not root_path.is_dir():
         raise ValueError(f"root backup directory must be a directory: {root_dir}")
     extensions_dir = root_path / EXTENSIONS_DIR_NAME
     if extensions_dir.is_symlink():
@@ -80,6 +89,7 @@ def create_extension_staging_dir(root_dir: str | Path, *, index: int, nonce: str
     extensions_dir.mkdir(parents=True, exist_ok=True)
     staging_dir = extensions_dir / build_staging_dir_name(index, nonce)
     staging_dir.mkdir(parents=False, exist_ok=False)
+    staging_dir.chmod(0o700)
     return staging_dir
 
 
@@ -220,22 +230,77 @@ def validate_staged_extension_dir(
         staging_dir=path,
         final_dir_name=canonical_extension_dir_name(expected_index),
         doc_id_hex=doc_id_hex,
+        expected_index=expected_index,
+        publish_policy=publish_policy,
     )
 
 
 def promote_staged_extension_dir(
     validated: ValidatedStagedExtension,
+    *,
+    expected_snapshot: StagedExtensionSnapshot | None = None,
 ) -> Path:
     """Atomically promote a validated staged extension into its canonical directory."""
 
     staging_dir = validated.staging_dir
+    if staging_dir.is_symlink():
+        raise ValueError("validated staging_dir must not be a symlink")
     if not staging_dir.exists() or not staging_dir.is_dir():
         raise ValueError("validated staging_dir no longer exists")
-    final_dir = staging_dir.parent / validated.final_dir_name
-    if final_dir.exists():
-        raise ValueError(f"canonical extension directory already exists: {final_dir.name}")
-    staging_dir.rename(final_dir)
+    expected_final_dir_name = canonical_extension_dir_name(validated.expected_index)
+    lock_dir = staging_dir.parent / f".{expected_final_dir_name}.lock"
+    try:
+        lock_dir.mkdir(mode=0o700)
+    except FileExistsError as exc:
+        final_dir = staging_dir.parent / expected_final_dir_name
+        raise ValueError(
+            f"canonical extension directory is already being promoted: {final_dir.name}"
+        ) from exc
+
+    try:
+        revalidated = validate_staged_extension_dir(
+            staging_dir,
+            expected_index=validated.expected_index,
+            publish_policy=validated.publish_policy,
+        )
+        if revalidated.doc_id_hex != validated.doc_id_hex:
+            raise ValueError("validated staging_dir doc_id changed before promotion")
+        final_dir = staging_dir.parent / canonical_extension_dir_name(revalidated.expected_index)
+        if (
+            expected_snapshot is not None
+            and snapshot_staged_extension_dir(staging_dir) != expected_snapshot
+        ):
+            raise ValueError("validated staging_dir artifacts changed before promotion")
+        if final_dir.exists() or final_dir.is_symlink():
+            raise ValueError(f"canonical extension directory already exists: {final_dir.name}")
+        staging_dir.rename(final_dir)
+    finally:
+        with suppress(OSError):
+            lock_dir.rmdir()
     return final_dir
+
+
+def snapshot_staged_extension_dir(staging_dir: str | Path) -> StagedExtensionSnapshot:
+    """Return a content fingerprint for all regular files in a staged extension directory."""
+
+    path = Path(staging_dir).expanduser()
+    if path.is_symlink():
+        raise ValueError("staging_dir must not be a symlink")
+    if not path.exists() or not path.is_dir():
+        raise ValueError("staging_dir must be an existing directory")
+
+    snapshot: list[tuple[str, int, str]] = []
+    for entry in sorted(path.iterdir(), key=lambda item: item.name):
+        if entry.is_symlink():
+            raise ValueError(f"staged extension contains symlinked artifact: {entry.name}")
+        if not entry.is_file():
+            raise ValueError(f"staged extension contains unexpected non-file entry: {entry.name}")
+        digest = hashlib.sha256()
+        with entry.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        snapshot.append((entry.name, entry.stat().st_size, digest.hexdigest()))
+    return tuple(snapshot)
 
 
 def _require_index_match(*, entry: Path, actual_index: int, expected_index: int) -> None:

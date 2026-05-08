@@ -17,6 +17,7 @@ import gzip
 import hashlib
 import unittest
 
+from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES
 from ethernity.encoding.cbor import dumps_canonical
 from ethernity.encoding.varint import encode_uvarint
 from ethernity.formats.envelope_codec import (
@@ -104,6 +105,11 @@ def _encode_sections(header: dict[int, object], body: dict[int, object]) -> byte
             body_bytes,
         )
     )
+
+
+def _non_canonical_uvarint(value: int) -> bytes:
+    encoded = encode_uvarint(value)
+    return encoded[:-1] + bytes((encoded[-1] | 0x80, 0))
 
 
 class TestExtensionEnvelope(unittest.TestCase):
@@ -529,7 +535,7 @@ class TestExtensionEnvelope(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "decoded chunk length does not match raw_len"):
             envelope.reconstruct_files()
 
-    def test_decode_rejects_raw_chunk_length_mismatch(self) -> None:
+    def test_encode_rejects_raw_chunk_length_mismatch(self) -> None:
         chunk_bytes = b"payload"
         chunk_id = hashlib.sha256(chunk_bytes).digest()
         envelope = ExtensionEnvelope(
@@ -570,7 +576,37 @@ class TestExtensionEnvelope(unittest.TestCase):
             ValueError,
             "raw extension chunk data length must equal raw_len",
         ):
-            ExtensionEnvelope.decode(envelope.encode())
+            envelope.encode()
+
+    def test_decode_rejects_chunk_raw_len_over_payload_bound_before_decompression(self) -> None:
+        envelope = _make_test_envelope()
+        header, body = envelope.to_cbor_sections()
+        chunk_record = list(body[2][0])
+        chunk_record[1] = CHUNK_CODEC_GZIP
+        chunk_record[2] = MAX_DECOMPRESSED_PAYLOAD_BYTES + 1
+        chunk_record[3] = gzip.compress(b"x", compresslevel=9, mtime=0)
+        body[2] = [chunk_record]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "extension chunk raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES",
+        ):
+            ExtensionEnvelope.decode(_encode_sections(header, body))
+
+    def test_decode_rejects_aggregate_inline_chunk_raw_len_over_payload_bound(self) -> None:
+        envelope = _make_test_envelope()
+        header, body = envelope.to_cbor_sections()
+        raw_len = MAX_DECOMPRESSED_PAYLOAD_BYTES // 2 + 1
+        body[2] = [
+            [b"\x11" * 32, CHUNK_CODEC_GZIP, raw_len, gzip.compress(b"x", mtime=0)],
+            [b"\x22" * 32, CHUNK_CODEC_GZIP, raw_len, gzip.compress(b"y", mtime=0)],
+        ]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "extension inline chunk bytes exceed MAX_DECOMPRESSED_PAYLOAD_BYTES",
+        ):
+            ExtensionEnvelope.decode(_encode_sections(header, body))
 
     def test_rejects_unordered_files(self) -> None:
         chunk_bytes = b"x"
@@ -625,6 +661,44 @@ class TestExtensionEnvelope(unittest.TestCase):
                 encode_uvarint(len(header_bytes)),
                 header_bytes,
                 encode_uvarint(len(body_bytes)),
+                body_bytes,
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "non-canonical varint"):
+            ExtensionEnvelope.decode(malformed)
+
+    def test_decode_rejects_non_canonical_header_len_uvarint(self) -> None:
+        envelope = _make_test_envelope()
+        header, body = envelope.to_cbor_sections()
+        header_bytes = dumps_canonical(header)
+        body_bytes = dumps_canonical(body)
+        malformed = b"".join(
+            (
+                MAGIC,
+                encode_uvarint(2),
+                _non_canonical_uvarint(len(header_bytes)),
+                header_bytes,
+                encode_uvarint(len(body_bytes)),
+                body_bytes,
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "non-canonical varint"):
+            ExtensionEnvelope.decode(malformed)
+
+    def test_decode_rejects_non_canonical_body_len_uvarint(self) -> None:
+        envelope = _make_test_envelope()
+        header, body = envelope.to_cbor_sections()
+        header_bytes = dumps_canonical(header)
+        body_bytes = dumps_canonical(body)
+        malformed = b"".join(
+            (
+                MAGIC,
+                encode_uvarint(2),
+                encode_uvarint(len(header_bytes)),
+                header_bytes,
+                _non_canonical_uvarint(len(body_bytes)),
                 body_bytes,
             )
         )

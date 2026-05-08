@@ -27,7 +27,7 @@ from ethernity.cli.features.extend.models import (
     PreparedExtendRun,
     PreparedExtensionPublishPlan,
 )
-from ethernity.cli.features.extend.planning import resolve_extend_state
+from ethernity.cli.features.extend.planning import ResolvedExtendState, resolve_extend_state
 from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import ExtendArgs
@@ -48,7 +48,21 @@ def prepare_extend_run(args: ExtendArgs) -> PreparedExtendRun:
             message="extend requires at least one explicit --input or --input-dir selection",
         )
 
-    resolved = resolve_extend_state(args)
+    return prepare_extend_run_from_state(args, resolve_extend_state(args))
+
+
+def prepare_extend_run_from_state(
+    args: ExtendArgs,
+    resolved: ResolvedExtendState,
+) -> PreparedExtendRun:
+    """Validate extend preconditions from an already resolved planning state."""
+
+    if not args.input and not args.input_dir:
+        raise ApiCommandError(
+            code=EXTENSION_INPUT_REQUIRED,
+            message="extend requires at least one explicit --input or --input-dir selection",
+        )
+
     inspection = resolved.inspection
     if inspection.blocking_issues:
         first_issue = inspection.blocking_issues[0]
@@ -226,6 +240,7 @@ def prepare_staged_extension_publish(
 __all__ = [
     "assemble_prepared_extension_document",
     "encrypt_prepared_extension_document",
+    "prepare_extend_run_from_state",
     "prepare_extend_run",
     "prepare_staged_extension_publish",
 ]

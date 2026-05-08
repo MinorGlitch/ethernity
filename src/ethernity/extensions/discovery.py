@@ -239,7 +239,7 @@ def _discover_extension_directory(*, index: int, path: Path) -> DiscoveredExtens
     main_carriers: list[DiscoveredExtensionMainCarrier] = []
     shard_carriers: list[DiscoveredExtensionShardCarrier] = []
     main_types: set[str] = set()
-    shard_keys: set[tuple[str, int, int]] = set()
+    shard_keys: set[tuple[str, int]] = set()
 
     for entry in sorted(path.iterdir(), key=lambda item: item.name):
         if entry.is_symlink():
@@ -307,7 +307,7 @@ def _collect_extension_artifact(
     main_carriers: list[DiscoveredExtensionMainCarrier],
     shard_carriers: list[DiscoveredExtensionShardCarrier],
     main_types: set[str],
-    shard_keys: set[tuple[str, int, int]],
+    shard_keys: set[tuple[str, int]],
 ) -> None:
     if entry.name.startswith(_MAIN_FILENAME_PREFIXES):
         parsed_main = _parse_main_carrier(entry=entry, expected_index=expected_index)
@@ -321,7 +321,7 @@ def _collect_extension_artifact(
         return
 
     parsed_shard = _parse_shard_carrier(entry=entry, expected_index=expected_index)
-    shard_key = (parsed_shard.doc_type, parsed_shard.share_index, parsed_shard.share_count)
+    shard_key = (parsed_shard.doc_type, parsed_shard.share_index)
     if shard_key in shard_keys:
         raise ValueError(
             f"extension directory {entry.parent.name} contains duplicate shard carrier "

@@ -41,6 +41,7 @@ from ethernity.cli.features.extend.prepare import (
     assemble_prepared_extension_document,
     encrypt_prepared_extension_document,
     prepare_extend_run,
+    prepare_extend_run_from_state,
     prepare_staged_extension_publish,
 )
 from ethernity.cli.features.extend.runtime import resolve_extend_runtime
@@ -63,6 +64,7 @@ __all__ = [
     "execute_prepared_extend",
     "encrypt_prepared_extension_document",
     "prepare_extend_run",
+    "prepare_extend_run_from_state",
     "prepare_staged_extension_publish",
     "resolve_extend_runtime",
     "run_extend",

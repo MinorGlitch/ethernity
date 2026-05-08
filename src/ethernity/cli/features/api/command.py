@@ -996,7 +996,6 @@ def _build_extend_api_args(
     signing_key_shard_threshold: str | None,
     signing_key_shard_count: str | None,
 ) -> ExtendArgs:
-    defaults = _state_backup_defaults(state)
     qr_chunk_size_cli = _parse_api_int_option("--qr-chunk-size", qr_chunk_size)
     unlock_policy_cli = _parse_unlock_policy(unlock_policy)
     shard_threshold_cli = _parse_api_int_option("--shard-threshold", shard_threshold)
@@ -1010,30 +1009,6 @@ def _build_extend_api_args(
         "--signing-key-shard-count",
         signing_key_shard_count,
     )
-    if unlock_policy_cli == "reuse-root":
-        shard_threshold_value = shard_threshold_cli
-        shard_count_value = shard_count_cli
-        signing_key_mode_value = signing_key_mode_cli
-        signing_key_shard_threshold_value = signing_key_shard_threshold_cli
-        signing_key_shard_count_value = signing_key_shard_count_cli
-    else:
-        shard_threshold_value = (
-            shard_threshold_cli if shard_threshold_cli is not None else defaults.shard_threshold
-        )
-        shard_count_value = shard_count_cli if shard_count_cli is not None else defaults.shard_count
-        signing_key_mode_value = (
-            signing_key_mode_cli if signing_key_mode_cli is not None else defaults.signing_key_mode
-        )
-        signing_key_shard_threshold_value = (
-            signing_key_shard_threshold_cli
-            if signing_key_shard_threshold_cli is not None
-            else defaults.signing_key_shard_threshold
-        )
-        signing_key_shard_count_value = (
-            signing_key_shard_count_cli
-            if signing_key_shard_count_cli is not None
-            else defaults.signing_key_shard_count
-        )
     return ExtendArgs(
         config=config_value,
         paper=paper_value,
@@ -1052,14 +1027,14 @@ def _build_extend_api_args(
             Literal["self-contained", "reuse-root"] | None,
             unlock_policy_cli,
         ),
-        shard_threshold=shard_threshold_value,
-        shard_count=shard_count_value,
+        shard_threshold=shard_threshold_cli,
+        shard_count=shard_count_cli,
         signing_key_mode=cast(
             SigningKeyMode | None,
-            signing_key_mode_value,
+            signing_key_mode_cli,
         ),
-        signing_key_shard_threshold=signing_key_shard_threshold_value,
-        signing_key_shard_count=signing_key_shard_count_value,
+        signing_key_shard_threshold=signing_key_shard_threshold_cli,
+        signing_key_shard_count=signing_key_shard_count_cli,
         quiet=True,
     )
 

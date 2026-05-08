@@ -19,13 +19,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from ethernity.cli.bootstrap.startup import ensure_playwright_browsers
-from ethernity.cli.features.extend.planning import inspect_from_args, require_extend_root_dir
+from ethernity.cli.features.extend.planning import require_extend_root_dir, resolve_extend_state
 from ethernity.cli.features.extend.service import (
     EXTENSION_INPUT_REQUIRED,
     PublishedExtensionResult,
     encrypt_prepared_extension_document,
     execute_prepared_extend,
     prepare_extend_run,
+    prepare_extend_run_from_state,
     resolve_extend_runtime,
 )
 from ethernity.cli.features.recover.api_handlers import _ForwardingWarningCollector
@@ -45,6 +46,7 @@ from ethernity.cli.shared.ndjson import (
     error_details_for_exception,
 )
 from ethernity.cli.shared.types import ExtendArgs
+from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
 from ethernity.extensions.build import default_extension_chunker
 from ethernity.extensions.layout import parse_extension_shard_filename
 
@@ -172,12 +174,12 @@ def _emit_layout_debug_artifacts(
 
 
 def run_extend_api_command(args: ExtendArgs, *, debug: bool = False) -> int:
+    require_extend_root_dir(args, command_name="ethernity api extend")
     if not args.input and not args.input_dir:
         raise ApiCommandError(
             code=EXTENSION_INPUT_REQUIRED,
             message="extend requires at least one explicit --input or --input-dir selection",
         )
-    require_extend_root_dir(args, command_name="ethernity api extend")
 
     emit_started(
         command="extend",
@@ -232,7 +234,8 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
     sink = _ForwardingWarningCollector(active_event_sink())
     with event_session(sink):
         emit_phase(phase="plan", label="Inspecting extension layout")
-        inspection = inspect_from_args(args)
+        resolved = resolve_extend_state(args)
+        inspection = resolved.inspection
         blocking_issues = [dict(item) for item in inspection.blocking_issues]
         chunk_reuse: dict[str, int] | None = None
         estimated_extension_bytes: int | None = None
@@ -243,8 +246,26 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
             and (bool(diff_summary.get("changed_paths")) or bool(diff_summary.get("new_paths")))
         ):
             try:
-                prepared = prepare_extend_run(args)
+                prepared = prepare_extend_run_from_state(args, resolved)
                 resolve_extend_runtime(prepared)
+                chunk_reuse, estimated_extension_bytes = _preview_chunk_reuse(prepared)
+                if (
+                    estimated_extension_bytes is not None
+                    and estimated_extension_bytes > MAX_CIPHERTEXT_BYTES
+                ):
+                    blocking_issues.append(
+                        {
+                            "code": "RUNTIME_ERROR",
+                            "message": (
+                                "extension ciphertext exceeds MAX_CIPHERTEXT_BYTES "
+                                f"({MAX_CIPHERTEXT_BYTES}): "
+                                f"{estimated_extension_bytes} bytes"
+                            ),
+                            "details": {},
+                        }
+                    )
+                    chunk_reuse = None
+                    estimated_extension_bytes = None
             except ApiCommandError as exc:
                 blocking_issues.append(
                     {
@@ -261,8 +282,6 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
                         "details": error_details_for_exception(exc),
                     }
                 )
-            else:
-                chunk_reuse, estimated_extension_bytes = _preview_chunk_reuse(prepared)
 
         emit_progress(
             phase="plan",

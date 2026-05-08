@@ -21,7 +21,7 @@ from __future__ import annotations
 import hashlib
 import time
 import zlib
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_CBOR_BYTES
@@ -250,6 +250,11 @@ class ExtensionChunkRecord:
         if codec not in {CHUNK_CODEC_RAW, CHUNK_CODEC_GZIP}:
             raise ValueError("extension chunk codec must be one of: 0, 1")
         raw_len = require_positive_int(self.raw_len, label="extension chunk raw_len")
+        if raw_len > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+            raise ValueError(
+                "extension chunk raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES "
+                f"({MAX_DECOMPRESSED_PAYLOAD_BYTES})"
+            )
         data = require_non_empty_bytes(self.data, label="extension chunk data")
         object.__setattr__(self, "chunk_id", chunk_id)
         object.__setattr__(self, "codec", codec)
@@ -405,7 +410,13 @@ class ExtensionEnvelope:
             seen_paths.add(file_entry.path)
         seen_chunk_ids: set[bytes] = set()
         previous_chunk_id = b""
+        total_inline_chunk_bytes = 0
         for chunk_record in chunks:
+            total_inline_chunk_bytes += chunk_record.raw_len
+            if total_inline_chunk_bytes > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+                raise ValueError(
+                    "extension inline chunk bytes exceed MAX_DECOMPRESSED_PAYLOAD_BYTES"
+                )
             if chunk_record.chunk_id in seen_chunk_ids:
                 raise ValueError("duplicate extension chunk_id")
             if previous_chunk_id and chunk_record.chunk_id < previous_chunk_id:
@@ -424,6 +435,8 @@ class ExtensionEnvelope:
         return header, body
 
     def encode(self) -> bytes:
+        for chunk_record in self.chunks:
+            chunk_record.decode_data()
         header, body = self.to_cbor_sections()
         header_bytes = dumps_canonical(header)
         body_bytes = dumps_canonical(body)
@@ -528,6 +541,7 @@ class ExtensionEnvelope:
         require_keys(body, (_BODY_FILES, _BODY_CHUNKS), label="extension body")
         files_raw = require_list(body[_BODY_FILES], 1, label="extension body files")
         chunks_raw = require_list(body[_BODY_CHUNKS], 0, label="extension body chunks")
+        _require_inline_chunk_raw_len_bounds(chunks_raw)
         return cls(
             header=header,
             files=tuple(ExtensionFile.from_cbor(item) for item in files_raw),
@@ -602,6 +616,23 @@ def _normalize_available_chunks(
             raise ValueError("extension available chunk bytes do not hash to chunk_id")
         normalized[raw_chunk_id] = raw_chunk_bytes
     return normalized
+
+
+def _require_inline_chunk_raw_len_bounds(chunks_raw: Sequence[object]) -> None:
+    total_raw_len = 0
+    for item in chunks_raw:
+        fields = require_list(item, 4, label="extension chunk")
+        if len(fields) != 4:
+            raise ValueError("extension chunk must contain exactly 4 items")
+        raw_len = require_int(fields[2], label="extension chunk raw_len")
+        if raw_len > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+            raise ValueError(
+                "extension chunk raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES "
+                f"({MAX_DECOMPRESSED_PAYLOAD_BYTES})"
+            )
+        total_raw_len += raw_len
+        if total_raw_len > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+            raise ValueError("extension inline chunk bytes exceed MAX_DECOMPRESSED_PAYLOAD_BYTES")
 
 
 def _normalize_root_label(value: object) -> str:

@@ -102,11 +102,11 @@ class TestExtendCommand(unittest.TestCase):
         self.assertEqual(args.passphrase, "secret")
         self.assertEqual(args.shard_scan, [])
         self.assertIsNone(args.unlock_policy)
-        self.assertEqual(args.shard_threshold, 2)
-        self.assertEqual(args.shard_count, 3)
-        self.assertEqual(args.signing_key_mode, "sharded")
-        self.assertEqual(args.signing_key_shard_threshold, 2)
-        self.assertEqual(args.signing_key_shard_count, 3)
+        self.assertIsNone(args.shard_threshold)
+        self.assertIsNone(args.shard_count)
+        self.assertIsNone(args.signing_key_mode)
+        self.assertIsNone(args.signing_key_shard_threshold)
+        self.assertIsNone(args.signing_key_shard_count)
         self.assertTrue(run_extend_command.call_args.kwargs["debug"])
 
     @mock.patch("ethernity.cli.features.extend.command.console_err")
@@ -287,7 +287,6 @@ class TestExtendCliApp(unittest.TestCase):
 
         def _capture_args(args: extend_command.ExtendArgs, *, debug: bool = False) -> int:
             captured["base_dir"] = args.base_dir
-            captured["shard_threshold"] = args.shard_threshold
             captured["root_dir"] = args.root_dir
             captured["input"] = list(args.input or [])
             captured["debug"] = debug
@@ -315,6 +314,5 @@ class TestExtendCliApp(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(captured["base_dir"], "./vault")
-        self.assertEqual(captured["shard_threshold"], 2)
         self.assertEqual(captured["root_dir"], "/tmp/root")
         self.assertEqual(captured["input"], ["-"])

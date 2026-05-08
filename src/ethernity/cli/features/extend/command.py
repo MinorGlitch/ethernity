@@ -302,31 +302,6 @@ def extend(
     quiet_value = quiet or (state.quiet if state is not None else False)
     debug_value = debug or (state.debug if state is not None else False)
     base_dir_value = base_dir if base_dir is not None else defaults.base_dir
-    unlock_policy_value = unlock_policy
-    if unlock_policy_value == "reuse-root":
-        shard_threshold_value = shard_threshold
-        shard_count_value = shard_count
-        signing_key_mode_value = signing_key_mode
-        signing_key_shard_threshold_value = signing_key_shard_threshold
-        signing_key_shard_count_value = signing_key_shard_count
-    else:
-        shard_threshold_value = (
-            shard_threshold if shard_threshold is not None else defaults.shard_threshold
-        )
-        shard_count_value = shard_count if shard_count is not None else defaults.shard_count
-        signing_key_mode_value = (
-            signing_key_mode if signing_key_mode is not None else defaults.signing_key_mode
-        )
-        signing_key_shard_threshold_value = (
-            signing_key_shard_threshold
-            if signing_key_shard_threshold is not None
-            else defaults.signing_key_shard_threshold
-        )
-        signing_key_shard_count_value = (
-            signing_key_shard_count
-            if signing_key_shard_count is not None
-            else defaults.signing_key_shard_count
-        )
 
     args = ExtendArgs(
         config=config_value,
@@ -342,12 +317,12 @@ def extend(
         shard_fallback_file=list(shard_fallback_file or []),
         shard_payloads_file=list(shard_payloads_file or []),
         shard_scan=list(shard_scan or []),
-        unlock_policy=unlock_policy_value,
-        shard_threshold=shard_threshold_value,
-        shard_count=shard_count_value,
-        signing_key_mode=signing_key_mode_value,
-        signing_key_shard_threshold=signing_key_shard_threshold_value,
-        signing_key_shard_count=signing_key_shard_count_value,
+        unlock_policy=unlock_policy,
+        shard_threshold=shard_threshold,
+        shard_count=shard_count,
+        signing_key_mode=signing_key_mode,
+        signing_key_shard_threshold=signing_key_shard_threshold,
+        signing_key_shard_count=signing_key_shard_count,
         quiet=quiet_value,
     )
     if not args.input and not args.input_dir:
