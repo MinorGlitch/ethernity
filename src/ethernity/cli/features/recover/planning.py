@@ -178,21 +178,70 @@ def inspect_from_args(args: RecoverArgs) -> RecoveryInspection:
     )
     if len(import_documents) > 1:
         if args.passphrase:
-            root_document = select_root_import_document(
-                import_documents,
-                passphrase=normalize_bip39_mnemonic(args.passphrase),
-                debug=False,
-            )
+            try:
+                root_document = select_root_import_document(
+                    import_documents,
+                    passphrase=normalize_bip39_mnemonic(args.passphrase),
+                    debug=False,
+                )
+            except Exception as exc:
+                return _inspect_unselected_import_documents(
+                    import_documents=import_documents,
+                    frames=frames,
+                    extra_auth_frames=extra_auth_frames,
+                    shard_frames=shard_frames,
+                    allow_unsigned=allow_unsigned,
+                    input_label=input_label,
+                    input_detail=input_detail,
+                    shard_fallback_files=shard_fallback_files,
+                    shard_payloads_file=shard_payloads_file,
+                    shard_scan=shard_scan,
+                    unlock=_import_root_selection_passphrase_failure(
+                        str(exc),
+                        import_documents=import_documents,
+                    ),
+                )
         elif shard_frames:
-            root_document = _select_root_import_document_from_shards(
-                import_documents,
-                shard_frames=shard_frames,
-            )
+            try:
+                root_document = _select_root_import_document_from_shards(
+                    import_documents,
+                    shard_frames=shard_frames,
+                )
+            except Exception as exc:
+                return _inspect_unselected_import_documents(
+                    import_documents=import_documents,
+                    frames=frames,
+                    extra_auth_frames=extra_auth_frames,
+                    shard_frames=shard_frames,
+                    allow_unsigned=allow_unsigned,
+                    input_label=input_label,
+                    input_detail=input_detail,
+                    shard_fallback_files=shard_fallback_files,
+                    shard_payloads_file=shard_payloads_file,
+                    shard_scan=shard_scan,
+                    unlock=_import_root_selection_shard_failure(
+                        str(exc),
+                        import_documents=import_documents,
+                    ),
+                )
         else:
-            raise ValueError(
-                "passphrase is required when recovery input contains multiple MAIN documents"
+            return _inspect_unselected_import_documents(
+                import_documents=import_documents,
+                frames=frames,
+                extra_auth_frames=extra_auth_frames,
+                shard_frames=shard_frames,
+                allow_unsigned=allow_unsigned,
+                input_label=input_label,
+                input_detail=input_detail,
+                shard_fallback_files=shard_fallback_files,
+                shard_payloads_file=shard_payloads_file,
+                shard_scan=shard_scan,
+                unlock=_import_root_selection_missing_unlock(import_documents=import_documents),
             )
         frames = [frame for frame in frames if frame.doc_id == root_document.doc_id]
+        extra_auth_frames = [
+            frame for frame in extra_auth_frames if frame.doc_id == root_document.doc_id
+        ]
     return inspect_recovery_inputs(
         frames=frames,
         extra_auth_frames=extra_auth_frames,
@@ -472,6 +521,150 @@ def _select_root_import_document_from_shards(
         if document.doc_id == target_doc_id and document.doc_hash == target_doc_hash:
             return document
     raise ValueError("shard payloads do not match any imported root backup document")
+
+
+def _inspect_unselected_import_documents(
+    *,
+    import_documents: tuple[ImportedRecoveryDocument, ...],
+    frames: list[Frame],
+    extra_auth_frames: list[Frame],
+    shard_frames: list[Frame],
+    allow_unsigned: bool,
+    input_label: str | None,
+    input_detail: str | None,
+    shard_fallback_files: list[str],
+    shard_payloads_file: list[str],
+    shard_scan: list[str],
+    unlock: RecoveryUnlockStatus,
+) -> RecoveryInspection:
+    candidate = import_documents[0]
+    deduped = _dedupe_frames([*frames, *extra_auth_frames])
+    main_frames, auth_frames = _split_main_and_auth_frames(deduped)
+    auth_status = _ambiguous_import_auth_status(auth_frames, allow_unsigned=allow_unsigned)
+    blocking_issues = [
+        *_ambiguous_import_auth_blockers(auth_frames, allow_unsigned=allow_unsigned),
+        *unlock.blocking_issues,
+    ]
+    return RecoveryInspection(
+        ciphertext=candidate.ciphertext,
+        doc_id=candidate.doc_id,
+        doc_hash=candidate.doc_hash,
+        auth_payload=None,
+        auth_status=auth_status,
+        allow_unsigned=allow_unsigned,
+        input_label=input_label,
+        input_detail=input_detail,
+        main_frames=tuple(main_frames),
+        auth_frames=tuple(auth_frames),
+        shard_frames=tuple(shard_frames),
+        shard_fallback_files=tuple(shard_fallback_files),
+        shard_payloads_file=tuple(shard_payloads_file),
+        shard_scan=tuple(shard_scan),
+        unlock=unlock,
+        blocking_issues=tuple(blocking_issues),
+    )
+
+
+def _ambiguous_import_auth_status(auth_frames: list[Frame], *, allow_unsigned: bool) -> str:
+    if auth_frames:
+        return "ignored"
+    if allow_unsigned:
+        return "skipped"
+    return "missing"
+
+
+def _ambiguous_import_auth_blockers(
+    auth_frames: list[Frame],
+    *,
+    allow_unsigned: bool,
+) -> tuple[dict[str, Any], ...]:
+    if auth_frames or allow_unsigned:
+        return ()
+    return (
+        _blocking_issue(
+            api_codes.AUTH_PAYLOAD_MISSING,
+            "missing AUTH payload; provide AUTH input to check readiness",
+        ),
+    )
+
+
+def _import_root_selection_missing_unlock(
+    *,
+    import_documents: tuple[ImportedRecoveryDocument, ...],
+) -> RecoveryUnlockStatus:
+    return RecoveryUnlockStatus(
+        mode="missing",
+        passphrase_provided=False,
+        validated_shard_count=0,
+        required_shard_threshold=None,
+        satisfied=False,
+        blocking_issues=(
+            _import_root_selection_blocker(
+                "PASSPHRASE_REQUIRED",
+                "passphrase or passphrase shard inputs are required to select the root backup",
+                import_documents=import_documents,
+            ),
+        ),
+    )
+
+
+def _import_root_selection_passphrase_failure(
+    message: str,
+    *,
+    import_documents: tuple[ImportedRecoveryDocument, ...],
+) -> RecoveryUnlockStatus:
+    return RecoveryUnlockStatus(
+        mode="passphrase",
+        passphrase_provided=True,
+        validated_shard_count=0,
+        required_shard_threshold=None,
+        satisfied=False,
+        blocking_issues=(
+            _import_root_selection_blocker(
+                "UNLOCK_FAILED",
+                f"provided passphrase could not select a root backup: {message}",
+                import_documents=import_documents,
+            ),
+        ),
+    )
+
+
+def _import_root_selection_shard_failure(
+    message: str,
+    *,
+    import_documents: tuple[ImportedRecoveryDocument, ...],
+) -> RecoveryUnlockStatus:
+    return RecoveryUnlockStatus(
+        mode="shards",
+        passphrase_provided=False,
+        validated_shard_count=0,
+        required_shard_threshold=None,
+        satisfied=False,
+        blocking_issues=(
+            _import_root_selection_blocker(
+                "PASSPHRASE_SHARDS_INVALID",
+                f"passphrase shard inputs could not select a root backup: {message}",
+                import_documents=import_documents,
+            ),
+        ),
+    )
+
+
+def _import_root_selection_blocker(
+    code: str,
+    message: str,
+    *,
+    import_documents: tuple[ImportedRecoveryDocument, ...],
+) -> dict[str, Any]:
+    return _blocking_issue(
+        code,
+        message,
+        details={
+            "stage": "root_selection",
+            "main_document_count": len(import_documents),
+            "candidate_doc_ids": [document.doc_id.hex() for document in import_documents],
+        },
+    )
 
 
 def _blocking_issue(

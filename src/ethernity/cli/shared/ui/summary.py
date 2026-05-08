@@ -150,11 +150,11 @@ def format_auth_status(status: str, *, allow_unsigned: bool) -> str:
     if status == "verified":
         return "verified"
     if status == "skipped":
-        return "skipped (--rescue-mode)"
+        return "skipped (unsigned recovery)"
     if status == "ignored":
-        return "failed (ignored due to --rescue-mode)"
+        return "failed (ignored during unsigned recovery)"
     if status == "invalid":
-        return "invalid (ignored due to --rescue-mode)" if allow_unsigned else "invalid"
+        return "invalid (ignored during unsigned recovery)" if allow_unsigned else "invalid"
     if status == "missing":
-        return "skipped (--rescue-mode)" if allow_unsigned else "missing"
+        return "skipped (unsigned recovery)" if allow_unsigned else "missing"
     return status

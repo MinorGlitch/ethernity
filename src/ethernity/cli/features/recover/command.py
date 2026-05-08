@@ -176,18 +176,6 @@ def recover(
             rich_help_panel="Outputs",
         ),
     ] = None,
-    allow_unsigned: Annotated[
-        bool,
-        typer.Option(
-            "--rescue-mode",
-            "--skip-auth-check",
-            help=(
-                "Enable rescue mode and continue without authentication verification "
-                "(legacy alias: --skip-auth-check)."
-            ),
-            rich_help_panel="Behavior",
-        ),
-    ] = False,
     assume_yes: Annotated[
         bool,
         typer.Option(
@@ -261,7 +249,7 @@ def recover(
         extension_index=extension_index,
         extension_doc_hash=extension_doc_hash,
         output=output_value,
-        allow_unsigned=allow_unsigned,
+        allow_unsigned=False,
         assume_yes=assume_yes,
         debug_max_bytes=debug_max_value,
         debug_reveal_secrets=debug_reveal_value,

@@ -30,14 +30,91 @@ from ethernity.cli.features.recover.planning import (
     plan_from_args,
 )
 from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
-from ethernity.cli.shared.types import MintArgs, RecoverArgs
+from ethernity.cli.shared.types import InputFile, MintArgs, RecoverArgs
+from ethernity.crypto.signing import derive_public_key, encode_auth_payload, sign_auth
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
+from ethernity.extensions.build import build_extension_document
+from ethernity.formats.envelope_codec import (
+    build_manifest_and_payload,
+    encode_envelope,
+    encode_extension_envelope,
+)
+from ethernity.formats.envelope_types import PayloadPart
+from ethernity.formats.extension_envelope import ExtensionChunkingProfile
+from ethernity.formats.extension_envelope_constants import CHUNK_ALGORITHM_FASTCDC
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 V1_FIXTURE_ROOT = REPO_ROOT / "tests" / "fixtures" / "v1_0" / "golden" / "base64" / "file_no_shard"
 V1_1_SHARDED_EMBEDDED_FIXTURE_ROOT = (
     REPO_ROOT / "tests" / "fixtures" / "v1_1" / "golden" / "base64" / "sharded_embedded"
 )
+TEST_SIGNING_SEED = b"\x33" * 32
+
+
+def _main_frame(ciphertext: bytes) -> Frame:
+    doc_id, _doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+    return Frame(
+        version=1,
+        frame_type=FrameType.MAIN_DOCUMENT,
+        doc_id=doc_id,
+        index=0,
+        total=1,
+        data=ciphertext,
+    )
+
+
+def _auth_frame(ciphertext: bytes, *, signing_seed: bytes = TEST_SIGNING_SEED) -> Frame:
+    doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+    sign_pub = derive_public_key(signing_seed)
+    return Frame(
+        version=1,
+        frame_type=FrameType.AUTH,
+        doc_id=doc_id,
+        index=0,
+        total=1,
+        data=encode_auth_payload(
+            doc_hash,
+            sign_pub=sign_pub,
+            signature=sign_auth(doc_hash, sign_pub=sign_pub, sign_priv=signing_seed),
+        ),
+    )
+
+
+def _root_envelope(data: bytes = b"root") -> bytes:
+    manifest, payload = build_manifest_and_payload(
+        (PayloadPart(path="a.txt", data=data, mtime=1),),
+        sealed=False,
+        signing_seed=TEST_SIGNING_SEED,
+        input_origin="file",
+        input_roots=(),
+    )
+    return encode_envelope(payload, manifest)
+
+
+def _extension_envelope(root_doc_hash: bytes) -> bytes:
+    built = build_extension_document(
+        index=1,
+        parent_doc_hash=root_doc_hash,
+        root_doc_hash=root_doc_hash,
+        chunking=ExtensionChunkingProfile(
+            algorithm_id=CHUNK_ALGORITHM_FASTCDC,
+            target_size=64 * 1024,
+            min_size=16 * 1024,
+            max_size=256 * 1024,
+        ),
+        input_files=(
+            InputFile(
+                source_path=None,
+                relative_path="a.txt",
+                data=b"root!",
+                mtime=2,
+            ),
+        ),
+        input_origin="file",
+        input_roots=(),
+        chunker=lambda data, _profile: (data,),
+    )
+    return encode_extension_envelope(built.document)
 
 
 class TestInspectAuthPayload(unittest.TestCase):
@@ -113,6 +190,42 @@ class TestInspectAuthPayload(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "multiple auth payloads provided"):
                 plan_from_args(args)
+
+    def test_inspect_filters_separate_auth_to_selected_root_document(self) -> None:
+        root_ciphertext = _root_envelope()
+        _root_doc_id, root_doc_hash = _doc_id_and_hash_from_ciphertext(root_ciphertext)
+        extension_ciphertext = _extension_envelope(root_doc_hash)
+        frames = [_main_frame(root_ciphertext), _main_frame(extension_ciphertext)]
+        extra_auth_frames = [_auth_frame(root_ciphertext), _auth_frame(extension_ciphertext)]
+        args = RecoverArgs(passphrase="secret", quiet=True)
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.planning._frames_from_args",
+                return_value=(frames, "Recovery input", "inline", None),
+            ),
+            mock.patch(
+                "ethernity.cli.features.recover.planning._extra_auth_frames_from_args",
+                return_value=extra_auth_frames,
+            ),
+            mock.patch(
+                "ethernity.cli.features.recover.planning._shard_frames_from_args",
+                return_value=([], [], [], []),
+            ),
+            mock.patch(
+                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                side_effect=lambda data, *, passphrase, debug=False: data,
+            ),
+        ):
+            inspection = inspect_from_args(args)
+
+        self.assertEqual(inspection.doc_hash, root_doc_hash)
+        self.assertEqual(inspection.auth_status, "verified")
+        self.assertEqual(len(inspection.auth_frames), 1)
+        self.assertNotIn(
+            "AUTH_PAYLOAD_MULTIPLE",
+            {issue["code"] for issue in inspection.blocking_issues},
+        )
 
     def test_shard_payload_file_errors_use_qr_wording(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

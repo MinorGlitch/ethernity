@@ -229,12 +229,12 @@ class TestUISummary(unittest.TestCase):
     def test_format_auth_status_mappings(self) -> None:
         cases = (
             ("verified", False, "verified"),
-            ("skipped", False, "skipped (--rescue-mode)"),
-            ("ignored", False, "failed (ignored due to --rescue-mode)"),
+            ("skipped", False, "skipped (unsigned recovery)"),
+            ("ignored", False, "failed (ignored during unsigned recovery)"),
             ("invalid", False, "invalid"),
-            ("invalid", True, "invalid (ignored due to --rescue-mode)"),
+            ("invalid", True, "invalid (ignored during unsigned recovery)"),
             ("missing", False, "missing"),
-            ("missing", True, "skipped (--rescue-mode)"),
+            ("missing", True, "skipped (unsigned recovery)"),
             ("custom", False, "custom"),
         )
         for status, allow_unsigned, expected in cases:

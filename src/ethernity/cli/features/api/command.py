@@ -268,17 +268,29 @@ def _explicit_api_config_value(ctx: typer.Context, config: str | None) -> str | 
     return None
 
 
-def _parse_api_int_option(name: str, value: str | None) -> int | None:
+def _parse_api_int_option(
+    name: str,
+    value: str | None,
+    *,
+    min_value: int | None = None,
+) -> int | None:
     if value is None:
         return None
     try:
-        return int(value, 10)
+        parsed = int(value, 10)
     except ValueError as exc:
         raise ApiCommandError(
             code=api_codes.INVALID_INPUT,
             message=f"{name} must be an integer",
             details={"option": name, "value": value},
         ) from exc
+    if min_value is not None and parsed < min_value:
+        raise ApiCommandError(
+            code=api_codes.INVALID_INPUT,
+            message=f"{name} must be >= {min_value}",
+            details={"option": name, "value": value, "minimum": min_value},
+        )
+    return parsed
 
 
 def _parse_signing_key_mode(value: str | None) -> str | None:
@@ -322,9 +334,12 @@ def _optional_int_for_started(value: str | None) -> int | None:
     if value is None:
         return None
     try:
-        return int(value, 10)
+        parsed = int(value, 10)
     except ValueError:
         return None
+    if parsed < 0:
+        return None
+    return parsed
 
 
 def _normalized_signing_key_mode_for_started(value: str | None) -> str | None:
@@ -384,7 +399,6 @@ def _recover_started_args_for_error(
     extension_index: str | None,
     extension_doc_hash: str | None,
     output: str | None,
-    allow_unsigned: bool,
     operation: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
@@ -401,7 +415,6 @@ def _recover_started_args_for_error(
         "auth_payloads_file": auth_payloads_file,
         "extension_index": _optional_int_for_started(extension_index),
         "extension_doc_hash": _normalized_extension_doc_hash_for_started(extension_doc_hash),
-        "allow_unsigned": allow_unsigned,
         "quiet": True,
         "debug": _state_debug_enabled(state),
     }
@@ -1487,14 +1500,6 @@ def recover(
         str | None,
         typer.Option("--output", "-o", help="Output file or directory path. Required in API mode."),
     ] = None,
-    allow_unsigned: Annotated[
-        bool,
-        typer.Option(
-            "--rescue-mode",
-            "--skip-auth-check",
-            help="Enable rescue mode and continue without authentication verification.",
-        ),
-    ] = False,
     config: Annotated[
         str | None,
         typer.Option("--config", help="Use this config file."),
@@ -1522,10 +1527,14 @@ def recover(
             shard_scan=shard_scan,
             auth_fallback_file=auth_fallback_file,
             auth_payloads_file=auth_payloads_file,
-            extension_index=_parse_api_int_option("--extension-index", extension_index),
+            extension_index=_parse_api_int_option(
+                "--extension-index",
+                extension_index,
+                min_value=0,
+            ),
             extension_doc_hash=extension_doc_hash,
             output=output,
-            allow_unsigned=allow_unsigned,
+            allow_unsigned=False,
             handler=run_recover_api_command,
         )
 
@@ -1550,7 +1559,6 @@ def recover(
                 extension_index=extension_index,
                 extension_doc_hash=extension_doc_hash,
                 output=output,
-                allow_unsigned=allow_unsigned,
             ),
         ),
     )
@@ -1613,14 +1621,6 @@ def inspect_recover(
             help="Inspect through the extension with this authenticated doc hash.",
         ),
     ] = None,
-    allow_unsigned: Annotated[
-        bool,
-        typer.Option(
-            "--rescue-mode",
-            "--skip-auth-check",
-            help="Enable rescue mode and continue without authentication verification.",
-        ),
-    ] = False,
     config: Annotated[
         str | None,
         typer.Option("--config", help="Use this config file."),
@@ -1648,10 +1648,14 @@ def inspect_recover(
             shard_scan=shard_scan,
             auth_fallback_file=auth_fallback_file,
             auth_payloads_file=auth_payloads_file,
-            extension_index=_parse_api_int_option("--extension-index", extension_index),
+            extension_index=_parse_api_int_option(
+                "--extension-index",
+                extension_index,
+                min_value=0,
+            ),
             extension_doc_hash=extension_doc_hash,
             output=None,
-            allow_unsigned=allow_unsigned,
+            allow_unsigned=False,
             handler=run_recover_inspect_api_command,
         )
 
@@ -1676,7 +1680,6 @@ def inspect_recover(
                 extension_index=extension_index,
                 extension_doc_hash=extension_doc_hash,
                 output=None,
-                allow_unsigned=allow_unsigned,
                 operation="inspect",
             ),
         ),

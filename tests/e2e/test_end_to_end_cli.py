@@ -24,8 +24,9 @@ from typing import Any, cast
 
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.crypto import encrypt_bytes_with_passphrase
+from ethernity.crypto.signing import derive_public_key, encode_auth_payload, sign_auth
 from ethernity.encoding.chunking import chunk_payload
-from ethernity.encoding.framing import DOC_ID_LEN, FrameType, decode_frame, encode_frame
+from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, decode_frame, encode_frame
 from ethernity.encoding.qr_payloads import decode_qr_payload, encode_qr_payload
 from ethernity.formats.envelope_codec import build_single_file_manifest, encode_envelope
 from ethernity.qr.scan import scan_qr_payloads
@@ -36,6 +37,24 @@ from tests.test_support import (
 )
 
 TEST_SIGNING_SEED = b"\x11" * 32
+
+
+def _auth_frame(*, doc_id: bytes, doc_hash: bytes) -> Frame:
+    sign_pub = derive_public_key(TEST_SIGNING_SEED)
+    signature = sign_auth(doc_hash, sign_pub=sign_pub, sign_priv=TEST_SIGNING_SEED)
+    return Frame(
+        version=1,
+        frame_type=FrameType.AUTH,
+        doc_id=doc_id,
+        index=0,
+        total=1,
+        data=encode_auth_payload(doc_hash, sign_pub=sign_pub, signature=signature),
+    )
+
+
+def _qr_payload_text(frame: Frame) -> str:
+    payload = encode_qr_payload(encode_frame(frame))
+    return payload.decode("ascii") if isinstance(payload, bytes) else payload
 
 
 def _run_cli_subprocess(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
@@ -581,6 +600,11 @@ class TestEndToEndCli(unittest.TestCase):
                     encoded.decode("ascii") if isinstance(encoded, bytes) else encoded
                 )
             frames_path.write_text("\n".join(payload_lines), encoding="utf-8")
+            auth_path = tmp_path / "auth_payloads.txt"
+            auth_path.write_text(
+                _qr_payload_text(_auth_frame(doc_id=doc_id, doc_hash=doc_hash)),
+                encoding="utf-8",
+            )
             output_path = tmp_path / "recovered.bin"
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
@@ -595,7 +619,8 @@ class TestEndToEndCli(unittest.TestCase):
                     str(frames_path),
                     "--passphrase",
                     str(passphrase),
-                    "--skip-auth-check",
+                    "--auth-payloads-file",
+                    str(auth_path),
                     "--output",
                     str(output_path),
                 ],
@@ -644,6 +669,11 @@ class TestEndToEndCli(unittest.TestCase):
                     encoded.decode("ascii") if isinstance(encoded, bytes) else encoded
                 )
             frames_path.write_text("\n".join(payload_lines), encoding="utf-8")
+            auth_path = tmp_path / "auth_payloads.txt"
+            auth_path.write_text(
+                _qr_payload_text(_auth_frame(doc_id=doc_id, doc_hash=doc_hash)),
+                encoding="utf-8",
+            )
             output_dir = tmp_path / "gui-backups"
             output_dir.mkdir()
 
@@ -659,7 +689,8 @@ class TestEndToEndCli(unittest.TestCase):
                     str(frames_path),
                     "--passphrase",
                     str(passphrase),
-                    "--skip-auth-check",
+                    "--auth-payloads-file",
+                    str(auth_path),
                     "--output",
                     str(output_dir),
                 ],
@@ -828,6 +859,11 @@ class TestEndToEndCli(unittest.TestCase):
                 "\n".join(payload_lines),
                 encoding="utf-8",
             )
+            auth_path = tmp_path / "auth_payloads.txt"
+            auth_path.write_text(
+                _qr_payload_text(_auth_frame(doc_id=doc_id, doc_hash=doc_hash)),
+                encoding="utf-8",
+            )
             output_path = tmp_path / "recovered.bin"
 
             env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
@@ -841,7 +877,8 @@ class TestEndToEndCli(unittest.TestCase):
                     str(frames_path),
                     "--passphrase",
                     str(passphrase),
-                    "--skip-auth-check",
+                    "--auth-payloads-file",
+                    str(auth_path),
                     "--output",
                     str(output_path),
                 ],

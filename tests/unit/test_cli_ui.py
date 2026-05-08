@@ -102,11 +102,11 @@ class TestFormatting(unittest.TestCase):
             ("verified", False, "verified"),
             ("verified", True, "verified"),
             ("missing", False, "missing"),
-            ("missing", True, "skipped (--rescue-mode)"),
-            ("ignored", False, "failed (ignored due to --rescue-mode)"),
-            ("ignored", True, "failed (ignored due to --rescue-mode)"),
-            ("skipped", True, "skipped (--rescue-mode)"),
-            ("invalid", True, "invalid (ignored due to --rescue-mode)"),
+            ("missing", True, "skipped (unsigned recovery)"),
+            ("ignored", False, "failed (ignored during unsigned recovery)"),
+            ("ignored", True, "failed (ignored during unsigned recovery)"),
+            ("skipped", True, "skipped (unsigned recovery)"),
+            ("invalid", True, "invalid (ignored during unsigned recovery)"),
             ("custom-status", False, "custom-status"),
         )
         for status, allow_unsigned, expected in cases:

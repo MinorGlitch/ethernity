@@ -71,10 +71,7 @@ def _resolve_auth_payload(
 ):
     if not auth_frames:
         if require_auth:
-            raise ValueError(
-                "missing auth payload; use --rescue-mode (or --skip-auth-check) "
-                "to skip verification"
-            )
+            raise ValueError("missing auth payload; provide AUTH input to verify recovery")
         if allow_unsigned:
             _warn(
                 "no auth payload provided; skipping auth verification",

@@ -122,7 +122,6 @@ def _recover_started_args(
         "auth_payloads_file": args.auth_payloads_file,
         "extension_index": args.extension_index,
         "extension_doc_hash": normalized_extension_doc_hash,
-        "allow_unsigned": args.allow_unsigned,
         "quiet": args.quiet,
         "debug": debug,
     }

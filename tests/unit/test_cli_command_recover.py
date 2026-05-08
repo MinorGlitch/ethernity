@@ -42,7 +42,6 @@ class TestRecoverCommand(unittest.TestCase):
             "auth_fallback_file": None,
             "auth_payloads_file": None,
             "output": None,
-            "allow_unsigned": False,
             "assume_yes": False,
             "config": None,
             "paper": None,
@@ -137,11 +136,10 @@ class TestRecoverCommand(unittest.TestCase):
             ctx,
             shard_fallback_file=["manual.txt"],
             shard_dir="shards",
-            allow_unsigned=True,
         )
         args = run_recover_command.call_args.args[0]
         self.assertEqual(args.shard_fallback_file, ["manual.txt", "dir1.txt"])
-        self.assertTrue(args.allow_unsigned)
+        self.assertFalse(args.allow_unsigned)
         self.assertEqual(args.debug_max_bytes, 512)
         self.assertTrue(args.debug_reveal_secrets)
         self.assertEqual(run_recover_command.call_args.kwargs["debug"], True)

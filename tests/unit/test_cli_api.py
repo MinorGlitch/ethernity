@@ -62,6 +62,7 @@ from ethernity.cli.features.recover.service import (
     execute_recover_plan,
 )
 from ethernity.cli.shared import api_codes
+from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.ndjson import ApiCommandError, ndjson_session
 from ethernity.cli.shared.types import (
     BackupArgs,
@@ -80,10 +81,18 @@ from ethernity.config import BackupDefaults, CliDefaults, RecoverDefaults, load_
 from ethernity.config.install import ONBOARDING_FIELDS
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.core.models import DocumentPlan, SigningSeedMode
+from ethernity.crypto.signing import derive_public_key, encode_auth_payload, sign_auth
+from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions import LogicalFileState
-from ethernity.extensions.build import default_extension_chunker
-from ethernity.formats.envelope_codec import build_manifest_and_payload
+from ethernity.extensions.build import build_extension_document, default_extension_chunker
+from ethernity.formats.envelope_codec import (
+    build_manifest_and_payload,
+    encode_envelope,
+    encode_extension_envelope,
+)
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile, PayloadPart
+from ethernity.formats.extension_envelope import ExtensionChunkingProfile
+from ethernity.formats.extension_envelope_constants import CHUNK_ALGORITHM_FASTCDC
 
 
 def _extend_root_inspection(
@@ -130,6 +139,7 @@ CLI_API_CONTRACTS_PATH = REPO_ROOT / "tests" / "fixtures" / "cli_api" / "contrac
 FIXTURE_PASSPHRASE = "stable-v1-baseline-passphrase"
 FIXTURE_V1_1_PASSPHRASE = "stable-v1_1-golden-passphrase"
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+TEST_SIGNING_SEED = b"\x33" * 32
 
 
 def _strip_ansi(text: str) -> str:
@@ -138,6 +148,72 @@ def _strip_ansi(text: str) -> str:
 
 def _expected_host_path(path: str) -> str:
     return os.path.normpath(path)
+
+
+def _main_frame(ciphertext: bytes) -> Frame:
+    doc_id, _doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+    return Frame(
+        version=1,
+        frame_type=FrameType.MAIN_DOCUMENT,
+        doc_id=doc_id,
+        index=0,
+        total=1,
+        data=ciphertext,
+    )
+
+
+def _auth_frame(ciphertext: bytes, *, signing_seed: bytes = TEST_SIGNING_SEED) -> Frame:
+    doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+    sign_pub = derive_public_key(signing_seed)
+    return Frame(
+        version=1,
+        frame_type=FrameType.AUTH,
+        doc_id=doc_id,
+        index=0,
+        total=1,
+        data=encode_auth_payload(
+            doc_hash,
+            sign_pub=sign_pub,
+            signature=sign_auth(doc_hash, sign_pub=sign_pub, sign_priv=signing_seed),
+        ),
+    )
+
+
+def _root_envelope(data: bytes = b"root") -> bytes:
+    manifest, payload = build_manifest_and_payload(
+        (PayloadPart(path="a.txt", data=data, mtime=1),),
+        sealed=False,
+        signing_seed=TEST_SIGNING_SEED,
+        input_origin="file",
+        input_roots=(),
+    )
+    return encode_envelope(payload, manifest)
+
+
+def _extension_envelope(root_doc_hash: bytes) -> bytes:
+    built = build_extension_document(
+        index=1,
+        parent_doc_hash=root_doc_hash,
+        root_doc_hash=root_doc_hash,
+        chunking=ExtensionChunkingProfile(
+            algorithm_id=CHUNK_ALGORITHM_FASTCDC,
+            target_size=64 * 1024,
+            min_size=16 * 1024,
+            max_size=256 * 1024,
+        ),
+        input_files=(
+            InputFile(
+                source_path=None,
+                relative_path="a.txt",
+                data=b"root!",
+                mtime=2,
+            ),
+        ),
+        input_origin="file",
+        input_roots=(),
+        chunker=lambda data, _profile: (data,),
+    )
+    return encode_extension_envelope(built.document)
 
 
 @lru_cache(maxsize=1)
@@ -406,6 +482,33 @@ class TestCliApi(unittest.TestCase):
         output = " ".join(_strip_ansi(result.output).split())
         self.assertIn("--extension-index", output)
         self.assertIn("INTEGER", output)
+
+    def test_api_inspect_recover_rejects_negative_extension_index_with_schema_valid_events(
+        self,
+    ) -> None:
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "inspect",
+                    "recover",
+                    "--payloads-file",
+                    str(V1_FIXTURE_ROOT / "main_payloads.txt"),
+                    "--extension-index",
+                    "-1",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 2)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual([event["type"] for event in events], ["started", "error"])
+        self.assertIsNone(events[0]["args"]["extension_index"])
+        self.assertEqual(events[-1]["code"], api_codes.INVALID_INPUT)
+        self.assertIn("--extension-index must be >= 0", events[-1]["message"])
 
     def test_api_config_get_ignores_bootstrap_default_config_when_no_explicit_config(self) -> None:
         captured: dict[str, object] = {}
@@ -1184,7 +1287,7 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["selected_extension_index"], 2)
         self.assertEqual(events[-1]["selected_extension_doc_hash"], "ab" * 32)
 
-    def test_api_recover_rescue_mode_with_valid_auth_emits_no_skip_warning(self) -> None:
+    def test_api_recover_with_valid_auth_emits_no_skip_warning(self) -> None:
         payloads_file = V1_FIXTURE_ROOT / "main_payloads.txt"
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "recovered.bin"
@@ -1202,7 +1305,6 @@ class TestCliApi(unittest.TestCase):
                         FIXTURE_PASSPHRASE,
                         "--output",
                         str(output_path),
-                        "--rescue-mode",
                     ],
                 )
 
@@ -1361,6 +1463,100 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["unlock"]["satisfied"], False)
         self.assertTrue(events[-1]["blocking_issues"])
         self.assertEqual([event for event in events if event["type"] == "artifact"], [])
+
+    def test_api_inspect_recover_mixed_import_without_passphrase_returns_readiness(self) -> None:
+        root_ciphertext = _root_envelope()
+        _root_doc_id, root_doc_hash = _doc_id_and_hash_from_ciphertext(root_ciphertext)
+        extension_ciphertext = _extension_envelope(root_doc_hash)
+        frames = [_main_frame(root_ciphertext), _main_frame(extension_ciphertext)]
+        auth_frames = [_auth_frame(root_ciphertext), _auth_frame(extension_ciphertext)]
+        args = RecoverArgs(payloads_file="/tmp/imported-payloads.txt", quiet=True)
+        buffer = io.StringIO()
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.planning.resolve_recover_config",
+                return_value=object(),
+            ),
+            mock.patch(
+                "ethernity.cli.features.recover.planning._frames_from_args",
+                return_value=(frames, "QR payloads", "/tmp/imported-payloads.txt", None),
+            ),
+            mock.patch(
+                "ethernity.cli.features.recover.planning._extra_auth_frames_from_args",
+                return_value=auth_frames,
+            ),
+            mock.patch(
+                "ethernity.cli.features.recover.planning._shard_frames_from_args",
+                return_value=([], [], [], []),
+            ),
+            ndjson_session(stream=buffer),
+        ):
+            exit_code = run_recover_inspect_api_command(args)
+
+        self.assertEqual(exit_code, 0)
+        events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(
+            [event["type"] for event in events], ["started", "phase", "progress", "result"]
+        )
+        result = events[-1]
+        self.assertEqual(result["operation"], "inspect")
+        self.assertIsNone(result["source_summary"])
+        self.assertEqual(result["frame_counts"], {"main": 2, "auth": 2, "shard": 0})
+        self.assertEqual(result["unlock"]["mode"], "missing")
+        self.assertFalse(result["unlock"]["satisfied"])
+        self.assertIn(
+            "PASSPHRASE_REQUIRED",
+            {issue["code"] for issue in result["blocking_issues"]},
+        )
+        self.assertEqual([event for event in events if event["type"] == "artifact"], [])
+
+    def test_api_inspect_recover_mixed_import_bad_passphrase_returns_readiness(self) -> None:
+        root_ciphertext = _root_envelope()
+        _root_doc_id, root_doc_hash = _doc_id_and_hash_from_ciphertext(root_ciphertext)
+        extension_ciphertext = _extension_envelope(root_doc_hash)
+        frames = [_main_frame(root_ciphertext), _main_frame(extension_ciphertext)]
+        args = RecoverArgs(
+            payloads_file="/tmp/imported-payloads.txt",
+            passphrase="wrong-passphrase",
+            quiet=True,
+        )
+        buffer = io.StringIO()
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.planning.resolve_recover_config",
+                return_value=object(),
+            ),
+            mock.patch(
+                "ethernity.cli.features.recover.planning._frames_from_args",
+                return_value=(frames, "QR payloads", "/tmp/imported-payloads.txt", None),
+            ),
+            mock.patch(
+                "ethernity.cli.features.recover.planning._extra_auth_frames_from_args",
+                return_value=[],
+            ),
+            mock.patch(
+                "ethernity.cli.features.recover.planning._shard_frames_from_args",
+                return_value=([], [], [], []),
+            ),
+            ndjson_session(stream=buffer),
+        ):
+            exit_code = run_recover_inspect_api_command(args)
+
+        self.assertEqual(exit_code, 0)
+        events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        result = events[-1]
+        self.assertIsNone(result["source_summary"])
+        self.assertEqual(result["unlock"]["mode"], "passphrase")
+        self.assertTrue(result["unlock"]["passphrase_provided"])
+        self.assertFalse(result["unlock"]["satisfied"])
+        self.assertIn(
+            "UNLOCK_FAILED",
+            {issue["code"] for issue in result["blocking_issues"]},
+        )
 
     def test_run_recover_inspect_api_command_replays_selected_extension_manifest(self) -> None:
         args = RecoverArgs(

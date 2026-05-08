@@ -319,7 +319,7 @@ class TestCliRecoverValidation(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(captured.get("fallback_file"), "-")
 
-    def test_recover_rescue_mode_flag_sets_allow_unsigned(self) -> None:
+    def test_recover_rescue_mode_flag_is_rejected(self) -> None:
         captured: dict[str, bool] = {}
 
         def _capture_args(args: RecoverArgs, *, debug: bool = False) -> int:
@@ -343,10 +343,10 @@ class TestCliRecoverValidation(unittest.TestCase):
                         "--rescue-mode",
                     ],
                 )
-        self.assertEqual(result.exit_code, 0, result.output)
-        self.assertTrue(captured.get("allow_unsigned"))
+        self.assertNotEqual(result.exit_code, 0, result.output)
+        self.assertNotIn("allow_unsigned", captured)
 
-    def test_recover_skip_auth_check_alias_sets_allow_unsigned(self) -> None:
+    def test_recover_skip_auth_check_alias_is_rejected(self) -> None:
         captured: dict[str, bool] = {}
 
         def _capture_args(args: RecoverArgs, *, debug: bool = False) -> int:
@@ -370,8 +370,8 @@ class TestCliRecoverValidation(unittest.TestCase):
                         "--skip-auth-check",
                     ],
                 )
-        self.assertEqual(result.exit_code, 0, result.output)
-        self.assertTrue(captured.get("allow_unsigned"))
+        self.assertNotEqual(result.exit_code, 0, result.output)
+        self.assertNotIn("allow_unsigned", captured)
 
     def test_recover_skip_auth_warning_not_emitted_before_input_validation(self) -> None:
         args = RecoverArgs(allow_unsigned=True, quiet=False)

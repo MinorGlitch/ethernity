@@ -308,8 +308,7 @@ def _auth_frames_from_fallback_lines(
         allow_invalid=allow_invalid_auth,
         quiet=quiet,
         missing_error=(
-            "missing AUTH fallback section; include AUTH or use "
-            "--rescue-mode (or --skip-auth-check)"
+            "missing AUTH fallback section; include AUTH fallback text or provide AUTH payloads"
         ),
     )
     return [frame] if frame else []
