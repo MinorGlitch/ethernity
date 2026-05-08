@@ -815,6 +815,7 @@
         "passphrase_provided",
         "validated_shard_count",
         "required_shard_threshold",
+        "shard_share_count",
         "satisfied"
       ],
       "properties": {
@@ -834,6 +835,13 @@
           "minimum": 0
         },
         "required_shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "shard_share_count": {
           "type": [
             "integer",
             "null"
@@ -1239,6 +1247,7 @@
             "passphrase_provided",
             "validated_shard_count",
             "required_shard_threshold",
+            "shard_share_count",
             "satisfied"
           ],
           "properties": {
@@ -1257,6 +1266,13 @@
               "minimum": 0
             },
             "required_shard_threshold": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "shard_share_count": {
               "type": [
                 "integer",
                 "null"
@@ -1462,6 +1478,7 @@
         "EXTENSION_NO_CHANGES",
         "EXTENSION_MAIN_CARRIER_INVALID",
         "EXTENSION_SHARD_CARRIER_INVALID",
+        "COMPACT_INVALID_POLICY",
         "RECOVERY_HEAD_UNTRUSTED",
         "AUTH_PAYLOAD_MISSING",
         "AUTH_PAYLOAD_MULTIPLE",

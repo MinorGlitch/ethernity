@@ -211,6 +211,7 @@ Current command-specific error codes:
   scope; `api inspect extend` reports a no-op preview instead of raising this code
 - `EXTENSION_MAIN_CARRIER_INVALID`: staged extension MAIN carriers failed ciphertext / AUTH validation
 - `EXTENSION_SHARD_CARRIER_INVALID`: staged extension shard carriers failed payload validation
+- `COMPACT_INVALID_POLICY`: `ethernity api compact` could not preserve the root shard policy
 - `RECOVERY_HEAD_UNTRUSTED`: recover or compact could not authenticate or reconstruct the requested
   recovery head
 
@@ -318,7 +319,7 @@ Stable recover `result.auth_status` values:
   `input_detail`, `auth_status`
 - `source_summary` when decryption is possible, otherwise `null`
 - `frame_counts.main|auth|shard`
-- `unlock.mode|passphrase_provided|validated_shard_count|required_shard_threshold|satisfied`
+- `unlock.mode|passphrase_provided|validated_shard_count|required_shard_threshold|shard_share_count|satisfied`
 - `blocking_issues` and `warnings`
 
 When recovery input contains multiple MAIN documents, such as a root backup plus extension
@@ -340,8 +341,8 @@ because unlock material is missing or wrong, it still emits a `result` event wit
 
 - `doc_id`, `input_label`, `input_detail`, `input_kind`
 - `source_summary`, `frame_counts`, `root_doc_id`, `root_doc_hash`, `chain_id`
-- `auth_status`, `unlock`, `discovered_extension_dirs`, `validated_head_index`,
-  `validated_head_doc_hash`
+- `auth_status`, `discovered_extension_dirs`, `validated_head_index`, `validated_head_doc_hash`
+- `unlock.mode|passphrase_provided|validated_shard_count|required_shard_threshold|shard_share_count|satisfied`
 - `validated_head_auth_status`, `validated_head_root_authority_verified`
 - `available_extensions`, `ancestry_valid`, `signing_authority`
 - `selected_scope`, `diff_summary`, `chunk_reuse`, `estimated_extension_bytes`
@@ -504,7 +505,7 @@ Example onboarding patch:
 {"type":"progress","phase":"plan","current":1,"total":1,"unit":"step","details":{"main_frame_count":2,"auth_frame_count":1,"shard_frame_count":0}}
 {"type":"phase","id":"decrypt","label":"Decrypting and inspecting payload"}
 {"type":"progress","phase":"decrypt","current":1,"total":1,"unit":"step","details":{"file_count":1,"manifest_file_count":1}}
-{"type":"result","ok":true,"command":"recover","operation":"inspect","doc_id":"deadbeef","selected_extension_index":null,"selected_extension_doc_hash":null,"auth_status":"verified","input_label":"QR payloads","input_detail":"main_payloads.txt","source_summary":{"format_version":1,"input_origin":"file","input_roots":[],"sealed":true,"file_count":1,"payload_codec":"raw","payload_raw_len":null},"frame_counts":{"main":2,"auth":1,"shard":0},"unlock":{"mode":"passphrase","passphrase_provided":true,"validated_shard_count":0,"required_shard_threshold":null,"satisfied":true},"blocking_issues":[],"warnings":[]}
+{"type":"result","ok":true,"command":"recover","operation":"inspect","doc_id":"deadbeef","selected_extension_index":null,"selected_extension_doc_hash":null,"auth_status":"verified","input_label":"QR payloads","input_detail":"main_payloads.txt","source_summary":{"format_version":1,"input_origin":"file","input_roots":[],"sealed":true,"file_count":1,"payload_codec":"raw","payload_raw_len":null},"frame_counts":{"main":2,"auth":1,"shard":0},"unlock":{"mode":"passphrase","passphrase_provided":true,"validated_shard_count":0,"required_shard_threshold":null,"shard_share_count":null,"satisfied":true},"blocking_issues":[],"warnings":[]}
 ```
 
 ```json
@@ -547,9 +548,9 @@ ethernity api recover --scan "/path/to/qr_document.pdf" --shard-scan "/path/to/s
 - Prefer `code` values for logic and `message` values for display
 - Treat stdin as opt-in for `api recover`; pass `--fallback-file -` for recovery text or `--payloads-file -` for QR payload lines
 `extend` also accepts `--unlock-policy self-contained|reuse-root`.
-`reuse-root` disables extension-local shard emission, requires passphrase shard PDFs to already
-exist on the root backup, and rejects explicit shard-policy overrides for the new extension.
-Operators then unlock the extension through the root shard set or a direct passphrase.
+`reuse-root` disables extension-local shard emission, requires the command to be unlocked with
+validated passphrase shard inputs, and rejects explicit shard-policy overrides for the new
+extension. Operators then unlock the extension through that root shard set.
 
 `api extend` and `api inspect extend` can also unlock the selected backup with passphrase shard
 inputs by using `--shard-fallback-file`, `--shard-payloads-file`, or `--shard-scan`.

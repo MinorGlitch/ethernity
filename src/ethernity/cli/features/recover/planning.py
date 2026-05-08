@@ -105,6 +105,7 @@ class RecoveryUnlockStatus:
     required_shard_threshold: int | None
     satisfied: bool
     resolved_passphrase: str | None = None
+    shard_share_count: int | None = None
     blocking_issues: tuple[dict[str, Any], ...] = ()
 
 
@@ -838,6 +839,7 @@ def _inspect_unlock_status(
                 validated_shard_count=exc.provided_count,
                 required_shard_threshold=exc.threshold,
                 satisfied=False,
+                shard_share_count=exc.share_count,
                 blocking_issues=(
                     _blocking_issue(
                         "PASSPHRASE_SHARDS_UNDER_QUORUM",
@@ -880,6 +882,7 @@ def _inspect_unlock_status(
                 validated_shard_count=len(shard_payloads),
                 required_shard_threshold=shard_payloads[0].threshold if shard_payloads else None,
                 satisfied=False,
+                shard_share_count=shard_payloads[0].share_count if shard_payloads else None,
                 blocking_issues=(
                     _blocking_issue(
                         "PASSPHRASE_INVALID",
@@ -894,6 +897,7 @@ def _inspect_unlock_status(
             required_shard_threshold=shard_payloads[0].threshold if shard_payloads else None,
             satisfied=True,
             resolved_passphrase=normalized_recovered,
+            shard_share_count=shard_payloads[0].share_count if shard_payloads else None,
         )
     if passphrase:
         normalized_passphrase = normalize_bip39_mnemonic(passphrase)

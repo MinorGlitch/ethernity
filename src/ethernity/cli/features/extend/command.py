@@ -49,7 +49,7 @@ _EXTEND_HELP = (
     "  ethernity extend --root-dir root --input in.txt --signing-key-mode sharded\n"
     "  ethernity extend --root-dir root --input-dir docs --base-dir docs\n\n"
     "Notes:\n"
-    "  reuse-root uses the root shard set.\n"
+    "  reuse-root uses the validated root shard inputs supplied for this run.\n"
     "  sharded writes signing-key shard documents.\n"
 )
 
@@ -179,7 +179,10 @@ def extend(
         Literal["self-contained", "reuse-root"] | None,
         typer.Option(
             "--unlock-policy",
-            help="Where unlock shards come from.",
+            help=(
+                "Extension unlock artifact policy. reuse-root requires unlocking this run "
+                "with root passphrase shard inputs."
+            ),
             rich_help_panel="Outputs",
         ),
     ] = None,

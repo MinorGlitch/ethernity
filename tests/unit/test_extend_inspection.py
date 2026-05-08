@@ -565,6 +565,65 @@ class TestExtendInspection(unittest.TestCase):
             },
         )
 
+    def test_resolve_extend_state_carries_validated_root_shard_policy(self) -> None:
+        manifest, payload = build_manifest_and_payload(
+            (PayloadPart(path="alpha.txt", data=b"alpha", mtime=1),),
+            sealed=False,
+            signing_seed=b"\x33" * 32,
+            created_at=1.0,
+            input_origin="file",
+            input_roots=(),
+        )
+        unlocked_root = RecoveryInspection(
+            **{
+                **_root_inspection(passphrase="secret").__dict__,
+                "unlock": RecoveryUnlockStatus(
+                    mode="shards",
+                    passphrase_provided=False,
+                    validated_shard_count=2,
+                    required_shard_threshold=2,
+                    shard_share_count=5,
+                    satisfied=True,
+                    resolved_passphrase="secret",
+                    blocking_issues=(),
+                ),
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "backup-root"
+            root_dir.mkdir()
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    return_value=unlocked_root,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    return_value=(manifest, payload),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                    return_value=(
+                        LogicalFileState(
+                            path="alpha.txt",
+                            size=5,
+                            sha256=manifest.files[0].sha256,
+                            mtime=1,
+                            data=b"alpha",
+                        ),
+                    ),
+                ),
+            ):
+                resolved = resolve_extend_state(ExtendArgs(root_dir=str(root_dir)))
+
+        self.assertEqual(resolved.root_passphrase_shard_threshold, 2)
+        self.assertEqual(resolved.root_passphrase_shard_count, 5)
+        self.assertEqual(resolved.inspection.unlock["mode"], "shards")
+        self.assertEqual(resolved.inspection.unlock["validated_shard_count"], 2)
+        self.assertEqual(resolved.inspection.unlock["required_shard_threshold"], 2)
+        self.assertEqual(resolved.inspection.unlock["shard_share_count"], 5)
+
     def test_resolve_extend_state_uses_configured_chunking_for_new_chain(self) -> None:
         manifest, payload = build_manifest_and_payload(
             (PayloadPart(path="alpha.txt", data=b"alpha", mtime=1),),

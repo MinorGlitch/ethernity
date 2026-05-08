@@ -18,22 +18,34 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from ethernity.cli.features.backup.execution import run_backup
 from ethernity.cli.features.backup.planning import plan_from_args as plan_backup_from_args
 from ethernity.cli.features.backup.service import apply_qr_chunk_size_override
-from ethernity.cli.features.extend.runtime import infer_root_publish_policy
 from ethernity.cli.features.recover.chain import recover_chain_entries
+from ethernity.cli.features.recover.key_recovery import (
+    InsufficientShardError,
+    _validated_shard_payloads_from_frames,
+)
 from ethernity.cli.features.recover.planning import plan_from_args as plan_recover_from_args
 from ethernity.cli.shared import api_codes
+from ethernity.cli.shared.io.frames import _shard_frames_from_scan
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import BackupArgs, BackupResult, CompactArgs, InputFile, RecoverArgs
 from ethernity.config import apply_template_design, load_app_config
+from ethernity.crypto import sharding as sharding_module
 from ethernity.crypto.signing import derive_public_key
 from ethernity.render.types import RenderLineage
 
-_infer_root_publish_policy = infer_root_publish_policy
+
+@dataclass(frozen=True)
+class _RootPublishPolicy:
+    passphrase_shard_threshold: int | None
+    passphrase_shard_count: int
+    signing_key_shard_threshold: int | None
+    signing_key_shard_count: int
 
 
 def _validated_compact_root_dir(root_dir_value: str | None) -> Path:
@@ -63,6 +75,103 @@ def _translate_compact_head_untrusted(exc: ApiCommandError) -> ApiCommandError:
     details = dict(exc.details)
     details["checkpoint_created"] = False
     return ApiCommandError(code=exc.code, message=message, details=details)
+
+
+def _infer_root_publish_policy(
+    *,
+    root_dir: str | None,
+    root_doc_id_hex: str | None,
+    root_doc_hash: bytes,
+    sign_pub: bytes | None,
+    allow_unsigned: bool = False,
+    require_quorum: bool = True,
+    quiet: bool,
+) -> _RootPublishPolicy:
+    if not root_dir:
+        raise ApiCommandError(
+            code="RUNTIME_ERROR",
+            message="compact execution requires a root_dir for publish-policy inheritance",
+        )
+
+    root_path = Path(root_dir).expanduser()
+    if root_path.is_symlink():
+        raise ApiCommandError(
+            code="RUNTIME_ERROR",
+            message="root backup directory must not be a symlink",
+        )
+    if root_path.exists() and not root_path.is_dir():
+        raise ApiCommandError(
+            code="RUNTIME_ERROR",
+            message=f"root backup directory must be a directory: {root_dir}",
+        )
+    root_doc_id = bytes.fromhex(root_doc_id_hex) if root_doc_id_hex else None
+    passphrase_threshold, passphrase_count = _infer_root_quorum(
+        sorted(root_path.glob("shard-*.pdf")),
+        expected_doc_id=root_doc_id,
+        expected_doc_hash=root_doc_hash,
+        sign_pub=sign_pub,
+        allow_unsigned=allow_unsigned,
+        require_quorum=require_quorum,
+        quiet=quiet,
+        key_type=sharding_module.KEY_TYPE_PASSPHRASE,
+        secret_label="passphrase",
+    )
+    signing_key_threshold, signing_key_count = _infer_root_quorum(
+        sorted(root_path.glob("signing-key-shard-*.pdf")),
+        expected_doc_id=root_doc_id,
+        expected_doc_hash=root_doc_hash,
+        sign_pub=sign_pub,
+        allow_unsigned=allow_unsigned,
+        require_quorum=require_quorum,
+        quiet=quiet,
+        key_type=sharding_module.KEY_TYPE_SIGNING_SEED,
+        secret_label="signing key",
+    )
+    return _RootPublishPolicy(
+        passphrase_shard_threshold=passphrase_threshold,
+        passphrase_shard_count=passphrase_count,
+        signing_key_shard_threshold=signing_key_threshold,
+        signing_key_shard_count=signing_key_count,
+    )
+
+
+def _infer_root_quorum(
+    paths: list[Path],
+    *,
+    expected_doc_id: bytes | None,
+    expected_doc_hash: bytes,
+    sign_pub: bytes | None,
+    allow_unsigned: bool,
+    require_quorum: bool = True,
+    quiet: bool,
+    key_type: str,
+    secret_label: str,
+) -> tuple[int | None, int]:
+    if not paths:
+        return None, 0
+    frames = _shard_frames_from_scan([str(path) for path in paths], quiet=quiet)
+    try:
+        shares = _validated_shard_payloads_from_frames(
+            frames,
+            expected_doc_id=expected_doc_id,
+            expected_doc_hash=expected_doc_hash,
+            expected_sign_pub=sign_pub,
+            allow_unsigned=allow_unsigned,
+            key_type=key_type,
+            secret_label=secret_label,
+        )
+    except InsufficientShardError as exc:
+        if not require_quorum and exc.share_count is not None:
+            return exc.threshold, exc.share_count
+        raise ApiCommandError(
+            code=api_codes.COMPACT_INVALID_POLICY,
+            message=(
+                f"root {secret_label} shards are under quorum; "
+                f"need at least {exc.threshold}, found {exc.provided_count}"
+            ),
+        ) from exc
+    first = shares[0]
+    return first.threshold, first.share_count
 
 
 def run_compact(args: CompactArgs) -> BackupResult:

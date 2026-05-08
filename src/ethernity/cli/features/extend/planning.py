@@ -37,6 +37,7 @@ from ethernity.cli.features.recover.chain import (
     RecoveryReplayFailure,
     decode_authenticated_extension_link,
     decode_root_manifest as _decode_root_manifest_shared,
+    locate_replay_failure,
     resolve_root_manifest_authority,
     scan_extension_carriers,
 )
@@ -56,7 +57,6 @@ from ethernity.cli.shared.paths import expanduser_cli_paths
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.config.load import load_app_config
 from ethernity.encoding.framing import Frame
-from ethernity.extensions.build import build_virtual_chunk_source, default_extension_chunker
 from ethernity.extensions.chain import (
     LogicalFileState,
     extract_root_logical_state,
@@ -114,6 +114,8 @@ class ResolvedExtendState:
     next_index: int | None
     signing_seed: bytes | None
     chunking: ExtensionChunkingProfile | None
+    root_passphrase_shard_threshold: int | None = None
+    root_passphrase_shard_count: int = 0
 
 
 def inspect_from_args(args: ExtendArgs) -> ExtendInspection:
@@ -361,6 +363,7 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
             "passphrase_provided": root_inspection.unlock.passphrase_provided,
             "validated_shard_count": root_inspection.unlock.validated_shard_count,
             "required_shard_threshold": root_inspection.unlock.required_shard_threshold,
+            "shard_share_count": root_inspection.unlock.shard_share_count,
             "satisfied": root_inspection.unlock.satisfied,
         },
         discovered_extension_dirs=discovered_extension_dirs,
@@ -385,6 +388,17 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
         next_index=next_index,
         signing_seed=signing_seed,
         chunking=chunking,
+        root_passphrase_shard_threshold=(
+            root_inspection.unlock.required_shard_threshold
+            if root_inspection.unlock.mode == "shards"
+            else None
+        ),
+        root_passphrase_shard_count=(
+            root_inspection.unlock.shard_share_count
+            if root_inspection.unlock.mode == "shards"
+            and root_inspection.unlock.shard_share_count is not None
+            else 0
+        ),
     )
 
 
@@ -645,26 +659,22 @@ def _inspect_published_extension_chain(
             root_doc_hash=root_doc_hash,
             extensions=tuple(item.link for item in links),
         )
-        virtual_root_chunks = (
-            {}
-            if locked_chunking is None
-            else build_virtual_chunk_source(
-                tuple(item.data for item in root_state),
-                chunking=locked_chunking,
-                chunker=default_extension_chunker,
-            )
-        )
         latest_state = reconstruct_latest_logical_state(
             manifest,
             payload,
             root_doc_hash=root_doc_hash,
             extensions=tuple(item.link for item in links),
-            virtual_root_chunks=virtual_root_chunks,
         )
     except ValueError as exc:
+        failure, validated_links = locate_replay_failure(
+            root_manifest=manifest,
+            payload=payload,
+            root_doc_hash=root_doc_hash,
+            selected_links=tuple(links),
+        )
         head_index, head_hash, head_auth, head_verified = _validated_head_details(
             root_doc_hash,
-            links[:-1],
+            validated_links,
         )
         return RecoveryChainInspection(
             inventory=inventory,
@@ -676,6 +686,8 @@ def _inspect_published_extension_chain(
                 message=str(exc),
                 details={
                     "stage": "chain",
+                    "failure_head_index": failure.link.document.header.index,
+                    "failure_head_doc_hash": failure.link.doc_hash.hex(),
                     "validated_head_index": head_index,
                     "validated_head_doc_hash": head_hash,
                 },

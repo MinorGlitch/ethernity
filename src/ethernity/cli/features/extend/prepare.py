@@ -125,6 +125,8 @@ def prepare_extend_run_from_state(
         next_index=resolved.next_index,
         signing_seed=resolved.signing_seed,
         chunking=resolved.chunking,
+        root_passphrase_shard_threshold=resolved.root_passphrase_shard_threshold,
+        root_passphrase_shard_count=resolved.root_passphrase_shard_count,
         input_origin=loaded_scope.input_origin,
         input_roots=loaded_scope.input_roots,
         changed_paths=changed_paths,

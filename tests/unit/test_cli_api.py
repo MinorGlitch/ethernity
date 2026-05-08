@@ -1460,6 +1460,7 @@ class TestCliApi(unittest.TestCase):
         self.assertIsNone(events[-1]["source_summary"])
         self.assertEqual(events[-1]["unlock"]["validated_shard_count"], 1)
         self.assertEqual(events[-1]["unlock"]["required_shard_threshold"], 2)
+        self.assertEqual(events[-1]["unlock"]["shard_share_count"], 3)
         self.assertEqual(events[-1]["unlock"]["satisfied"], False)
         self.assertTrue(events[-1]["blocking_issues"])
         self.assertEqual([event for event in events if event["type"] == "artifact"], [])
@@ -1965,6 +1966,7 @@ class TestCliApi(unittest.TestCase):
                 "passphrase_provided": True,
                 "validated_shard_count": 0,
                 "required_shard_threshold": None,
+                "shard_share_count": None,
                 "satisfied": True,
             },
             discovered_extension_dirs=(),
@@ -2034,6 +2036,7 @@ class TestCliApi(unittest.TestCase):
                 "passphrase_provided": True,
                 "validated_shard_count": 0,
                 "required_shard_threshold": None,
+                "shard_share_count": None,
                 "satisfied": True,
             },
             discovered_extension_dirs=(1,),
@@ -2116,6 +2119,7 @@ class TestCliApi(unittest.TestCase):
                 "passphrase_provided": True,
                 "validated_shard_count": 0,
                 "required_shard_threshold": None,
+                "shard_share_count": None,
                 "satisfied": True,
             },
             discovered_extension_dirs=(1,),
@@ -2202,6 +2206,7 @@ class TestCliApi(unittest.TestCase):
                 "passphrase_provided": True,
                 "validated_shard_count": 0,
                 "required_shard_threshold": None,
+                "shard_share_count": None,
                 "satisfied": True,
             },
             discovered_extension_dirs=(),

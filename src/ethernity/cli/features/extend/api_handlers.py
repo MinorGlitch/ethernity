@@ -307,7 +307,7 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
             root_doc_hash=inspection.root_doc_hash,
             chain_id=inspection.chain_id,
             auth_status=inspection.auth_status,
-            unlock=inspection.unlock,
+            unlock=_unlock_payload(inspection.unlock),
             discovered_extension_dirs=list(inspection.discovered_extension_dirs),
             validated_head_index=inspection.validated_head_index,
             validated_head_doc_hash=inspection.validated_head_doc_hash,
@@ -324,6 +324,12 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
             warnings=list(sink.warning_records),
         )
     return 0
+
+
+def _unlock_payload(unlock: dict[str, object]) -> dict[str, object]:
+    payload = dict(unlock)
+    payload.setdefault("shard_share_count", None)
+    return payload
 
 
 __all__ = ["run_extend_api_command", "run_extend_inspect_api_command"]

@@ -1265,7 +1265,11 @@ def extend(
         str | None,
         typer.Option(
             "--unlock-policy",
-            help="Extension unlock artifact policy. Accepted values: self-contained, reuse-root.",
+            help=(
+                "Extension unlock artifact policy. Accepted values: self-contained, "
+                "reuse-root. reuse-root requires validated root passphrase shard inputs "
+                "supplied for this run."
+            ),
             click_type=_POLICY_HELP_TYPE,
         ),
     ] = None,
@@ -1913,7 +1917,11 @@ def inspect_extend(
         str | None,
         typer.Option(
             "--unlock-policy",
-            help="Extension unlock artifact policy. Accepted values: self-contained, reuse-root.",
+            help=(
+                "Extension unlock artifact policy. Accepted values: self-contained, "
+                "reuse-root. reuse-root requires validated root passphrase shard inputs "
+                "supplied for this run."
+            ),
             click_type=_POLICY_HELP_TYPE,
         ),
     ] = None,

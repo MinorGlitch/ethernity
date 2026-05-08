@@ -27,7 +27,6 @@ from ethernity.cli.features.extend.main_carrier_validation import (
 from ethernity.cli.features.extend.models import (
     ExtensionPassphraseShards,
     ExtensionSigningKeyShards,
-    InheritedRootPublishPolicy,
     ReuseRootPassphraseShards,
 )
 from ethernity.cli.features.extend.planning import ExtendInspection, ResolvedExtendState
@@ -50,7 +49,6 @@ from ethernity.cli.features.extend.service import (
 from ethernity.cli.features.extend.shard_validation import (
     validate_rendered_shard_carrier as _validate_rendered_shard_carrier,
 )
-from ethernity.cli.features.recover.key_recovery import InsufficientShardError
 from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL
 from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.ndjson import ApiCommandError
@@ -86,6 +84,7 @@ def _inspection(
             "passphrase_provided": True,
             "validated_shard_count": 0,
             "required_shard_threshold": None,
+            "shard_share_count": None,
             "satisfied": True,
         },
         discovered_extension_dirs=(),
@@ -106,6 +105,8 @@ def _resolved_state(
     *,
     diff_summary: dict[str, object] | None,
     blocking_issues: tuple[dict[str, object], ...] = (),
+    root_passphrase_shard_threshold: int | None = None,
+    root_passphrase_shard_count: int = 0,
 ) -> ResolvedExtendState:
     scope = SelectedExtendScope(
         raw_files=("/tmp/root/example.txt",),
@@ -146,6 +147,8 @@ def _resolved_state(
             min_size=16 * 1024,
             max_size=256 * 1024,
         ),
+        root_passphrase_shard_threshold=root_passphrase_shard_threshold,
+        root_passphrase_shard_count=root_passphrase_shard_count,
     )
 
 
@@ -300,12 +303,8 @@ class TestExtendService(unittest.TestCase):
                 signing_key_shard_threshold=2,
                 signing_key_shard_count=3,
             ),
-            inherited=InheritedRootPublishPolicy(
-                passphrase_shard_threshold=None,
-                passphrase_shard_count=0,
-                signing_key_shard_threshold=None,
-                signing_key_shard_count=0,
-            ),
+            root_passphrase_shard_threshold=None,
+            root_passphrase_shard_count=0,
             require_recovery_kit_index=True,
         )
 
@@ -321,7 +320,7 @@ class TestExtendService(unittest.TestCase):
         self.assertEqual(policy.to_publish_policy().passphrase_shard_count, 3)
         self.assertEqual(policy.to_publish_policy().signing_key_shard_count, 3)
 
-    def test_resolve_extend_policy_ignores_backup_defaults_for_reuse_root(self) -> None:
+    def test_resolve_extend_policy_uses_validated_unlock_policy_for_reuse_root(self) -> None:
         policy = resolve_extend_policy(
             args=ExtendArgs(unlock_policy="reuse-root"),
             defaults=BackupDefaults(
@@ -331,12 +330,8 @@ class TestExtendService(unittest.TestCase):
                 signing_key_shard_threshold=2,
                 signing_key_shard_count=3,
             ),
-            inherited=InheritedRootPublishPolicy(
-                passphrase_shard_threshold=2,
-                passphrase_shard_count=2,
-                signing_key_shard_threshold=1,
-                signing_key_shard_count=1,
-            ),
+            root_passphrase_shard_threshold=2,
+            root_passphrase_shard_count=2,
             require_recovery_kit_index=True,
         )
 
@@ -477,6 +472,8 @@ class TestExtendService(unittest.TestCase):
                     "unchanged_paths": [],
                     "missing_paths": [],
                 },
+                root_passphrase_shard_threshold=1,
+                root_passphrase_shard_count=1,
             )
             with mock.patch(
                 "ethernity.cli.features.extend.prepare.resolve_extend_state",
@@ -889,7 +886,7 @@ class TestExtendService(unittest.TestCase):
 
             self.assertFalse(publish.artifacts.staging_dir.exists())
 
-    def test_run_extend_promotes_rendered_extension_with_inherited_shards(self) -> None:
+    def test_run_extend_promotes_rendered_extension_with_validated_unlock_shards(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
             root_dir.mkdir(exist_ok=True)
@@ -897,9 +894,6 @@ class TestExtendService(unittest.TestCase):
             existing_head.mkdir(parents=True)
             (existing_head / "qr_document-01-existing.pdf").write_bytes(b"existing")
             (root_dir / "recovery_kit_index.pdf").write_bytes(b"root-index")
-            (root_dir / "shard-root-1.pdf").write_bytes(b"root-shard-1")
-            (root_dir / "shard-root-2.pdf").write_bytes(b"root-shard-2")
-            (root_dir / "signing-key-shard-root-1.pdf").write_bytes(b"root-signing-shard")
             config_path = _config_with_no_shard_defaults(Path(tmpdir) / "config.toml")
 
             resolved = _resolved_state(
@@ -909,6 +903,8 @@ class TestExtendService(unittest.TestCase):
                     "unchanged_paths": [],
                     "missing_paths": [],
                 },
+                root_passphrase_shard_threshold=2,
+                root_passphrase_shard_count=2,
             )
             rendered_inputs: dict[str, object] = {}
             shard_frames_by_path: dict[str, list[Frame]] = {}
@@ -972,10 +968,6 @@ class TestExtendService(unittest.TestCase):
                     side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.runtime.infer_root_quorum",
-                    side_effect=[(2, 2), (1, 1)],
-                ),
-                mock.patch(
                     "ethernity.cli.features.extend.shard_validation._shard_frames_from_scan",
                     side_effect=lambda paths, **_kwargs: shard_frames_by_path[str(paths[0])],
                 ),
@@ -993,6 +985,9 @@ class TestExtendService(unittest.TestCase):
                         config=str(config_path),
                         root_dir=str(root_dir),
                         input=["/tmp/root/example.txt"],
+                        signing_key_mode="sharded",
+                        signing_key_shard_threshold=1,
+                        signing_key_shard_count=1,
                     ),
                     chunker=lambda data, _profile: (data,),
                     nonce="abc123",
@@ -1061,10 +1056,6 @@ class TestExtendService(unittest.TestCase):
                 mock.patch(
                     "ethernity.cli.features.extend.prepare.encrypt_bytes_with_passphrase",
                     side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.runtime.infer_root_quorum",
-                    return_value=(None, 0),
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.execution.render_module.render_frames_to_pdf",
@@ -1151,10 +1142,6 @@ class TestExtendService(unittest.TestCase):
                 mock.patch(
                     "ethernity.cli.features.extend.prepare.encrypt_bytes_with_passphrase",
                     side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.runtime.infer_root_quorum",
-                    side_effect=[(1, 1), (None, 0)],
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.shard_validation._shard_frames_from_scan",
@@ -1246,9 +1233,6 @@ class TestExtendService(unittest.TestCase):
             root_dir.mkdir(exist_ok=True)
             existing_head = root_dir / "extensions" / "01"
             existing_head.mkdir(parents=True)
-            (root_dir / "shard-root-1.pdf").write_bytes(b"root-shard-1")
-            (root_dir / "shard-root-2.pdf").write_bytes(b"root-shard-2")
-            (root_dir / "signing-key-shard-root-1.pdf").write_bytes(b"root-signing-shard")
 
             resolved = _resolved_state(
                 diff_summary={
@@ -1257,6 +1241,8 @@ class TestExtendService(unittest.TestCase):
                     "unchanged_paths": [],
                     "missing_paths": [],
                 },
+                root_passphrase_shard_threshold=2,
+                root_passphrase_shard_count=2,
             )
             captured: dict[str, list[Frame]] = {}
             rendered_inputs: dict[str, object] = {}
@@ -1295,10 +1281,6 @@ class TestExtendService(unittest.TestCase):
                 mock.patch(
                     "ethernity.cli.features.extend.prepare.encrypt_bytes_with_passphrase",
                     side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.runtime.infer_root_quorum",
-                    side_effect=[(2, 2), (1, 1)],
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.execution.render_module.render_frames_to_pdf",
@@ -1371,10 +1353,6 @@ class TestExtendService(unittest.TestCase):
                 "ethernity.cli.features.extend.prepare.resolve_extend_state",
                 return_value=resolved,
             ),
-            mock.patch(
-                "ethernity.cli.features.extend.runtime.infer_root_quorum",
-                side_effect=[(None, 0), (None, 0)],
-            ),
         ):
             with self.assertRaises(ApiCommandError) as ctx:
                 run_extend(
@@ -1388,12 +1366,14 @@ class TestExtendService(unittest.TestCase):
                 )
 
         self.assertEqual(ctx.exception.code, EXTENSION_INVALID_POLICY)
+        self.assertIn("requires unlocking with passphrase shard inputs", str(ctx.exception))
 
-    def test_resolve_extend_runtime_self_contained_allows_partial_root_shards(self) -> None:
+    def test_resolve_extend_runtime_self_contained_inherits_validated_unlock_shard_policy(
+        self,
+    ) -> None:
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
             root_dir.mkdir()
-            (root_dir / "shard-root-1.pdf").write_bytes(b"partial-root-shard")
             config_path = _config_with_no_shard_defaults(Path(tmpdir) / "config.toml")
             resolved = _resolved_state(
                 diff_summary={
@@ -1402,6 +1382,8 @@ class TestExtendService(unittest.TestCase):
                     "unchanged_paths": [],
                     "missing_paths": [],
                 },
+                root_passphrase_shard_threshold=2,
+                root_passphrase_shard_count=3,
             )
             with mock.patch(
                 "ethernity.cli.features.extend.prepare.resolve_extend_state",
@@ -1415,30 +1397,16 @@ class TestExtendService(unittest.TestCase):
                     )
                 )
 
-            with (
-                mock.patch(
-                    "ethernity.cli.features.extend.runtime._shard_frames_from_scan",
-                    return_value=[mock.sentinel.frame],
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.runtime._validated_shard_payloads_from_frames",
-                    side_effect=InsufficientShardError(
-                        threshold=2,
-                        provided_count=1,
-                        share_count=3,
-                        secret_label="passphrase",
-                    ),
-                ),
-            ):
-                runtime = resolve_extend_runtime(prepared)
+            runtime = resolve_extend_runtime(prepared)
 
         self.assertEqual(runtime.passphrase, ExtensionPassphraseShards(threshold=2, share_count=3))
 
-    def test_resolve_extend_runtime_reuse_root_rejects_partial_root_shards(self) -> None:
+    def test_resolve_extend_runtime_reuse_root_requires_validated_unlock_shard_policy(
+        self,
+    ) -> None:
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
             root_dir.mkdir()
-            (root_dir / "shard-root-1.pdf").write_bytes(b"partial-root-shard")
             config_path = _config_with_no_shard_defaults(Path(tmpdir) / "config.toml")
             resolved = _resolved_state(
                 diff_summary={
@@ -1461,26 +1429,11 @@ class TestExtendService(unittest.TestCase):
                     )
                 )
 
-            with (
-                mock.patch(
-                    "ethernity.cli.features.extend.runtime._shard_frames_from_scan",
-                    return_value=[mock.sentinel.frame],
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.runtime._validated_shard_payloads_from_frames",
-                    side_effect=InsufficientShardError(
-                        threshold=2,
-                        provided_count=1,
-                        share_count=3,
-                        secret_label="passphrase",
-                    ),
-                ),
-            ):
-                with self.assertRaises(ApiCommandError) as ctx:
-                    resolve_extend_runtime(prepared)
+            with self.assertRaises(ApiCommandError) as ctx:
+                resolve_extend_runtime(prepared)
 
         self.assertEqual(ctx.exception.code, EXTENSION_INVALID_POLICY)
-        self.assertIn("root passphrase shards are under quorum", str(ctx.exception))
+        self.assertIn("requires unlocking with passphrase shard inputs", str(ctx.exception))
 
     def test_resolve_extend_runtime_rejects_explicit_zero_qr_chunk_size(self) -> None:
         resolved = _resolved_state(
@@ -1503,18 +1456,8 @@ class TestExtendService(unittest.TestCase):
                 )
             )
 
-        with mock.patch(
-            "ethernity.cli.features.extend.runtime.infer_root_publish_policy",
-            return_value=mock.Mock(
-                require_recovery_kit_index=False,
-                passphrase_shard_threshold=None,
-                passphrase_shard_count=0,
-                signing_key_shard_threshold=None,
-                signing_key_shard_count=0,
-            ),
-        ):
-            with self.assertRaises(ApiCommandError) as ctx:
-                resolve_extend_runtime(prepared)
+        with self.assertRaises(ApiCommandError) as ctx:
+            resolve_extend_runtime(prepared)
 
         self.assertEqual(ctx.exception.code, EXTENSION_INVALID_POLICY)
         self.assertIn("qr_chunk_size must be a positive integer", str(ctx.exception))
@@ -1538,16 +1481,6 @@ class TestExtendService(unittest.TestCase):
 
         kit_index_template_path = Path("/tmp/kit_index_document.html.j2")
         with (
-            mock.patch(
-                "ethernity.cli.features.extend.runtime.infer_root_publish_policy",
-                return_value=mock.Mock(
-                    require_recovery_kit_index=False,
-                    passphrase_shard_threshold=None,
-                    passphrase_shard_count=0,
-                    signing_key_shard_threshold=None,
-                    signing_key_shard_count=0,
-                ),
-            ),
             mock.patch(
                 "ethernity.cli.features.extend.runtime.backup_execution."
                 "_resolve_kit_index_template_path",
@@ -1578,16 +1511,6 @@ class TestExtendService(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.extend.runtime.infer_root_publish_policy",
-                return_value=mock.Mock(
-                    require_recovery_kit_index=True,
-                    passphrase_shard_threshold=None,
-                    passphrase_shard_count=0,
-                    signing_key_shard_threshold=None,
-                    signing_key_shard_count=0,
-                ),
-            ),
-            mock.patch(
                 "ethernity.cli.features.extend.runtime.backup_execution."
                 "_resolve_kit_index_template_path",
                 return_value=None,
@@ -1606,6 +1529,8 @@ class TestExtendService(unittest.TestCase):
                 "unchanged_paths": [],
                 "missing_paths": [],
             },
+            root_passphrase_shard_threshold=2,
+            root_passphrase_shard_count=3,
         )
         with mock.patch(
             "ethernity.cli.features.extend.prepare.resolve_extend_state",
@@ -1620,18 +1545,8 @@ class TestExtendService(unittest.TestCase):
                 )
             )
 
-        with mock.patch(
-            "ethernity.cli.features.extend.runtime.infer_root_publish_policy",
-            return_value=mock.Mock(
-                require_recovery_kit_index=False,
-                passphrase_shard_threshold=2,
-                passphrase_shard_count=3,
-                signing_key_shard_threshold=None,
-                signing_key_shard_count=0,
-            ),
-        ):
-            with self.assertRaises(ApiCommandError) as ctx:
-                resolve_extend_runtime(prepared)
+        with self.assertRaises(ApiCommandError) as ctx:
+            resolve_extend_runtime(prepared)
 
         self.assertEqual(ctx.exception.code, EXTENSION_INVALID_POLICY)
         self.assertIn("qr_chunk_size must be a positive integer", str(ctx.exception))
@@ -1650,10 +1565,6 @@ class TestExtendService(unittest.TestCase):
             mock.patch(
                 "ethernity.cli.features.extend.prepare.resolve_extend_state",
                 return_value=resolved,
-            ),
-            mock.patch(
-                "ethernity.cli.features.extend.runtime.infer_root_quorum",
-                side_effect=[(2, 2), (1, 1)],
             ),
         ):
             with self.assertRaises(ApiCommandError) as ctx:
@@ -1704,10 +1615,6 @@ class TestExtendService(unittest.TestCase):
                 mock.patch(
                     "ethernity.cli.features.extend.prepare.encrypt_bytes_with_passphrase",
                     side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.runtime.infer_root_quorum",
-                    return_value=(None, 0),
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.execution.render_module.render_frames_to_pdf",

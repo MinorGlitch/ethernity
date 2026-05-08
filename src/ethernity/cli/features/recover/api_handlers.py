@@ -265,6 +265,7 @@ def run_recover_inspect_api_command(args: RecoverArgs, *, debug: bool = False) -
                 "passphrase_provided": inspection.unlock.passphrase_provided,
                 "validated_shard_count": inspection.unlock.validated_shard_count,
                 "required_shard_threshold": inspection.unlock.required_shard_threshold,
+                "shard_share_count": inspection.unlock.shard_share_count,
                 "satisfied": inspection.unlock.satisfied and source_summary is not None,
             },
             blocking_issues=blocking_issues,

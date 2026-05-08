@@ -53,6 +53,8 @@ class PreparedExtendRun:
     next_index: int
     signing_seed: bytes
     chunking: ExtensionChunkingProfile
+    root_passphrase_shard_threshold: int | None
+    root_passphrase_shard_count: int
     input_origin: str
     input_roots: tuple[str, ...]
     changed_paths: tuple[str, ...]
@@ -214,16 +216,6 @@ class ResolvedExtendPolicy:
         )
 
 
-@dataclass(frozen=True)
-class InheritedRootPublishPolicy:
-    """Publish-policy details inferred from the writable root backup directory."""
-
-    passphrase_shard_threshold: int | None
-    passphrase_shard_count: int
-    signing_key_shard_threshold: int | None
-    signing_key_shard_count: int
-
-
 ExtensionArtifactRenderer = Callable[[PreparedExtensionPublishPlan], RenderedExtensionArtifacts]
 ExtensionArtifactPostValidator = Callable[
     [PreparedExtensionPublishPlan, RenderedExtensionArtifacts],
@@ -243,7 +235,6 @@ __all__ = [
     "ExtensionSigningKeyShards",
     "ExtensionArtifactPostValidator",
     "ExtensionArtifactRenderer",
-    "InheritedRootPublishPolicy",
     "PassphraseStoragePolicy",
     "PlaintextPassphrase",
     "PreparedExtensionPublishPlan",
