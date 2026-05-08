@@ -29,6 +29,7 @@ from ethernity.cli.features.recover.planning import (
     inspect_recovery_inputs,
     plan_from_args,
 )
+from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.types import MintArgs, RecoverArgs
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
 
@@ -136,10 +137,11 @@ class TestInspectAuthPayload(unittest.TestCase):
                 )
 
     def test_build_recovery_plan_requires_auth_even_with_shards_in_strict_mode(self) -> None:
+        doc_id, _doc_hash = _doc_id_and_hash_from_ciphertext(b"ciphertext")
         main_frame = Frame(
             version=1,
             frame_type=FrameType.MAIN_DOCUMENT,
-            doc_id=b"\x11" * DOC_ID_LEN,
+            doc_id=doc_id,
             index=0,
             total=1,
             data=b"ciphertext",

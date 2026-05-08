@@ -55,6 +55,17 @@ class QrDecoder:
 
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff", ".webp"}
+_PDF_MAGIC = b"%PDF-"
+_IMAGE_MAGICS = (
+    b"\x89PNG\r\n\x1a\n",
+    b"\xff\xd8\xff",
+    b"GIF87a",
+    b"GIF89a",
+    b"BM",
+    b"II*\x00",
+    b"MM\x00*",
+    b"RIFF",
+)
 
 
 def _module(name: str, default: Any) -> Any:
@@ -96,18 +107,35 @@ def scan_qr_payloads(paths: Sequence[str | Path]) -> list[bytes]:
 
     decoder = _load_decoder()
     payloads: list[bytes] = []
-    for path in _expand_paths(paths):
-        suffix = path.suffix.lower()
-        if suffix == ".pdf":
-            payloads.extend(_scan_pdf(path, decoder))
-        elif suffix in _IMAGE_SUFFIXES:
-            payloads.extend(_scan_image(path, decoder))
+    for raw in paths:
+        path = Path(raw)
+        if not path.exists():
+            raise QrScanError(f"scan path not found: {path}")
+        if path.is_dir():
+            scan_files = _iter_scan_files(path)
+            if not scan_files:
+                raise QrScanError(f"no scan files found in directory: {path}")
+            for scan_file in scan_files:
+                payloads.extend(_scan_one_path(scan_file, decoder))
         else:
-            raise QrScanError(f"unsupported scan file type: {path}")
+            payloads.extend(_scan_one_path(path, decoder))
 
     if not payloads:
         raise QrScanError("no QR codes found in scan inputs")
     return payloads
+
+
+def _scan_one_path(path: Path, decoder: QrDecoder) -> list[bytes]:
+    suffix = path.suffix.lower()
+    if suffix == ".pdf":
+        return _scan_pdf(path, decoder)
+    if suffix in _IMAGE_SUFFIXES:
+        return _scan_image(path, decoder)
+    if _looks_like_pdf(path):
+        return _scan_pdf(path, decoder)
+    if _looks_like_image(path):
+        return _scan_image(path, decoder)
+    raise QrScanError(f"unsupported scan file content: {path}")
 
 
 def _load_decoder() -> QrDecoder:
@@ -190,6 +218,31 @@ def _iter_scan_files(directory: Path) -> list[Path]:
         if not path.is_file():
             continue
         suffix = path.suffix.lower()
-        if suffix == ".pdf" or suffix in _IMAGE_SUFFIXES:
+        if suffix == ".pdf" or suffix in _IMAGE_SUFFIXES or _looks_like_scan_file(path):
             files.append(path)
     return files
+
+
+def _looks_like_scan_file(path: Path) -> bool:
+    return _looks_like_pdf(path) or _looks_like_image(path)
+
+
+def _read_file_prefix(path: Path, size: int = 16) -> bytes:
+    try:
+        with path.open("rb") as handle:
+            return handle.read(size)
+    except OSError:
+        return b""
+
+
+def _looks_like_pdf(path: Path) -> bool:
+    return _read_file_prefix(path).startswith(_PDF_MAGIC)
+
+
+def _looks_like_image(path: Path) -> bool:
+    prefix = _read_file_prefix(path)
+    if any(prefix.startswith(magic) for magic in _IMAGE_MAGICS):
+        if prefix.startswith(b"RIFF") and prefix[8:12] != b"WEBP":
+            return False
+        return True
+    return False

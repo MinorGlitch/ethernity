@@ -23,8 +23,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 from ethernity.cli.features.recover.chain import (
-    detect_recovery_root_dir,
-    validated_root_recovery_scan_paths,
+    ImportedRecoveryDocument,
+    imported_documents_from_recovery_frames,
+    select_root_import_document,
 )
 from ethernity.cli.features.recover.input_collection import (
     RECOVERY_QR_TEXT_LABEL,
@@ -62,7 +63,7 @@ from ethernity.crypto.passphrases import (
     normalize_bip39_mnemonic,
     validate_mnemonic_checksum_if_bip39,
 )
-from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE
+from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE, decode_shard_payload
 from ethernity.crypto.signing import AuthPayload, decode_auth_payload, verify_auth
 from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import Frame, FrameType
@@ -91,6 +92,7 @@ class RecoveryPlan:
     root_dir: str | None = None
     extension_index: int | None = None
     extension_doc_hash: str | None = None
+    import_documents: tuple[ImportedRecoveryDocument, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -156,18 +158,11 @@ def inspect_from_args(args: RecoverArgs) -> RecoveryInspection:
     allow_unsigned = args.allow_unsigned
     quiet = args.quiet
 
-    frames, input_label, input_detail, root_dir = _frames_from_args(
+    frames, input_label, input_detail, _root_dir = _frames_from_args(
         args,
         allow_unsigned=allow_unsigned,
         quiet=quiet,
     )
-    if (
-        args.extension_index is not None or args.extension_doc_hash is not None
-    ) and root_dir is None:
-        raise ValueError(
-            "extension selectors require --scan to point at a backup root folder "
-            "(backup root directory)"
-        )
     extra_auth_frames = _extra_auth_frames_from_args(
         args,
         allow_unsigned=allow_unsigned,
@@ -177,6 +172,27 @@ def inspect_from_args(args: RecoverArgs) -> RecoveryInspection:
         args,
         quiet=quiet,
     )
+    import_documents = imported_documents_from_recovery_frames(
+        [*frames, *extra_auth_frames],
+        source_label=input_detail or input_label or "content import",
+    )
+    if len(import_documents) > 1:
+        if args.passphrase:
+            root_document = select_root_import_document(
+                import_documents,
+                passphrase=normalize_bip39_mnemonic(args.passphrase),
+                debug=False,
+            )
+        elif shard_frames:
+            root_document = _select_root_import_document_from_shards(
+                import_documents,
+                shard_frames=shard_frames,
+            )
+        else:
+            raise ValueError(
+                "passphrase is required when recovery input contains multiple MAIN documents"
+            )
+        frames = [frame for frame in frames if frame.doc_id == root_document.doc_id]
     return inspect_recovery_inputs(
         frames=frames,
         extra_auth_frames=extra_auth_frames,
@@ -200,18 +216,11 @@ def plan_from_args(args: RecoverArgs) -> RecoveryPlan:
     allow_unsigned = args.allow_unsigned
     quiet = args.quiet
 
-    frames, input_label, input_detail, root_dir = _frames_from_args(
+    frames, input_label, input_detail, _root_dir = _frames_from_args(
         args,
         allow_unsigned=allow_unsigned,
         quiet=quiet,
     )
-    if (
-        args.extension_index is not None or args.extension_doc_hash is not None
-    ) and root_dir is None:
-        raise ValueError(
-            "extension selectors require --scan to point at a backup root folder "
-            "(backup root directory)"
-        )
     extra_auth_frames = _extra_auth_frames_from_args(
         args,
         allow_unsigned=allow_unsigned,
@@ -233,7 +242,7 @@ def plan_from_args(args: RecoverArgs) -> RecoveryPlan:
         shard_payloads_file=shard_payloads_file,
         shard_scan=shard_scan,
         output_path=expanduser_cli_path(args.output),
-        root_dir=str(root_dir) if root_dir is not None else None,
+        root_dir=None,
         extension_index=args.extension_index,
         extension_doc_hash=args.extension_doc_hash,
         args=args,
@@ -336,6 +345,50 @@ def build_recovery_plan(
             hint = "Check the scan path and image quality, then try again."
         raise ValueError(f"no backup data found. {hint}")
 
+    import_documents = imported_documents_from_recovery_frames(
+        [*frames, *extra_auth_frames],
+        source_label=input_detail or input_label or "content import",
+    )
+    if len(import_documents) > 1:
+        if passphrase:
+            root_document = select_root_import_document(
+                import_documents,
+                passphrase=normalize_bip39_mnemonic(passphrase),
+                debug=False,
+            )
+        elif shard_frames:
+            root_document = _select_root_import_document_from_shards(
+                import_documents,
+                shard_frames=shard_frames,
+            )
+        else:
+            raise ValueError(
+                "passphrase is required when recovery input contains multiple MAIN documents"
+            )
+        root_frames = [frame for frame in frames if frame.doc_id == root_document.doc_id]
+        root_extra_auth_frames = [
+            frame for frame in extra_auth_frames if frame.doc_id == root_document.doc_id
+        ]
+        root_plan = build_recovery_plan(
+            frames=root_frames,
+            extra_auth_frames=root_extra_auth_frames,
+            shard_frames=shard_frames,
+            passphrase=passphrase,
+            allow_unsigned=allow_unsigned,
+            input_label=input_label,
+            input_detail=input_detail,
+            shard_fallback_files=shard_fallback_files,
+            shard_payloads_file=shard_payloads_file,
+            shard_scan=shard_scan,
+            output_path=output_path,
+            root_dir=root_dir,
+            extension_index=extension_index,
+            extension_doc_hash=extension_doc_hash,
+            args=args,
+            quiet=quiet,
+        )
+        return replace(root_plan, import_documents=import_documents)
+
     deduped = _dedupe_frames(frames)
     main_frames, auth_frames = _split_main_and_auth_frames(deduped)
     if extra_auth_frames:
@@ -383,7 +436,42 @@ def build_recovery_plan(
         root_dir=root_dir,
         extension_index=extension_index,
         extension_doc_hash=extension_doc_hash,
+        import_documents=import_documents,
     )
+
+
+def _select_root_import_document_from_shards(
+    documents: tuple[ImportedRecoveryDocument, ...],
+    *,
+    shard_frames: list[Frame],
+) -> ImportedRecoveryDocument:
+    target_doc_id: bytes | None = None
+    target_doc_hash: bytes | None = None
+    for frame in shard_frames:
+        if frame.frame_type != FrameType.KEY_DOCUMENT:
+            continue
+        if frame.total != 1 or frame.index != 0:
+            raise ValueError("shard payloads must be single-frame payloads")
+        payload = decode_shard_payload(frame.data)
+        if payload.key_type != KEY_TYPE_PASSPHRASE:
+            continue
+        if target_doc_id is None:
+            target_doc_id = frame.doc_id
+        elif target_doc_id != frame.doc_id:
+            raise ValueError("shard payload doc_id does not match ciphertext")
+        if target_doc_hash is None:
+            target_doc_hash = payload.doc_hash
+        elif target_doc_hash != payload.doc_hash:
+            raise ValueError("shard doc_hash does not match")
+
+    if target_doc_id is None or target_doc_hash is None:
+        raise ValueError(
+            "passphrase is required when recovery input contains multiple MAIN documents"
+        )
+    for document in documents:
+        if document.doc_id == target_doc_id and document.doc_hash == target_doc_hash:
+            return document
+    raise ValueError("shard payloads do not match any imported root backup document")
 
 
 def _blocking_issue(
@@ -704,7 +792,6 @@ def _frames_from_args(
     payloads_file = expanduser_cli_path(args.payloads_file)
     scan = expanduser_cli_paths(list(args.scan or []))
 
-    root_dir: Path | None = None
     if fallback_file:
         input_label = "Recovery text"
         input_detail = fallback_file
@@ -730,28 +817,15 @@ def _frames_from_args(
         except ValueError as exc:
             raise ValueError(format_recovery_input_error(exc)) from exc
     elif scan:
-        if len(scan) == 1:
-            candidate = Path(scan[0]).expanduser()
-            if candidate.is_dir() and not candidate.is_symlink():
-                scan = validated_root_recovery_scan_paths(candidate)
-                if scan:
-                    root_dir = candidate
-        if root_dir is None:
-            root_dir = detect_recovery_root_dir(scan)
-        if root_dir is not None:
-            input_label = "Backup root directory"
-            input_detail = str(root_dir.resolve())
-            scan = validated_root_recovery_scan_paths(root_dir)
-        else:
-            input_label = RECOVERY_SCAN_LABEL
-            input_detail = ", ".join(scan)
+        input_label = RECOVERY_SCAN_LABEL
+        input_detail = ", ".join(scan)
         try:
             frames = _recovery_frames_from_scan(scan, quiet=quiet)
         except ValueError as exc:
             raise ValueError(format_recovery_input_error(exc)) from exc
     else:
         raise ValueError("either --fallback-file, --payloads-file, or --scan is required")
-    return frames, input_label, input_detail, root_dir
+    return frames, input_label, input_detail, None
 
 
 def _extra_auth_frames_from_args(

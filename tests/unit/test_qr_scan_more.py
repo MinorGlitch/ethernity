@@ -102,11 +102,42 @@ class TestQrScanMore(unittest.TestCase):
             root = Path(tmpdir)
             (root / "a.png").write_bytes(b"")
             (root / "b.txt").write_text("skip", encoding="utf-8")
+            (root / "scan-without-extension").write_bytes(b"%PDF-1.7\n")
             sub = root / "nested"
             sub.mkdir()
             (sub / "c.PDF").write_bytes(b"")
             files = _iter_scan_files(root)
-        self.assertEqual([path.name for path in files], ["a.png", "c.PDF"])
+        self.assertEqual(
+            [path.name for path in files],
+            ["a.png", "c.PDF", "scan-without-extension"],
+        )
+
+    def test_scan_qr_payloads_accepts_content_typed_file_without_suffix(self) -> None:
+        decoder = QrDecoder(
+            name="dummy",
+            decode_image_path=lambda path: [Path(path).name.encode()],
+            decode_image_bytes=lambda _: [],
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "camera-export"
+            path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+            with mock.patch.object(qr_scan, "_load_decoder", return_value=decoder):
+                payloads = qr_scan.scan_qr_payloads([path])
+        self.assertEqual(payloads, [b"camera-export"])
+
+    def test_scan_qr_payloads_accepts_content_typed_pdf_without_suffix(self) -> None:
+        decoder = QrDecoder(
+            name="dummy", decode_image_path=lambda _: [], decode_image_bytes=lambda _: []
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "paper-scan"
+            path.write_bytes(b"%PDF-1.7\n")
+            with (
+                mock.patch.object(qr_scan, "_load_decoder", return_value=decoder),
+                mock.patch.object(qr_scan, "_scan_pdf", return_value=[b"pdf-payload"]),
+            ):
+                payloads = qr_scan.scan_qr_payloads([path])
+        self.assertEqual(payloads, [b"pdf-payload"])
 
     def test_scan_qr_payloads_rejects_unsupported_type(self) -> None:
         decoder = QrDecoder(

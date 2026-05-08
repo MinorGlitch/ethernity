@@ -15,7 +15,6 @@
 
 import contextlib
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -209,29 +208,6 @@ class TestPromptRecoveryInput(unittest.TestCase):
 
         self.assertEqual(frames, [main])
         self.assertEqual((label, detail), ("Backup PDF or images", "/tmp/root"))
-        self.assertEqual(args.scan, ["/tmp/root"])
-
-    @mock.patch("ethernity.cli.features.recover.wizard.prompt_recovery_input_interactive")
-    def test_interactive_root_directory_prompt_persists_scan_path(
-        self,
-        prompt_recovery_input_interactive: mock.MagicMock,
-    ) -> None:
-        main = _frame(FrameType.MAIN_DOCUMENT)
-        args = RecoverArgs(extension_index=1)
-        prompt_recovery_input_interactive.return_value = (
-            [main],
-            "Backup root directory",
-            "/tmp/root",
-        )
-
-        frames, label, detail = wizard._prompt_recovery_input(
-            args,
-            allow_unsigned=False,
-            quiet=True,
-        )
-
-        self.assertEqual(frames, [main])
-        self.assertEqual((label, detail), ("Backup root directory", "/tmp/root"))
         self.assertEqual(args.scan, ["/tmp/root"])
 
 
@@ -525,7 +501,6 @@ class TestRunRecoverWizard(unittest.TestCase):
         "ethernity.cli.features.recover.wizard._build_recovery_review_rows",
         return_value=[("A", "B")],
     )
-    @mock.patch("ethernity.cli.features.recover.wizard.detect_recovery_root_dir")
     @mock.patch("ethernity.cli.features.recover.wizard.build_recovery_plan")
     @mock.patch("ethernity.cli.features.recover.wizard._load_shard_frames", return_value=[])
     @mock.patch(
@@ -549,14 +524,12 @@ class TestRunRecoverWizard(unittest.TestCase):
         _prompt_key_material: mock.MagicMock,
         _load_shard_frames: mock.MagicMock,
         build_recovery_plan: mock.MagicMock,
-        detect_recovery_root_dir: mock.MagicMock,
         _build_recovery_review_rows: mock.MagicMock,
         _prompt_yes_no: mock.MagicMock,
         console_print: mock.MagicMock,
     ) -> None:
         main = _frame(FrameType.MAIN_DOCUMENT)
         prompt_recovery_input.return_value = ([main], "Backup PDF or images", "/tmp/root")
-        detect_recovery_root_dir.return_value = Path("/tmp/root")
         build_recovery_plan.return_value = SimpleNamespace(
             allow_unsigned=False,
             shard_frames=(),
@@ -581,74 +554,9 @@ class TestRunRecoverWizard(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn(mock.call("Recovery cancelled."), console_print.mock_calls)
         _, kwargs = build_recovery_plan.call_args
-        self.assertEqual(kwargs["root_dir"], "/tmp/root")
+        self.assertIsNone(kwargs["root_dir"])
         self.assertEqual(kwargs["extension_index"], 1)
         self.assertIsNone(kwargs["extension_doc_hash"])
-
-    @mock.patch("ethernity.cli.features.recover.wizard.console.print")
-    @mock.patch("ethernity.cli.features.recover.wizard.prompt_yes_no", return_value=False)
-    @mock.patch(
-        "ethernity.cli.features.recover.wizard._build_recovery_review_rows",
-        return_value=[("A", "B")],
-    )
-    @mock.patch("ethernity.cli.features.recover.wizard.detect_recovery_root_dir")
-    @mock.patch("ethernity.cli.features.recover.wizard.build_recovery_plan")
-    @mock.patch("ethernity.cli.features.recover.wizard._load_shard_frames", return_value=[])
-    @mock.patch(
-        "ethernity.cli.features.recover.wizard._prompt_key_material",
-        return_value=("pass", [], [], [], []),
-    )
-    @mock.patch("ethernity.cli.features.recover.wizard._load_extra_auth_frames", return_value=[])
-    @mock.patch("ethernity.cli.features.recover.wizard._prompt_recovery_input")
-    @mock.patch("ethernity.cli.features.recover.wizard.resolve_recover_config")
-    @mock.patch("ethernity.cli.features.recover.wizard.validate_recover_args")
-    @mock.patch("ethernity.cli.features.recover.wizard.sys.stdout.isatty", return_value=True)
-    @mock.patch("ethernity.cli.features.recover.wizard.sys.stdin.isatty", return_value=True)
-    def test_interactive_recovery_detects_extension_root_from_prompted_scan(
-        self,
-        _stdin_tty: mock.MagicMock,
-        _stdout_tty: mock.MagicMock,
-        _validate_recover_args: mock.MagicMock,
-        _resolve_recover_config: mock.MagicMock,
-        prompt_recovery_input: mock.MagicMock,
-        _load_extra_auth_frames: mock.MagicMock,
-        _prompt_key_material: mock.MagicMock,
-        _load_shard_frames: mock.MagicMock,
-        build_recovery_plan: mock.MagicMock,
-        detect_recovery_root_dir: mock.MagicMock,
-        _build_recovery_review_rows: mock.MagicMock,
-        _prompt_yes_no: mock.MagicMock,
-        console_print: mock.MagicMock,
-    ) -> None:
-        main = _frame(FrameType.MAIN_DOCUMENT)
-
-        def _prompt_input(args, *_args):
-            args.scan = ["/tmp/root"]
-            return [main], "Backup PDF or images", "/tmp/root"
-
-        prompt_recovery_input.side_effect = _prompt_input
-        detect_recovery_root_dir.return_value = Path("/tmp/root")
-        build_recovery_plan.return_value = SimpleNamespace(
-            allow_unsigned=False,
-            shard_frames=(),
-            auth_status="verified",
-            input_label="Backup PDF or images",
-            input_detail="/tmp/root",
-            main_frames=(main,),
-            auth_frames=(),
-            doc_id=main.doc_id,
-        )
-
-        result = wizard.run_recover_wizard(
-            RecoverArgs(extension_index=1, quiet=False, assume_yes=False),
-            show_header=False,
-        )
-
-        self.assertEqual(result, 1)
-        self.assertIn(mock.call("Recovery cancelled."), console_print.mock_calls)
-        _, kwargs = build_recovery_plan.call_args
-        self.assertEqual(kwargs["root_dir"], "/tmp/root")
-        self.assertEqual(kwargs["extension_index"], 1)
 
     @mock.patch("ethernity.cli.features.recover.wizard.console.print")
     @mock.patch("ethernity.cli.features.recover.wizard.prompt_yes_no", return_value=False)

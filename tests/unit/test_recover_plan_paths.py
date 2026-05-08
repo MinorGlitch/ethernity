@@ -77,35 +77,10 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
                         quiet=True,
                     )
         self.assertEqual(frames, ["main", "auth"])
-        self.assertEqual(label, "Scan")
+        self.assertEqual(label, "Backup PDF or images")
         self.assertEqual(detail, str(home / "backup-dir"))
         self.assertIsNone(root_dir)
         scan_mock.assert_called_once_with([str(home / "backup-dir")], quiet=True)
-
-    def test_frames_from_args_rejects_symlinked_root_main_carrier(self) -> None:
-        args = RecoverArgs(scan=["~/backup-dir"])
-        with tempfile.TemporaryDirectory() as tmpdir:
-            home = Path(tmpdir) / "home"
-            home.mkdir()
-            backup_dir = home / "backup-dir"
-            backup_dir.mkdir()
-            external = home / "external-qr.pdf"
-            external.write_bytes(b"x")
-            try:
-                (backup_dir / "qr_document.pdf").symlink_to(external)
-            except OSError as exc:
-                self.skipTest(f"symlinks unavailable: {exc}")
-
-            with mock.patch.dict("os.environ", _home_env(home), clear=False):
-                with self.assertRaisesRegex(
-                    ValueError,
-                    "root backup MAIN carrier must not be a symlink",
-                ):
-                    recover_plan._frames_from_args(
-                        args,
-                        allow_unsigned=False,
-                        quiet=True,
-                    )
 
     def test_shard_and_auth_path_helpers_expand_user_paths(self) -> None:
         args = RecoverArgs(
@@ -160,7 +135,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
         shard_fallback_mock.assert_called_once_with(str(home / "s1.txt"), quiet=True)
         shard_payload_mock.assert_called_once_with(
             str(home / "s2.txt"),
-            label="shard QR payloads",
+            label="shard text lines",
         )
         shard_scan_mock.assert_called_once_with([str(home / "s3.pdf")], quiet=True)
 

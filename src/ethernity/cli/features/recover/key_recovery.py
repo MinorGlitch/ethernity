@@ -43,11 +43,13 @@ class InsufficientShardError(ValueError):
         threshold: int,
         provided_count: int,
         secret_label: str,
+        share_count: int | None = None,
         shard_version: int | None = None,
     ) -> None:
         self.threshold = threshold
         self.provided_count = provided_count
         self.secret_label = secret_label
+        self.share_count = share_count
         self.shard_version = shard_version
         super().__init__(f"need at least {threshold} shard(s) to recover {secret_label}")
 
@@ -238,6 +240,7 @@ def _validated_shard_payloads_from_frames(
             threshold=threshold,
             provided_count=len(share_list),
             secret_label=secret_label,
+            share_count=share_total,
             shard_version=share_list[0].version,
         )
 

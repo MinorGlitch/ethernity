@@ -10,35 +10,34 @@
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
-#
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Extension-aware recovery helpers for root-directory chain replay."""
+"""Content-first extension recovery helpers.
+
+Recovery does not rely on extension directory names or artifact filenames. Scanned content is
+grouped by frame/doc identity, then authenticated and ordered using ciphertext hashes and decrypted
+headers.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-from typing import TYPE_CHECKING, Callable
-
-from pypdf import PdfReader
+from typing import TYPE_CHECKING
 
 from ethernity.cli.features.recover.key_recovery import _resolve_auth_payload
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.io.frames import (
     _dedupe_frames,
-    _frames_from_fallback_lines,
     _recovery_frames_from_scan,
     _split_main_and_auth_frames,
 )
-from ethernity.cli.shared.io.recovery_pdf import extract_pdf_fallback_lines_from_pdf
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.crypto import decrypt_bytes
 from ethernity.crypto.signing import AuthPayload, derive_public_key
 from ethernity.encoding.chunking import reassemble_payload
-from ethernity.encoding.framing import Frame
+from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions.build import build_virtual_chunk_source, default_extension_chunker
 from ethernity.extensions.chain import (
     ExtensionChainLink,
@@ -46,11 +45,6 @@ from ethernity.extensions.chain import (
     extract_root_logical_state,
     reconstruct_latest_logical_state,
     validate_extension_chain,
-)
-from ethernity.extensions.discovery import (
-    DiscoveredExtensionDirectory,
-    discover_validated_extension_directories,
-    payload_main_carriers,
 )
 from ethernity.formats.envelope_codec import decode_any_envelope, extract_payloads
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
@@ -61,7 +55,30 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
+class ImportedRecoveryDocument:
+    """One reassembled MAIN document discovered from content, independent of filenames."""
+
+    doc_id: bytes
+    doc_hash: bytes
+    ciphertext: bytes
+    auth_frames: tuple[Frame, ...]
+    source_label: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.doc_id, (bytes, bytearray)) or len(self.doc_id) != 8:
+            raise ValueError("imported recovery document doc_id must be 8 bytes")
+        if not isinstance(self.doc_hash, (bytes, bytearray)) or len(self.doc_hash) != 32:
+            raise ValueError("imported recovery document doc_hash must be 32 bytes")
+        object.__setattr__(self, "doc_id", bytes(self.doc_id))
+        object.__setattr__(self, "doc_hash", bytes(self.doc_hash))
+        object.__setattr__(self, "ciphertext", bytes(self.ciphertext))
+        object.__setattr__(self, "auth_frames", tuple(self.auth_frames))
+
+
+@dataclass(frozen=True)
 class DiscoveredRecoveryExtension:
+    """Compatibility shell for callers that already have one extension ciphertext."""
+
     index: int
     dir_name: str
     doc_id_hex: str
@@ -87,6 +104,12 @@ class ChainRecoveryResult:
 
 
 @dataclass(frozen=True)
+class RootManifestAuthority:
+    embedded_sign_pub: bytes | None
+    mismatch: bool
+
+
+@dataclass(frozen=True)
 class RecoveryReplayFailure:
     stage: str
     message: str
@@ -96,29 +119,25 @@ class RecoveryReplayFailure:
 
 
 @dataclass(frozen=True)
-class RecoveryExtensionInventory:
-    extensions: tuple[DiscoveredRecoveryExtension, ...]
-    explicit_selection: bool
-    requested_head_index: int | None
-    requested_head_doc_hash: str | None
-    requested_target_matched: bool
-    latest_head_index: int | None
-    latest_head_doc_hash: str | None
-    latest_head_dir_name: str | None
-    failure: RecoveryReplayFailure | None = None
-
-
-@dataclass(frozen=True)
-class DecodedExtensionReplay:
-    links: tuple[DecodedExtensionLink, ...]
-    failure: RecoveryReplayFailure | None = None
-
-
-@dataclass(frozen=True)
 class RecoveryHeadTrustRefusal:
     code: str
     message: str
     details: dict[str, object]
+
+
+@dataclass(frozen=True)
+class RecoveryExtensionInventory:
+    """Content-import inventory summary retained for inspect/API payload compatibility."""
+
+    extensions: tuple[DiscoveredRecoveryExtension, ...]
+    explicit_selection: bool = False
+    requested_head_index: int | None = None
+    requested_head_doc_hash: str | None = None
+    requested_target_matched: bool = False
+    latest_head_index: int | None = None
+    latest_head_doc_hash: str | None = None
+    latest_head_dir_name: str | None = None
+    failure: RecoveryReplayFailure | None = None
 
 
 @dataclass(frozen=True)
@@ -135,76 +154,118 @@ class RecoveryChainInspection:
 
 
 @dataclass(frozen=True)
-class RootManifestAuthority:
-    embedded_sign_pub: bytes | None
-    mismatch: bool
+class _DecodedExtensionCandidate:
+    document: ImportedRecoveryDocument
+    decoded: ExtensionEnvelope
 
 
-@dataclass(frozen=True)
-class ScannedExtensionCarriers:
-    index: int
-    dir_name: str
-    doc_id_hex: str
-    main_paths: tuple[str, ...]
-    doc_hash: bytes
-    ciphertext: bytes
-    auth_frames: tuple[Frame, ...]
+def imported_documents_from_recovery_frames(
+    frames: list[Frame],
+    *,
+    source_label: str = "content import",
+) -> tuple[ImportedRecoveryDocument, ...]:
+    """Group MAIN/AUTH recovery frames into independently recoverable documents."""
+
+    deduped = _dedupe_frames(frames)
+    main_frames, auth_frames = _split_main_and_auth_frames(deduped)
+    main_by_doc_id: dict[bytes, list[Frame]] = {}
+    auth_by_doc_id: dict[bytes, list[Frame]] = {}
+    for frame in main_frames:
+        main_by_doc_id.setdefault(frame.doc_id, []).append(frame)
+    for frame in auth_frames:
+        auth_by_doc_id.setdefault(frame.doc_id, []).append(frame)
+
+    documents: list[ImportedRecoveryDocument] = []
+    for doc_id in sorted(main_by_doc_id):
+        ciphertext = reassemble_payload(
+            main_by_doc_id[doc_id],
+            expected_frame_type=FrameType.MAIN_DOCUMENT,
+        )
+        derived_doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+        if derived_doc_id != doc_id:
+            raise ValueError("MAIN frame doc_id does not match recovered ciphertext")
+        documents.append(
+            ImportedRecoveryDocument(
+                doc_id=doc_id,
+                doc_hash=doc_hash,
+                ciphertext=ciphertext,
+                auth_frames=tuple(auth_by_doc_id.get(doc_id, ())),
+                source_label=f"{source_label}:{doc_id.hex()}",
+            )
+        )
+    return tuple(documents)
 
 
-_ROOT_MAIN_FILENAMES = ("qr_document.pdf", "recovery_document.pdf")
+def select_root_import_document(
+    documents: tuple[ImportedRecoveryDocument, ...],
+    *,
+    passphrase: str,
+    debug: bool,
+) -> ImportedRecoveryDocument:
+    """Pick exactly one V1 root backup from imported content."""
 
+    roots: list[ImportedRecoveryDocument] = []
+    extension_count = 0
+    decode_errors: list[str] = []
+    for document in documents:
+        try:
+            plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
+            version, decoded = decode_any_envelope(plaintext)
+        except Exception as exc:
+            decode_errors.append(f"{document.doc_id.hex()}: {exc}")
+            continue
+        if version == 1 and isinstance(decoded, tuple) and len(decoded) == 2:
+            roots.append(document)
+        elif version == 2 and isinstance(decoded, ExtensionEnvelope):
+            extension_count += 1
 
-def detect_recovery_root_dir(scan_paths: list[str]) -> Path | None:
-    if len(scan_paths) != 1:
-        return None
-    candidate = Path(scan_paths[0]).expanduser()
-    if candidate.is_symlink():
-        return None
-    if not candidate.is_dir():
-        return None
-    try:
-        scan_paths = validated_root_recovery_scan_paths(candidate)
-    except ValueError:
-        return None
-    if scan_paths:
-        return candidate
-    return None
+    if len(roots) == 1:
+        return roots[0]
+    if not roots:
+        detail = "; ".join(decode_errors[:3])
+        suffix = f" ({detail})" if detail else ""
+        raise ValueError(f"content import did not contain a decryptable root backup{suffix}")
+    raise ValueError(
+        "content import contains multiple root backups; provide one root backup per "
+        "recovery session "
+        f"({len(roots)} roots, {extension_count} extensions)"
+    )
 
 
 def recover_chain_entries(
     plan: "RecoveryPlan", *, quiet: bool, debug: bool = False
 ) -> ChainRecoveryResult:
-    if not plan.root_dir:
-        raise ValueError("recovery chain replay requires a root_dir")
+    if plan.import_documents:
+        return recover_imported_chain_entries(plan, quiet=quiet, debug=debug)
 
-    root_dir = Path(plan.root_dir).expanduser()
     root_manifest, payload = decode_root_manifest(
         ciphertext=plan.ciphertext,
         passphrase=plan.passphrase,
         debug=debug,
     )
-    root_sign_pub = validate_root_manifest_authority(root_manifest, plan.auth_payload)
-
-    chain_inspection = inspect_recovery_extension_chain(
-        root_dir,
+    validate_root_manifest_authority(root_manifest, plan.auth_payload)
+    return ChainRecoveryResult(
         manifest=root_manifest,
-        payload=payload,
-        root_doc_hash=plan.doc_hash,
-        passphrase=plan.passphrase,
-        expected_sign_pub=root_sign_pub,
-        allow_unsigned=plan.allow_unsigned,
-        quiet=quiet,
-        debug=debug,
-        requested_index=plan.extension_index,
-        requested_doc_hash=plan.extension_doc_hash,
+        extracted=tuple(extract_payloads(root_manifest, payload)),
+        selected_extension_index=None,
+        selected_extension_doc_hash=None,
     )
-    if chain_inspection.refusal is not None:
-        raise ApiCommandError(
-            code=chain_inspection.refusal.code,
-            message=chain_inspection.refusal.message,
-            details=chain_inspection.refusal.details,
+
+
+def recover_imported_chain_entries(
+    plan: "RecoveryPlan", *, quiet: bool, debug: bool = False
+) -> ChainRecoveryResult:
+    root_manifest, payload = decode_root_manifest(
+        ciphertext=plan.ciphertext,
+        passphrase=plan.passphrase,
+        debug=debug,
+    )
+    if len(plan.import_documents) <= 1:
+        _ensure_root_selector_satisfied(
+            requested_index=plan.extension_index,
+            requested_doc_hash=plan.extension_doc_hash,
         )
-    if not chain_inspection.links or chain_inspection.latest_state is None:
+        validate_root_manifest_authority(root_manifest, plan.auth_payload)
         return ChainRecoveryResult(
             manifest=root_manifest,
             extracted=tuple(extract_payloads(root_manifest, payload)),
@@ -212,627 +273,56 @@ def recover_chain_entries(
             selected_extension_doc_hash=None,
         )
 
-    latest_header = chain_inspection.links[-1].link.document.header
-    latest_manifest = _synthetic_manifest_from_state(
-        root_manifest,
-        chain_inspection.latest_state,
-        latest_input_origin=latest_header.input_origin,
-        latest_input_roots=latest_header.input_roots,
-    )
-    state_by_path = {item.path: item.data for item in chain_inspection.latest_state}
-    extracted = tuple((entry, state_by_path[entry.path]) for entry in latest_manifest.files)
-    return ChainRecoveryResult(
-        manifest=latest_manifest,
-        extracted=extracted,
-        selected_extension_index=chain_inspection.links[-1].link.document.header.index,
-        selected_extension_doc_hash=chain_inspection.links[-1].link.doc_hash.hex(),
-    )
-
-
-def discover_recovery_extensions(
-    root_dir: Path,
-    *,
-    quiet: bool,
-    requested_index: int | None = None,
-    requested_doc_hash: str | None = None,
-) -> tuple[DiscoveredRecoveryExtension, ...]:
-    inventory = _discover_recovery_extension_inventory(
-        root_dir,
-        quiet=quiet,
-        requested_index=requested_index,
-        requested_doc_hash=requested_doc_hash,
-    )
-    if inventory.explicit_selection and not inventory.requested_target_matched:
-        failure = inventory.failure
-        if failure is not None:
-            raise ValueError(failure.message)
-    return inventory.extensions
-
-
-def _discover_recovery_extension(
-    item: DiscoveredExtensionDirectory,
-    *,
-    quiet: bool,
-) -> DiscoveredRecoveryExtension:
-    scanned = scan_discovered_extension_directory(item, quiet=quiet)
-    return DiscoveredRecoveryExtension(
-        index=scanned.index,
-        dir_name=scanned.dir_name,
-        doc_id_hex=scanned.doc_id_hex,
-        doc_hash=scanned.doc_hash,
-        ciphertext=scanned.ciphertext,
-        auth_frames=scanned.auth_frames,
-    )
-
-
-def _scan_main_ciphertext(paths: list[str], *, quiet: bool) -> bytes:
-    ciphertext, _auth_frames = scan_extension_carriers(paths, quiet=quiet)
-    return ciphertext
-
-
-def _scan_single_extension_carrier(path: str, *, quiet: bool) -> tuple[bytes, tuple[Frame, ...]]:
-    try:
-        frames = _recovery_frames_from_scan([path], quiet=quiet)
-    except ValueError as exc:
-        if not _should_try_recovery_fallback(path, exc):
-            raise ValueError(
-                f"{Path(path).name} MAIN carrier is not independently recoverable: {exc}"
-            ) from exc
-        try:
-            fallback_lines = extract_pdf_fallback_lines_from_pdf(PdfReader(path))
-            if not fallback_lines:
-                raise ValueError("fallback sections were not found in the recovery document")
-            frames = _frames_from_fallback_lines(
-                fallback_lines,
-                allow_invalid_auth=False,
-                quiet=quiet,
-            )
-        except Exception as fallback_exc:
-            raise ValueError(
-                f"{Path(path).name} MAIN carrier is not independently recoverable: {fallback_exc}"
-            ) from fallback_exc
-
-    deduped = _dedupe_frames(frames)
-    main_frames, auth_frames = _split_main_and_auth_frames(deduped)
-    try:
-        ciphertext = reassemble_payload(main_frames)
-    except ValueError as exc:
-        raise ValueError(
-            f"{Path(path).name} MAIN carrier is not independently recoverable: {exc}"
-        ) from exc
-    return ciphertext, tuple(auth_frames)
-
-
-def _should_try_recovery_fallback(path: str, exc: Exception) -> bool:
-    name = Path(path).name
-    return (
-        name == "recovery_document.pdf" or name.startswith("recovery_document-")
-    ) and "no QR codes found in scan inputs" in str(exc)
-
-
-def scan_extension_carriers(paths: list[str], *, quiet: bool) -> tuple[bytes, list[Frame]]:
-    if not paths:
-        raise ValueError("no extension MAIN carriers were provided")
-
-    expected_ciphertext: bytes | None = None
-    expected_auth_frames: tuple[Frame, ...] | None = None
-    first_valid_path: str | None = None
-    first_error: ValueError | None = None
-    baseline_name = Path(paths[0]).name
-
-    for path in paths:
-        try:
-            ciphertext, auth_tuple = _scan_single_extension_carrier(path, quiet=quiet)
-        except ValueError as exc:
-            if first_error is None:
-                first_error = exc
-            continue
-        if expected_ciphertext is None:
-            expected_ciphertext = ciphertext
-            expected_auth_frames = auth_tuple
-            first_valid_path = Path(path).name
-            continue
-        if ciphertext != expected_ciphertext:
-            raise ValueError(
-                f"{Path(path).name} MAIN carrier does not match {first_valid_path or baseline_name}"
-            )
-        if auth_tuple != expected_auth_frames:
-            raise ValueError(
-                f"{Path(path).name} AUTH payloads do not match {first_valid_path or baseline_name}"
-            )
-
-    if expected_ciphertext is None:
-        if first_error is not None:
-            raise first_error
-        raise ValueError("no extension MAIN carriers were provided")
-    return expected_ciphertext, list(expected_auth_frames or ())
-
-
-def _strict_extension_selection_requested(plan: "RecoveryPlan") -> bool:
-    return plan.extension_index is not None or plan.extension_doc_hash is not None
-
-
-def _discover_recovery_extension_inventory(
-    root_dir: Path,
-    *,
-    quiet: bool,
-    requested_index: int | None = None,
-    requested_doc_hash: str | None = None,
-) -> RecoveryExtensionInventory:
-    if requested_index is not None and requested_doc_hash is not None:
-        raise ValueError("use either --extension-index or --extension-doc-hash, not both")
-    if requested_index == 0:
-        return RecoveryExtensionInventory(
-            extensions=(),
-            explicit_selection=True,
-            requested_head_index=0,
-            requested_head_doc_hash=None,
-            requested_target_matched=True,
-            latest_head_index=None,
-            latest_head_doc_hash=None,
-            latest_head_dir_name=None,
+    if plan.extension_index == 0:
+        validate_root_manifest_authority(root_manifest, plan.auth_payload)
+        return ChainRecoveryResult(
+            manifest=root_manifest,
+            extracted=tuple(extract_payloads(root_manifest, payload)),
+            selected_extension_index=None,
+            selected_extension_doc_hash=None,
         )
 
-    requested_doc_hash_bytes = (
-        None if requested_doc_hash is None else _parse_extension_doc_hash(requested_doc_hash)
-    )
-    normalized_requested_doc_hash = (
-        None if requested_doc_hash is None else requested_doc_hash.strip().lower()
-    )
-    if requested_index is not None and requested_index < 0:
-        raise ValueError("--extension-index must be >= 0")
-
-    explicit_selection = requested_index is not None or normalized_requested_doc_hash is not None
-    discovery = discover_validated_extension_directories(root_dir)
-    discovered = discovery.directories
-    latest_head_index, latest_head_dir_name = _latest_head_from_discovery(discovery)
-    latest_head_doc_hash: str | None = None
-
-    if requested_index is not None and requested_index > len(discovered):
-        if discovery.first_invalid_message is not None:
-            return RecoveryExtensionInventory(
-                extensions=(),
-                explicit_selection=explicit_selection,
-                requested_head_index=requested_index,
-                requested_head_doc_hash=normalized_requested_doc_hash,
-                requested_target_matched=False,
-                latest_head_index=latest_head_index,
-                latest_head_doc_hash=None,
-                latest_head_dir_name=latest_head_dir_name,
-                failure=RecoveryReplayFailure(
-                    stage="discovery",
-                    message=discovery.first_invalid_message,
-                    head_index=latest_head_index,
-                    head_dir_name=latest_head_dir_name,
-                ),
-            )
-        raise ValueError(f"extension index {requested_index} was not found")
-
-    inventory: list[DiscoveredRecoveryExtension] = []
-    requested_target_matched = False
-    for item in discovered:
-        if requested_index is not None and item.index > requested_index:
-            break
-        try:
-            discovered_extension = _discover_recovery_extension(item, quiet=quiet)
-        except ValueError as exc:
-            return RecoveryExtensionInventory(
-                extensions=tuple(inventory),
-                explicit_selection=explicit_selection,
-                requested_head_index=requested_index,
-                requested_head_doc_hash=normalized_requested_doc_hash,
-                requested_target_matched=requested_target_matched,
-                latest_head_index=latest_head_index,
-                latest_head_doc_hash=latest_head_doc_hash,
-                latest_head_dir_name=latest_head_dir_name,
-                failure=RecoveryReplayFailure(
-                    stage="discovery",
-                    message=str(exc),
-                    head_index=item.index,
-                    head_dir_name=item.dir_name,
-                ),
-            )
-        inventory.append(discovered_extension)
-        if latest_head_index == item.index:
-            latest_head_doc_hash = discovered_extension.doc_hash.hex()
-        if requested_index is not None and item.index == requested_index:
-            requested_target_matched = True
-            return RecoveryExtensionInventory(
-                extensions=tuple(inventory),
-                explicit_selection=explicit_selection,
-                requested_head_index=requested_index,
-                requested_head_doc_hash=normalized_requested_doc_hash,
-                requested_target_matched=True,
-                latest_head_index=latest_head_index,
-                latest_head_doc_hash=latest_head_doc_hash,
-                latest_head_dir_name=latest_head_dir_name,
-                failure=(
-                    None
-                    if discovery.first_invalid_message is None
-                    else RecoveryReplayFailure(
-                        stage="discovery",
-                        message=discovery.first_invalid_message,
-                        head_index=latest_head_index,
-                        head_dir_name=latest_head_dir_name,
-                    )
-                ),
-            )
-        if (
-            requested_doc_hash_bytes is not None
-            and discovered_extension.doc_hash == requested_doc_hash_bytes
-        ):
-            return RecoveryExtensionInventory(
-                extensions=tuple(inventory),
-                explicit_selection=explicit_selection,
-                requested_head_index=discovered_extension.index,
-                requested_head_doc_hash=normalized_requested_doc_hash,
-                requested_target_matched=True,
-                latest_head_index=latest_head_index,
-                latest_head_doc_hash=latest_head_doc_hash,
-                latest_head_dir_name=latest_head_dir_name,
-                failure=(
-                    None
-                    if discovery.first_invalid_message is None
-                    else RecoveryReplayFailure(
-                        stage="discovery",
-                        message=discovery.first_invalid_message,
-                        head_index=latest_head_index,
-                        head_dir_name=latest_head_dir_name,
-                    )
-                ),
-            )
-
-    if requested_index is not None:
-        if discovery.first_invalid_message is not None:
-            return RecoveryExtensionInventory(
-                extensions=tuple(inventory),
-                explicit_selection=explicit_selection,
-                requested_head_index=requested_index,
-                requested_head_doc_hash=normalized_requested_doc_hash,
-                requested_target_matched=False,
-                latest_head_index=latest_head_index,
-                latest_head_doc_hash=latest_head_doc_hash,
-                latest_head_dir_name=latest_head_dir_name,
-                failure=RecoveryReplayFailure(
-                    stage="discovery",
-                    message=discovery.first_invalid_message,
-                    head_index=latest_head_index,
-                    head_dir_name=latest_head_dir_name,
-                ),
-            )
-        raise ValueError(f"extension index {requested_index} was not found")
-
-    if normalized_requested_doc_hash is not None:
-        if discovery.first_invalid_message is not None:
-            return RecoveryExtensionInventory(
-                extensions=tuple(inventory),
-                explicit_selection=explicit_selection,
-                requested_head_index=None,
-                requested_head_doc_hash=normalized_requested_doc_hash,
-                requested_target_matched=False,
-                latest_head_index=latest_head_index,
-                latest_head_doc_hash=latest_head_doc_hash,
-                latest_head_dir_name=latest_head_dir_name,
-                failure=RecoveryReplayFailure(
-                    stage="discovery",
-                    message=discovery.first_invalid_message,
-                    head_index=latest_head_index,
-                    head_dir_name=latest_head_dir_name,
-                ),
-            )
-        raise ValueError(f"extension doc_hash {normalized_requested_doc_hash} was not found")
-
-    return RecoveryExtensionInventory(
-        extensions=tuple(inventory),
-        explicit_selection=explicit_selection,
-        requested_head_index=None,
-        requested_head_doc_hash=normalized_requested_doc_hash,
-        requested_target_matched=False,
-        latest_head_index=latest_head_index,
-        latest_head_doc_hash=latest_head_doc_hash,
-        latest_head_dir_name=latest_head_dir_name,
-        failure=(
-            None
-            if discovery.first_invalid_message is None
-            else RecoveryReplayFailure(
-                stage="discovery",
-                message=discovery.first_invalid_message,
-                head_index=latest_head_index,
-                head_dir_name=latest_head_dir_name,
-            )
-        ),
-    )
-
-
-def _latest_head_from_discovery(
-    discovery: object,
-) -> tuple[int | None, str | None]:
-    first_invalid_dir_name = getattr(discovery, "first_invalid_dir_name", None)
-    if first_invalid_dir_name is not None:
-        return _parse_extension_dir_index(first_invalid_dir_name), first_invalid_dir_name
-    directories = getattr(discovery, "directories", ())
-    if directories:
-        last_directory = directories[-1]
-        return last_directory.index, last_directory.dir_name
-    return None, None
-
-
-def _parse_extension_dir_index(dir_name: str) -> int | None:
-    try:
-        return int(dir_name, 10)
-    except ValueError:
-        return None
-
-
-def _decode_recovery_extension_replay(
-    inventory: RecoveryExtensionInventory,
-    *,
-    manifest: EnvelopeManifest,
-    payload: bytes,
-    root_doc_hash: bytes,
-    passphrase: str,
-    expected_sign_pub: bytes,
-    allow_unsigned: bool,
-    quiet: bool,
-    debug: bool,
-) -> DecodedExtensionReplay:
-    decoded_prefix: list[DecodedExtensionLink] = []
-    root_state = extract_root_logical_state(manifest, payload)
-
-    for item in inventory.extensions:
-        try:
-            decoded = decode_authenticated_extension_link(
-                item,
-                passphrase=passphrase,
-                expected_sign_pub=expected_sign_pub,
-                allow_unsigned=allow_unsigned,
-                quiet=quiet,
-                debug=debug,
-            )
-        except ValueError as exc:
-            return DecodedExtensionReplay(
-                links=tuple(decoded_prefix),
-                failure=RecoveryReplayFailure(
-                    stage=_classify_extension_decode_failure(str(exc)),
-                    message=str(exc),
-                    head_index=item.index,
-                    head_doc_hash=item.doc_hash.hex(),
-                    head_dir_name=item.dir_name,
-                ),
-            )
-
-        candidate_prefix = (*decoded_prefix, decoded)
-        try:
-            locked_chunking = validate_extension_chain(
-                root_doc_hash=root_doc_hash,
-                extensions=tuple(entry.link for entry in candidate_prefix),
-            )
-        except ValueError as exc:
-            return DecodedExtensionReplay(
-                links=tuple(decoded_prefix),
-                failure=RecoveryReplayFailure(
-                    stage="validation",
-                    message=str(exc),
-                    head_index=item.index,
-                    head_doc_hash=item.doc_hash.hex(),
-                    head_dir_name=item.dir_name,
-                ),
-            )
-
-        virtual_root_chunks = (
-            {}
-            if locked_chunking is None
-            else build_virtual_chunk_source(
-                tuple(entry.data for entry in root_state),
-                chunking=locked_chunking,
-                chunker=default_extension_chunker,
-            )
-        )
-        try:
-            reconstruct_latest_logical_state(
-                manifest,
-                payload,
-                root_doc_hash=root_doc_hash,
-                extensions=tuple(entry.link for entry in candidate_prefix),
-                virtual_root_chunks=virtual_root_chunks,
-            )
-        except ValueError as exc:
-            return DecodedExtensionReplay(
-                links=tuple(decoded_prefix),
-                failure=RecoveryReplayFailure(
-                    stage="reconstruction",
-                    message=str(exc),
-                    head_index=item.index,
-                    head_doc_hash=item.doc_hash.hex(),
-                    head_dir_name=item.dir_name,
-                ),
-            )
-        decoded_prefix.append(decoded)
-
-    return DecodedExtensionReplay(links=tuple(decoded_prefix))
-
-
-def _classify_extension_decode_failure(message: str) -> str:
-    lowered = message.lower()
-    if "auth" in lowered or "signing key" in lowered:
-        return "auth"
-    return "decode"
-
-
-def _validated_head_details(
-    *,
-    root_doc_hash: bytes,
-    validated_links: tuple[DecodedExtensionLink, ...],
-) -> tuple[int, str, str | None, bool | None]:
-    if validated_links:
-        return (
-            validated_links[-1].link.document.header.index,
-            validated_links[-1].link.doc_hash.hex(),
-            validated_links[-1].auth_status,
-            validated_links[-1].root_authority_verified,
-        )
-    return 0, root_doc_hash.hex(), None, None
-
-
-def build_recovery_head_untrusted_refusal(
-    *,
-    inventory: RecoveryExtensionInventory,
-    root_doc_hash: bytes,
-    validated_links: tuple[DecodedExtensionLink, ...],
-    failure: RecoveryReplayFailure,
-) -> RecoveryHeadTrustRefusal:
-    (
-        validated_head_index,
-        validated_head_doc_hash,
-        validated_head_auth_status,
-        validated_head_root_authority_verified,
-    ) = _validated_head_details(root_doc_hash=root_doc_hash, validated_links=validated_links)
-
-    head_label = "requested" if inventory.explicit_selection else "latest"
-    return RecoveryHeadTrustRefusal(
-        code=api_codes.RECOVERY_HEAD_UNTRUSTED,
-        message=f"{head_label} recovery head could not be trusted: {failure.message}",
-        details={
-            "stage": "replay",
-            "failure_stage": failure.stage,
-            "failure_message": failure.message,
-            "failure_head_index": failure.head_index,
-            "failure_head_doc_hash": failure.head_doc_hash,
-            "failure_head_dir_name": failure.head_dir_name,
-            "latest_head_index": inventory.latest_head_index,
-            "latest_head_doc_hash": inventory.latest_head_doc_hash,
-            "latest_head_dir_name": inventory.latest_head_dir_name,
-            "requested_head_index": inventory.requested_head_index,
-            "requested_head_doc_hash": inventory.requested_head_doc_hash,
-            "validated_head_index": validated_head_index,
-            "validated_head_doc_hash": validated_head_doc_hash,
-            "validated_head_auth_status": validated_head_auth_status,
-            "validated_head_root_authority_verified": validated_head_root_authority_verified,
-            "explicit_selection": inventory.explicit_selection,
-        },
-    )
-
-
-def inspect_recovery_extension_chain(
-    root_dir: Path,
-    *,
-    manifest: EnvelopeManifest,
-    payload: bytes,
-    root_doc_hash: bytes,
-    passphrase: str,
-    expected_sign_pub: bytes,
-    allow_unsigned: bool,
-    quiet: bool,
-    debug: bool,
-    requested_index: int | None = None,
-    requested_doc_hash: str | None = None,
-) -> RecoveryChainInspection:
-    inventory = _discover_recovery_extension_inventory(
-        root_dir,
-        quiet=quiet,
-        requested_index=requested_index,
-        requested_doc_hash=requested_doc_hash,
-    )
-    root_state = extract_root_logical_state(manifest, payload)
-
-    if inventory.failure is not None and (
-        not inventory.explicit_selection or not inventory.requested_target_matched
-    ):
-        refusal = build_recovery_head_untrusted_refusal(
-            inventory=inventory,
-            root_doc_hash=root_doc_hash,
-            validated_links=(),
-            failure=inventory.failure,
-        )
-        return RecoveryChainInspection(
-            inventory=inventory,
-            links=(),
-            latest_state=None,
-            locked_chunking=None,
-            refusal=refusal,
-            validated_head_index=refusal.details["validated_head_index"],
-            validated_head_doc_hash=refusal.details["validated_head_doc_hash"],
-            validated_head_auth_status=refusal.details["validated_head_auth_status"],
-            validated_head_root_authority_verified=refusal.details[
-                "validated_head_root_authority_verified"
-            ],
+    root_sign_pub = validate_root_manifest_authority(root_manifest, plan.auth_payload)
+    if root_sign_pub is None:
+        raise ApiCommandError(
+            code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+            message="extension import recovery requires an unsealed root signing authority",
+            details={
+                "stage": "auth",
+                "validated_head_index": 0,
+                "validated_head_doc_hash": plan.doc_hash.hex(),
+            },
         )
 
-    if not inventory.extensions:
-        (
-            validated_head_index,
-            validated_head_doc_hash,
-            validated_head_auth_status,
-            validated_head_root_authority_verified,
-        ) = _validated_head_details(root_doc_hash=root_doc_hash, validated_links=())
-        return RecoveryChainInspection(
-            inventory=inventory,
-            links=(),
-            latest_state=root_state,
-            locked_chunking=None,
-            refusal=None,
-            validated_head_index=validated_head_index,
-            validated_head_doc_hash=validated_head_doc_hash,
-            validated_head_auth_status=validated_head_auth_status,
-            validated_head_root_authority_verified=validated_head_root_authority_verified,
-        )
-
-    replay = _decode_recovery_extension_replay(
-        inventory,
-        manifest=manifest,
-        payload=payload,
-        root_doc_hash=root_doc_hash,
-        passphrase=passphrase,
-        expected_sign_pub=expected_sign_pub,
-        allow_unsigned=allow_unsigned,
+    decoded_links = _decode_imported_extension_links(
+        tuple(plan.import_documents),
+        root_doc_hash=plan.doc_hash,
+        root_doc_id=plan.doc_id,
+        passphrase=plan.passphrase,
+        expected_sign_pub=root_sign_pub,
+        requested_index=plan.extension_index,
+        requested_doc_hash=plan.extension_doc_hash,
         quiet=quiet,
         debug=debug,
     )
-    if replay.failure is not None:
-        refusal = build_recovery_head_untrusted_refusal(
-            inventory=inventory,
-            root_doc_hash=root_doc_hash,
-            validated_links=replay.links,
-            failure=replay.failure,
-        )
-        return RecoveryChainInspection(
-            inventory=inventory,
-            links=replay.links,
-            latest_state=None,
-            locked_chunking=None,
-            refusal=refusal,
-            validated_head_index=refusal.details["validated_head_index"],
-            validated_head_doc_hash=refusal.details["validated_head_doc_hash"],
-            validated_head_auth_status=refusal.details["validated_head_auth_status"],
-            validated_head_root_authority_verified=refusal.details[
-                "validated_head_root_authority_verified"
-            ],
-        )
-
-    links = replay.links
-    if not links:
-        (
-            validated_head_index,
-            validated_head_doc_hash,
-            validated_head_auth_status,
-            validated_head_root_authority_verified,
-        ) = _validated_head_details(root_doc_hash=root_doc_hash, validated_links=())
-        return RecoveryChainInspection(
-            inventory=inventory,
-            links=(),
-            latest_state=root_state,
-            locked_chunking=None,
-            refusal=None,
-            validated_head_index=validated_head_index,
-            validated_head_doc_hash=validated_head_doc_hash,
-            validated_head_auth_status=validated_head_auth_status,
-            validated_head_root_authority_verified=validated_head_root_authority_verified,
+    selected_links = _select_imported_chain_links(
+        decoded_links,
+        requested_index=plan.extension_index,
+        requested_doc_hash=plan.extension_doc_hash,
+    )
+    if not selected_links:
+        return ChainRecoveryResult(
+            manifest=root_manifest,
+            extracted=tuple(extract_payloads(root_manifest, payload)),
+            selected_extension_index=None,
+            selected_extension_doc_hash=None,
         )
 
     locked_chunking = validate_extension_chain(
-        root_doc_hash=root_doc_hash,
-        extensions=tuple(item.link for item in links),
+        root_doc_hash=plan.doc_hash,
+        extensions=tuple(item.link for item in selected_links),
     )
+    root_state = extract_root_logical_state(root_manifest, payload)
     virtual_root_chunks = (
         {}
         if locked_chunking is None
@@ -843,74 +333,333 @@ def inspect_recovery_extension_chain(
         )
     )
     latest_state = reconstruct_latest_logical_state(
-        manifest,
+        root_manifest,
         payload,
-        root_doc_hash=root_doc_hash,
-        extensions=tuple(item.link for item in links),
+        root_doc_hash=plan.doc_hash,
+        extensions=tuple(item.link for item in selected_links),
         virtual_root_chunks=virtual_root_chunks,
     )
-    (
-        validated_head_index,
-        validated_head_doc_hash,
-        validated_head_auth_status,
-        validated_head_root_authority_verified,
-    ) = _validated_head_details(root_doc_hash=root_doc_hash, validated_links=links)
-    return RecoveryChainInspection(
-        inventory=inventory,
-        links=links,
-        latest_state=latest_state,
-        locked_chunking=locked_chunking,
-        refusal=None,
-        validated_head_index=validated_head_index,
-        validated_head_doc_hash=validated_head_doc_hash,
-        validated_head_auth_status=validated_head_auth_status,
-        validated_head_root_authority_verified=validated_head_root_authority_verified,
+    latest_header = selected_links[-1].link.document.header
+    latest_manifest = _synthetic_manifest_from_state(
+        root_manifest,
+        latest_state,
+        latest_input_origin=latest_header.input_origin,
+        latest_input_roots=latest_header.input_roots,
+    )
+    state_by_path = {item.path: item.data for item in latest_state}
+    extracted = tuple((entry, state_by_path[entry.path]) for entry in latest_manifest.files)
+    return ChainRecoveryResult(
+        manifest=latest_manifest,
+        extracted=extracted,
+        selected_extension_index=selected_links[-1].link.document.header.index,
+        selected_extension_doc_hash=selected_links[-1].link.doc_hash.hex(),
     )
 
 
-def _raise_recovery_head_untrusted(
+def _decode_imported_extension_links(
+    documents: tuple[ImportedRecoveryDocument, ...],
     *,
-    inventory: RecoveryExtensionInventory,
     root_doc_hash: bytes,
-    validated_links: tuple[DecodedExtensionLink, ...],
-    failure: RecoveryReplayFailure,
-) -> None:
-    refusal = build_recovery_head_untrusted_refusal(
-        inventory=inventory,
-        root_doc_hash=root_doc_hash,
-        validated_links=validated_links,
-        failure=failure,
-    )
-    raise ApiCommandError(
-        code=refusal.code,
-        message=refusal.message,
-        details=refusal.details,
-    )
-
-
-def scan_discovered_extension_directory(
-    item: DiscoveredExtensionDirectory,
-    *,
+    root_doc_id: bytes,
+    passphrase: str,
+    expected_sign_pub: bytes,
+    requested_index: int | None = None,
+    requested_doc_hash: str | None = None,
     quiet: bool,
-    scanner: Callable[[list[str]], tuple[bytes, list[Frame]]] | None = None,
-) -> ScannedExtensionCarriers:
-    main_paths = tuple(str(carrier.path) for carrier in payload_main_carriers(item.main_carriers))
-    scan = scanner or (lambda paths: scan_extension_carriers(paths, quiet=quiet))
-    ciphertext, auth_frames = scan(list(main_paths))
-    doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
-    if doc_id.hex() != item.doc_id_hex:
-        raise ValueError(
-            f"extension {item.dir_name} MAIN carriers do not match the filename doc_id"
-        )
-    return ScannedExtensionCarriers(
-        index=item.index,
-        dir_name=item.dir_name,
-        doc_id_hex=item.doc_id_hex,
-        main_paths=main_paths,
-        doc_hash=doc_hash,
-        ciphertext=ciphertext,
-        auth_frames=tuple(auth_frames),
+    debug: bool,
+) -> tuple[DecodedExtensionLink, ...]:
+    if requested_index is not None and requested_doc_hash is not None:
+        raise ValueError("use either --extension-index or --extension-doc-hash, not both")
+
+    candidates = _decode_imported_extension_candidates(
+        documents,
+        root_doc_hash=root_doc_hash,
+        root_doc_id=root_doc_id,
+        passphrase=passphrase,
+        expected_sign_pub=expected_sign_pub,
+        fail_on_root_authority_errors=requested_index is None and requested_doc_hash is None,
+        quiet=quiet,
+        debug=debug,
     )
+    candidates = _select_extension_candidates_for_auth(
+        candidates,
+        requested_index=requested_index,
+        requested_doc_hash=requested_doc_hash,
+    )
+    return _authenticate_imported_extension_candidates(
+        candidates,
+        expected_sign_pub=expected_sign_pub,
+        quiet=quiet,
+    )
+
+
+def _decode_imported_extension_candidates(
+    documents: tuple[ImportedRecoveryDocument, ...],
+    *,
+    root_doc_hash: bytes,
+    root_doc_id: bytes,
+    passphrase: str,
+    expected_sign_pub: bytes,
+    fail_on_root_authority_errors: bool,
+    quiet: bool,
+    debug: bool,
+) -> tuple[_DecodedExtensionCandidate, ...]:
+    candidates: list[_DecodedExtensionCandidate] = []
+    seen_doc_hashes = {root_doc_hash}
+    for document in documents:
+        if document.doc_hash in seen_doc_hashes or document.doc_id == root_doc_id:
+            continue
+        try:
+            plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
+            version, decoded_document = decode_any_envelope(plaintext)
+        except Exception as exc:
+            if fail_on_root_authority_errors:
+                _raise_if_document_signed_by_root_authority(
+                    document,
+                    expected_sign_pub=expected_sign_pub,
+                    quiet=quiet,
+                    stage="decode",
+                    message=f"imported root-authority document could not be decoded: {exc}",
+                )
+            continue
+        if version != 2 or not isinstance(decoded_document, ExtensionEnvelope):
+            if fail_on_root_authority_errors:
+                _raise_if_document_signed_by_root_authority(
+                    document,
+                    expected_sign_pub=expected_sign_pub,
+                    quiet=quiet,
+                    stage="decode",
+                    message=(
+                        "imported root-authority document did not decode as an extension envelope"
+                    ),
+                )
+            continue
+        if decoded_document.header.root_doc_hash != root_doc_hash:
+            if fail_on_root_authority_errors:
+                _raise_if_document_signed_by_root_authority(
+                    document,
+                    expected_sign_pub=expected_sign_pub,
+                    quiet=quiet,
+                    stage="chain",
+                    message=(
+                        "imported root-authority extension does not target the selected "
+                        "root document"
+                    ),
+                )
+            continue
+        seen_doc_hashes.add(document.doc_hash)
+        candidates.append(_DecodedExtensionCandidate(document=document, decoded=decoded_document))
+    return tuple(candidates)
+
+
+def _select_extension_candidates_for_auth(
+    candidates: tuple[_DecodedExtensionCandidate, ...],
+    *,
+    requested_index: int | None,
+    requested_doc_hash: str | None,
+) -> tuple[_DecodedExtensionCandidate, ...]:
+    if requested_index is not None:
+        if requested_index < 0:
+            raise ValueError("--extension-index must be >= 0")
+        if requested_index == 0:
+            return ()
+        if not any(candidate.decoded.header.index == requested_index for candidate in candidates):
+            raise ValueError(f"extension index {requested_index} was not found")
+        return tuple(
+            candidate
+            for candidate in candidates
+            if candidate.decoded.header.index <= requested_index
+        )
+    if requested_doc_hash is not None:
+        requested = _parse_extension_doc_hash(requested_doc_hash)
+        target_index = next(
+            (
+                candidate.decoded.header.index
+                for candidate in candidates
+                if candidate.document.doc_hash == requested
+            ),
+            None,
+        )
+        if target_index is None:
+            raise ValueError(
+                f"extension doc_hash {requested_doc_hash.strip().lower()} was not found"
+            )
+        return tuple(
+            candidate for candidate in candidates if candidate.decoded.header.index <= target_index
+        )
+    return candidates
+
+
+def _authenticate_imported_extension_candidates(
+    candidates: tuple[_DecodedExtensionCandidate, ...],
+    *,
+    expected_sign_pub: bytes,
+    quiet: bool,
+) -> tuple[DecodedExtensionLink, ...]:
+    links: list[DecodedExtensionLink] = []
+    for candidate in candidates:
+        document = candidate.document
+        try:
+            auth_payload, auth_status = _resolve_auth_payload(
+                list(document.auth_frames),
+                doc_id=document.doc_id,
+                doc_hash=document.doc_hash,
+                allow_unsigned=False,
+                require_auth=True,
+                quiet=quiet,
+            )
+        except ValueError as exc:
+            raise ApiCommandError(
+                code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+                message=f"imported extension AUTH could not be verified: {exc}",
+                details={
+                    "stage": "auth",
+                    "extension_doc_hash": document.doc_hash.hex(),
+                },
+            ) from exc
+        if auth_payload is None or auth_payload.sign_pub != expected_sign_pub:
+            raise ApiCommandError(
+                code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+                message="imported extension AUTH signing key does not match root authority",
+                details={
+                    "stage": "auth",
+                    "extension_doc_hash": document.doc_hash.hex(),
+                },
+            )
+
+        links.append(
+            DecodedExtensionLink(
+                link=ExtensionChainLink(doc_hash=document.doc_hash, document=candidate.decoded),
+                auth_payload=auth_payload,
+                auth_status=auth_status,
+                root_authority_verified=True,
+            )
+        )
+
+    by_index: dict[int, DecodedExtensionLink] = {}
+    for link in links:
+        index = link.link.document.header.index
+        existing = by_index.get(index)
+        if existing is not None and existing.link.doc_hash != link.link.doc_hash:
+            raise ApiCommandError(
+                code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+                message=(
+                    f"content import contains multiple authenticated extensions for index {index}"
+                ),
+                details={"stage": "selection", "extension_index": index},
+            )
+        by_index[index] = link
+    return tuple(by_index[index] for index in sorted(by_index))
+
+
+def _raise_if_document_signed_by_root_authority(
+    document: ImportedRecoveryDocument,
+    *,
+    expected_sign_pub: bytes,
+    quiet: bool,
+    stage: str,
+    message: str,
+) -> None:
+    try:
+        auth_payload, _auth_status = _resolve_auth_payload(
+            list(document.auth_frames),
+            doc_id=document.doc_id,
+            doc_hash=document.doc_hash,
+            allow_unsigned=False,
+            require_auth=True,
+            quiet=quiet,
+        )
+    except ValueError:
+        return
+    if auth_payload is not None and auth_payload.sign_pub == expected_sign_pub:
+        raise ApiCommandError(
+            code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+            message=message,
+            details={
+                "stage": stage,
+                "extension_doc_hash": document.doc_hash.hex(),
+            },
+        )
+
+
+def decode_imported_extension_link(
+    document: ImportedRecoveryDocument,
+    *,
+    passphrase: str,
+    expected_sign_pub: bytes,
+    quiet: bool,
+    debug: bool,
+) -> DecodedExtensionLink:
+    plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
+    version, decoded = decode_any_envelope(plaintext)
+    if version != 2 or not isinstance(decoded, ExtensionEnvelope):
+        raise ValueError("imported document did not decode as an extension envelope")
+
+    auth_payload, auth_status = _resolve_auth_payload(
+        list(document.auth_frames),
+        doc_id=document.doc_id,
+        doc_hash=document.doc_hash,
+        allow_unsigned=False,
+        require_auth=True,
+        quiet=quiet,
+    )
+    if auth_payload is None or auth_payload.sign_pub != expected_sign_pub:
+        raise ValueError("extension AUTH signing key does not match root authority")
+
+    return DecodedExtensionLink(
+        link=ExtensionChainLink(doc_hash=document.doc_hash, document=decoded),
+        auth_payload=auth_payload,
+        auth_status=auth_status,
+        root_authority_verified=True,
+    )
+
+
+def _select_imported_chain_links(
+    links: tuple[DecodedExtensionLink, ...],
+    *,
+    requested_index: int | None,
+    requested_doc_hash: str | None,
+) -> tuple[DecodedExtensionLink, ...]:
+    if requested_index is not None and requested_doc_hash is not None:
+        raise ValueError("use either --extension-index or --extension-doc-hash, not both")
+    if requested_index is not None:
+        if requested_index < 0:
+            raise ValueError("--extension-index must be >= 0")
+        if requested_index == 0:
+            return ()
+        if not any(link.link.document.header.index == requested_index for link in links):
+            raise ValueError(f"extension index {requested_index} was not found")
+        return tuple(link for link in links if link.link.document.header.index <= requested_index)
+    if requested_doc_hash is not None:
+        requested = _parse_extension_doc_hash(requested_doc_hash)
+        selected: list[DecodedExtensionLink] = []
+        matched = False
+        for link in links:
+            selected.append(link)
+            if link.link.doc_hash == requested:
+                matched = True
+                break
+        if not matched:
+            raise ValueError(
+                f"extension doc_hash {requested_doc_hash.strip().lower()} was not found"
+            )
+        return tuple(selected)
+    return links
+
+
+def _ensure_root_selector_satisfied(
+    *,
+    requested_index: int | None,
+    requested_doc_hash: str | None,
+) -> None:
+    if requested_index is not None:
+        if requested_index < 0:
+            raise ValueError("--extension-index must be >= 0")
+        if requested_index > 0:
+            raise ValueError(f"extension index {requested_index} was not found")
+    if requested_doc_hash is not None:
+        _parse_extension_doc_hash(requested_doc_hash)
+        raise ValueError(f"extension doc_hash {requested_doc_hash.strip().lower()} was not found")
 
 
 def decode_root_manifest(
@@ -927,15 +676,6 @@ def decode_root_manifest(
     if not isinstance(manifest, EnvelopeManifest) or not isinstance(payload, bytes):
         raise ValueError("root backup did not decode correctly")
     return manifest, payload
-
-
-def _decode_root_manifest(
-    *,
-    ciphertext: bytes,
-    passphrase: str,
-    debug: bool,
-) -> tuple[EnvelopeManifest, bytes]:
-    return decode_root_manifest(ciphertext=ciphertext, passphrase=passphrase, debug=debug)
 
 
 def resolve_root_manifest_authority(
@@ -974,32 +714,35 @@ def decode_authenticated_extension_link(
     quiet: bool,
     debug: bool,
 ) -> DecodedExtensionLink:
-    auth_payload, auth_status = _resolve_auth_payload(
-        list(item.auth_frames),
+    if expected_sign_pub is None:
+        raise ValueError("extension replay requires an unsealed root signing authority")
+    document = ImportedRecoveryDocument(
         doc_id=bytes.fromhex(item.doc_id_hex),
         doc_hash=item.doc_hash,
-        allow_unsigned=False,
-        require_auth=True,
+        ciphertext=item.ciphertext,
+        auth_frames=item.auth_frames,
+        source_label=item.dir_name,
+    )
+    return decode_imported_extension_link(
+        document,
+        passphrase=passphrase,
+        expected_sign_pub=expected_sign_pub,
         quiet=quiet,
+        debug=debug,
     )
-    root_authority_verified = False
-    if auth_payload is not None and expected_sign_pub is not None:
-        if auth_payload.sign_pub != expected_sign_pub:
-            raise ValueError(
-                f"extension {item.dir_name} AUTH signing key does not match root authority"
-            )
-        else:
-            root_authority_verified = True
-    plaintext = decrypt_bytes(item.ciphertext, passphrase=passphrase, debug=debug)
-    version, decoded = decode_any_envelope(plaintext)
-    if version != 2 or not isinstance(decoded, ExtensionEnvelope):
-        raise ValueError(f"extension {item.dir_name} did not decode as an extension envelope")
-    return DecodedExtensionLink(
-        link=ExtensionChainLink(doc_hash=item.doc_hash, document=decoded),
-        auth_payload=auth_payload,
-        auth_status=auth_status,
-        root_authority_verified=root_authority_verified,
-    )
+
+
+def scan_extension_carriers(paths: list[str], *, quiet: bool) -> tuple[bytes, list[Frame]]:
+    """Reassemble one extension document from explicitly provided carrier paths."""
+
+    if not paths:
+        raise ValueError("no extension MAIN carriers were provided")
+    frames = _recovery_frames_from_scan(paths, quiet=quiet)
+    documents = imported_documents_from_recovery_frames(frames, source_label="extension carrier")
+    if len(documents) != 1:
+        raise ValueError("extension carrier input must contain exactly one MAIN document")
+    document = documents[0]
+    return document.ciphertext, list(document.auth_frames)
 
 
 def _parse_extension_doc_hash(value: str) -> bytes:
@@ -1041,30 +784,22 @@ def _synthetic_manifest_from_state(
     )
 
 
-def validated_root_recovery_scan_paths(root_dir: Path) -> list[str]:
-    paths: list[str] = []
-    for name in _ROOT_MAIN_FILENAMES:
-        candidate = root_dir / name
-        if candidate.is_symlink():
-            raise ValueError(f"root backup MAIN carrier must not be a symlink: {name}")
-        if candidate.is_file():
-            paths.append(str(candidate))
-    return paths
-
-
 __all__ = [
     "ChainRecoveryResult",
     "DecodedExtensionLink",
     "DiscoveredRecoveryExtension",
+    "ImportedRecoveryDocument",
     "RecoveryChainInspection",
+    "RecoveryExtensionInventory",
     "RecoveryHeadTrustRefusal",
-    "build_recovery_head_untrusted_refusal",
     "decode_authenticated_extension_link",
-    "detect_recovery_root_dir",
-    "discover_recovery_extensions",
-    "inspect_recovery_extension_chain",
+    "decode_imported_extension_link",
+    "decode_root_manifest",
+    "imported_documents_from_recovery_frames",
     "recover_chain_entries",
+    "recover_imported_chain_entries",
+    "resolve_root_manifest_authority",
     "scan_extension_carriers",
+    "select_root_import_document",
     "validate_root_manifest_authority",
-    "validated_root_recovery_scan_paths",
 ]

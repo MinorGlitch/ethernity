@@ -24,10 +24,7 @@ from ethernity.cli.features.backup.execution import run_backup
 from ethernity.cli.features.backup.planning import plan_from_args as plan_backup_from_args
 from ethernity.cli.features.backup.service import apply_qr_chunk_size_override
 from ethernity.cli.features.extend.runtime import infer_root_publish_policy
-from ethernity.cli.features.recover.chain import (
-    recover_chain_entries,
-    validated_root_recovery_scan_paths,
-)
+from ethernity.cli.features.recover.chain import recover_chain_entries
 from ethernity.cli.features.recover.planning import plan_from_args as plan_recover_from_args
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.ndjson import ApiCommandError
@@ -54,11 +51,6 @@ def _validated_compact_root_dir(root_dir_value: str | None) -> Path:
         )
     if not root_dir.is_dir():
         raise ValueError(f"--root-dir must be a directory: {root_dir_value}")
-    if not validated_root_recovery_scan_paths(root_dir):
-        raise ValueError(
-            "backup root folder (backup root directory) does not contain a root MAIN carrier "
-            f"(qr_document.pdf or recovery_document.pdf): {root_dir_value}"
-        )
     return root_dir
 
 

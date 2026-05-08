@@ -42,15 +42,12 @@ class TestCompactService(unittest.TestCase):
                 )
             )
 
-    def test_run_compact_rejects_root_dir_without_main_carrier(self) -> None:
+    def test_run_compact_reports_scan_failure_for_empty_root_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir)
             with self.assertRaisesRegex(
                 ValueError,
-                (
-                    "backup root folder \\(backup root directory\\) "
-                    "does not contain a root MAIN carrier"
-                ),
+                "scan failed: no scan files found in directory",
             ):
                 run_compact(
                     CompactArgs(
@@ -67,8 +64,7 @@ class TestCompactService(unittest.TestCase):
         side_effect=ApiCommandError(
             code=api_codes.RECOVERY_HEAD_UNTRUSTED,
             message=(
-                "latest recovery head could not be trusted: "
-                "missing required payload MAIN carriers"
+                "latest recovery head could not be trusted: missing required payload MAIN carriers"
             ),
             details={
                 "stage": "replay",

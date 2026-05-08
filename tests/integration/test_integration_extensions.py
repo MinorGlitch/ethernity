@@ -56,17 +56,15 @@ class TestIntegrationExtensions(unittest.TestCase):
                 (source_dir / "nested" / "delta.txt").write_text("delta", encoding="utf-8")
                 second_extension = self._run_extend(source_dir=source_dir, root_dir=root_dir)
 
+                expected_latest_state = {
+                    "alpha.txt": b"second-alpha",
+                    "gamma.txt": b"gamma-two",
+                    "nested/beta.txt": b"root-beta",
+                    "nested/delta.txt": b"delta",
+                }
                 latest_dir = tmp_path / "recovered-latest"
                 self._run_recover(root_dir=root_dir, output_dir=latest_dir)
-                self.assertEqual(
-                    self._snapshot_tree(latest_dir),
-                    {
-                        "alpha.txt": b"second-alpha",
-                        "gamma.txt": b"gamma-two",
-                        "nested/beta.txt": b"root-beta",
-                        "nested/delta.txt": b"delta",
-                    },
-                )
+                self.assertEqual(self._snapshot_tree(latest_dir), expected_latest_state)
 
                 expected_first = {
                     "alpha.txt": b"first-alpha",
@@ -81,21 +79,18 @@ class TestIntegrationExtensions(unittest.TestCase):
                 ).unlink(missing_ok=True)
 
                 degraded_latest_dir = tmp_path / "recovered-latest-degraded"
-                self._assert_recover_head_untrusted(
+                self._run_recover(
                     root_dir=root_dir,
                     output_dir=degraded_latest_dir,
-                    expected_latest_head_index=2,
                 )
+                self.assertEqual(self._snapshot_tree(degraded_latest_dir), expected_latest_state)
 
                 (source_dir / "alpha.txt").write_text("blocked-third-alpha", encoding="utf-8")
                 blocked_extension_dir = root_dir / "extensions" / "03"
-                self._assert_extend_head_untrusted(
-                    source_dir=source_dir,
-                    root_dir=root_dir,
-                    expected_latest_head_index=2,
-                    expected_validated_head_index=0,
-                    blocked_extension_dir=blocked_extension_dir,
-                )
+                with self.assertRaises(ApiCommandError) as ctx:
+                    self._run_extend(source_dir=source_dir, root_dir=root_dir)
+                self.assertEqual(ctx.exception.code, "EXTENSION_LAYOUT_INVALID")
+                self.assertFalse(blocked_extension_dir.exists())
 
                 first_dir = tmp_path / "recovered-first"
                 self._run_recover(root_dir=root_dir, output_dir=first_dir, extension_index=1)
@@ -173,18 +168,58 @@ class TestIntegrationExtensions(unittest.TestCase):
                 degraded_carrier.unlink()
 
                 degraded_latest_dir = tmp_path / "degraded-latest"
-                self._assert_recover_head_untrusted(
+                self._run_recover(
                     root_dir=root_dir,
                     output_dir=degraded_latest_dir,
-                    expected_latest_head_index=2,
                 )
+                self.assertEqual(self._snapshot_tree(degraded_latest_dir), expected_latest_state)
 
                 degraded_compacted_dir = tmp_path / "degraded-compacted-root"
-                self._assert_compact_head_untrusted(
+                degraded_compact_result = self._run_compact(
                     root_dir=root_dir,
                     output_dir=degraded_compacted_dir,
-                    expected_latest_head_index=2,
                 )
+                self.assertTrue(Path(degraded_compact_result.qr_path).exists())
+                self.assertTrue(Path(degraded_compact_result.recovery_path).exists())
+
+    def test_corrupt_present_extension_carrier_fails_closed_across_flows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup-root"
+            source_dir.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(source_dir=source_dir, root_dir=root_dir)
+
+                (source_dir / "alpha.txt").write_text("extension-alpha", encoding="utf-8")
+                extension = self._run_extend(source_dir=source_dir, root_dir=root_dir)
+
+                corrupt_carrier = (
+                    root_dir / "extensions" / "01" / f"qr_document-01-{extension.doc_id.hex()}.pdf"
+                )
+                self.assertTrue(corrupt_carrier.exists())
+                corrupt_carrier.write_bytes(b"%PDF-1.7\ncorrupt extension carrier\n")
+
+                with self.assertRaisesRegex(ValueError, "failed to read PDF"):
+                    self._run_recover(
+                        root_dir=root_dir,
+                        output_dir=tmp_path / "corrupt-recovered",
+                    )
+
+                with self.assertRaisesRegex(ValueError, "failed to read PDF"):
+                    self._run_compact(
+                        root_dir=root_dir,
+                        output_dir=tmp_path / "corrupt-compacted",
+                    )
+
+                (source_dir / "alpha.txt").write_text("blocked-alpha", encoding="utf-8")
+                blocked_extension_dir = root_dir / "extensions" / "02"
+                with self.assertRaises(ApiCommandError) as ctx:
+                    self._run_extend(source_dir=source_dir, root_dir=root_dir)
+                self.assertEqual(ctx.exception.code, "EXTENSION_LAYOUT_INVALID")
+                self.assertFalse(blocked_extension_dir.exists())
 
     def test_compact_sealed_root_without_auth_inputs_round_trips_through_recover(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -265,6 +300,7 @@ class TestIntegrationExtensions(unittest.TestCase):
         expected_latest_head_index: int,
         expected_validated_head_index: int,
         blocked_extension_dir: Path,
+        expected_failure_fragment: str = "missing required payload MAIN carriers",
     ) -> ApiCommandError:
         with self.assertRaises(ApiCommandError) as ctx:
             self._run_extend(source_dir=source_dir, root_dir=root_dir)
@@ -284,7 +320,7 @@ class TestIntegrationExtensions(unittest.TestCase):
         self.assertEqual(len(exc.details["validated_head_doc_hash"]), 64)
         self.assertFalse(exc.details["explicit_selection"])
         self.assertIn("latest recovery head could not be trusted", str(exc))
-        self.assertIn("missing required payload MAIN carriers", str(exc))
+        self.assertIn(expected_failure_fragment, str(exc))
         self.assertFalse(blocked_extension_dir.exists())
         self.assertEqual(list((root_dir / "extensions").glob(".staging-*")), [])
         return exc
@@ -319,6 +355,7 @@ class TestIntegrationExtensions(unittest.TestCase):
         root_dir: Path,
         output_dir: Path,
         expected_latest_head_index: int,
+        expected_failure_fragment: str = "missing required payload MAIN carriers",
     ) -> ApiCommandError:
         with self.assertRaises(ApiCommandError) as ctx:
             self._run_recover(root_dir=root_dir, output_dir=output_dir)
@@ -329,6 +366,7 @@ class TestIntegrationExtensions(unittest.TestCase):
             output_dir=output_dir,
             expected_latest_head_index=expected_latest_head_index,
             expected_message_fragment="latest recovery head could not be trusted",
+            expected_failure_fragment=expected_failure_fragment,
             checkpoint_created=None,
         )
         return exc
@@ -339,6 +377,7 @@ class TestIntegrationExtensions(unittest.TestCase):
         root_dir: Path,
         output_dir: Path,
         expected_latest_head_index: int,
+        expected_failure_fragment: str = "missing required payload MAIN carriers",
     ) -> ApiCommandError:
         with self.assertRaises(ApiCommandError) as ctx:
             self._run_compact(root_dir=root_dir, output_dir=output_dir)
@@ -351,6 +390,7 @@ class TestIntegrationExtensions(unittest.TestCase):
             expected_message_fragment=(
                 "latest compact head could not be trusted; no checkpoint was created"
             ),
+            expected_failure_fragment=expected_failure_fragment,
             checkpoint_created=False,
         )
         return exc
@@ -362,6 +402,7 @@ class TestIntegrationExtensions(unittest.TestCase):
         output_dir: Path,
         expected_latest_head_index: int,
         expected_message_fragment: str,
+        expected_failure_fragment: str,
         checkpoint_created: bool | None,
     ) -> None:
         self.assertEqual(exc.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
@@ -376,7 +417,7 @@ class TestIntegrationExtensions(unittest.TestCase):
         self.assertEqual(exc.details["validated_head_index"], 0)
         self.assertFalse(exc.details["explicit_selection"])
         self.assertIn(expected_message_fragment, str(exc))
-        self.assertIn("missing required payload MAIN carriers", str(exc))
+        self.assertIn(expected_failure_fragment, str(exc))
         if checkpoint_created is None:
             self.assertNotIn("checkpoint_created", exc.details)
         else:

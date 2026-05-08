@@ -215,21 +215,12 @@ def run_recover_inspect_api_command(args: RecoverArgs, *, debug: bool = False) -
         if inspection.unlock.satisfied and inspection.unlock.resolved_passphrase is not None:
             emit_phase(phase="decrypt", label="Decrypting and inspecting payload")
             try:
-                if args.scan:
-                    plan = plan_from_args(args)
-                    if plan.root_dir is not None:
-                        chain = recover_chain_entries(plan, quiet=True, debug=debug)
-                        manifest = chain.manifest
-                        selected_extension_index = chain.selected_extension_index
-                        selected_extension_doc_hash = chain.selected_extension_doc_hash
-                    else:
-                        plaintext = decrypt_bytes(
-                            inspection.ciphertext,
-                            passphrase=inspection.unlock.resolved_passphrase,
-                            debug=debug,
-                        )
-                        manifest, _payload = decode_envelope(plaintext)
-                        validate_root_manifest_authority(manifest, inspection.auth_payload)
+                plan = plan_from_args(args)
+                if plan.import_documents:
+                    chain = recover_chain_entries(plan, quiet=True, debug=debug)
+                    manifest = chain.manifest
+                    selected_extension_index = chain.selected_extension_index
+                    selected_extension_doc_hash = chain.selected_extension_doc_hash
                 else:
                     plaintext = decrypt_bytes(
                         inspection.ciphertext,
@@ -250,7 +241,7 @@ def run_recover_inspect_api_command(args: RecoverArgs, *, debug: bool = False) -
                     },
                 )
             except Exception as exc:
-                if args.scan and getattr(plan, "root_dir", None) is not None:
+                if getattr(plan, "import_documents", ()):
                     blocking_issues.append(_inspect_replay_blocking_issue(exc))
                 else:
                     blocking_issues.append(_inspect_decrypt_blocking_issue(exc))

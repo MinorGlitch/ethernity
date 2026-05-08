@@ -55,7 +55,7 @@ def register(app: typer.Typer) -> None:
             "Recover data from QR payloads or recovery text (fallback).\n\n"
             "Examples:\n"
             "  ethernity recover --scan ./scans\n"
-            "  ethernity recover --scan qr_document.pdf --shard-scan shard-01.pdf "
+            "  ethernity recover --scan ./phone-scans --shard-scan shard-01.pdf "
             "--shard-scan shard-02.pdf --output recovered.bin\n"
             "  ethernity recover --fallback-file recovery.txt --output recovered.bin\n"
             "  ethernity recover --payloads-file qr_payloads.txt\n"

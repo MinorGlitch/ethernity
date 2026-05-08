@@ -54,7 +54,7 @@ def decrypt_manifest_extract_selection(
 ) -> RecoverDecryptResult:
     """Decrypt a recovery plan and preserve any explicit replay-target metadata."""
 
-    if plan.root_dir:
+    if plan.import_documents:
         chain = recover_chain_entries(plan, quiet=quiet, debug=debug)
         return RecoverDecryptResult(
             manifest=chain.manifest,

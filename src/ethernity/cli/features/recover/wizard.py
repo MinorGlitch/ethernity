@@ -22,7 +22,6 @@ import sys
 from dataclasses import replace
 from typing import Any, cast
 
-from ethernity.cli.features.recover.chain import detect_recovery_root_dir
 from ethernity.cli.features.recover.execution import (
     decrypt_manifest_and_extract,
     write_recovered_outputs,
@@ -130,7 +129,7 @@ def _prompt_recovery_input(
             allow_unsigned=allow_unsigned,
             quiet=quiet,
         )
-        if input_label in {RECOVERY_SCAN_LABEL, "Backup root directory"} and input_detail:
+        if input_label == RECOVERY_SCAN_LABEL and input_detail:
             args.scan = [input_detail]
 
     return frames or [], input_label, input_detail
@@ -307,18 +306,6 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                         extra_frames=collected_shard_frames,
                         quiet=quiet,
                     )
-                    root_dir = None
-                    if working_args.scan:
-                        detected_root_dir = detect_recovery_root_dir(list(working_args.scan))
-                        root_dir = None if detected_root_dir is None else str(detected_root_dir)
-                    if (
-                        working_args.extension_index is not None
-                        or working_args.extension_doc_hash is not None
-                    ) and root_dir is None:
-                        raise ValueError(
-                            "extension selectors require --scan to point at a backup root folder "
-                            "(backup root directory)"
-                        )
                     plan = build_recovery_plan(
                         frames=frames,
                         extra_auth_frames=extra_auth_frames,
@@ -331,7 +318,7 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                         shard_payloads_file=shard_payloads_file,
                         shard_scan=list(shard_scan),
                         output_path=working_args.output,
-                        root_dir=root_dir,
+                        root_dir=None,
                         extension_index=working_args.extension_index,
                         extension_doc_hash=working_args.extension_doc_hash,
                         args=working_args,
