@@ -17,7 +17,7 @@ import hashlib
 import unittest
 
 from ethernity.cli.shared.types import InputFile
-from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES
+from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
 from ethernity.extensions import (
     build_extension_document,
     build_virtual_chunk_source,
@@ -407,3 +407,54 @@ class TestExtensionBuild(unittest.TestCase):
                 existing_logical_bytes=MAX_DECOMPRESSED_PAYLOAD_BYTES - 4,
                 existing_file_sizes={"grown.bin": 0},
             )
+
+    def test_build_extension_document_rejects_latest_state_file_count_overflow(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            f"logical latest state exceeds MAX_MANIFEST_FILES \\({MAX_MANIFEST_FILES}\\): "
+            f"{MAX_MANIFEST_FILES + 1} entries",
+        ):
+            build_extension_document(
+                index=2,
+                parent_doc_hash=b"\x10" * 32,
+                root_doc_hash=b"\x20" * 32,
+                chunking=_profile(),
+                input_files=(
+                    InputFile(
+                        source_path=None,
+                        relative_path="new-file.txt",
+                        data=b"new",
+                        mtime=1,
+                    ),
+                ),
+                input_origin="file",
+                input_roots=(),
+                chunker=lambda data, _profile: (data,),
+                existing_file_sizes={
+                    f"existing-{index:04d}.txt": 1 for index in range(MAX_MANIFEST_FILES)
+                },
+            )
+
+    def test_build_extension_document_allows_replacement_at_file_count_limit(self) -> None:
+        built = build_extension_document(
+            index=2,
+            parent_doc_hash=b"\x10" * 32,
+            root_doc_hash=b"\x20" * 32,
+            chunking=_profile(),
+            input_files=(
+                InputFile(
+                    source_path=None,
+                    relative_path="existing-0042.txt",
+                    data=b"replacement",
+                    mtime=1,
+                ),
+            ),
+            input_origin="file",
+            input_roots=(),
+            chunker=lambda data, _profile: (data,),
+            existing_file_sizes={
+                f"existing-{index:04d}.txt": 1 for index in range(MAX_MANIFEST_FILES)
+            },
+        )
+
+        self.assertEqual([item.path for item in built.document.files], ["existing-0042.txt"])

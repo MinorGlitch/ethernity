@@ -22,7 +22,8 @@ import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES
+from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
+from ethernity.extensions.chunking import default_extension_chunker
 from ethernity.formats.envelope_codec import extract_payloads
 from ethernity.formats.envelope_types import EnvelopeManifest
 from ethernity.formats.extension_envelope import (
@@ -98,25 +99,42 @@ def reconstruct_latest_logical_state(
     """Reconstruct the latest logical state for a root plus validated extensions."""
 
     root_state = extract_root_logical_state(manifest, payload)
-    validate_extension_chain(root_doc_hash=root_doc_hash, extensions=extensions)
+    locked_chunking = validate_extension_chain(root_doc_hash=root_doc_hash, extensions=extensions)
 
     current_state = {item.path: item for item in root_state}
+    if len(current_state) > MAX_MANIFEST_FILES:
+        raise ValueError(
+            "root logical state exceeds MAX_MANIFEST_FILES "
+            f"({MAX_MANIFEST_FILES}): {len(current_state)} entries"
+        )
     available_chunks = _normalize_chunk_map(virtual_root_chunks)
     total_logical_bytes = sum(item.size for item in current_state.values())
     if total_logical_bytes > MAX_DECOMPRESSED_PAYLOAD_BYTES:
         raise ValueError("root logical bytes exceed MAX_DECOMPRESSED_PAYLOAD_BYTES")
 
     for link in extensions:
+        if locked_chunking is None:
+            raise ValueError("extension chain requires a locked chunking profile")
         for chunk_record in link.document.chunks:
             available_chunks[chunk_record.chunk_id] = chunk_record.decode_data()
 
         for file_entry in link.document.files:
-            file_state = _resolve_extension_file_state(file_entry, available_chunks)
-            previous_entry = current_state.get(file_state.path)
+            if file_entry.path not in current_state and len(current_state) >= MAX_MANIFEST_FILES:
+                raise ValueError(
+                    "logical latest state exceeds MAX_MANIFEST_FILES "
+                    f"({MAX_MANIFEST_FILES}): {len(current_state) + 1} entries"
+                )
+            previous_entry = current_state.get(file_entry.path)
             previous_size = previous_entry.size if previous_entry is not None else 0
-            total_logical_bytes += file_state.size - previous_size
-            if total_logical_bytes > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+            projected_logical_bytes = total_logical_bytes + file_entry.size - previous_size
+            if projected_logical_bytes > MAX_DECOMPRESSED_PAYLOAD_BYTES:
                 raise ValueError("logical latest state exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES")
+            file_state = _resolve_extension_file_state(
+                file_entry,
+                available_chunks,
+                locked_chunking,
+            )
+            total_logical_bytes = projected_logical_bytes
             current_state[file_state.path] = file_state
 
     return tuple(current_state[path] for path in sorted(current_state))
@@ -182,16 +200,23 @@ def _normalize_chunk_map(
 def _resolve_extension_file_state(
     file_entry: ExtensionFile,
     available_chunks: Mapping[bytes, bytes],
+    chunking: ExtensionChunkingProfile,
 ) -> LogicalFileState:
     payload = bytearray()
+    resolved_size = 0
     for chunk_ref in file_entry.chunk_refs:
+        next_resolved_size = resolved_size + chunk_ref.uncompressed_len
+        if next_resolved_size > file_entry.size:
+            raise ValueError("extension file chunk_refs exceed declared file size")
         resolved = available_chunks.get(chunk_ref.chunk_id)
         if resolved is None:
             raise ValueError(f"extension file references unresolved chunk_id: {file_entry.path}")
         if len(resolved) != chunk_ref.uncompressed_len:
             raise ValueError("extension chunk_ref length does not match resolved chunk")
         payload.extend(resolved)
+        resolved_size = next_resolved_size
     file_bytes = bytes(payload)
+    _validate_canonical_chunk_recipe(file_entry, file_bytes, chunking)
     return LogicalFileState(
         path=file_entry.path,
         size=file_entry.size,
@@ -199,3 +224,19 @@ def _resolve_extension_file_state(
         mtime=file_entry.mtime,
         data=file_bytes,
     )
+
+
+def _validate_canonical_chunk_recipe(
+    file_entry: ExtensionFile,
+    file_bytes: bytes,
+    chunking: ExtensionChunkingProfile,
+) -> None:
+    declared_refs = tuple(
+        (chunk_ref.chunk_id, chunk_ref.uncompressed_len) for chunk_ref in file_entry.chunk_refs
+    )
+    canonical_refs = tuple(
+        (hashlib.sha256(chunk).digest(), len(chunk))
+        for chunk in default_extension_chunker(file_bytes, chunking)
+    )
+    if declared_refs != canonical_refs:
+        raise ValueError("extension file chunk_refs do not match locked chunking profile")
