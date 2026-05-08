@@ -26,7 +26,11 @@ from dataclasses import dataclass
 from ethernity.cli.shared.types import InputFile
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
 from ethernity.core.validation import normalize_manifest_path
-from ethernity.extensions.chunking import Chunker, default_extension_chunker
+from ethernity.formats.extension_chunking import (
+    Chunker,
+    canonical_chunk_refs_for_bytes,
+    default_extension_chunker,
+)
 from ethernity.formats.extension_envelope import (
     ExtensionChunkingProfile,
     ExtensionChunkRecord,
@@ -207,6 +211,9 @@ def _chunk_refs_for_file(
 
     if total != len(data):
         raise ValueError("chunker output must fully cover the input file bytes")
+    declared_refs = tuple((chunk_ref.chunk_id, chunk_ref.uncompressed_len) for chunk_ref in refs)
+    if declared_refs != canonical_chunk_refs_for_bytes(data, chunking):
+        raise ValueError("chunker output does not match locked extension chunking profile")
 
     return tuple(refs), new_chunks, reused_chunks
 

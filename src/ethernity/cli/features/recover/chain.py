@@ -38,13 +38,10 @@ from ethernity.crypto import decrypt_bytes
 from ethernity.crypto.signing import AuthPayload, derive_public_key
 from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import Frame, FrameType
-from ethernity.extensions.build import build_virtual_chunk_source, default_extension_chunker
 from ethernity.extensions.chain import (
     ExtensionChainLink,
     LogicalFileState,
-    extract_root_logical_state,
     reconstruct_latest_logical_state,
-    validate_extension_chain,
 )
 from ethernity.formats.envelope_codec import decode_any_envelope, extract_payloads
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
@@ -337,27 +334,12 @@ def recover_imported_chain_entries(
             selected_extension_doc_hash=None,
         )
 
-    root_state = extract_root_logical_state(root_manifest, payload)
     try:
-        locked_chunking = validate_extension_chain(
-            root_doc_hash=plan.doc_hash,
-            extensions=tuple(item.link for item in selected_links),
-        )
-        virtual_root_chunks = (
-            {}
-            if locked_chunking is None
-            else build_virtual_chunk_source(
-                tuple(item.data for item in root_state),
-                chunking=locked_chunking,
-                chunker=default_extension_chunker,
-            )
-        )
         latest_state = reconstruct_latest_logical_state(
             root_manifest,
             payload,
             root_doc_hash=plan.doc_hash,
             extensions=tuple(item.link for item in selected_links),
-            virtual_root_chunks=virtual_root_chunks,
         )
     except ValueError as exc:
         raise _chain_replay_head_untrusted_error(
@@ -365,6 +347,8 @@ def recover_imported_chain_entries(
             plan=plan,
             decoded_links=decoded_links,
             selected_links=selected_links,
+            root_manifest=root_manifest,
+            payload=payload,
         ) from exc
     latest_manifest = _synthetic_manifest_from_state(
         root_manifest,
@@ -386,11 +370,18 @@ def _chain_replay_head_untrusted_error(
     plan: "RecoveryPlan",
     decoded_links: tuple[DecodedExtensionLink, ...],
     selected_links: tuple[DecodedExtensionLink, ...],
+    root_manifest: EnvelopeManifest,
+    payload: bytes,
 ) -> ApiCommandError:
-    failure = selected_links[-1]
+    failure, validated_links = locate_replay_failure(
+        root_manifest=root_manifest,
+        payload=payload,
+        root_doc_hash=plan.doc_hash,
+        selected_links=selected_links,
+    )
     head_index, head_hash, head_auth, head_verified = _validated_head_details(
         plan.doc_hash,
-        selected_links[:-1],
+        validated_links,
     )
     latest_head_index, latest_head_doc_hash = _latest_head_details(decoded_links)
     requested_doc_hash = (
@@ -419,6 +410,27 @@ def _chain_replay_head_untrusted_error(
             "explicit_selection": explicit_selection,
         },
     )
+
+
+def locate_replay_failure(
+    *,
+    root_manifest: EnvelopeManifest,
+    payload: bytes,
+    root_doc_hash: bytes,
+    selected_links: tuple[DecodedExtensionLink, ...],
+) -> tuple[DecodedExtensionLink, tuple[DecodedExtensionLink, ...]]:
+    for end in range(1, len(selected_links) + 1):
+        prefix = selected_links[:end]
+        try:
+            reconstruct_latest_logical_state(
+                root_manifest,
+                payload,
+                root_doc_hash=root_doc_hash,
+                extensions=tuple(item.link for item in prefix),
+            )
+        except ValueError:
+            return prefix[-1], prefix[:-1]
+    return selected_links[-1], selected_links[:-1]
 
 
 def _validated_head_details(
@@ -882,6 +894,7 @@ __all__ = [
     "decode_imported_extension_link",
     "decode_root_manifest",
     "imported_documents_from_recovery_frames",
+    "locate_replay_failure",
     "recover_chain_entries",
     "recover_imported_chain_entries",
     "resolve_root_manifest_authority",

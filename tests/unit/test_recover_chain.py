@@ -245,6 +245,69 @@ class TestRecoverChain(unittest.TestCase):
         self.assertEqual(caught.exception.details["validated_head_doc_hash"], root_doc_hash.hex())
         self.assertFalse(caught.exception.details["explicit_selection"])
 
+    def test_recover_chain_entries_reports_first_replay_failure_not_latest_head(self) -> None:
+        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+        first_ciphertext = _extension_ciphertext(root_doc_hash, index=1, data=b"one")
+        first_doc_id, first_doc_hash = _doc_id_and_hash_from_ciphertext(first_ciphertext)
+        second_ciphertext = _extension_ciphertext(
+            root_doc_hash,
+            index=2,
+            parent_doc_hash=b"\x88" * 32,
+            data=b"two",
+        )
+        second_doc_id, second_doc_hash = _doc_id_and_hash_from_ciphertext(second_ciphertext)
+        third_ciphertext = _extension_ciphertext(
+            root_doc_hash,
+            index=3,
+            parent_doc_hash=second_doc_hash,
+            data=b"three",
+        )
+        third_doc_id, third_doc_hash = _doc_id_and_hash_from_ciphertext(third_ciphertext)
+        plan = dataclasses.replace(
+            _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
+            import_documents=(
+                _imported_document(root_ciphertext),
+                _imported_document(
+                    first_ciphertext,
+                    auth_frames=(_extension_auth_frame(first_doc_id, first_doc_hash),),
+                ),
+                _imported_document(
+                    second_ciphertext,
+                    auth_frames=(_extension_auth_frame(second_doc_id, second_doc_hash),),
+                ),
+                _imported_document(
+                    third_ciphertext,
+                    auth_frames=(_extension_auth_frame(third_doc_id, third_doc_hash),),
+                ),
+            ),
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                side_effect=lambda data, *, passphrase, debug=False: data,
+            ),
+            self.assertRaises(ApiCommandError) as caught,
+        ):
+            recover_chain_entries(plan, quiet=True)
+
+        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.details["failure_head_index"], 2)
+        self.assertEqual(
+            caught.exception.details["failure_head_doc_hash"],
+            second_doc_hash.hex(),
+        )
+        self.assertEqual(caught.exception.details["latest_head_index"], 3)
+        self.assertEqual(
+            caught.exception.details["latest_head_doc_hash"],
+            third_doc_hash.hex(),
+        )
+        self.assertEqual(caught.exception.details["validated_head_index"], 1)
+        self.assertEqual(
+            caught.exception.details["validated_head_doc_hash"],
+            first_doc_hash.hex(),
+        )
+
     def test_recover_chain_entries_selects_root_only_despite_broken_later_extension(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
         extension_ciphertext = _extension_ciphertext(root_doc_hash)

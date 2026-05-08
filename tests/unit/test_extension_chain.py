@@ -207,7 +207,6 @@ class TestExtensionChain(unittest.TestCase):
             payload,
             root_doc_hash=ROOT_DOC_HASH,
             extensions=(ext1, ext2),
-            virtual_root_chunks={alpha_chunk_id: b"alpha"},
         )
 
         self.assertEqual(

@@ -156,16 +156,7 @@ class TestExtensionBuild(unittest.TestCase):
         self.assertGreater(built.stats.new_chunks, 0)
 
     def test_build_extension_document_dedupes_reused_chunks(self) -> None:
-        shared = b"shared"
-        suffix_a = b"-a"
-        suffix_b = b"-b"
-
-        def chunker(data: bytes, _profile: ExtensionChunkingProfile) -> tuple[bytes, ...]:
-            if data == shared + suffix_a:
-                return (shared, suffix_a)
-            if data == shared + suffix_b:
-                return (shared, suffix_b)
-            raise AssertionError(f"unexpected file bytes: {data!r}")
+        shared = b"shared bytes"
 
         built = build_extension_document(
             index=2,
@@ -176,27 +167,27 @@ class TestExtensionBuild(unittest.TestCase):
                 InputFile(
                     source_path=None,
                     relative_path="alpha.txt",
-                    data=shared + suffix_a,
+                    data=shared,
                     mtime=1,
                 ),
                 InputFile(
                     source_path=None,
                     relative_path="beta.txt",
-                    data=shared + suffix_b,
+                    data=shared,
                     mtime=2,
                 ),
             ),
             input_origin="file",
             input_roots=(),
-            chunker=chunker,
+            chunker=lambda data, _profile: (data,),
         )
 
         self.assertEqual(built.stats.changed_file_count, 2)
-        self.assertEqual(built.stats.logical_bytes, len(shared + suffix_a) + len(shared + suffix_b))
-        self.assertEqual(built.stats.new_chunks, 3)
+        self.assertEqual(built.stats.logical_bytes, len(shared) * 2)
+        self.assertEqual(built.stats.new_chunks, 1)
         self.assertEqual(built.stats.reused_chunks, 1)
         self.assertEqual(len(built.document.files), 2)
-        self.assertEqual(len(built.document.chunks), 3)
+        self.assertEqual(len(built.document.chunks), 1)
         self.assertEqual([item.path for item in built.document.files], ["alpha.txt", "beta.txt"])
         self.assertEqual(
             built.document.files[0].chunk_refs[0].chunk_id,
@@ -260,8 +251,7 @@ class TestExtensionBuild(unittest.TestCase):
         self.assertEqual(built.stats.reused_chunks, 0)
 
     def test_build_extension_document_reuses_virtual_root_chunks(self) -> None:
-        shared = b"shared"
-        suffix = b"-new"
+        shared = b"shared root bytes"
         shared_chunk_id = hashlib.sha256(shared).digest()
 
         built = build_extension_document(
@@ -273,19 +263,19 @@ class TestExtensionBuild(unittest.TestCase):
                 InputFile(
                     source_path=None,
                     relative_path="updated.txt",
-                    data=shared + suffix,
+                    data=shared,
                     mtime=5,
                 ),
             ),
             input_origin="file",
             input_roots=(),
-            chunker=lambda data, _profile: (data[: len(shared)], data[len(shared) :]),
+            chunker=lambda data, _profile: (data,),
             existing_chunks={shared_chunk_id: shared},
         )
 
-        self.assertEqual(built.stats.new_chunks, 1)
+        self.assertEqual(built.stats.new_chunks, 0)
         self.assertEqual(built.stats.reused_chunks, 1)
-        self.assertEqual(len(built.document.chunks), 1)
+        self.assertEqual(len(built.document.chunks), 0)
         self.assertEqual(built.document.files[0].chunk_refs[0].chunk_id, shared_chunk_id)
 
     def test_build_extension_document_rejects_chunker_byte_mismatch(self) -> None:
@@ -311,8 +301,31 @@ class TestExtensionBuild(unittest.TestCase):
                 chunker=lambda data, _profile: (b"abcd", b"WXYZ"),
             )
 
+    def test_build_extension_document_rejects_noncanonical_chunking_recipe(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "locked extension chunking profile",
+        ):
+            build_extension_document(
+                index=1,
+                parent_doc_hash=b"\x10" * 32,
+                root_doc_hash=b"\x20" * 32,
+                chunking=_profile(),
+                input_files=(
+                    InputFile(
+                        source_path=None,
+                        relative_path="split.txt",
+                        data=b"abcdefgh",
+                        mtime=1,
+                    ),
+                ),
+                input_origin="file",
+                input_roots=(),
+                chunker=lambda data, _profile: (data[:4], data[4:]),
+            )
+
     def test_build_extension_document_prefers_gzip_when_chunk_is_smaller(self) -> None:
-        compressible = b"A" * 65536
+        compressible = b"A" * 8192
 
         built = build_extension_document(
             index=1,
@@ -338,7 +351,7 @@ class TestExtensionBuild(unittest.TestCase):
 
     def test_build_extension_document_keeps_raw_when_gzip_is_not_smaller(self) -> None:
         incompressible = b"".join(
-            hashlib.sha256(f"noise-{index}".encode("ascii")).digest() for index in range(2048)
+            hashlib.sha256(f"noise-{index}".encode("ascii")).digest() for index in range(128)
         )
 
         built = build_extension_document(

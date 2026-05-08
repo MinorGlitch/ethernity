@@ -23,9 +23,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
-from ethernity.extensions.chunking import default_extension_chunker
 from ethernity.formats.envelope_codec import extract_payloads
 from ethernity.formats.envelope_types import EnvelopeManifest
+from ethernity.formats.extension_chunking import (
+    default_extension_chunker,
+    require_canonical_chunk_refs,
+)
 from ethernity.formats.extension_envelope import (
     ExtensionChunkingProfile,
     ExtensionEnvelope,
@@ -107,10 +110,13 @@ def reconstruct_latest_logical_state(
             "root logical state exceeds MAX_MANIFEST_FILES "
             f"({MAX_MANIFEST_FILES}): {len(current_state)} entries"
         )
-    available_chunks = _normalize_chunk_map(virtual_root_chunks)
     total_logical_bytes = sum(item.size for item in current_state.values())
     if total_logical_bytes > MAX_DECOMPRESSED_PAYLOAD_BYTES:
         raise ValueError("root logical bytes exceed MAX_DECOMPRESSED_PAYLOAD_BYTES")
+    available_chunks: dict[bytes, bytes] = {}
+    if locked_chunking is not None:
+        available_chunks.update(_virtual_root_chunk_map(root_state, locked_chunking))
+    _merge_chunk_map(available_chunks, _normalize_chunk_map(virtual_root_chunks))
 
     for link in extensions:
         if locked_chunking is None:
@@ -197,6 +203,29 @@ def _normalize_chunk_map(
     return normalized
 
 
+def _virtual_root_chunk_map(
+    root_state: Sequence[LogicalFileState],
+    chunking: ExtensionChunkingProfile,
+) -> dict[bytes, bytes]:
+    chunks: dict[bytes, bytes] = {}
+    for item in root_state:
+        for chunk_bytes in default_extension_chunker(item.data, chunking):
+            chunk_id = hashlib.sha256(chunk_bytes).digest()
+            existing = chunks.get(chunk_id)
+            if existing is not None and existing != chunk_bytes:
+                raise ValueError("virtual root chunk payload collision for identical chunk_id")
+            chunks[chunk_id] = chunk_bytes
+    return chunks
+
+
+def _merge_chunk_map(target: dict[bytes, bytes], source: Mapping[bytes, bytes]) -> None:
+    for chunk_id, chunk_bytes in source.items():
+        existing = target.get(chunk_id)
+        if existing is not None and existing != chunk_bytes:
+            raise ValueError("available chunk payload collision for identical chunk_id")
+        target[chunk_id] = chunk_bytes
+
+
 def _resolve_extension_file_state(
     file_entry: ExtensionFile,
     available_chunks: Mapping[bytes, bytes],
@@ -234,9 +263,8 @@ def _validate_canonical_chunk_recipe(
     declared_refs = tuple(
         (chunk_ref.chunk_id, chunk_ref.uncompressed_len) for chunk_ref in file_entry.chunk_refs
     )
-    canonical_refs = tuple(
-        (hashlib.sha256(chunk).digest(), len(chunk))
-        for chunk in default_extension_chunker(file_bytes, chunking)
+    require_canonical_chunk_refs(
+        declared_refs,
+        file_bytes,
+        chunking,
     )
-    if declared_refs != canonical_refs:
-        raise ValueError("extension file chunk_refs do not match locked chunking profile")

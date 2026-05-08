@@ -46,7 +46,25 @@ Use this template for each change entry:
 
 ## Entries
 
-## 2026-05-08 - Enforce canonical extension chunk recipes on replay
+## 2026-05-08 - Preserve extension input root label whitespace
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: 19.2
+- Compatibility:
+  - Old decoders reading new artifacts: partial (older builds may trim extension `input_roots`
+    labels with leading or trailing whitespace when displaying provenance metadata)
+  - New decoders reading old artifacts: yes (already-trimmed labels remain valid)
+- Version/profile bump required: no (this clarifies and preserves authenticated provenance
+  metadata without changing extension envelope structure or replay security)
+- Implementation refs:
+  - `src/ethernity/formats/extension_envelope.py`
+- Test refs:
+  - `tests/unit/test_extension_envelope.py`
+- Security impact:
+  - none
+
+## 2026-05-08 - Enforce canonical extension chunk recipes at build and replay boundaries
 
 - Type: validation
 - Normative spec updated: no
@@ -58,10 +76,14 @@ Use this template for each change entry:
 - Version/profile bump required: no (this is a strict fail-closed decoder check for the existing
   Version 2 extension profile)
 - Implementation refs:
+  - `src/ethernity/formats/extension_chunking.py`
+  - `src/ethernity/formats/extension_envelope.py`
   - `src/ethernity/extensions/chunking.py`
   - `src/ethernity/extensions/build.py`
   - `src/ethernity/extensions/chain.py`
 - Test refs:
+  - `tests/unit/test_extension_build.py`
+  - `tests/unit/test_extension_envelope.py`
   - `tests/unit/test_extension_chain.py`
 - Security impact:
   - Rejects authenticated-but-non-canonical extension recipes that reconstruct the correct bytes

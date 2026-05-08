@@ -193,6 +193,72 @@ class TestExtensionEnvelope(unittest.TestCase):
         self.assertEqual(reconstructed[0][0].path, "docs/update.txt")
         self.assertEqual(reconstructed[0][1], chunk_bytes)
 
+    def test_reconstruct_rejects_noncanonical_chunk_refs(self) -> None:
+        file_bytes = b"abcdefgh"
+        first = b"abcd"
+        second = b"efgh"
+        first_id = hashlib.sha256(first).digest()
+        second_id = hashlib.sha256(second).digest()
+        chunks = tuple(
+            sorted(
+                (
+                    ExtensionChunkRecord(
+                        chunk_id=first_id,
+                        codec=CHUNK_CODEC_RAW,
+                        raw_len=len(first),
+                        data=first,
+                    ),
+                    ExtensionChunkRecord(
+                        chunk_id=second_id,
+                        codec=CHUNK_CODEC_RAW,
+                        raw_len=len(second),
+                        data=second,
+                    ),
+                ),
+                key=lambda item: item.chunk_id,
+            )
+        )
+        envelope = ExtensionEnvelope(
+            header=build_extension_header(
+                index=1,
+                parent_doc_hash=TEST_DOC_HASH,
+                root_doc_hash=TEST_ROOT_DOC_HASH,
+                chunking=_make_profile(),
+                input_origin="file",
+                input_roots=(),
+                created_at=123,
+            ),
+            files=(
+                ExtensionFile(
+                    path="docs/update.txt",
+                    size=len(file_bytes),
+                    sha256=hashlib.sha256(file_bytes).digest(),
+                    mtime=1,
+                    chunk_refs=(
+                        ExtensionChunkRef(chunk_id=first_id, uncompressed_len=len(first)),
+                        ExtensionChunkRef(chunk_id=second_id, uncompressed_len=len(second)),
+                    ),
+                ),
+            ),
+            chunks=chunks,
+        )
+
+        with self.assertRaisesRegex(ValueError, "locked chunking profile"):
+            envelope.reconstruct_files()
+
+    def test_directory_input_roots_preserve_whitespace(self) -> None:
+        header = build_extension_header(
+            index=1,
+            parent_doc_hash=TEST_DOC_HASH,
+            root_doc_hash=TEST_ROOT_DOC_HASH,
+            chunking=_make_profile(),
+            input_origin="directory",
+            input_roots=(" demo ",),
+            created_at=123,
+        )
+
+        self.assertEqual(header.input_roots, (" demo ",))
+
     def test_rejects_unknown_header_keys(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown keys"):
             ExtensionEnvelopeHeader.from_cbor(

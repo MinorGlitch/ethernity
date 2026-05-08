@@ -447,7 +447,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertEqual(result.trust_diagnostic.details["validated_head_index"], None)
 
     def test_inspect_extension_payloads_requiring_reused_chunks_fails_closed(self) -> None:
-        root_chunk = b"root"
+        root_chunk = b"root and extension-only data\n"
         extension = build_extension_document(
             index=1,
             parent_doc_hash=b"\x10" * 32,
@@ -457,13 +457,13 @@ class TestDocumentInspectorTool(unittest.TestCase):
                 InputFile(
                     source_path=None,
                     relative_path="docs/notes.txt",
-                    data=b"root and extension-only data\n",
+                    data=root_chunk,
                     mtime=1712666400,
                 ),
             ),
             input_origin="directory",
             input_roots=("demo",),
-            chunker=lambda data, _profile: (root_chunk, data[len(root_chunk) :]),
+            chunker=lambda data, _profile: (data,),
             existing_chunks={hashlib.sha256(root_chunk).digest(): root_chunk},
         )
         extension_frames = _extension_frames_with_auth(

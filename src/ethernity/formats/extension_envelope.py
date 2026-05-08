@@ -43,6 +43,7 @@ from ethernity.encoding.cbor import dumps_canonical, loads_canonical
 from ethernity.encoding.varint import decode_uvarint, encode_uvarint
 from ethernity.formats.envelope_codec import MAGIC
 from ethernity.formats.envelope_types import MAX_MANIFEST_FILES
+from ethernity.formats.extension_chunking import require_canonical_chunk_refs
 from ethernity.formats.extension_envelope_constants import (
     CHAIN_ID_PERSONALIZATION,
     CHUNK_ALGORITHM_FASTCDC,
@@ -487,6 +488,14 @@ class ExtensionEnvelope:
                 raise ValueError("extension reconstructed file size mismatch")
             if hashlib.sha256(file_bytes).digest() != file_entry.sha256:
                 raise ValueError(f"extension file sha256 mismatch for {file_entry.path}")
+            require_canonical_chunk_refs(
+                tuple(
+                    (chunk_ref.chunk_id, chunk_ref.uncompressed_len)
+                    for chunk_ref in file_entry.chunk_refs
+                ),
+                file_bytes,
+                self.header.chunking,
+            )
             total_reconstructed += len(file_bytes)
             if total_reconstructed > MAX_DECOMPRESSED_PAYLOAD_BYTES:
                 raise ValueError(
@@ -637,7 +646,6 @@ def _require_inline_chunk_raw_len_bounds(chunks_raw: Sequence[object]) -> None:
 
 def _normalize_root_label(value: object) -> str:
     root = normalize_path(value, label="extension header input_root")
-    root = root.strip()
     if not root:
         raise ValueError("extension header input_root must be a non-empty string")
     if "/" in root or "\\" in root:

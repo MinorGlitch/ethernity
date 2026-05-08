@@ -930,6 +930,8 @@ Requirements:
 - `input_origin`: `"file"`, `"directory"`, or `"mixed"`
 - `input_roots`:
   - each root MUST be a non-empty UTF-8 leaf label
+  - roots are NFC-normalized but otherwise preserved exactly; decoders MUST NOT trim leading or
+    trailing whitespace
   - roots MUST NOT contain `/` or `\\`
   - MUST be empty when `input_origin == "file"`
   - MUST be non-empty when `input_origin` is `"directory"` or `"mixed"`
