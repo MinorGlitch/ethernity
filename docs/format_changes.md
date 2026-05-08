@@ -46,6 +46,110 @@ Use this template for each change entry:
 
 ## Entries
 
+## 2026-05-08 - Enforce canonical extension chunk recipes on replay
+
+- Type: validation
+- Normative spec updated: no
+- Sections changed: none (enforces existing Sections 19.3.1 and 19.3.1.1 requirements)
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged (the wire format is unchanged)
+  - New decoders reading old artifacts: partial (extension file recipes whose chunk references do
+    not match the locked content-defined chunking profile are now rejected)
+- Version/profile bump required: no (this is a strict fail-closed decoder check for the existing
+  Version 2 extension profile)
+- Implementation refs:
+  - `src/ethernity/extensions/chunking.py`
+  - `src/ethernity/extensions/build.py`
+  - `src/ethernity/extensions/chain.py`
+- Test refs:
+  - `tests/unit/test_extension_chain.py`
+- Security impact:
+  - Rejects authenticated-but-non-canonical extension recipes that reconstruct the correct bytes
+    through invalid chunk boundaries, keeping replay deterministic across implementations.
+
+## 2026-05-08 - Define reconstructed extension-state provenance
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: 19.5
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged (the wire format is unchanged)
+  - New decoders reading old artifacts: changed metadata semantics for replayed extension states;
+    synthetic recovered/compacted manifests now identify themselves as reconstructed state instead
+    of borrowing root or latest-extension source scope
+- Version/profile bump required: no (this changes synthetic manifest metadata produced during
+  replay/compaction, not the encoded extension document profile)
+- Implementation refs:
+  - `src/ethernity/cli/features/recover/chain.py`
+  - `src/ethernity/cli/features/compact/service.py`
+- Test refs:
+  - `tests/unit/test_recover_chain.py`
+  - `tests/unit/test_compact_service.py`
+- Security impact:
+  - Prevents compacted full-state backups from presenting a misleading narrow provenance inherited
+    from the final extension document.
+
+## 2026-05-08 - Clarify chain-global root chunk reuse
+
+- Type: clarification
+- Normative spec updated: yes
+- Sections changed: 19.5
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged (the wire format is unchanged)
+  - New decoders reading old artifacts: unchanged (this documents existing replay semantics)
+- Version/profile bump required: no (this clarifies chunk-resolution scope without changing encoded
+  data or replay behavior)
+- Implementation refs:
+  - `src/ethernity/extensions/chain.py`
+  - `src/ethernity/cli/features/recover/chain.py`
+- Test refs:
+  - `tests/unit/test_extension_chain.py`
+- Security impact:
+  - Makes clear that path replacement does not imply erasure of content-addressed root payload
+    chunks that remain physically present in the root backup.
+
+## 2026-05-08 - Remove public unsigned recovery flags
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: 19.4; CLI/API documentation
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged (the wire format is unchanged)
+  - New decoders reading old artifacts: unchanged for authenticated recovery; public
+    unauthenticated recovery flags are rejected by the CLI/API
+- Version/profile bump required: no (this is a strict fail-closed command policy and does not alter
+  encoded data)
+- Implementation refs:
+  - `src/ethernity/cli/features/recover/chain.py`
+  - `src/ethernity/cli/features/recover/command.py`
+  - `src/ethernity/cli/features/api/command.py`
+- Test refs:
+  - `tests/unit/test_recover_chain.py`
+- Security impact:
+  - Prevents unsigned recovery from being exposed as a shipped user-facing path. Extension replay
+    remains authenticated-only.
+
+## 2026-05-08 - Cap latest extension state file count
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: 19.5
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged (the wire format is unchanged)
+  - New decoders reading old artifacts: partial (chains whose replayed latest logical state exceeds
+    `MAX_MANIFEST_FILES` are now rejected)
+- Version/profile bump required: no (this is a strict fail-closed replay/build invariant that keeps
+  extension chains representable as Version 1 compaction outputs)
+- Implementation refs:
+  - `src/ethernity/extensions/build.py`
+  - `src/ethernity/extensions/chain.py`
+- Test refs:
+  - `tests/unit/test_extension_build.py`
+  - `tests/unit/test_extension_chain.py`
+- Security impact:
+  - Prevents valid-looking extension chains from producing latest states that cannot be compacted
+    into the bounded Version 1 manifest profile
+
 ## 2026-05-08 - Clarify extension delete semantics
 
 - Type: editorial

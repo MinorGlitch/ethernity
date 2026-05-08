@@ -1175,6 +1175,9 @@ Requirements:
 
 Operational rescue modes that tolerate unsigned or invalid extension AUTH are outside the
 normative authenticated profile described in this section.
+Implementations MUST NOT replay extensions in rescue mode unless they define a separate
+non-authenticated extension profile. The CLI/API profile defined for this release does not expose
+rescue-mode extension replay.
 
 ### 19.5) Extension Replay
 
@@ -1188,11 +1191,17 @@ Replay rules:
   extension remains recoverable unless a later extension replaces it with new file content
 - each chunk reference MUST resolve to either:
   - a newly introduced chunk in the current or earlier validated extension, or
-  - a virtual root chunk from a carried-forward root file, keyed by the `SHA-256` of each
-    re-chunked root chunk byte sequence under the locked chain chunking profile
+  - a chain-global virtual root chunk, keyed by the `SHA-256` of each re-chunked root chunk byte
+    sequence under the locked chain chunking profile
+- replacing a root path changes latest logical state for that path, but does not remove the
+  corresponding root payload bytes from the chain-global virtual root chunk source
 - replay MUST reject unresolved `chunk_id` references
 - replay MUST reject any reconstructed file whose size or SHA-256 does not match its recipe
+- total reconstructed logical files MUST remain `<= MAX_MANIFEST_FILES`
 - total reconstructed logical bytes MUST remain `<= MAX_DECOMPRESSED_PAYLOAD_BYTES`
+- when replay emits a synthetic Version 1 manifest for recovered or compacted extension state, it
+  MUST use `input_origin == "directory"` and `input_roots == ["reconstructed-state"]`; it MUST NOT
+  inherit root-source metadata or the latest extension header scope
 
 ## 20) Content-Import Extension Recovery
 

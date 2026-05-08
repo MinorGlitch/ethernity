@@ -1858,7 +1858,6 @@
         "extension_index",
         "extension_doc_hash",
         "output",
-        "allow_unsigned",
         "quiet",
         "debug"
       ],
@@ -1951,9 +1950,6 @@
           ],
           "minLength": 1
         },
-        "allow_unsigned": {
-          "type": "boolean"
-        },
         "quiet": {
           "type": "boolean"
         },
@@ -1986,7 +1982,6 @@
         "auth_payloads_file",
         "extension_index",
         "extension_doc_hash",
-        "allow_unsigned",
         "quiet",
         "debug"
       ],
@@ -2080,9 +2075,6 @@
             "null"
           ],
           "pattern": "^[0-9a-f]{64}$"
-        },
-        "allow_unsigned": {
-          "type": "boolean"
         },
         "quiet": {
           "type": "boolean"

@@ -134,7 +134,7 @@ The command:
 
 - requires `--root-dir` and `--output-dir`
 - reuses saved backup/config defaults for render policy when the UI does not override them
-- performs authenticated recovery semantics, not rescue-mode recovery
+- performs authenticated recovery semantics
 
 ### Recovery Flow
 
@@ -143,6 +143,8 @@ Use `ethernity api inspect recover` first when the UI needs readiness data witho
 - validate shard quorum before enabling recovery
 - validate AUTH presence or report `auth_status`
 - inspect `source_summary`, `frame_counts`, `unlock`, `blocking_issues`, and `warnings`
+- expect mixed root-plus-extension inputs to return a normal inspect `result` with
+  `source_summary: null` until passphrase or shard material can select the root document
 
 Use `ethernity api recover` for the actual extraction step.
 
@@ -154,7 +156,6 @@ Both commands accept the same recovery input flags in one of these ways:
 - `--fallback-file <file>` for fallback text
 - `--shard-dir <dir>` for a directory of passphrase shard recovery text files
 - `--extension-index <n>` or `--extension-doc-hash <hash>` when the UI needs a specific extension replay target
-- `--rescue-mode` when the operator deliberately chooses best-effort recovery without normal authentication verification
 - optional shard/auth inputs when the UI has them
 
 Important:
@@ -303,6 +304,9 @@ uv run python -m ethernity.cli api config set --input-json "/path/to/config_patc
 - `RECOVERY_HEAD_UNTRUSTED` can appear either as an inspect `blocking_issues[].code` or as an
   `error.code` from write-producing recovery/extension/compaction commands. In both cases, ask the
   user to repair or select an earlier trusted head before continuing.
+- The recovery API does not expose an unsigned recovery flag. If extension replay fails with
+  `RECOVERY_HEAD_UNTRUSTED`, offer root-only recovery (`--extension-index 0`) or authenticated
+  extension inputs.
 
 ## Frontend Checklist
 

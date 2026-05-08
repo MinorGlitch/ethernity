@@ -321,6 +321,11 @@ Stable recover `result.auth_status` values:
 - `unlock.mode|passphrase_provided|validated_shard_count|required_shard_threshold|satisfied`
 - `blocking_issues` and `warnings`
 
+When recovery input contains multiple MAIN documents, such as a root backup plus extension
+documents, `api inspect recover` remains readiness-oriented. If the root cannot yet be selected
+because unlock material is missing or wrong, it still emits a `result` event with
+`source_summary: null`, aggregate frame counts, and an unlock/root-selection blocking issue.
+
 `ethernity api inspect mint` reports:
 
 - `doc_id`, `input_label`, `input_detail`, `auth_status`
@@ -485,7 +490,7 @@ Example onboarding patch:
 ## Example
 
 ```json
-{"type":"started","schema_version":1,"command":"recover","args":{"config":null,"paper":null,"fallback_file":null,"payloads_file":"main_payloads.txt","scan":[],"has_passphrase":true,"shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"extension_index":null,"extension_doc_hash":null,"output":"/tmp/out/secret.txt","allow_unsigned":false,"quiet":true,"debug":false}}
+{"type":"started","schema_version":1,"command":"recover","args":{"config":null,"paper":null,"fallback_file":null,"payloads_file":"main_payloads.txt","scan":[],"has_passphrase":true,"shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"extension_index":null,"extension_doc_hash":null,"output":"/tmp/out/secret.txt","quiet":true,"debug":false}}
 {"type":"phase","id":"plan","label":"Resolving recovery inputs"}
 {"type":"progress","phase":"plan","current":1,"total":1,"unit":"step","details":{"main_frame_count":2,"auth_frame_count":1,"shard_frame_count":0}}
 {"type":"phase","id":"decrypt","label":"Decrypting and inspecting payload"}
@@ -494,7 +499,7 @@ Example onboarding patch:
 ```
 
 ```json
-{"type":"started","schema_version":1,"command":"recover","args":{"operation":"inspect","config":null,"paper":null,"fallback_file":null,"payloads_file":"main_payloads.txt","scan":[],"has_passphrase":true,"shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"extension_index":null,"extension_doc_hash":null,"allow_unsigned":false,"quiet":true,"debug":false}}
+{"type":"started","schema_version":1,"command":"recover","args":{"operation":"inspect","config":null,"paper":null,"fallback_file":null,"payloads_file":"main_payloads.txt","scan":[],"has_passphrase":true,"shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"extension_index":null,"extension_doc_hash":null,"quiet":true,"debug":false}}
 {"type":"phase","id":"plan","label":"Resolving recovery inputs"}
 {"type":"progress","phase":"plan","current":1,"total":1,"unit":"step","details":{"main_frame_count":2,"auth_frame_count":1,"shard_frame_count":0}}
 {"type":"phase","id":"decrypt","label":"Decrypting and inspecting payload"}

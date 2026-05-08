@@ -71,11 +71,10 @@ provided. This is a convenience behavior and not part of the on-disk format.
 `FRAME_TYPE=MAIN_DOCUMENT` only. `AUTH` and `KEY_DOCUMENT` payloads are single-frame units and
 should be decoded directly from their frame `data` bytes.
 
-Some CLI flows expose an explicit unsigned-recovery override (for example, `--rescue-mode`, with
-`--skip-auth-check` as a compatibility alias). This corresponds to rescue mode in `docs/format.md`
-(Section 7.1), where signature verification bypass is allowed only under explicit operator
-override. Structural, binding, and consistency checks still apply, and results are treated as
-unauthenticated.
+The current CLI/API recovery surface does not expose an unsigned-recovery override. Internal
+recovery code still models unsigned recovery as a fail-closed implementation state for legacy tests
+and controlled callers, but shipped commands require authenticated recovery inputs. Structural,
+binding, and consistency checks still apply to all recovery modes.
 
 ## Recovery Input Auto-Parsing Contract
 
