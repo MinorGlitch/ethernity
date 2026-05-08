@@ -255,11 +255,11 @@ def prompt_text_or_payloads_stdin(
         )
         return frames, RECOVERY_TEXT_LABEL
 
-    first_frame = _frame_from_payload_text(initial_lines[0].strip())
+    initial_frames = _parse_initial_payload_frames(initial_lines)
     frames = collect_payload_frames(
         allow_unsigned=allow_unsigned,
         quiet=quiet,
-        first_frame=first_frame,
+        initial_frames=initial_frames,
     )
     return frames, RECOVERY_QR_TEXT_LABEL
 
@@ -328,21 +328,28 @@ class _PayloadCollectionState:
     quiet: bool
     frames: list[Frame] = field(default_factory=list)
     seen: dict[tuple[int, int, bytes], Frame] = field(default_factory=dict)
-    main_indices: set[int] = field(default_factory=set)
-    main_total: int | None = None
-    auth_present: bool = False
-    expected_doc_id: bytes | None = None
+    main_indices_by_doc_id: dict[bytes, set[int]] = field(default_factory=dict)
+    main_total_by_doc_id: dict[bytes, int] = field(default_factory=dict)
+    auth_doc_ids: set[bytes] = field(default_factory=set)
 
     def next_prompt(self) -> str:
         """Return the next prompt label based on remaining payloads."""
 
-        if self.main_total is None:
+        if not self.main_total_by_doc_id:
             return "Backup text line"
-        remaining_main = max(self.main_total - len(self.main_indices), 0)
-        remaining_auth = 0 if self.allow_unsigned or self.auth_present else 1
+        remaining_main = sum(
+            max(total - len(self.main_indices_by_doc_id.get(doc_id, set())), 0)
+            for doc_id, total in self.main_total_by_doc_id.items()
+        )
+        remaining_auth = (
+            0
+            if self.allow_unsigned
+            else sum(1 for doc_id in self.main_total_by_doc_id if doc_id not in self.auth_doc_ids)
+        )
         remaining_total = remaining_main + remaining_auth
-        if remaining_main == 0 and remaining_auth == 1:
-            return "Verification text line (1 remaining)"
+        if remaining_main == 0 and remaining_auth:
+            plural = "s" if remaining_auth != 1 else ""
+            return f"Verification text line{plural} ({remaining_auth} remaining)"
         return f"Backup text line ({remaining_total} remaining)"
 
     def ingest(self, frame: Frame) -> bool:
@@ -355,19 +362,11 @@ class _PayloadCollectionState:
             )
             return False
 
-        if self.expected_doc_id is None:
-            self.expected_doc_id = frame.doc_id
-        elif frame.doc_id != self.expected_doc_id:
-            console_err.print(
-                "[error]These text lines are from different backups. "
-                "Continue with text lines from a single backup.[/error]"
-            )
-            return False
-
         if frame.frame_type == FrameType.MAIN_DOCUMENT:
-            if self.main_total is None:
-                self.main_total = frame.total
-            elif frame.total != self.main_total:
+            main_total = self.main_total_by_doc_id.get(frame.doc_id)
+            if main_total is None:
+                self.main_total_by_doc_id[frame.doc_id] = frame.total
+            elif frame.total != main_total:
                 console_err.print(
                     "[error]Frame count doesn't match earlier text lines. "
                     "Use text lines from the same backup.[/error]"
@@ -389,20 +388,27 @@ class _PayloadCollectionState:
         self.seen[key] = frame
         self.frames.append(frame)
         if frame.frame_type == FrameType.MAIN_DOCUMENT:
-            self.main_indices.add(frame.index)
+            self.main_indices_by_doc_id.setdefault(frame.doc_id, set()).add(frame.index)
         else:
-            self.auth_present = True
+            self.auth_doc_ids.add(frame.doc_id)
 
         return self._is_complete()
 
     def _is_complete(self) -> bool:
         """Return whether the required MAIN/AUTH payload set has been collected."""
 
-        if self.main_total is None:
+        if not self.main_total_by_doc_id:
             return False
 
-        remaining_main = max(self.main_total - len(self.main_indices), 0)
-        remaining_auth = 0 if self.allow_unsigned or self.auth_present else 1
+        remaining_main = sum(
+            max(total - len(self.main_indices_by_doc_id.get(doc_id, set())), 0)
+            for doc_id, total in self.main_total_by_doc_id.items()
+        )
+        remaining_auth = (
+            0
+            if self.allow_unsigned
+            else sum(1 for doc_id in self.main_total_by_doc_id if doc_id not in self.auth_doc_ids)
+        )
         if remaining_main == 0 and remaining_auth == 0:
             if not self.quiet:
                 console.print("[success]All required backup text lines captured.[/success]")
@@ -430,9 +436,12 @@ def collect_payload_frames(
     )
     state = _PayloadCollectionState(allow_unsigned=allow_unsigned, quiet=quiet)
     for frame in initial_frames or []:
-        if state.ingest(frame):
-            return state.frames
-    if first_frame is not None and state.ingest(first_frame):
+        state.ingest(frame)
+    if initial_frames and state._is_complete():
+        return state.frames
+    if first_frame is not None:
+        state.ingest(first_frame)
+    if first_frame is not None and state._is_complete():
         return state.frames
 
     while True:

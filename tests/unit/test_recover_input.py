@@ -55,6 +55,10 @@ def _base64_payload_for_main_data(size: int) -> str:
     return base64.b64encode(encode_frame(frame)).decode("ascii").rstrip("=")
 
 
+def _payload_text_for_frame(frame: Frame) -> str:
+    return base64.b64encode(encode_frame(frame)).decode("ascii").rstrip("=")
+
+
 def _find_payload_with_length(target: int) -> str:
     for size in range(1, 20_000):
         payload = _base64_payload_for_main_data(size)
@@ -89,7 +93,7 @@ class TestRecoverInput(unittest.TestCase):
                 frame_types = [FrameType(frame.frame_type).name for frame in frames]
                 self.assertEqual(frame_types, case["expect_frame_types"])
 
-    def test_payload_collection_rejects_doc_id_mismatch(self) -> None:
+    def test_payload_collection_accepts_multiple_documents(self) -> None:
         state = _PayloadCollectionState(allow_unsigned=True, quiet=True)
         first = Frame(
             version=1,
@@ -108,8 +112,8 @@ class TestRecoverInput(unittest.TestCase):
             data=b"second",
         )
         self.assertTrue(state.ingest(first))
-        self.assertFalse(state.ingest(second))
-        self.assertEqual(len(state.frames), 1)
+        self.assertTrue(state.ingest(second))
+        self.assertEqual(state.frames, [first, second])
 
     def test_payload_collection_requires_auth_when_unsigned_disabled(self) -> None:
         state = _PayloadCollectionState(allow_unsigned=False, quiet=True)
@@ -286,10 +290,11 @@ class TestRecoverInput(unittest.TestCase):
     def test_payload_collection_next_prompt_transitions(self) -> None:
         state = _PayloadCollectionState(allow_unsigned=False, quiet=True)
         self.assertEqual(state.next_prompt(), "Backup text line")
-        state.main_total = 2
-        state.main_indices = {0}
+        doc_id = b"\x50" * DOC_ID_LEN
+        state.main_total_by_doc_id[doc_id] = 2
+        state.main_indices_by_doc_id[doc_id] = {0}
         self.assertEqual(state.next_prompt(), "Backup text line (2 remaining)")
-        state.main_indices = {0, 1}
+        state.main_indices_by_doc_id[doc_id] = {0, 1}
         self.assertEqual(state.next_prompt(), "Verification text line (1 remaining)")
 
     def test_payload_collection_rejects_total_mismatch(self) -> None:
@@ -476,8 +481,8 @@ class TestRecoverInput(unittest.TestCase):
                 return_value="payload",
             ):
                 with mock.patch(
-                    "ethernity.cli.features.recover.input_collection._frame_from_payload_text",
-                    return_value=first_frame,
+                    "ethernity.cli.features.recover.input_collection._frames_from_payload_lines",
+                    return_value=[first_frame],
                 ):
                     with mock.patch(
                         "ethernity.cli.features.recover.input_collection.collect_payload_frames",
@@ -490,6 +495,70 @@ class TestRecoverInput(unittest.TestCase):
         self.assertEqual(label, "Backup text lines")
         self.assertEqual(frames, [first_frame])
         collect_mock.assert_called_once()
+        self.assertEqual(collect_mock.call_args.kwargs["initial_frames"], [first_frame])
+
+    def test_prompt_text_or_payloads_stdin_preserves_pasted_multi_document_payloads(self) -> None:
+        root_frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x64" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"root",
+        )
+        extension_frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x65" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"extension",
+        )
+        pasted = "\n".join(
+            (
+                _payload_text_for_frame(root_frame),
+                _payload_text_for_frame(extension_frame),
+            )
+        )
+
+        with mock.patch(
+            "ethernity.cli.features.recover.input_collection.prompt_required",
+            return_value=pasted,
+        ):
+            frames, label = prompt_text_or_payloads_stdin(
+                allow_unsigned=True,
+                quiet=True,
+                preferred_kind="payload",
+            )
+
+        self.assertEqual(label, "Backup text lines")
+        self.assertEqual(frames, [root_frame, extension_frame])
+
+    def test_collect_payload_frames_does_not_truncate_initial_multi_document_set(self) -> None:
+        root_frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x66" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"root",
+        )
+        extension_frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x67" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"extension",
+        )
+
+        frames = collect_payload_frames(
+            allow_unsigned=True,
+            quiet=True,
+            initial_frames=[root_frame, extension_frame],
+        )
+
+        self.assertEqual(frames, [root_frame, extension_frame])
 
     def test_collect_fallback_frames_retries_after_invalid_initial_lines(self) -> None:
         frame = Frame(
