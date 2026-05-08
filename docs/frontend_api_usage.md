@@ -108,6 +108,23 @@ Both commands:
 - accept explicit scope selection through `--input`, `--input-dir`, and `--base-dir`
 - reuse saved backup/config defaults when the UI does not override them explicitly
 
+For `api inspect extend`, use these final `result` fields for chain-head state:
+
+- `validated_head_index`: the latest extension index that was reconstructed and authenticated, or
+  `0` for the root backup, or `null` when no trusted head is available
+- `validated_head_doc_hash`: the authenticated hash for that validated head, or `null`
+- `validated_head_auth_status`: auth status for the validated head when known
+- `validated_head_root_authority_verified`: whether the validated head is signed by the root
+  authority when known
+- `available_extensions`: discovered extension entries; entries may include `auth_status` and
+  `root_authority_verified` after chain authentication has been evaluated
+- `ancestry_valid`: whether the inspected chain ancestry is valid when the backend can determine it
+
+If `blocking_issues` contains `RECOVERY_HEAD_UNTRUSTED`, show the extension chain as not ready for
+write-producing actions. The `details` object identifies the failed/latest/requested head and the
+last validated head. Do not treat filenames or `available_extensions` alone as authenticated proof of
+the current chain state; use the validated-head fields for that.
+
 ### Compaction Flow
 
 Use `ethernity api compact` when the UI needs to flatten the latest validated chain state into a
@@ -135,6 +152,9 @@ Both commands accept the same recovery input flags in one of these ways:
 - `--shard-scan <pdf-or-image-or-dir>` for QR scanning from passphrase shard PDFs, image files, or folders
 - `--payloads-file <file>` for pre-extracted QR payloads
 - `--fallback-file <file>` for fallback text
+- `--shard-dir <dir>` for a directory of passphrase shard recovery text files
+- `--extension-index <n>` or `--extension-doc-hash <hash>` when the UI needs a specific extension replay target
+- `--rescue-mode` when the operator deliberately chooses best-effort recovery without normal authentication verification
 - optional shard/auth inputs when the UI has them
 
 Important:
@@ -211,6 +231,13 @@ Treat the two `mint_capabilities` flags independently; they reflect both readine
 types currently enabled for this request, so one shard type can be ready while the other is
 blocked or disabled.
 
+Mint also accepts directory and scan variants for existing passphrase and signing-key shard inputs:
+`--shard-dir`, `--shard-scan`, `--signing-key-shard-dir`, and `--signing-key-shard-scan`.
+For replacement workflows, pass `--passphrase-replacement-count` and
+`--signing-key-replacement-count` only after inspection shows compatible existing shard material.
+Use `--passphrase-shards/--no-passphrase-shards` and
+`--signing-key-shards/--no-signing-key-shards` to keep the two output families independent.
+
 ## Config Patch Shape
 
 Write config changes through a JSON patch file or stdin.
@@ -273,6 +300,9 @@ uv run python -m ethernity.cli api config set --input-json "/path/to/config_patc
 - Keep a fallback UI path for unknown future codes.
 - For config writes, treat failures as no-save and re-fetch with `api config get` if the UI needs a
   fresh snapshot.
+- `RECOVERY_HEAD_UNTRUSTED` can appear either as an inspect `blocking_issues[].code` or as an
+  `error.code` from write-producing recovery/extension/compaction commands. In both cases, ask the
+  user to repair or select an earlier trusted head before continuing.
 
 ## Frontend Checklist
 

@@ -358,14 +358,14 @@
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
         },
         "shard_count": {
           "type": [
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
         },
         "signing_key_mode": {
           "type": "string",
@@ -379,14 +379,14 @@
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
         },
         "signing_key_shard_count": {
           "type": [
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
         }
       }
     },
@@ -1462,6 +1462,30 @@
         "EXTENSION_NO_CHANGES",
         "EXTENSION_MAIN_CARRIER_INVALID",
         "EXTENSION_SHARD_CARRIER_INVALID",
+        "RECOVERY_HEAD_UNTRUSTED",
+        "AUTH_PAYLOAD_MISSING",
+        "AUTH_PAYLOAD_MULTIPLE",
+        "AUTH_PAYLOAD_DOC_ID_MISMATCH",
+        "AUTH_PAYLOAD_FRAME_INVALID",
+        "AUTH_PAYLOAD_INVALID",
+        "AUTH_DOC_HASH_MISMATCH",
+        "AUTH_SIGNATURE_INVALID",
+        "PASSPHRASE_SHARDS_UNDER_QUORUM",
+        "PASSPHRASE_SHARDS_INVALID",
+        "PASSPHRASE_INVALID",
+        "PASSPHRASE_REQUIRED",
+        "AUTH_REQUIRED",
+        "UNLOCK_FAILED",
+        "SIGNING_KEY_SHARDS_REQUIRED",
+        "SIGNING_KEY_SHARDS_UNDER_QUORUM",
+        "SIGNING_KEY_SHARDS_INVALID",
+        "PASSPHRASE_REPLACEMENT_NOT_READY",
+        "SIGNING_KEY_REPLACEMENT_NOT_READY",
+        "ROOT_AUTHORITY_MISMATCH",
+        "EXTENSION_LAYOUT_INVALID",
+        "SEALED_ROOT_NOT_EXTENDABLE",
+        "CHAIN_INVALID",
+        "DELETE_NOT_SUPPORTED",
         "CANCELLED",
         "NOT_FOUND",
         "PERMISSION_DENIED",
@@ -1528,7 +1552,9 @@
         "PASSPHRASE_REPLACEMENT_NOT_READY",
         "SIGNING_KEY_REPLACEMENT_NOT_READY",
         "ROOT_AUTHORITY_MISMATCH",
+        "RECOVERY_HEAD_UNTRUSTED",
         "EXTENSION_LAYOUT_INVALID",
+        "EXTENSION_INVALID_POLICY",
         "SEALED_ROOT_NOT_EXTENDABLE",
         "CHAIN_INVALID",
         "DELETE_NOT_SUPPORTED"
@@ -2180,14 +2206,14 @@
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
         },
         "shard_count": {
           "type": [
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
         },
         "signing_key_mode": {
           "type": [
@@ -2205,14 +2231,14 @@
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
         },
         "signing_key_shard_count": {
           "type": [
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
         },
         "quiet": {
           "type": "boolean"
@@ -2378,14 +2404,14 @@
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
         },
         "shard_count": {
           "type": [
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
         },
         "signing_key_mode": {
           "type": [
@@ -2403,14 +2429,14 @@
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
         },
         "signing_key_shard_count": {
           "type": [
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
         },
         "quiet": {
           "type": "boolean"
@@ -3177,6 +3203,7 @@
         "templates",
         "page",
         "qr",
+        "extension",
         "defaults",
         "ui",
         "debug",
@@ -3272,6 +3299,38 @@
             "chunk_size": {
               "type": "integer",
               "minimum": 1
+            }
+          }
+        },
+        "extension": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "chunking"
+          ],
+          "properties": {
+            "chunking": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "target_size",
+                "min_size",
+                "max_size"
+              ],
+              "properties": {
+                "target_size": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "min_size": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "max_size": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
             }
           }
         },

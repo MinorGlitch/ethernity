@@ -211,6 +211,12 @@ Current command-specific error codes:
   scope; `api inspect extend` reports a no-op preview instead of raising this code
 - `EXTENSION_MAIN_CARRIER_INVALID`: staged extension MAIN carriers failed ciphertext / AUTH validation
 - `EXTENSION_SHARD_CARRIER_INVALID`: staged extension shard carriers failed payload validation
+- `RECOVERY_HEAD_UNTRUSTED`: recover or compact could not authenticate or reconstruct the requested
+  recovery head
+
+For `api extend`, every documented Stable Blocking Issue Code may also appear as command
+`error.code` when a readiness blocker is promoted during publish-plan preparation. Those promoted
+codes are part of the stable command error contract.
 
 Current generic error codes:
 
@@ -261,6 +267,7 @@ Current inspect `blocking_issues[].code` values:
 - `PASSPHRASE_REPLACEMENT_NOT_READY`
 - `SIGNING_KEY_REPLACEMENT_NOT_READY`
 - `ROOT_AUTHORITY_MISMATCH`
+- `RECOVERY_HEAD_UNTRUSTED`
 - `EXTENSION_LAYOUT_INVALID`
 - `EXTENSION_INVALID_POLICY`
 - `SEALED_ROOT_NOT_EXTENDABLE`
@@ -289,6 +296,7 @@ Stable phase ids currently emitted by the API:
 
 - Backup: `plan`, `input`, `backup`, `prepare`, `encrypt`, `shard`, `render`
 - Config: `load`, `validate`, `write`
+- Extend inspect: `plan`
 - Mint: `plan`, `mint`, `render`
 - Recover: `plan`, `decrypt`, `write`
 
@@ -327,7 +335,8 @@ Stable recover `result.auth_status` values:
 
 - `doc_id`, `input_label`, `input_detail`, `input_kind`
 - `source_summary`, `frame_counts`, `root_doc_id`, `root_doc_hash`, `chain_id`
-- `auth_status`, `unlock`, `discovered_extension_dirs`, `validated_head_index`
+- `auth_status`, `unlock`, `discovered_extension_dirs`, `validated_head_index`,
+  `validated_head_doc_hash`
 - `validated_head_auth_status`, `validated_head_root_authority_verified`
 - `available_extensions`, `ancestry_valid`, `signing_authority`
 - `selected_scope`, `diff_summary`, `chunk_reuse`, `estimated_extension_bytes`
@@ -355,6 +364,8 @@ emitted as an `artifact` event with kind `layout_debug_json`.
   `templates.kit_template_name`
 - `page.size`
 - `qr.error`, `qr.chunk_size`
+- `extension.chunking.target_size`, `extension.chunking.min_size`,
+  `extension.chunking.max_size`
 - `defaults.backup.*`
 - `defaults.recover.output`
 - `ui.*`
@@ -441,6 +452,7 @@ Example onboarding patch:
     "templates": {"default_name": "forge"},
     "page": {"size": "LETTER"},
     "qr": {"error": "Q", "chunk_size": 384},
+    "extension": {"chunking": {"target_size": 16384, "min_size": 4096, "max_size": 65536}},
     "defaults": {
       "backup": {
         "output_dir": "/tmp/backups",
@@ -500,7 +512,7 @@ Example onboarding patch:
 ```json
 {"type":"started","schema_version":1,"command":"config","args":{"operation":"get","config":null,"input_json":null}}
 {"type":"phase","id":"load","label":"Loading config"}
-{"type":"result","ok":true,"command":"config","operation":"get","path":"/home/user/.config/ethernity/config.toml","source":"user","status":"valid","errors":[],"values":{"templates":{"default_name":"sentinel","template_name":null,"recovery_template_name":null,"shard_template_name":null,"signing_key_shard_template_name":null,"kit_template_name":null},"page":{"size":"A4"},"qr":{"error":"M","chunk_size":512},"defaults":{"backup":{"base_dir":null,"output_dir":null,"shard_threshold":null,"shard_count":null,"signing_key_mode":null,"signing_key_shard_threshold":null,"signing_key_shard_count":null,"payload_codec":"auto","qr_payload_codec":"raw"},"recover":{"output":null}},"ui":{"quiet":false,"no_color":false,"no_animations":false},"debug":{"max_bytes":1024},"runtime":{"render_jobs":"auto"}},"options":{"template_designs":["archive","forge","ledger","maritime","sentinel"],"page_sizes":["A4","LETTER"],"qr_error_correction":["L","M","Q","H"],"payload_codecs":["auto","raw","gzip"],"qr_payload_codecs":["raw","base64"],"signing_key_modes":["embedded","sharded"],"onboarding_fields":["template_design","page_size","backup_output_dir","qr_chunk_size","qr_error_correction","sharding","payload_codec","qr_payload_codec"]},"onboarding":{"needed":true,"configured_fields":[],"available_fields":["template_design","page_size","backup_output_dir","qr_chunk_size","qr_error_correction","sharding","payload_codec","qr_payload_codec"]}}
+{"type":"result","ok":true,"command":"config","operation":"get","path":"/home/user/.config/ethernity/config.toml","source":"user","status":"valid","errors":[],"values":{"templates":{"default_name":"sentinel","template_name":null,"recovery_template_name":null,"shard_template_name":null,"signing_key_shard_template_name":null,"kit_template_name":null},"page":{"size":"A4"},"qr":{"error":"M","chunk_size":512},"extension":{"chunking":{"target_size":16384,"min_size":4096,"max_size":65536}},"defaults":{"backup":{"base_dir":null,"output_dir":null,"shard_threshold":null,"shard_count":null,"signing_key_mode":null,"signing_key_shard_threshold":null,"signing_key_shard_count":null,"payload_codec":"auto","qr_payload_codec":"raw"},"recover":{"output":null}},"ui":{"quiet":false,"no_color":false,"no_animations":false},"debug":{"max_bytes":1024},"runtime":{"render_jobs":"auto"}},"options":{"template_designs":["archive","forge","ledger","maritime","sentinel"],"page_sizes":["A4","LETTER"],"qr_error_correction":["L","M","Q","H"],"payload_codecs":["auto","raw","gzip"],"qr_payload_codecs":["raw","base64"],"signing_key_modes":["embedded","sharded"],"onboarding_fields":["template_design","page_size","backup_output_dir","qr_chunk_size","qr_error_correction","sharding","payload_codec","qr_payload_codec"]},"onboarding":{"needed":true,"configured_fields":[],"available_fields":["template_design","page_size","backup_output_dir","qr_chunk_size","qr_error_correction","sharding","payload_codec","qr_payload_codec"]}}
 ```
 
 Recover can also scan QR payloads directly from PDFs, images, or directories by using `--scan`:
@@ -543,9 +555,15 @@ scope.
 `api inspect extend` accepts the same extension-policy preview knobs as `api extend`:
 `--unlock-policy`, `--shard-threshold`, `--shard-count`, `--signing-key-mode`,
 `--signing-key-shard-threshold`, and `--signing-key-shard-count`.
-If the root backup already includes `recovery_kit_index.pdf`, the active design must also support
-rendering `recovery_kit_index` for extend/inspect previews; otherwise the result reports
-`EXTENSION_INVALID_POLICY`.
+When the active design provides a compatible `recovery_kit_index` template, `api extend` emits an
+extension-local recovery kit index. `api inspect extend` does not emit artifact paths, but its
+readiness preview reflects the same policy by estimating the extension payload and surfacing
+blocking issues when runtime preparation would fail. Designs without a compatible template omit that
+optional index document.
+
+If `api extend` encounters an inspect-time blocking issue while preparing the publish plan, it emits
+that stable `blocking_issues[].code` as the command `error.code`. Clients should therefore handle
+documented blocking issue codes on `api extend` error events as well as inspect result events.
 
 For `api inspect extend`, result events also surface authenticated-head status:
 

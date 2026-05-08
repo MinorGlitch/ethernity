@@ -46,6 +46,80 @@ Use this template for each change entry:
 
 ## Entries
 
+## 2026-05-08 - Clarify extension delete semantics
+
+- Type: editorial
+- Normative spec updated: yes
+- Sections changed: 19
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged (the extension envelope wire shape and file recipe
+    records are unchanged)
+  - New decoders reading old artifacts: yes (the text freezes existing Version 2 behavior; no valid
+    delete or tombstone records existed)
+- Version/profile bump required: no (this is a normative clarification of the existing immutable
+  extension model and does not alter encoded data)
+- Implementation refs:
+  - `src/ethernity/cli/features/extend/planning.py`
+  - `src/ethernity/formats/extension_envelope.py`
+- Test refs:
+  - `tests/unit/test_extend_service.py`
+- Security impact:
+  - Avoids ambiguous erasure semantics by making previously backed content remain recoverable until
+    replaced by later file content or excluded by a new root backup.
+
+## 2026-05-08 - Specify extension FastCDC-style chunking algorithm
+
+- Type: editorial
+- Normative spec updated: yes
+- Sections changed: 19
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged (the extension envelope wire shape and stored
+    chunking profile are unchanged)
+  - New decoders reading old artifacts: yes (the text freezes the existing algorithm rather than
+    changing accepted artifacts)
+- Version/profile bump required: no (this is a normative clarification of the existing Version 2
+  extension profile and does not alter encoded data)
+- Implementation refs:
+  - `src/ethernity/extensions/build.py`
+- Test refs:
+  - `tests/unit/test_extension_build.py`
+- Security impact:
+  - Improves independent replay conformance for virtual root chunk reuse; chunk integrity remains
+    enforced by SHA-256 and authenticated extension replay.
+
+## 2026-05-07 - Fail closed on extension trust and carrier reconstruction
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: 7, 8, 19, 20, 21
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged (the wire shape and canonical carrier filenames
+    are unchanged)
+  - New decoders reading old artifacts: partial (extension directories with damaged sibling MAIN
+    carriers, duplicate shard share indexes, or extensions on sealed roots are now rejected by the
+    authenticated extension replay path)
+- Version/profile bump required: no (the change tightens validation and preserves fail-closed
+  semantics on the existing Version 2 extension profile)
+- Implementation refs:
+  - `src/ethernity/extensions/discovery.py`
+  - `src/ethernity/extensions/staging.py`
+  - `src/ethernity/formats/extension_envelope.py`
+  - `src/ethernity/cli/features/extend/execution.py`
+  - `src/ethernity/cli/features/extend/planning.py`
+  - `src/ethernity/cli/features/recover/chain.py`
+- Test refs:
+  - `tests/unit/test_extension_discovery.py`
+  - `tests/unit/test_extension_envelope.py`
+  - `tests/unit/test_extension_staging.py`
+  - `tests/unit/test_extend_service.py`
+  - `tests/unit/test_recover_chain.py`
+- Security impact:
+  - Keeps sealed roots terminal, requires both payload MAIN carriers to independently recover, and
+    prevents staged promotion from swapping a validated directory for a symlink before rename.
+    Also clarifies that extension `doc_hash` target matches are provisional until authenticated
+    replay succeeds, and that inspection/projection surfaces may fail closed more strictly than
+    explicit rescue-mode recovery.
+
 ## 2026-04-10 - Require root-authorized extension AUTH in existing carriers
 
 - Type: validation
@@ -116,6 +190,28 @@ Use this template for each change entry:
 - Security impact:
   - Makes staged extension promotion fail closed for shard media and aligns replay/build chunking
     behavior with the stored chain profile
+
+## 2026-05-08 - Replace extension directory recovery with content import
+
+- Type: wire-format recovery profile
+- Normative spec updated: yes
+- Sections changed: 20, 21
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged for envelope bytes, but old recovery tools may
+    require extension directories that are no longer normative
+  - New decoders reading old artifacts: yes, as long as the carriers can be scanned or pasted
+- Version/profile bump required: no envelope version bump; this removes filesystem layout from the
+  recovery profile without changing extension-envelope bytes
+- Implementation refs:
+  - `src/ethernity/cli/features/recover/chain.py`
+  - `src/ethernity/cli/features/recover/planning.py`
+- Test refs:
+  - `tests/unit/test_recover_chain.py`
+  - `tests/unit/test_recover_plan_paths.py`
+  - `tests/unit/test_recover_wizard.py`
+- Security impact:
+  - Moves recovery identity to ciphertext `doc_hash`, AUTH, and decrypted extension headers instead
+    of directory names or filenames
 
 ## 2026-04-09 - Add extension-envelope chain and compaction format rules
 

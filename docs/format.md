@@ -17,7 +17,7 @@ Scope:
 - Passphrase representation (BIP-39)
 - Shamir secret sharing
 - Path normalization
-- Extension chain directory layout, replay, and compaction
+- Extension envelope replay, content-import recovery, and compaction
 
 Non-goals:
 - CLI UX and UI
@@ -334,6 +334,11 @@ Version 1 defines two decoder operation modes:
   - Decoders MUST still enforce all non-signature structural checks (framing, bounds, canonical
     CBOR, shard consistency).
   - Decoders MUST clearly label the result as unauthenticated and MUST NOT report auth as verified.
+
+Read-only inspection and projection surfaces MAY be stricter than rescue-mode recovery. They MAY
+refuse unauthenticated, authority-mismatched, or partially decoded extension-chain previews instead
+of presenting a best-effort state, even when explicit rescue-mode recovery could still recover root
+MAIN ciphertext.
 
 ## 8) Auth Payload (FrameType.AUTH data)
 
@@ -853,10 +858,10 @@ document whose ciphertext has its own `doc_hash` and `doc_id` under Section 7. O
 extension envelope uses outer envelope `VERSION = 2`.
 
 Extension authentication is carried beside the ciphertext, not inside the encrypted extension
-header/body. Each published extension directory MUST provide exactly one AUTH payload bound to the
-extension ciphertext `doc_hash`, signed by the root-derived signing authority, and carried in the
-existing MAIN carrier set (`qr_document-...pdf` and `recovery_document-...pdf`). There is no
-separate extension AUTH artifact filename.
+header/body. Extension recovery MUST verify exactly one AUTH payload bound to the extension
+ciphertext `doc_hash` and signed by the selected root-derived signing authority. Published export
+layouts MAY carry this AUTH payload inside redundant MAIN carriers; there is no separate extension
+AUTH artifact filename in the core format.
 
 ### 19.1) Extension Envelope Binary Layout
 
@@ -965,6 +970,9 @@ Requirements:
   - non-empty files MUST have a non-empty `chunk_refs` array
   - the sum of `chunk_ref.uncompressed_len` values MUST equal `size`
 
+Version 2 extension file recipes only describe complete file content for paths carried by the
+extension. They MUST NOT be interpreted as delete, rename, or tombstone records.
+
 Each chunk reference MUST be:
 
 ```text
@@ -981,6 +989,126 @@ Chunking rules:
 - virtual root chunk replay MUST use that same locked chunking profile when reconstructing the root
   chunk source
 
+##### 19.3.1.1) Algorithm 1 FastCDC-Style Chunking
+
+When `chunking[0] == 1`, encoders and replay logic MUST apply this FastCDC-style content-defined
+chunking algorithm independently to each non-empty file payload. Empty file payloads produce no
+chunks.
+
+All integer arithmetic in this subsection is unsigned 64-bit arithmetic modulo `2^64`, unless a
+larger range is explicitly required for byte offsets or sizes. `ROT64(value, shift)` means a 64-bit
+rotate-left where `shift` is first masked with `63`; therefore `ROT64(value, 64) == value`.
+
+The gear table `G` has 256 unsigned 64-bit entries. It is generated once as follows:
+
+```text
+state = 0x9E3779B97F4A7C15
+for byte_value in 0..255:
+    state = state XOR (state >> 12)
+    state = state XOR ((state << 25) mod 2^64)
+    state = state XOR (state >> 27)
+    state = (state * 0x2545F4914F6CDD1D) mod 2^64
+    G[byte_value] = state
+```
+
+For a profile `[1, target_size, min_size, max_size]`, derive masks from `target_size`.
+`round_half_to_even` means rounding to the nearest integer, with exact half-way values rounded to
+the nearest even integer.
+
+```text
+target_bits = max(4, round_half_to_even(log2(max(2, target_size))))
+primary_bits = min(63, target_bits)
+secondary_bits = max(4, target_bits - 2)
+primary_mask = (1 << primary_bits) - 1
+secondary_mask = (1 << secondary_bits) - 1
+```
+
+Each chunk boundary search starts at byte offset `start` with:
+
+```text
+fingerprint = 0
+window_size = 64
+window = 64 zero bytes
+window_count = 0
+window_pos = 0
+```
+
+Because `window_size == 64`, the outgoing byte contribution has rotated through the full 64-bit word
+when it leaves the window. The removal term is therefore `G[outgoing]`.
+
+If `remaining_bytes <= min_size`, the final chunk MUST run to end-of-file. Otherwise:
+
+```text
+min_end = min(total_len, start + min_size)
+target_end = min(total_len, start + target_size)
+max_end = min(total_len, start + max_size)
+
+for index in start..(max_end - 1):
+    incoming = payload[index]
+    if window_count < 64:
+        fingerprint = ROT64(fingerprint, 1) XOR G[incoming]
+        window[window_pos] = incoming
+        window_pos = (window_pos + 1) mod 64
+        window_count = window_count + 1
+    else:
+        outgoing = window[window_pos]
+        window[window_pos] = incoming
+        window_pos = (window_pos + 1) mod 64
+        fingerprint = ROT64(fingerprint, 1) XOR G[outgoing] XOR G[incoming]
+
+    if index + 1 < min_end:
+        continue
+
+    mask = primary_mask if index + 1 < target_end else secondary_mask
+    if (fingerprint AND mask) == 0:
+        cut at index + 1
+        stop searching
+```
+
+If the scan reaches `max_end` without a mask match, the chunk MUST be cut at `max_end`. The next
+boundary search starts at the previous cut offset with a fresh fingerprint and window state.
+
+`chunk_id` is `SHA-256(chunk_bytes)`, where `chunk_bytes` is the exact byte slice between adjacent
+chunk offsets. The same locked profile MUST be used for original extension construction and virtual
+root chunk replay.
+
+Conformance vectors for profile `[1, 16384, 4096, 65536]`:
+
+```text
+input = b""
+chunk_end_offsets = []
+chunk_sha256 = []
+
+input = bytes(range(256)) * 512
+chunk_end_offsets = [65536, 131072]
+chunk_sha256 = [
+    7daca2095d0438260fa849183dfc67faa459fdf4936e1bc91eec6b281b27e4c2,
+    7daca2095d0438260fa849183dfc67faa459fdf4936e1bc91eec6b281b27e4c2,
+]
+
+input = b"".join(sha256(i.to_bytes(4, "big")).digest() for i in range(4096))
+chunk_end_offsets = [18096, 26931, 43917, 62046, 73496, 93396, 110690, 125496, 130017, 131072]
+chunk_sha256 = [
+    2ee1e2166281185f001965a7c45631c880b8732f3f48a3f23d61805da105dda8,
+    eb1e03f0bac68f0171871be76601ab5e8ff1cd0b6ebe65fec952d4008d49d8ba,
+    715518ae12c7f500032a27dd79d7605f65e3b407ee2fe4b069f6deb8234ad476,
+    878633ff4a700041ebd6d4d852aed0215f6710cf6991d4f321a3b2fd2b2be830,
+    782c360b17d0e7cf76562843a8a199572c79e424f914ec72a79b35c2a5953480,
+    da2fa8816f90d81e80df05a7728bc46329dc0d77ea994cf91a21d4a4ae7d5fb1,
+    67b130801247f8d07cd21510e6bc3f37bb5b6a382b68ce9d622e464585647b38,
+    e8b033381f576d7d299a60c4fde4a718d3ebe2d15f6a914d2e5d5188108cc701,
+    eb32376d8f8546f442fac429456036034c22a9cee10c70fd39c3f575abe5696e,
+    dfd9fa02180e25f17871e98fd975ba8145952dc3e48f01b28ba4f1f8bee17df5,
+]
+
+input = ("alpha beta gamma delta\n" * 4096).encode("utf-8")
+chunk_end_offsets = [65536, 94208]
+chunk_sha256 = [
+    bfa07175ee95b43642ae3fbcad382d7ecf5dd7fad2d496933ad68e7f14f803af,
+    d4ffdf00862a1b920325b2fabc25e8621cbb7ce8171803702285b078fd0259c2,
+]
+```
+
 #### 19.3.2) Chunk Record
 
 Each chunk record MUST be:
@@ -994,8 +1122,13 @@ Requirements:
 - `codec`: int
   - `0` = raw
   - `1` = gzip
-- `raw_len`: positive int
+- `raw_len`: positive int and MUST be `<= MAX_DECOMPRESSED_PAYLOAD_BYTES`
 - `data`: non-empty bytes
+
+Inline chunk bounds:
+- decoders MUST reject an extension when the sum of inline chunk `raw_len` values exceeds
+  `MAX_DECOMPRESSED_PAYLOAD_BYTES`
+- this aggregate bound MUST be checked before decompressing inline chunk data
 
 Raw chunk rules:
 - when `codec == 0`, `len(data)` MUST equal `raw_len`
@@ -1051,6 +1184,8 @@ and then applying validated extensions in order.
 Replay rules:
 - paths omitted from an extension inherit their previous logical state unchanged
 - paths present in an extension replace the previous logical state for that path
+- extensions cannot represent deletes or tombstones; a path that existed in the root or an earlier
+  extension remains recoverable unless a later extension replaces it with new file content
 - each chunk reference MUST resolve to either:
   - a newly introduced chunk in the current or earlier validated extension, or
   - a virtual root chunk from a carried-forward root file, keyed by the `SHA-256` of each
@@ -1059,67 +1194,43 @@ Replay rules:
 - replay MUST reject any reconstructed file whose size or SHA-256 does not match its recipe
 - total reconstructed logical bytes MUST remain `<= MAX_DECOMPRESSED_PAYLOAD_BYTES`
 
-## 20) Extension Directory Layout
+## 20) Content-Import Extension Recovery
 
-Writable root directories MAY contain an `extensions/` subdirectory.
+Extension recovery is content-addressed. Directory names, filenames, file order, and carrier labels
+are not part of extension identity and MUST NOT be required to recover an extension chain.
 
-Canonical layout:
-```text
-<root>/
-  qr_document.pdf
-  recovery_document.pdf
-  extensions/
-    01/
-    02/
-    03/
-```
+Import rules:
+- implementations MUST accept a set of scanned or pasted recovery carriers without requiring a
+  particular directory layout or filename convention
+- MAIN frames MUST be grouped by frame `doc_id`; each group MUST independently reassemble to one
+  ciphertext
+- the authoritative `doc_id` and `doc_hash` MUST be derived from recovered ciphertext
+- AUTH frames MUST be matched by frame `doc_id` and verified against the derived ciphertext
+  `doc_hash`
+- decrypted Version 1 envelopes are root-backup candidates
+- decrypted Version 2 envelopes are extension candidates
+- a recovery session MUST select exactly one root backup, or fail with an ambiguity error
+- extension candidates MUST be authenticated by the root-derived signing authority before replay
+- extension ordering MUST come from decrypted extension-header `index` and ancestry fields, not from
+  filesystem position
+- duplicate authenticated extensions for the same `index` with different `doc_hash` values MUST be
+  rejected as ambiguous
 
-Directory discovery rules:
-- only canonical decimal directory names matching `^(0[1-9]|[1-9][0-9]{1,})$` are candidate
-  extensions
-- canonical directories MUST be sequential with no gaps
-- non-directory entries under `extensions/` are ignored
-- staging directories named `.staging-<index>-<nonce>` are non-authoritative and MUST be ignored
-  by discovery
-- decimal directory names under `extensions/` that are not canonical renderings (for example
-  `001`) are invalid and MUST be rejected
+Recovery MAY succeed from any complete, authenticated MAIN carrier for a document. Multiple carrier
+copies are redundancy, not identity. Implementations MAY provide separate audit tooling for checking
+whether an exported digital folder contains all expected redundant carriers, but such audit rules are
+outside the recovery format.
 
-Canonical artifact filenames are:
-- MAIN carriers:
-  - `qr_document-<N>-<docid>.pdf`
-  - `recovery_document-<N>-<docid>.pdf`
-  - `recovery_kit_index-<N>-<docid>.pdf`
-- Shard carriers:
-  - `shard-<N>-<docid>-<share_index>-of-<share_count>.pdf`
-  - `signing-key-shard-<N>-<docid>-<share_index>-of-<share_count>.pdf`
-
-Rules:
-- `<N>` MUST match the canonical directory index
-- each canonical extension directory MUST contain both recoverable payload MAIN carriers:
-  `qr_document-<N>-<docid>.pdf` and `recovery_document-<N>-<docid>.pdf`
-- extension AUTH is carried inside the existing MAIN carriers; canonical extension directories do
-  not add separate AUTH filenames
-- all MAIN carrier filenames in one canonical directory MUST share the same `<docid>`
-- both payload MAIN carriers MUST independently recover to the same extension ciphertext
-- shard carrier filenames, when present, MUST use the same `<docid>` as the MAIN carriers
-- after MAIN recovery, the derived ciphertext `doc_id` MUST equal the filename `<docid>`
-- staged promotion MUST verify that the rendered MAIN carriers also provide exactly one valid AUTH
-  payload bound to the promoted extension ciphertext and signed by the root-derived signing
-  authority
-- staged promotion MUST validate all required shard carriers at media level before rename:
-  - each required shard PDF MUST scan back into exactly one shard payload
-  - the recovered shard payload MUST match the planned shard metadata for that extension
-  - the shard payload `doc_hash` MUST match the promoted extension ciphertext
-  - the shard signature MUST verify against the carried signing key
-
-The authoritative extension identity comes from recovered ciphertext and decrypted extension-header
-metadata, not from the directory name alone.
+The authoritative extension identity comes from recovered ciphertext, AUTH, and decrypted
+extension-header metadata.
 
 ## 21) Selected Recovery and Compaction
 
 Selected recovery rules:
-- default recovery from a writable root directory MUST replay all validated extensions through the
-  latest validated extension
+- default recovery from content import MUST fail closed when the latest authenticated extension head
+  cannot be reconstructed, authenticated, or replayed
+- when all imported extensions for the selected root are valid, default recovery MUST replay through
+  the latest authenticated extension
 - recovery MAY select an earlier target by extension `index`
 - recovery MAY select an earlier target by authenticated extension `doc_hash`
 - selecting index `0` means root-only recovery without replaying any extension
@@ -1134,5 +1245,4 @@ Compaction rules:
 - compaction MUST preserve the root sealed/unsealed state
 - if the root is unsealed, compaction MUST preserve the root signing seed exactly
 - if the root is sealed, compaction MUST NOT emit signing-key shard documents
-- compaction MUST NOT mutate or delete the original root backup or any canonical extension
-  directory in place
+- compaction MUST NOT mutate or delete the original recovery carriers in place
