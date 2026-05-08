@@ -104,6 +104,50 @@ class TestIntegrationExtensions(unittest.TestCase):
                 )
                 self.assertEqual(self._snapshot_tree(first_hash_dir), expected_first)
 
+    def test_recover_with_extension_local_shards_unlocks_root_plus_extension(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup-root"
+            recovered_dir = tmp_path / "recovered-from-extension-shards"
+            source_dir.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(source_dir=source_dir, root_dir=root_dir)
+
+                (source_dir / "alpha.txt").write_text("extension-alpha", encoding="utf-8")
+                (source_dir / "beta.txt").write_text("extension-beta", encoding="utf-8")
+                extension = self._run_extend(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    shard_threshold=2,
+                    shard_count=3,
+                )
+
+                self.assertEqual(len(extension.shard_paths), 3)
+                with suppress_output():
+                    exit_code = run_recover_command(
+                        RecoverArgs(
+                            config=str(DEFAULT_CONFIG_PATH),
+                            scan=[str(root_dir)],
+                            shard_scan=[str(path) for path in extension.shard_paths[:2]],
+                            output=str(recovered_dir),
+                            allow_unsigned=False,
+                            assume_yes=True,
+                            quiet=True,
+                        )
+                    )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(
+                self._snapshot_tree(recovered_dir),
+                {
+                    "alpha.txt": b"extension-alpha",
+                    "beta.txt": b"extension-beta",
+                },
+            )
+
     def test_compact_preserves_latest_state_and_refuses_degraded_latest_head(
         self,
     ) -> None:
@@ -279,7 +323,14 @@ class TestIntegrationExtensions(unittest.TestCase):
                 )
             )
 
-    def _run_extend(self, *, source_dir: Path, root_dir: Path):
+    def _run_extend(
+        self,
+        *,
+        source_dir: Path,
+        root_dir: Path,
+        shard_threshold: int | None = None,
+        shard_count: int | None = None,
+    ):
         with suppress_output():
             return run_extend(
                 ExtendArgs(
@@ -288,6 +339,8 @@ class TestIntegrationExtensions(unittest.TestCase):
                     input_dir=[str(source_dir)],
                     base_dir=str(source_dir),
                     passphrase=TEST_PASSPHRASE,
+                    shard_threshold=shard_threshold,
+                    shard_count=shard_count,
                     quiet=True,
                 )
             )
