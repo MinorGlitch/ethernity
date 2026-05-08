@@ -58,6 +58,38 @@ class TestCompactService(unittest.TestCase):
                     )
                 )
 
+    def test_run_compact_rejects_output_dir_equal_to_root_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            with self.assertRaisesRegex(
+                ValueError,
+                "compact output directory must not be the source backup root or inside it",
+            ):
+                run_compact(
+                    CompactArgs(
+                        root_dir=str(root_dir),
+                        output_dir=str(root_dir),
+                        passphrase="secret",
+                        quiet=True,
+                    )
+                )
+
+    def test_run_compact_rejects_output_dir_inside_root_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            with self.assertRaisesRegex(
+                ValueError,
+                "compact output directory must not be the source backup root or inside it",
+            ):
+                run_compact(
+                    CompactArgs(
+                        root_dir=str(root_dir),
+                        output_dir=str(root_dir / "compacted"),
+                        passphrase="secret",
+                        quiet=True,
+                    )
+                )
+
     @mock.patch("ethernity.cli.features.compact.service.run_backup")
     @mock.patch(
         "ethernity.cli.features.compact.service.recover_chain_entries",

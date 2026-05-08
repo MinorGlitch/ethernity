@@ -66,6 +66,17 @@ def _validated_compact_root_dir(root_dir_value: str | None) -> Path:
     return root_dir
 
 
+def _reject_compact_output_inside_root(root_dir: Path, output_dir_value: str) -> None:
+    output_dir = Path(output_dir_value).expanduser()
+    root_resolved = root_dir.resolve(strict=False)
+    output_resolved = output_dir.resolve(strict=False)
+    if output_resolved == root_resolved or output_resolved.is_relative_to(root_resolved):
+        raise ValueError(
+            "compact output directory must not be the source backup root or inside it: "
+            f"{output_dir_value}"
+        )
+
+
 def _translate_compact_head_untrusted(exc: ApiCommandError) -> ApiCommandError:
     head_label = "requested" if exc.details.get("explicit_selection") else "latest"
     message = f"{head_label} compact head could not be trusted; no checkpoint was created"
@@ -178,6 +189,7 @@ def run_compact(args: CompactArgs) -> BackupResult:
     root_dir = _validated_compact_root_dir(args.root_dir)
     if not args.output_dir:
         raise ValueError("compact requires output_dir")
+    _reject_compact_output_inside_root(root_dir, args.output_dir)
 
     recover_plan = plan_recover_from_args(
         RecoverArgs(
