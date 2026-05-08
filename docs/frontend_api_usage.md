@@ -110,8 +110,8 @@ Both commands:
 
 For `api inspect extend`, use these final `result` fields for chain-head state:
 
-- `validated_head_index`: the latest extension index that was reconstructed and authenticated, or
-  `0` for the root backup, or `null` when no trusted head is available
+- `validated_head_index`: the latest supplied extension index that was reconstructed and
+  authenticated, or `0` for the root backup, or `null` when no trusted head is available
 - `validated_head_doc_hash`: the authenticated hash for that validated head, or `null`
 - `validated_head_auth_status`: auth status for the validated head when known
 - `validated_head_root_authority_verified`: whether the validated head is signed by the root
@@ -123,12 +123,13 @@ For `api inspect extend`, use these final `result` fields for chain-head state:
 If `blocking_issues` contains `RECOVERY_HEAD_UNTRUSTED`, show the extension chain as not ready for
 write-producing actions. The `details` object identifies the failed/latest/requested head and the
 last validated head. Do not treat filenames or `available_extensions` alone as authenticated proof of
-the current chain state; use the validated-head fields for that.
+the supplied chain state; use the validated-head fields for that. These fields do not prove that no
+later extension exists outside the supplied recovery set.
 
 ### Compaction Flow
 
-Use `ethernity api compact` when the UI needs to flatten the latest validated chain state into a
-fresh standalone backup.
+Use `ethernity api compact` when the UI needs to flatten the latest supplied validated chain state
+into a fresh standalone backup.
 
 The command:
 

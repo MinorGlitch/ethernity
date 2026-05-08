@@ -2059,7 +2059,7 @@ class TestCliApi(unittest.TestCase):
                 {
                     "code": api_codes.RECOVERY_HEAD_UNTRUSTED,
                     "message": (
-                        "latest recovery head could not be trusted: "
+                        "latest supplied recovery head could not be trusted: "
                         "missing required payload MAIN carriers"
                     ),
                     "details": trust_details,
@@ -2144,7 +2144,7 @@ class TestCliApi(unittest.TestCase):
                 {
                     "code": api_codes.RECOVERY_HEAD_UNTRUSTED,
                     "message": (
-                        "latest recovery head could not be trusted: "
+                        "latest supplied recovery head could not be trusted: "
                         "missing required payload MAIN carriers"
                     ),
                     "details": trust_details,
@@ -2178,7 +2178,7 @@ class TestCliApi(unittest.TestCase):
                 {
                     "code": api_codes.RECOVERY_HEAD_UNTRUSTED,
                     "message": (
-                        "latest recovery head could not be trusted: "
+                        "latest supplied recovery head could not be trusted: "
                         "missing required payload MAIN carriers"
                     ),
                     "details": trust_details,
@@ -3589,7 +3589,7 @@ class TestCliApi(unittest.TestCase):
                 side_effect=ApiCommandError(
                     code=api_codes.RECOVERY_HEAD_UNTRUSTED,
                     message=(
-                        "latest compact head could not be trusted; "
+                        "latest supplied compact head could not be trusted; "
                         "no checkpoint was created: missing required payload MAIN carriers"
                     ),
                     details=trust_details,
@@ -3622,7 +3622,7 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(
             events[-1]["message"],
             (
-                "latest compact head could not be trusted; "
+                "latest supplied compact head could not be trusted; "
                 "no checkpoint was created: missing required payload MAIN carriers"
             ),
         )

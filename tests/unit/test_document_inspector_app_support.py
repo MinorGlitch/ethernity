@@ -67,7 +67,7 @@ class TestDocumentInspectorAppSupport(unittest.TestCase):
         trust_diagnostic = models.TrustDiagnostic(
             status="refused",
             code="RECOVERY_HEAD_UNTRUSTED",
-            message="latest recovery head could not be trusted: test fixture",
+            message="latest supplied recovery head could not be trusted: test fixture",
             details={"failure_stage": "decode"},
         )
         inspection = models.InspectionResult(

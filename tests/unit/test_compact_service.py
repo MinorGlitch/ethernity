@@ -96,7 +96,8 @@ class TestCompactService(unittest.TestCase):
         side_effect=ApiCommandError(
             code=api_codes.RECOVERY_HEAD_UNTRUSTED,
             message=(
-                "latest recovery head could not be trusted: missing required payload MAIN carriers"
+                "latest supplied recovery head could not be trusted: "
+                "missing required payload MAIN carriers"
             ),
             details={
                 "stage": "replay",
@@ -153,7 +154,7 @@ class TestCompactService(unittest.TestCase):
         self.assertEqual(
             str(exc),
             (
-                "latest compact head could not be trusted; no checkpoint was created: "
+                "latest supplied compact head could not be trusted; no checkpoint was created: "
                 "missing required payload MAIN carriers"
             ),
         )

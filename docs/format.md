@@ -1226,6 +1226,9 @@ Import rules:
   filesystem position
 - duplicate authenticated extensions for the same `index` with different `doc_hash` values MUST be
   rejected as ambiguous
+- content import authenticates only the recovery carriers supplied to the recovery session; without
+  a separate signed freshness source, implementations MUST NOT claim to prove that no later
+  extension exists
 
 Recovery MAY succeed from any complete, authenticated MAIN carrier for a document. Multiple carrier
 copies are redundancy, not identity. Implementations MAY provide separate audit tooling for checking
@@ -1238,17 +1241,17 @@ extension-header metadata.
 ## 21) Selected Recovery and Compaction
 
 Selected recovery rules:
-- default recovery from content import MUST fail closed when the latest authenticated extension head
-  cannot be reconstructed, authenticated, or replayed
+- default recovery from content import MUST fail closed when the latest supplied authenticated
+  extension head cannot be reconstructed, authenticated, or replayed
 - when all imported extensions for the selected root are valid, default recovery MUST replay through
-  the latest authenticated extension
+  the latest supplied authenticated extension
 - recovery MAY select an earlier target by extension `index`
 - recovery MAY select an earlier target by authenticated extension `doc_hash`
 - selecting index `0` means root-only recovery without replaying any extension
 
 Compaction rules:
-- compaction MUST fully reconstruct the latest validated logical state of a root-plus-extension
-  chain
+- compaction MUST fully reconstruct the latest supplied validated logical state of a
+  root-plus-extension chain
 - compaction MUST write that logical state as a fresh standalone Version 1 backup in a separate
   output directory
 - compaction MUST preserve the chain passphrase exactly; passphrase rotation is not part of this

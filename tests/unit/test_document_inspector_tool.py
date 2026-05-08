@@ -244,7 +244,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertEqual(result.files, ())
         self.assertIn(
             (
-                "Document decode failed: latest recovery head could not be trusted: "
+                "Document decode failed: latest supplied recovery head could not be trusted: "
                 "extension preview requires the root backup to validate root authority"
             ),
             result.diagnostics_text,
@@ -357,7 +357,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertIsNone(result.document_json_text)
         self.assertIn(
             (
-                "Document decode failed: latest recovery head could not be trusted: "
+                "Document decode failed: latest supplied recovery head could not be trusted: "
                 "root AUTH validation failed (skipped)"
             ),
             result.diagnostics_text,
@@ -483,7 +483,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertEqual(result.files, ())
         self.assertIn(
             (
-                "Document decode failed: latest recovery head could not be trusted: "
+                "Document decode failed: latest supplied recovery head could not be trusted: "
                 "extension preview requires the root backup to validate root authority"
             ),
             result.diagnostics_text,
@@ -566,7 +566,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self._decoded_trust_report(result)
         self.assertIsNotNone(result.trust_diagnostic)
         self.assertEqual(result.trust_diagnostic.code, None)
-        self.assertEqual(result.trust_diagnostic.message, "latest recovery head trusted")
+        self.assertEqual(result.trust_diagnostic.message, "latest supplied recovery head trusted")
         self.assertEqual(result.trust_diagnostic.details["validated_head_index"], 1)
         self.assertEqual(result.trust_diagnostic.details["validated_head_auth_status"], "verified")
         self.assertEqual(
@@ -646,7 +646,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertIsNone(result.document_json_text)
         self.assertIn(
             (
-                "Document decode failed: latest recovery head could not be trusted: "
+                "Document decode failed: latest supplied recovery head could not be trusted: "
                 "extension 1 AUTH does not match root authority"
             ),
             result.diagnostics_text,
@@ -736,7 +736,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
         self.assertIsNone(result.document_json_text)
         self.assertIn(
             (
-                "Document decode failed: latest recovery head could not be trusted: "
+                "Document decode failed: latest supplied recovery head could not be trusted: "
                 "some decoded documents failed reassembly or envelope decoding; "
                 "refusing partial projection"
             ),

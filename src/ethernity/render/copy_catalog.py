@@ -120,7 +120,7 @@ def _main_document_copy(*, context: Mapping[str, object]) -> dict[str, object]:
             "security_notice_label": "Security Notice",
             "security_notice_body": (
                 "This document contains encrypted checkpoint payload fragments produced from the "
-                "latest validated chain state. Keep this printout air-gapped and "
+                "latest supplied validated chain state. Keep this printout air-gapped and "
                 "physically secured."
             ),
             "continuation_hint": (

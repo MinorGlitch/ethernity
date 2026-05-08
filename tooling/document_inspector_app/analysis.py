@@ -514,8 +514,8 @@ def _extension_only_refusal_diagnostic(document: _DecodedMainDocument) -> TrustD
         status="refused",
         code=api_codes.RECOVERY_HEAD_UNTRUSTED,
         message=(
-            "latest recovery head could not be trusted: extension preview requires the root "
-            "backup to validate root authority"
+            "latest supplied recovery head could not be trusted: extension preview requires "
+            "the root backup to validate root authority"
         ),
         details={
             "stage": "replay",
@@ -593,7 +593,7 @@ def _projection_refusal_diagnostic(
     if code == api_codes.ROOT_AUTHORITY_MISMATCH:
         message = failure_message
     else:
-        message = f"latest recovery head could not be trusted: {failure_message}"
+        message = f"latest supplied recovery head could not be trusted: {failure_message}"
     return _build_trust_diagnostic(
         status="refused",
         code=code,
@@ -617,7 +617,7 @@ def _chain_projection_trust_diagnostic(
     return _build_trust_diagnostic(
         status="ok",
         code=None,
-        message="latest recovery head trusted",
+        message="latest supplied recovery head trusted",
         details={
             "stage": "replay",
             "trust_scope": "extension_chain",
@@ -736,9 +736,7 @@ def _diagnostics_trust_lines(
     if trust_diagnostic.code is not None:
         lines.append(f"Trust code: {trust_diagnostic.code}")
     if trust_diagnostic.status == "ok":
-        lines.append(
-            f"Document details decoded successfully with {file_count} available file(s)."
-        )
+        lines.append(f"Document details decoded successfully with {file_count} available file(s).")
         if trust_diagnostic.details.get("trust_scope") == "extension_chain":
             lines.append(
                 "Latest-state preview is reconstructed from the root backup "

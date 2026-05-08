@@ -388,7 +388,7 @@ def _chain_replay_head_untrusted_error(
         None if plan.extension_doc_hash is None else plan.extension_doc_hash.strip().lower()
     )
     explicit_selection = plan.extension_index is not None or requested_doc_hash is not None
-    head_label = "requested" if explicit_selection else "latest"
+    head_label = "requested" if explicit_selection else "latest supplied"
     failure_message = str(exc)
     return ApiCommandError(
         code=api_codes.RECOVERY_HEAD_UNTRUSTED,

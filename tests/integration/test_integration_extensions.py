@@ -372,7 +372,7 @@ class TestIntegrationExtensions(unittest.TestCase):
         self.assertIsInstance(exc.details["validated_head_doc_hash"], str)
         self.assertEqual(len(exc.details["validated_head_doc_hash"]), 64)
         self.assertFalse(exc.details["explicit_selection"])
-        self.assertIn("latest recovery head could not be trusted", str(exc))
+        self.assertIn("latest supplied recovery head could not be trusted", str(exc))
         self.assertIn(expected_failure_fragment, str(exc))
         self.assertFalse(blocked_extension_dir.exists())
         self.assertEqual(list((root_dir / "extensions").glob(".staging-*")), [])
@@ -418,7 +418,7 @@ class TestIntegrationExtensions(unittest.TestCase):
             exc,
             output_dir=output_dir,
             expected_latest_head_index=expected_latest_head_index,
-            expected_message_fragment="latest recovery head could not be trusted",
+            expected_message_fragment="latest supplied recovery head could not be trusted",
             expected_failure_fragment=expected_failure_fragment,
             checkpoint_created=None,
         )
@@ -441,7 +441,7 @@ class TestIntegrationExtensions(unittest.TestCase):
             output_dir=output_dir,
             expected_latest_head_index=expected_latest_head_index,
             expected_message_fragment=(
-                "latest compact head could not be trusted; no checkpoint was created"
+                "latest supplied compact head could not be trusted; no checkpoint was created"
             ),
             expected_failure_fragment=expected_failure_fragment,
             checkpoint_created=False,

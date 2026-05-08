@@ -44,6 +44,20 @@ Operational guidance:
   single generic failure message) to reduce oracle-style signal leakage.
 - `doc_id`/`doc_hash` enable correlation across artifacts; privacy/anonymity is not a goal.
 
+## Extension Freshness Model
+
+Extension replay authenticates the chain prefix present in the supplied recovery material. It proves
+that the supplied extensions form a valid, root-authorized ancestry from the selected root backup,
+but it does not prove that no later extension was ever created.
+
+Operational implications:
+- A stale recovery set that contains root plus extensions `1..N` can be indistinguishable from a
+  complete chain whose latest head is `N`.
+- Missing, corrupt, forked, or unauthenticated supplied extensions still fail closed; the limitation
+  is only absence detection for material that was not supplied.
+- Absolute freshness requires an additional signed head marker, external registry, or other
+  out-of-band freshness source. That is outside the current content-import profile.
+
 ## Shard Set Identifier Rationale
 
 Shard payload version 2 adds a signed `set_id` to each shard in a shard set.

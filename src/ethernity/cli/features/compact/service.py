@@ -78,7 +78,7 @@ def _reject_compact_output_inside_root(root_dir: Path, output_dir_value: str) ->
 
 
 def _translate_compact_head_untrusted(exc: ApiCommandError) -> ApiCommandError:
-    head_label = "requested" if exc.details.get("explicit_selection") else "latest"
+    head_label = "requested" if exc.details.get("explicit_selection") else "latest supplied"
     message = f"{head_label} compact head could not be trusted; no checkpoint was created"
     failure_message = exc.details.get("failure_message")
     if isinstance(failure_message, str) and failure_message:

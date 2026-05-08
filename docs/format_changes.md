@@ -46,6 +46,31 @@ Use this template for each change entry:
 
 ## Entries
 
+## 2026-05-08 - Clarify extension head freshness scope
+
+- Type: editorial
+- Normative spec updated: yes
+- Sections changed: 20, 21
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged
+  - New decoders reading old artifacts: unchanged
+- Version/profile bump required: no (this clarifies the authenticated recovery guarantee without
+  changing envelope bytes or replay validation)
+- Implementation refs:
+  - `src/ethernity/cli/features/recover/chain.py`
+  - `src/ethernity/cli/features/compact/service.py`
+  - `src/ethernity/render/copy_catalog.py`
+  - `tooling/document_inspector_app/analysis.py`
+- Test refs:
+  - `tests/unit/test_extend_service.py`
+  - `tests/unit/test_compact_service.py`
+  - `tests/unit/test_cli_api.py`
+  - `tests/unit/test_document_inspector_tool.py`
+  - `tests/integration/test_integration_extensions.py`
+- Security impact:
+  - Prevents release docs and user-facing errors from implying absolute proof that no later
+    extension exists without an external freshness source
+
 ## 2026-05-08 - Preserve extension input root label whitespace
 
 - Type: validation

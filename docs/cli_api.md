@@ -213,7 +213,7 @@ Current command-specific error codes:
 - `EXTENSION_SHARD_CARRIER_INVALID`: staged extension shard carriers failed payload validation
 - `COMPACT_INVALID_POLICY`: `ethernity api compact` could not preserve the root shard policy
 - `RECOVERY_HEAD_UNTRUSTED`: recover or compact could not authenticate or reconstruct the requested
-  recovery head
+  recovery head, or the latest supplied recovery head when no explicit head was requested
 
 For `api extend`, every documented Stable Blocking Issue Code may also appear as command
 `error.code` when a readiness blocker is promoted during publish-plan preparation. Those promoted

@@ -797,7 +797,8 @@ max_size = 65536
         degraded_refusal = RecoveryHeadTrustRefusal(
             code=api_codes.RECOVERY_HEAD_UNTRUSTED,
             message=(
-                "latest recovery head could not be trusted: extension directory 02 is missing "
+                "latest supplied recovery head could not be trusted: "
+                "extension directory 02 is missing "
                 "required payload MAIN carriers: recovery_document"
             ),
             details={

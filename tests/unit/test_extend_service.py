@@ -234,7 +234,7 @@ class TestExtendService(unittest.TestCase):
                     {
                         "code": "RECOVERY_HEAD_UNTRUSTED",
                         "message": (
-                            "latest recovery head could not be trusted: "
+                            "latest supplied recovery head could not be trusted: "
                             "missing required payload MAIN carriers"
                         ),
                         "details": trust_details,
@@ -250,7 +250,8 @@ class TestExtendService(unittest.TestCase):
         self.assertEqual(ctx.exception.code, "RECOVERY_HEAD_UNTRUSTED")
         self.assertEqual(
             str(ctx.exception),
-            "latest recovery head could not be trusted: missing required payload MAIN carriers",
+            "latest supplied recovery head could not be trusted: "
+            "missing required payload MAIN carriers",
         )
         self.assertEqual(ctx.exception.details, trust_details)
 
@@ -380,7 +381,7 @@ class TestExtendService(unittest.TestCase):
                         {
                             "code": "RECOVERY_HEAD_UNTRUSTED",
                             "message": (
-                                "latest recovery head could not be trusted: "
+                                "latest supplied recovery head could not be trusted: "
                                 "missing required payload MAIN carriers"
                             ),
                             "details": trust_details,
