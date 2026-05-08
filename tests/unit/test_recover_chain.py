@@ -193,6 +193,57 @@ class TestRecoverChain(unittest.TestCase):
             [(entry.path, data) for entry, data in result.extracted],
             [("a.txt", b"root!")],
         )
+        self.assertEqual(result.manifest.input_origin, "directory")
+        self.assertEqual(result.manifest.input_roots, ("reconstructed-state",))
+
+    def test_recover_chain_entries_wraps_replay_topology_failure_as_untrusted_head(self) -> None:
+        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+        extension_ciphertext = _extension_ciphertext(root_doc_hash)
+        extension_doc_id, extension_doc_hash = _doc_id_and_hash_from_ciphertext(
+            extension_ciphertext
+        )
+        plan = dataclasses.replace(
+            _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
+            import_documents=(
+                _imported_document(root_ciphertext, source_label="scan0001.pdf"),
+                _imported_document(
+                    extension_ciphertext,
+                    auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+                    source_label="renamed-extension.pdf",
+                ),
+            ),
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                side_effect=lambda data, *, passphrase, debug=False: data,
+            ),
+            mock.patch(
+                "ethernity.cli.features.recover.chain.reconstruct_latest_logical_state",
+                side_effect=ValueError(
+                    "extension parent_doc_hash does not match previous document"
+                ),
+            ),
+            self.assertRaises(ApiCommandError) as caught,
+        ):
+            recover_chain_entries(plan, quiet=True)
+
+        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertIn("recovery head could not be trusted", str(caught.exception))
+        self.assertEqual(caught.exception.details["stage"], "replay")
+        self.assertEqual(caught.exception.details["failure_stage"], "chain")
+        self.assertEqual(
+            caught.exception.details["failure_message"],
+            "extension parent_doc_hash does not match previous document",
+        )
+        self.assertEqual(caught.exception.details["failure_head_index"], 1)
+        self.assertEqual(
+            caught.exception.details["failure_head_doc_hash"], extension_doc_hash.hex()
+        )
+        self.assertEqual(caught.exception.details["validated_head_index"], 0)
+        self.assertEqual(caught.exception.details["validated_head_doc_hash"], root_doc_hash.hex())
+        self.assertFalse(caught.exception.details["explicit_selection"])
 
     def test_recover_chain_entries_selects_root_only_despite_broken_later_extension(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
@@ -225,10 +276,82 @@ class TestRecoverChain(unittest.TestCase):
 
         self.assertIsNone(result.selected_extension_index)
         self.assertIsNone(result.selected_extension_doc_hash)
+        self.assertEqual(result.manifest.input_origin, "file")
+        self.assertEqual(result.manifest.input_roots, ())
         self.assertEqual(
             [(entry.path, data) for entry, data in result.extracted],
             [("a.txt", b"root")],
         )
+
+    def test_recover_chain_entries_allows_internal_unsigned_root_only_selection(self) -> None:
+        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+        extension_ciphertext = _extension_ciphertext(root_doc_hash)
+        extension_doc_id, extension_doc_hash = _doc_id_and_hash_from_ciphertext(
+            extension_ciphertext
+        )
+        plan = dataclasses.replace(
+            _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash, extension_index=0),
+            allow_unsigned=True,
+            import_documents=(
+                _imported_document(root_ciphertext),
+                _imported_document(
+                    extension_ciphertext,
+                    auth_frames=(
+                        _extension_auth_frame(
+                            extension_doc_id,
+                            extension_doc_hash,
+                            signing_seed=b"\x77" * 32,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        with mock.patch(
+            "ethernity.cli.features.recover.chain.decrypt_bytes",
+            side_effect=lambda data, *, passphrase, debug=False: data,
+        ):
+            result = recover_chain_entries(plan, quiet=True)
+
+        self.assertIsNone(result.selected_extension_index)
+        self.assertEqual(
+            [(entry.path, data) for entry, data in result.extracted],
+            [("a.txt", b"root")],
+        )
+
+    def test_recover_chain_entries_rejects_internal_unsigned_extension_replay(self) -> None:
+        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+        extension_ciphertext = _extension_ciphertext(root_doc_hash)
+        extension_doc_id, extension_doc_hash = _doc_id_and_hash_from_ciphertext(
+            extension_ciphertext
+        )
+        plan = dataclasses.replace(
+            _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
+            allow_unsigned=True,
+            import_documents=(
+                _imported_document(root_ciphertext),
+                _imported_document(
+                    extension_ciphertext,
+                    auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+                ),
+            ),
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                side_effect=lambda data, *, passphrase, debug=False: data,
+            ),
+            self.assertRaises(ApiCommandError) as caught,
+        ):
+            recover_chain_entries(plan, quiet=True)
+
+        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertIn(
+            "unsigned recovery is not supported for extension replay",
+            caught.exception.message,
+        )
+        self.assertEqual(caught.exception.details["unsigned_recovery"], True)
 
     def test_recover_chain_entries_selects_earlier_index_despite_broken_later_extension(
         self,

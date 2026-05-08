@@ -224,8 +224,8 @@ class TestCompactService(unittest.TestCase):
                 sealed=False,
                 signing_seed=b"\x33" * 32,
                 files=(ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1),),
-                input_origin="file",
-                input_roots=(),
+                input_origin="directory",
+                input_roots=("reconstructed-state",),
             ),
             extracted=(
                 (ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1), b"data"),
@@ -287,6 +287,11 @@ class TestCompactService(unittest.TestCase):
         self.assertEqual(backup_args.shard_count, 3)
         self.assertEqual(backup_args.signing_key_mode, "sharded")
         self.assertEqual(run_backup_mock.call_args.kwargs["signing_seed_override"], b"\x33" * 32)
+        self.assertEqual(run_backup_mock.call_args.kwargs["input_origin"], "directory")
+        self.assertEqual(
+            run_backup_mock.call_args.kwargs["input_roots"],
+            ["reconstructed-state"],
+        )
         self.assertEqual(
             run_backup_mock.call_args.kwargs["render_lineage"].kind,
             "compaction_checkpoint",

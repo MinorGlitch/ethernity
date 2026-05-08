@@ -54,6 +54,10 @@ if TYPE_CHECKING:
     from ethernity.cli.features.recover.planning import RecoveryPlan
 
 
+RECONSTRUCTED_STATE_INPUT_ORIGIN = "directory"
+RECONSTRUCTED_STATE_INPUT_ROOTS = ("reconstructed-state",)
+
+
 @dataclass(frozen=True)
 class ImportedRecoveryDocument:
     """One reassembled MAIN document discovered from content, independent of filenames."""
@@ -282,6 +286,21 @@ def recover_imported_chain_entries(
             selected_extension_doc_hash=None,
         )
 
+    if plan.allow_unsigned:
+        raise ApiCommandError(
+            code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+            message=(
+                "unsigned recovery is not supported for extension replay; "
+                "extension chain recovery requires authenticated extension AUTH"
+            ),
+            details={
+                "stage": "auth",
+                "unsigned_recovery": True,
+                "validated_head_index": 0,
+                "validated_head_doc_hash": plan.doc_hash.hex(),
+            },
+        )
+
     root_sign_pub = validate_root_manifest_authority(root_manifest, plan.auth_payload)
     if root_sign_pub is None:
         raise ApiCommandError(
@@ -318,33 +337,38 @@ def recover_imported_chain_entries(
             selected_extension_doc_hash=None,
         )
 
-    locked_chunking = validate_extension_chain(
-        root_doc_hash=plan.doc_hash,
-        extensions=tuple(item.link for item in selected_links),
-    )
     root_state = extract_root_logical_state(root_manifest, payload)
-    virtual_root_chunks = (
-        {}
-        if locked_chunking is None
-        else build_virtual_chunk_source(
-            tuple(item.data for item in root_state),
-            chunking=locked_chunking,
-            chunker=default_extension_chunker,
+    try:
+        locked_chunking = validate_extension_chain(
+            root_doc_hash=plan.doc_hash,
+            extensions=tuple(item.link for item in selected_links),
         )
-    )
-    latest_state = reconstruct_latest_logical_state(
-        root_manifest,
-        payload,
-        root_doc_hash=plan.doc_hash,
-        extensions=tuple(item.link for item in selected_links),
-        virtual_root_chunks=virtual_root_chunks,
-    )
-    latest_header = selected_links[-1].link.document.header
+        virtual_root_chunks = (
+            {}
+            if locked_chunking is None
+            else build_virtual_chunk_source(
+                tuple(item.data for item in root_state),
+                chunking=locked_chunking,
+                chunker=default_extension_chunker,
+            )
+        )
+        latest_state = reconstruct_latest_logical_state(
+            root_manifest,
+            payload,
+            root_doc_hash=plan.doc_hash,
+            extensions=tuple(item.link for item in selected_links),
+            virtual_root_chunks=virtual_root_chunks,
+        )
+    except ValueError as exc:
+        raise _chain_replay_head_untrusted_error(
+            exc,
+            plan=plan,
+            decoded_links=decoded_links,
+            selected_links=selected_links,
+        ) from exc
     latest_manifest = _synthetic_manifest_from_state(
         root_manifest,
         latest_state,
-        latest_input_origin=latest_header.input_origin,
-        latest_input_roots=latest_header.input_roots,
     )
     state_by_path = {item.path: item.data for item in latest_state}
     extracted = tuple((entry, state_by_path[entry.path]) for entry in latest_manifest.files)
@@ -354,6 +378,71 @@ def recover_imported_chain_entries(
         selected_extension_index=selected_links[-1].link.document.header.index,
         selected_extension_doc_hash=selected_links[-1].link.doc_hash.hex(),
     )
+
+
+def _chain_replay_head_untrusted_error(
+    exc: ValueError,
+    *,
+    plan: "RecoveryPlan",
+    decoded_links: tuple[DecodedExtensionLink, ...],
+    selected_links: tuple[DecodedExtensionLink, ...],
+) -> ApiCommandError:
+    failure = selected_links[-1]
+    head_index, head_hash, head_auth, head_verified = _validated_head_details(
+        plan.doc_hash,
+        selected_links[:-1],
+    )
+    latest_head_index, latest_head_doc_hash = _latest_head_details(decoded_links)
+    requested_doc_hash = (
+        None if plan.extension_doc_hash is None else plan.extension_doc_hash.strip().lower()
+    )
+    explicit_selection = plan.extension_index is not None or requested_doc_hash is not None
+    head_label = "requested" if explicit_selection else "latest"
+    failure_message = str(exc)
+    return ApiCommandError(
+        code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+        message=f"{head_label} recovery head could not be trusted: {failure_message}",
+        details={
+            "stage": "replay",
+            "failure_stage": "chain",
+            "failure_message": failure_message,
+            "failure_head_index": failure.link.document.header.index,
+            "failure_head_doc_hash": failure.link.doc_hash.hex(),
+            "latest_head_index": latest_head_index,
+            "latest_head_doc_hash": latest_head_doc_hash,
+            "requested_head_index": plan.extension_index,
+            "requested_head_doc_hash": requested_doc_hash,
+            "validated_head_index": head_index,
+            "validated_head_doc_hash": head_hash,
+            "validated_head_auth_status": head_auth,
+            "validated_head_root_authority_verified": head_verified,
+            "explicit_selection": explicit_selection,
+        },
+    )
+
+
+def _validated_head_details(
+    root_doc_hash: bytes,
+    links: tuple[DecodedExtensionLink, ...],
+) -> tuple[int, str, str | None, bool | None]:
+    if not links:
+        return 0, root_doc_hash.hex(), None, None
+    latest = links[-1]
+    return (
+        latest.link.document.header.index,
+        latest.link.doc_hash.hex(),
+        latest.auth_status,
+        latest.root_authority_verified,
+    )
+
+
+def _latest_head_details(
+    links: tuple[DecodedExtensionLink, ...],
+) -> tuple[int | None, str | None]:
+    if not links:
+        return None, None
+    latest = links[-1]
+    return latest.link.document.header.index, latest.link.doc_hash.hex()
 
 
 def _decode_imported_extension_links(
@@ -759,9 +848,6 @@ def _parse_extension_doc_hash(value: str) -> bytes:
 def _synthetic_manifest_from_state(
     root_manifest: EnvelopeManifest,
     state: tuple[LogicalFileState, ...],
-    *,
-    latest_input_origin: str,
-    latest_input_roots: tuple[str, ...],
 ) -> EnvelopeManifest:
     return EnvelopeManifest(
         format_version=root_manifest.format_version,
@@ -777,8 +863,8 @@ def _synthetic_manifest_from_state(
             )
             for item in state
         ),
-        input_origin=latest_input_origin,
-        input_roots=latest_input_roots,
+        input_origin=RECONSTRUCTED_STATE_INPUT_ORIGIN,
+        input_roots=RECONSTRUCTED_STATE_INPUT_ROOTS,
         payload_codec="raw",
         payload_raw_len=None,
     )
