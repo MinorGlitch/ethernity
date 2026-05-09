@@ -48,6 +48,7 @@ class PreparedExtendRun:
     inspection: ExtendInspection
     loaded_scope: SelectedExtendScope
     current_state: tuple[LogicalFileState, ...]
+    available_chunks: tuple[tuple[bytes, bytes], ...]
     encryption_passphrase: str
     root_doc_hash: bytes
     parent_doc_hash: bytes

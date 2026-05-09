@@ -233,6 +233,86 @@ class TestExtensionChain(unittest.TestCase):
             b"alpha",
         )
 
+    def test_reconstruct_rejects_current_extension_chunk_already_available(self) -> None:
+        manifest, payload = build_manifest_and_payload(
+            (PayloadPart(path="alpha.txt", data=b"alpha", mtime=1),),
+            sealed=False,
+            signing_seed=SIGNING_SEED,
+            created_at=1.0,
+            input_origin="file",
+            input_roots=(),
+        )
+        alpha_chunk_id = hashlib.sha256(b"alpha").digest()
+        changed_chunk_id, changed_chunk = _raw_chunk(b"ALPHA-CHANGED")
+        duplicate_alpha_chunk_id, duplicate_alpha_chunk = _raw_chunk(b"alpha")
+        ext1 = ExtensionChainLink(
+            doc_hash=EXT1_DOC_HASH,
+            document=ExtensionEnvelope(
+                header=build_extension_header(
+                    index=1,
+                    parent_doc_hash=ROOT_DOC_HASH,
+                    root_doc_hash=ROOT_DOC_HASH,
+                    chunking=_profile(),
+                    input_origin="file",
+                    input_roots=(),
+                    created_at=2,
+                ),
+                files=(
+                    ExtensionFile(
+                        path="alpha.txt",
+                        size=len(b"ALPHA-CHANGED"),
+                        sha256=changed_chunk_id,
+                        mtime=2,
+                        chunk_refs=(
+                            ExtensionChunkRef(
+                                chunk_id=changed_chunk_id,
+                                uncompressed_len=len(b"ALPHA-CHANGED"),
+                            ),
+                        ),
+                    ),
+                ),
+                chunks=(changed_chunk,),
+            ),
+        )
+        ext2 = ExtensionChainLink(
+            doc_hash=EXT2_DOC_HASH,
+            document=ExtensionEnvelope(
+                header=build_extension_header(
+                    index=2,
+                    parent_doc_hash=EXT1_DOC_HASH,
+                    root_doc_hash=ROOT_DOC_HASH,
+                    chunking=_profile(),
+                    input_origin="file",
+                    input_roots=(),
+                    created_at=3,
+                ),
+                files=(
+                    ExtensionFile(
+                        path="root-copy.txt",
+                        size=len(b"alpha"),
+                        sha256=alpha_chunk_id,
+                        mtime=3,
+                        chunk_refs=(
+                            ExtensionChunkRef(
+                                chunk_id=alpha_chunk_id,
+                                uncompressed_len=len(b"alpha"),
+                            ),
+                        ),
+                    ),
+                ),
+                chunks=(duplicate_alpha_chunk,),
+            ),
+        )
+        self.assertEqual(duplicate_alpha_chunk_id, alpha_chunk_id)
+
+        with self.assertRaisesRegex(ValueError, "newly introduced"):
+            reconstruct_latest_logical_state(
+                manifest,
+                payload,
+                root_doc_hash=ROOT_DOC_HASH,
+                extensions=(ext1, ext2),
+            )
+
     def test_validate_chain_rejects_parent_doc_hash_mismatch(self) -> None:
         chunk_id, chunk = _raw_chunk(b"x")
         link = ExtensionChainLink(

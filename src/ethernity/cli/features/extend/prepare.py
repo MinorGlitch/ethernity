@@ -32,7 +32,7 @@ from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.crypto import encrypt_bytes_with_passphrase
-from ethernity.extensions.build import Chunker, build_extension_document, build_virtual_chunk_source
+from ethernity.extensions.build import Chunker, build_extension_document
 from ethernity.extensions.staging import (
     ExtensionPublishPolicy,
     create_staged_extension_artifact_plan,
@@ -119,6 +119,7 @@ def prepare_extend_run_from_state(
         inspection=inspection,
         loaded_scope=loaded_scope,
         current_state=current_state,
+        available_chunks=resolved.available_chunks,
         encryption_passphrase=resolved.resolved_passphrase,
         root_doc_hash=resolved.root_doc_hash,
         parent_doc_hash=resolved.parent_doc_hash,
@@ -164,11 +165,6 @@ def assemble_prepared_extension_document(
             message="extend assembly found no changed input files to encode",
         )
 
-    existing_chunks = build_virtual_chunk_source(
-        tuple(item.data for item in prepared.current_state),
-        chunking=prepared.chunking,
-        chunker=chunker,
-    )
     existing_file_sizes = {item.path: item.size for item in prepared.current_state}
     return build_extension_document(
         index=prepared.next_index,
@@ -179,7 +175,7 @@ def assemble_prepared_extension_document(
         input_origin=prepared.input_origin,
         input_roots=prepared.input_roots,
         chunker=chunker,
-        existing_chunks=existing_chunks,
+        existing_chunks=dict(prepared.available_chunks),
         existing_logical_bytes=sum(item.size for item in prepared.current_state),
         existing_file_sizes=existing_file_sizes,
     )

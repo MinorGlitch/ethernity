@@ -59,6 +59,7 @@ from ethernity.config.load import load_app_config
 from ethernity.encoding.framing import Frame
 from ethernity.extensions.chain import (
     LogicalFileState,
+    build_chain_available_chunks,
     extract_root_logical_state,
     reconstruct_latest_logical_state,
     validate_extension_chain,
@@ -108,6 +109,7 @@ class ResolvedExtendState:
     inspection: ExtendInspection
     loaded_scope: SelectedExtendScope | None
     current_state: tuple[LogicalFileState, ...] | None
+    available_chunks: tuple[tuple[bytes, bytes], ...]
     resolved_passphrase: str | None
     root_doc_hash: bytes | None
     parent_doc_hash: bytes | None
@@ -233,6 +235,7 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
     chunking: ExtensionChunkingProfile | None = None
 
     current_state: tuple[LogicalFileState, ...] | None = None
+    available_chunks: tuple[tuple[bytes, bytes], ...] = ()
     if root_inspection.unlock.satisfied and root_inspection.unlock.resolved_passphrase is not None:
         try:
             manifest, payload = _decode_root_manifest(
@@ -289,6 +292,7 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
                             parent_doc_hash,
                             next_index,
                             chunking,
+                            available_chunks,
                             available_extensions,
                             validated_head_auth_status,
                             validated_head_root_authority_verified,
@@ -318,6 +322,9 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
                         parent_doc_hash = root_inspection.doc_hash
                         next_index = 1
                         chunking = new_chain_chunking
+                        available_chunks = _sorted_chunk_items(
+                            build_chain_available_chunks(current_state, chunking)
+                        )
 
             if current_state is not None and loaded_scope is not None:
                 diff = summarize_scope_diff(current_state, loaded_scope)
@@ -382,6 +389,7 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
         inspection=inspection,
         loaded_scope=loaded_scope,
         current_state=current_state,
+        available_chunks=available_chunks,
         resolved_passphrase=root_inspection.unlock.resolved_passphrase,
         root_doc_hash=root_doc_hash_bytes,
         parent_doc_hash=parent_doc_hash,
@@ -745,6 +753,10 @@ def _available_extensions_from_recovery_chain(
     return tuple(available_extensions)
 
 
+def _sorted_chunk_items(chunk_map: dict[bytes, bytes]) -> tuple[tuple[bytes, bytes], ...]:
+    return tuple((chunk_id, chunk_map[chunk_id]) for chunk_id in sorted(chunk_map))
+
+
 def _reconstruct_extension_state(
     *,
     root_dir: Path,
@@ -766,6 +778,7 @@ def _reconstruct_extension_state(
     bytes | None,
     int | None,
     ExtensionChunkingProfile | None,
+    tuple[tuple[bytes, bytes], ...],
     tuple[dict[str, object], ...],
     str | None,
     bool | None,
@@ -775,6 +788,7 @@ def _reconstruct_extension_state(
     if expected_sign_pub is None:
         raise ValueError("root backup manifest is missing an embedded signing seed")
 
+    root_state = extract_root_logical_state(manifest, payload)
     chain_inspection = _inspect_published_extension_chain(
         manifest=manifest,
         payload=payload,
@@ -824,6 +838,7 @@ def _reconstruct_extension_state(
             None,
             None,
             None,
+            (),
             available_extensions,
             validated_head_auth_status,
             validated_head_root_authority_verified,
@@ -833,19 +848,24 @@ def _reconstruct_extension_state(
 
     if not chain_inspection.links or chain_inspection.latest_state is None:
         return (
-            extract_root_logical_state(manifest, payload),
+            root_state,
             chain_inspection.validated_head_index,
             chain_inspection.validated_head_doc_hash,
             True,
             root_doc_hash,
             1,
             new_chain_chunking,
+            _sorted_chunk_items(build_chain_available_chunks(root_state, new_chain_chunking)),
             available_extensions,
             chain_inspection.validated_head_auth_status,
             chain_inspection.validated_head_root_authority_verified,
             discovered_extension_dirs,
             input_kind,
         )
+
+    locked_chunking = chain_inspection.locked_chunking
+    if locked_chunking is None:
+        raise ValueError("extension chain requires a locked chunking profile")
 
     return (
         chain_inspection.latest_state,
@@ -854,7 +874,14 @@ def _reconstruct_extension_state(
         True,
         chain_inspection.links[-1].link.doc_hash,
         chain_inspection.validated_head_index + 1,
-        chain_inspection.locked_chunking,
+        locked_chunking,
+        _sorted_chunk_items(
+            build_chain_available_chunks(
+                root_state,
+                locked_chunking,
+                extensions=tuple(item.link for item in chain_inspection.links),
+            )
+        ),
         available_extensions,
         chain_inspection.validated_head_auth_status,
         chain_inspection.validated_head_root_authority_verified,

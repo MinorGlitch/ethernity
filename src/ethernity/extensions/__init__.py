@@ -26,6 +26,7 @@ from ethernity.extensions.build import (
 from ethernity.extensions.chain import (
     ExtensionChainLink,
     LogicalFileState,
+    build_chain_available_chunks,
     extract_root_logical_state,
     reconstruct_latest_logical_state,
     validate_extension_chain,
@@ -84,6 +85,7 @@ __all__ = [
     "build_extension_main_filename",
     "build_extension_shard_filename",
     "build_staging_dir_name",
+    "build_chain_available_chunks",
     "build_virtual_chunk_source",
     "canonical_extension_dir_name",
     "create_staged_extension_artifact_plan",

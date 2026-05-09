@@ -69,6 +69,28 @@ Use this template for each change entry:
     extension ciphertext/AUTH and prevents minting shard documents bound to extension heads that
     fail replay.
 
+## 2026-05-09 - Enforce newly introduced extension chunk records across the chain
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: 19.5
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged
+  - New decoders reading old artifacts: partial (extension envelopes that repeat a root or earlier
+    extension chunk as a current inline `chunks` record are rejected)
+- Version/profile bump required: no (the Version 2 extension profile already models `chunks` as
+  newly introduced records; this is a strict fail-closed enforcement of that invariant)
+- Implementation refs:
+  - `src/ethernity/extensions/chain.py`
+  - `src/ethernity/cli/features/extend/planning.py`
+  - `src/ethernity/cli/features/extend/prepare.py`
+- Test refs:
+  - `tests/unit/test_extension_chain.py`
+  - `tests/unit/test_extend_service.py`
+- Security impact:
+  - Keeps extension replay deterministic and prevents redundant inline chunk records from being
+    accepted as valid chain state.
+
 ## 2026-05-08 - Clarify extension head freshness scope
 
 - Type: editorial

@@ -1195,6 +1195,9 @@ Replay rules:
   - a newly introduced chunk in the current or earlier validated extension, or
   - a chain-global virtual root chunk, keyed by the `SHA-256` of each re-chunked root chunk byte
     sequence under the locked chain chunking profile
+- a chunk record carried by the current extension's `chunks` array MUST be newly introduced at
+  that extension index; replay MUST reject it if the same `chunk_id` is already available from the
+  chain-global virtual root chunk source or an earlier validated extension
 - replacing a root path changes latest logical state for that path, but does not remove the
   corresponding root payload bytes from the chain-global virtual root chunk source
 - replay MUST reject unresolved `chunk_id` references

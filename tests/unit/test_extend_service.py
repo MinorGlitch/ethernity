@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+import hashlib
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -60,6 +61,7 @@ from ethernity.config import BackupDefaults
 from ethernity.crypto.sharding import ShardPayload, encode_shard_payload
 from ethernity.crypto.signing import AuthPayload, derive_public_key
 from ethernity.encoding.framing import VERSION, Frame, FrameType
+from ethernity.extensions.chain import LogicalFileState
 from ethernity.extensions.staging import ExtensionPublishPolicy
 from ethernity.formats.extension_envelope import ExtensionChunkingProfile
 from ethernity.formats.extension_envelope_constants import CHUNK_ALGORITHM_FASTCDC
@@ -110,12 +112,16 @@ def _resolved_state(
     blocking_issues: tuple[dict[str, object], ...] = (),
     root_passphrase_shard_threshold: int | None = None,
     root_passphrase_shard_count: int = 0,
+    input_files: tuple[InputFile, ...] | None = None,
+    current_state: tuple[LogicalFileState, ...] = (),
+    available_chunks: tuple[tuple[bytes, bytes], ...] = (),
 ) -> ResolvedExtendState:
     scope = SelectedExtendScope(
         raw_files=("/tmp/root/example.txt",),
         raw_directories=(),
         base_dir_arg="/tmp/root",
-        input_files=(
+        input_files=input_files
+        or (
             InputFile(
                 source_path=None,
                 relative_path="updated.txt",
@@ -138,7 +144,8 @@ def _resolved_state(
     return ResolvedExtendState(
         inspection=_inspection(diff_summary=diff_summary, blocking_issues=blocking_issues),
         loaded_scope=scope,
-        current_state=(),
+        current_state=current_state,
+        available_chunks=available_chunks,
         resolved_passphrase="secret",
         root_doc_hash=b"\x22" * 32,
         parent_doc_hash=b"\x11" * 32,
@@ -434,6 +441,60 @@ class TestExtendService(unittest.TestCase):
         self.assertFalse(hasattr(built.document.header, "parent_index"))
         self.assertFalse(hasattr(built.document.header, "signing_seed"))
         self.assertEqual([item.path for item in built.document.files], ["new.txt", "updated.txt"])
+
+    def test_assemble_prepared_extension_document_reuses_superseded_chain_chunks(self) -> None:
+        superseded_bytes = b"root version"
+        latest_bytes = b"latest version"
+        superseded_chunk_id = hashlib.sha256(superseded_bytes).digest()
+        latest_chunk_id = hashlib.sha256(latest_bytes).digest()
+        resolved = _resolved_state(
+            diff_summary={
+                "new_paths": [],
+                "changed_paths": ["updated.txt"],
+                "unchanged_paths": [],
+                "missing_paths": [],
+            },
+            input_files=(
+                InputFile(
+                    source_path=None,
+                    relative_path="updated.txt",
+                    data=superseded_bytes,
+                    mtime=3,
+                ),
+            ),
+            current_state=(
+                LogicalFileState(
+                    path="updated.txt",
+                    size=len(latest_bytes),
+                    sha256=latest_chunk_id,
+                    mtime=2,
+                    data=latest_bytes,
+                ),
+            ),
+            available_chunks=(
+                (superseded_chunk_id, superseded_bytes),
+                (latest_chunk_id, latest_bytes),
+            ),
+        )
+        with mock.patch(
+            "ethernity.cli.features.extend.prepare.resolve_extend_state",
+            return_value=resolved,
+        ):
+            prepared = prepare_extend_run(
+                ExtendArgs(root_dir="/tmp/root", input=["/tmp/root/example.txt"])
+            )
+            built = assemble_prepared_extension_document(
+                prepared,
+                chunker=lambda data, _profile: (data,),
+            )
+
+        self.assertEqual(built.stats.new_chunks, 0)
+        self.assertEqual(built.stats.reused_chunks, 1)
+        self.assertEqual(len(built.document.chunks), 0)
+        self.assertEqual(
+            built.document.files[0].chunk_refs[0].chunk_id,
+            superseded_chunk_id,
+        )
 
     def test_encrypt_prepared_extension_document_returns_ciphertext_and_ids(self) -> None:
         resolved = _resolved_state(
