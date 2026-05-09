@@ -1274,6 +1274,10 @@ Compaction rules:
   output directory
 - compaction MUST preserve the chain passphrase exactly; passphrase rotation is not part of this
   format
+- when compaction unlocks the source with validated passphrase shard carriers, the compacted
+  checkpoint MUST emit fresh passphrase shard documents with the same threshold and share count;
+  implementations MUST NOT downgrade to a plaintext-passphrase checkpoint because source shard
+  documents are stored outside the scanned backup root
 - compaction MUST preserve the root sealed/unsealed state
 - if the root is unsealed, compaction MUST preserve the root signing seed exactly
 - if the root is sealed, compaction MUST NOT emit signing-key shard documents

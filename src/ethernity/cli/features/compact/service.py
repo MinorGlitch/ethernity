@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,6 +38,7 @@ from ethernity.cli.shared.types import BackupArgs, BackupResult, CompactArgs, In
 from ethernity.config import apply_template_design, load_app_config
 from ethernity.crypto import sharding as sharding_module
 from ethernity.crypto.signing import derive_public_key
+from ethernity.encoding.framing import Frame
 from ethernity.render.types import RenderLineage
 
 
@@ -94,6 +96,8 @@ def _infer_root_publish_policy(
     root_doc_id_hex: str | None,
     root_doc_hash: bytes,
     sign_pub: bytes | None,
+    passphrase_shard_frames: Sequence[Frame] = (),
+    signing_key_shard_frames: Sequence[Frame] = (),
     allow_unsigned: bool = False,
     require_quorum: bool = True,
     quiet: bool,
@@ -118,6 +122,7 @@ def _infer_root_publish_policy(
     root_doc_id = bytes.fromhex(root_doc_id_hex) if root_doc_id_hex else None
     passphrase_threshold, passphrase_count = _infer_root_quorum(
         sorted(root_path.glob("shard-*.pdf")),
+        extra_frames=passphrase_shard_frames,
         expected_doc_id=root_doc_id,
         expected_doc_hash=root_doc_hash,
         sign_pub=sign_pub,
@@ -129,6 +134,7 @@ def _infer_root_publish_policy(
     )
     signing_key_threshold, signing_key_count = _infer_root_quorum(
         sorted(root_path.glob("signing-key-shard-*.pdf")),
+        extra_frames=signing_key_shard_frames,
         expected_doc_id=root_doc_id,
         expected_doc_hash=root_doc_hash,
         sign_pub=sign_pub,
@@ -149,6 +155,7 @@ def _infer_root_publish_policy(
 def _infer_root_quorum(
     paths: list[Path],
     *,
+    extra_frames: Sequence[Frame] = (),
     expected_doc_id: bytes | None,
     expected_doc_hash: bytes,
     sign_pub: bytes | None,
@@ -158,9 +165,11 @@ def _infer_root_quorum(
     key_type: str,
     secret_label: str,
 ) -> tuple[int | None, int]:
-    if not paths:
+    frames = list(extra_frames)
+    if paths:
+        frames.extend(_shard_frames_from_scan([str(path) for path in paths], quiet=quiet))
+    if not frames:
         return None, 0
-    frames = _shard_frames_from_scan([str(path) for path in paths], quiet=quiet)
     try:
         shares = _validated_shard_payloads_from_frames(
             frames,
@@ -225,6 +234,7 @@ def run_compact(args: CompactArgs) -> BackupResult:
         root_doc_id_hex=recover_plan.doc_id.hex(),
         root_doc_hash=recover_plan.doc_hash,
         sign_pub=sign_pub,
+        passphrase_shard_frames=recover_plan.shard_frames,
         allow_unsigned=sign_pub is None,
         quiet=args.quiet,
     )

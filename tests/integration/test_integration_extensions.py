@@ -296,7 +296,64 @@ class TestIntegrationExtensions(unittest.TestCase):
                 self._run_recover(root_dir=compacted_dir, output_dir=recovered_dir)
                 self.assertEqual(self._snapshot_tree(recovered_dir), expected_tree)
 
-    def _run_backup(self, *, source_dir: Path, root_dir: Path, sealed: bool = False) -> None:
+    def test_compact_preserves_external_root_passphrase_shard_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup-root"
+            external_shard_dir = tmp_path / "separate-shards"
+            compacted_dir = tmp_path / "compacted-root"
+            recovered_dir = tmp_path / "compacted-recovered"
+            source_dir.mkdir()
+            external_shard_dir.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    shard_threshold=2,
+                    shard_count=3,
+                )
+                root_shards = sorted(root_dir.glob("shard-*.pdf"))
+                self.assertEqual(len(root_shards), 3)
+                external_shards: list[Path] = []
+                for shard_path in root_shards:
+                    moved_path = external_shard_dir / shard_path.name
+                    shard_path.rename(moved_path)
+                    external_shards.append(moved_path)
+                self.assertEqual(sorted(root_dir.glob("shard-*.pdf")), [])
+
+                compact_result = self._run_compact(
+                    root_dir=root_dir,
+                    output_dir=compacted_dir,
+                    passphrase=None,
+                    shard_scan=[str(path) for path in external_shards[:2]],
+                )
+
+                self.assertEqual(len(compact_result.shard_paths), 3)
+                for shard_path in compact_result.shard_paths:
+                    self.assertTrue(Path(shard_path).exists())
+                self._run_recover(
+                    root_dir=compacted_dir,
+                    output_dir=recovered_dir,
+                    passphrase=None,
+                    shard_scan=list(compact_result.shard_paths[:2]),
+                )
+                self.assertEqual(
+                    self._snapshot_tree(recovered_dir),
+                    {"alpha.txt": b"root-alpha"},
+                )
+
+    def _run_backup(
+        self,
+        *,
+        source_dir: Path,
+        root_dir: Path,
+        sealed: bool = False,
+        shard_threshold: int | None = None,
+        shard_count: int | None = None,
+    ) -> None:
         with suppress_output():
             exit_code = run_backup_command(
                 BackupArgs(
@@ -306,19 +363,29 @@ class TestIntegrationExtensions(unittest.TestCase):
                     output_dir=str(root_dir),
                     passphrase=TEST_PASSPHRASE,
                     sealed=sealed,
+                    shard_threshold=shard_threshold,
+                    shard_count=shard_count,
                     quiet=True,
                 )
             )
         self.assertEqual(exit_code, 0)
 
-    def _run_compact(self, *, root_dir: Path, output_dir: Path):
+    def _run_compact(
+        self,
+        *,
+        root_dir: Path,
+        output_dir: Path,
+        passphrase: str | None = TEST_PASSPHRASE,
+        shard_scan: list[str] | None = None,
+    ):
         with suppress_output():
             return run_compact(
                 CompactArgs(
                     config=str(DEFAULT_CONFIG_PATH),
                     root_dir=str(root_dir),
                     output_dir=str(output_dir),
-                    passphrase=TEST_PASSPHRASE,
+                    passphrase=passphrase,
+                    shard_scan=shard_scan,
                     quiet=True,
                 )
             )
@@ -385,13 +452,16 @@ class TestIntegrationExtensions(unittest.TestCase):
         output_dir: Path,
         extension_index: int | None = None,
         extension_doc_hash: str | None = None,
+        passphrase: str | None = TEST_PASSPHRASE,
+        shard_scan: list[str] | None = None,
     ) -> None:
         with suppress_output():
             exit_code = run_recover_command(
                 RecoverArgs(
                     config=str(DEFAULT_CONFIG_PATH),
                     scan=[str(root_dir)],
-                    passphrase=TEST_PASSPHRASE,
+                    passphrase=passphrase,
+                    shard_scan=shard_scan,
                     extension_index=extension_index,
                     extension_doc_hash=extension_doc_hash,
                     output=str(output_dir),

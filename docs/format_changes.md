@@ -91,6 +91,25 @@ Use this template for each change entry:
   - Keeps extension replay deterministic and prevents redundant inline chunk records from being
     accepted as valid chain state.
 
+## 2026-05-09 - Preserve compact passphrase shard policy from external unlock shards
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: 21
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged
+  - New decoders reading old artifacts: yes (compacted checkpoints remain standalone Version 1
+    backups, now with preserved passphrase shard documents when source unlock used shards)
+- Version/profile bump required: no (the wire format is unchanged; this prevents a policy
+  downgrade during compaction)
+- Implementation refs:
+  - `src/ethernity/cli/features/compact/service.py`
+- Test refs:
+  - `tests/unit/test_compact_service.py`
+- Security impact:
+  - Prevents compact from exposing the plaintext passphrase in the checkpoint recovery document
+    when the source was unlocked with separately stored passphrase shard carriers.
+
 ## 2026-05-08 - Clarify extension head freshness scope
 
 - Type: editorial

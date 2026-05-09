@@ -19,12 +19,45 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from ethernity.cli.features.compact.service import run_compact
+from ethernity.cli.features.compact.service import _infer_root_publish_policy, run_compact
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import CompactArgs, RecoverArgs
+from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
 from ethernity.crypto.signing import derive_public_key
+from ethernity.encoding.framing import VERSION, Frame, FrameType
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
+
+
+def _passphrase_shard_frames(
+    passphrase: str,
+    *,
+    threshold: int,
+    share_count: int,
+    doc_id: bytes,
+    doc_hash: bytes,
+    sign_priv: bytes,
+) -> tuple[Frame, ...]:
+    sign_pub = derive_public_key(sign_priv)
+    shards = split_passphrase(
+        passphrase,
+        threshold=threshold,
+        shares=share_count,
+        doc_hash=doc_hash,
+        sign_priv=sign_priv,
+        sign_pub=sign_pub,
+    )
+    return tuple(
+        Frame(
+            version=VERSION,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=doc_id,
+            index=0,
+            total=1,
+            data=encode_shard_payload(shard),
+        )
+        for shard in shards
+    )
 
 
 class TestCompactService(unittest.TestCase):
@@ -90,6 +123,122 @@ class TestCompactService(unittest.TestCase):
                     )
                 )
 
+    def test_infer_root_publish_policy_uses_external_passphrase_shard_frames(self) -> None:
+        doc_id = b"\x22" * 8
+        doc_hash = b"\x44" * 32
+        sign_priv = b"\x33" * 32
+        sign_pub = derive_public_key(sign_priv)
+        shard_frames = _passphrase_shard_frames(
+            "secret passphrase",
+            threshold=2,
+            share_count=3,
+            doc_id=doc_id,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+        )[:2]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            policy = _infer_root_publish_policy(
+                root_dir=tmpdir,
+                root_doc_id_hex=doc_id.hex(),
+                root_doc_hash=doc_hash,
+                sign_pub=sign_pub,
+                passphrase_shard_frames=shard_frames,
+                quiet=True,
+            )
+
+        self.assertEqual(policy.passphrase_shard_threshold, 2)
+        self.assertEqual(policy.passphrase_shard_count, 3)
+        self.assertIsNone(policy.signing_key_shard_threshold)
+        self.assertEqual(policy.signing_key_shard_count, 0)
+
+    def test_run_compact_preserves_external_unlock_shard_policy(self) -> None:
+        doc_id = b"\x22" * 8
+        doc_hash = b"\x44" * 32
+        sign_priv = b"\x33" * 32
+        sign_pub = derive_public_key(sign_priv)
+        shard_frames = _passphrase_shard_frames(
+            "secret passphrase",
+            threshold=2,
+            share_count=3,
+            doc_id=doc_id,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+        )[:2]
+        chain = SimpleNamespace(
+            manifest=EnvelopeManifest(
+                format_version=1,
+                created_at=1,
+                sealed=True,
+                signing_seed=None,
+                files=(ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1),),
+                input_origin="file",
+                input_roots=(),
+            ),
+            extracted=(
+                (ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1), b"data"),
+            ),
+        )
+        recover_plan = SimpleNamespace(
+            passphrase="secret passphrase",
+            doc_id=doc_id,
+            doc_hash=doc_hash,
+            auth_payload=SimpleNamespace(sign_pub=sign_pub),
+            shard_frames=shard_frames,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir()
+            output_dir = Path(tmpdir) / "compacted"
+            with (
+                mock.patch(
+                    "ethernity.cli.features.compact.service.plan_recover_from_args",
+                    return_value=recover_plan,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.compact.service.recover_chain_entries",
+                    return_value=chain,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.compact.service.load_app_config",
+                    return_value=SimpleNamespace(),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.compact.service.apply_template_design",
+                    side_effect=lambda config, _design: config,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.compact.service.apply_qr_chunk_size_override",
+                    side_effect=lambda config, _size: config,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.compact.service.plan_backup_from_args",
+                    return_value=SimpleNamespace(
+                        sealed=True,
+                        sharding=None,
+                        signing_seed_mode="embedded",
+                        signing_seed_sharding=None,
+                    ),
+                ) as plan_backup_from_args,
+                mock.patch(
+                    "ethernity.cli.features.compact.service.run_backup",
+                    return_value="backup-result",
+                ),
+            ):
+                result = run_compact(
+                    CompactArgs(
+                        root_dir=str(root_dir),
+                        output_dir=str(output_dir),
+                        shard_scan=["/separate/shard-a.pdf", "/separate/shard-b.pdf"],
+                        quiet=True,
+                    )
+                )
+
+        self.assertEqual(result, "backup-result")
+        backup_args = plan_backup_from_args.call_args.args[0]
+        self.assertEqual(backup_args.shard_threshold, 2)
+        self.assertEqual(backup_args.shard_count, 3)
+        self.assertTrue(backup_args.sealed)
+
     @mock.patch("ethernity.cli.features.compact.service.run_backup")
     @mock.patch(
         "ethernity.cli.features.compact.service.recover_chain_entries",
@@ -126,6 +275,7 @@ class TestCompactService(unittest.TestCase):
             doc_id=b"\x22" * 16,
             doc_hash=b"\x44" * 32,
             auth_payload=None,
+            shard_frames=(),
         ),
     )
     @mock.patch(
@@ -185,6 +335,7 @@ class TestCompactService(unittest.TestCase):
             doc_id=b"\x22" * 16,
             doc_hash=b"\x44" * 32,
             auth_payload=None,
+            shard_frames=(),
         ),
     )
     @mock.patch(
@@ -272,6 +423,7 @@ class TestCompactService(unittest.TestCase):
             doc_id=b"\x22" * 16,
             doc_hash=b"\x44" * 32,
             auth_payload=SimpleNamespace(sign_pub=b"\x55" * 32),
+            shard_frames=(),
         ),
     )
     @mock.patch(
@@ -385,6 +537,7 @@ class TestCompactService(unittest.TestCase):
             doc_id=b"\x22" * 16,
             doc_hash=b"\x44" * 32,
             auth_payload=None,
+            shard_frames=(),
         ),
     )
     @mock.patch(
@@ -474,6 +627,7 @@ class TestCompactService(unittest.TestCase):
             doc_id=b"\x22" * 16,
             doc_hash=b"\x44" * 32,
             auth_payload=None,
+            shard_frames=(),
         ),
     )
     @mock.patch(
@@ -528,6 +682,7 @@ class TestCompactService(unittest.TestCase):
             doc_id=b"\x22" * 16,
             doc_hash=b"\x44" * 32,
             auth_payload=SimpleNamespace(sign_pub=b"\x55" * 32),
+            shard_frames=(),
         ),
     )
     @mock.patch(
