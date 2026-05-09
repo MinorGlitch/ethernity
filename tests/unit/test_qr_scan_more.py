@@ -23,7 +23,13 @@ from types import SimpleNamespace
 from unittest import mock
 
 from ethernity.qr import scan as qr_scan
-from ethernity.qr.scan import QrDecoder, QrScanError, _iter_scan_files, _scan_pdf
+from ethernity.qr.scan import (
+    QrDecoder,
+    QrScanError,
+    _is_under_unpublished_extension_workspace,
+    _iter_scan_files,
+    _scan_pdf,
+)
 
 
 class _FakeImage:
@@ -110,6 +116,93 @@ class TestQrScanMore(unittest.TestCase):
         self.assertEqual(
             [path.name for path in files],
             ["a.png", "c.PDF", "scan-without-extension"],
+        )
+
+    def test_iter_scan_files_ignores_unpublished_extension_staging(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            published = root / "extensions" / "01"
+            published.mkdir(parents=True)
+            (published / "qr_document-01-deadbeefcafebabe.pdf").write_bytes(b"")
+            staging = root / "extensions" / ".staging-2-aborted"
+            staging.mkdir(parents=True)
+            (staging / "qr_document-02-cafebabedeadbeef.pdf").write_bytes(b"")
+            nested_staging = staging / "nested"
+            nested_staging.mkdir()
+            (nested_staging / "recovery_document-02-cafebabedeadbeef.pdf").write_bytes(b"")
+            ordinary_staging = root / "loose" / ".staging-2-aborted"
+            ordinary_staging.mkdir(parents=True)
+            (ordinary_staging / "loose-carrier.pdf").write_bytes(b"")
+
+            files = _iter_scan_files(root)
+            staged_files = _iter_scan_files(staging)
+
+        self.assertEqual(
+            [path.relative_to(root).as_posix() for path in files],
+            [
+                "extensions/01/qr_document-01-deadbeefcafebabe.pdf",
+                "loose/.staging-2-aborted/loose-carrier.pdf",
+            ],
+        )
+        self.assertEqual(staged_files, [])
+
+    def test_scan_qr_payloads_directory_does_not_decode_unpublished_staging(self) -> None:
+        decoder = QrDecoder(
+            name="dummy", decode_image_path=lambda _: [], decode_image_bytes=lambda _: []
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            published = root / "extensions" / "01"
+            published.mkdir(parents=True)
+            published_pdf = published / "qr_document-01-deadbeefcafebabe.pdf"
+            published_pdf.write_bytes(b"")
+            staging = root / "extensions" / ".staging-2-aborted"
+            staging.mkdir(parents=True)
+            staged_pdf = staging / "qr_document-02-cafebabedeadbeef.pdf"
+            staged_pdf.write_bytes(b"")
+            scanned: list[str] = []
+
+            def fake_scan_pdf(path: Path, _decoder: QrDecoder) -> list[bytes]:
+                scanned.append(path.relative_to(root).as_posix())
+                return [path.name.encode("utf-8")]
+
+            with (
+                mock.patch.object(qr_scan, "_load_decoder", return_value=decoder),
+                mock.patch.object(qr_scan, "_scan_pdf", side_effect=fake_scan_pdf),
+            ):
+                payloads = qr_scan.scan_qr_payloads([root])
+
+        self.assertEqual(payloads, [published_pdf.name.encode("utf-8")])
+        self.assertEqual(scanned, ["extensions/01/qr_document-01-deadbeefcafebabe.pdf"])
+
+    def test_explicit_staging_carrier_file_remains_a_scan_input(self) -> None:
+        decoder = QrDecoder(
+            name="dummy", decode_image_path=lambda _: [], decode_image_bytes=lambda _: []
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            staging = root / "extensions" / ".staging-2-aborted"
+            staging.mkdir(parents=True)
+            staged_pdf = staging / "qr_document-02-cafebabedeadbeef.pdf"
+            staged_pdf.write_bytes(b"")
+            with (
+                mock.patch.object(qr_scan, "_load_decoder", return_value=decoder),
+                mock.patch.object(qr_scan, "_scan_pdf", return_value=[b"explicit"]),
+            ):
+                payloads = qr_scan.scan_qr_payloads([staged_pdf])
+
+        self.assertEqual(payloads, [b"explicit"])
+
+    def test_detects_unpublished_extension_workspace_paths(self) -> None:
+        self.assertTrue(
+            _is_under_unpublished_extension_workspace(
+                Path("root/extensions/.staging-2-aborted/qr_document.pdf")
+            )
+        )
+        self.assertFalse(
+            _is_under_unpublished_extension_workspace(
+                Path("root/loose/.staging-2-aborted/qr_document.pdf")
+            )
         )
 
     def test_scan_qr_payloads_accepts_content_typed_file_without_suffix(self) -> None:

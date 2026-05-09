@@ -21,10 +21,13 @@ from __future__ import annotations
 import functools
 import importlib
 import io
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
+
+from ethernity.extensions.layout import is_staging_dir_name
 
 
 def _optional_import(name: str) -> Any | None:
@@ -55,6 +58,7 @@ class QrDecoder:
 
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff", ".webp"}
+_EXTENSIONS_DIR_NAME = "extensions"
 _PDF_MAGIC = b"%PDF-"
 _IMAGE_MAGICS = (
     b"\x89PNG\r\n\x1a\n",
@@ -213,14 +217,32 @@ def _expand_paths(paths: Sequence[str | Path]) -> Iterable[Path]:
 def _iter_scan_files(directory: Path) -> list[Path]:
     """Collect supported scan files from a directory tree."""
 
+    if _is_under_unpublished_extension_workspace(directory):
+        return []
+
     files: list[Path] = []
-    for path in sorted(directory.rglob("*")):
-        if not path.is_file():
-            continue
-        suffix = path.suffix.lower()
-        if suffix == ".pdf" or suffix in _IMAGE_SUFFIXES or _looks_like_scan_file(path):
-            files.append(path)
+    for root, dirnames, filenames in os.walk(directory):
+        root_path = Path(root)
+        dirnames[:] = sorted(
+            name
+            for name in dirnames
+            if not _is_under_unpublished_extension_workspace(root_path / name)
+        )
+        for filename in filenames:
+            path = root_path / filename
+            suffix = path.suffix.lower()
+            if suffix == ".pdf" or suffix in _IMAGE_SUFFIXES or _looks_like_scan_file(path):
+                files.append(path)
+    files.sort()
     return files
+
+
+def _is_under_unpublished_extension_workspace(path: Path) -> bool:
+    parts = path.parts
+    for index, part in enumerate(parts[:-1]):
+        if part == _EXTENSIONS_DIR_NAME and is_staging_dir_name(parts[index + 1]):
+            return True
+    return False
 
 
 def _looks_like_scan_file(path: Path) -> bool:

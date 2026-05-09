@@ -1216,6 +1216,9 @@ are not part of extension identity and MUST NOT be required to recover an extens
 Import rules:
 - implementations MUST accept a set of scanned or pasted recovery carriers without requiring a
   particular directory layout or filename convention
+- recursive directory scans of backup-export trees MUST exclude unpublished extension transaction
+  workspaces named `extensions/.staging-*`; carriers in those workspaces are not published by the
+  directory root
 - MAIN frames MUST be grouped by frame `doc_id`; each group MUST independently reassemble to one
   ciphertext
 - the authoritative `doc_id` and `doc_hash` MUST be derived from recovered ciphertext

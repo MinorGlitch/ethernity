@@ -110,6 +110,25 @@ Use this template for each change entry:
   - Prevents compact from exposing the plaintext passphrase in the checkpoint recovery document
     when the source was unlocked with separately stored passphrase shard carriers.
 
+## 2026-05-09 - Exclude unpublished extension staging from recursive scans
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: 20
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged
+  - New decoders reading old artifacts: yes (published carriers and explicitly supplied carrier
+    files remain valid scan inputs)
+- Version/profile bump required: no (the wire format is unchanged; this tightens recursive
+  directory import selection for implementation-private staging workspaces)
+- Implementation refs:
+  - `src/ethernity/qr/scan.py`
+- Test refs:
+  - `tests/unit/test_qr_scan_more.py`
+- Security impact:
+  - Prevents aborted or unpromoted extension staging artifacts from silently becoming supplied
+    recovery material when scanning a backup root directory.
+
 ## 2026-05-08 - Clarify extension head freshness scope
 
 - Type: editorial
