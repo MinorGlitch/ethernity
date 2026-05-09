@@ -46,6 +46,29 @@ Use this template for each change entry:
 
 ## Entries
 
+## 2026-05-09 - Validate extension carrier copies and mint replay targets
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: 20, 21
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged
+  - New decoders reading old artifacts: partial (published extension sets with a broken redundant
+    recovery-document render contract are rejected at publish time, and mint refuses authenticated
+    extension heads that cannot replay)
+- Version/profile bump required: no (wire bytes are unchanged; this aligns publish and mint
+  trust decisions with existing authenticated replay invariants)
+- Implementation refs:
+  - `src/ethernity/cli/features/extend/main_carrier_validation.py`
+  - `src/ethernity/cli/features/mint/workflow.py`
+- Test refs:
+  - `tests/unit/test_extend_service.py`
+  - `tests/unit/test_mint_inspection.py`
+- Security impact:
+  - Prevents promotion of recovery documents whose render contract is not bound to the planned
+    extension ciphertext/AUTH and prevents minting shard documents bound to extension heads that
+    fail replay.
+
 ## 2026-05-08 - Clarify extension head freshness scope
 
 - Type: editorial

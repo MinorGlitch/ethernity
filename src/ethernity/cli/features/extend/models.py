@@ -27,6 +27,7 @@ from ethernity.cli.features.extend.scope import SelectedExtendScope
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.config import AppConfig, QrPayloadCodec
 from ethernity.crypto import sharding as sharding_module
+from ethernity.encoding.framing import Frame
 from ethernity.extensions.build import BuiltExtensionDocument
 from ethernity.extensions.chain import LogicalFileState
 from ethernity.extensions.staging import ExtensionPublishPolicy, PlannedStagedExtensionArtifacts
@@ -89,6 +90,7 @@ class RenderedExtensionArtifacts:
 
     passphrase_shards: tuple[sharding_module.ShardPayload, ...]
     signing_key_shards: tuple[sharding_module.ShardPayload, ...]
+    recovery_document_fallback_frames: tuple[Frame, ...]
 
 
 @dataclass(frozen=True)

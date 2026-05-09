@@ -136,4 +136,7 @@ def render_extension_artifacts(
     return RenderedExtensionArtifacts(
         passphrase_shards=passphrase_shards,
         signing_key_shards=signing_key_shards,
+        recovery_document_fallback_frames=tuple(
+            section.frame for section in recovery_inputs.fallback_sections or ()
+        ),
     )

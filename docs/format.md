@@ -1235,10 +1235,18 @@ copies are redundancy, not identity. Implementations MAY provide separate audit 
 whether an exported digital folder contains all expected redundant carriers, but such audit rules are
 outside the recovery format.
 
+Extension publish implementations that emit redundant MAIN carrier copies MUST validate every
+payload-bearing carrier copy before promotion. For this release profile, that means `qr_document-*`
+MUST reassemble and authenticate from QR payloads, and the `recovery_document-*` render contract
+MUST carry fallback frames that reassemble and authenticate to the same planned extension
+`doc_id`/`doc_hash` with a root-authority AUTH payload. Implementations MAY perform separate PDF
+integrity checks, but MUST NOT derive recovery semantics by scraping human-display text from the
+PDF.
+
 The authoritative extension identity comes from recovered ciphertext, AUTH, and decrypted
 extension-header metadata.
 
-## 21) Selected Recovery and Compaction
+## 21) Selected Recovery, Minting, and Compaction
 
 Selected recovery rules:
 - default recovery from content import MUST fail closed when the latest supplied authenticated
@@ -1248,6 +1256,13 @@ Selected recovery rules:
 - recovery MAY select an earlier target by extension `index`
 - recovery MAY select an earlier target by authenticated extension `doc_hash`
 - selecting index `0` means root-only recovery without replaying any extension
+
+Shard minting rules:
+- minting shard documents for an imported extension head MUST authenticate ancestry and fully replay
+  the selected root-plus-extension chain before using that head's `doc_id`, `doc_hash`, or AUTH as
+  the shard binding target
+- minting MUST fail closed when the selected extension head cannot be reconstructed,
+  authenticated, or replayed
 
 Compaction rules:
 - compaction MUST fully reconstruct the latest supplied validated logical state of a

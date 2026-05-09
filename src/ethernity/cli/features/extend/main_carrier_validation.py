@@ -32,18 +32,31 @@ from ethernity.cli.shared.io.frames import (
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.chunking import reassemble_payload
-from ethernity.encoding.framing import FrameType
+from ethernity.encoding.framing import Frame, FrameType
 
 from .models import (
     EXTENSION_MAIN_CARRIER_INVALID,
     PreparedExtensionPublishPlan,
+    RenderedExtensionArtifacts,
 )
 
 
-def validate_staged_main_carrier(plan: PreparedExtensionPublishPlan) -> None:
+def validate_staged_main_carrier(
+    plan: PreparedExtensionPublishPlan,
+    rendered: RenderedExtensionArtifacts,
+) -> None:
     expected_sign_pub = derive_public_key(plan.prepared.signing_seed)
     validate_single_main_carrier(
         path=plan.artifacts.qr_document_path,
+        expected_doc_id=plan.encrypted.doc_id,
+        expected_doc_hash=plan.encrypted.doc_hash,
+        expected_sign_pub=expected_sign_pub,
+        require_auth=True,
+        quiet=plan.prepared.args.quiet,
+    )
+    validate_single_recovery_document_carrier(
+        path=plan.artifacts.recovery_document_path,
+        frames=rendered.recovery_document_fallback_frames,
         expected_doc_id=plan.encrypted.doc_id,
         expected_doc_hash=plan.encrypted.doc_hash,
         expected_sign_pub=expected_sign_pub,
@@ -63,26 +76,12 @@ def validate_single_main_carrier(
 ) -> None:
     try:
         frames = _recovery_frames_from_scan([str(path)], quiet=quiet)
-        deduped = _dedupe_frames(frames)
-        main_frames, auth_frames = _split_main_and_auth_frames(deduped)
-        ciphertext = reassemble_payload(
-            main_frames,
-            expected_frame_type=FrameType.MAIN_DOCUMENT,
-        )
-        doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
-        if doc_id != expected_doc_id or doc_hash != expected_doc_hash:
-            raise ApiCommandError(
-                code=EXTENSION_MAIN_CARRIER_INVALID,
-                message=(
-                    f"rendered MAIN carrier {path.name} does not match the planned "
-                    "extension ciphertext"
-                ),
-            )
-        auth_payload, _auth_status = _resolve_auth_payload(
-            auth_frames,
-            doc_id=expected_doc_id,
-            doc_hash=expected_doc_hash,
-            allow_unsigned=False,
+        _validate_main_carrier_frames(
+            path=path,
+            frames=frames,
+            expected_doc_id=expected_doc_id,
+            expected_doc_hash=expected_doc_hash,
+            expected_sign_pub=expected_sign_pub,
             require_auth=require_auth,
             quiet=quiet,
         )
@@ -94,6 +93,75 @@ def validate_single_main_carrier(
             message=f"rendered MAIN carrier {path.name} is invalid: {exc}",
         ) from exc
 
+
+def validate_single_recovery_document_carrier(
+    *,
+    path: Path,
+    frames: tuple[Frame, ...],
+    expected_doc_id: bytes,
+    expected_doc_hash: bytes,
+    expected_sign_pub: bytes,
+    require_auth: bool,
+    quiet: bool,
+) -> None:
+    try:
+        _validate_recovery_document_pdf(path)
+        _validate_main_carrier_frames(
+            path=path,
+            frames=list(frames),
+            expected_doc_id=expected_doc_id,
+            expected_doc_hash=expected_doc_hash,
+            expected_sign_pub=expected_sign_pub,
+            require_auth=require_auth,
+            quiet=quiet,
+        )
+    except ApiCommandError:
+        raise
+    except Exception as exc:
+        raise ApiCommandError(
+            code=EXTENSION_MAIN_CARRIER_INVALID,
+            message=f"rendered recovery document {path.name} is invalid: {exc}",
+        ) from exc
+
+
+def _validate_recovery_document_pdf(path: Path) -> None:
+    reader = PdfReader(str(path))
+    if len(reader.pages) <= 0:
+        raise ValueError("recovery document must contain at least one page")
+
+
+def _validate_main_carrier_frames(
+    *,
+    path: Path,
+    frames: list[Frame],
+    expected_doc_id: bytes,
+    expected_doc_hash: bytes,
+    expected_sign_pub: bytes,
+    require_auth: bool,
+    quiet: bool,
+) -> None:
+    deduped = _dedupe_frames(list(frames))
+    main_frames, auth_frames = _split_main_and_auth_frames(deduped)
+    ciphertext = reassemble_payload(
+        main_frames,
+        expected_frame_type=FrameType.MAIN_DOCUMENT,
+    )
+    doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+    if doc_id != expected_doc_id or doc_hash != expected_doc_hash:
+        raise ApiCommandError(
+            code=EXTENSION_MAIN_CARRIER_INVALID,
+            message=(
+                f"rendered MAIN carrier {path.name} does not match the planned extension ciphertext"
+            ),
+        )
+    auth_payload, _auth_status = _resolve_auth_payload(
+        auth_frames,
+        doc_id=expected_doc_id,
+        doc_hash=expected_doc_hash,
+        allow_unsigned=False,
+        require_auth=require_auth,
+        quiet=quiet,
+    )
     if auth_payload is not None and auth_payload.sign_pub != expected_sign_pub:
         raise ApiCommandError(
             code=EXTENSION_MAIN_CARRIER_INVALID,

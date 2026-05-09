@@ -134,7 +134,7 @@ def execute_prepared_extend(
         plan: PreparedExtensionPublishPlan,
         rendered: RenderedExtensionArtifacts,
     ) -> None:
-        validate_staged_main_carrier(plan)
+        validate_staged_main_carrier(plan, rendered)
         validate_staged_shard_carriers(plan, rendered)
         validate_staged_recovery_kit_index_document(plan)
 

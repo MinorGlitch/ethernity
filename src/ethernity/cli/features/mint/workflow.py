@@ -30,7 +30,10 @@ from ethernity.cli.features.backup.execution import (
     _resolve_layout_debug_dir,
 )
 from ethernity.cli.features.backup.wizard import _prompt_quorum_choice
-from ethernity.cli.features.recover.chain import decode_imported_extension_link
+from ethernity.cli.features.recover.chain import (
+    decode_imported_extension_link,
+    decode_root_manifest,
+)
 from ethernity.cli.features.recover.input_collection import (
     RECOVERY_SCAN_LABEL,
     prompt_recovery_input_interactive,
@@ -86,7 +89,7 @@ from ethernity.crypto.sharding import (
 )
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import Frame
-from ethernity.extensions.chain import validate_extension_chain
+from ethernity.extensions.chain import reconstruct_latest_logical_state, validate_extension_chain
 from ethernity.formats.envelope_codec import decode_any_envelope, decode_envelope
 from ethernity.formats.envelope_types import EnvelopeManifest
 from ethernity.formats.extension_envelope import ExtensionEnvelope
@@ -1193,6 +1196,17 @@ def _resolve_mint_chain_target(
     decoded_links.sort(key=lambda item: item.link.document.header.index)
     try:
         validate_extension_chain(
+            root_doc_hash=plan.doc_hash,
+            extensions=tuple(item.link for item in decoded_links),
+        )
+        root_manifest, root_payload = decode_root_manifest(
+            ciphertext=plan.ciphertext,
+            passphrase=passphrase,
+            debug=debug,
+        )
+        reconstruct_latest_logical_state(
+            root_manifest,
+            root_payload,
             root_doc_hash=plan.doc_hash,
             extensions=tuple(item.link for item in decoded_links),
         )

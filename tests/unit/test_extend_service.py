@@ -22,11 +22,14 @@ from fpdf import FPDF
 
 from ethernity.cli.features.extend.main_carrier_validation import (
     validate_single_main_carrier as _validate_single_main_carrier,
+    validate_single_recovery_document_carrier as _validate_single_recovery_document_carrier,
+    validate_staged_main_carrier as _validate_staged_main_carrier,
     validate_staged_recovery_kit_index_document as _validate_staged_recovery_kit_index_document,
 )
 from ethernity.cli.features.extend.models import (
     ExtensionPassphraseShards,
     ExtensionSigningKeyShards,
+    RenderedExtensionArtifacts,
     ReuseRootPassphraseShards,
 )
 from ethernity.cli.features.extend.planning import ExtendInspection, ResolvedExtendState
@@ -980,6 +983,11 @@ class TestExtendService(unittest.TestCase):
                     "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
                     side_effect=_scan_main_carrier,
                 ),
+                mock.patch(
+                    "ethernity.cli.features.extend.main_carrier_validation."
+                    "_validate_recovery_document_pdf",
+                    return_value=None,
+                ),
             ):
                 result = run_extend(
                     ExtendArgs(
@@ -1092,6 +1100,118 @@ class TestExtendService(unittest.TestCase):
             self.assertFalse((root_dir / "extensions" / "02").exists())
             self.assertFalse((root_dir / "extensions" / ".staging-2-abc123").exists())
 
+    def test_run_extend_keeps_previous_head_when_recovery_document_validation_fails(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
+            existing_head = root_dir / "extensions" / "01"
+            existing_head.mkdir(parents=True)
+            marker = existing_head / "keep.txt"
+            marker.write_text("keep", encoding="utf-8")
+
+            resolved = _resolved_state(
+                diff_summary={
+                    "new_paths": ["new.txt"],
+                    "changed_paths": ["updated.txt"],
+                    "unchanged_paths": [],
+                    "missing_paths": [],
+                },
+            )
+            with mock.patch(
+                "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                return_value=resolved,
+            ):
+                prepared = prepare_extend_run(
+                    ExtendArgs(root_dir=str(root_dir), input=["/tmp/root/example.txt"])
+                )
+                with mock.patch(
+                    "ethernity.cli.features.extend.prepare.encrypt_bytes_with_passphrase",
+                    side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
+                ):
+                    publish = prepare_staged_extension_publish(
+                        prepared,
+                        chunker=lambda data, _profile: (data,),
+                        nonce="abc123",
+                        publish_policy=ExtensionPublishPolicy(),
+                    )
+            qr_frames = [
+                Frame(
+                    version=VERSION,
+                    frame_type=FrameType.MAIN_DOCUMENT,
+                    doc_id=publish.encrypted.doc_id,
+                    index=0,
+                    total=1,
+                    data=publish.encrypted.ciphertext,
+                ),
+                Frame(
+                    version=VERSION,
+                    frame_type=FrameType.AUTH,
+                    doc_id=publish.encrypted.doc_id,
+                    index=0,
+                    total=1,
+                    data=b"auth",
+                ),
+            ]
+            invalid_recovery_frames = (
+                Frame(
+                    version=VERSION,
+                    frame_type=FrameType.MAIN_DOCUMENT,
+                    doc_id=publish.encrypted.doc_id,
+                    index=0,
+                    total=1,
+                    data=b"wrong",
+                ),
+            )
+            rendered = RenderedExtensionArtifacts(
+                passphrase_shards=(),
+                signing_key_shards=(),
+                recovery_document_fallback_frames=invalid_recovery_frames,
+            )
+
+            def _renderer(plan) -> RenderedExtensionArtifacts:
+                plan.artifacts.qr_document_path.write_bytes(b"qr")
+                plan.artifacts.recovery_document_path.write_bytes(b"recovery")
+                return rendered
+
+            def _post_validate(plan, result) -> None:
+                _validate_staged_main_carrier(plan, result)
+
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
+                    return_value=qr_frames,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.main_carrier_validation._validate_recovery_document_pdf",
+                    return_value=None,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.main_carrier_validation._resolve_auth_payload",
+                    return_value=(
+                        AuthPayload(
+                            version=1,
+                            doc_hash=publish.encrypted.doc_hash,
+                            sign_pub=derive_public_key(resolved.signing_seed),
+                            signature=b"\x77" * 64,
+                        ),
+                        "verified",
+                    ),
+                ),
+            ):
+                with self.assertRaises(ApiCommandError) as ctx:
+                    execute_staged_extension_publish(
+                        publish,
+                        renderer=_renderer,
+                        post_validate=_post_validate,
+                    )
+
+            self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
+            self.assertIn("recovery_document-", str(ctx.exception))
+            self.assertTrue(existing_head.exists())
+            self.assertEqual(marker.read_text(encoding="utf-8"), "keep")
+            self.assertFalse((root_dir / "extensions" / "02").exists())
+            self.assertFalse((root_dir / "extensions" / ".staging-2-abc123").exists())
+
     def test_run_extend_keeps_previous_head_when_shard_validation_fails(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
@@ -1155,6 +1275,11 @@ class TestExtendService(unittest.TestCase):
                 mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
                     side_effect=lambda *_args, **_kwargs: list(captured["frames"]),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.main_carrier_validation."
+                    "_validate_recovery_document_pdf",
+                    return_value=None,
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation._resolve_auth_payload",
@@ -1290,6 +1415,11 @@ class TestExtendService(unittest.TestCase):
                 mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
                     side_effect=lambda *_args, **_kwargs: list(captured["frames"]),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.main_carrier_validation."
+                    "_validate_recovery_document_pdf",
+                    return_value=None,
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation._resolve_auth_payload",
@@ -1669,6 +1799,55 @@ class TestExtendService(unittest.TestCase):
 
         self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
         self.assertIn("missing auth payload", str(ctx.exception))
+
+    def test_validate_single_recovery_document_carrier_uses_render_contract_frames(self) -> None:
+        ciphertext = b"enc:extension"
+        doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+        auth_frame = Frame(
+            version=VERSION,
+            frame_type=FrameType.AUTH,
+            doc_id=doc_id,
+            index=0,
+            total=1,
+            data=b"auth",
+        )
+        main_frame = Frame(
+            version=VERSION,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=doc_id,
+            index=0,
+            total=1,
+            data=ciphertext,
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.extend.main_carrier_validation."
+                "_validate_recovery_document_pdf",
+                return_value=None,
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.main_carrier_validation._resolve_auth_payload",
+                return_value=(
+                    AuthPayload(
+                        version=1,
+                        doc_hash=doc_hash,
+                        sign_pub=b"\x44" * 32,
+                        signature=b"\x55" * 64,
+                    ),
+                    "verified",
+                ),
+            ),
+        ):
+            _validate_single_recovery_document_carrier(
+                path=Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf"),
+                frames=(auth_frame, main_frame),
+                expected_doc_id=doc_id,
+                expected_doc_hash=doc_hash,
+                expected_sign_pub=b"\x44" * 32,
+                require_auth=True,
+                quiet=True,
+            )
 
     def test_validate_single_main_carrier_rejects_mismatched_auth_for_recovery_document_scan(
         self,
