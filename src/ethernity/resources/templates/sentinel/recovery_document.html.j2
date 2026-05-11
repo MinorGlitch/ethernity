@@ -211,7 +211,7 @@
           <div class="px-4 pb-4 space-y-2">
             {% if recovery.quorum_value %}
             <div>
-              <p class="text-[10px] font-bold uppercase text-text-secondary-light mb-1">Shard Quorum</p>
+              <p class="text-[10px] font-bold uppercase text-text-secondary-light mb-1">{{ recovery.quorum_label }}</p>
               <div class="border border-border-light p-2 font-mono text-xs bg-[#faf8f4]">{{ recovery.quorum_value }}</div>
             </div>
             {% endif %}

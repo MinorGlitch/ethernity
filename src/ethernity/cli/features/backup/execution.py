@@ -61,27 +61,32 @@ from ethernity.formats import (
 )
 from ethernity.formats.envelope_types import PayloadPart
 from ethernity.qr.capacity import choose_frame_chunk_size
-from ethernity.render.doc_types import DOC_TYPE_KIT_INDEX, DOC_TYPE_SIGNING_KEY_SHARD
+from ethernity.render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
+from ethernity.render.layout_debug import (
+    layout_debug_json_path,
+    resolve_layout_debug_dir,
+)
+from ethernity.render.proofs import (
+    validate_fallback_render_proof,
+    validate_fallback_text_in_pdf,
+    validate_pdf_has_pages,
+    validate_render_artifact_proof,
+    validate_text_in_pdf,
+)
 from ethernity.render.recovery_meta import build_recovery_meta
 from ethernity.render.service import RenderService
-from ethernity.render.types import RenderInputs, RenderLineage
+from ethernity.render.types import RenderInputs, RenderLineage, RenderResult
 
 _KIT_INDEX_TEMPLATE_NAME = "kit_index_document.html.j2"
 _KIT_INDEX_TEMPLATE_MARKER = "kit_index_inventory_artifacts_v3"
 
 
 def _resolve_layout_debug_dir(path: str | None) -> str | None:
-    if path is None or not path.strip():
-        return None
-    resolved = Path(path).expanduser().resolve()
-    resolved.mkdir(parents=True, exist_ok=True)
-    return str(resolved)
+    return resolve_layout_debug_dir(path)
 
 
 def _layout_debug_json_path(layout_debug_dir: str | None, stem: str) -> str | None:
-    if layout_debug_dir is None:
-        return None
-    return str(Path(layout_debug_dir) / f"{stem}.layout.json")
+    return layout_debug_json_path(layout_debug_dir, stem)
 
 
 def _is_compatible_kit_index_template(path: Path) -> bool:
@@ -155,6 +160,69 @@ def _build_kit_index_inventory_rows(
     return rows
 
 
+def _expected_kit_index_component_ids(inputs: RenderInputs) -> tuple[str, ...]:
+    rows = inputs.context.get("inventory_rows")
+    if not isinstance(rows, list):
+        return ()
+    component_ids: list[str] = []
+    for row in rows:
+        if isinstance(row, dict) and isinstance(row.get("component_id"), str):
+            component_ids.append(row["component_id"])
+    return tuple(component_ids)
+
+
+def _update_kit_index_qr_page_count(
+    kit_index_inputs: RenderInputs | None,
+    render_result: object,
+) -> None:
+    if (
+        kit_index_inputs is None
+        or not isinstance(render_result, RenderResult)
+        or render_result.artifact_proof is None
+        or render_result.artifact_proof.page_count <= 0
+    ):
+        return
+    kit_index_inputs.context["kit_qr_page_count"] = render_result.artifact_proof.page_count
+
+
+def _validate_rendered_pdf_artifact(
+    *,
+    inputs: RenderInputs,
+    result: object,
+    artifact_label: str,
+    fallback_frames: tuple[Frame, ...] = (),
+    expected_text: tuple[str, ...] = (),
+) -> None:
+    if not isinstance(result, RenderResult) or result.artifact_proof is None:
+        return
+    validate_render_artifact_proof(
+        artifact_label=artifact_label,
+        inputs=inputs,
+        artifact_proof=result.artifact_proof,
+    )
+    reader = validate_pdf_has_pages(inputs.output_path, artifact_label=artifact_label)
+    if fallback_frames:
+        fallback_proof = result.artifact_proof.fallback_proof or result.fallback_proof
+        validate_fallback_render_proof(
+            artifact_label=artifact_label,
+            frames=fallback_frames,
+            fallback_proof=fallback_proof,
+        )
+        validate_fallback_text_in_pdf(
+            artifact_label=artifact_label,
+            reader=reader,
+            fallback_proof=fallback_proof,
+        )
+    if expected_text:
+        validate_text_in_pdf(
+            artifact_label=artifact_label,
+            reader=reader,
+            expected_text=expected_text,
+            details_key="missing_component_ids",
+            missing_message=f"{artifact_label} is missing expected inventory rows",
+        )
+
+
 def _render_shard(
     shard: ShardPayload,
     *,
@@ -193,7 +261,12 @@ def _render_shard(
         layout_debug_json_path=layout_debug_json_path,
         lineage=lineage,
     )
-    render_module.render_frames_to_pdf(shard_inputs)
+    render_result = render_module.render_frames_to_pdf(shard_inputs)
+    _validate_rendered_pdf_artifact(
+        inputs=shard_inputs,
+        result=render_result,
+        artifact_label=f"rendered {filename_prefix} artifact",
+    )
     return shard_path
 
 
@@ -406,12 +479,24 @@ def _render_with_progress(
     task_id = progress_bar.add_task("Rendering documents...", total=render_total)
 
     progress_bar.update(task_id, description="Rendering QR document...")
-    render_module.render_frames_to_pdf(qr_inputs)
+    qr_result = render_module.render_frames_to_pdf(qr_inputs)
+    _validate_rendered_pdf_artifact(
+        inputs=qr_inputs,
+        result=qr_result,
+        artifact_label="rendered QR document",
+    )
+    _update_kit_index_qr_page_count(kit_index_inputs, qr_result)
     progress_bar.advance(task_id)
     _advance_render("Rendered QR document", kind="qr_document", path=qr_inputs.output_path)
 
     progress_bar.update(task_id, description="Rendering recovery document...")
-    render_module.render_frames_to_pdf(recovery_inputs)
+    recovery_result = render_module.render_frames_to_pdf(recovery_inputs)
+    _validate_rendered_pdf_artifact(
+        inputs=recovery_inputs,
+        result=recovery_result,
+        artifact_label="rendered recovery document",
+        fallback_frames=tuple(section.frame for section in recovery_inputs.fallback_sections or ()),
+    )
     progress_bar.advance(task_id)
     _advance_render(
         "Rendered recovery document",
@@ -421,7 +506,13 @@ def _render_with_progress(
 
     if kit_index_inputs is not None:
         progress_bar.update(task_id, description="Rendering recovery kit index...")
-        render_module.render_frames_to_pdf(kit_index_inputs)
+        kit_index_result = render_module.render_frames_to_pdf(kit_index_inputs)
+        _validate_rendered_pdf_artifact(
+            inputs=kit_index_inputs,
+            result=kit_index_result,
+            artifact_label="rendered recovery kit index",
+            expected_text=_expected_kit_index_component_ids(kit_index_inputs),
+        )
         progress_bar.advance(task_id)
         _advance_render(
             "Rendered recovery kit index",
@@ -533,11 +624,25 @@ def _render_without_progress(
         )
 
     with status("Rendering QR document...", quiet=status_quiet):
-        render_module.render_frames_to_pdf(qr_inputs)
+        qr_result = render_module.render_frames_to_pdf(qr_inputs)
+        _validate_rendered_pdf_artifact(
+            inputs=qr_inputs,
+            result=qr_result,
+            artifact_label="rendered QR document",
+        )
+        _update_kit_index_qr_page_count(kit_index_inputs, qr_result)
     _advance_render("Rendered QR document", kind="qr_document", path=qr_inputs.output_path)
 
     with status("Rendering recovery document...", quiet=status_quiet):
-        render_module.render_frames_to_pdf(recovery_inputs)
+        recovery_result = render_module.render_frames_to_pdf(recovery_inputs)
+        _validate_rendered_pdf_artifact(
+            inputs=recovery_inputs,
+            result=recovery_result,
+            artifact_label="rendered recovery document",
+            fallback_frames=tuple(
+                section.frame for section in recovery_inputs.fallback_sections or ()
+            ),
+        )
     _advance_render(
         "Rendered recovery document",
         kind="recovery_document",
@@ -546,7 +651,13 @@ def _render_without_progress(
 
     if kit_index_inputs is not None:
         with status("Rendering recovery kit index...", quiet=status_quiet):
-            render_module.render_frames_to_pdf(kit_index_inputs)
+            kit_index_result = render_module.render_frames_to_pdf(kit_index_inputs)
+            _validate_rendered_pdf_artifact(
+                inputs=kit_index_inputs,
+                result=kit_index_result,
+                artifact_label="rendered recovery kit index",
+                expected_text=_expected_kit_index_component_ids(kit_index_inputs),
+            )
         _advance_render(
             "Rendered recovery kit index",
             kind="recovery_kit_index",
@@ -801,7 +912,13 @@ def run_backup(
     kit_index_path = None
     if kit_index_template is not None:
         kit_index_path = str(output_dir_path / "recovery_kit_index.pdf")
-    layout_debug_dir = _resolve_layout_debug_dir(layout_debug_dir)
+    layout_debug_dir = resolve_layout_debug_dir(
+        layout_debug_dir,
+        forbidden_dirs={
+            "final output": output_dir,
+            "staging output": staging_output_dir,
+        },
+    )
     lineage = render_lineage or RenderLineage(kind="root_backup")
 
     render_service = RenderService(config)
@@ -815,20 +932,19 @@ def run_backup(
     )
     kit_index_context = render_service.base_context(
         {
+            "doc_id": doc_id.hex(),
             "inventory_rows": _build_kit_index_inventory_rows(
                 shard_payloads=shard_payloads,
                 signing_key_shard_payloads=signing_key_shard_payloads,
-            )
+            ),
         }
     )
     kit_index_inputs = (
-        render_service.kit_inputs(
-            qr_frames,
+        render_service.kit_index_inputs(
             kit_index_path,
-            qr_payloads=qr_payloads,
             context=kit_index_context,
             template_path=kit_index_template,
-            doc_type=DOC_TYPE_KIT_INDEX,
+            qr_chunk_count=len(qr_frames),
             layout_debug_json_path=_layout_debug_json_path(layout_debug_dir, "recovery_kit_index"),
             lineage=lineage,
         )

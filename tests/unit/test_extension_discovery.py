@@ -108,6 +108,32 @@ class TestExtensionDiscovery(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "non-canonical extension directory name"):
                 discover_extension_directories(tmpdir)
 
+    def test_rejects_canonical_extension_path_that_is_not_a_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            extensions_dir = Path(tmpdir) / "extensions"
+            extensions_dir.mkdir(parents=True)
+            self._write(extensions_dir / "01")
+
+            with self.assertRaisesRegex(ValueError, "extension directory must be a directory: 01"):
+                discover_extension_directories(tmpdir)
+
+    def test_validated_discovery_stops_before_canonical_file_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            extensions_dir = Path(tmpdir) / "extensions"
+            (extensions_dir / "01").mkdir(parents=True)
+            self._write(extensions_dir / "01" / "qr_document-01-deadbeefcafebabe.pdf")
+            self._write(extensions_dir / "01" / "recovery_document-01-deadbeefcafebabe.pdf")
+            self._write(extensions_dir / "02")
+
+            discovery = discover_validated_extension_directories(Path(tmpdir))
+
+        self.assertEqual([item.dir_name for item in discovery.directories], ["01"])
+        self.assertEqual(discovery.first_invalid_dir_name, "02")
+        self.assertEqual(
+            discovery.first_invalid_message,
+            "extension directory must be a directory: 02",
+        )
+
     def test_rejects_extension_directory_gaps(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             extensions_dir = Path(tmpdir) / "extensions"
@@ -127,7 +153,7 @@ class TestExtensionDiscovery(unittest.TestCase):
             (extensions_dir / "01").mkdir(parents=True)
             self._write(extensions_dir / "01" / "shard-01-deadbeefcafebabe-1-of-2.pdf")
 
-            with self.assertRaisesRegex(ValueError, "must contain both payload MAIN carriers"):
+            with self.assertRaisesRegex(ValueError, "must contain required MAIN documents"):
                 discover_extension_directories(tmpdir)
 
     def test_rejects_partial_payload_main_carrier_set(self) -> None:
@@ -136,7 +162,7 @@ class TestExtensionDiscovery(unittest.TestCase):
             (extensions_dir / "01").mkdir(parents=True)
             self._write(extensions_dir / "01" / "qr_document-01-deadbeefcafebabe.pdf")
 
-            with self.assertRaisesRegex(ValueError, "missing required payload MAIN carriers"):
+            with self.assertRaisesRegex(ValueError, "missing required MAIN documents"):
                 discover_extension_directories(tmpdir)
 
     def test_rejects_recovery_only_payload_main_carrier_set(self) -> None:
@@ -145,7 +171,7 @@ class TestExtensionDiscovery(unittest.TestCase):
             (extensions_dir / "01").mkdir(parents=True)
             self._write(extensions_dir / "01" / "recovery_document-01-deadbeefcafebabe.pdf")
 
-            with self.assertRaisesRegex(ValueError, "missing required payload MAIN carriers"):
+            with self.assertRaisesRegex(ValueError, "missing required MAIN documents"):
                 discover_extension_directories(tmpdir)
 
     def test_rejects_main_filename_index_mismatch(self) -> None:
@@ -239,7 +265,7 @@ class TestExtensionDiscovery(unittest.TestCase):
 
         self.assertEqual([item.dir_name for item in discovery.directories], ["01"])
         self.assertEqual(discovery.first_invalid_dir_name, "02")
-        self.assertIn("missing required payload MAIN carriers", discovery.first_invalid_message)
+        self.assertIn("missing required MAIN documents", discovery.first_invalid_message)
 
     def test_rejects_symlinked_extensions_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -38,7 +38,7 @@ from ethernity.cli.shared.types import BackupArgs, BackupResult, CompactArgs, In
 from ethernity.config import apply_template_design, load_app_config
 from ethernity.crypto import sharding as sharding_module
 from ethernity.crypto.signing import derive_public_key
-from ethernity.encoding.framing import Frame
+from ethernity.encoding.framing import Frame, FrameType
 from ethernity.render.types import RenderLineage
 
 
@@ -228,16 +228,32 @@ def run_compact(args: CompactArgs) -> BackupResult:
         if manifest.signing_seed is not None
         else (recover_plan.auth_payload.sign_pub if recover_plan.auth_payload is not None else None)
     )
+    unlock_passphrase_policy = _infer_passphrase_shard_policy_from_frames(
+        recover_plan.shard_frames,
+        sign_pub=sign_pub,
+        allow_unsigned=sign_pub is None,
+    )
 
     inherited = _infer_root_publish_policy(
         root_dir=str(root_dir),
         root_doc_id_hex=recover_plan.doc_id.hex(),
         root_doc_hash=recover_plan.doc_hash,
         sign_pub=sign_pub,
-        passphrase_shard_frames=recover_plan.shard_frames,
+        passphrase_shard_frames=_passphrase_shard_frames_for_doc(
+            recover_plan.shard_frames,
+            expected_doc_id=recover_plan.doc_id,
+            expected_doc_hash=recover_plan.doc_hash,
+        ),
         allow_unsigned=sign_pub is None,
         quiet=args.quiet,
     )
+    if unlock_passphrase_policy is not None:
+        inherited = _RootPublishPolicy(
+            passphrase_shard_threshold=unlock_passphrase_policy[0],
+            passphrase_shard_count=unlock_passphrase_policy[1],
+            signing_key_shard_threshold=inherited.signing_key_shard_threshold,
+            signing_key_shard_count=inherited.signing_key_shard_count,
+        )
     if (
         not manifest.sealed
         and inherited.signing_key_shard_count > 0
@@ -298,3 +314,68 @@ def run_compact(args: CompactArgs) -> BackupResult:
         render_lineage=RenderLineage(kind="compaction_checkpoint"),
         quiet=args.quiet,
     )
+
+
+def _passphrase_shard_frames_for_doc(
+    frames: Sequence[Frame],
+    *,
+    expected_doc_id: bytes,
+    expected_doc_hash: bytes,
+) -> tuple[Frame, ...]:
+    selected: list[Frame] = []
+    for frame in frames:
+        if frame.frame_type != FrameType.KEY_DOCUMENT or frame.doc_id != expected_doc_id:
+            continue
+        try:
+            payload = sharding_module.decode_shard_payload(frame.data)
+        except ValueError:
+            continue
+        if (
+            payload.key_type == sharding_module.KEY_TYPE_PASSPHRASE
+            and payload.doc_hash == expected_doc_hash
+        ):
+            selected.append(frame)
+    return tuple(selected)
+
+
+def _infer_passphrase_shard_policy_from_frames(
+    frames: Sequence[Frame],
+    *,
+    sign_pub: bytes | None,
+    allow_unsigned: bool,
+) -> tuple[int, int] | None:
+    passphrase_frames: list[Frame] = []
+    for frame in frames:
+        if frame.frame_type != FrameType.KEY_DOCUMENT:
+            continue
+        try:
+            payload = sharding_module.decode_shard_payload(frame.data)
+        except ValueError:
+            continue
+        if payload.key_type == sharding_module.KEY_TYPE_PASSPHRASE:
+            passphrase_frames.append(frame)
+    if not passphrase_frames:
+        return None
+
+    try:
+        shares = _validated_shard_payloads_from_frames(
+            passphrase_frames,
+            expected_doc_id=None,
+            expected_doc_hash=None,
+            expected_sign_pub=sign_pub,
+            allow_unsigned=allow_unsigned,
+            key_type=sharding_module.KEY_TYPE_PASSPHRASE,
+            secret_label="passphrase",
+        )
+    except InsufficientShardError as exc:
+        if exc.share_count is not None:
+            return exc.threshold, exc.share_count
+        raise ApiCommandError(
+            code=api_codes.COMPACT_INVALID_POLICY,
+            message=(
+                "source passphrase shards are under quorum; "
+                f"need at least {exc.threshold}, found {exc.provided_count}"
+            ),
+        ) from exc
+    first = shares[0]
+    return first.threshold, first.share_count

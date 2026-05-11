@@ -196,7 +196,7 @@ class TestUISummary(unittest.TestCase):
     @mock.patch("ethernity.cli.shared.ui.summary.panel")
     @mock.patch("ethernity.cli.shared.ui.summary.build_kv_table")
     @mock.patch("ethernity.cli.shared.ui.summary.build_recovered_tree")
-    def test_print_recover_summary_keeps_default_latest_output_unchanged(
+    def test_print_recover_summary_reports_default_latest_extension_target(
         self,
         build_recovered_tree: mock.MagicMock,
         build_kv_table: mock.MagicMock,
@@ -219,7 +219,8 @@ class TestUISummary(unittest.TestCase):
 
         rows = build_kv_table.call_args.args[0]
         self.assertNotIn(("Replay target", "explicit selection: extension 2"), rows)
-        self.assertNotIn(("Target doc hash", "cd" * 32), rows)
+        self.assertIn(("Replay target", "latest authenticated extension 2"), rows)
+        self.assertIn(("Target doc hash", "cd" * 32), rows)
 
     def test_print_recover_summary_quiet_noop(self) -> None:
         with mock.patch("ethernity.cli.shared.ui.summary.console_err.print") as print_err:

@@ -110,6 +110,7 @@ class RecoveryModel:
     passphrase: str | None
     passphrase_lines: tuple[str, ...]
     quorum_value: str | None
+    quorum_label: str
     signing_pub_lines: tuple[str, ...]
 
 
@@ -182,6 +183,7 @@ class TemplateContext:
             "passphrase": recovery.passphrase,
             "passphrase_lines": list(recovery.passphrase_lines),
             "quorum_value": recovery.quorum_value,
+            "quorum_label": recovery.quorum_label,
             "signing_pub_lines": list(recovery.signing_pub_lines),
         }
 

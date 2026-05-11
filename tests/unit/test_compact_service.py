@@ -239,6 +239,96 @@ class TestCompactService(unittest.TestCase):
         self.assertEqual(backup_args.shard_count, 3)
         self.assertTrue(backup_args.sealed)
 
+    def test_run_compact_preserves_extension_local_unlock_shard_policy(self) -> None:
+        root_doc_id = b"\x22" * 8
+        root_doc_hash = b"\x44" * 32
+        extension_doc_id = b"\x55" * 8
+        extension_doc_hash = b"\x66" * 32
+        sign_priv = b"\x33" * 32
+        sign_pub = derive_public_key(sign_priv)
+        shard_frames = _passphrase_shard_frames(
+            "secret passphrase",
+            threshold=2,
+            share_count=3,
+            doc_id=extension_doc_id,
+            doc_hash=extension_doc_hash,
+            sign_priv=sign_priv,
+        )[:2]
+        chain = SimpleNamespace(
+            manifest=EnvelopeManifest(
+                format_version=1,
+                created_at=1,
+                sealed=True,
+                signing_seed=None,
+                files=(ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1),),
+                input_origin="file",
+                input_roots=(),
+            ),
+            extracted=(
+                (ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1), b"data"),
+            ),
+        )
+        recover_plan = SimpleNamespace(
+            passphrase="secret passphrase",
+            doc_id=root_doc_id,
+            doc_hash=root_doc_hash,
+            auth_payload=SimpleNamespace(sign_pub=sign_pub),
+            shard_frames=shard_frames,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir()
+            output_dir = Path(tmpdir) / "compacted"
+            with (
+                mock.patch(
+                    "ethernity.cli.features.compact.service.plan_recover_from_args",
+                    return_value=recover_plan,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.compact.service.recover_chain_entries",
+                    return_value=chain,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.compact.service.load_app_config",
+                    return_value=SimpleNamespace(),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.compact.service.apply_template_design",
+                    side_effect=lambda config, _design: config,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.compact.service.apply_qr_chunk_size_override",
+                    side_effect=lambda config, _size: config,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.compact.service.plan_backup_from_args",
+                    return_value=SimpleNamespace(
+                        sealed=True,
+                        sharding=None,
+                        signing_seed_mode="embedded",
+                        signing_seed_sharding=None,
+                    ),
+                ) as plan_backup_from_args,
+                mock.patch(
+                    "ethernity.cli.features.compact.service.run_backup",
+                    return_value="backup-result",
+                ),
+            ):
+                result = run_compact(
+                    CompactArgs(
+                        root_dir=str(root_dir),
+                        output_dir=str(output_dir),
+                        shard_scan=["/separate/extension-shard-a.pdf"],
+                        quiet=True,
+                    )
+                )
+
+        self.assertEqual(result, "backup-result")
+        backup_args = plan_backup_from_args.call_args.args[0]
+        self.assertEqual(backup_args.shard_threshold, 2)
+        self.assertEqual(backup_args.shard_count, 3)
+        self.assertTrue(backup_args.sealed)
+
     @mock.patch("ethernity.cli.features.compact.service.run_backup")
     @mock.patch(
         "ethernity.cli.features.compact.service.recover_chain_entries",
@@ -246,12 +336,12 @@ class TestCompactService(unittest.TestCase):
             code=api_codes.RECOVERY_HEAD_UNTRUSTED,
             message=(
                 "latest supplied recovery head could not be trusted: "
-                "missing required payload MAIN carriers"
+                "missing required MAIN documents"
             ),
             details={
                 "stage": "replay",
                 "failure_stage": "discovery",
-                "failure_message": "missing required payload MAIN carriers",
+                "failure_message": "missing required MAIN documents",
                 "failure_head_index": 2,
                 "failure_head_doc_hash": None,
                 "failure_head_dir_name": "02",
@@ -305,7 +395,7 @@ class TestCompactService(unittest.TestCase):
             str(exc),
             (
                 "latest supplied compact head could not be trusted; no checkpoint was created: "
-                "missing required payload MAIN carriers"
+                "missing required MAIN documents"
             ),
         )
         self.assertEqual(exc.details["stage"], "replay")

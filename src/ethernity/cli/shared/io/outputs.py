@@ -27,6 +27,11 @@ import uuid
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
+from ethernity.artifacts.publish import (
+    create_sibling_staging_dir,
+    discard_staged_artifact_dir,
+    promote_staged_artifact_dir,
+)
 from ethernity.cli.shared.paths import expanduser_cli_path
 from ethernity.core.validation import normalize_path
 
@@ -110,9 +115,7 @@ def _prepare_output_dir(
             "use a different --output-dir path or remove the existing directory"
         )
     _ensure_directory(normalized.parent, exist_ok=True)
-    staging_dir = Path(
-        tempfile.mkdtemp(prefix=f".{normalized.name}.tmp-", dir=str(normalized.parent))
-    )
+    staging_dir = create_sibling_staging_dir(normalized)
     _harden_dir_permissions(staging_dir)
     return str(normalized), str(staging_dir)
 
@@ -120,18 +123,13 @@ def _prepare_output_dir(
 def _commit_prepared_output_dir(staging_dir: str | Path, final_dir: str | Path) -> str:
     """Promote a staged output directory into place."""
 
-    staging_path = Path(staging_dir)
-    final_path = Path(final_dir)
-    staging_path.replace(final_path)
-    return str(final_path)
+    return str(promote_staged_artifact_dir(staging_dir, final_dir))
 
 
 def _discard_prepared_output_dir(staging_dir: str | Path | None) -> None:
     """Remove a staged output directory when a render fails."""
 
-    if staging_dir is None:
-        return
-    shutil.rmtree(staging_dir, ignore_errors=True)
+    discard_staged_artifact_dir(staging_dir)
 
 
 def _safe_join(base: Path, relative: str) -> Path:

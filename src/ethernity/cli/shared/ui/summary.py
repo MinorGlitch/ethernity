@@ -39,6 +39,16 @@ def _recover_target_rows(
     selected_extension_doc_hash: str | None,
 ) -> list[tuple[str, str]]:
     if requested_extension_index is None and requested_extension_doc_hash is None:
+        if selected_extension_index is not None:
+            latest_rows = [
+                (
+                    "Replay target",
+                    f"latest supplied authenticated extension {selected_extension_index}",
+                )
+            ]
+            if selected_extension_doc_hash is not None:
+                latest_rows.append(("Target doc hash", selected_extension_doc_hash))
+            return latest_rows
         return []
     if requested_extension_index == 0:
         return [("Replay target", "explicit selection: root backup (extension 0)")]

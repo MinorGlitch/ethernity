@@ -19,6 +19,7 @@ from unittest import mock
 
 from ethernity.cli.features.recover.chain import (
     ImportedRecoveryDocument,
+    imported_documents_from_recovery_frames,
     recover_chain_entries,
 )
 from ethernity.cli.features.recover.planning import RecoveryPlan
@@ -195,6 +196,103 @@ class TestRecoverChain(unittest.TestCase):
         )
         self.assertEqual(result.manifest.input_origin, "directory")
         self.assertEqual(result.manifest.input_roots, ("reconstructed-state",))
+
+    def test_recover_chain_entries_rejects_imported_doc_id_collision(self) -> None:
+        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+        extension_ciphertext = _extension_ciphertext(root_doc_hash)
+        _extension_doc_id, extension_doc_hash = _doc_id_and_hash_from_ciphertext(
+            extension_ciphertext
+        )
+        plan = dataclasses.replace(
+            _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
+            import_documents=(
+                _imported_document(root_ciphertext, source_label="scan0001.pdf"),
+                ImportedRecoveryDocument(
+                    doc_id=root_doc_id,
+                    doc_hash=extension_doc_hash,
+                    ciphertext=extension_ciphertext,
+                    auth_frames=(_extension_auth_frame(root_doc_id, extension_doc_hash),),
+                    source_label="colliding-extension.pdf",
+                ),
+            ),
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                side_effect=lambda data, *, passphrase, debug=False: data,
+            ),
+            self.assertRaises(ApiCommandError) as caught,
+        ):
+            recover_chain_entries(plan, quiet=True)
+
+        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertIn("doc_id collides", str(caught.exception))
+        self.assertEqual(caught.exception.details["stage"], "selection")
+        self.assertEqual(caught.exception.details["root_doc_id"], root_doc_id.hex())
+        self.assertEqual(caught.exception.details["colliding_doc_hash"], extension_doc_hash.hex())
+
+    def test_imported_documents_reject_raw_main_frame_doc_id_collision(self) -> None:
+        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+        extension_ciphertext = _extension_ciphertext(root_doc_hash)
+        frames = [
+            Frame(
+                version=VERSION,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=root_doc_id,
+                index=0,
+                total=1,
+                data=root_ciphertext,
+            ),
+            Frame(
+                version=VERSION,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=root_doc_id,
+                index=0,
+                total=1,
+                data=extension_ciphertext,
+            ),
+        ]
+
+        with self.assertRaisesRegex(ValueError, "conflicting duplicate frames"):
+            imported_documents_from_recovery_frames(frames)
+
+    def test_recover_chain_entries_rejects_duplicate_authenticated_extension_index(self) -> None:
+        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+        first_ciphertext = _extension_ciphertext(root_doc_hash, index=1, data=b"one")
+        first_doc_id, first_doc_hash = _doc_id_and_hash_from_ciphertext(first_ciphertext)
+        second_ciphertext = _extension_ciphertext(root_doc_hash, index=1, data=b"two")
+        second_doc_id, second_doc_hash = _doc_id_and_hash_from_ciphertext(second_ciphertext)
+        plan = dataclasses.replace(
+            _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
+            import_documents=(
+                _imported_document(root_ciphertext, source_label="scan0001.pdf"),
+                _imported_document(
+                    first_ciphertext,
+                    auth_frames=(_extension_auth_frame(first_doc_id, first_doc_hash),),
+                    source_label="extension-one.pdf",
+                ),
+                _imported_document(
+                    second_ciphertext,
+                    auth_frames=(_extension_auth_frame(second_doc_id, second_doc_hash),),
+                    source_label="extension-two.pdf",
+                ),
+            ),
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                side_effect=lambda data, *, passphrase, debug=False: data,
+            ),
+            self.assertRaises(ApiCommandError) as caught,
+        ):
+            recover_chain_entries(plan, quiet=True)
+
+        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertIn("multiple authenticated extensions for index 1", str(caught.exception))
+        self.assertEqual(caught.exception.details["stage"], "selection")
+        self.assertEqual(caught.exception.details["extension_index"], 1)
 
     def test_recover_chain_entries_wraps_replay_topology_failure_as_untrusted_head(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()

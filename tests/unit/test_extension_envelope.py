@@ -193,6 +193,47 @@ class TestExtensionEnvelope(unittest.TestCase):
         self.assertEqual(reconstructed[0][0].path, "docs/update.txt")
         self.assertEqual(reconstructed[0][1], chunk_bytes)
 
+    def test_reconstruct_rejects_inline_chunk_already_available(self) -> None:
+        chunk_bytes = b"duplicate root chunk"
+        chunk_id = hashlib.sha256(chunk_bytes).digest()
+        header = build_extension_header(
+            index=1,
+            parent_doc_hash=TEST_DOC_HASH,
+            root_doc_hash=TEST_ROOT_DOC_HASH,
+            chunking=_make_profile(),
+            input_origin="file",
+            input_roots=(),
+            created_at=123,
+        )
+        envelope = ExtensionEnvelope(
+            header=header,
+            files=(
+                ExtensionFile(
+                    path="docs/update.txt",
+                    size=len(chunk_bytes),
+                    sha256=chunk_id,
+                    mtime=1,
+                    chunk_refs=(
+                        ExtensionChunkRef(
+                            chunk_id=chunk_id,
+                            uncompressed_len=len(chunk_bytes),
+                        ),
+                    ),
+                ),
+            ),
+            chunks=(
+                ExtensionChunkRecord(
+                    chunk_id=chunk_id,
+                    codec=CHUNK_CODEC_RAW,
+                    raw_len=len(chunk_bytes),
+                    data=chunk_bytes,
+                ),
+            ),
+        )
+
+        with self.assertRaisesRegex(ValueError, "newly introduced"):
+            envelope.reconstruct_files(available_chunks={chunk_id: chunk_bytes})
+
     def test_reconstruct_rejects_noncanonical_chunk_refs(self) -> None:
         file_bytes = b"abcdefgh"
         first = b"abcd"

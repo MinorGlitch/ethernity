@@ -32,12 +32,14 @@ from ethernity.extensions.build import BuiltExtensionDocument
 from ethernity.extensions.chain import LogicalFileState
 from ethernity.extensions.staging import ExtensionPublishPolicy, PlannedStagedExtensionArtifacts
 from ethernity.formats.extension_envelope import ExtensionChunkingProfile
+from ethernity.render.types import RenderFallbackProof
 
 EXTENSION_INPUT_REQUIRED = "EXTENSION_INPUT_REQUIRED"
 EXTENSION_NO_CHANGES = "EXTENSION_NO_CHANGES"
 EXTENSION_INVALID_POLICY = "EXTENSION_INVALID_POLICY"
 EXTENSION_MAIN_CARRIER_INVALID = "EXTENSION_MAIN_CARRIER_INVALID"
 EXTENSION_SHARD_CARRIER_INVALID = "EXTENSION_SHARD_CARRIER_INVALID"
+EXTENSION_TOO_LARGE = "EXTENSION_TOO_LARGE"
 
 
 @dataclass(frozen=True)
@@ -92,6 +94,7 @@ class RenderedExtensionArtifacts:
     passphrase_shards: tuple[sharding_module.ShardPayload, ...]
     signing_key_shards: tuple[sharding_module.ShardPayload, ...]
     recovery_document_fallback_frames: tuple[Frame, ...]
+    recovery_document_fallback_proof: RenderFallbackProof | None = None
 
 
 @dataclass(frozen=True)
@@ -107,6 +110,8 @@ class PublishedExtensionResult:
     recovery_kit_index_path: Path | None
     shard_paths: tuple[Path, ...]
     signing_key_shard_paths: tuple[Path, ...]
+    root_passphrase_shard_threshold: int | None = None
+    root_passphrase_shard_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -234,6 +239,7 @@ __all__ = [
     "EXTENSION_MAIN_CARRIER_INVALID",
     "EXTENSION_NO_CHANGES",
     "EXTENSION_SHARD_CARRIER_INVALID",
+    "EXTENSION_TOO_LARGE",
     "ExtensionPassphraseShards",
     "ExtensionSigningKeyShards",
     "ExtensionArtifactPostValidator",

@@ -22,8 +22,8 @@ import gzip
 import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Protocol
 
-from ethernity.cli.shared.types import InputFile
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
 from ethernity.core.validation import normalize_manifest_path
 from ethernity.formats.extension_chunking import (
@@ -56,13 +56,24 @@ class BuiltExtensionDocument:
     stats: ExtensionBuildStats
 
 
+class ExtensionInputFile(Protocol):
+    @property
+    def relative_path(self) -> str: ...
+
+    @property
+    def data(self) -> bytes: ...
+
+    @property
+    def mtime(self) -> int | None: ...
+
+
 def build_extension_document(
     *,
     index: int,
     parent_doc_hash: bytes,
     root_doc_hash: bytes,
     chunking: ExtensionChunkingProfile,
-    input_files: Sequence[InputFile],
+    input_files: Sequence[ExtensionInputFile],
     input_origin: str,
     input_roots: Sequence[str],
     chunker: Chunker,
@@ -102,19 +113,23 @@ def build_extension_document(
             "existing logical state exceeds MAX_MANIFEST_FILES "
             f"({MAX_MANIFEST_FILES}): {len(known_file_sizes)} entries"
         )
+    final_file_sizes = dict(known_file_sizes)
+    final_logical_bytes = existing_logical_bytes
+    for item in normalized_files:
+        normalized_path = normalize_manifest_path(item.relative_path, label="extension file path")
+        previous_size = final_file_sizes.get(normalized_path, 0)
+        final_logical_bytes += len(item.data) - previous_size
+        final_file_sizes[normalized_path] = len(item.data)
+    if len(final_file_sizes) > MAX_MANIFEST_FILES:
+        raise ValueError(
+            "logical latest state exceeds MAX_MANIFEST_FILES "
+            f"({MAX_MANIFEST_FILES}): {len(final_file_sizes)} entries"
+        )
+    if final_logical_bytes > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+        raise ValueError("logical latest state exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES")
 
     for item in normalized_files:
         logical_bytes += len(item.data)
-        normalized_path = normalize_manifest_path(item.relative_path, label="extension file path")
-        if normalized_path not in known_file_sizes and len(known_file_sizes) >= MAX_MANIFEST_FILES:
-            raise ValueError(
-                "logical latest state exceeds MAX_MANIFEST_FILES "
-                f"({MAX_MANIFEST_FILES}): {len(known_file_sizes) + 1} entries"
-            )
-        previous_size = known_file_sizes.get(normalized_path, 0)
-        total_logical_bytes += len(item.data) - previous_size
-        if total_logical_bytes > MAX_DECOMPRESSED_PAYLOAD_BYTES:
-            raise ValueError("logical latest state exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES")
         chunk_refs, item_new_chunks, item_reused_chunks = _chunk_refs_for_file(
             data=item.data,
             chunking=chunking,
@@ -124,7 +139,6 @@ def build_extension_document(
         )
         new_chunks += item_new_chunks
         reused_chunks += item_reused_chunks
-        known_file_sizes[normalized_path] = len(item.data)
         files.append(
             ExtensionFile(
                 path=item.relative_path,

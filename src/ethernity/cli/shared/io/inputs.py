@@ -87,6 +87,7 @@ def _load_input_files(
             has_file_source = True
             continue
         path = Path(expanduser_cli_path(raw, preserve_stdin=False) or "")
+        _reject_symlink(path, "input path")
         if path.is_dir():
             has_directory_source = True
             input_roots.append(_directory_root_label(path))
@@ -98,6 +99,7 @@ def _load_input_files(
 
     for raw in input_dirs:
         path = Path(expanduser_cli_path(raw, preserve_stdin=False) or "")
+        _reject_symlink(path, "input dir")
         if not path.exists():
             raise _missing_path_error(path, "input dir not found")
         if not path.is_dir():
@@ -131,6 +133,7 @@ def _load_input_files(
         progress.refresh()
     read = 0
     for path in paths:
+        _reject_symlink(path, "input file")
         if not path.exists():
             raise _missing_path_error(path, "input file not found")
         if not path.is_file():
@@ -190,14 +193,21 @@ def _load_input_files(
 
 
 def _walk_directory(path: Path, *, on_file: Callable[[], None] | None = None) -> list[Path]:
+    _reject_symlink(path, "input dir")
     if not path.exists():
         raise _missing_path_error(path, "input dir not found")
     if not path.is_dir():
         raise ValueError(f"input dir is not a directory: {path}")
     files: list[Path] = []
-    for root, _dirs, filenames in os.walk(path):
+    for root, dirs, filenames in os.walk(path):
+        root_path = Path(root)
+        for dirname in dirs:
+            child = root_path / dirname
+            _reject_symlink(child, "input directory entry")
         for filename in filenames:
-            files.append(Path(root) / filename)
+            child = root_path / filename
+            _reject_symlink(child, "input file")
+            files.append(child)
             if on_file is not None:
                 on_file()
     return files
@@ -205,7 +215,9 @@ def _walk_directory(path: Path, *, on_file: Callable[[], None] | None = None) ->
 
 def _resolve_base_dir(paths: list[Path], base_dir: str | None) -> Path | None:
     if base_dir:
-        resolved = Path(expanduser_cli_path(base_dir, preserve_stdin=False) or "").resolve()
+        raw_base = Path(expanduser_cli_path(base_dir, preserve_stdin=False) or "")
+        _reject_symlink(raw_base, "base dir")
+        resolved = raw_base.resolve()
         if not resolved.exists():
             raise _missing_path_error(resolved, "base dir not found")
         if not resolved.is_dir():
@@ -236,9 +248,14 @@ def _relative_path(path: Path, base_dir: Path | None) -> str:
         raise ValueError(f"input file path is not valid UTF-8: {path!r}") from exc
 
 
+def _reject_symlink(path: Path, label: str) -> None:
+    if path.is_symlink():
+        raise ValueError(f"{label} must not be a symlink: {path}")
+
+
 def _directory_root_label(path: Path) -> str:
     resolved = path.expanduser().resolve()
-    label = resolved.name.strip()
+    label = resolved.name
     if label:
         return label
 

@@ -18,11 +18,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from ethernity.cli.features.backup import execution as backup_execution
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.config import BackupDefaults, apply_template_design, load_app_config
 from ethernity.crypto.signing import derive_public_key
+from ethernity.render.layout_debug import ensure_layout_debug_dir_allowed, resolve_layout_debug_dir
 
 from .models import (
     EXTENSION_INVALID_POLICY,
@@ -87,7 +90,8 @@ def resolve_extend_policy(
             raise ApiCommandError(
                 code=EXTENSION_INVALID_POLICY,
                 message=(
-                    "unlock_policy=reuse-root requires unlocking with passphrase shard inputs"
+                    "unlock_policy=reuse-root requires a published or supplied root "
+                    "passphrase shard policy"
                 ),
             )
         return ResolvedExtendPolicy(
@@ -99,12 +103,18 @@ def resolve_extend_policy(
             signing_key=SigningKeyNotStored(),
         )
 
+    requested_passphrase_threshold = (
+        args.shard_threshold
+        if args.shard_threshold is not None
+        else (0 if args.shard_count == 0 else defaults.shard_threshold)
+    )
+    requested_passphrase_count = (
+        args.shard_count if args.shard_count is not None else defaults.shard_count
+    )
     passphrase_shard_threshold, passphrase_shard_count = resolve_quorum_override(
         label="passphrase shards",
-        requested_threshold=(
-            args.shard_threshold if args.shard_threshold is not None else defaults.shard_threshold
-        ),
-        requested_count=args.shard_count if args.shard_count is not None else defaults.shard_count,
+        requested_threshold=requested_passphrase_threshold,
+        requested_count=requested_passphrase_count,
         inherited_threshold=root_passphrase_shard_threshold,
         inherited_count=root_passphrase_shard_count,
     )
@@ -153,6 +163,16 @@ def resolve_extend_policy(
             share_count=passphrase_shard_count,
         )
     else:
+        if args.shard_count != 0:
+            raise ApiCommandError(
+                code=EXTENSION_INVALID_POLICY,
+                message=(
+                    "extend would write a recovery document containing the plaintext "
+                    "passphrase. Configure extension passphrase shards with --shard-count "
+                    "and --shard-threshold, use --unlock-policy reuse-root with root shards, "
+                    "or pass --shard-count 0 to explicitly choose plaintext passphrase output."
+                ),
+            )
         passphrase_policy = PlaintextPassphrase()
 
     return ResolvedExtendPolicy(
@@ -191,12 +211,43 @@ def resolve_extend_runtime(
         config=config,
         qr_chunk_size=qr_chunk_size,
         qr_payload_codec=config.cli_defaults.backup.qr_payload_codec,
-        layout_debug_dir=backup_execution._resolve_layout_debug_dir(prepared.args.layout_debug_dir),
+        layout_debug_dir=resolve_extend_layout_debug_dir(
+            prepared.args.layout_debug_dir,
+            root_dir=prepared.args.root_dir,
+        ),
         passphrase=policy.passphrase,
         signing_key=policy.signing_key,
         sign_pub=sign_pub,
         kit_index_template_path=kit_index_template_path,
     )
+
+
+def resolve_extend_layout_debug_dir(path: str | None, *, root_dir: str | None) -> str | None:
+    if path is None or not path.strip():
+        return None
+    debug_dir = Path(path).expanduser().resolve()
+    ensure_extend_layout_debug_dir_allowed(debug_dir, root_dir=root_dir)
+    return resolve_layout_debug_dir(str(debug_dir))
+
+
+def ensure_extend_layout_debug_dir_allowed(path: str | Path, *, root_dir: str | None) -> None:
+    debug_dir = Path(path).expanduser().resolve()
+    if root_dir:
+        extensions_dir = Path(root_dir).expanduser().resolve() / "extensions"
+        try:
+            ensure_layout_debug_dir_allowed(
+                debug_dir,
+                forbidden_dirs={"extensions directory": extensions_dir},
+            )
+        except ValueError as exc:
+            raise ApiCommandError(
+                code=EXTENSION_INVALID_POLICY,
+                message=(
+                    "--layout-debug-dir must not be inside the backup root extensions "
+                    "directory; choose a separate diagnostics directory"
+                ),
+                details={"layout_debug_dir": str(debug_dir), "extensions_dir": str(extensions_dir)},
+            ) from exc
 
 
 def resolve_quorum_override(

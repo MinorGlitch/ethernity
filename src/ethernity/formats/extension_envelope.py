@@ -41,7 +41,7 @@ from ethernity.core.validation import (
 )
 from ethernity.encoding.cbor import dumps_canonical, loads_canonical
 from ethernity.encoding.varint import decode_uvarint, encode_uvarint
-from ethernity.formats.envelope_codec import MAGIC
+from ethernity.formats.envelope_constants import MAGIC
 from ethernity.formats.envelope_types import MAX_MANIFEST_FILES
 from ethernity.formats.extension_chunking import require_canonical_chunk_refs
 from ethernity.formats.extension_envelope_constants import (
@@ -469,8 +469,10 @@ class ExtensionEnvelope:
         for chunk_record in self.chunks:
             decoded_chunk = chunk_record.decode_data()
             existing = chunk_bytes.get(chunk_record.chunk_id)
-            if existing is not None and existing != decoded_chunk:
-                raise ValueError("extension available_chunks conflict with inline chunk bytes")
+            if existing is not None:
+                if existing != decoded_chunk:
+                    raise ValueError("extension available_chunks conflict with inline chunk bytes")
+                raise ValueError("extension chunks must be newly introduced")
             chunk_bytes[chunk_record.chunk_id] = decoded_chunk
         reconstructed: list[tuple[ExtensionFile, bytes]] = []
         total_reconstructed = 0

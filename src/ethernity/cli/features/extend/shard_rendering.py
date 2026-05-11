@@ -23,15 +23,16 @@ from typing import Any, Callable
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.crypto import sharding as sharding_module
 from ethernity.encoding.framing import VERSION, Frame, FrameType
-from ethernity.render.doc_types import DOC_TYPE_KIT_INDEX, DOC_TYPE_SIGNING_KEY_SHARD
+from ethernity.render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
 from ethernity.render.service import RenderService
-from ethernity.render.types import RenderInputs, RenderLineage
+from ethernity.render.types import RenderInputs, RenderLineage, RenderResult
 
 from .models import (
     ExtensionPassphraseShards,
     ExtensionSigningKeyShards,
     PreparedExtensionPublishPlan,
     ResolvedExtendRuntime,
+    ReuseRootPassphraseShards,
 )
 
 
@@ -96,25 +97,43 @@ def build_kit_index_inputs(
             "detail": f"Document ID {plan.encrypted.doc_id.hex()}",
             "status": "Generated",
         },
+        *_root_shard_dependency_rows(runtime.passphrase),
         *build_kit_index_inventory_rows(
             shard_payloads=list(passphrase_shards),
             signing_key_shard_payloads=list(signing_key_shards),
         ),
     ]
-    context = render_service.base_context({"inventory_rows": inventory_rows})
-    return render_service.kit_inputs(
-        qr_frames,
+    context = render_service.base_context(
+        {
+            "doc_id": plan.encrypted.doc_id.hex(),
+            "inventory_rows": inventory_rows,
+        }
+    )
+    return render_service.kit_index_inputs(
         output_path,
-        qr_payloads=render_service.build_qr_payloads(qr_frames, codec=runtime.qr_payload_codec),
         context=context,
         template_path=template_path,
-        doc_type=DOC_TYPE_KIT_INDEX,
+        qr_chunk_count=len(qr_frames),
         layout_debug_json_path=layout_debug_json_path(
             runtime.layout_debug_dir,
             "recovery_kit_index",
         ),
         lineage=lineage,
     )
+
+
+def _root_shard_dependency_rows(policy: object) -> list[dict[str, str]]:
+    if not isinstance(policy, ReuseRootPassphraseShards):
+        return []
+    return [
+        {
+            "component_id": "ROOT-SHARDS",
+            "detail": (
+                f"Requires root passphrase shard quorum {policy.threshold} of {policy.share_count}"
+            ),
+            "status": "External",
+        }
+    ]
 
 
 def render_extension_shard(
@@ -127,7 +146,7 @@ def render_extension_shard(
     qr_payload_codec: Any,
     layout_debug_dir: str | None,
     stem: str,
-    render_frames_to_pdf: Callable[[RenderInputs], None],
+    render_frames_to_pdf: Callable[[RenderInputs], RenderResult | None],
     layout_debug_json_path: Callable[[str | None, str], str | None],
     lineage: RenderLineage,
     doc_type: str | None = None,

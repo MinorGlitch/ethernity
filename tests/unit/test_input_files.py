@@ -77,6 +77,18 @@ class TestInputFiles(unittest.TestCase):
             rels = [entry.relative_path for entry in entries]
             self.assertEqual(rels, ["a.txt", "nested/b.txt"])
 
+    def test_directory_input_roots_preserve_leaf_whitespace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / " demo "
+            root.mkdir()
+            (root / "a.txt").write_bytes(b"A")
+
+            _entries, _base, _input_origin, input_roots = _load_input_files(
+                [], [str(root)], None, allow_stdin=False
+            )
+
+        self.assertEqual(input_roots, [" demo "])
+
     def test_duplicate_relative_paths_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "file.txt"
@@ -125,6 +137,66 @@ class TestInputFiles(unittest.TestCase):
             with mock.patch("pathlib.Path.is_dir", return_value=False):
                 with self.assertRaisesRegex(ValueError, "input path is not a file"):
                     _load_input_files([str(path)], [], None, allow_stdin=False)
+
+    def test_rejects_symlinked_input_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            target = root / "target.txt"
+            link = root / "link.txt"
+            target.write_text("secret", encoding="utf-8")
+            try:
+                link.symlink_to(target)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+
+            with self.assertRaisesRegex(ValueError, "input path must not be a symlink"):
+                _load_input_files([str(link)], [], None, allow_stdin=False)
+
+    def test_rejects_symlinked_input_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            target = root / "target"
+            link = root / "link"
+            target.mkdir()
+            try:
+                link.symlink_to(target, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+
+            with self.assertRaisesRegex(ValueError, "input dir must not be a symlink"):
+                _load_input_files([], [str(link)], None, allow_stdin=False)
+
+    def test_rejects_symlinked_file_inside_input_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            input_dir = root / "input"
+            target = root / "outside.txt"
+            link = input_dir / "linked.txt"
+            input_dir.mkdir()
+            target.write_text("outside", encoding="utf-8")
+            try:
+                link.symlink_to(target)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+
+            with self.assertRaisesRegex(ValueError, "input file must not be a symlink"):
+                _load_input_files([], [str(input_dir)], None, allow_stdin=False)
+
+    def test_rejects_symlinked_base_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            target = root / "target"
+            base_link = root / "base-link"
+            file_path = target / "file.txt"
+            target.mkdir()
+            file_path.write_text("data", encoding="utf-8")
+            try:
+                base_link.symlink_to(target, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+
+            with self.assertRaisesRegex(ValueError, "base dir must not be a symlink"):
+                _load_input_files([str(file_path)], [], str(base_link), allow_stdin=False)
 
     def test_empty_stdin_rejected(self) -> None:
         with mock.patch("ethernity.cli.shared.io.inputs.sys.stdin", new=io.StringIO("")):

@@ -22,13 +22,30 @@ from typing import Annotated, Literal
 
 import typer
 
-from ethernity.cli.features.extend.service import PublishedExtensionResult, run_extend
+from ethernity.cli.features.extend.models import (
+    EXTENSION_TOO_LARGE,
+    ExtensionPassphraseShards,
+    ExtensionSigningKeyShards,
+    PassphraseStoragePolicy,
+    PlaintextPassphrase,
+    ReuseRootPassphraseShards,
+    SigningKeyStoragePolicy,
+)
+from ethernity.cli.features.extend.service import (
+    PreparedExtendRun,
+    PublishedExtensionResult,
+    encrypt_prepared_extension_document,
+    prepare_extend_run,
+    resolve_extend_runtime,
+    run_extend,
+)
 from ethernity.cli.shared.common import (
     _ctx_state,
     _paper_callback,
     _resolve_config_and_paper,
     _run_cli,
 )
+from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.cli.shared.ui_api import (
     build_kv_table,
@@ -39,17 +56,21 @@ from ethernity.cli.shared.ui_api import (
     print_completion_panel,
 )
 from ethernity.config import BackupDefaults
+from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
+from ethernity.extensions.build import default_extension_chunker
 
 _EXTEND_HELP = (
     "Create a new extension update inside a backup root folder "
     "(writable backup root).\n\n"
     "Examples:\n"
     "  ethernity extend --root-dir root --input in.txt\n"
+    "  ethernity extend --root-dir root --input in.txt --dry-run\n"
     "  ethernity extend --root-dir root --input in.txt --unlock-policy reuse-root\n"
     "  ethernity extend --root-dir root --input in.txt --signing-key-mode sharded\n"
     "  ethernity extend --root-dir root --input-dir docs --base-dir docs\n\n"
     "Notes:\n"
-    "  reuse-root uses the validated root shard inputs supplied for this run.\n"
+    "  reuse-root uses the published or supplied root passphrase shard policy.\n"
+    "  pass --shard-count 0 to explicitly choose plaintext passphrase output.\n"
     "  sharded writes signing-key shard documents.\n"
 )
 
@@ -96,6 +117,12 @@ def _print_completion_actions(result: PublishedExtensionResult, *, quiet: bool) 
         f"Saved extension {result.index:02d} to {result.final_dir}",
         "Keep the root backup PDFs and all extension directories together.",
     ]
+    if result.root_passphrase_shard_threshold is not None and result.root_passphrase_shard_count:
+        actions.append(
+            "Recovering this extension depends on the root passphrase shard quorum "
+            f"({result.root_passphrase_shard_threshold} of "
+            f"{result.root_passphrase_shard_count}); keep those root shard documents available."
+        )
     if result.shard_paths:
         actions.append(f"Store {len(result.shard_paths)} extension shard documents separately.")
     if result.signing_key_shard_paths:
@@ -114,6 +141,93 @@ def run_extend_command(args: ExtendArgs, *, debug: bool = False) -> int:
     _print_extend_summary(result, quiet=args.quiet)
     _print_completion_actions(result, quiet=args.quiet)
     return 0
+
+
+def run_extend_dry_run_command(args: ExtendArgs, *, debug: bool = False) -> int:
+    _ = debug
+    prepared = prepare_extend_run(args)
+    runtime = resolve_extend_runtime(prepared)
+    encrypted = encrypt_prepared_extension_document(
+        prepared,
+        chunker=default_extension_chunker,
+    )
+    estimated_extension_bytes = len(encrypted.ciphertext)
+    if estimated_extension_bytes > MAX_CIPHERTEXT_BYTES:
+        raise ApiCommandError(
+            code=EXTENSION_TOO_LARGE,
+            message=(
+                "extension ciphertext exceeds MAX_CIPHERTEXT_BYTES "
+                f"({MAX_CIPHERTEXT_BYTES}): {estimated_extension_bytes} bytes"
+            ),
+        )
+    _print_extend_dry_run_summary(
+        args,
+        prepared=prepared,
+        qr_chunk_size=runtime.qr_chunk_size,
+        passphrase_policy=runtime.passphrase,
+        signing_key_policy=runtime.signing_key,
+        recovery_kit_index=runtime.kit_index_template_path is not None,
+        chunk_reuse={
+            "reused_chunks": encrypted.built.stats.reused_chunks,
+            "new_chunks": encrypted.built.stats.new_chunks,
+        },
+        estimated_extension_bytes=estimated_extension_bytes,
+    )
+    return 0
+
+
+def _print_extend_dry_run_summary(
+    args: ExtendArgs,
+    *,
+    prepared: PreparedExtendRun,
+    qr_chunk_size: int,
+    passphrase_policy: PassphraseStoragePolicy,
+    signing_key_policy: SigningKeyStoragePolicy,
+    recovery_kit_index: bool,
+    chunk_reuse: dict[str, int],
+    estimated_extension_bytes: int,
+) -> None:
+    if args.quiet:
+        return
+    console.print()
+    console.print(
+        panel(
+            "Extend dry run",
+            build_kv_table(
+                [
+                    ("Root", str(args.root_dir)),
+                    ("Next index", f"{prepared.next_index:02d}"),
+                    ("Parent doc hash", prepared.parent_doc_hash.hex()),
+                    ("Changed paths", str(len(prepared.changed_paths))),
+                    ("New paths", str(len(prepared.new_paths))),
+                    ("Unchanged paths", str(len(prepared.unchanged_paths))),
+                    ("Reused chunks", str(chunk_reuse["reused_chunks"])),
+                    ("New chunks", str(chunk_reuse["new_chunks"])),
+                    ("Estimated ciphertext bytes", str(estimated_extension_bytes)),
+                    ("Passphrase recovery", _passphrase_policy_label(passphrase_policy)),
+                    ("Signing-key recovery", _signing_key_policy_label(signing_key_policy)),
+                    ("Recovery kit index", "yes" if recovery_kit_index else "no"),
+                    ("QR chunk size", str(qr_chunk_size)),
+                ]
+            ),
+        )
+    )
+
+
+def _passphrase_policy_label(policy: PassphraseStoragePolicy) -> str:
+    if isinstance(policy, ReuseRootPassphraseShards):
+        return f"reuse root shards ({policy.threshold} of {policy.share_count})"
+    if isinstance(policy, ExtensionPassphraseShards):
+        return f"extension shards ({policy.threshold} of {policy.share_count})"
+    if isinstance(policy, PlaintextPassphrase):
+        return "plaintext in recovery document"
+    return "unknown"
+
+
+def _signing_key_policy_label(policy: SigningKeyStoragePolicy) -> str:
+    if isinstance(policy, ExtensionSigningKeyShards):
+        return f"extension signing-key shards ({policy.threshold} of {policy.share_count})"
+    return "not stored in extension artifacts"
 
 
 def extend(
@@ -180,8 +294,8 @@ def extend(
         typer.Option(
             "--unlock-policy",
             help=(
-                "Extension unlock artifact policy. reuse-root requires unlocking this run "
-                "with root passphrase shard inputs."
+                "Extension unlock artifact policy. reuse-root uses the published or supplied "
+                "root passphrase shard policy."
             ),
             rich_help_panel="Outputs",
         ),
@@ -231,6 +345,14 @@ def extend(
         typer.Option(
             "--quiet",
             help="Hide non-error output.",
+            rich_help_panel="Behavior",
+        ),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Validate and preview the next extension without writing artifacts.",
             rich_help_panel="Behavior",
         ),
     ] = False,
@@ -333,4 +455,5 @@ def extend(
             "Input is required for extend. Use --input PATH, --input-dir DIR, or --input -."
         )
         raise typer.Exit(code=2)
-    _run_cli(functools.partial(run_extend_command, args, debug=debug_value), debug=debug_value)
+    command = run_extend_dry_run_command if dry_run else run_extend_command
+    _run_cli(functools.partial(command, args, debug=debug_value), debug=debug_value)

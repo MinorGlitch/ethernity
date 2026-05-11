@@ -15,6 +15,7 @@
 
 import hashlib
 import unittest
+from unittest import mock
 
 from ethernity.cli.shared.types import InputFile
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
@@ -420,6 +421,36 @@ class TestExtensionBuild(unittest.TestCase):
                 existing_logical_bytes=MAX_DECOMPRESSED_PAYLOAD_BYTES - 4,
                 existing_file_sizes={"grown.bin": 0},
             )
+
+    def test_build_extension_document_checks_final_latest_state_size(self) -> None:
+        with mock.patch("ethernity.extensions.build.MAX_DECOMPRESSED_PAYLOAD_BYTES", 25):
+            built = build_extension_document(
+                index=2,
+                parent_doc_hash=b"\x10" * 32,
+                root_doc_hash=b"\x20" * 32,
+                chunking=_profile(),
+                input_files=(
+                    InputFile(
+                        source_path=None,
+                        relative_path="a.bin",
+                        data=b"a" * 20,
+                        mtime=1,
+                    ),
+                    InputFile(
+                        source_path=None,
+                        relative_path="z.bin",
+                        data=b"z" * 5,
+                        mtime=1,
+                    ),
+                ),
+                input_origin="file",
+                input_roots=(),
+                chunker=lambda data, _profile: (data,),
+                existing_logical_bytes=25,
+                existing_file_sizes={"a.bin": 5, "z.bin": 20},
+            )
+
+        self.assertEqual([item.path for item in built.document.files], ["a.bin", "z.bin"])
 
     def test_build_extension_document_rejects_latest_state_file_count_overflow(self) -> None:
         with self.assertRaisesRegex(

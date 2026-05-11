@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
@@ -97,7 +98,6 @@ def reconstruct_latest_logical_state(
     *,
     root_doc_hash: bytes,
     extensions: Sequence[ExtensionChainLink],
-    virtual_root_chunks: Mapping[bytes, bytes] | None = None,
 ) -> tuple[LogicalFileState, ...]:
     """Reconstruct the latest logical state for a root plus validated extensions."""
 
@@ -113,34 +113,55 @@ def reconstruct_latest_logical_state(
     total_logical_bytes = sum(item.size for item in current_state.values())
     if total_logical_bytes > MAX_DECOMPRESSED_PAYLOAD_BYTES:
         raise ValueError("root logical bytes exceed MAX_DECOMPRESSED_PAYLOAD_BYTES")
+    current_sizes = {item.path: item.size for item in current_state.values()}
+    needed_chunk_refs = _extension_chunk_ref_counts(extensions)
+    seen_chunk_ids: set[bytes] = set()
     available_chunks: dict[bytes, bytes] = (
-        build_chain_available_chunks(root_state, locked_chunking) if locked_chunking else {}
+        _virtual_root_chunk_map(
+            root_state,
+            locked_chunking,
+            needed_ref_counts=needed_chunk_refs,
+            seen_chunk_ids=seen_chunk_ids,
+        )
+        if locked_chunking
+        else {}
     )
-    _merge_chunk_map(available_chunks, _normalize_chunk_map(virtual_root_chunks))
 
     for link in extensions:
         if locked_chunking is None:
             raise ValueError("extension chain requires a locked chunking profile")
-        _merge_new_extension_chunks(available_chunks, link.document)
+        _merge_new_extension_chunks(
+            available_chunks,
+            link.document,
+            needed_ref_counts=needed_chunk_refs,
+            seen_chunk_ids=seen_chunk_ids,
+        )
 
+        projected_sizes = dict(current_sizes)
         for file_entry in link.document.files:
-            if file_entry.path not in current_state and len(current_state) >= MAX_MANIFEST_FILES:
-                raise ValueError(
-                    "logical latest state exceeds MAX_MANIFEST_FILES "
-                    f"({MAX_MANIFEST_FILES}): {len(current_state) + 1} entries"
-                )
-            previous_entry = current_state.get(file_entry.path)
-            previous_size = previous_entry.size if previous_entry is not None else 0
-            projected_logical_bytes = total_logical_bytes + file_entry.size - previous_size
-            if projected_logical_bytes > MAX_DECOMPRESSED_PAYLOAD_BYTES:
-                raise ValueError("logical latest state exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES")
+            projected_sizes[file_entry.path] = file_entry.size
+        if len(projected_sizes) > MAX_MANIFEST_FILES:
+            raise ValueError(
+                "logical latest state exceeds MAX_MANIFEST_FILES "
+                f"({MAX_MANIFEST_FILES}): {len(projected_sizes)} entries"
+            )
+        projected_logical_bytes = sum(projected_sizes.values())
+        if projected_logical_bytes > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+            raise ValueError("logical latest state exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES")
+
+        resolved_states = []
+        for file_entry in link.document.files:
             file_state = _resolve_extension_file_state(
                 file_entry,
                 available_chunks,
                 locked_chunking,
             )
-            total_logical_bytes = projected_logical_bytes
+            resolved_states.append(file_state)
+        for file_state in resolved_states:
             current_state[file_state.path] = file_state
+        current_sizes = projected_sizes
+        total_logical_bytes = projected_logical_bytes
+        _consume_extension_chunk_refs(needed_chunk_refs, available_chunks, link.document)
 
     return tuple(current_state[path] for path in sorted(current_state))
 
@@ -219,11 +240,18 @@ def _normalize_chunk_map(
 def _virtual_root_chunk_map(
     root_state: Sequence[LogicalFileState],
     chunking: ExtensionChunkingProfile,
+    *,
+    needed_ref_counts: Mapping[bytes, int] | None = None,
+    seen_chunk_ids: set[bytes] | None = None,
 ) -> dict[bytes, bytes]:
     chunks: dict[bytes, bytes] = {}
     for item in root_state:
         for chunk_bytes in default_extension_chunker(item.data, chunking):
             chunk_id = hashlib.sha256(chunk_bytes).digest()
+            if seen_chunk_ids is not None:
+                seen_chunk_ids.add(chunk_id)
+            if needed_ref_counts is not None and needed_ref_counts.get(chunk_id, 0) <= 0:
+                continue
             existing = chunks.get(chunk_id)
             if existing is not None and existing != chunk_bytes:
                 raise ValueError("virtual root chunk payload collision for identical chunk_id")
@@ -239,15 +267,59 @@ def _merge_chunk_map(target: dict[bytes, bytes], source: Mapping[bytes, bytes]) 
         target[chunk_id] = chunk_bytes
 
 
-def _merge_new_extension_chunks(target: dict[bytes, bytes], extension: ExtensionEnvelope) -> None:
+def _merge_new_extension_chunks(
+    target: dict[bytes, bytes],
+    extension: ExtensionEnvelope,
+    *,
+    needed_ref_counts: Mapping[bytes, int] | None = None,
+    seen_chunk_ids: set[bytes] | None = None,
+) -> None:
     for chunk_record in extension.chunks:
         decoded_chunk = chunk_record.decode_data()
+        if seen_chunk_ids is not None:
+            if chunk_record.chunk_id in seen_chunk_ids:
+                existing = target.get(chunk_record.chunk_id)
+                if existing is not None and existing != decoded_chunk:
+                    raise ValueError("available chunk payload collision for identical chunk_id")
+                raise ValueError("extension chunks must be newly introduced")
+            seen_chunk_ids.add(chunk_record.chunk_id)
+        else:
+            existing = target.get(chunk_record.chunk_id)
+            if existing is not None:
+                if existing != decoded_chunk:
+                    raise ValueError("available chunk payload collision for identical chunk_id")
+                raise ValueError("extension chunks must be newly introduced")
+        if needed_ref_counts is not None and needed_ref_counts.get(chunk_record.chunk_id, 0) <= 0:
+            continue
         existing = target.get(chunk_record.chunk_id)
         if existing is not None:
             if existing != decoded_chunk:
                 raise ValueError("available chunk payload collision for identical chunk_id")
             raise ValueError("extension chunks must be newly introduced")
         target[chunk_record.chunk_id] = decoded_chunk
+
+
+def _extension_chunk_ref_counts(extensions: Sequence[ExtensionChainLink]) -> Counter[bytes]:
+    counts: Counter[bytes] = Counter()
+    for link in extensions:
+        for file_entry in link.document.files:
+            counts.update(chunk_ref.chunk_id for chunk_ref in file_entry.chunk_refs)
+    return counts
+
+
+def _consume_extension_chunk_refs(
+    ref_counts: Counter[bytes],
+    available_chunks: dict[bytes, bytes],
+    extension: ExtensionEnvelope,
+) -> None:
+    for file_entry in extension.files:
+        for chunk_ref in file_entry.chunk_refs:
+            remaining = ref_counts[chunk_ref.chunk_id] - 1
+            if remaining <= 0:
+                del ref_counts[chunk_ref.chunk_id]
+                available_chunks.pop(chunk_ref.chunk_id, None)
+            else:
+                ref_counts[chunk_ref.chunk_id] = remaining
 
 
 def _resolve_extension_file_state(

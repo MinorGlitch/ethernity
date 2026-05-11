@@ -32,6 +32,7 @@ from ethernity.encoding.qr_payloads import (
 )
 from ethernity.render.doc_types import (
     DOC_TYPE_KIT,
+    DOC_TYPE_KIT_INDEX,
     DOC_TYPE_MAIN,
     DOC_TYPE_RECOVERY,
     DOC_TYPE_SHARD,
@@ -180,7 +181,7 @@ class RenderService:
         layout_debug_json_path: str | Path | None = None,
         lineage: RenderLineage | None = None,
     ) -> RenderInputs:
-        """Build render inputs for the recovery kit document/index."""
+        """Build render inputs for the QR-bearing recovery kit document."""
 
         return self._build_inputs(
             frames=frames,
@@ -190,6 +191,36 @@ class RenderService:
             qr_payloads=qr_payloads,
             render_fallback=False,
             doc_type=doc_type,
+            layout_debug_json_path=layout_debug_json_path,
+            lineage=lineage,
+        )
+
+    def kit_index_inputs(
+        self,
+        output_path: str | Path,
+        *,
+        context: dict[str, object] | None = None,
+        template_path: str | Path | None = None,
+        qr_page_count: int | None = None,
+        qr_chunk_count: int = 0,
+        layout_debug_json_path: str | Path | None = None,
+        lineage: RenderLineage | None = None,
+    ) -> RenderInputs:
+        """Build render inputs for the non-payload recovery kit index document."""
+
+        index_context = dict(context or {})
+        if qr_page_count is not None:
+            index_context.setdefault("kit_qr_page_count", qr_page_count)
+        index_context.setdefault("kit_qr_chunk_count", qr_chunk_count)
+        return self._build_inputs(
+            frames=(),
+            template_path=template_path or self.config.kit_template_path,
+            output_path=output_path,
+            context=index_context,
+            qr_payloads=(),
+            render_qr=False,
+            render_fallback=False,
+            doc_type=DOC_TYPE_KIT_INDEX,
             layout_debug_json_path=layout_debug_json_path,
             lineage=lineage,
         )

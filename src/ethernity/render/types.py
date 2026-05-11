@@ -31,9 +31,15 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class RenderLineage:
-    """Render-time lineage metadata for root, extension, and compacted artifacts."""
+    """Render-time lineage metadata for root, extension, compacted, mint, and kit artifacts."""
 
-    kind: Literal["root_backup", "extension", "compaction_checkpoint"]
+    kind: Literal[
+        "root_backup",
+        "extension",
+        "compaction_checkpoint",
+        "minted_shard_set",
+        "recovery_kit",
+    ]
     extension_index: int | None = None
 
 
@@ -65,6 +71,40 @@ class RenderInputs:
     render_jobs: int | Literal["auto"] | None = None
     layout_debug_json_path: str | Path | None = None
     lineage: RenderLineage | None = None
+
+
+@dataclass(frozen=True)
+class RenderFallbackProof:
+    """Structured proof that fallback section data was consumed by page assembly."""
+
+    section_frame_digests: tuple[str, ...]
+    section_titles: tuple[str, ...]
+    expected_section_count: int
+    emitted_block_count: int
+    emitted_line_count: int
+    consumed_section_count: int
+    fully_consumed: bool
+    emitted_fallback_lines: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RenderArtifactProof:
+    """Structured proof of what a render operation was asked to emit."""
+
+    output_path: str
+    doc_type: str
+    frame_digests: tuple[str, ...]
+    qr_payload_count: int
+    page_count: int = 0
+    fallback_proof: RenderFallbackProof | None = None
+
+
+@dataclass(frozen=True)
+class RenderResult:
+    """Structured render result used by callers that must validate emitted content."""
+
+    fallback_proof: RenderFallbackProof | None = None
+    artifact_proof: RenderArtifactProof | None = None
 
 
 @dataclass(frozen=True)

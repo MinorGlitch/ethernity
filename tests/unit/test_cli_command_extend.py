@@ -15,6 +15,7 @@
 
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import typer
@@ -22,7 +23,8 @@ from typer.testing import CliRunner
 
 import ethernity.cli as cli
 from ethernity.cli.features.extend import command as extend_command
-from ethernity.cli.features.extend.service import PublishedExtensionResult
+from ethernity.cli.features.extend.service import EXTENSION_TOO_LARGE, PublishedExtensionResult
+from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import CliContextState
 from ethernity.config import (
     BackupDefaults,
@@ -172,10 +174,55 @@ class TestExtendCommand(unittest.TestCase):
         print_extend_summary.assert_called_once_with(result, quiet=False)
         print_completion_actions.assert_called_once_with(result, quiet=False)
 
+    @mock.patch("ethernity.cli.features.extend.command.print_completion_panel")
+    def test_completion_actions_mentions_reused_root_shards(
+        self,
+        print_completion_panel: mock.MagicMock,
+    ) -> None:
+        result = PublishedExtensionResult(
+            index=2,
+            doc_id=b"\xaa" * 16,
+            doc_hash=b"\xbb" * 32,
+            final_dir=Path("/tmp/root/extensions/02"),
+            qr_document_path=Path("/tmp/root/extensions/02/qr_document-02-aa.pdf"),
+            recovery_document_path=Path("/tmp/root/extensions/02/recovery_document-02-aa.pdf"),
+            recovery_kit_index_path=None,
+            shard_paths=(),
+            signing_key_shard_paths=(),
+            root_passphrase_shard_threshold=2,
+            root_passphrase_shard_count=3,
+        )
+
+        extend_command._print_completion_actions(result, quiet=False)
+
+        actions = print_completion_panel.call_args.args[1]
+        self.assertTrue(
+            any("root passphrase shard quorum (2 of 3)" in action for action in actions)
+        )
+
     def test_register(self) -> None:
         app = typer.Typer()
         extend_command.register(app)
         self.assertGreater(len(app.registered_commands), 0)
+
+    def test_extend_dry_run_rejects_too_large_preview(self) -> None:
+        args = extend_command.ExtendArgs(root_dir="/tmp/root", input=["updated.txt"], quiet=True)
+        with (
+            mock.patch(
+                "ethernity.cli.features.extend.command.prepare_extend_run",
+                return_value=SimpleNamespace(args=args),
+            ),
+            mock.patch("ethernity.cli.features.extend.command.resolve_extend_runtime"),
+            mock.patch(
+                "ethernity.cli.features.extend.command.encrypt_prepared_extension_document",
+                return_value=SimpleNamespace(ciphertext=b"xx"),
+            ),
+            mock.patch("ethernity.cli.features.extend.command.MAX_CIPHERTEXT_BYTES", 1),
+        ):
+            with self.assertRaises(ApiCommandError) as ctx:
+                extend_command.run_extend_dry_run_command(args)
+
+        self.assertEqual(ctx.exception.code, EXTENSION_TOO_LARGE)
 
     @mock.patch("ethernity.cli.features.extend.command.run_extend_command", return_value=0)
     @mock.patch(
@@ -277,6 +324,51 @@ class TestExtendCommand(unittest.TestCase):
         self.assertEqual(args.shard_fallback_file, ["manual.txt"])
         self.assertEqual(args.shard_payloads_file, ["payloads.txt"])
         self.assertEqual(args.shard_scan, ["scan.pdf"])
+
+    @mock.patch("ethernity.cli.features.extend.command.run_extend_command", return_value=0)
+    @mock.patch("ethernity.cli.features.extend.command.run_extend_dry_run_command", return_value=0)
+    @mock.patch(
+        "ethernity.cli.features.extend.command._run_cli", side_effect=lambda func, debug: func()
+    )
+    @mock.patch(
+        "ethernity.cli.features.extend.command._resolve_config_and_paper",
+        return_value=("ctx.toml", "LETTER"),
+    )
+    def test_extend_command_dry_run_uses_preview_command(
+        self,
+        _resolve_config_and_paper: mock.MagicMock,
+        _run_cli: mock.MagicMock,
+        run_extend_dry_run_command: mock.MagicMock,
+        run_extend_command: mock.MagicMock,
+    ) -> None:
+        extend_command.extend(
+            self._ctx(quiet=False, debug=False, backup_defaults=BackupDefaults()),
+            root_dir=Path("/tmp/root"),
+            input=[Path("updated.txt")],
+            input_dir=None,
+            base_dir=None,
+            layout_debug_dir=None,
+            qr_chunk_size=None,
+            passphrase="secret",
+            shard_fallback_file=None,
+            shard_payloads_file=None,
+            shard_scan=None,
+            unlock_policy=None,
+            shard_threshold=None,
+            shard_count=0,
+            signing_key_mode=None,
+            signing_key_shard_threshold=None,
+            signing_key_shard_count=None,
+            quiet=False,
+            dry_run=True,
+            config=None,
+            paper=None,
+            design=None,
+            debug=False,
+        )
+
+        run_extend_dry_run_command.assert_called_once()
+        run_extend_command.assert_not_called()
 
 
 class TestExtendCliApp(unittest.TestCase):

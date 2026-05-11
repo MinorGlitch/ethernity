@@ -13,20 +13,30 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
+from pypdf import PdfReader
+
 from ethernity.cli import run_compact, run_extend
 from ethernity.cli.features.backup.orchestrator import run_backup_command
+from ethernity.cli.features.mint.workflow import execute_mint
 from ethernity.cli.features.recover.orchestrator import run_recover_command
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.ndjson import ApiCommandError
-from ethernity.cli.shared.types import BackupArgs, CompactArgs, ExtendArgs, RecoverArgs
-from ethernity.config.paths import DEFAULT_CONFIG_PATH
+from ethernity.cli.shared.types import BackupArgs, CompactArgs, ExtendArgs, MintArgs, RecoverArgs
+from ethernity.config.paths import DEFAULT_CONFIG_PATH, SUPPORTED_TEMPLATE_DESIGNS
 from tests.test_support import ensure_playwright_browsers, suppress_output, temp_env
 
 TEST_PASSPHRASE = "extension-integration-passphrase"
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_V1_0_FILE_NO_SHARD_ROOT = (
+    _REPO_ROOT / "tests" / "fixtures" / "v1_0" / "golden" / "base64" / "file_no_shard"
+)
+_V1_0_SOURCE_ROOT = _REPO_ROOT / "tests" / "fixtures" / "v1_0" / "source"
+_V1_0_PASSPHRASE = "stable-v1-baseline-passphrase"
 
 
 class TestIntegrationExtensions(unittest.TestCase):
@@ -148,7 +158,170 @@ class TestIntegrationExtensions(unittest.TestCase):
                 },
             )
 
-    def test_compact_preserves_latest_state_and_refuses_degraded_latest_head(
+    def test_extend_frozen_v1_0_backup_and_recover_latest_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            root_dir = tmp_path / "v1-root"
+            source_dir = tmp_path / "source"
+            recovered_dir = tmp_path / "recovered"
+            shutil.copytree(_V1_0_FILE_NO_SHARD_ROOT / "backup", root_dir)
+            source_dir.mkdir()
+            shutil.copy2(
+                _V1_0_SOURCE_ROOT / "standalone_secret.txt",
+                source_dir / "standalone_secret.txt",
+            )
+            (source_dir / "extension_note.txt").write_text(
+                "added after frozen v1.0 root\n",
+                encoding="utf-8",
+            )
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                extension = self._run_extend(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    passphrase=_V1_0_PASSPHRASE,
+                )
+                self.assertTrue(extension.qr_document_path.is_file())
+                self.assertTrue(extension.recovery_document_path.is_file())
+                self._run_recover(
+                    root_dir=root_dir,
+                    output_dir=recovered_dir,
+                    passphrase=_V1_0_PASSPHRASE,
+                )
+
+            self.assertEqual(
+                self._snapshot_tree(recovered_dir),
+                {
+                    "extension_note.txt": b"added after frozen v1.0 root\n",
+                    "standalone_secret.txt": (
+                        _V1_0_SOURCE_ROOT / "standalone_secret.txt"
+                    ).read_bytes(),
+                },
+            )
+
+    def test_extension_recovery_document_fallback_is_visible_for_supported_designs(self) -> None:
+        for design in SUPPORTED_TEMPLATE_DESIGNS:
+            with self.subTest(design=design):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    tmp_path = Path(tmpdir)
+                    source_dir = tmp_path / "source"
+                    root_dir = tmp_path / "backup-root"
+                    source_dir.mkdir()
+                    (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+                    with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                        self._run_backup(source_dir=source_dir, root_dir=root_dir)
+
+                        (source_dir / "alpha.txt").write_text(
+                            f"extension-alpha-{design}",
+                            encoding="utf-8",
+                        )
+                        extension = self._run_extend(
+                            source_dir=source_dir,
+                            root_dir=root_dir,
+                            design=design,
+                        )
+
+                        reader = PdfReader(extension.recovery_document_path)
+                        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+
+                    upper_text = text.upper()
+                    self.assertIn("AUTH FRAME", upper_text)
+                    self.assertIn("MAIN FRAME", upper_text)
+
+    def test_mint_against_extension_head_creates_recoverable_extension_bound_shards(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup-root"
+            mint_dir = tmp_path / "minted-extension-shards"
+            recovered_dir = tmp_path / "recovered-from-minted-extension-shards"
+            source_dir.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(source_dir=source_dir, root_dir=root_dir)
+
+                (source_dir / "alpha.txt").write_text("extension-alpha", encoding="utf-8")
+                (source_dir / "beta.txt").write_text("extension-beta", encoding="utf-8")
+                extension = self._run_extend(source_dir=source_dir, root_dir=root_dir)
+
+                with suppress_output():
+                    mint_result = execute_mint(
+                        MintArgs(
+                            config=str(DEFAULT_CONFIG_PATH),
+                            scan=[str(root_dir)],
+                            passphrase=TEST_PASSPHRASE,
+                            output_dir=str(mint_dir),
+                            shard_threshold=2,
+                            shard_count=3,
+                            mint_signing_key_shards=False,
+                            quiet=True,
+                        )
+                    )
+
+                self.assertEqual(mint_result.doc_id, extension.doc_id)
+                self.assertEqual(len(mint_result.shard_paths), 3)
+                self._run_recover(
+                    root_dir=root_dir,
+                    output_dir=recovered_dir,
+                    passphrase=None,
+                    shard_scan=list(mint_result.shard_paths[:2]),
+                )
+
+            self.assertEqual(
+                self._snapshot_tree(recovered_dir),
+                {
+                    "alpha.txt": b"extension-alpha",
+                    "beta.txt": b"extension-beta",
+                },
+            )
+
+    def test_compact_with_extension_local_shards_preserves_latest_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup-root"
+            compacted_dir = tmp_path / "compacted-from-extension-shards"
+            recovered_dir = tmp_path / "recovered-compacted-from-extension-shards"
+            source_dir.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(source_dir=source_dir, root_dir=root_dir)
+
+                (source_dir / "alpha.txt").write_text("extension-alpha", encoding="utf-8")
+                (source_dir / "beta.txt").write_text("extension-beta", encoding="utf-8")
+                extension = self._run_extend(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    shard_threshold=2,
+                    shard_count=3,
+                )
+
+                compact_result = self._run_compact(
+                    root_dir=root_dir,
+                    output_dir=compacted_dir,
+                    passphrase=None,
+                    shard_scan=[str(path) for path in extension.shard_paths[:2]],
+                )
+
+                self._run_recover(
+                    root_dir=compacted_dir,
+                    output_dir=recovered_dir,
+                    passphrase=None,
+                    shard_scan=list(compact_result.shard_paths[:2]),
+                )
+
+            self.assertEqual(
+                self._snapshot_tree(recovered_dir),
+                {
+                    "alpha.txt": b"extension-alpha",
+                    "beta.txt": b"extension-beta",
+                },
+            )
+
+    def test_compact_preserves_latest_state_from_degraded_redundant_carrier(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -224,7 +397,15 @@ class TestIntegrationExtensions(unittest.TestCase):
                     output_dir=degraded_compacted_dir,
                 )
                 self.assertTrue(Path(degraded_compact_result.qr_path).exists())
-                self.assertTrue(Path(degraded_compact_result.recovery_path).exists())
+                degraded_compacted_recovered_dir = tmp_path / "degraded-compacted-state"
+                self._run_recover(
+                    root_dir=degraded_compacted_dir,
+                    output_dir=degraded_compacted_recovered_dir,
+                )
+                self.assertEqual(
+                    self._snapshot_tree(degraded_compacted_recovered_dir),
+                    expected_latest_state,
+                )
 
     def test_corrupt_present_extension_carrier_fails_closed_across_flows(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -350,6 +531,7 @@ class TestIntegrationExtensions(unittest.TestCase):
         *,
         source_dir: Path,
         root_dir: Path,
+        design: str | None = None,
         sealed: bool = False,
         shard_threshold: int | None = None,
         shard_count: int | None = None,
@@ -362,6 +544,7 @@ class TestIntegrationExtensions(unittest.TestCase):
                     base_dir=str(source_dir),
                     output_dir=str(root_dir),
                     passphrase=TEST_PASSPHRASE,
+                    design=design,
                     sealed=sealed,
                     shard_threshold=shard_threshold,
                     shard_count=shard_count,
@@ -395,8 +578,10 @@ class TestIntegrationExtensions(unittest.TestCase):
         *,
         source_dir: Path,
         root_dir: Path,
+        design: str | None = None,
         shard_threshold: int | None = None,
-        shard_count: int | None = None,
+        shard_count: int | None = 0,
+        passphrase: str = TEST_PASSPHRASE,
     ):
         with suppress_output():
             return run_extend(
@@ -405,7 +590,8 @@ class TestIntegrationExtensions(unittest.TestCase):
                     root_dir=str(root_dir),
                     input_dir=[str(source_dir)],
                     base_dir=str(source_dir),
-                    passphrase=TEST_PASSPHRASE,
+                    passphrase=passphrase,
+                    design=design,
                     shard_threshold=shard_threshold,
                     shard_count=shard_count,
                     quiet=True,
@@ -420,7 +606,7 @@ class TestIntegrationExtensions(unittest.TestCase):
         expected_latest_head_index: int,
         expected_validated_head_index: int,
         blocked_extension_dir: Path,
-        expected_failure_fragment: str = "missing required payload MAIN carriers",
+        expected_failure_fragment: str = "missing required MAIN documents",
     ) -> ApiCommandError:
         with self.assertRaises(ApiCommandError) as ctx:
             self._run_extend(source_dir=source_dir, root_dir=root_dir)
@@ -478,7 +664,7 @@ class TestIntegrationExtensions(unittest.TestCase):
         root_dir: Path,
         output_dir: Path,
         expected_latest_head_index: int,
-        expected_failure_fragment: str = "missing required payload MAIN carriers",
+        expected_failure_fragment: str = "missing required MAIN documents",
     ) -> ApiCommandError:
         with self.assertRaises(ApiCommandError) as ctx:
             self._run_recover(root_dir=root_dir, output_dir=output_dir)
@@ -500,7 +686,7 @@ class TestIntegrationExtensions(unittest.TestCase):
         root_dir: Path,
         output_dir: Path,
         expected_latest_head_index: int,
-        expected_failure_fragment: str = "missing required payload MAIN carriers",
+        expected_failure_fragment: str = "missing required MAIN documents",
     ) -> ApiCommandError:
         with self.assertRaises(ApiCommandError) as ctx:
             self._run_compact(root_dir=root_dir, output_dir=output_dir)

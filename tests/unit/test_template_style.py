@@ -27,7 +27,7 @@ class TestTemplateStyle(unittest.TestCase):
     def test_builtin_styles_match_expected_values(self) -> None:
         archive = load_template_style(_TEMPLATES_ROOT / "archive" / "recovery_document.html.j2")
         self.assertEqual(archive.name, "archive")
-        self.assertEqual(archive.capabilities.recovery_line_groups_bonus, 5)
+        self.assertEqual(archive.capabilities.recovery_line_groups_bonus, 0)
         self.assertEqual(archive.capabilities.recovery_first_page_bonus_lines, 13)
         self.assertEqual(
             archive.capabilities.recovery_first_page_bonus_lines_per_extra_section,
@@ -86,6 +86,10 @@ class TestTemplateStyle(unittest.TestCase):
                 5.8,
             )
             self.assertAlmostEqual(
+                forge.capabilities.fallback_layout.recovery.continuation_footer_reserve_mm,
+                35.0,
+            )
+            self.assertAlmostEqual(
                 forge.capabilities.fallback_layout.shard.first_page_payload_zone_height_mm,
                 43.2,
             )
@@ -108,7 +112,7 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertFalse(sentinel.capabilities.uniform_main_qr_capacity)
         self.assertEqual(sentinel.capabilities.recovery_quorumless_line_groups_bonus, 1)
         self.assertEqual(sentinel.capabilities.recovery_quorumless_first_page_bonus_lines, 0)
-        self.assertEqual(sentinel.capabilities.recovery_quorumless_continuation_bonus_lines, 2)
+        self.assertEqual(sentinel.capabilities.recovery_quorumless_continuation_bonus_lines, 0)
         self.assertEqual(sentinel.capabilities.signing_key_shard_line_groups_bonus, 3)
         self.assertIsNotNone(sentinel.capabilities.fallback_layout)
         if sentinel.capabilities.fallback_layout is not None:

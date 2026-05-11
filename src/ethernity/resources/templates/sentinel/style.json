@@ -15,7 +15,7 @@
     "extra_main_first_page_qr_slot": true,
     "recovery_quorumless_line_groups_bonus": 1,
     "recovery_quorumless_first_page_bonus_lines": 0,
-    "recovery_quorumless_continuation_bonus_lines": 2,
+    "recovery_quorumless_continuation_bonus_lines": 0,
     "signing_key_shard_line_groups_bonus": 3,
     "fallback_layout": {
       "recovery": {

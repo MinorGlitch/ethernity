@@ -46,6 +46,29 @@ Use this template for each change entry:
 
 ## Entries
 
+## 2026-05-11 - Clarify extension recovery documents as human fallback only
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: 19, 21
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged
+  - New decoders reading old artifacts: unchanged for machine-readable QR carriers; extension
+    recovery-document PDF text is no longer treated as a content-import carrier
+- Version/profile bump required: no (wire bytes and authenticated QR carrier semantics are
+  unchanged; this removes an implementation-level PDF text scraping dependency)
+- Implementation refs:
+  - `src/ethernity/extensions/discovery.py`
+  - `src/ethernity/cli/features/extend/planning.py`
+  - `src/ethernity/cli/features/extend/main_carrier_validation.py`
+- Test refs:
+  - `tests/unit/test_extend_service.py`
+  - `tests/unit/test_extend_inspection.py`
+  - `tests/integration/test_integration_extensions.py`
+- Security impact:
+  - Keeps extension chain replay tied to authenticated machine-readable carriers and prevents PDF
+    display text extraction from becoming a recovery trust boundary.
+
 ## 2026-05-09 - Validate extension carrier copies and mint replay targets
 
 - Type: validation
@@ -65,9 +88,8 @@ Use this template for each change entry:
   - `tests/unit/test_extend_service.py`
   - `tests/unit/test_mint_inspection.py`
 - Security impact:
-  - Prevents promotion of recovery documents whose render contract is not bound to the planned
-    extension ciphertext/AUTH and prevents minting shard documents bound to extension heads that
-    fail replay.
+  - Prevents promotion of QR carriers that do not authenticate to the planned extension ciphertext
+    and prevents minting shard documents bound to extension heads that fail replay.
 
 ## 2026-05-09 - Enforce newly introduced extension chunk records across the chain
 
@@ -348,7 +370,7 @@ Use this template for each change entry:
   - `tests/unit/test_extend_service.py`
   - `tests/unit/test_recover_chain.py`
 - Security impact:
-  - Keeps sealed roots terminal, requires both payload MAIN carriers to independently recover, and
+  - Keeps sealed roots terminal, requires machine-readable extension carriers to independently recover, and
     prevents staged promotion from swapping a validated directory for a symlink before rename.
     Also clarifies that extension `doc_hash` target matches are provisional until authenticated
     replay succeeds, and that inspection/projection surfaces may fail closed more strictly than

@@ -41,6 +41,11 @@ from ethernity.cli.features.recover.chain import (
     resolve_root_manifest_authority,
     scan_extension_carriers,
 )
+from ethernity.cli.features.recover.key_recovery import (
+    InsufficientShardError,
+    _resolve_auth_payload,
+    _validated_shard_payloads_from_frames,
+)
 from ethernity.cli.features.recover.planning import RecoveryInspection, inspect_recovery_inputs
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
@@ -56,6 +61,7 @@ from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.paths import expanduser_cli_paths
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.config.load import load_app_config
+from ethernity.crypto import sharding as sharding_module
 from ethernity.encoding.framing import Frame
 from ethernity.extensions.chain import (
     LogicalFileState,
@@ -65,6 +71,8 @@ from ethernity.extensions.chain import (
     validate_extension_chain,
 )
 from ethernity.extensions.discovery import (
+    DiscoveredExtensionDirectory,
+    DiscoveredExtensionMainCarrier,
     discover_validated_extension_directories,
     payload_main_carriers,
     require_backup_root_dir,
@@ -233,6 +241,17 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
     next_index: int | None = None
     signing_seed: bytes | None = None
     chunking: ExtensionChunkingProfile | None = None
+    root_passphrase_shard_threshold = (
+        root_inspection.unlock.required_shard_threshold
+        if root_inspection.unlock.mode == "shards"
+        else None
+    )
+    root_passphrase_shard_count = (
+        root_inspection.unlock.shard_share_count
+        if root_inspection.unlock.mode == "shards"
+        and root_inspection.unlock.shard_share_count is not None
+        else 0
+    )
 
     current_state: tuple[LogicalFileState, ...] | None = None
     available_chunks: tuple[tuple[bytes, bytes], ...] = ()
@@ -278,6 +297,26 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
                         "satisfied": True,
                         "source": "embedded_seed",
                     }
+                    if root_passphrase_shard_count <= 0:
+                        try:
+                            (
+                                root_passphrase_shard_threshold,
+                                root_passphrase_shard_count,
+                            ) = _published_root_passphrase_shard_policy(
+                                root_dir,
+                                root_doc_id=root_inspection.doc_id,
+                                root_doc_hash=root_inspection.doc_hash,
+                                sign_pub=authority.embedded_sign_pub,
+                                quiet=args.quiet,
+                            )
+                        except ValueError as exc:
+                            blocking_issues.append(
+                                _blocking_issue(
+                                    api_codes.ROOT_SHARD_POLICY_INVALID,
+                                    str(exc),
+                                    details={"stage": "shards"},
+                                )
+                            )
 
                     if (
                         extension_inventory is not None
@@ -396,17 +435,8 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
         next_index=next_index,
         signing_seed=signing_seed,
         chunking=chunking,
-        root_passphrase_shard_threshold=(
-            root_inspection.unlock.required_shard_threshold
-            if root_inspection.unlock.mode == "shards"
-            else None
-        ),
-        root_passphrase_shard_count=(
-            root_inspection.unlock.shard_share_count
-            if root_inspection.unlock.mode == "shards"
-            and root_inspection.unlock.shard_share_count is not None
-            else 0
-        ),
+        root_passphrase_shard_threshold=root_passphrase_shard_threshold,
+        root_passphrase_shard_count=root_passphrase_shard_count,
     )
 
 
@@ -435,6 +465,43 @@ def _inspect_root_recovery(root_dir: Path, args: ExtendArgs) -> RecoveryInspecti
         shard_scan=shard_scan,
         quiet=args.quiet,
     )
+
+
+def _published_root_passphrase_shard_policy(
+    root_dir: Path,
+    *,
+    root_doc_id: bytes,
+    root_doc_hash: bytes,
+    sign_pub: bytes | None,
+    quiet: bool,
+) -> tuple[int | None, int]:
+    paths = sorted(root_dir.glob("shard-*.pdf"))
+    if not paths:
+        return None, 0
+    for path in paths:
+        if path.is_symlink():
+            raise ValueError(f"root passphrase shard must not be a symlink: {path.name}")
+    frames = _shard_frames_from_scan([str(path) for path in paths], quiet=quiet)
+    if not frames:
+        return None, 0
+    try:
+        shares = _validated_shard_payloads_from_frames(
+            frames,
+            expected_doc_id=root_doc_id,
+            expected_doc_hash=root_doc_hash,
+            expected_sign_pub=sign_pub,
+            allow_unsigned=sign_pub is None,
+            key_type=sharding_module.KEY_TYPE_PASSPHRASE,
+            secret_label="passphrase",
+        )
+    except InsufficientShardError as exc:
+        if exc.share_count is not None:
+            return None, 0
+        raise
+    first = shares[0]
+    if len(shares) != first.share_count:
+        return None, 0
+    return first.threshold, first.share_count
 
 
 def _shard_frames_from_extend_args(
@@ -525,9 +592,11 @@ def _inspect_published_extension_inventory(
     extensions: list[DiscoveredRecoveryExtension] = []
     failure: RecoveryReplayFailure | None = None
     for item in discovery.directories:
-        carrier_paths = [str(carrier.path) for carrier in payload_main_carriers(item.main_carriers)]
         try:
-            ciphertext, auth_frames = scan_extension_carriers(carrier_paths, quiet=quiet)
+            ciphertext, auth_frames = _scan_published_extension_payload_carriers(
+                item,
+                quiet=quiet,
+            )
             doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
             if doc_id.hex() != item.doc_id_hex:
                 raise ValueError(
@@ -567,6 +636,79 @@ def _inspect_published_extension_inventory(
         latest_head_dir_name=None if latest is None else latest.dir_name,
         failure=failure,
     )
+
+
+def _scan_published_extension_payload_carriers(
+    item: DiscoveredExtensionDirectory,
+    *,
+    quiet: bool,
+) -> tuple[bytes, list[Frame]]:
+    ciphertext: bytes | None = None
+    auth_frames: list[Frame] | None = None
+    doc_hash: bytes | None = None
+    auth_sign_pub: bytes | None = None
+    for carrier in payload_main_carriers(item.main_carriers):
+        (
+            candidate_ciphertext,
+            candidate_auth_frames,
+            candidate_auth_sign_pub,
+        ) = _scan_published_extension_payload_carrier(item, carrier, quiet=quiet)
+        candidate_doc_id, candidate_doc_hash = _doc_id_and_hash_from_ciphertext(
+            candidate_ciphertext
+        )
+        if candidate_doc_id.hex() != item.doc_id_hex:
+            raise ValueError(
+                f"extension {item.dir_name} {carrier.doc_type} carrier does not match "
+                "the filename doc_id"
+            )
+        if ciphertext is None:
+            ciphertext = candidate_ciphertext
+            auth_frames = candidate_auth_frames
+            doc_hash = candidate_doc_hash
+            auth_sign_pub = candidate_auth_sign_pub
+            continue
+        if candidate_ciphertext != ciphertext or candidate_doc_hash != doc_hash:
+            raise ValueError(
+                f"extension {item.dir_name} machine-readable MAIN carriers reconstruct "
+                "different documents"
+            )
+        if candidate_auth_sign_pub != auth_sign_pub:
+            raise ValueError(
+                f"extension {item.dir_name} machine-readable MAIN carrier AUTH signing "
+                "authorities differ"
+            )
+    if ciphertext is None or auth_frames is None:
+        raise ValueError(f"extension {item.dir_name} MAIN carriers could not be reconstructed")
+    return ciphertext, auth_frames
+
+
+def _scan_published_extension_payload_carrier(
+    item: DiscoveredExtensionDirectory,
+    carrier: DiscoveredExtensionMainCarrier,
+    *,
+    quiet: bool,
+) -> tuple[bytes, list[Frame], bytes]:
+    try:
+        if carrier.doc_type != "qr_document":
+            raise ValueError(f"{carrier.doc_type} is not a machine-readable extension carrier")
+        ciphertext, auth_frames = scan_extension_carriers([str(carrier.path)], quiet=quiet)
+        doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+        auth_payload, _auth_status = _resolve_auth_payload(
+            list(auth_frames),
+            doc_id=doc_id,
+            doc_hash=doc_hash,
+            allow_unsigned=False,
+            require_auth=True,
+            quiet=quiet,
+        )
+        if auth_payload is None:
+            raise ValueError("missing required AUTH payload")
+    except Exception as exc:
+        raise ValueError(
+            f"extension {item.dir_name} {carrier.doc_type} carrier could not be "
+            f"independently reconstructed: {exc}"
+        ) from exc
+    return ciphertext, auth_frames, auth_payload.sign_pub
 
 
 def _extension_carrier_scan_failure(failure: Any) -> bool:
@@ -690,7 +832,7 @@ def _inspect_published_extension_chain(
             latest_state=None,
             locked_chunking=None,
             refusal=RecoveryHeadTrustRefusal(
-                code="CHAIN_INVALID",
+                code=api_codes.RECOVERY_HEAD_UNTRUSTED,
                 message=str(exc),
                 details={
                     "stage": "chain",

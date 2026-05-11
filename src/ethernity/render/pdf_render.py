@@ -43,10 +43,12 @@ from ethernity.render.fallback import (
     FallbackConsumerState,
     FallbackSectionData,
     build_fallback_sections_data,
+    fallback_sections_remaining,
 )
 from ethernity.render.html_to_pdf import render_html_to_pdf
 from ethernity.render.layout import compute_layout
 from ethernity.render.pages import build_pages
+from ethernity.render.proofs import build_render_artifact_proof, frame_digest
 from ethernity.render.recovery_meta import recovery_meta_lines_extra
 from ethernity.render.spec import DocumentSpec, document_spec
 from ethernity.render.template_model import (
@@ -59,7 +61,7 @@ from ethernity.render.template_model import (
 from ethernity.render.template_style import TemplateCapabilities, load_template_style
 from ethernity.render.templating import render_template
 from ethernity.render.text import page_format
-from ethernity.render.types import RenderInputs, RenderLineage
+from ethernity.render.types import RenderFallbackProof, RenderInputs, RenderLineage, RenderResult
 from ethernity.version import get_ethernity_version
 
 _QR_URL_PREFIX = "https://ethernity.local/qr/"
@@ -67,7 +69,7 @@ _ASSET_URL_PREFIX = "https://ethernity.local/assets/"
 _RENDER_JOBS_ENV = "ETHERNITY_RENDER_JOBS"
 _DEFAULT_QR_WORKERS_CAP = 8
 _MIN_QR_TASKS_PER_WORKER = 4
-_CONTEXT_PASSTHROUGH_KEYS = ("inventory_rows",)
+_CONTEXT_PASSTHROUGH_KEYS = ("inventory_rows", "kit_qr_page_count", "kit_qr_chunk_count")
 _TEMPLATE_ASSETS_DIR = TEMPLATES_RESOURCE_ROOT / "_shared" / "assets"
 
 
@@ -304,17 +306,63 @@ def _write_layout_debug_json(
     resolved.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def render_frames_to_pdf(inputs: RenderInputs) -> None:
+def _build_render_fallback_proof(
+    *,
+    inputs: RenderInputs,
+    fallback_sections_data: list[FallbackSectionData] | None,
+    fallback_state: FallbackConsumerState | None,
+    pages: Sequence[object],
+) -> RenderFallbackProof | None:
+    if not (inputs.render_fallback and inputs.fallback_sections):
+        return None
+    if fallback_sections_data is None or fallback_state is None:
+        return RenderFallbackProof(
+            section_frame_digests=tuple(
+                frame_digest(section.frame) for section in inputs.fallback_sections
+            ),
+            section_titles=tuple(
+                str(section.label or "Fallback Frame") for section in inputs.fallback_sections
+            ),
+            expected_section_count=len(inputs.fallback_sections),
+            emitted_block_count=0,
+            emitted_line_count=0,
+            consumed_section_count=0,
+            fully_consumed=False,
+            emitted_fallback_lines=(),
+        )
+
+    blocks = [block for page in pages for block in getattr(page, "fallback_blocks", ())]
+    section_titles = tuple(section.title for section in fallback_sections_data)
+    emitted_lines = tuple(
+        line for block in blocks for line in tuple(getattr(block, "lines", ()) or ())
+    )
+    return RenderFallbackProof(
+        section_frame_digests=tuple(
+            frame_digest(section.frame) for section in inputs.fallback_sections
+        ),
+        section_titles=section_titles,
+        expected_section_count=len(fallback_sections_data),
+        emitted_block_count=len(blocks),
+        emitted_line_count=len(emitted_lines),
+        consumed_section_count=min(fallback_state.section_idx, len(fallback_sections_data)),
+        fully_consumed=not fallback_sections_remaining(fallback_sections_data, fallback_state),
+        emitted_fallback_lines=emitted_lines,
+    )
+
+
+def render_frames_to_pdf(inputs: RenderInputs) -> RenderResult:
     """Render frames to a PDF by building layout, template context, and QR resources."""
 
-    if not inputs.frames:
-        raise ValueError("frames cannot be empty")
+    if not inputs.frames and (inputs.render_qr or inputs.render_fallback):
+        raise ValueError("frames cannot be empty when QR or fallback rendering is enabled")
 
     base_context = dict(inputs.context)
     created_timestamp_utc, created_dt = _resolve_created_timestamp(base_context)
 
     doc_id = base_context.get("doc_id")
     if not isinstance(doc_id, str):
+        if not inputs.frames:
+            raise ValueError("doc_id context is required when rendering without frames")
         doc_id = inputs.frames[0].doc_id.hex()
         base_context["doc_id"] = doc_id
 
@@ -454,6 +502,7 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
             passphrase=recovery_meta.passphrase,
             passphrase_lines=recovery_meta.passphrase_lines,
             quorum_value=recovery_meta.quorum_value,
+            quorum_label=recovery_meta.quorum_label,
             signing_pub_lines=recovery_meta.signing_pub_lines,
         )
     lineage = inputs.lineage or RenderLineage(kind="root_backup")
@@ -513,6 +562,21 @@ def render_frames_to_pdf(inputs: RenderInputs) -> None:
     )
     html = render_template(inputs.template_path, context)
     render_html_to_pdf(html, inputs.output_path, resources=resources)
+    fallback_proof = _build_render_fallback_proof(
+        inputs=inputs,
+        fallback_sections_data=fallback_sections_data,
+        fallback_state=fallback_state,
+        pages=pages,
+    )
+    return RenderResult(
+        artifact_proof=build_render_artifact_proof(
+            inputs=inputs,
+            qr_payload_count=len(qr_payloads),
+            page_count=len(pages),
+            fallback_proof=fallback_proof,
+        ),
+        fallback_proof=fallback_proof,
+    )
 
 
 def _qr_kind(config: QrConfig) -> str:

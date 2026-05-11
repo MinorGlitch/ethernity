@@ -15,7 +15,9 @@
 
 import hashlib
 import unittest
+from unittest import mock
 
+import ethernity.extensions.chain as chain_module
 from ethernity.core.bounds import MAX_MANIFEST_FILES
 from ethernity.extensions import (
     ExtensionChainLink,
@@ -304,6 +306,174 @@ class TestExtensionChain(unittest.TestCase):
             ),
         )
         self.assertEqual(duplicate_alpha_chunk_id, alpha_chunk_id)
+
+        with self.assertRaisesRegex(ValueError, "newly introduced"):
+            reconstruct_latest_logical_state(
+                manifest,
+                payload,
+                root_doc_hash=ROOT_DOC_HASH,
+                extensions=(ext1, ext2),
+            )
+
+    def test_reconstruct_evicts_chunks_after_last_reference(self) -> None:
+        manifest, payload = build_manifest_and_payload(
+            (PayloadPart(path="root.txt", data=b"root", mtime=1),),
+            sealed=False,
+            signing_seed=SIGNING_SEED,
+            created_at=1.0,
+            input_origin="file",
+            input_roots=(),
+        )
+        first_chunk_id, first_chunk = _raw_chunk(b"first")
+        second_chunk_id, second_chunk = _raw_chunk(b"second")
+        ext1 = ExtensionChainLink(
+            doc_hash=EXT1_DOC_HASH,
+            document=ExtensionEnvelope(
+                header=build_extension_header(
+                    index=1,
+                    parent_doc_hash=ROOT_DOC_HASH,
+                    root_doc_hash=ROOT_DOC_HASH,
+                    chunking=_profile(),
+                    input_origin="file",
+                    input_roots=(),
+                    created_at=2,
+                ),
+                files=(
+                    ExtensionFile(
+                        path="first.txt",
+                        size=len(b"first"),
+                        sha256=first_chunk_id,
+                        mtime=2,
+                        chunk_refs=(
+                            ExtensionChunkRef(
+                                chunk_id=first_chunk_id,
+                                uncompressed_len=len(b"first"),
+                            ),
+                        ),
+                    ),
+                ),
+                chunks=(first_chunk,),
+            ),
+        )
+        ext2 = ExtensionChainLink(
+            doc_hash=EXT2_DOC_HASH,
+            document=ExtensionEnvelope(
+                header=build_extension_header(
+                    index=2,
+                    parent_doc_hash=EXT1_DOC_HASH,
+                    root_doc_hash=ROOT_DOC_HASH,
+                    chunking=_profile(),
+                    input_origin="file",
+                    input_roots=(),
+                    created_at=3,
+                ),
+                files=(
+                    ExtensionFile(
+                        path="second.txt",
+                        size=len(b"second"),
+                        sha256=second_chunk_id,
+                        mtime=3,
+                        chunk_refs=(
+                            ExtensionChunkRef(
+                                chunk_id=second_chunk_id,
+                                uncompressed_len=len(b"second"),
+                            ),
+                        ),
+                    ),
+                ),
+                chunks=(second_chunk,),
+            ),
+        )
+        original_resolve = chain_module._resolve_extension_file_state
+        snapshots: dict[str, set[bytes]] = {}
+
+        def capture_available_chunks(file_entry, available_chunks, chunking):
+            snapshots[file_entry.path] = set(available_chunks)
+            return original_resolve(file_entry, available_chunks, chunking)
+
+        with mock.patch(
+            "ethernity.extensions.chain._resolve_extension_file_state",
+            side_effect=capture_available_chunks,
+        ):
+            reconstruct_latest_logical_state(
+                manifest,
+                payload,
+                root_doc_hash=ROOT_DOC_HASH,
+                extensions=(ext1, ext2),
+            )
+
+        self.assertNotIn(first_chunk_id, snapshots["second.txt"])
+        self.assertIn(second_chunk_id, snapshots["second.txt"])
+
+    def test_reconstruct_rejects_prior_extension_chunk_reintroduced_after_eviction(self) -> None:
+        manifest, payload = build_manifest_and_payload(
+            (PayloadPart(path="root.txt", data=b"root", mtime=1),),
+            sealed=False,
+            signing_seed=SIGNING_SEED,
+            created_at=1.0,
+            input_origin="file",
+            input_roots=(),
+        )
+        first_chunk_id, first_chunk = _raw_chunk(b"first")
+        second_chunk_id, second_chunk = _raw_chunk(b"second")
+        ext1 = ExtensionChainLink(
+            doc_hash=EXT1_DOC_HASH,
+            document=ExtensionEnvelope(
+                header=build_extension_header(
+                    index=1,
+                    parent_doc_hash=ROOT_DOC_HASH,
+                    root_doc_hash=ROOT_DOC_HASH,
+                    chunking=_profile(),
+                    input_origin="file",
+                    input_roots=(),
+                    created_at=2,
+                ),
+                files=(
+                    ExtensionFile(
+                        path="first.txt",
+                        size=len(b"first"),
+                        sha256=first_chunk_id,
+                        mtime=2,
+                        chunk_refs=(
+                            ExtensionChunkRef(
+                                chunk_id=first_chunk_id,
+                                uncompressed_len=len(b"first"),
+                            ),
+                        ),
+                    ),
+                ),
+                chunks=(first_chunk,),
+            ),
+        )
+        ext2 = ExtensionChainLink(
+            doc_hash=EXT2_DOC_HASH,
+            document=ExtensionEnvelope(
+                header=build_extension_header(
+                    index=2,
+                    parent_doc_hash=EXT1_DOC_HASH,
+                    root_doc_hash=ROOT_DOC_HASH,
+                    chunking=_profile(),
+                    input_origin="file",
+                    input_roots=(),
+                    created_at=3,
+                ),
+                files=(
+                    ExtensionFile(
+                        path="second.txt",
+                        size=len(b"second"),
+                        sha256=second_chunk_id,
+                        mtime=3,
+                        chunk_refs=(
+                            ExtensionChunkRef(
+                                chunk_id=second_chunk_id,
+                                uncompressed_len=len(b"second"),
+                            ),
+                        ),
+                    ),
+                ),
+                chunks=tuple(sorted((first_chunk, second_chunk), key=lambda item: item.chunk_id)),
+            ),
+        )
 
         with self.assertRaisesRegex(ValueError, "newly introduced"):
             reconstruct_latest_logical_state(
@@ -647,3 +817,63 @@ class TestExtensionChain(unittest.TestCase):
             {item.path: item.data for item in latest}["existing-0042.txt"],
             b"replacement",
         )
+
+    def test_reconstruct_latest_state_checks_final_latest_state_size(self) -> None:
+        manifest, payload = build_manifest_and_payload(
+            (
+                PayloadPart(path="a.bin", data=b"a" * 5, mtime=1),
+                PayloadPart(path="z.bin", data=b"z" * 20, mtime=1),
+            ),
+            sealed=False,
+            signing_seed=SIGNING_SEED,
+            created_at=1.0,
+            input_origin="directory",
+            input_roots=("docs",),
+        )
+        grown_chunk_id, grown_chunk = _raw_chunk(b"a" * 20)
+        shrunk_chunk_id, shrunk_chunk = _raw_chunk(b"z" * 5)
+        link = ExtensionChainLink(
+            doc_hash=EXT1_DOC_HASH,
+            document=ExtensionEnvelope(
+                header=build_extension_header(
+                    index=1,
+                    parent_doc_hash=ROOT_DOC_HASH,
+                    root_doc_hash=ROOT_DOC_HASH,
+                    chunking=_profile(),
+                    input_origin="directory",
+                    input_roots=("docs",),
+                    created_at=2,
+                ),
+                files=(
+                    ExtensionFile(
+                        path="a.bin",
+                        size=20,
+                        sha256=grown_chunk_id,
+                        mtime=2,
+                        chunk_refs=(
+                            ExtensionChunkRef(chunk_id=grown_chunk_id, uncompressed_len=20),
+                        ),
+                    ),
+                    ExtensionFile(
+                        path="z.bin",
+                        size=5,
+                        sha256=shrunk_chunk_id,
+                        mtime=2,
+                        chunk_refs=(
+                            ExtensionChunkRef(chunk_id=shrunk_chunk_id, uncompressed_len=5),
+                        ),
+                    ),
+                ),
+                chunks=tuple(sorted((grown_chunk, shrunk_chunk), key=lambda item: item.chunk_id)),
+            ),
+        )
+
+        with mock.patch("ethernity.extensions.chain.MAX_DECOMPRESSED_PAYLOAD_BYTES", 25):
+            latest = reconstruct_latest_logical_state(
+                manifest,
+                payload,
+                root_doc_hash=ROOT_DOC_HASH,
+                extensions=(link,),
+            )
+
+        self.assertEqual({item.path: item.size for item in latest}, {"a.bin": 20, "z.bin": 5})

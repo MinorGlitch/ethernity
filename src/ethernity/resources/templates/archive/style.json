@@ -13,7 +13,6 @@
   },
   "capabilities": {
     "main_qr_grid_size_mm": 58.6,
-    "recovery_line_groups_bonus": 5,
     "recovery_first_page_bonus_lines": 13,
     "recovery_first_page_bonus_lines_per_extra_section": 2,
     "recovery_continuation_bonus_lines": 16,

@@ -36,7 +36,8 @@ EXTENSIONS_DIR_NAME = "extensions"
 _MAIN_FILENAME_PREFIXES = ("qr_document-", "recovery_document-", "recovery_kit_index-")
 _SHARD_FILENAME_PREFIXES = ("shard-", "signing-key-shard-")
 _RECOGNIZED_FILENAME_PREFIXES = (*_MAIN_FILENAME_PREFIXES, *_SHARD_FILENAME_PREFIXES)
-_PAYLOAD_MAIN_DOC_TYPES = frozenset({"qr_document", "recovery_document"})
+_PAYLOAD_MAIN_DOC_TYPES = frozenset({"qr_document"})
+_REQUIRED_MAIN_DOC_TYPES = frozenset({"qr_document", "recovery_document"})
 
 
 @dataclass(frozen=True)
@@ -97,7 +98,7 @@ def require_backup_root_dir(root_dir: str | Path) -> Path:
 def payload_main_carriers(
     carriers: tuple[DiscoveredExtensionMainCarrier, ...] | list[DiscoveredExtensionMainCarrier],
 ) -> tuple[DiscoveredExtensionMainCarrier, ...]:
-    """Return only payload-bearing extension documents."""
+    """Return only machine-readable payload-bearing extension documents."""
 
     return tuple(carrier for carrier in carriers if carrier.doc_type in _PAYLOAD_MAIN_DOC_TYPES)
 
@@ -135,6 +136,7 @@ def discover_validated_extension_directories(
 
     candidate_dirs: dict[int, Path] = {}
     invalid_decimal_dirs: dict[int, str] = {}
+    invalid_reserved_entries: dict[int, tuple[str, str]] = {}
     for entry in extensions_dir.iterdir():
         if entry.is_symlink():
             if (
@@ -142,15 +144,51 @@ def discover_validated_extension_directories(
                 or entry.name.isdecimal()
                 or is_canonical_extension_dir_name(entry.name)
             ):
-                return ValidatedExtensionDiscovery(
-                    directories=(),
-                    first_invalid_dir_name=entry.name,
-                    first_invalid_message=(
-                        f"extension directory must not be a symlink: {entry.name}"
+                if is_staging_dir_name(entry.name):
+                    return ValidatedExtensionDiscovery(
+                        directories=(),
+                        first_invalid_dir_name=entry.name,
+                        first_invalid_message=(
+                            f"extension directory must not be a symlink: {entry.name}"
+                        ),
+                    )
+                index = int(entry.name, 10)
+                invalid_reserved_entries.setdefault(
+                    index,
+                    (
+                        entry.name,
+                        f"extension directory must not be a symlink: {entry.name}",
                     ),
                 )
             continue
         if not entry.is_dir():
+            if (
+                is_staging_dir_name(entry.name)
+                or entry.name.isdecimal()
+                or is_canonical_extension_dir_name(entry.name)
+            ):
+                if is_staging_dir_name(entry.name):
+                    return ValidatedExtensionDiscovery(
+                        directories=(),
+                        first_invalid_dir_name=entry.name,
+                        first_invalid_message=(
+                            f"extension directory must be a directory: {entry.name}"
+                        ),
+                    )
+                if entry.name.isdecimal():
+                    index = int(entry.name, 10)
+                    if not is_canonical_extension_dir_name(entry.name):
+                        invalid_decimal_dirs.setdefault(index, entry.name)
+                        continue
+                else:
+                    index = parse_extension_dir_name(entry.name)
+                invalid_reserved_entries.setdefault(
+                    index,
+                    (
+                        entry.name,
+                        f"extension directory must be a directory: {entry.name}",
+                    ),
+                )
             continue
         if is_staging_dir_name(entry.name):
             continue
@@ -177,7 +215,7 @@ def discover_validated_extension_directories(
                 ),
             )
 
-    all_indexes = sorted({*candidate_dirs, *invalid_decimal_dirs})
+    all_indexes = sorted({*candidate_dirs, *invalid_decimal_dirs, *invalid_reserved_entries})
     validated: list[DiscoveredExtensionDirectory] = []
     expected_index = 1
     for discovered_index in all_indexes:
@@ -190,6 +228,14 @@ def discover_validated_extension_directories(
                     f"invalid non-canonical extension directory name: {invalid_name_for_expected}"
                 ),
             )
+        invalid_entry_for_expected = invalid_reserved_entries.get(expected_index)
+        if invalid_entry_for_expected is not None:
+            invalid_name, invalid_message = invalid_entry_for_expected
+            return ValidatedExtensionDiscovery(
+                directories=tuple(validated),
+                first_invalid_dir_name=invalid_name,
+                first_invalid_message=invalid_message,
+            )
         if discovered_index != expected_index:
             invalid_name_for_discovered = invalid_decimal_dirs.get(discovered_index)
             if invalid_name_for_discovered is not None:
@@ -200,6 +246,14 @@ def discover_validated_extension_directories(
                         "invalid non-canonical extension directory name: "
                         f"{invalid_name_for_discovered}"
                     ),
+                )
+            invalid_entry_for_discovered = invalid_reserved_entries.get(discovered_index)
+            if invalid_entry_for_discovered is not None:
+                invalid_name, invalid_message = invalid_entry_for_discovered
+                return ValidatedExtensionDiscovery(
+                    directories=tuple(validated),
+                    first_invalid_dir_name=invalid_name,
+                    first_invalid_message=invalid_message,
                 )
             return ValidatedExtensionDiscovery(
                 directories=tuple(validated),
@@ -264,14 +318,19 @@ def _discover_extension_directory(*, index: int, path: Path) -> DiscoveredExtens
             shard_keys=shard_keys,
         )
 
-    payload_carriers = payload_main_carriers(main_carriers)
-    if not payload_carriers:
-        raise ValueError(f"extension directory {path.name} must contain both payload MAIN carriers")
-    payload_types = {carrier.doc_type for carrier in payload_carriers}
-    if payload_types != _PAYLOAD_MAIN_DOC_TYPES:
-        missing = sorted(_PAYLOAD_MAIN_DOC_TYPES.difference(payload_types))
+    required_main_carriers = tuple(
+        carrier for carrier in main_carriers if carrier.doc_type in _REQUIRED_MAIN_DOC_TYPES
+    )
+    if not required_main_carriers:
         raise ValueError(
-            f"extension directory {path.name} is missing required payload MAIN carriers: "
+            f"extension directory {path.name} must contain required MAIN documents: "
+            "qr_document, recovery_document"
+        )
+    required_types = {carrier.doc_type for carrier in required_main_carriers}
+    if required_types != _REQUIRED_MAIN_DOC_TYPES:
+        missing = sorted(_REQUIRED_MAIN_DOC_TYPES.difference(required_types))
+        raise ValueError(
+            f"extension directory {path.name} is missing required MAIN documents: "
             f"{', '.join(missing)}"
         )
 
@@ -291,7 +350,7 @@ def _discover_extension_directory(*, index: int, path: Path) -> DiscoveredExtens
         dir_name=path.name,
         path=path,
         doc_id_hex=doc_id_hex,
-        main_carriers=payload_carriers,
+        main_carriers=required_main_carriers,
         shard_carriers=tuple(shard_carriers),
         recovery_kit_index_carrier=next(
             (carrier for carrier in main_carriers if carrier.doc_type == "recovery_kit_index"),

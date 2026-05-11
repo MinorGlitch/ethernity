@@ -130,14 +130,14 @@ def scan_qr_payloads(paths: Sequence[str | Path]) -> list[bytes]:
 
 
 def _scan_one_path(path: Path, decoder: QrDecoder) -> list[bytes]:
+    if _looks_like_pdf(path):
+        return _scan_pdf(path, decoder)
+    if _looks_like_image(path):
+        return _scan_image(path, decoder)
     suffix = path.suffix.lower()
     if suffix == ".pdf":
         return _scan_pdf(path, decoder)
     if suffix in _IMAGE_SUFFIXES:
-        return _scan_image(path, decoder)
-    if _looks_like_pdf(path):
-        return _scan_pdf(path, decoder)
-    if _looks_like_image(path):
         return _scan_image(path, decoder)
     raise QrScanError(f"unsupported scan file content: {path}")
 
@@ -231,7 +231,7 @@ def _iter_scan_files(directory: Path) -> list[Path]:
         for filename in filenames:
             path = root_path / filename
             suffix = path.suffix.lower()
-            if suffix == ".pdf" or suffix in _IMAGE_SUFFIXES or _looks_like_scan_file(path):
+            if _looks_like_scan_file(path) or suffix == ".pdf" or suffix in _IMAGE_SUFFIXES:
                 files.append(path)
     files.sort()
     return files

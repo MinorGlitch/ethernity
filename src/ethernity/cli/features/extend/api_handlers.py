@@ -30,6 +30,7 @@ from ethernity.cli.features.extend.service import (
     resolve_extend_runtime,
 )
 from ethernity.cli.features.recover.api_handlers import _ForwardingWarningCollector
+from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.events import (
     active_event_sink,
     emit_artifact,
@@ -38,6 +39,7 @@ from ethernity.cli.shared.events import (
     emit_result,
     event_session,
 )
+from ethernity.cli.shared.inspection import blocking_issue, inspect_result_payload
 from ethernity.cli.shared.ndjson import (
     SCHEMA_VERSION,
     ApiCommandError,
@@ -240,11 +242,17 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
         chunk_reuse: dict[str, int] | None = None
         estimated_extension_bytes: int | None = None
         diff_summary = inspection.diff_summary
-        if (
-            not blocking_issues
-            and diff_summary is not None
-            and (bool(diff_summary.get("changed_paths")) or bool(diff_summary.get("new_paths")))
-        ):
+        has_extension_changes = diff_summary is not None and (
+            bool(diff_summary.get("changed_paths")) or bool(diff_summary.get("new_paths"))
+        )
+        if not blocking_issues and diff_summary is not None and not has_extension_changes:
+            blocking_issues.append(
+                blocking_issue(
+                    code=api_codes.EXTENSION_NO_CHANGES,
+                    message="selected scope matches the current chain state; nothing to extend",
+                )
+            )
+        if not blocking_issues and has_extension_changes:
             try:
                 prepared = prepare_extend_run_from_state(args, resolved)
                 resolve_extend_runtime(prepared)
@@ -254,33 +262,31 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
                     and estimated_extension_bytes > MAX_CIPHERTEXT_BYTES
                 ):
                     blocking_issues.append(
-                        {
-                            "code": "RUNTIME_ERROR",
-                            "message": (
+                        blocking_issue(
+                            code=api_codes.EXTENSION_TOO_LARGE,
+                            message=(
                                 "extension ciphertext exceeds MAX_CIPHERTEXT_BYTES "
                                 f"({MAX_CIPHERTEXT_BYTES}): "
                                 f"{estimated_extension_bytes} bytes"
                             ),
-                            "details": {},
-                        }
+                        )
                     )
                     chunk_reuse = None
                     estimated_extension_bytes = None
             except ApiCommandError as exc:
-                blocking_issues.append(
-                    {
-                        "code": exc.code,
-                        "message": str(exc),
-                        "details": dict(exc.details or {}),
-                    }
-                )
+                code, details = _inspect_blocking_issue_payload(exc.code, exc.details)
+                blocking_issues.append(blocking_issue(code=code, message=str(exc), details=details))
             except Exception as exc:
+                cause_code = error_code_for_exception(exc)
                 blocking_issues.append(
-                    {
-                        "code": error_code_for_exception(exc),
-                        "message": str(exc),
-                        "details": error_details_for_exception(exc),
-                    }
+                    blocking_issue(
+                        code=api_codes.EXTENSION_LAYOUT_INVALID,
+                        message=str(exc),
+                        details={
+                            **error_details_for_exception(exc),
+                            "cause_code": cause_code,
+                        },
+                    )
                 )
 
         emit_progress(
@@ -295,33 +301,36 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
         )
 
         emit_result(
-            command="extend",
-            operation="inspect",
-            doc_id=inspection.doc_id,
-            input_label=inspection.input_label,
-            input_detail=inspection.input_detail,
-            input_kind=inspection.input_kind,
-            source_summary=inspection.source_summary,
-            frame_counts=inspection.frame_counts,
-            root_doc_id=inspection.root_doc_id,
-            root_doc_hash=inspection.root_doc_hash,
-            chain_id=inspection.chain_id,
-            auth_status=inspection.auth_status,
-            unlock=_unlock_payload(inspection.unlock),
-            discovered_extension_dirs=list(inspection.discovered_extension_dirs),
-            validated_head_index=inspection.validated_head_index,
-            validated_head_doc_hash=inspection.validated_head_doc_hash,
-            available_extensions=list(inspection.available_extensions),
-            ancestry_valid=inspection.ancestry_valid,
-            validated_head_auth_status=inspection.validated_head_auth_status,
-            validated_head_root_authority_verified=inspection.validated_head_root_authority_verified,
-            signing_authority=inspection.signing_authority,
-            selected_scope=inspection.selected_scope,
-            diff_summary=inspection.diff_summary,
-            chunk_reuse=chunk_reuse,
-            estimated_extension_bytes=estimated_extension_bytes,
-            blocking_issues=blocking_issues,
-            warnings=list(sink.warning_records),
+            **inspect_result_payload(
+                command="extend",
+                source_summary=inspection.source_summary,
+                frame_counts=inspection.frame_counts,
+                unlock=_unlock_payload(inspection.unlock),
+                blocking_issues=blocking_issues,
+                warnings=list(sink.warning_records),
+                doc_id=inspection.doc_id,
+                input_label=inspection.input_label,
+                input_detail=inspection.input_detail,
+                input_kind=inspection.input_kind,
+                root_doc_id=inspection.root_doc_id,
+                root_doc_hash=inspection.root_doc_hash,
+                chain_id=inspection.chain_id,
+                auth_status=inspection.auth_status,
+                discovered_extension_dirs=list(inspection.discovered_extension_dirs),
+                validated_head_index=inspection.validated_head_index,
+                validated_head_doc_hash=inspection.validated_head_doc_hash,
+                available_extensions=list(inspection.available_extensions),
+                ancestry_valid=inspection.ancestry_valid,
+                validated_head_auth_status=inspection.validated_head_auth_status,
+                validated_head_root_authority_verified=(
+                    inspection.validated_head_root_authority_verified
+                ),
+                signing_authority=inspection.signing_authority,
+                selected_scope=inspection.selected_scope,
+                diff_summary=inspection.diff_summary,
+                chunk_reuse=chunk_reuse,
+                estimated_extension_bytes=estimated_extension_bytes,
+            )
         )
     return 0
 
@@ -330,6 +339,18 @@ def _unlock_payload(unlock: dict[str, object]) -> dict[str, object]:
     payload = dict(unlock)
     payload.setdefault("shard_share_count", None)
     return payload
+
+
+def _inspect_blocking_issue_payload(
+    code: str,
+    details: dict[str, object] | None,
+) -> tuple[str, dict[str, object]]:
+    if code in api_codes.STABLE_BLOCKING_ISSUE_CODES:
+        return code, dict(details or {})
+    return (
+        api_codes.EXTENSION_LAYOUT_INVALID,
+        {**dict(details or {}), "cause_code": code},
+    )
 
 
 __all__ = ["run_extend_api_command", "run_extend_inspect_api_command"]

@@ -19,9 +19,9 @@
 from __future__ import annotations
 
 import secrets
-import shutil
 
 from ethernity import render as render_module
+from ethernity.artifacts.publish import publish_staged_artifacts
 from ethernity.cli.features.backup import execution as backup_execution
 from ethernity.cli.features.extend import rendering as _rendering_impl, runtime as _runtime_impl
 from ethernity.cli.features.extend.main_carrier_validation import (
@@ -44,11 +44,7 @@ from ethernity.cli.features.extend.prepare import (
 from ethernity.cli.features.extend.shard_validation import validate_staged_shard_carriers
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.extensions.build import Chunker, default_extension_chunker
-from ethernity.extensions.staging import (
-    promote_staged_extension_dir,
-    snapshot_staged_extension_dir,
-    validate_staged_extension_dir,
-)
+from ethernity.extensions.staging import validate_staged_extension_dir
 
 
 def execute_staged_extension_publish(
@@ -60,22 +56,22 @@ def execute_staged_extension_publish(
     """Render into a staged extension directory, validate, and promote atomically."""
 
     staging_dir = plan.artifacts.staging_dir
-    try:
-        render_result = renderer(plan)
-        validated = validate_staged_extension_dir(
-            staging_dir,
+
+    def _validate_staging(path) -> None:
+        validate_staged_extension_dir(
+            path,
             expected_index=plan.prepared.next_index,
             publish_policy=plan.publish_policy,
         )
-        staged_snapshot = snapshot_staged_extension_dir(staging_dir)
-        post_validate(plan, render_result)
-        final_dir = promote_staged_extension_dir(
-            validated,
-            expected_snapshot=staged_snapshot,
-        )
-    except Exception:
-        shutil.rmtree(staging_dir, ignore_errors=True)
-        raise
+
+    publish_result = publish_staged_artifacts(
+        staging_dir=staging_dir,
+        final_dir=plan.artifacts.final_dir,
+        populate=lambda: renderer(plan),
+        validate_staging=_validate_staging,
+        validate_artifacts=lambda rendered: post_validate(plan, rendered),
+    )
+    final_dir = publish_result.final_dir
 
     return PublishedExtensionResult(
         index=plan.prepared.next_index,
@@ -92,6 +88,16 @@ def execute_staged_extension_publish(
         shard_paths=tuple(final_dir / path.name for path in plan.artifacts.shard_paths),
         signing_key_shard_paths=tuple(
             final_dir / path.name for path in plan.artifacts.signing_key_shard_paths
+        ),
+        root_passphrase_shard_threshold=(
+            plan.prepared.root_passphrase_shard_threshold
+            if plan.prepared.args.unlock_policy == "reuse-root"
+            else None
+        ),
+        root_passphrase_shard_count=(
+            plan.prepared.root_passphrase_shard_count
+            if plan.prepared.args.unlock_policy == "reuse-root"
+            else 0
         ),
     )
 

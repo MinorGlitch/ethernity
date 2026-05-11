@@ -23,10 +23,11 @@ from typing import Callable
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
 from ethernity.render.service import RenderService
-from ethernity.render.types import RenderInputs, RenderLineage
+from ethernity.render.types import RenderInputs, RenderLineage, RenderResult
 
 from .main_document_rendering import build_main_qr_payloads
 from .models import (
+    EXTENSION_TOO_LARGE,
     PreparedExtensionPublishPlan,
     RenderedExtensionArtifacts,
     ResolvedExtendRuntime,
@@ -41,17 +42,31 @@ from .shard_rendering import (
 )
 
 
+def _update_kit_index_qr_page_count(
+    kit_index_inputs: RenderInputs | None,
+    render_result: RenderResult | None,
+) -> None:
+    if (
+        kit_index_inputs is None
+        or render_result is None
+        or render_result.artifact_proof is None
+        or render_result.artifact_proof.page_count <= 0
+    ):
+        return
+    kit_index_inputs.context["kit_qr_page_count"] = render_result.artifact_proof.page_count
+
+
 def render_extension_artifacts(
     plan: PreparedExtensionPublishPlan,
     *,
     runtime: ResolvedExtendRuntime,
-    render_frames_to_pdf: Callable[[RenderInputs], None],
+    render_frames_to_pdf: Callable[[RenderInputs], RenderResult | None],
     layout_debug_json_path: Callable[[str | None, str], str | None],
     build_kit_index_inventory_rows: Callable[..., list[dict[str, str]]],
 ) -> RenderedExtensionArtifacts:
     if len(plan.encrypted.ciphertext) > MAX_CIPHERTEXT_BYTES:
         raise ApiCommandError(
-            code="RUNTIME_ERROR",
+            code=EXTENSION_TOO_LARGE,
             message=(
                 "extension ciphertext exceeds MAX_CIPHERTEXT_BYTES "
                 f"({MAX_CIPHERTEXT_BYTES}): {len(plan.encrypted.ciphertext)} bytes"
@@ -95,8 +110,9 @@ def render_extension_artifacts(
         lineage=lineage,
     )
 
-    render_frames_to_pdf(qr_inputs)
-    render_frames_to_pdf(recovery_inputs)
+    qr_render_result = render_frames_to_pdf(qr_inputs)
+    _update_kit_index_qr_page_count(kit_index_inputs, qr_render_result)
+    recovery_render_result = render_frames_to_pdf(recovery_inputs)
     if kit_index_inputs is not None:
         render_frames_to_pdf(kit_index_inputs)
 
@@ -138,5 +154,8 @@ def render_extension_artifacts(
         signing_key_shards=signing_key_shards,
         recovery_document_fallback_frames=tuple(
             section.frame for section in recovery_inputs.fallback_sections or ()
+        ),
+        recovery_document_fallback_proof=(
+            recovery_render_result.fallback_proof if recovery_render_result is not None else None
         ),
     )

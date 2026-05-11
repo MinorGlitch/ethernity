@@ -860,8 +860,9 @@ extension envelope uses outer envelope `VERSION = 2`.
 Extension authentication is carried beside the ciphertext, not inside the encrypted extension
 header/body. Extension recovery MUST verify exactly one AUTH payload bound to the extension
 ciphertext `doc_hash` and signed by the selected root-derived signing authority. Published export
-layouts MAY carry this AUTH payload inside redundant MAIN carriers; there is no separate extension
-AUTH artifact filename in the core format.
+layouts carry this AUTH payload with the extension MAIN transport and may also display it in
+human-readable fallback text; there is no separate extension AUTH artifact filename in the core
+format.
 
 ### 19.1) Extension Envelope Binary Layout
 
@@ -892,12 +893,12 @@ Rules:
 As with Version 1, encoders MUST encrypt the complete extension envelope as a single age message
 and then frame the resulting ciphertext according to Section 6.
 
-Published extension carriers MUST also provide one AUTH frame for that ciphertext:
+Published machine-readable extension carriers MUST also provide one AUTH frame for that ciphertext:
 - the AUTH payload MUST bind to the extension ciphertext `doc_hash`
 - the AUTH payload MUST be encoded as a single-frame AUTH payload
 - the AUTH signature MUST be produced by the root-derived signing authority
-- AUTH carrier transport reuses the existing MAIN carrier set; no extra extension AUTH filename is
-  introduced
+- AUTH carrier transport reuses the existing machine-readable MAIN carrier set; no extra extension
+  AUTH filename is introduced
 
 ### 19.2) Extension Header
 
@@ -1236,18 +1237,18 @@ Import rules:
   a separate signed freshness source, implementations MUST NOT claim to prove that no later
   extension exists
 
-Recovery MAY succeed from any complete, authenticated MAIN carrier for a document. Multiple carrier
-copies are redundancy, not identity. Implementations MAY provide separate audit tooling for checking
-whether an exported digital folder contains all expected redundant carriers, but such audit rules are
-outside the recovery format.
+Recovery MAY succeed from any complete, authenticated machine-readable MAIN carrier for a document.
+Multiple carrier copies are redundancy, not identity. Implementations MAY provide separate audit
+tooling for checking whether an exported digital folder contains all expected redundant artifacts,
+but such audit rules are outside the recovery format.
 
-Extension publish implementations that emit redundant MAIN carrier copies MUST validate every
-payload-bearing carrier copy before promotion. For this release profile, that means `qr_document-*`
-MUST reassemble and authenticate from QR payloads, and the `recovery_document-*` render contract
-MUST carry fallback frames that reassemble and authenticate to the same planned extension
-`doc_id`/`doc_hash` with a root-authority AUTH payload. Implementations MAY perform separate PDF
-integrity checks, but MUST NOT derive recovery semantics by scraping human-display text from the
-PDF.
+For this release profile, extension `qr_document-*` artifacts are the only machine-readable
+payload-bearing MAIN carriers. Extension `recovery_document-*` artifacts are human-readable fallback
+documents for manual transcription when QR scanning is unavailable or damaged; implementations MUST
+NOT treat PDF text extracted from `recovery_document-*` as a content-import or chain-replay carrier.
+Publish implementations MUST validate every machine-readable payload-bearing carrier before
+promotion. They MAY also perform PDF integrity and visible fallback-text checks on recovery
+documents, but MUST NOT derive recovery semantics by scraping human-display text from the PDF.
 
 The authoritative extension identity comes from recovered ciphertext, AUTH, and decrypted
 extension-header metadata.

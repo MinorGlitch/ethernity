@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+import hashlib
 import json
 import tempfile
 import unittest
@@ -22,8 +23,13 @@ from unittest import mock
 from playwright.sync_api import sync_playwright
 
 from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
-from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
-from ethernity.render import RenderInputs, pdf_render as pdf_render_module, render_frames_to_pdf
+from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, encode_frame
+from ethernity.render import (
+    FallbackSection,
+    RenderInputs,
+    pdf_render as pdf_render_module,
+    render_frames_to_pdf,
+)
 from ethernity.render.recovery_meta import build_recovery_meta
 from ethernity.render.types import Layout, RenderLineage
 from tests.test_support import ensure_playwright_browsers
@@ -133,6 +139,53 @@ class TestPdfRender(unittest.TestCase):
         self.assertNotIn("forge_copy", rendered_context)
         self.assertEqual(rendered_context["lineage"]["kind"], "root_backup")
 
+    def test_render_frames_to_pdf_allows_frame_less_kit_index(self) -> None:
+        template_path = _template_path("forge", "kit_index_document.html.j2")
+        context = {
+            "paper_size": "A4",
+            "doc_id": "22" * DOC_ID_LEN,
+            "kit_qr_page_count": 2,
+            "kit_qr_chunk_count": 5,
+            "inventory_rows": [
+                {
+                    "component_id": "QR-DOC-01",
+                    "detail": "Encrypted payload and auth QR frames",
+                    "status": "Generated",
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "recovery_kit_index.pdf"
+            inputs = RenderInputs(
+                frames=(),
+                template_path=template_path,
+                output_path=output_path,
+                context=context,
+                doc_type="kit_index",
+                qr_payloads=(),
+                render_qr=False,
+                render_fallback=False,
+            )
+            with mock.patch("ethernity.render.pdf_render.render_html_to_pdf") as render_pdf_mock:
+                with mock.patch(
+                    "ethernity.render.pdf_render.render_template",
+                    return_value="<html></html>",
+                ) as render_template_mock:
+                    result = render_frames_to_pdf(inputs)
+
+        rendered_context = render_template_mock.call_args[0][1]
+        self.assertEqual(rendered_context["doc_id"], "22" * DOC_ID_LEN)
+        self.assertEqual(rendered_context["kit_qr_page_count"], 2)
+        self.assertEqual(rendered_context["kit_qr_chunk_count"], 5)
+        resources = render_pdf_mock.call_args.kwargs["resources"]
+        self.assertFalse(
+            any(str(key).startswith("https://ethernity.local/qr/") for key in resources)
+        )
+        self.assertIsNotNone(result.artifact_proof)
+        assert result.artifact_proof is not None
+        self.assertEqual(result.artifact_proof.frame_digests, ())
+        self.assertEqual(result.artifact_proof.qr_payload_count, 0)
+
     def test_render_frames_to_pdf_uses_lineage_aware_copy_for_document_title(self) -> None:
         frames = [
             Frame(
@@ -173,6 +226,104 @@ class TestPdfRender(unittest.TestCase):
             "Extension 02 - Appended generation payload",
         )
         self.assertEqual(rendered_context["copy"]["lineage_badge"], "Extension 02")
+
+    def test_render_frames_to_pdf_uses_minted_shard_lineage_copy(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=b"\x55" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        template_path = _template_path("ledger", "shard_document.html.j2")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "shard.pdf"
+            inputs = RenderInputs(
+                frames=(frame,),
+                template_path=template_path,
+                output_path=output_path,
+                context={"paper_size": "A4", "shard_index": 1, "shard_total": 2},
+                doc_type="shard",
+                render_qr=False,
+                render_fallback=False,
+                lineage=RenderLineage(kind="minted_shard_set"),
+            )
+            with mock.patch("ethernity.render.pdf_render.render_html_to_pdf"):
+                with mock.patch(
+                    "ethernity.render.pdf_render.render_template",
+                    return_value="<html></html>",
+                ) as render_template_mock:
+                    render_frames_to_pdf(inputs)
+
+        rendered_context = render_template_mock.call_args[0][1]
+        self.assertEqual(rendered_context["lineage"]["kind"], "minted_shard_set")
+        self.assertEqual(rendered_context["doc"]["title"], "Minted Shard Document")
+        self.assertEqual(rendered_context["copy"]["lineage_badge"], "Minted Shard Set")
+
+    def test_render_frames_to_pdf_returns_fallback_proof_for_consumed_sections(self) -> None:
+        doc_id = b"\x55" * DOC_ID_LEN
+        auth_frame = Frame(
+            version=1,
+            frame_type=FrameType.AUTH,
+            doc_id=doc_id,
+            index=0,
+            total=1,
+            data=b"auth",
+        )
+        main_frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=doc_id,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        template_path = _template_path("ledger", "recovery_document.html.j2")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "recovery.pdf"
+            inputs = RenderInputs(
+                frames=(main_frame,),
+                template_path=template_path,
+                output_path=output_path,
+                context={"paper_size": "A4"},
+                doc_type="recovery",
+                render_qr=False,
+                recovery_meta=build_recovery_meta(
+                    passphrase="passphrase",
+                    quorum_threshold=None,
+                    quorum_shares=None,
+                    signing_pub=b"\x44" * 32,
+                ),
+                fallback_sections=(
+                    FallbackSection("AUTH", auth_frame),
+                    FallbackSection("Main Frame", main_frame),
+                ),
+            )
+            with mock.patch("ethernity.render.pdf_render.render_html_to_pdf"):
+                result = render_frames_to_pdf(inputs)
+
+        assert result.fallback_proof is not None
+        assert result.artifact_proof is not None
+        self.assertEqual(result.artifact_proof.doc_type, "recovery")
+        self.assertEqual(result.artifact_proof.qr_payload_count, 1)
+        self.assertEqual(result.artifact_proof.fallback_proof, result.fallback_proof)
+        self.assertTrue(result.fallback_proof.fully_consumed)
+        self.assertEqual(result.fallback_proof.expected_section_count, 2)
+        self.assertGreater(result.fallback_proof.emitted_block_count, 0)
+        self.assertGreater(result.fallback_proof.emitted_line_count, 0)
+        self.assertEqual(
+            result.fallback_proof.emitted_line_count,
+            len(result.fallback_proof.emitted_fallback_lines),
+        )
+        self.assertEqual(
+            result.fallback_proof.section_frame_digests,
+            (
+                hashlib.sha256(encode_frame(auth_frame)).hexdigest(),
+                hashlib.sha256(encode_frame(main_frame)).hexdigest(),
+            ),
+        )
 
     def test_render_frames_to_pdf_injects_forge_copy_from_style_capability(self) -> None:
         frames = [

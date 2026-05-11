@@ -232,6 +232,37 @@ class TestQrScanMore(unittest.TestCase):
                 payloads = qr_scan.scan_qr_payloads([path])
         self.assertEqual(payloads, [b"pdf-payload"])
 
+    def test_scan_qr_payloads_prefers_image_magic_over_pdf_suffix(self) -> None:
+        decoder = QrDecoder(
+            name="dummy",
+            decode_image_path=lambda path: [Path(path).name.encode()],
+            decode_image_bytes=lambda _: [],
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "camera-export.pdf"
+            path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+            with (
+                mock.patch.object(qr_scan, "_load_decoder", return_value=decoder),
+                mock.patch.object(qr_scan, "_scan_pdf") as scan_pdf,
+            ):
+                payloads = qr_scan.scan_qr_payloads([path])
+        self.assertEqual(payloads, [b"camera-export.pdf"])
+        scan_pdf.assert_not_called()
+
+    def test_scan_qr_payloads_prefers_pdf_magic_over_image_suffix(self) -> None:
+        decoder = QrDecoder(
+            name="dummy", decode_image_path=lambda _: [], decode_image_bytes=lambda _: []
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "paper-scan.png"
+            path.write_bytes(b"%PDF-1.7\n")
+            with (
+                mock.patch.object(qr_scan, "_load_decoder", return_value=decoder),
+                mock.patch.object(qr_scan, "_scan_pdf", return_value=[b"pdf-payload"]),
+            ):
+                payloads = qr_scan.scan_qr_payloads([path])
+        self.assertEqual(payloads, [b"pdf-payload"])
+
     def test_scan_qr_payloads_rejects_unsupported_type(self) -> None:
         decoder = QrDecoder(
             name="dummy", decode_image_path=lambda _: [], decode_image_bytes=lambda _: []

@@ -180,7 +180,20 @@ ethernity extend \
   --root-dir ./backup-root \
   --input-dir ./docs \
   --base-dir ./docs \
-  --passphrase "example passphrase"
+  --passphrase "example passphrase" \
+  --dry-run
+```
+
+Publish the extension, explicitly choosing the same plaintext-passphrase recovery model as the
+example root:
+
+```sh
+ethernity extend \
+  --root-dir ./backup-root \
+  --input-dir ./docs \
+  --base-dir ./docs \
+  --passphrase "example passphrase" \
+  --shard-count 0
 ```
 
 Recover the latest logical state:
@@ -204,7 +217,11 @@ ethernity compact \
 Notes:
 
 - `extend` only works on unsealed roots
+- `extend` requires an explicit passphrase recovery policy; use extension shards, `reuse-root`, or
+  `--shard-count 0` for plaintext recovery output
 - recovery defaults to the latest validated state
+- recovery scans machine-readable extension carriers content-addressed and does not require
+  canonical filenames or redundant carrier copies
 - `compact` gives you a new standalone root without modifying the old one in place
 
 For the operator model behind that flow, use [Wiki: Extension Workflow](https://github.com/MinorGlitch/ethernity/wiki/Extension-Workflow).

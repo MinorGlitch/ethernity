@@ -131,7 +131,7 @@
       <div class="space-y-4">
         {% if recovery.quorum_value %}
         <div>
-          <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Shard Quorum</label>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">{{ recovery.quorum_label }}</label>
           <div class="border border-slate-400 p-2 bg-slate-50 font-mono text-xs">{{ recovery.quorum_value }}</div>
         </div>
         {% endif %}

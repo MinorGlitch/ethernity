@@ -37,7 +37,7 @@ _EXPECTED_LAYOUT_SNAPSHOT: dict[str, tuple[int, int, int, int, float, float]] = 
     "archive.shard": (10, 14, 9, 9, 4.2, 4.2),
     "archive.signing_key_shard": (10, 14, 9, 9, 4.2, 4.2),
     "forge.main": (24, 14, 6, 9, 4.2, 4.2),
-    "forge.recovery": (25, 40, 6, 9, 5.8, 5.8),
+    "forge.recovery": (25, 34, 6, 9, 5.8, 5.8),
     "forge.shard": (10, 13, 9, 9, 4.8, 4.8),
     "forge.signing_key_shard": (11, 12, 9, 9, 4.2, 4.2),
     "ledger.main": (10, 14, 9, 9, 4.2, 4.2),

@@ -197,6 +197,17 @@ class TestMintFlow(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "existing passphrase shard inputs"):
             mint_flow._validate_mint_args(args)
 
+    def test_validate_mint_args_accepts_scan_only_passphrase_replacement_inputs(self) -> None:
+        args = MintArgs(
+            payloads_file="qr.txt",
+            passphrase="passphrase",
+            shard_scan=["old-passphrase-shard.pdf"],
+            passphrase_replacement_count=1,
+            mint_signing_key_shards=False,
+        )
+
+        mint_flow._validate_mint_args(args)
+
     @mock.patch(
         "ethernity.cli.features.mint.workflow._validated_shard_payloads_from_frames",
         side_effect=mint_flow.InsufficientShardError(

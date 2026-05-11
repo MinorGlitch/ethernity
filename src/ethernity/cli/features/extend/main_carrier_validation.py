@@ -33,6 +33,14 @@ from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import Frame, FrameType
+from ethernity.render.proofs import (
+    RenderProofError,
+    validate_fallback_render_proof,
+    validate_fallback_text_in_pdf,
+    validate_pdf_has_pages,
+    validate_text_in_pdf,
+)
+from ethernity.render.types import RenderFallbackProof
 
 from .models import (
     EXTENSION_MAIN_CARRIER_INVALID,
@@ -57,6 +65,7 @@ def validate_staged_main_carrier(
     validate_single_recovery_document_carrier(
         path=plan.artifacts.recovery_document_path,
         frames=rendered.recovery_document_fallback_frames,
+        fallback_proof=rendered.recovery_document_fallback_proof,
         expected_doc_id=plan.encrypted.doc_id,
         expected_doc_hash=plan.encrypted.doc_hash,
         expected_sign_pub=expected_sign_pub,
@@ -98,6 +107,7 @@ def validate_single_recovery_document_carrier(
     *,
     path: Path,
     frames: tuple[Frame, ...],
+    fallback_proof: RenderFallbackProof | None,
     expected_doc_id: bytes,
     expected_doc_hash: bytes,
     expected_sign_pub: bytes,
@@ -105,7 +115,8 @@ def validate_single_recovery_document_carrier(
     quiet: bool,
 ) -> None:
     try:
-        _validate_recovery_document_pdf(path)
+        reader = _validate_recovery_document_pdf(path)
+        _validate_recovery_document_fallback_proof(path, frames, fallback_proof)
         _validate_main_carrier_frames(
             path=path,
             frames=list(frames),
@@ -115,8 +126,11 @@ def validate_single_recovery_document_carrier(
             require_auth=require_auth,
             quiet=quiet,
         )
+        _validate_recovery_document_fallback_text(path, reader, fallback_proof)
     except ApiCommandError:
         raise
+    except RenderProofError as exc:
+        raise _render_proof_api_error(exc) from exc
     except Exception as exc:
         raise ApiCommandError(
             code=EXTENSION_MAIN_CARRIER_INVALID,
@@ -124,10 +138,49 @@ def validate_single_recovery_document_carrier(
         ) from exc
 
 
-def _validate_recovery_document_pdf(path: Path) -> None:
-    reader = PdfReader(str(path))
-    if len(reader.pages) <= 0:
-        raise ValueError("recovery document must contain at least one page")
+def _validate_recovery_document_pdf(path: Path) -> PdfReader:
+    return validate_pdf_has_pages(
+        path,
+        artifact_label=f"rendered recovery document {path.name}",
+    )
+
+
+def _validate_recovery_document_fallback_proof(
+    path: Path,
+    frames: tuple[Frame, ...],
+    fallback_proof: RenderFallbackProof | None,
+) -> None:
+    try:
+        validate_fallback_render_proof(
+            artifact_label=f"rendered recovery document {path.name}",
+            frames=frames,
+            fallback_proof=fallback_proof,
+        )
+    except RenderProofError as exc:
+        raise _render_proof_api_error(exc) from exc
+
+
+def _validate_recovery_document_fallback_text(
+    path: Path,
+    reader: PdfReader,
+    fallback_proof: RenderFallbackProof | None,
+) -> None:
+    try:
+        validate_fallback_text_in_pdf(
+            artifact_label=f"rendered recovery document {path.name}",
+            reader=reader,
+            fallback_proof=fallback_proof,
+        )
+    except RenderProofError as exc:
+        raise _render_proof_api_error(exc) from exc
+
+
+def _render_proof_api_error(exc: RenderProofError) -> ApiCommandError:
+    return ApiCommandError(
+        code=EXTENSION_MAIN_CARRIER_INVALID,
+        message=str(exc),
+        details=exc.details,
+    )
 
 
 def _validate_main_carrier_frames(
@@ -179,34 +232,26 @@ def validate_staged_recovery_kit_index_document(
     if path is None:
         return
     try:
-        reader = PdfReader(str(path))
-    except Exception as exc:
-        raise ApiCommandError(
-            code=EXTENSION_MAIN_CARRIER_INVALID,
-            message=f"rendered recovery_kit_index artifact is invalid: {exc}",
-            details={"path": str(path)},
-        ) from exc
-    if len(reader.pages) <= 0:
-        raise ApiCommandError(
-            code=EXTENSION_MAIN_CARRIER_INVALID,
-            message="rendered recovery_kit_index artifact must contain at least one page",
-            details={"path": str(path)},
+        reader = validate_pdf_has_pages(
+            path,
+            artifact_label="rendered recovery_kit_index artifact",
         )
-    extracted_text = "\n".join((page.extract_text() or "") for page in reader.pages)
-    missing_component_ids = [
-        component_id
-        for component_id in expected_recovery_kit_index_component_ids(plan)
-        if component_id not in extracted_text
-    ]
-    if missing_component_ids:
-        raise ApiCommandError(
-            code=EXTENSION_MAIN_CARRIER_INVALID,
-            message=(
-                "rendered recovery_kit_index artifact is missing expected inventory rows: "
-                + ", ".join(missing_component_ids)
+        validate_text_in_pdf(
+            artifact_label="rendered recovery_kit_index artifact",
+            reader=reader,
+            expected_text=expected_recovery_kit_index_component_ids(plan),
+            details_key="missing_component_ids",
+            missing_message=(
+                "rendered recovery_kit_index artifact is missing expected inventory rows"
             ),
-            details={"path": str(path)},
         )
+    except RenderProofError as exc:
+        details = {"path": str(path), **exc.details}
+        raise ApiCommandError(
+            code=EXTENSION_MAIN_CARRIER_INVALID,
+            message=str(exc),
+            details=details,
+        ) from exc
 
 
 def expected_recovery_kit_index_component_ids(
@@ -218,6 +263,8 @@ def expected_recovery_kit_index_component_ids(
         "QR-DOC-01",
         "RECOVERY-DOC-01",
     ]
+    if plan.prepared.args.unlock_policy == "reuse-root":
+        component_ids.append("ROOT-SHARDS")
     component_ids.extend(
         f"SHARD-{share_index:02d}"
         for share_index in range(1, plan.publish_policy.passphrase_shard_count + 1)

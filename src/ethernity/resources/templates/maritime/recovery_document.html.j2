@@ -62,8 +62,8 @@
       --meta-size: 7.2pt;
       --meta-label-size: 6pt;
       --meta-value-size: 7.2pt;
-      --fallback-font-size: 9.0pt;
-      --fallback-line: 4.2mm;
+      --fallback-font-size: 8.4pt;
+      --fallback-line: 4.0mm;
       --line-num-size: 5.8pt;
       --line-num-letter-spacing: 0.1em;
     }
@@ -167,7 +167,7 @@
       outline: var(--border-strong) solid var(--rule-strong);
     }
     .instructions-label {
-      font-size: 6.5pt;
+      font-size: 6pt;
       font-weight: 700;
       color: var(--stamp);
       text-transform: uppercase;
@@ -220,27 +220,29 @@
     }
     .fallback-lines {
       position: relative;
-      counter-reset: line;
       padding-left: 0;
       padding-top: 0;
       background: none;
     }
     .fallback-line {
-      position: relative;
+      display: flex;
+      align-items: baseline;
       line-height: var(--fallback-line);
       margin: 0;
       white-space: pre;
     }
-    .fallback-line::before {
-      counter-increment: line;
-      content: counter(line, decimal-leading-zero);
-      position: absolute;
-      left: calc(-1 * var(--line-num-offset));
-      width: var(--line-num-width);
+    .fallback-number {
+      flex: 0 0 var(--line-num-width);
+      margin-left: calc(-1 * var(--line-num-offset));
+      margin-right: calc(var(--line-num-offset) - var(--line-num-width));
       text-align: right;
       font-size: var(--line-num-size);
       letter-spacing: var(--line-num-letter-spacing);
       color: var(--ink-soft);
+    }
+    .fallback-payload {
+      min-width: 0;
+      white-space: pre;
     }
   </style>
 </head>
@@ -255,7 +257,7 @@
           <div class="meta-label">Document ID</div>
           <div class="meta-value">{{ doc_id }}</div>
           {% if recovery.quorum_value %}
-          <div class="meta-label">Shard Quorum</div>
+          <div class="meta-label">{{ recovery.quorum_label }}</div>
           <div class="meta-value">{{ recovery.quorum_value }}</div>
           {% endif %}
           {% if recovery.signing_pub_lines %}
@@ -297,7 +299,20 @@
     </aside>
     {% endif %}
 
-    {{ fallback_blocks(page) }}
+    {% if page.fallback_blocks %}
+    {%- for block in page.fallback_blocks %}
+    <div class="fallback" style="top: {{ block.y_mm }}mm; height: {{ block.height_mm }}mm;">
+      {%- if block.title %}
+      <div class="fallback-title">{{ block.title }}</div>
+      {%- endif %}
+      <div class="fallback-lines">
+        {%- for line in block.lines %}
+        <div class="fallback-line"><span class="fallback-number">{{ '%02d.' % (block.line_offset + loop.index) }}</span><span class="fallback-payload">{{ line }}</span></div>
+        {%- endfor %}
+      </div>
+    </div>
+    {%- endfor %}
+    {% endif %}
   </section>
 {% endfor %}
 </body>

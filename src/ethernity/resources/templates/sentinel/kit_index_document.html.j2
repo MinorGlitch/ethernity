@@ -97,12 +97,17 @@
 {% endmacro %}
 
 {% set kit_qr_pages = pages | rejectattr('instructions_full_page') | list %}
+{% set kit_qr_page_total = kit_qr_page_count if kit_qr_page_count is defined and kit_qr_page_count is not none else (kit_qr_pages | length) %}
 {% set first_page_row_limit = 4 %}
 {% set continuation_page_row_limit = 14 %}
 {% set ns = namespace(total_chunks=0) %}
+{% if kit_qr_chunk_count is defined and kit_qr_chunk_count is not none %}
+  {% set ns.total_chunks = kit_qr_chunk_count %}
+{% else %}
 {% for page in kit_qr_pages %}
   {% set ns.total_chunks = ns.total_chunks + (page.qr_items | length) %}
 {% endfor %}
+{% endif %}
 
 {% if inventory_rows is defined and inventory_rows %}
   {% set row_source = inventory_rows %}
@@ -155,7 +160,7 @@
     <div class="grid grid-cols-3 gap-px bg-border-light border-b border-border-light">
       <div class="bg-white p-4 text-center">
         <p class="text-xs uppercase font-semibold text-text-secondary-light mb-1">QR Pages</p>
-        <p class="text-2xl font-black">{{ kit_qr_pages | length }}</p>
+        <p class="text-2xl font-black">{{ kit_qr_page_total }}</p>
       </div>
       <div class="bg-white p-4 text-center">
         <p class="text-xs uppercase font-semibold text-text-secondary-light mb-1">QR Chunks</p>

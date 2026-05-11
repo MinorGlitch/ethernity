@@ -70,6 +70,7 @@ def build_recovery_inputs(
         quorum_threshold=quorum_threshold,
         quorum_shares=quorum_shares,
         signing_pub=runtime.sign_pub,
+        quorum_label=_recovery_quorum_label(runtime.passphrase),
     )
     fallback_sections = [
         render_module.FallbackSection(label=AUTH_FALLBACK_LABEL, frame=auth_frame),
@@ -99,6 +100,14 @@ def build_recovery_inputs(
     )
 
 
+def _recovery_quorum_label(policy: object) -> str:
+    if isinstance(policy, ReuseRootPassphraseShards):
+        return "Root Shard Quorum"
+    if isinstance(policy, ExtensionPassphraseShards):
+        return "Extension Shard Quorum"
+    return "Shard Quorum"
+
+
 def build_recovery_key_lines(
     plan: PreparedExtensionPublishPlan,
     *,
@@ -106,7 +115,7 @@ def build_recovery_key_lines(
 ) -> list[str]:
     if isinstance(runtime.passphrase, ReuseRootPassphraseShards):
         key_lines = [
-            "Passphrase is stored in the root backup shard documents.",
+            "Passphrase recovery depends on the root backup shard documents.",
             (
                 "Recover with "
                 f"{runtime.passphrase.threshold} of {runtime.passphrase.share_count} "

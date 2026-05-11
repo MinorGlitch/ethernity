@@ -30,6 +30,7 @@ from ethernity.encoding.varint import (
     decode_uvarint as _decode_uvarint,
     encode_uvarint as _encode_uvarint,
 )
+from ethernity.formats.envelope_constants import MAGIC, VERSION
 from ethernity.formats.envelope_types import (
     MANIFEST_VERSION,
     SIGNING_SEED_LEN,
@@ -37,10 +38,8 @@ from ethernity.formats.envelope_types import (
     ManifestFile,
     PayloadPart,
 )
+from ethernity.formats.extension_envelope import ExtensionEnvelope
 from ethernity.formats.payload_codec import decode_payload_from_manifest
-
-MAGIC = b"AY"
-VERSION = 1
 
 
 def build_single_file_manifest(
@@ -221,8 +220,6 @@ def decode_envelope_v1(data: bytes) -> tuple[EnvelopeManifest, bytes]:
 def encode_extension_envelope(document: object) -> bytes:
     """Encode an extension envelope."""
 
-    from ethernity.formats.extension_envelope import ExtensionEnvelope
-
     if not isinstance(document, ExtensionEnvelope):
         raise ValueError("encode_extension_envelope expects an ExtensionEnvelope document")
     return document.encode()
@@ -230,8 +227,6 @@ def encode_extension_envelope(document: object) -> bytes:
 
 def decode_extension_envelope(data: bytes) -> object:
     """Decode an extension envelope."""
-
-    from ethernity.formats.extension_envelope import ExtensionEnvelope
 
     return ExtensionEnvelope.decode(data)
 

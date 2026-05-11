@@ -18,11 +18,14 @@
 
 from __future__ import annotations
 
-import hashlib
-from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
+from ethernity.artifacts.publish import (
+    ArtifactSnapshot,
+    promote_staged_artifact_dir,
+    snapshot_artifact_dir,
+)
 from ethernity.extensions.discovery import EXTENSIONS_DIR_NAME
 from ethernity.extensions.layout import (
     build_extension_main_filename,
@@ -59,7 +62,7 @@ class ValidatedStagedExtension:
     publish_policy: ExtensionPublishPolicy
 
 
-StagedExtensionSnapshot = tuple[tuple[str, int, str], ...]
+StagedExtensionSnapshot = ArtifactSnapshot
 
 
 @dataclass(frozen=True)
@@ -248,59 +251,42 @@ def promote_staged_extension_dir(
     if not staging_dir.exists() or not staging_dir.is_dir():
         raise ValueError("validated staging_dir no longer exists")
     expected_final_dir_name = canonical_extension_dir_name(validated.expected_index)
-    lock_dir = staging_dir.parent / f".{expected_final_dir_name}.lock"
-    try:
-        lock_dir.mkdir(mode=0o700)
-    except FileExistsError as exc:
-        final_dir = staging_dir.parent / expected_final_dir_name
-        raise ValueError(
-            f"canonical extension directory is already being promoted: {final_dir.name}"
-        ) from exc
+    final_dir = staging_dir.parent / expected_final_dir_name
 
-    try:
+    def _validate_for_promotion(path: Path) -> None:
         revalidated = validate_staged_extension_dir(
-            staging_dir,
+            path,
             expected_index=validated.expected_index,
             publish_policy=validated.publish_policy,
         )
         if revalidated.doc_id_hex != validated.doc_id_hex:
             raise ValueError("validated staging_dir doc_id changed before promotion")
-        final_dir = staging_dir.parent / canonical_extension_dir_name(revalidated.expected_index)
-        if (
-            expected_snapshot is not None
-            and snapshot_staged_extension_dir(staging_dir) != expected_snapshot
-        ):
-            raise ValueError("validated staging_dir artifacts changed before promotion")
-        if final_dir.exists() or final_dir.is_symlink():
-            raise ValueError(f"canonical extension directory already exists: {final_dir.name}")
-        staging_dir.rename(final_dir)
-    finally:
-        with suppress(OSError):
-            lock_dir.rmdir()
-    return final_dir
+
+    try:
+        return promote_staged_artifact_dir(
+            staging_dir,
+            final_dir,
+            expected_snapshot=expected_snapshot,
+            validate_staging=_validate_for_promotion,
+            lock_dir=staging_dir.parent / f".{expected_final_dir_name}.lock",
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if message.startswith("final artifact directory already exists"):
+            raise ValueError(
+                f"canonical extension directory already exists: {final_dir.name}"
+            ) from exc
+        if message.startswith("final artifact directory is already being promoted"):
+            raise ValueError(
+                f"canonical extension directory is already being promoted: {final_dir.name}"
+            ) from exc
+        raise
 
 
 def snapshot_staged_extension_dir(staging_dir: str | Path) -> StagedExtensionSnapshot:
     """Return a content fingerprint for all regular files in a staged extension directory."""
 
-    path = Path(staging_dir).expanduser()
-    if path.is_symlink():
-        raise ValueError("staging_dir must not be a symlink")
-    if not path.exists() or not path.is_dir():
-        raise ValueError("staging_dir must be an existing directory")
-
-    snapshot: list[tuple[str, int, str]] = []
-    for entry in sorted(path.iterdir(), key=lambda item: item.name):
-        if entry.is_symlink():
-            raise ValueError(f"staged extension contains symlinked artifact: {entry.name}")
-        if not entry.is_file():
-            raise ValueError(f"staged extension contains unexpected non-file entry: {entry.name}")
-        digest = hashlib.sha256()
-        with entry.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
-        snapshot.append((entry.name, entry.stat().st_size, digest.hexdigest()))
-    return tuple(snapshot)
+    return snapshot_artifact_dir(staging_dir)
 
 
 def _require_index_match(*, entry: Path, actual_index: int, expected_index: int) -> None:

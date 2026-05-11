@@ -39,7 +39,7 @@ def build_copy_bundle(*, template_name: str, context: Mapping[str, object]) -> d
     if doc_key == "recovery_document":
         return _recovery_document_copy(context=context)
     if doc_key == "kit_document":
-        return _kit_document_copy()
+        return _kit_document_copy(context=context)
     if doc_key == "shard_document":
         return _shard_document_copy(context=context)
     if doc_key == "signing_key_shard_document":
@@ -83,6 +83,10 @@ def _lineage_label(context: Mapping[str, object]) -> str | None:
         return _extension_label(_lineage_extension_index(context))
     if kind == "compaction_checkpoint":
         return "Compaction Checkpoint"
+    if kind == "minted_shard_set":
+        return "Minted Shard Set"
+    if kind == "recovery_kit":
+        return "Recovery Kit"
     return None
 
 
@@ -260,7 +264,25 @@ def _recovery_document_copy(*, context: Mapping[str, object]) -> dict[str, objec
     }
 
 
-def _kit_document_copy() -> dict[str, object]:
+def _kit_document_copy(*, context: Mapping[str, object]) -> dict[str, object]:
+    lineage_kind = _lineage_kind(context)
+    if lineage_kind == "recovery_kit":
+        return {
+            "title": "Recovery Kit",
+            "subtitle": "Standalone offline HTML bundle",
+            "header_guidance": "Scan left-to-right, top-to-bottom in offline recovery flow",
+            "footer_guidance": "Scan left-to-right, top-to-bottom in offline recovery flow",
+            "warning_title": "Critical Security Warning",
+            "warning_body": (
+                "Perform kit reconstruction in an offline environment. This standalone kit "
+                "document contains only recovery-app bundle fragments, not backup secrets."
+            ),
+            "checklist_label": "Security Verification Checklist",
+            "continuation_hint": (
+                "Scan every QR code left to right, top to bottom before continuing."
+            ),
+            "lineage_badge": "Recovery Kit",
+        }
     return {
         "title": "Recovery Kit",
         "subtitle": "Offline HTML bundle",
@@ -315,6 +337,22 @@ def _shard_document_copy(*, context: Mapping[str, object]) -> dict[str, object]:
             ),
             "manual_transcription_label": "Manual Transcription",
             "lineage_badge": "Compaction Checkpoint",
+        }
+    if lineage_kind == "minted_shard_set":
+        return {
+            "title": "Minted Shard Document",
+            "subtitle": f"Minted shard {shard_index} of {shard_total}",
+            "header_guidance": "Single shard cannot recover the secret",
+            "footer_guidance": "Single shard cannot recover the secret",
+            "warning_title": "Critical Security Notice",
+            "warning_body": (
+                f"This document contains freshly minted shard {shard_index} of {shard_total}. "
+                f"Possession of this shard alone is insufficient for recovery. Recovery requires "
+                f"{shard_threshold}/{shard_total} shards. Store it separately from sibling shards "
+                "and verify the minted set before retiring any older set."
+            ),
+            "manual_transcription_label": "Manual Transcription",
+            "lineage_badge": "Minted Shard Set",
         }
     return {
         "title": "Shard Document",
@@ -373,6 +411,23 @@ def _signing_key_shard_document_copy(*, context: Mapping[str, object]) -> dict[s
             "master_fingerprint_label": "Master Fingerprint",
             "empty_fallback_text": "No fallback payload on this page.",
             "lineage_badge": "Compaction Checkpoint",
+        }
+    if lineage_kind == "minted_shard_set":
+        return {
+            "title": "Minted Signing Key Shard",
+            "subtitle": f"Minted signing key shard {shard_index} of {shard_total}",
+            "header_guidance": "Store apart from passphrase and sibling signing shards",
+            "footer_guidance": "Store apart from passphrase and sibling signing shards",
+            "warning_title": "Critical Security Notice",
+            "warning_body": (
+                "This page contains one freshly minted signing key shard. Never store it with "
+                "other signing shards or passphrase documents, and verify the minted set before "
+                "retiring any older set."
+            ),
+            "key_material_label": "Key Material Payload",
+            "master_fingerprint_label": "Master Fingerprint",
+            "empty_fallback_text": "No fallback payload on this page.",
+            "lineage_badge": "Minted Shard Set",
         }
     return {
         "title": "Signing Key Shard",
