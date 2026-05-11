@@ -81,6 +81,28 @@
         "ignored"
       ]
     },
+    "docIdHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "nullableDocIdHex": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "docHashHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nullableDocHashHex": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
     "metadataObject": {
       "type": "object",
       "additionalProperties": true
@@ -417,8 +439,7 @@
           "const": "backup"
         },
         "doc_id": {
-          "type": "string",
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/docIdHex"
         },
         "output_dir": {
           "$ref": "#/$defs/pathString"
@@ -479,8 +500,7 @@
           "const": "compact"
         },
         "doc_id": {
-          "type": "string",
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/docIdHex"
         },
         "root_dir": {
           "type": [
@@ -532,26 +552,16 @@
           "minimum": 1
         },
         "doc_id": {
-          "type": "string",
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/docIdHex"
         },
         "doc_hash": {
-          "type": "string",
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/docHashHex"
         },
         "root_doc_id": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/nullableDocIdHex"
         },
         "root_doc_hash": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/nullableDocHashHex"
         },
         "chain_id": {
           "type": [
@@ -966,15 +976,14 @@
           ]
         },
         "doc_id": {
-          "type": "string",
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/docIdHex"
         },
         "selected_extension_index": {
           "type": [
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
         },
         "selected_extension_doc_hash": {
           "type": [
@@ -1039,15 +1048,14 @@
           "const": "inspect"
         },
         "doc_id": {
-          "type": "string",
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/docIdHex"
         },
         "selected_extension_index": {
           "type": [
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
         },
         "selected_extension_doc_hash": {
           "type": [
@@ -1165,11 +1173,7 @@
           "const": "inspect"
         },
         "doc_id": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/nullableDocIdHex"
         },
         "input_label": {
           "type": "string",
@@ -1216,18 +1220,10 @@
           }
         },
         "root_doc_id": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/nullableDocIdHex"
         },
         "root_doc_hash": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/nullableDocHashHex"
         },
         "chain_id": {
           "type": [
@@ -1299,11 +1295,7 @@
           "minimum": 0
         },
         "validated_head_doc_hash": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/nullableDocHashHex"
         },
         "validated_head_auth_status": {
           "type": [
@@ -1333,15 +1325,10 @@
                 "minLength": 1
               },
               "doc_id": {
-                "type": "string",
-                "pattern": "^[0-9a-f]+$"
+                "$ref": "#/$defs/docIdHex"
               },
               "doc_hash": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "pattern": "^[0-9a-f]+$"
+                "$ref": "#/$defs/nullableDocHashHex"
               },
               "auth_status": {
                 "type": [
@@ -1478,6 +1465,7 @@
         "EXTENSION_NO_CHANGES",
         "EXTENSION_MAIN_CARRIER_INVALID",
         "EXTENSION_SHARD_CARRIER_INVALID",
+        "EXTENSION_TOO_LARGE",
         "COMPACT_INVALID_POLICY",
         "RECOVERY_HEAD_UNTRUSTED",
         "AUTH_PAYLOAD_MISSING",
@@ -1499,6 +1487,7 @@
         "PASSPHRASE_REPLACEMENT_NOT_READY",
         "SIGNING_KEY_REPLACEMENT_NOT_READY",
         "ROOT_AUTHORITY_MISMATCH",
+        "ROOT_SHARD_POLICY_INVALID",
         "EXTENSION_LAYOUT_INVALID",
         "SEALED_ROOT_NOT_EXTENDABLE",
         "CHAIN_INVALID",
@@ -1569,9 +1558,12 @@
         "PASSPHRASE_REPLACEMENT_NOT_READY",
         "SIGNING_KEY_REPLACEMENT_NOT_READY",
         "ROOT_AUTHORITY_MISMATCH",
+        "ROOT_SHARD_POLICY_INVALID",
         "RECOVERY_HEAD_UNTRUSTED",
         "EXTENSION_LAYOUT_INVALID",
         "EXTENSION_INVALID_POLICY",
+        "EXTENSION_NO_CHANGES",
+        "EXTENSION_TOO_LARGE",
         "SEALED_ROOT_NOT_EXTENDABLE",
         "CHAIN_INVALID",
         "DELETE_NOT_SUPPORTED"
@@ -2604,37 +2596,43 @@
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "shard_count": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "signing_key_shard_threshold": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "signing_key_shard_count": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "passphrase_replacement_count": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "signing_key_replacement_count": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "mint_passphrase_shards": {
           "type": "boolean"
@@ -2787,37 +2785,43 @@
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "shard_count": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "signing_key_shard_threshold": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "signing_key_shard_count": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "passphrase_replacement_count": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "signing_key_replacement_count": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "mint_passphrase_shards": {
           "type": "boolean"
@@ -3023,8 +3027,7 @@
           "const": "mint"
         },
         "doc_id": {
-          "type": "string",
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/docIdHex"
         },
         "output_dir": {
           "$ref": "#/$defs/pathString"
@@ -3054,6 +3057,8 @@
         "command",
         "operation",
         "doc_id",
+        "selected_extension_index",
+        "selected_extension_doc_hash",
         "auth_status",
         "input_label",
         "input_detail",
@@ -3079,8 +3084,21 @@
           "const": "inspect"
         },
         "doc_id": {
-          "type": "string",
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/docIdHex"
+        },
+        "selected_extension_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "selected_extension_doc_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
         },
         "auth_status": {
           "$ref": "#/$defs/authStatus"

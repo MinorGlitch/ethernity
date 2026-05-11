@@ -19,20 +19,21 @@
 from __future__ import annotations
 
 import sys
-import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
+from ethernity.artifacts.publish import create_sibling_staging_dir
 from ethernity.cli.features.backup.execution import (
     _layout_debug_json_path,
     _render_shard,
-    _resolve_layout_debug_dir,
 )
 from ethernity.cli.features.backup.wizard import _prompt_quorum_choice
 from ethernity.cli.features.recover.chain import (
     decode_imported_extension_link,
     decode_root_manifest,
+    recover_chain_entries,
+    validate_root_manifest_authority,
 )
 from ethernity.cli.features.recover.input_collection import (
     RECOVERY_SCAN_LABEL,
@@ -40,11 +41,13 @@ from ethernity.cli.features.recover.input_collection import (
 )
 from ethernity.cli.features.recover.key_recovery import (
     InsufficientShardError,
+    _resolve_auth_payload,
     _signing_seed_from_shard_frames,
     _validated_shard_payloads_from_frames,
 )
 from ethernity.cli.features.recover.planning import (
     RecoveryInspection,
+    RecoveryPlan,
     _extra_auth_frames_from_args,
     _frames_from_args,
     _shard_frames_from_args,
@@ -53,6 +56,7 @@ from ethernity.cli.features.recover.planning import (
     validate_recover_args,
 )
 from ethernity.cli.features.recover.wizard import _load_shard_frames, _prompt_key_material
+from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.events import EventSink, emit_phase, emit_progress, event_session
 from ethernity.cli.shared.io.outputs import (
     _commit_prepared_output_dir,
@@ -83,6 +87,7 @@ from ethernity.crypto.sharding import (
     KEY_TYPE_SIGNING_SEED,
     LEGACY_SHARD_VERSION,
     ShardPayload,
+    decode_shard_payload,
     mint_replacement_shards,
     split_passphrase,
     split_signing_seed,
@@ -94,7 +99,9 @@ from ethernity.formats.envelope_codec import decode_any_envelope, decode_envelop
 from ethernity.formats.envelope_types import EnvelopeManifest
 from ethernity.formats.extension_envelope import ExtensionEnvelope
 from ethernity.render.doc_types import DOC_TYPE_SIGNING_KEY_SHARD
+from ethernity.render.layout_debug import resolve_layout_debug_dir
 from ethernity.render.service import RenderService
+from ethernity.render.types import RenderLineage
 
 MAX_SHARDS = 255
 _UNSET = object()
@@ -137,6 +144,8 @@ class MintInspectionState:
     recovery: RecoveryInspection
     manifest: EnvelopeManifest | None
     source_summary: dict[str, object] | None
+    selected_extension_index: int | None
+    selected_extension_doc_hash: str | None
     signing_key_frame_count: int
     signing_key_validated_shard_count: int
     signing_key_required_threshold: int | None
@@ -184,32 +193,7 @@ def execute_mint(
         emit_phase(phase="plan", label="Resolving mint inputs")
         state = _load_mint_input_state(args)
         shard_frames = list(state.shard_frames)
-        recovery_shard_frames, recovery_shard_fallback_files, recovery_shard_payloads_file = (
-            _recovery_shard_inputs_for_plan(
-                passphrase=args.passphrase,
-                shard_frames=shard_frames,
-                shard_fallback_files=list(state.shard_fallback_files),
-                shard_payloads_file=list(state.shard_payloads_file),
-            )
-        )
-        plan = build_recovery_plan(
-            frames=list(state.frames),
-            extra_auth_frames=list(state.extra_auth_frames),
-            shard_frames=recovery_shard_frames,
-            passphrase=args.passphrase,
-            allow_unsigned=False,
-            input_label=state.input_label,
-            input_detail=state.input_detail,
-            shard_fallback_files=recovery_shard_fallback_files,
-            shard_payloads_file=recovery_shard_payloads_file,
-            shard_scan=list(state.shard_scan),
-            output_path=None,
-            root_dir=None,
-            extension_index=None,
-            extension_doc_hash=None,
-            args=state.recover_args,
-            quiet=args.quiet,
-        )
+        plan = _build_recovery_plan_for_mint(args, state, passphrase_shard_frames=shard_frames)
         if plan.auth_payload is None:
             raise ValueError("minting requires an authenticated backup input with an AUTH payload")
 
@@ -250,19 +234,41 @@ def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectio
             shard_payloads_file=list(state.shard_payloads_file),
         )
     )
+    plan = _try_build_recovery_plan_for_mint(
+        args,
+        state,
+        passphrase_shard_frames=list(state.shard_frames),
+    )
+    inspection_frames = list(state.frames)
+    inspection_extra_auth_frames = list(state.extra_auth_frames)
+    inspection_passphrase = args.passphrase
+    inspection_shard_frames = recovery_shard_frames
+    inspection_shard_fallback_files = recovery_shard_fallback_files
+    inspection_shard_payloads_file = recovery_shard_payloads_file
+    if plan is not None:
+        inspection_frames = list(plan.main_frames)
+        inspection_extra_auth_frames = list(plan.auth_frames)
+        if inspection_passphrase is None:
+            inspection_passphrase = plan.passphrase
+            inspection_shard_frames = []
+            inspection_shard_fallback_files = []
+            inspection_shard_payloads_file = []
+
     recovery = inspect_recovery_inputs(
-        frames=list(state.frames),
-        extra_auth_frames=list(state.extra_auth_frames),
-        shard_frames=recovery_shard_frames,
-        passphrase=args.passphrase,
+        frames=inspection_frames,
+        extra_auth_frames=inspection_extra_auth_frames,
+        shard_frames=inspection_shard_frames,
+        passphrase=inspection_passphrase,
         allow_unsigned=False,
         input_label=state.input_label,
         input_detail=state.input_detail,
-        shard_fallback_files=recovery_shard_fallback_files,
-        shard_payloads_file=recovery_shard_payloads_file,
+        shard_fallback_files=inspection_shard_fallback_files,
+        shard_payloads_file=inspection_shard_payloads_file,
         shard_scan=list(state.shard_scan),
         quiet=args.quiet,
     )
+    if plan is not None and args.passphrase is None and plan.shard_frames:
+        recovery = _mint_recovery_inspection_with_plan_shard_unlock(recovery, plan)
 
     blocking_issues = [dict(item) for item in recovery.blocking_issues]
     if recovery.auth_payload is None:
@@ -274,22 +280,73 @@ def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectio
             ),
         )
 
-    manifest: EnvelopeManifest | None = None
-    source_summary: dict[str, object] | None = None
-    if recovery.unlock.satisfied and recovery.unlock.resolved_passphrase is not None:
+    if plan is None and recovery.auth_payload is not None and recovery.unlock.satisfied:
+        plan = _try_build_recovery_plan_for_mint(
+            args,
+            state,
+            passphrase_shard_frames=list(state.shard_frames),
+        )
+    target_plan = plan
+    selected_extension_index: int | None = None
+    selected_extension_doc_hash: str | None = None
+    chain_target_trusted = True
+    if plan is not None:
         try:
-            plaintext = decrypt_bytes(
-                recovery.ciphertext,
-                passphrase=recovery.unlock.resolved_passphrase,
-                debug=debug,
-            )
-            manifest, _payload = decode_envelope(plaintext)
-            source_summary = _mint_source_summary(manifest)
+            target_plan = _resolve_mint_chain_target(plan, quiet=args.quiet, debug=debug)
+            recovery = _mint_recovery_inspection_with_target(recovery, target_plan)
         except Exception as exc:
+            chain_target_trusted = False
             _append_unique_blocking_issue(
                 blocking_issues,
-                _mint_blocking_issue("UNLOCK_FAILED", str(exc), details={"stage": "decrypt"}),
+                _mint_blocking_issue(
+                    api_codes.RECOVERY_HEAD_UNTRUSTED,
+                    str(exc),
+                    details={"stage": "replay"},
+                ),
             )
+
+    manifest: EnvelopeManifest | None = None
+    source_summary: dict[str, object] | None = None
+    if (
+        chain_target_trusted
+        and recovery.unlock.satisfied
+        and recovery.unlock.resolved_passphrase is not None
+    ):
+        if plan is not None and plan.import_documents:
+            try:
+                chain = recover_chain_entries(plan, quiet=True, debug=debug)
+                manifest = chain.manifest
+                selected_extension_index = chain.selected_extension_index
+                selected_extension_doc_hash = chain.selected_extension_doc_hash
+                source_summary = _mint_source_summary(manifest)
+            except Exception as exc:
+                _append_unique_blocking_issue(
+                    blocking_issues,
+                    _mint_blocking_issue(
+                        api_codes.RECOVERY_HEAD_UNTRUSTED,
+                        str(exc),
+                        details={"stage": "replay"},
+                    ),
+                )
+        else:
+            try:
+                ciphertext = recovery.ciphertext
+                passphrase = recovery.unlock.resolved_passphrase
+                if target_plan is not None:
+                    ciphertext = target_plan.ciphertext
+                    passphrase = target_plan.passphrase
+                plaintext = decrypt_bytes(
+                    ciphertext,
+                    passphrase=passphrase,
+                    debug=debug,
+                )
+                manifest, _payload = decode_envelope(plaintext)
+                source_summary = _mint_source_summary(manifest)
+            except Exception as exc:
+                _append_unique_blocking_issue(
+                    blocking_issues,
+                    _mint_blocking_issue("UNLOCK_FAILED", str(exc), details={"stage": "decrypt"}),
+                )
 
     (
         signing_key_validated_shard_count,
@@ -324,6 +381,8 @@ def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectio
         recovery=recovery,
         manifest=manifest,
         source_summary=source_summary,
+        selected_extension_index=selected_extension_index,
+        selected_extension_doc_hash=selected_extension_doc_hash,
         signing_key_frame_count=len(state.signing_key_frames),
         signing_key_validated_shard_count=signing_key_validated_shard_count,
         signing_key_required_threshold=signing_key_required_threshold,
@@ -332,6 +391,114 @@ def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectio
         mint_capabilities=mint_capabilities,
         blocking_issues=tuple(blocking_issues),
     )
+
+
+def _build_recovery_plan_for_mint(
+    args: MintArgs,
+    state: _MintInputState,
+    *,
+    passphrase_shard_frames: list[Frame],
+) -> RecoveryPlan:
+    recovery_shard_frames, recovery_shard_fallback_files, recovery_shard_payloads_file = (
+        _recovery_shard_inputs_for_plan(
+            passphrase=args.passphrase,
+            shard_frames=passphrase_shard_frames,
+            shard_fallback_files=list(state.shard_fallback_files),
+            shard_payloads_file=list(state.shard_payloads_file),
+        )
+    )
+    return build_recovery_plan(
+        frames=list(state.frames),
+        extra_auth_frames=list(state.extra_auth_frames),
+        shard_frames=recovery_shard_frames,
+        passphrase=args.passphrase,
+        allow_unsigned=False,
+        input_label=state.input_label,
+        input_detail=state.input_detail,
+        shard_fallback_files=recovery_shard_fallback_files,
+        shard_payloads_file=recovery_shard_payloads_file,
+        shard_scan=list(state.shard_scan),
+        output_path=None,
+        root_dir=None,
+        extension_index=None,
+        extension_doc_hash=None,
+        args=state.recover_args,
+        quiet=args.quiet,
+    )
+
+
+def _try_build_recovery_plan_for_mint(
+    args: MintArgs,
+    state: _MintInputState,
+    *,
+    passphrase_shard_frames: list[Frame],
+) -> RecoveryPlan | None:
+    if not (args.passphrase or passphrase_shard_frames):
+        return None
+    try:
+        return _build_recovery_plan_for_mint(
+            args,
+            state,
+            passphrase_shard_frames=passphrase_shard_frames,
+        )
+    except Exception:
+        return None
+
+
+def _mint_recovery_inspection_with_target(
+    recovery: RecoveryInspection,
+    target_plan: Any,
+) -> RecoveryInspection:
+    return replace(
+        recovery,
+        ciphertext=target_plan.ciphertext,
+        doc_id=target_plan.doc_id,
+        doc_hash=target_plan.doc_hash,
+        auth_payload=target_plan.auth_payload,
+        auth_status=target_plan.auth_status,
+    )
+
+
+def _mint_recovery_inspection_with_plan_shard_unlock(
+    recovery: RecoveryInspection,
+    plan: RecoveryPlan,
+) -> RecoveryInspection:
+    shard_payloads = _mint_passphrase_shard_payloads_for_inspection(plan.shard_frames)
+    if not shard_payloads:
+        return recovery
+    unique_share_indexes = {payload.share_index for payload in shard_payloads}
+    first_payload = shard_payloads[0]
+    return replace(
+        recovery,
+        shard_frames=tuple(plan.shard_frames),
+        shard_fallback_files=tuple(plan.shard_fallback_files),
+        shard_payloads_file=tuple(plan.shard_payloads_file),
+        shard_scan=tuple(plan.shard_scan),
+        unlock=replace(
+            recovery.unlock,
+            mode="shards",
+            passphrase_provided=False,
+            validated_shard_count=len(unique_share_indexes),
+            required_shard_threshold=first_payload.threshold,
+            shard_share_count=first_payload.share_count,
+            satisfied=True,
+            resolved_passphrase=plan.passphrase,
+        ),
+    )
+
+
+def _mint_passphrase_shard_payloads_for_inspection(
+    shard_frames: tuple[Frame, ...],
+) -> tuple[ShardPayload, ...]:
+    payloads: list[ShardPayload] = []
+    for frame in shard_frames:
+        try:
+            payload = decode_shard_payload(frame.data)
+        except ValueError:
+            continue
+        if payload.key_type == KEY_TYPE_PASSPHRASE:
+            payloads.append(payload)
+    return tuple(payloads)
 
 
 def _should_use_wizard_for_mint(args: MintArgs) -> bool:
@@ -1168,18 +1335,50 @@ def _resolve_mint_chain_target(
 
     decoded_links = []
     documents_by_doc_hash = {document.doc_hash: document for document in import_documents}
+    try:
+        root_manifest, root_payload = decode_root_manifest(
+            ciphertext=plan.ciphertext,
+            passphrase=passphrase,
+            debug=debug,
+        )
+        root_sign_pub = validate_root_manifest_authority(root_manifest, auth_payload)
+    except ValueError as exc:
+        raise ValueError(f"imported extension chain could not be trusted: {exc}") from exc
+
+    if root_sign_pub is None:
+        if _mint_documents_include_extension_for_root(
+            plan,
+            import_documents=import_documents,
+            passphrase=passphrase,
+            debug=debug,
+        ):
+            raise ValueError(
+                "imported extension chain could not be trusted: "
+                "extension minting requires an unsealed root signing authority"
+            )
+        return plan
+
     for document in import_documents:
-        if document.doc_hash == plan.doc_hash or document.doc_id == plan.doc_id:
+        if document.doc_hash == plan.doc_hash:
             continue
+        _raise_if_mint_doc_id_collision(document, plan)
         try:
             decoded = decode_imported_extension_link(
                 document,
                 passphrase=passphrase,
-                expected_sign_pub=auth_payload.sign_pub,
+                expected_sign_pub=root_sign_pub,
                 quiet=quiet,
                 debug=debug,
             )
         except ValueError as exc:
+            if _mint_document_signed_by_authority(
+                document,
+                expected_sign_pub=root_sign_pub,
+                quiet=quiet,
+            ):
+                raise ValueError(
+                    f"imported root-authority document could not be trusted: {exc}"
+                ) from exc
             if _mint_document_targets_current_root(
                 document,
                 passphrase=passphrase,
@@ -1198,11 +1397,6 @@ def _resolve_mint_chain_target(
         validate_extension_chain(
             root_doc_hash=plan.doc_hash,
             extensions=tuple(item.link for item in decoded_links),
-        )
-        root_manifest, root_payload = decode_root_manifest(
-            ciphertext=plan.ciphertext,
-            passphrase=passphrase,
-            debug=debug,
         )
         reconstruct_latest_logical_state(
             root_manifest,
@@ -1223,6 +1417,56 @@ def _resolve_mint_chain_target(
         auth_payload=latest_decoded.auth_payload,
         auth_status=latest_decoded.auth_status,
     )
+
+
+def _raise_if_mint_doc_id_collision(document: Any, plan: Any) -> None:
+    if document.doc_id != plan.doc_id:
+        return
+    raise ValueError(
+        "imported extension chain could not be trusted: "
+        "content import contains a document whose doc_id collides with the selected root backup"
+    )
+
+
+def _mint_documents_include_extension_for_root(
+    plan: Any,
+    *,
+    import_documents: tuple[Any, ...],
+    passphrase: str,
+    debug: bool,
+) -> bool:
+    for document in import_documents:
+        if document.doc_hash == plan.doc_hash:
+            continue
+        _raise_if_mint_doc_id_collision(document, plan)
+        if _mint_document_targets_current_root(
+            document,
+            passphrase=passphrase,
+            root_doc_hash=plan.doc_hash,
+            debug=debug,
+        ):
+            return True
+    return False
+
+
+def _mint_document_signed_by_authority(
+    document: Any,
+    *,
+    expected_sign_pub: bytes,
+    quiet: bool,
+) -> bool:
+    try:
+        auth_payload, _auth_status = _resolve_auth_payload(
+            list(document.auth_frames),
+            doc_id=document.doc_id,
+            doc_hash=document.doc_hash,
+            allow_unsigned=False,
+            require_auth=True,
+            quiet=quiet,
+        )
+    except ValueError:
+        return False
+    return auth_payload is not None and auth_payload.sign_pub == expected_sign_pub
 
 
 def _mint_document_targets_current_root(
@@ -1299,6 +1543,7 @@ def _validate_mint_args(args: MintArgs, *, require_output_configuration: bool = 
         and not _has_existing_shard_inputs(
             args.shard_fallback_file,
             args.shard_payloads_file,
+            args.shard_scan,
         )
     ):
         raise ValueError("passphrase replacement minting requires existing passphrase shard inputs")
@@ -1579,9 +1824,16 @@ def _mint_from_plan(
         existing_directory_is_parent=args.output_dir_existing_parent,
     )
     staging_output_dir = _prepare_mint_staging_dir(output_dir)
-    layout_debug_dir = _resolve_layout_debug_dir(args.layout_debug_dir)
+    layout_debug_dir = resolve_layout_debug_dir(
+        args.layout_debug_dir,
+        forbidden_dirs={
+            "final output": output_dir,
+            "staging output": staging_output_dir,
+        },
+    )
     render_service = RenderService(config)
     qr_payload_codec = config.cli_defaults.backup.qr_payload_codec
+    lineage = RenderLineage(kind="minted_shard_set")
     total_documents = len(shard_payloads) + len(signing_key_payloads)
     rendered_documents = 0
 
@@ -1615,6 +1867,7 @@ def _mint_from_plan(
                         f"shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                     ),
                     qr_payload_codec=qr_payload_codec,
+                    lineage=lineage,
                 )
             )
             rendered_documents += 1
@@ -1642,6 +1895,7 @@ def _mint_from_plan(
                         f"signing-key-shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
                     ),
                     qr_payload_codec=qr_payload_codec,
+                    lineage=lineage,
                 )
             )
             rendered_documents += 1
@@ -1921,11 +2175,7 @@ def _ensure_mint_output_dir(
 
 
 def _prepare_mint_staging_dir(output_dir: str) -> str:
-    output_path = Path(output_dir)
-    staging_dir = Path(
-        tempfile.mkdtemp(prefix=f".{output_path.name}.tmp-", dir=str(output_path.parent))
-    )
-    return str(staging_dir)
+    return str(create_sibling_staging_dir(output_dir))
 
 
 def _print_completion_actions(result: MintResult, *, quiet: bool) -> None:

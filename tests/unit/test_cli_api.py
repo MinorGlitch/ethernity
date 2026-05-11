@@ -102,7 +102,7 @@ def _extend_root_inspection(
 ) -> RecoveryInspection:
     return RecoveryInspection(
         ciphertext=b"ciphertext",
-        doc_id=b"\x11" * 16,
+        doc_id=b"\x11" * 8,
         doc_hash=b"\x22" * 32,
         auth_payload=None,
         auth_status="verified",
@@ -1118,6 +1118,95 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(args.signing_key_shard_threshold, 2)
         self.assertEqual(args.signing_key_shard_count, 4)
 
+    def test_build_extend_api_args_rejects_schema_invalid_integer_values(self) -> None:
+        base_kwargs = {
+            "state": None,
+            "config_value": None,
+            "paper_value": None,
+            "design": None,
+            "root_dir": "/tmp/root",
+            "input": ["input.txt"],
+            "input_dir": None,
+            "base_dir": None,
+            "layout_debug_dir": None,
+            "qr_chunk_size": None,
+            "passphrase": "secret",
+            "shard_fallback_file": None,
+            "shard_payloads_file": None,
+            "shard_scan": None,
+            "unlock_policy": None,
+            "shard_threshold": None,
+            "shard_count": None,
+            "signing_key_mode": None,
+            "signing_key_shard_threshold": None,
+            "signing_key_shard_count": None,
+        }
+
+        invalid_values = {
+            "qr_chunk_size": "0",
+            "shard_threshold": "-1",
+            "shard_count": "-1",
+            "signing_key_shard_threshold": "-1",
+            "signing_key_shard_count": "-1",
+        }
+        for field, value in invalid_values.items():
+            with self.subTest(field=field), self.assertRaises(ApiCommandError) as caught:
+                api_command._build_extend_api_args(**{**base_kwargs, field: value})
+
+            self.assertEqual(caught.exception.code, api_codes.INVALID_INPUT)
+
+    def test_api_extend_rejects_invalid_qr_chunk_size_with_schema_valid_events(self) -> None:
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "extend",
+                    "--root-dir",
+                    "/tmp/root",
+                    "--input",
+                    "input.txt",
+                    "--qr-chunk-size",
+                    "0",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 2)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual([event["type"] for event in events], ["started", "error"])
+        self.assertIsNone(events[0]["args"]["qr_chunk_size"])
+        self.assertEqual(events[-1]["code"], api_codes.INVALID_INPUT)
+        self.assertIn("--qr-chunk-size must be >= 1", events[-1]["message"])
+
+    def test_api_compact_rejects_invalid_qr_chunk_size_with_schema_valid_events(self) -> None:
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "compact",
+                    "--root-dir",
+                    "/tmp/root",
+                    "--output-dir",
+                    "/tmp/out",
+                    "--qr-chunk-size",
+                    "0",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 2)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual([event["type"] for event in events], ["started", "error"])
+        self.assertIsNone(events[0]["args"]["qr_chunk_size"])
+        self.assertEqual(events[-1]["code"], api_codes.INVALID_INPUT)
+        self.assertIn("--qr-chunk-size must be >= 1", events[-1]["message"])
+
     def test_api_compact_flag_values_reach_command(self) -> None:
         captured: dict[str, object] = {}
 
@@ -1166,6 +1255,26 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(captured["shard_scan"], ["shard-a.pdf"])
         self.assertEqual(captured["auth_payloads_file"], "auth.payloads")
         self.assertFalse(captured["debug"])
+
+    def test_api_compact_output_dir_remains_explicit_even_with_backup_default(self) -> None:
+        args = api_command._build_compact_api_args(
+            state=CliContextState(backup_defaults=BackupDefaults(output_dir="/tmp/default-out")),
+            config_value=None,
+            paper_value=None,
+            design=None,
+            root_dir="/tmp/root",
+            output_dir=None,
+            shard_fallback_file=None,
+            shard_payloads_file=None,
+            shard_scan=None,
+            auth_fallback_file=None,
+            auth_payloads_file=None,
+            layout_debug_dir=None,
+            qr_chunk_size=None,
+            passphrase=None,
+        )
+
+        self.assertIsNone(args.output_dir)
 
     def test_apply_recover_stdin_default_skips_stdin_for_extension_selectors(self) -> None:
         self.assertIsNone(
@@ -1247,7 +1356,7 @@ class TestCliApi(unittest.TestCase):
         args = RecoverArgs(scan=["/tmp/root"], passphrase="secret", output="/tmp/out", quiet=True)
         execution = SimpleNamespace(
             plan=SimpleNamespace(
-                doc_id=b"\x01" * 16,
+                doc_id=b"\x01" * 8,
                 auth_status="verified",
                 input_label="Backup root directory",
                 input_detail="/tmp/root",
@@ -1429,6 +1538,33 @@ class TestCliApi(unittest.TestCase):
         self.assertIsNotNone(events[-1]["source_summary"])
         self.assertEqual([event for event in events if event["type"] == "artifact"], [])
 
+    def test_api_inspect_recover_reuses_stdin_payloads_for_source_summary(self) -> None:
+        payload_text = (V1_FIXTURE_ROOT / "main_payloads.txt").read_text(encoding="utf-8")
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "inspect",
+                    "recover",
+                    "--payloads-file",
+                    "-",
+                    "--passphrase",
+                    FIXTURE_PASSPHRASE,
+                ],
+                input=payload_text,
+            )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(events[-1]["operation"], "inspect")
+        self.assertTrue(events[-1]["unlock"]["satisfied"])
+        self.assertIsNotNone(events[-1]["source_summary"])
+        self.assertEqual(events[-1]["blocking_issues"], [])
+
     def test_api_inspect_recover_under_quorum_returns_blocking_issue(self) -> None:
         threshold_payloads = (
             V1_1_SHARDED_EMBEDDED_FIXTURE_ROOT / "shard_payloads_threshold.txt"
@@ -1585,7 +1721,7 @@ class TestCliApi(unittest.TestCase):
                 return_value=inspection,
             ),
             mock.patch(
-                "ethernity.cli.features.recover.api_handlers.plan_from_args",
+                "ethernity.cli.features.recover.api_handlers.plan_from_inspection",
                 return_value=SimpleNamespace(import_documents=(object(),)),
             ),
             mock.patch(
@@ -1632,6 +1768,34 @@ class TestCliApi(unittest.TestCase):
         self._assert_valid_events(events)
         self.assertEqual(events[0]["args"]["extension_doc_hash"], "ab" * 32)
 
+    def test_api_recover_rejects_invalid_extension_doc_hash_with_schema_valid_events(self) -> None:
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "recover",
+                    "--fallback-file",
+                    str(V1_FIXTURE_ROOT / "main_fallback.txt"),
+                    "--passphrase",
+                    FIXTURE_PASSPHRASE,
+                    "--output",
+                    "/tmp/recovered.bin",
+                    "--extension-doc-hash",
+                    "not-a-doc-hash",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 2)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual([event["type"] for event in events], ["started", "error"])
+        self.assertIsNone(events[0]["args"]["extension_doc_hash"])
+        self.assertEqual(events[-1]["code"], api_codes.INVALID_INPUT)
+        self.assertIn("--extension-doc-hash", events[-1]["message"])
+
     def test_run_recover_inspect_api_command_validates_root_authority_for_direct_scan(self) -> None:
         args = RecoverArgs(
             scan=["/tmp/qr_document.pdf"],
@@ -1657,7 +1821,7 @@ class TestCliApi(unittest.TestCase):
                 return_value=inspection,
             ),
             mock.patch(
-                "ethernity.cli.features.recover.api_handlers.plan_from_args",
+                "ethernity.cli.features.recover.api_handlers.plan_from_inspection",
                 return_value=SimpleNamespace(import_documents=()),
             ),
             mock.patch(
@@ -1721,7 +1885,7 @@ class TestCliApi(unittest.TestCase):
                 return_value=inspection,
             ),
             mock.patch(
-                "ethernity.cli.features.recover.api_handlers.plan_from_args",
+                "ethernity.cli.features.recover.api_handlers.plan_from_inspection",
                 side_effect=ApiCommandError(
                     code=api_codes.RECOVERY_HEAD_UNTRUSTED,
                     message="requested recovery head could not be trusted: latest suffix degraded",
@@ -1749,7 +1913,9 @@ class TestCliApi(unittest.TestCase):
             ],
         )
 
-    def test_run_recover_inspect_api_command_preserves_chain_replay_failure_code(self) -> None:
+    def test_run_recover_inspect_api_command_maps_chain_replay_failure_to_untrusted_head(
+        self,
+    ) -> None:
         args = RecoverArgs(
             scan=["/tmp/root"],
             passphrase="secret",
@@ -1764,7 +1930,7 @@ class TestCliApi(unittest.TestCase):
                 return_value=inspection,
             ),
             mock.patch(
-                "ethernity.cli.features.recover.api_handlers.plan_from_args",
+                "ethernity.cli.features.recover.api_handlers.plan_from_inspection",
                 return_value=SimpleNamespace(import_documents=(object(),)),
             ),
             mock.patch(
@@ -1783,7 +1949,7 @@ class TestCliApi(unittest.TestCase):
             events[-1]["blocking_issues"],
             [
                 {
-                    "code": "CHAIN_INVALID",
+                    "code": api_codes.RECOVERY_HEAD_UNTRUSTED,
                     "message": "extension doc_hash was not found",
                     "details": {"stage": "replay"},
                 }
@@ -1805,7 +1971,7 @@ class TestCliApi(unittest.TestCase):
                 return_value=inspection,
             ),
             mock.patch(
-                "ethernity.cli.features.recover.api_handlers.plan_from_args",
+                "ethernity.cli.features.recover.api_handlers.plan_from_inspection",
                 return_value=SimpleNamespace(import_documents=(object(),)),
             ),
             mock.patch(
@@ -1850,7 +2016,7 @@ class TestCliApi(unittest.TestCase):
                             index=1,
                             dir_name="01",
                             doc_id_hex="deadbeefcafebabe",
-                            doc_hash=bytes.fromhex("cafebabe"),
+                            doc_hash=b"\xca" * 32,
                         ),
                     ),
                     failure=None,
@@ -1894,11 +2060,11 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["command"], "extend")
         self.assertEqual(events[-1]["operation"], "inspect")
         self.assertEqual(events[-1]["input_kind"], "extended_root")
-        self.assertEqual(events[-1]["doc_id"], "11111111111111111111111111111111")
+        self.assertEqual(events[-1]["doc_id"], "1111111111111111")
         self.assertEqual(events[-1]["discovered_extension_dirs"], [1])
         self.assertEqual(
             events[-1]["available_extensions"],
-            [{"dir_name": "01", "doc_id": "deadbeefcafebabe", "doc_hash": "cafebabe"}],
+            [{"dir_name": "01", "doc_id": "deadbeefcafebabe", "doc_hash": "ca" * 32}],
         )
         self.assertEqual(
             events[-1]["selected_scope"],
@@ -1951,13 +2117,13 @@ class TestCliApi(unittest.TestCase):
 
     def test_api_inspect_extend_emits_root_only_trust_metadata_fields(self) -> None:
         inspection = SimpleNamespace(
-            doc_id="11111111111111111111111111111111",
+            doc_id="1111111111111111",
             input_label="Backup root directory",
             input_detail="/tmp/root",
             input_kind="extended_root",
             source_summary=None,
             frame_counts={"main": 0, "auth": 0, "shard": 0},
-            root_doc_id="11111111111111111111111111111111",
+            root_doc_id="1111111111111111",
             root_doc_hash="22" * 32,
             chain_id="33" * 32,
             auth_status="verified",
@@ -2005,7 +2171,7 @@ class TestCliApi(unittest.TestCase):
         trust_details = {
             "stage": "replay",
             "failure_stage": "discovery",
-            "failure_message": "missing required payload MAIN carriers",
+            "failure_message": "missing required MAIN documents",
             "failure_head_index": 2,
             "failure_head_doc_hash": None,
             "failure_head_dir_name": "02",
@@ -2021,13 +2187,13 @@ class TestCliApi(unittest.TestCase):
             "explicit_selection": False,
         }
         inspection = SimpleNamespace(
-            doc_id="11111111111111111111111111111111",
+            doc_id="1111111111111111",
             input_label="Backup root directory",
             input_detail="/tmp/root",
             input_kind="extended_root",
             source_summary=None,
             frame_counts={"main": 0, "auth": 0, "shard": 0},
-            root_doc_id="11111111111111111111111111111111",
+            root_doc_id="1111111111111111",
             root_doc_hash="22" * 32,
             chain_id="33" * 32,
             auth_status="verified",
@@ -2060,7 +2226,7 @@ class TestCliApi(unittest.TestCase):
                     "code": api_codes.RECOVERY_HEAD_UNTRUSTED,
                     "message": (
                         "latest supplied recovery head could not be trusted: "
-                        "missing required payload MAIN carriers"
+                        "missing required MAIN documents"
                     ),
                     "details": trust_details,
                 },
@@ -2088,7 +2254,7 @@ class TestCliApi(unittest.TestCase):
         trust_details = {
             "stage": "replay",
             "failure_stage": "discovery",
-            "failure_message": "missing required payload MAIN carriers",
+            "failure_message": "missing required MAIN documents",
             "failure_head_index": 2,
             "failure_head_doc_hash": None,
             "failure_head_dir_name": "02",
@@ -2104,13 +2270,13 @@ class TestCliApi(unittest.TestCase):
             "explicit_selection": False,
         }
         inspection = SimpleNamespace(
-            doc_id="11111111111111111111111111111111",
+            doc_id="1111111111111111",
             input_label="Backup root directory",
             input_detail="/tmp/root",
             input_kind="extended_root",
             source_summary=None,
             frame_counts={"main": 0, "auth": 0, "shard": 0},
-            root_doc_id="11111111111111111111111111111111",
+            root_doc_id="1111111111111111",
             root_doc_hash="22" * 32,
             chain_id="33" * 32,
             auth_status="verified",
@@ -2145,7 +2311,7 @@ class TestCliApi(unittest.TestCase):
                     "code": api_codes.RECOVERY_HEAD_UNTRUSTED,
                     "message": (
                         "latest supplied recovery head could not be trusted: "
-                        "missing required payload MAIN carriers"
+                        "missing required MAIN documents"
                     ),
                     "details": trust_details,
                 },
@@ -2179,7 +2345,7 @@ class TestCliApi(unittest.TestCase):
                     "code": api_codes.RECOVERY_HEAD_UNTRUSTED,
                     "message": (
                         "latest supplied recovery head could not be trusted: "
-                        "missing required payload MAIN carriers"
+                        "missing required MAIN documents"
                     ),
                     "details": trust_details,
                 }
@@ -2191,13 +2357,13 @@ class TestCliApi(unittest.TestCase):
     ) -> None:
         args = ExtendArgs(root_dir="/tmp/root", input=["/tmp/root/example.txt"], quiet=True)
         inspection = SimpleNamespace(
-            doc_id="11111111111111111111111111111111",
+            doc_id="1111111111111111",
             input_label="Backup root directory",
             input_detail="/tmp/root",
             input_kind="extended_root",
             source_summary=None,
             frame_counts={"main": 0, "auth": 0, "shard": 0},
-            root_doc_id="11111111111111111111111111111111",
+            root_doc_id="1111111111111111",
             root_doc_hash="22" * 32,
             chain_id="33" * 32,
             auth_status="verified",
@@ -2239,8 +2405,9 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
         self._assert_valid_events(events)
-        self.assertEqual(events[-1]["blocking_issues"][0]["code"], api_codes.INVALID_INPUT)
+        self.assertEqual(events[-1]["blocking_issues"][0]["code"], "EXTENSION_LAYOUT_INVALID")
         self.assertEqual(events[-1]["blocking_issues"][0]["message"], "bad shard scan")
+        self.assertEqual(events[-1]["blocking_issues"][0]["details"]["cause_code"], "INVALID_INPUT")
 
     def test_api_inspect_extend_emits_unlocked_diff_summary(self) -> None:
         manifest, payload = build_manifest_and_payload(
@@ -2327,6 +2494,7 @@ class TestCliApi(unittest.TestCase):
         )
         self.assertIsNone(events[-1]["chunk_reuse"])
         self.assertIsNone(events[-1]["estimated_extension_bytes"])
+        self.assertEqual(events[-1]["blocking_issues"][0]["code"], "EXTENSION_NO_CHANGES")
 
     def test_api_inspect_extend_emits_preview_metrics_for_pending_changes(self) -> None:
         manifest, payload = build_manifest_and_payload(
@@ -2377,6 +2545,7 @@ class TestCliApi(unittest.TestCase):
                         input=[str(scope_dir / "alpha.txt")],
                         base_dir=str(scope_dir),
                         passphrase="secret",
+                        shard_count=0,
                     )
                 )
                 expected_encrypted = encrypt_prepared_extension_document(
@@ -2399,6 +2568,8 @@ class TestCliApi(unittest.TestCase):
                         str(scope_dir),
                         "--passphrase",
                         "secret",
+                        "--shard-count",
+                        "0",
                     ],
                 )
 
@@ -2471,6 +2642,8 @@ class TestCliApi(unittest.TestCase):
                     "-",
                     "--passphrase",
                     "secret",
+                    "--shard-count",
+                    "0",
                 ],
                 input="updated",
             )
@@ -2546,6 +2719,8 @@ class TestCliApi(unittest.TestCase):
                         str(scope_dir),
                         "--passphrase",
                         "secret",
+                        "--shard-count",
+                        "0",
                     ],
                 )
 
@@ -2555,7 +2730,7 @@ class TestCliApi(unittest.TestCase):
         self.assertIsNone(events[-1]["chunk_reuse"])
         self.assertIsNone(events[-1]["estimated_extension_bytes"])
         blocking_issue = events[-1]["blocking_issues"][0]
-        self.assertEqual(blocking_issue["code"], "RUNTIME_ERROR")
+        self.assertEqual(blocking_issue["code"], api_codes.EXTENSION_TOO_LARGE)
         self.assertEqual(blocking_issue["details"], {})
         self.assertRegex(
             blocking_issue["message"],
@@ -3564,7 +3739,7 @@ class TestCliApi(unittest.TestCase):
         trust_details = {
             "stage": "replay",
             "failure_stage": "discovery",
-            "failure_message": "missing required payload MAIN carriers",
+            "failure_message": "missing required MAIN documents",
             "failure_head_index": 2,
             "failure_head_doc_hash": None,
             "failure_head_dir_name": "02",
@@ -3590,7 +3765,7 @@ class TestCliApi(unittest.TestCase):
                     code=api_codes.RECOVERY_HEAD_UNTRUSTED,
                     message=(
                         "latest supplied compact head could not be trusted; "
-                        "no checkpoint was created: missing required payload MAIN carriers"
+                        "no checkpoint was created: missing required MAIN documents"
                     ),
                     details=trust_details,
                 ),
@@ -3623,7 +3798,7 @@ class TestCliApi(unittest.TestCase):
             events[-1]["message"],
             (
                 "latest supplied compact head could not be trusted; "
-                "no checkpoint was created: missing required payload MAIN carriers"
+                "no checkpoint was created: missing required MAIN documents"
             ),
         )
         self.assertEqual(
@@ -3919,6 +4094,8 @@ class TestCliApi(unittest.TestCase):
             ),
             manifest=None,
             source_summary=None,
+            selected_extension_index=None,
+            selected_extension_doc_hash=None,
             signing_key_frame_count=0,
             signing_key_validated_shard_count=0,
             signing_key_required_threshold=None,
@@ -3980,6 +4157,8 @@ class TestCliApi(unittest.TestCase):
             ),
             manifest=object(),
             source_summary={"sealed": True},
+            selected_extension_index=None,
+            selected_extension_doc_hash=None,
             signing_key_frame_count=1,
             signing_key_validated_shard_count=0,
             signing_key_required_threshold=None,
@@ -4007,6 +4186,8 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[0]["args"]["shard_scan"], ["passphrase-a.pdf"])
         self.assertEqual(events[2]["details"]["signing_key_shard_frame_count"], 1)
         self.assertEqual(events[-1]["frame_counts"]["signing_key_shard"], 1)
+        self.assertIsNone(events[-1]["selected_extension_index"])
+        self.assertIsNone(events[-1]["selected_extension_doc_hash"])
         self.assertEqual(events[-1]["signing_key"]["validated_shard_count"], 0)
 
     def test_api_mint_signing_key_shard_dir_error_is_structured(self) -> None:

@@ -293,6 +293,19 @@ def _parse_api_int_option(
     return parsed
 
 
+def _parse_api_extension_doc_hash_option(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if len(normalized) != 64 or any(char not in "0123456789abcdef" for char in normalized):
+        raise ApiCommandError(
+            code=api_codes.INVALID_INPUT,
+            message="--extension-doc-hash must be a 32-byte lowercase hex value",
+            details={"option": "--extension-doc-hash", "value": value},
+        )
+    return normalized
+
+
 def _parse_signing_key_mode(value: str | None) -> str | None:
     if value is None:
         return None
@@ -330,14 +343,14 @@ def _normalized_paper_for_started(value: str | None) -> str | None:
     return normalized if normalized in {"A4", "LETTER"} else None
 
 
-def _optional_int_for_started(value: str | None) -> int | None:
+def _optional_int_for_started(value: str | None, *, min_value: int = 0) -> int | None:
     if value is None:
         return None
     try:
         parsed = int(value, 10)
     except ValueError:
         return None
-    if parsed < 0:
+    if parsed < min_value:
         return None
     return parsed
 
@@ -457,7 +470,7 @@ def _backup_started_args_for_error(
         "base_dir": base_dir,
         "output_dir": output_dir,
         "layout_debug_dir": layout_debug_dir,
-        "qr_chunk_size": _optional_int_for_started(qr_chunk_size),
+        "qr_chunk_size": _optional_int_for_started(qr_chunk_size, min_value=1),
         "has_passphrase": passphrase is not None,
         "passphrase_generate": passphrase is None,
         "passphrase_generate_requested": passphrase_generate,
@@ -503,7 +516,7 @@ def _compact_started_args_for_error(
         "auth_fallback_file": auth_fallback_file,
         "auth_payloads_file": auth_payloads_file,
         "layout_debug_dir": layout_debug_dir,
-        "qr_chunk_size": _optional_int_for_started(qr_chunk_size),
+        "qr_chunk_size": _optional_int_for_started(qr_chunk_size, min_value=1),
         "has_passphrase": passphrase is not None,
         "quiet": True,
         "debug": _state_debug_enabled(state),
@@ -560,7 +573,7 @@ def _extend_started_args_for_error(
         payload["operation"] = operation
     else:
         payload["layout_debug_dir"] = layout_debug_dir
-        payload["qr_chunk_size"] = _optional_int_for_started(qr_chunk_size)
+        payload["qr_chunk_size"] = _optional_int_for_started(qr_chunk_size, min_value=1)
     return payload
 
 
@@ -725,6 +738,7 @@ def _run_recover_operation(
     handler: Callable[..., int],
 ) -> int:
     config_value, paper_value = _resolve_api_config_and_paper(ctx, config, paper)
+    extension_doc_hash_value = _parse_api_extension_doc_hash_option(extension_doc_hash)
     args = _build_recover_api_args(
         state=state,
         config_value=config_value,
@@ -740,7 +754,7 @@ def _run_recover_operation(
         auth_fallback_file=auth_fallback_file,
         auth_payloads_file=auth_payloads_file,
         extension_index=extension_index,
-        extension_doc_hash=extension_doc_hash,
+        extension_doc_hash=extension_doc_hash_value,
         output=output,
         allow_unsigned=allow_unsigned,
     )
@@ -817,23 +831,27 @@ def _build_mint_api_args(
         output_dir=output_dir,
         output_dir_existing_parent=True,
         layout_debug_dir=layout_debug_dir,
-        shard_threshold=_parse_api_int_option("--shard-threshold", shard_threshold),
-        shard_count=_parse_api_int_option("--shard-count", shard_count),
+        shard_threshold=_parse_api_int_option("--shard-threshold", shard_threshold, min_value=1),
+        shard_count=_parse_api_int_option("--shard-count", shard_count, min_value=1),
         signing_key_shard_threshold=_parse_api_int_option(
             "--signing-key-shard-threshold",
             signing_key_shard_threshold,
+            min_value=1,
         ),
         signing_key_shard_count=_parse_api_int_option(
             "--signing-key-shard-count",
             signing_key_shard_count,
+            min_value=1,
         ),
         passphrase_replacement_count=_parse_api_int_option(
             "--passphrase-replacement-count",
             passphrase_replacement_count,
+            min_value=1,
         ),
         signing_key_replacement_count=_parse_api_int_option(
             "--signing-key-replacement-count",
             signing_key_replacement_count,
+            min_value=1,
         ),
         mint_passphrase_shards=mint_passphrase_shards,
         mint_signing_key_shards=mint_signing_key_shards,
@@ -1009,18 +1027,28 @@ def _build_extend_api_args(
     signing_key_shard_threshold: str | None,
     signing_key_shard_count: str | None,
 ) -> ExtendArgs:
-    qr_chunk_size_cli = _parse_api_int_option("--qr-chunk-size", qr_chunk_size)
+    qr_chunk_size_cli = _parse_api_int_option(
+        "--qr-chunk-size",
+        qr_chunk_size,
+        min_value=1,
+    )
     unlock_policy_cli = _parse_unlock_policy(unlock_policy)
-    shard_threshold_cli = _parse_api_int_option("--shard-threshold", shard_threshold)
-    shard_count_cli = _parse_api_int_option("--shard-count", shard_count)
+    shard_threshold_cli = _parse_api_int_option(
+        "--shard-threshold",
+        shard_threshold,
+        min_value=0,
+    )
+    shard_count_cli = _parse_api_int_option("--shard-count", shard_count, min_value=0)
     signing_key_mode_cli = _parse_signing_key_mode(signing_key_mode)
     signing_key_shard_threshold_cli = _parse_api_int_option(
         "--signing-key-shard-threshold",
         signing_key_shard_threshold,
+        min_value=0,
     )
     signing_key_shard_count_cli = _parse_api_int_option(
         "--signing-key-shard-count",
         signing_key_shard_count,
+        min_value=0,
     )
     return ExtendArgs(
         config=config_value,
@@ -1069,14 +1097,13 @@ def _build_compact_api_args(
     qr_chunk_size: str | None,
     passphrase: str | None,
 ) -> CompactArgs:
-    defaults = _state_backup_defaults(state)
-    qr_chunk_size_cli = _parse_api_int_option("--qr-chunk-size", qr_chunk_size)
+    qr_chunk_size_cli = _parse_api_int_option("--qr-chunk-size", qr_chunk_size, min_value=1)
     return CompactArgs(
         config=config_value,
         paper=paper_value,
         design=design or _state_design(state),
         root_dir=root_dir,
-        output_dir=output_dir if output_dir is not None else defaults.output_dir,
+        output_dir=output_dir,
         shard_fallback_file=shard_fallback_file,
         shard_payloads_file=shard_payloads_file,
         shard_scan=shard_scan,
@@ -1267,8 +1294,8 @@ def extend(
             "--unlock-policy",
             help=(
                 "Extension unlock artifact policy. Accepted values: self-contained, "
-                "reuse-root. reuse-root requires validated root passphrase shard inputs "
-                "supplied for this run."
+                "reuse-root. reuse-root uses the published or supplied root passphrase "
+                "shard policy."
             ),
             click_type=_POLICY_HELP_TYPE,
         ),
@@ -1489,7 +1516,7 @@ def recover(
         str | None,
         typer.Option(
             "--extension-index",
-            help="Recover through a specific extension index.",
+            help="Recover through a specific extension index (0 = root only).",
             click_type=_INTEGER_HELP_TYPE,
         ),
     ] = None,
@@ -1919,8 +1946,8 @@ def inspect_extend(
             "--unlock-policy",
             help=(
                 "Extension unlock artifact policy. Accepted values: self-contained, "
-                "reuse-root. reuse-root requires validated root passphrase shard inputs "
-                "supplied for this run."
+                "reuse-root. reuse-root uses the published or supplied root passphrase "
+                "shard policy."
             ),
             click_type=_POLICY_HELP_TYPE,
         ),

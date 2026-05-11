@@ -131,6 +131,8 @@ class RecoveryInspection:
     shard_scan: tuple[str, ...]
     unlock: RecoveryUnlockStatus
     blocking_issues: tuple[dict[str, Any], ...]
+    source_frames: tuple[Frame, ...] = ()
+    source_extra_auth_frames: tuple[Frame, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -186,6 +188,8 @@ def inspect_from_args(args: RecoverArgs) -> RecoveryInspection:
         [*frames, *extra_auth_frames],
         source_label=input_detail or input_label or "content import",
     )
+    source_frames = tuple(frames)
+    source_extra_auth_frames = tuple(extra_auth_frames)
     import_shard_unlock: RecoveryUnlockStatus | None = None
     if len(import_documents) > 1:
         if args.passphrase:
@@ -281,8 +285,10 @@ def inspect_from_args(args: RecoverArgs) -> RecoveryInspection:
             shard_fallback_files=tuple(shard_fallback_files),
             shard_payloads_file=tuple(shard_payloads_file),
             shard_scan=tuple(shard_scan),
+            source_frames=source_frames,
+            source_extra_auth_frames=source_extra_auth_frames,
         )
-    return inspect_recovery_inputs(
+    inspection = inspect_recovery_inputs(
         frames=frames,
         extra_auth_frames=extra_auth_frames,
         shard_frames=shard_frames,
@@ -294,6 +300,11 @@ def inspect_from_args(args: RecoverArgs) -> RecoveryInspection:
         shard_payloads_file=shard_payloads_file,
         shard_scan=shard_scan,
         quiet=quiet,
+    )
+    return replace(
+        inspection,
+        source_frames=source_frames,
+        source_extra_auth_frames=source_extra_auth_frames,
     )
 
 
@@ -336,6 +347,33 @@ def plan_from_args(args: RecoverArgs) -> RecoveryPlan:
         extension_doc_hash=args.extension_doc_hash,
         args=args,
         quiet=quiet,
+    )
+
+
+def plan_from_inspection(args: RecoverArgs, inspection: RecoveryInspection) -> RecoveryPlan:
+    """Build a full recovery plan from an already-materialized API inspection."""
+
+    validate_recover_args(args)
+    resolve_recover_config(args)
+    frames = list(inspection.source_frames or (*inspection.main_frames, *inspection.auth_frames))
+    extra_auth_frames = list(inspection.source_extra_auth_frames)
+    return build_recovery_plan(
+        frames=frames,
+        extra_auth_frames=extra_auth_frames,
+        shard_frames=list(inspection.shard_frames),
+        passphrase=args.passphrase,
+        allow_unsigned=inspection.allow_unsigned,
+        input_label=inspection.input_label,
+        input_detail=inspection.input_detail,
+        shard_fallback_files=list(inspection.shard_fallback_files),
+        shard_payloads_file=list(inspection.shard_payloads_file),
+        shard_scan=list(inspection.shard_scan),
+        output_path=expanduser_cli_path(args.output),
+        root_dir=None,
+        extension_index=args.extension_index,
+        extension_doc_hash=args.extension_doc_hash,
+        args=args,
+        quiet=args.quiet,
     )
 
 

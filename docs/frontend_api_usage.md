@@ -134,7 +134,8 @@ into a fresh standalone backup.
 The command:
 
 - requires `--root-dir` and `--output-dir`
-- reuses saved backup/config defaults for render policy when the UI does not override them
+- reuses saved backup/config defaults for render policy when the UI does not override them, but
+  never infers the output directory from saved backup defaults
 - performs authenticated recovery semantics
 
 ### Recovery Flow
@@ -151,13 +152,18 @@ Use `ethernity api recover` for the actual extraction step.
 
 Both commands accept the same recovery input flags in one of these ways:
 
-- `--scan <pdf-or-image-or-dir>` for QR scanning from recovery PDFs, image files, or folders
+- `--scan <pdf-or-image-or-dir>` for QR scanning from QR-document PDFs, image files, or folders
 - `--shard-scan <pdf-or-image-or-dir>` for QR scanning from passphrase shard PDFs, image files, or folders
 - `--payloads-file <file>` for pre-extracted QR payloads
 - `--fallback-file <file>` for fallback text
 - `--shard-dir <dir>` for a directory of passphrase shard recovery text files
 - `--extension-index <n>` or `--extension-doc-hash <hash>` when the UI needs a specific extension replay target
+- `--extension-index 0` for intentional root-only recovery
 - optional shard/auth inputs when the UI has them
+
+Extension `recovery_document-*` PDFs are human-readable fallback artifacts, not machine-readable
+scan inputs. Use extension `qr_document-*` artifacts for `--scan`, or ask the user to transcribe
+fallback text into `--fallback-file`.
 
 Important:
 
@@ -172,7 +178,7 @@ Important:
 
 ```bash
 uv run python -m ethernity.cli api inspect recover \
-  --scan "/path/to/recovery_document.pdf" \
+  --scan "/path/to/qr_document.pdf" \
   --shard-scan "/path/to/shard-01.pdf" \
   --shard-scan "/path/to/shard-02.pdf"
 ```
@@ -183,7 +189,7 @@ uv run python -m ethernity.cli api inspect recover \
 
 ```bash
 uv run python -m ethernity.cli api recover \
-  --scan "/path/to/recovery_document.pdf" \
+  --scan "/path/to/qr_document.pdf" \
   --passphrase "correct horse battery staple" \
   --output "/tmp/recovered.bin"
 ```
@@ -192,7 +198,7 @@ uv run python -m ethernity.cli api recover \
 
 ```bash
 uv run python -m ethernity.cli api recover \
-  --scan "/path/to/recovery_document.pdf" \
+  --scan "/path/to/qr_document.pdf" \
   --scan "/path/to/phone-photos/" \
   --passphrase "correct horse battery staple" \
   --output "/tmp/recovered.bin"
@@ -202,7 +208,7 @@ uv run python -m ethernity.cli api recover \
 
 ```bash
 uv run python -m ethernity.cli api recover \
-  --scan "/path/to/recovery_document.pdf" \
+  --scan "/path/to/qr_document.pdf" \
   --auth-payloads-file "/path/to/auth_payloads.txt" \
   --passphrase "correct horse battery staple" \
   --output "/tmp/recovered.bin"
@@ -222,13 +228,17 @@ uv run python -m ethernity.cli api recover \
 
 ```bash
 uv run python -m ethernity.cli api inspect mint \
-  --scan "/path/to/recovery_document.pdf" \
+  --scan "/path/to/qr_document.pdf" \
   --shard-payloads-file "/path/to/passphrase_shards.txt" \
   --signing-key-shard-payloads-file "/path/to/signing_key_shards.txt"
 ```
 
 Use the final `result.blocking_issues`, `result.unlock`, `result.signing_key`, and
 `result.mint_capabilities` fields to decide whether the UI should offer minting yet.
+When scan/import input includes extension carriers, `result.doc_id`,
+`result.selected_extension_index`, `result.selected_extension_doc_hash`, and
+`result.source_summary` describe the authenticated extension replay target, not just the root
+backup.
 Treat the two `mint_capabilities` flags independently; they reflect both readiness and the output
 types currently enabled for this request, so one shard type can be ready while the other is
 blocked or disabled.
@@ -330,3 +340,7 @@ uv run python -m ethernity.cli api config set --input-json "/path/to/config_patc
 6. Add advanced recovery inputs for auth/shards.
 7. Add mint preflight with `api inspect mint`.
 8. Add mint execution flow.
+9. Add extension preflight with `api inspect extend`.
+10. Add extension execution with `api extend`.
+11. Add compact execution with explicit `--output-dir`.
+12. Surface root-plus-extensions as the normal ongoing backup lifecycle, not an advanced mode.

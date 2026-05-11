@@ -30,6 +30,7 @@ from ethernity.cli.shared.events import (
     emit_result,
     event_session,
 )
+from ethernity.cli.shared.inspection import inspect_result_payload
 from ethernity.cli.shared.ndjson import SCHEMA_VERSION, emit_started
 from ethernity.cli.shared.types import MintArgs, MintResult
 
@@ -180,41 +181,46 @@ def run_mint_inspect_api_command(args: MintArgs, *, debug: bool = False) -> int:
             },
         )
         emit_result(
-            command="mint",
-            operation="inspect",
-            doc_id=inspection.recovery.doc_id.hex(),
-            auth_status=inspection.recovery.auth_status,
-            input_label=inspection.recovery.input_label,
-            input_detail=inspection.recovery.input_detail,
-            source_summary=inspection.source_summary,
-            frame_counts={
-                "main": len(inspection.recovery.main_frames),
-                "auth": len(inspection.recovery.auth_frames),
-                "shard": len(inspection.recovery.shard_frames),
-                "signing_key_shard": inspection.signing_key_frame_count,
-            },
-            unlock={
-                "validated_passphrase_shard_count": (
-                    inspection.recovery.unlock.validated_shard_count
-                ),
-                "required_passphrase_threshold": (
-                    inspection.recovery.unlock.required_shard_threshold
-                ),
-                "satisfied": (
-                    inspection.recovery.unlock.satisfied
-                    and inspection.manifest is not None
-                    and not _has_blocking_issue(list(inspection.blocking_issues), "AUTH_REQUIRED")
-                ),
-            },
-            signing_key={
-                "validated_shard_count": inspection.signing_key_validated_shard_count,
-                "required_threshold": inspection.signing_key_required_threshold,
-                "satisfied": inspection.signing_key_satisfied,
-                "source": inspection.signing_key_source,
-            },
-            mint_capabilities=dict(inspection.mint_capabilities),
-            blocking_issues=[dict(item) for item in inspection.blocking_issues],
-            warnings=list(sink.warning_records),
+            **inspect_result_payload(
+                command="mint",
+                source_summary=inspection.source_summary,
+                frame_counts={
+                    "main": len(inspection.recovery.main_frames),
+                    "auth": len(inspection.recovery.auth_frames),
+                    "shard": len(inspection.recovery.shard_frames),
+                    "signing_key_shard": inspection.signing_key_frame_count,
+                },
+                unlock={
+                    "validated_passphrase_shard_count": (
+                        inspection.recovery.unlock.validated_shard_count
+                    ),
+                    "required_passphrase_threshold": (
+                        inspection.recovery.unlock.required_shard_threshold
+                    ),
+                    "satisfied": (
+                        inspection.recovery.unlock.satisfied
+                        and inspection.manifest is not None
+                        and not _has_blocking_issue(
+                            list(inspection.blocking_issues), "AUTH_REQUIRED"
+                        )
+                    ),
+                },
+                blocking_issues=[dict(item) for item in inspection.blocking_issues],
+                warnings=list(sink.warning_records),
+                doc_id=inspection.recovery.doc_id.hex(),
+                selected_extension_index=inspection.selected_extension_index,
+                selected_extension_doc_hash=inspection.selected_extension_doc_hash,
+                auth_status=inspection.recovery.auth_status,
+                input_label=inspection.recovery.input_label,
+                input_detail=inspection.recovery.input_detail,
+                signing_key={
+                    "validated_shard_count": inspection.signing_key_validated_shard_count,
+                    "required_threshold": inspection.signing_key_required_threshold,
+                    "satisfied": inspection.signing_key_satisfied,
+                    "source": inspection.signing_key_source,
+                },
+                mint_capabilities=dict(inspection.mint_capabilities),
+            )
         )
     return 0
 

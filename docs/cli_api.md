@@ -211,6 +211,7 @@ Current command-specific error codes:
   scope; `api inspect extend` reports a no-op preview instead of raising this code
 - `EXTENSION_MAIN_CARRIER_INVALID`: staged extension MAIN carriers failed ciphertext / AUTH validation
 - `EXTENSION_SHARD_CARRIER_INVALID`: staged extension shard carriers failed payload validation
+- `EXTENSION_TOO_LARGE`: the encrypted extension ciphertext exceeds the release size limit
 - `COMPACT_INVALID_POLICY`: `ethernity api compact` could not preserve the root shard policy
 - `RECOVERY_HEAD_UNTRUSTED`: recover or compact could not authenticate or reconstruct the requested
   recovery head, or the latest supplied recovery head when no explicit head was requested
@@ -268,9 +269,12 @@ Current inspect `blocking_issues[].code` values:
 - `PASSPHRASE_REPLACEMENT_NOT_READY`
 - `SIGNING_KEY_REPLACEMENT_NOT_READY`
 - `ROOT_AUTHORITY_MISMATCH`
+- `ROOT_SHARD_POLICY_INVALID`
 - `RECOVERY_HEAD_UNTRUSTED`
 - `EXTENSION_LAYOUT_INVALID`
 - `EXTENSION_INVALID_POLICY`
+- `EXTENSION_NO_CHANGES`
+- `EXTENSION_TOO_LARGE`
 - `SEALED_ROOT_NOT_EXTENDABLE`
 - `CHAIN_INVALID`
 - `DELETE_NOT_SUPPORTED`
@@ -326,10 +330,15 @@ When recovery input contains multiple MAIN documents, such as a root backup plus
 documents, `api inspect recover` remains readiness-oriented. If the root cannot yet be selected
 because unlock material is missing or wrong, it still emits a `result` event with
 `source_summary: null`, aggregate frame counts, and an unlock/root-selection blocking issue.
+When scanning a backup root directory, recovery imports extension carriers by content. Directory
+names, filenames, and redundant carrier copies are not required for extension chain recovery.
+Extension recovery documents are human-readable fallback artifacts and are not treated as
+machine-readable extension carriers.
 
 `ethernity api inspect mint` reports:
 
-- `doc_id`, `input_label`, `input_detail`, `auth_status`
+- `doc_id`, `selected_extension_index`, `selected_extension_doc_hash`, `input_label`,
+  `input_detail`, `auth_status`
 - `source_summary` when decryption is possible, otherwise `null`
 - `frame_counts.main|auth|shard|signing_key_shard`
 - `unlock.validated_passphrase_shard_count|required_passphrase_threshold|satisfied`
@@ -348,10 +357,14 @@ because unlock material is missing or wrong, it still emits a `result` event wit
 - `selected_scope`, `diff_summary`, `chunk_reuse`, `estimated_extension_bytes`
 - `blocking_issues` and `warnings`
 
-`frame_counts.signing_key_shard` reports decoded signing-key shard input frames. Signing-key
-readiness comes from `signing_key.satisfied`; `validated_shard_count` is informational and can be
-`0` when the backup already embeds a signing seed. `unlock.satisfied` is `false` whenever auth
-validation is blocking even if shard quorum is otherwise met.
+For mint inspect, `frame_counts.signing_key_shard` reports decoded signing-key shard input frames.
+Signing-key readiness comes from `signing_key.satisfied`; `validated_shard_count` is informational
+and can be `0` when the backup already embeds a signing seed.
+
+For extend inspect, `unlock.satisfied` only describes root decryption readiness. Use
+`blocking_issues`, `signing_authority.satisfied`, and the validated-head fields to decide whether
+the write-producing extend action is ready. A selected scope with no changed or new paths reports
+`EXTENSION_NO_CHANGES` as a blocking issue.
 
 `mint_capabilities` is per output type and reflects both readiness and the currently enabled
 output toggles. A replacement-shard blocker can disable one capability while leaving the other
@@ -496,7 +509,7 @@ Example onboarding patch:
 {"type":"progress","phase":"plan","current":1,"total":1,"unit":"step","details":{"main_frame_count":2,"auth_frame_count":1,"shard_frame_count":0}}
 {"type":"phase","id":"decrypt","label":"Decrypting and inspecting payload"}
 {"type":"artifact","kind":"recovered_file","path":"/tmp/out/secret.txt","details":{"manifest_path":"secret.txt","size":42}}
-{"type":"result","ok":true,"command":"recover","output_path":"/tmp/out/secret.txt","output_path_kind":"file","doc_id":"deadbeef","selected_extension_index":null,"selected_extension_doc_hash":null,"auth_status":"verified","input_label":"QR payloads","input_detail":"main_payloads.txt","manifest":{"format_version":1,"input_origin":"file","input_roots":[],"sealed":true,"file_count":1,"payload_codec":"raw","payload_raw_len":null},"files":[{"manifest_path":"secret.txt","output_path":"/tmp/out/secret.txt","size":42,"sha256":"0123","mtime":0}]}
+{"type":"result","ok":true,"command":"recover","output_path":"/tmp/out/secret.txt","output_path_kind":"file","doc_id":"0123456789abcdef","selected_extension_index":null,"selected_extension_doc_hash":null,"auth_status":"verified","input_label":"QR payloads","input_detail":"main_payloads.txt","manifest":{"format_version":1,"input_origin":"file","input_roots":[],"sealed":true,"file_count":1,"payload_codec":"raw","payload_raw_len":null},"files":[{"manifest_path":"secret.txt","output_path":"/tmp/out/secret.txt","size":42,"sha256":"0123","mtime":0}]}
 ```
 
 ```json
@@ -505,14 +518,14 @@ Example onboarding patch:
 {"type":"progress","phase":"plan","current":1,"total":1,"unit":"step","details":{"main_frame_count":2,"auth_frame_count":1,"shard_frame_count":0}}
 {"type":"phase","id":"decrypt","label":"Decrypting and inspecting payload"}
 {"type":"progress","phase":"decrypt","current":1,"total":1,"unit":"step","details":{"file_count":1,"manifest_file_count":1}}
-{"type":"result","ok":true,"command":"recover","operation":"inspect","doc_id":"deadbeef","selected_extension_index":null,"selected_extension_doc_hash":null,"auth_status":"verified","input_label":"QR payloads","input_detail":"main_payloads.txt","source_summary":{"format_version":1,"input_origin":"file","input_roots":[],"sealed":true,"file_count":1,"payload_codec":"raw","payload_raw_len":null},"frame_counts":{"main":2,"auth":1,"shard":0},"unlock":{"mode":"passphrase","passphrase_provided":true,"validated_shard_count":0,"required_shard_threshold":null,"shard_share_count":null,"satisfied":true},"blocking_issues":[],"warnings":[]}
+{"type":"result","ok":true,"command":"recover","operation":"inspect","doc_id":"0123456789abcdef","selected_extension_index":null,"selected_extension_doc_hash":null,"auth_status":"verified","input_label":"QR payloads","input_detail":"main_payloads.txt","source_summary":{"format_version":1,"input_origin":"file","input_roots":[],"sealed":true,"file_count":1,"payload_codec":"raw","payload_raw_len":null},"frame_counts":{"main":2,"auth":1,"shard":0},"unlock":{"mode":"passphrase","passphrase_provided":true,"validated_shard_count":0,"required_shard_threshold":null,"shard_share_count":null,"satisfied":true},"blocking_issues":[],"warnings":[]}
 ```
 
 ```json
 {"type":"started","schema_version":1,"command":"compact","args":{"config":null,"paper":null,"design":null,"root_dir":"backup-aa11","output_dir":"compacted","shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"layout_debug_dir":null,"qr_chunk_size":null,"has_passphrase":true,"quiet":true,"debug":false}}
 {"type":"artifact","kind":"qr_document","path":"compacted/qr_document.pdf","details":{"filename":"qr_document.pdf","size":1234}}
 {"type":"artifact","kind":"recovery_document","path":"compacted/recovery_document.pdf","details":{"filename":"recovery_document.pdf","size":2345}}
-{"type":"result","ok":true,"command":"compact","doc_id":"deadbeef","root_dir":"backup-aa11","output_dir":"compacted","artifacts":{"qr_document":"compacted/qr_document.pdf","recovery_document":"compacted/recovery_document.pdf","recovery_kit_index":null,"shard_documents":[],"signing_key_shard_documents":[]}}
+{"type":"result","ok":true,"command":"compact","doc_id":"0123456789abcdef","root_dir":"backup-aa11","output_dir":"compacted","artifacts":{"qr_document":"compacted/qr_document.pdf","recovery_document":"compacted/recovery_document.pdf","recovery_kit_index":null,"shard_documents":[],"signing_key_shard_documents":[]}}
 ```
 
 ```json
@@ -524,7 +537,7 @@ Example onboarding patch:
 Recover can also scan QR payloads directly from PDFs, images, or directories by using `--scan`:
 
 ```bash
-ethernity api recover --scan "/path/to/recovery_document.pdf" --passphrase "correct horse battery staple" --output "/tmp/recovered.bin"
+ethernity api recover --scan "/path/to/qr_document.pdf" --passphrase "correct horse battery staple" --output "/tmp/recovered.bin"
 ```
 
 Passphrase shard PDFs/images can be scanned separately with `--shard-scan`:
@@ -532,6 +545,10 @@ Passphrase shard PDFs/images can be scanned separately with `--shard-scan`:
 ```bash
 ethernity api recover --scan "/path/to/qr_document.pdf" --shard-scan "/path/to/shard-01.pdf" --shard-scan "/path/to/shard-02.pdf" --output "/tmp/recovered.bin"
 ```
+
+For extended backup roots, `--extension-index <n>` selects a specific authenticated replay target.
+Use `--extension-index 0` for intentional root-only recovery when the supplied extension head is not
+trusted or the UI needs the original backup state.
 
 ## Client Guidance
 
@@ -548,9 +565,12 @@ ethernity api recover --scan "/path/to/qr_document.pdf" --shard-scan "/path/to/s
 - Prefer `code` values for logic and `message` values for display
 - Treat stdin as opt-in for `api recover`; pass `--fallback-file -` for recovery text or `--payloads-file -` for QR payload lines
 `extend` also accepts `--unlock-policy self-contained|reuse-root`.
-`reuse-root` disables extension-local shard emission, requires the command to be unlocked with
-validated passphrase shard inputs, and rejects explicit shard-policy overrides for the new
-extension. Operators then unlock the extension through that root shard set.
+`reuse-root` disables extension-local shard emission, uses the published or supplied root
+passphrase shard policy, and rejects explicit shard-policy overrides for the new extension.
+Operators then unlock the extension through that root shard set.
+If no root or extension shard policy is available, `api extend` fails closed instead of emitting a
+plaintext passphrase recovery document by default; pass `--shard-count 0` only when plaintext
+passphrase output is intentional.
 
 `api extend` and `api inspect extend` can also unlock the selected backup with passphrase shard
 inputs by using `--shard-fallback-file`, `--shard-payloads-file`, or `--shard-scan`.

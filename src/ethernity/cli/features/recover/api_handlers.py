@@ -22,7 +22,10 @@ from ethernity.cli.features.recover.chain import (
     recover_chain_entries,
     validate_root_manifest_authority,
 )
-from ethernity.cli.features.recover.planning import inspect_from_args, plan_from_args
+from ethernity.cli.features.recover.planning import (
+    inspect_from_args,
+    plan_from_inspection,
+)
 from ethernity.cli.features.recover.service import execute_recover_plan, prepare_recover_plan
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.events import (
@@ -33,6 +36,10 @@ from ethernity.cli.shared.events import (
     emit_progress,
     emit_result,
     event_session,
+)
+from ethernity.cli.shared.inspection import (
+    blocking_issue_from_exception,
+    inspect_result_payload,
 )
 from ethernity.cli.shared.ndjson import SCHEMA_VERSION, ApiCommandError, emit_started
 from ethernity.cli.shared.types import RecoverArgs
@@ -72,31 +79,19 @@ def _manifest_summary_payload(manifest: EnvelopeManifest) -> dict[str, object]:
 
 
 def _inspect_replay_blocking_issue(exc: Exception) -> dict[str, object]:
-    if isinstance(exc, ApiCommandError):
-        return {
-            "code": exc.code,
-            "message": str(exc),
-            "details": dict(exc.details or {}),
-        }
-    return {
-        "code": "CHAIN_INVALID",
-        "message": str(exc),
-        "details": {"stage": "replay"},
-    }
+    return blocking_issue_from_exception(
+        exc,
+        fallback_code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+        fallback_details={"stage": "replay"},
+    )
 
 
 def _inspect_decrypt_blocking_issue(exc: Exception) -> dict[str, object]:
-    if isinstance(exc, ApiCommandError):
-        return {
-            "code": exc.code,
-            "message": str(exc),
-            "details": dict(exc.details or {}),
-        }
-    return {
-        "code": "UNLOCK_FAILED",
-        "message": str(exc),
-        "details": {"stage": "decrypt"},
-    }
+    return blocking_issue_from_exception(
+        exc,
+        fallback_code="UNLOCK_FAILED",
+        fallback_details={"stage": "decrypt"},
+    )
 
 
 def _recover_started_args(
@@ -214,7 +209,7 @@ def run_recover_inspect_api_command(args: RecoverArgs, *, debug: bool = False) -
         if inspection.unlock.satisfied and inspection.unlock.resolved_passphrase is not None:
             emit_phase(phase="decrypt", label="Decrypting and inspecting payload")
             try:
-                plan = plan_from_args(args)
+                plan = plan_from_inspection(args, inspection)
                 if plan.import_documents:
                     chain = recover_chain_entries(plan, quiet=True, debug=debug)
                     manifest = chain.manifest
@@ -246,30 +241,31 @@ def run_recover_inspect_api_command(args: RecoverArgs, *, debug: bool = False) -
                     blocking_issues.append(_inspect_decrypt_blocking_issue(exc))
 
         emit_result(
-            command="recover",
-            operation="inspect",
-            doc_id=inspection.doc_id.hex(),
-            selected_extension_index=selected_extension_index,
-            selected_extension_doc_hash=selected_extension_doc_hash,
-            auth_status=inspection.auth_status,
-            input_label=inspection.input_label,
-            input_detail=inspection.input_detail,
-            source_summary=source_summary,
-            frame_counts={
-                "main": len(inspection.main_frames),
-                "auth": len(inspection.auth_frames),
-                "shard": len(inspection.shard_frames),
-            },
-            unlock={
-                "mode": inspection.unlock.mode,
-                "passphrase_provided": inspection.unlock.passphrase_provided,
-                "validated_shard_count": inspection.unlock.validated_shard_count,
-                "required_shard_threshold": inspection.unlock.required_shard_threshold,
-                "shard_share_count": inspection.unlock.shard_share_count,
-                "satisfied": inspection.unlock.satisfied and source_summary is not None,
-            },
-            blocking_issues=blocking_issues,
-            warnings=list(sink.warning_records),
+            **inspect_result_payload(
+                command="recover",
+                source_summary=source_summary,
+                frame_counts={
+                    "main": len(inspection.main_frames),
+                    "auth": len(inspection.auth_frames),
+                    "shard": len(inspection.shard_frames),
+                },
+                unlock={
+                    "mode": inspection.unlock.mode,
+                    "passphrase_provided": inspection.unlock.passphrase_provided,
+                    "validated_shard_count": inspection.unlock.validated_shard_count,
+                    "required_shard_threshold": inspection.unlock.required_shard_threshold,
+                    "shard_share_count": inspection.unlock.shard_share_count,
+                    "satisfied": inspection.unlock.satisfied and source_summary is not None,
+                },
+                blocking_issues=blocking_issues,
+                warnings=list(sink.warning_records),
+                doc_id=inspection.doc_id.hex(),
+                selected_extension_index=selected_extension_index,
+                selected_extension_doc_hash=selected_extension_doc_hash,
+                auth_status=inspection.auth_status,
+                input_label=inspection.input_label,
+                input_detail=inspection.input_detail,
+            )
         )
     return 0
 

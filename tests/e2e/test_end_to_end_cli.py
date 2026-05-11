@@ -15,12 +15,17 @@
 
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
+
+from jsonschema import validators
+from jsonschema.exceptions import ValidationError
 
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.crypto import encrypt_bytes_with_passphrase
@@ -37,6 +42,15 @@ from tests.test_support import (
 )
 
 TEST_SIGNING_SEED = b"\x11" * 32
+CLI_API_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "cli_api.schema.json"
+
+
+@lru_cache(maxsize=1)
+def _schema_validator():
+    schema = json.loads(CLI_API_SCHEMA_PATH.read_text(encoding="utf-8"))
+    validator_cls = validators.validator_for(schema)
+    validator_cls.check_schema(schema)
+    return validator_cls(schema)
 
 
 def _auth_frame(*, doc_id: bytes, doc_hash: bytes) -> Frame:
@@ -782,6 +796,313 @@ class TestEndToEndCli(unittest.TestCase):
             self.assertEqual(events[-1]["output_path_kind"], "file")
             self.assertEqual(recovered_path.read_text(encoding="utf-8"), "recover via shard scan")
 
+    def test_api_extend_cli_publishes_and_recovers_latest_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup-root"
+            recovered_dir = tmp_path / "recovered"
+            repo_root = Path(__file__).resolve().parents[2]
+            config_path = DEFAULT_CONFIG_PATH
+            source_dir.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(tmp_path / "xdg")})
+            backup = _run_cli_subprocess(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(config_path),
+                    "backup",
+                    "--input-dir",
+                    str(source_dir),
+                    "--base-dir",
+                    str(source_dir),
+                    "--output-dir",
+                    str(root_dir),
+                    "--passphrase",
+                    "extend-api-passphrase",
+                    "--quiet",
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(backup.returncode, 0, backup.stderr)
+
+            (source_dir / "alpha.txt").write_text("extension-alpha", encoding="utf-8")
+            (source_dir / "beta.txt").write_text("extension-beta", encoding="utf-8")
+
+            inspect = _run_cli_subprocess(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(config_path),
+                    "api",
+                    "inspect",
+                    "extend",
+                    "--root-dir",
+                    str(root_dir),
+                    "--input-dir",
+                    str(source_dir),
+                    "--base-dir",
+                    str(source_dir),
+                    "--passphrase",
+                    "extend-api-passphrase",
+                    "--shard-count",
+                    "0",
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(inspect.returncode, 0, inspect.stderr)
+            self.assertEqual(inspect.stderr, "")
+            inspect_events = self._parse_ndjson_events(inspect.stdout)
+            self.assertEqual(inspect_events[-1]["command"], "extend")
+            self.assertEqual(inspect_events[-1]["operation"], "inspect")
+            self.assertEqual(inspect_events[-1]["blocking_issues"], [])
+
+            extend = _run_cli_subprocess(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(config_path),
+                    "api",
+                    "extend",
+                    "--root-dir",
+                    str(root_dir),
+                    "--input-dir",
+                    str(source_dir),
+                    "--base-dir",
+                    str(source_dir),
+                    "--passphrase",
+                    "extend-api-passphrase",
+                    "--shard-count",
+                    "0",
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(extend.returncode, 0, extend.stderr)
+            self.assertEqual(extend.stderr, "")
+            extend_events = self._parse_ndjson_events(extend.stdout)
+            extend_result = extend_events[-1]
+            self.assertEqual(extend_result["command"], "extend")
+            self.assertEqual(extend_result["index"], 1)
+            extension_dir = Path(str(extend_result["extension_dir"]))
+            self.assertTrue(extension_dir.exists())
+
+            recover = _run_cli_subprocess(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "api",
+                    "recover",
+                    "--scan",
+                    str(root_dir),
+                    "--passphrase",
+                    "extend-api-passphrase",
+                    "--output",
+                    str(recovered_dir),
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(recover.returncode, 0, recover.stderr)
+            self.assertEqual(recover.stderr, "")
+            recover_events = self._parse_ndjson_events(recover.stdout)
+            self.assertEqual(recover_events[-1]["command"], "recover")
+            self.assertEqual(recover_events[-1]["selected_extension_index"], 1)
+            self.assertEqual(
+                (recovered_dir / "alpha.txt").read_text(encoding="utf-8"),
+                "extension-alpha",
+            )
+            self.assertEqual(
+                (recovered_dir / "beta.txt").read_text(encoding="utf-8"),
+                "extension-beta",
+            )
+
+            imported_dir = tmp_path / "imported-carriers"
+            imported_dir.mkdir()
+            shutil.copy2(root_dir / "qr_document.pdf", imported_dir / "root-carrier.pdf")
+            extension_qr = next(extension_dir.glob("qr_document-*.pdf"))
+            shutil.copy2(extension_qr, imported_dir / "latest-carrier.pdf")
+
+            inspect_recover_import = _run_cli_subprocess(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "api",
+                    "inspect",
+                    "recover",
+                    "--scan",
+                    str(imported_dir),
+                    "--passphrase",
+                    "extend-api-passphrase",
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(inspect_recover_import.returncode, 0, inspect_recover_import.stderr)
+            import_inspect_events = self._parse_ndjson_events(inspect_recover_import.stdout)
+            self.assertEqual(import_inspect_events[-1]["operation"], "inspect")
+            self.assertEqual(import_inspect_events[-1]["selected_extension_index"], 1)
+            self.assertEqual(import_inspect_events[-1]["source_summary"]["file_count"], 2)
+
+            recovered_import_dir = tmp_path / "recovered-import"
+            recover_import = _run_cli_subprocess(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "api",
+                    "recover",
+                    "--scan",
+                    str(imported_dir),
+                    "--passphrase",
+                    "extend-api-passphrase",
+                    "--output",
+                    str(recovered_import_dir),
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(recover_import.returncode, 0, recover_import.stderr)
+            import_recover_events = self._parse_ndjson_events(recover_import.stdout)
+            self.assertEqual(import_recover_events[-1]["selected_extension_index"], 1)
+            self.assertEqual(
+                (recovered_import_dir / "alpha.txt").read_text(encoding="utf-8"),
+                "extension-alpha",
+            )
+            self.assertEqual(
+                (recovered_import_dir / "beta.txt").read_text(encoding="utf-8"),
+                "extension-beta",
+            )
+
+            mint_inspect = _run_cli_subprocess(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "api",
+                    "inspect",
+                    "mint",
+                    "--scan",
+                    str(imported_dir),
+                    "--passphrase",
+                    "extend-api-passphrase",
+                    "--shard-threshold",
+                    "2",
+                    "--shard-count",
+                    "3",
+                    "--no-signing-key-shards",
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(mint_inspect.returncode, 0, mint_inspect.stderr)
+            mint_inspect_events = self._parse_ndjson_events(mint_inspect.stdout)
+            self._assert_valid_events(mint_inspect_events)
+            self.assertEqual(mint_inspect_events[-1]["command"], "mint")
+            self.assertEqual(mint_inspect_events[-1]["operation"], "inspect")
+            self.assertEqual(mint_inspect_events[-1]["selected_extension_index"], 1)
+            self.assertEqual(mint_inspect_events[-1]["source_summary"]["file_count"], 2)
+            self.assertEqual(mint_inspect_events[-1]["blocking_issues"], [])
+
+            mint_dir = tmp_path / "minted-extension-shards"
+            mint = _run_cli_subprocess(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "api",
+                    "mint",
+                    "--scan",
+                    str(imported_dir),
+                    "--passphrase",
+                    "extend-api-passphrase",
+                    "--output-dir",
+                    str(mint_dir),
+                    "--shard-threshold",
+                    "2",
+                    "--shard-count",
+                    "3",
+                    "--no-signing-key-shards",
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(mint.returncode, 0, mint.stderr)
+            mint_events = self._parse_ndjson_events(mint.stdout)
+            self._assert_valid_events(mint_events)
+            self.assertEqual(mint_events[-1]["doc_id"], extend_result["doc_id"])
+            minted_shards = sorted(mint_dir.glob("shard-*.pdf"))
+            self.assertEqual(len(minted_shards), 3)
+
+            recovered_minted_dir = tmp_path / "recovered-minted"
+            recover_minted = _run_cli_subprocess(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "api",
+                    "recover",
+                    "--scan",
+                    str(imported_dir),
+                    "--shard-scan",
+                    str(minted_shards[0]),
+                    "--shard-scan",
+                    str(minted_shards[1]),
+                    "--output",
+                    str(recovered_minted_dir),
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(recover_minted.returncode, 0, recover_minted.stderr)
+            self.assertEqual(
+                (recovered_minted_dir / "alpha.txt").read_text(encoding="utf-8"),
+                "extension-alpha",
+            )
+            self.assertEqual(
+                (recovered_minted_dir / "beta.txt").read_text(encoding="utf-8"),
+                "extension-beta",
+            )
+
     def test_backup_cli_signing_key_shards(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
@@ -1000,6 +1321,14 @@ class TestEndToEndCli(unittest.TestCase):
         if not events:
             raise AssertionError("expected NDJSON events on stdout")
         return events
+
+    def _assert_valid_events(self, events: list[dict[str, object]]) -> None:
+        validator = _schema_validator()
+        for event in events:
+            try:
+                validator.validate(event)
+            except ValidationError as exc:  # pragma: no cover - assertion helper
+                self.fail(f"Schema validation failed for {event!r}: {exc.message}")
 
 
 if __name__ == "__main__":

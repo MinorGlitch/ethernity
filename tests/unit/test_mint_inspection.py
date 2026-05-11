@@ -25,9 +25,24 @@ from ethernity.cli.features.mint.workflow import (
     inspect_mint_inputs,
 )
 from ethernity.cli.features.recover.chain import ImportedRecoveryDocument
-from ethernity.cli.features.recover.planning import RecoveryPlan
+from ethernity.cli.features.recover.planning import (
+    RecoveryInspection,
+    RecoveryPlan,
+    RecoveryUnlockStatus,
+)
+from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.types import MintArgs
-from ethernity.crypto.signing import AuthPayload
+from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE
+from ethernity.crypto.signing import (
+    AuthPayload,
+    derive_public_key,
+    encode_auth_payload,
+    sign_auth,
+)
+from ethernity.encoding.framing import VERSION, Frame, FrameType
+
+ROOT_SIGNING_SEED = b"\x33" * 32
+ROOT_SIGN_PUB = derive_public_key(ROOT_SIGNING_SEED)
 
 
 class TestMintInspection(unittest.TestCase):
@@ -94,6 +109,416 @@ class TestMintInspection(unittest.TestCase):
         ]
         self.assertEqual(len(auth_required_issues), 1)
 
+    def test_inspect_mint_inputs_resolves_extension_chain_target_for_readiness(self) -> None:
+        args = MintArgs(scan=["/tmp/root"], passphrase="passphrase", quiet=True)
+        root_auth = AuthPayload(
+            version=1,
+            doc_hash=b"\x77" * 32,
+            sign_pub=ROOT_SIGN_PUB,
+            signature=b"\x33" * 64,
+        )
+        extension_auth = AuthPayload(
+            version=1,
+            doc_hash=b"\x44" * 32,
+            sign_pub=ROOT_SIGN_PUB,
+            signature=b"\x55" * 64,
+        )
+        state = SimpleNamespace(
+            frames=(),
+            extra_auth_frames=(),
+            shard_frames=(),
+            shard_fallback_files=(),
+            shard_payloads_file=(),
+            shard_scan=(),
+            signing_key_frames=(),
+            input_label="Scan",
+            input_detail="/tmp/root",
+            recover_args=SimpleNamespace(),
+            config=SimpleNamespace(),
+        )
+        recovery = RecoveryInspection(
+            ciphertext=b"root-ciphertext",
+            doc_id=b"\x66" * 8,
+            doc_hash=b"\x77" * 32,
+            auth_payload=root_auth,
+            auth_status="verified",
+            allow_unsigned=False,
+            input_label="Scan",
+            input_detail="/tmp/root",
+            main_frames=(),
+            auth_frames=(),
+            shard_frames=(),
+            shard_fallback_files=(),
+            shard_payloads_file=(),
+            shard_scan=(),
+            unlock=RecoveryUnlockStatus(
+                mode="passphrase",
+                passphrase_provided=True,
+                validated_shard_count=0,
+                required_shard_threshold=None,
+                satisfied=True,
+                resolved_passphrase="passphrase",
+            ),
+            blocking_issues=(),
+        )
+        root_plan = RecoveryPlan(
+            ciphertext=b"root-ciphertext",
+            doc_id=b"\x66" * 8,
+            doc_hash=b"\x77" * 32,
+            passphrase="passphrase",
+            auth_payload=root_auth,
+            auth_status="verified",
+            allow_unsigned=False,
+            output_path=None,
+            input_label="Scan",
+            input_detail="/tmp/root",
+            main_frames=(),
+            auth_frames=(),
+            shard_frames=(),
+            shard_fallback_files=(),
+            shard_payloads_file=(),
+            shard_scan=(),
+            root_dir=None,
+            import_documents=(object(), object()),
+        )
+        extension_plan = root_plan.__class__(
+            **{
+                **root_plan.__dict__,
+                "ciphertext": b"extension-ciphertext",
+                "doc_id": b"\x88" * 8,
+                "doc_hash": b"\x44" * 32,
+                "auth_payload": extension_auth,
+                "auth_status": "verified",
+            }
+        )
+        manifest = SimpleNamespace(
+            format_version=1,
+            input_origin="file",
+            input_roots=(),
+            sealed=False,
+            payload_codec="raw",
+            payload_raw_len=0,
+            files=(),
+        )
+        captured: dict[str, RecoveryInspection] = {}
+
+        def _capture_replacement_blockers(**kwargs):
+            captured["recovery"] = kwargs["recovery"]
+            return []
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._load_mint_input_state",
+                return_value=state,
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._recovery_shard_inputs_for_plan",
+                return_value=([], [], []),
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.build_recovery_plan",
+                return_value=root_plan,
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.inspect_recovery_inputs",
+                return_value=recovery,
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._resolve_mint_chain_target",
+                return_value=extension_plan,
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.recover_chain_entries",
+                return_value=SimpleNamespace(
+                    manifest=manifest,
+                    selected_extension_index=1,
+                    selected_extension_doc_hash="44" * 32,
+                ),
+            ) as recover_chain_entries,
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decrypt_bytes",
+                return_value=b"root-plaintext",
+            ) as decrypt_bytes,
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decode_envelope",
+                return_value=(manifest, b"payload"),
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._inspect_mint_signing_key_state",
+                return_value=(0, None, True, "embedded", []),
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._inspect_mint_replacement_blockers",
+                side_effect=_capture_replacement_blockers,
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._inspect_mint_capabilities",
+                return_value={
+                    "can_mint_passphrase_shards": True,
+                    "can_mint_signing_key_shards": True,
+                },
+            ),
+        ):
+            inspection = inspect_mint_inputs(args)
+
+        self.assertEqual(inspection.recovery.doc_hash, b"\x44" * 32)
+        self.assertEqual(inspection.recovery.auth_payload, extension_auth)
+        self.assertEqual(inspection.source_summary["input_origin"], "file")
+        self.assertEqual(inspection.selected_extension_index, 1)
+        self.assertEqual(inspection.selected_extension_doc_hash, "44" * 32)
+        self.assertEqual(captured["recovery"].doc_hash, b"\x44" * 32)
+        recover_chain_entries.assert_called_once_with(root_plan, quiet=True, debug=False)
+        decrypt_bytes.assert_not_called()
+
+    def test_inspect_mint_inputs_does_not_report_unlock_failure_after_chain_trust_failure(
+        self,
+    ) -> None:
+        args = MintArgs(scan=["/tmp/root"], passphrase="passphrase", quiet=True)
+        root_auth = AuthPayload(
+            version=1,
+            doc_hash=b"\x77" * 32,
+            sign_pub=ROOT_SIGN_PUB,
+            signature=b"\x33" * 64,
+        )
+        state = SimpleNamespace(
+            frames=(),
+            extra_auth_frames=(),
+            shard_frames=(),
+            shard_fallback_files=(),
+            shard_payloads_file=(),
+            shard_scan=(),
+            signing_key_frames=(),
+            input_label="Scan",
+            input_detail="/tmp/root",
+            recover_args=SimpleNamespace(),
+            config=SimpleNamespace(),
+        )
+        recovery = RecoveryInspection(
+            ciphertext=b"root-ciphertext",
+            doc_id=b"\x66" * 8,
+            doc_hash=b"\x77" * 32,
+            auth_payload=root_auth,
+            auth_status="verified",
+            allow_unsigned=False,
+            input_label="Scan",
+            input_detail="/tmp/root",
+            main_frames=(),
+            auth_frames=(),
+            shard_frames=(),
+            shard_fallback_files=(),
+            shard_payloads_file=(),
+            shard_scan=(),
+            unlock=RecoveryUnlockStatus(
+                mode="passphrase",
+                passphrase_provided=True,
+                validated_shard_count=0,
+                required_shard_threshold=None,
+                satisfied=True,
+                resolved_passphrase="passphrase",
+            ),
+            blocking_issues=(),
+        )
+        root_plan = RecoveryPlan(
+            ciphertext=b"root-ciphertext",
+            doc_id=b"\x66" * 8,
+            doc_hash=b"\x77" * 32,
+            passphrase="passphrase",
+            auth_payload=root_auth,
+            auth_status="verified",
+            allow_unsigned=False,
+            output_path=None,
+            input_label="Scan",
+            input_detail="/tmp/root",
+            main_frames=(),
+            auth_frames=(),
+            shard_frames=(),
+            shard_fallback_files=(),
+            shard_payloads_file=(),
+            shard_scan=(),
+            root_dir=None,
+            import_documents=(object(), object()),
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._load_mint_input_state",
+                return_value=state,
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._recovery_shard_inputs_for_plan",
+                return_value=([], [], []),
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.build_recovery_plan",
+                return_value=root_plan,
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.inspect_recovery_inputs",
+                return_value=recovery,
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._resolve_mint_chain_target",
+                side_effect=ValueError("imported extension chain could not be trusted"),
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.recover_chain_entries",
+            ) as recover_chain_entries,
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decrypt_bytes",
+            ) as decrypt_bytes,
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._inspect_mint_signing_key_state",
+                return_value=(0, None, False, "signing-key shards", []),
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._inspect_mint_replacement_blockers",
+                return_value=[],
+            ),
+        ):
+            inspection = inspect_mint_inputs(args)
+
+        issue_codes = [issue["code"] for issue in inspection.blocking_issues]
+        self.assertIn(api_codes.RECOVERY_HEAD_UNTRUSTED, issue_codes)
+        self.assertNotIn("UNLOCK_FAILED", issue_codes)
+        self.assertIsNone(inspection.manifest)
+        self.assertIsNone(inspection.source_summary)
+        self.assertIsNone(inspection.selected_extension_index)
+        self.assertIsNone(inspection.selected_extension_doc_hash)
+        recover_chain_entries.assert_not_called()
+        decrypt_bytes.assert_not_called()
+
+    def test_inspect_mint_inputs_uses_plan_passphrase_for_extension_shard_unlock(self) -> None:
+        args = MintArgs(scan=["/tmp/root"], quiet=True)
+        root_auth = AuthPayload(
+            version=1,
+            doc_hash=b"\x77" * 32,
+            sign_pub=ROOT_SIGN_PUB,
+            signature=b"\x33" * 64,
+        )
+        shard_frame = Frame(
+            version=VERSION,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=b"\x66" * 8,
+            index=1,
+            total=1,
+            data=b"shard",
+        )
+        state = SimpleNamespace(
+            frames=(),
+            extra_auth_frames=(),
+            shard_frames=(shard_frame,),
+            shard_fallback_files=("shard.txt",),
+            shard_payloads_file=("payloads.txt",),
+            shard_scan=(),
+            signing_key_frames=(),
+            input_label="Scan",
+            input_detail="/tmp/root",
+            recover_args=SimpleNamespace(),
+            config=SimpleNamespace(),
+        )
+        root_plan = RecoveryPlan(
+            ciphertext=b"root-ciphertext",
+            doc_id=b"\x66" * 8,
+            doc_hash=b"\x77" * 32,
+            passphrase="derived-passphrase",
+            auth_payload=root_auth,
+            auth_status="verified",
+            allow_unsigned=False,
+            output_path=None,
+            input_label="Scan",
+            input_detail="/tmp/root",
+            main_frames=(),
+            auth_frames=(),
+            shard_frames=(shard_frame,),
+            shard_fallback_files=("shard.txt",),
+            shard_payloads_file=("payloads.txt",),
+            shard_scan=(),
+            root_dir=None,
+        )
+        recovery = RecoveryInspection(
+            ciphertext=b"root-ciphertext",
+            doc_id=b"\x66" * 8,
+            doc_hash=b"\x77" * 32,
+            auth_payload=root_auth,
+            auth_status="verified",
+            allow_unsigned=False,
+            input_label="Scan",
+            input_detail="/tmp/root",
+            main_frames=(),
+            auth_frames=(),
+            shard_frames=(),
+            shard_fallback_files=(),
+            shard_payloads_file=(),
+            shard_scan=(),
+            unlock=RecoveryUnlockStatus(
+                mode="passphrase",
+                passphrase_provided=True,
+                validated_shard_count=0,
+                required_shard_threshold=None,
+                satisfied=False,
+                resolved_passphrase=None,
+            ),
+            blocking_issues=(),
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._load_mint_input_state",
+                return_value=state,
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._recovery_shard_inputs_for_plan",
+                return_value=([shard_frame], ["shard.txt"], ["payloads.txt"]),
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.build_recovery_plan",
+                return_value=root_plan,
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.inspect_recovery_inputs",
+                return_value=recovery,
+            ) as inspect_recovery_inputs,
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decode_shard_payload",
+                return_value=SimpleNamespace(
+                    key_type=KEY_TYPE_PASSPHRASE,
+                    threshold=2,
+                    share_count=3,
+                    share_index=1,
+                ),
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._inspect_mint_signing_key_state",
+                return_value=(0, None, True, "embedded", []),
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._inspect_mint_replacement_blockers",
+                return_value=[],
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._inspect_mint_capabilities",
+                return_value={
+                    "can_mint_passphrase_shards": True,
+                    "can_mint_signing_key_shards": True,
+                },
+            ),
+        ):
+            inspection = inspect_mint_inputs(args)
+
+        self.assertEqual(
+            inspect_recovery_inputs.call_args.kwargs["passphrase"],
+            "derived-passphrase",
+        )
+        self.assertEqual(inspect_recovery_inputs.call_args.kwargs["shard_frames"], [])
+        self.assertEqual(inspect_recovery_inputs.call_args.kwargs["shard_fallback_files"], [])
+        self.assertEqual(inspect_recovery_inputs.call_args.kwargs["shard_payloads_file"], [])
+        self.assertEqual(inspection.recovery.unlock.mode, "shards")
+        self.assertEqual(inspection.recovery.unlock.validated_shard_count, 1)
+        self.assertEqual(inspection.recovery.unlock.required_shard_threshold, 2)
+        self.assertEqual(inspection.recovery.unlock.shard_share_count, 3)
+        self.assertEqual(inspection.recovery.unlock.resolved_passphrase, "derived-passphrase")
+        self.assertEqual(inspection.recovery.shard_frames, (shard_frame,))
+
     def test_execute_mint_does_not_pass_root_dir_to_recovery_plan(self) -> None:
         args = MintArgs(scan=["/tmp/root"], quiet=True)
         state = SimpleNamespace(
@@ -139,18 +564,18 @@ class TestMintInspection(unittest.TestCase):
         root_auth = AuthPayload(
             version=1,
             doc_hash=b"\x11" * 32,
-            sign_pub=b"\x22" * 32,
+            sign_pub=ROOT_SIGN_PUB,
             signature=b"\x33" * 64,
         )
         extension_auth = AuthPayload(
             version=1,
             doc_hash=b"\x44" * 32,
-            sign_pub=b"\x22" * 32,
+            sign_pub=ROOT_SIGN_PUB,
             signature=b"\x55" * 64,
         )
         plan = RecoveryPlan(
             ciphertext=b"root-ciphertext",
-            doc_id=b"\x66" * 16,
+            doc_id=b"\x66" * 8,
             doc_hash=b"\x77" * 32,
             passphrase="passphrase",
             auth_payload=root_auth,
@@ -206,7 +631,7 @@ class TestMintInspection(unittest.TestCase):
             ),
             mock.patch(
                 "ethernity.cli.features.mint.workflow.decode_root_manifest",
-                return_value=(SimpleNamespace(), b"payload"),
+                return_value=(SimpleNamespace(signing_seed=ROOT_SIGNING_SEED), b"payload"),
             ),
             mock.patch(
                 "ethernity.cli.features.mint.workflow.reconstruct_latest_logical_state",
@@ -221,16 +646,68 @@ class TestMintInspection(unittest.TestCase):
         self.assertNotEqual(resolved.doc_id, plan.doc_id)
         reconstruct_latest_logical_state.assert_called_once()
 
-    def test_resolve_mint_chain_target_rejects_orphan_extension_head(self) -> None:
+    def test_resolve_mint_chain_target_rejects_imported_doc_id_collision(self) -> None:
         root_auth = AuthPayload(
             version=1,
             doc_hash=b"\x11" * 32,
-            sign_pub=b"\x22" * 32,
+            sign_pub=ROOT_SIGN_PUB,
             signature=b"\x33" * 64,
         )
         plan = RecoveryPlan(
             ciphertext=b"root-ciphertext",
-            doc_id=b"\x66" * 16,
+            doc_id=b"\x66" * 8,
+            doc_hash=b"\x77" * 32,
+            passphrase="passphrase",
+            auth_payload=root_auth,
+            auth_status="verified",
+            allow_unsigned=False,
+            output_path=None,
+            input_label="Scan",
+            input_detail="/tmp/root",
+            main_frames=(),
+            auth_frames=(),
+            shard_frames=(),
+            shard_fallback_files=(),
+            shard_payloads_file=(),
+            shard_scan=(),
+            root_dir=None,
+            import_documents=(
+                ImportedRecoveryDocument(
+                    doc_id=b"\x66" * 8,
+                    doc_hash=b"\x77" * 32,
+                    ciphertext=b"root-ciphertext",
+                    auth_frames=(),
+                    source_label="root",
+                ),
+                ImportedRecoveryDocument(
+                    doc_id=b"\x66" * 8,
+                    doc_hash=b"\x44" * 32,
+                    ciphertext=b"extension-ciphertext",
+                    auth_frames=(),
+                    source_label="extension",
+                ),
+            ),
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decode_root_manifest",
+                return_value=(SimpleNamespace(signing_seed=ROOT_SIGNING_SEED), b"payload"),
+            ),
+            self.assertRaisesRegex(ValueError, "doc_id collides"),
+        ):
+            _resolve_mint_chain_target(plan, quiet=True, debug=False)
+
+    def test_resolve_mint_chain_target_rejects_orphan_extension_head(self) -> None:
+        root_auth = AuthPayload(
+            version=1,
+            doc_hash=b"\x11" * 32,
+            sign_pub=ROOT_SIGN_PUB,
+            signature=b"\x33" * 64,
+        )
+        plan = RecoveryPlan(
+            ciphertext=b"root-ciphertext",
+            doc_id=b"\x66" * 8,
             doc_hash=b"\x77" * 32,
             passphrase="passphrase",
             auth_payload=root_auth,
@@ -279,9 +756,15 @@ class TestMintInspection(unittest.TestCase):
             ),
         )
 
-        with mock.patch(
-            "ethernity.cli.features.mint.workflow.decode_imported_extension_link",
-            return_value=decoded,
+        with (
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decode_imported_extension_link",
+                return_value=decoded,
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decode_root_manifest",
+                return_value=(SimpleNamespace(signing_seed=ROOT_SIGNING_SEED), b"payload"),
+            ),
         ):
             with self.assertRaisesRegex(ValueError, "extension index sequence is invalid"):
                 _resolve_mint_chain_target(plan, quiet=True, debug=False)
@@ -290,12 +773,12 @@ class TestMintInspection(unittest.TestCase):
         root_auth = AuthPayload(
             version=1,
             doc_hash=b"\x11" * 32,
-            sign_pub=b"\x22" * 32,
+            sign_pub=ROOT_SIGN_PUB,
             signature=b"\x33" * 64,
         )
         plan = RecoveryPlan(
             ciphertext=b"root-ciphertext",
-            doc_id=b"\x66" * 16,
+            doc_id=b"\x66" * 8,
             doc_hash=b"\x77" * 32,
             passphrase="passphrase",
             auth_payload=root_auth,
@@ -335,6 +818,10 @@ class TestMintInspection(unittest.TestCase):
                 side_effect=ValueError("missing extension AUTH"),
             ),
             mock.patch(
+                "ethernity.cli.features.mint.workflow.decode_root_manifest",
+                return_value=(SimpleNamespace(signing_seed=ROOT_SIGNING_SEED), b"payload"),
+            ),
+            mock.patch(
                 "ethernity.cli.features.mint.workflow._mint_document_targets_current_root",
                 return_value=True,
             ),
@@ -346,18 +833,18 @@ class TestMintInspection(unittest.TestCase):
         root_auth = AuthPayload(
             version=1,
             doc_hash=b"\x11" * 32,
-            sign_pub=b"\x22" * 32,
+            sign_pub=ROOT_SIGN_PUB,
             signature=b"\x33" * 64,
         )
         extension_auth = AuthPayload(
             version=1,
             doc_hash=b"\x44" * 32,
-            sign_pub=b"\x22" * 32,
+            sign_pub=ROOT_SIGN_PUB,
             signature=b"\x55" * 64,
         )
         plan = RecoveryPlan(
             ciphertext=b"root-ciphertext",
-            doc_id=b"\x66" * 16,
+            doc_id=b"\x66" * 8,
             doc_hash=b"\x77" * 32,
             passphrase="passphrase",
             auth_payload=root_auth,
@@ -413,7 +900,7 @@ class TestMintInspection(unittest.TestCase):
             ),
             mock.patch(
                 "ethernity.cli.features.mint.workflow.decode_root_manifest",
-                return_value=(SimpleNamespace(), b"payload"),
+                return_value=(SimpleNamespace(signing_seed=ROOT_SIGNING_SEED), b"payload"),
             ),
             mock.patch(
                 "ethernity.cli.features.mint.workflow.reconstruct_latest_logical_state",
@@ -424,6 +911,163 @@ class TestMintInspection(unittest.TestCase):
                 ValueError,
                 "imported extension chain could not be trusted: .*unresolved chunk_id",
             ):
+                _resolve_mint_chain_target(plan, quiet=True, debug=False)
+
+    def test_resolve_mint_chain_target_rejects_malformed_root_authority_document(
+        self,
+    ) -> None:
+        root_auth = AuthPayload(
+            version=1,
+            doc_hash=b"\x11" * 32,
+            sign_pub=ROOT_SIGN_PUB,
+            signature=b"\x33" * 64,
+        )
+        bad_doc_id = b"\x88" * 8
+        bad_doc_hash = b"\x44" * 32
+        bad_auth_frame = Frame(
+            version=VERSION,
+            frame_type=FrameType.AUTH,
+            doc_id=bad_doc_id,
+            index=0,
+            total=1,
+            data=encode_auth_payload(
+                bad_doc_hash,
+                sign_pub=ROOT_SIGN_PUB,
+                signature=sign_auth(
+                    bad_doc_hash,
+                    sign_pub=ROOT_SIGN_PUB,
+                    sign_priv=ROOT_SIGNING_SEED,
+                ),
+            ),
+        )
+        plan = RecoveryPlan(
+            ciphertext=b"root-ciphertext",
+            doc_id=b"\x66" * 8,
+            doc_hash=b"\x77" * 32,
+            passphrase="passphrase",
+            auth_payload=root_auth,
+            auth_status="verified",
+            allow_unsigned=False,
+            output_path=None,
+            input_label="Scan",
+            input_detail="/tmp/root",
+            main_frames=(),
+            auth_frames=(),
+            shard_frames=(),
+            shard_fallback_files=(),
+            shard_payloads_file=(),
+            shard_scan=(),
+            root_dir=None,
+            import_documents=(
+                ImportedRecoveryDocument(
+                    doc_id=b"\x66" * 8,
+                    doc_hash=b"\x77" * 32,
+                    ciphertext=b"root-ciphertext",
+                    auth_frames=(),
+                    source_label="root",
+                ),
+                ImportedRecoveryDocument(
+                    doc_id=bad_doc_id,
+                    doc_hash=bad_doc_hash,
+                    ciphertext=b"not-an-extension-envelope",
+                    auth_frames=(bad_auth_frame,),
+                    source_label="bad",
+                ),
+            ),
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decode_root_manifest",
+                return_value=(SimpleNamespace(signing_seed=ROOT_SIGNING_SEED), b"payload"),
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decode_imported_extension_link",
+                side_effect=ValueError("imported document did not decode as an extension envelope"),
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "root-authority document could not be trusted"):
+                _resolve_mint_chain_target(plan, quiet=True, debug=False)
+
+    def test_resolve_mint_chain_target_rejects_extension_without_unsealed_root_authority(
+        self,
+    ) -> None:
+        root_auth = AuthPayload(
+            version=1,
+            doc_hash=b"\x11" * 32,
+            sign_pub=ROOT_SIGN_PUB,
+            signature=b"\x33" * 64,
+        )
+        plan = RecoveryPlan(
+            ciphertext=b"root-ciphertext",
+            doc_id=b"\x66" * 8,
+            doc_hash=b"\x77" * 32,
+            passphrase="passphrase",
+            auth_payload=root_auth,
+            auth_status="verified",
+            allow_unsigned=False,
+            output_path=None,
+            input_label="Scan",
+            input_detail="/tmp/root",
+            main_frames=(),
+            auth_frames=(),
+            shard_frames=(),
+            shard_fallback_files=(),
+            shard_payloads_file=(),
+            shard_scan=(),
+            root_dir=None,
+            import_documents=(
+                ImportedRecoveryDocument(
+                    doc_id=b"\x66" * 8,
+                    doc_hash=b"\x77" * 32,
+                    ciphertext=b"root-ciphertext",
+                    auth_frames=(),
+                    source_label="root",
+                ),
+                ImportedRecoveryDocument(
+                    doc_id=b"\x88" * 8,
+                    doc_hash=b"\x44" * 32,
+                    ciphertext=b"extension-ciphertext",
+                    auth_frames=(),
+                    source_label="extension",
+                ),
+            ),
+        )
+        decoded = SimpleNamespace(
+            auth_payload=root_auth,
+            auth_status="verified",
+            link=SimpleNamespace(
+                doc_hash=b"\x44" * 32,
+                document=SimpleNamespace(
+                    header=SimpleNamespace(
+                        index=1,
+                        parent_doc_hash=plan.doc_hash,
+                        root_doc_hash=plan.doc_hash,
+                        chunking=object(),
+                    )
+                ),
+            ),
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decode_root_manifest",
+                return_value=(SimpleNamespace(signing_seed=None), b"payload"),
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decode_imported_extension_link",
+                return_value=decoded,
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._mint_document_targets_current_root",
+                return_value=True,
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.reconstruct_latest_logical_state",
+                return_value=(),
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "unsealed root signing authority"):
                 _resolve_mint_chain_target(plan, quiet=True, debug=False)
 
 

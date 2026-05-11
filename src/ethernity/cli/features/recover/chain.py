@@ -508,8 +508,22 @@ def _decode_imported_extension_candidates(
     candidates: list[_DecodedExtensionCandidate] = []
     seen_doc_hashes = {root_doc_hash}
     for document in documents:
-        if document.doc_hash in seen_doc_hashes or document.doc_id == root_doc_id:
+        if document.doc_hash in seen_doc_hashes:
             continue
+        if document.doc_id == root_doc_id:
+            raise ApiCommandError(
+                code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+                message=(
+                    "imported extension chain could not be trusted: "
+                    "content import contains a document whose doc_id collides with "
+                    "the selected root backup"
+                ),
+                details={
+                    "stage": "selection",
+                    "root_doc_id": root_doc_id.hex(),
+                    "colliding_doc_hash": document.doc_hash.hex(),
+                },
+            )
         try:
             plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
             version, decoded_document = decode_any_envelope(plaintext)
