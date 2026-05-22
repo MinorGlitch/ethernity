@@ -36,6 +36,15 @@ class TestCopyCatalog(unittest.TestCase):
         self.assertEqual(copy["lineage_badge"], "Extension 02")
         self.assertIn("root backup", copy["header_guidance"])
 
+    def test_extension_recovery_bundle_describes_encoded_fallback(self) -> None:
+        copy = build_copy_bundle(
+            template_name="recovery_document.html.j2",
+            context={"lineage": {"kind": "extension", "extension_index": 2}},
+        )
+        self.assertEqual(copy["lineage_badge"], "Extension 02")
+        self.assertIn("encoded fallback lines", copy["transcription_helper"])
+        self.assertNotIn("decrypted", copy["transcription_helper"].lower())
+
     def test_compaction_recovery_bundle_is_lineage_aware(self) -> None:
         copy = build_copy_bundle(
             template_name="recovery_document.html.j2",

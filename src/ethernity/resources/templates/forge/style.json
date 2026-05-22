@@ -11,6 +11,7 @@
   },
   "capabilities": {
     "inject_forge_copy": true,
+    "recovery_first_page_single_section": true,
     "repeat_primary_qr_on_shard_continuation": true,
     "advanced_fallback_layout": true,
     "recovery_main_section_start_reserved_lines": 1,

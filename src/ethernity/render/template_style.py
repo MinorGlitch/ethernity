@@ -74,6 +74,7 @@ class TemplateCapabilities:
     """Boolean and numeric feature toggles for template behavior."""
 
     inject_forge_copy: bool = False
+    recovery_first_page_single_section: bool = False
     repeat_primary_qr_on_shard_continuation: bool = False
     advanced_fallback_layout: bool = False
     extra_main_first_page_qr_slot: bool = False
@@ -205,6 +206,7 @@ def _parse_capabilities(value: object, *, path: Path) -> TemplateCapabilities:
         allowed_keys=frozenset(
             {
                 "inject_forge_copy",
+                "recovery_first_page_single_section",
                 "repeat_primary_qr_on_shard_continuation",
                 "advanced_fallback_layout",
                 "extra_main_first_page_qr_slot",
@@ -255,6 +257,12 @@ def _parse_capabilities(value: object, *, path: Path) -> TemplateCapabilities:
         inject_forge_copy=_optional_bool(
             value,
             "inject_forge_copy",
+            default=False,
+            path=path,
+        ),
+        recovery_first_page_single_section=_optional_bool(
+            value,
+            "recovery_first_page_single_section",
             default=False,
             path=path,
         ),

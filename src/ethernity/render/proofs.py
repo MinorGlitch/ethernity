@@ -45,7 +45,8 @@ def frame_digest(frame: Frame) -> str:
 def build_render_artifact_proof(
     inputs: RenderInputs,
     *,
-    qr_payload_count: int,
+    encoded_payload_count: int,
+    physical_qr_count: int,
     page_count: int = 0,
     fallback_proof: RenderFallbackProof | None,
 ) -> RenderArtifactProof:
@@ -55,7 +56,8 @@ def build_render_artifact_proof(
         output_path=str(inputs.output_path),
         doc_type=inputs.doc_type,
         frame_digests=tuple(frame_digest(frame) for frame in inputs.frames),
-        qr_payload_count=qr_payload_count,
+        encoded_payload_count=encoded_payload_count,
+        physical_qr_count=physical_qr_count,
         page_count=page_count,
         fallback_proof=fallback_proof,
     )
@@ -150,13 +152,29 @@ def validate_render_artifact_proof(
                 "proof_frame_count": len(artifact_proof.frame_digests),
             },
         )
-    expected_qr_payload_count = len(inputs.qr_payloads or inputs.frames)
-    if artifact_proof.qr_payload_count != expected_qr_payload_count:
+    expected_encoded_payload_count = len(inputs.qr_payloads or inputs.frames)
+    if artifact_proof.encoded_payload_count != expected_encoded_payload_count:
         raise RenderProofError(
-            f"{artifact_label} proof QR payload count does not match render inputs",
+            f"{artifact_label} proof encoded payload count does not match render inputs",
             details={
-                "expected_qr_payload_count": expected_qr_payload_count,
-                "proof_qr_payload_count": artifact_proof.qr_payload_count,
+                "expected_encoded_payload_count": expected_encoded_payload_count,
+                "proof_encoded_payload_count": artifact_proof.encoded_payload_count,
+            },
+        )
+    if not inputs.render_qr and artifact_proof.physical_qr_count != 0:
+        raise RenderProofError(
+            f"{artifact_label} proof physical QR count does not match render inputs",
+            details={
+                "expected_physical_qr_count": 0,
+                "proof_physical_qr_count": artifact_proof.physical_qr_count,
+            },
+        )
+    if inputs.render_qr and artifact_proof.physical_qr_count < expected_encoded_payload_count:
+        raise RenderProofError(
+            f"{artifact_label} proof physical QR count is below render inputs",
+            details={
+                "minimum_physical_qr_count": expected_encoded_payload_count,
+                "proof_physical_qr_count": artifact_proof.physical_qr_count,
             },
         )
 

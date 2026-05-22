@@ -312,7 +312,7 @@ def _build_fallback_blocks(
         restrict_recovery_first_page_to_first_section = (
             page_idx <= 0
             and normalized_doc_type == DOC_TYPE_RECOVERY
-            and capabilities.inject_forge_copy
+            and capabilities.recovery_first_page_single_section
         )
         section_lines_capacity = lines_capacity
         section_line_length = page_layout.line_length

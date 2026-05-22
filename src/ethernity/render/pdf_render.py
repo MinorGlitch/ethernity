@@ -205,8 +205,8 @@ def _layout_spec(spec: DocumentSpec, doc_id: str, page_label: str) -> DocumentSp
     return spec.with_header(doc_id=doc_id, page_label=page_label)
 
 
-def _lineage_payload(lineage: RenderLineage | None) -> dict[str, object]:
-    resolved = lineage or RenderLineage(kind="root_backup")
+def _lineage_payload(lineage: RenderLineage) -> dict[str, object]:
+    resolved = lineage
     return {
         "kind": resolved.kind,
         "extension_index": resolved.extension_index,
@@ -505,7 +505,7 @@ def render_frames_to_pdf(inputs: RenderInputs) -> RenderResult:
             quorum_label=recovery_meta.quorum_label,
             signing_pub_lines=recovery_meta.signing_pub_lines,
         )
-    lineage = inputs.lineage or RenderLineage(kind="root_backup")
+    lineage = inputs.lineage
     template_context: dict[str, object] = {
         "lineage": _lineage_payload(lineage),
         "shard_index": base_context.get("shard_index", 1),
@@ -571,7 +571,8 @@ def render_frames_to_pdf(inputs: RenderInputs) -> RenderResult:
     return RenderResult(
         artifact_proof=build_render_artifact_proof(
             inputs=inputs,
-            qr_payload_count=len(qr_payloads),
+            encoded_payload_count=len(qr_payloads),
+            physical_qr_count=sum(len(page.qr_items) for page in pages),
             page_count=len(pages),
             fallback_proof=fallback_proof,
         ),

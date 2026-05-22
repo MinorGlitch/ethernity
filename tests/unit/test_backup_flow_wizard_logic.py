@@ -23,6 +23,7 @@ from pathlib import Path
 from unittest import mock
 
 from ethernity.cli.features.backup import orchestrator as backup
+from ethernity.cli.shared import recovery_kit_index
 from ethernity.cli.shared.types import BackupArgs, BackupResult, InputFile
 from ethernity.config import BackupDefaults, load_app_config
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
@@ -250,7 +251,9 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
             template_path = Path(tmpdir) / "kit_index_document.html.j2"
             template_path.write_text("x", encoding="utf-8")
             with mock.patch.object(
-                backup, "_resolve_kit_index_template_path", return_value=template_path
+                backup,
+                "resolve_recovery_kit_index_template_path",
+                return_value=template_path,
             ):
                 rows = backup._build_review_rows(
                     passphrase=None,
@@ -493,21 +496,43 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
             config = replace(
                 load_app_config(path=DEFAULT_CONFIG_PATH), kit_template_path=kit_template
             )
-            with mock.patch.object(backup, "TEMPLATES_RESOURCE_ROOT", root / "pkg-templates"):
-                self.assertEqual(backup._resolve_kit_index_template_path(config), compatible)
+            with mock.patch.object(
+                recovery_kit_index,
+                "TEMPLATES_RESOURCE_ROOT",
+                root / "pkg-templates",
+            ):
+                self.assertEqual(
+                    recovery_kit_index.resolve_recovery_kit_index_template_path(config),
+                    compatible,
+                )
 
             compatible.write_text("incompatible", encoding="utf-8")
             package_candidate = root / "pkg-templates" / "forge" / "kit_index_document.html.j2"
             package_candidate.parent.mkdir(parents=True, exist_ok=True)
             package_candidate.write_text("kit_index_inventory_artifacts_v3", encoding="utf-8")
-            with mock.patch.object(backup, "TEMPLATES_RESOURCE_ROOT", root / "pkg-templates"):
-                self.assertEqual(backup._resolve_kit_index_template_path(config), package_candidate)
+            with mock.patch.object(
+                recovery_kit_index,
+                "TEMPLATES_RESOURCE_ROOT",
+                root / "pkg-templates",
+            ):
+                self.assertEqual(
+                    recovery_kit_index.resolve_recovery_kit_index_template_path(config),
+                    package_candidate,
+                )
 
             package_candidate.write_text("incompatible", encoding="utf-8")
-            with mock.patch.object(backup, "TEMPLATES_RESOURCE_ROOT", root / "pkg-templates"):
-                self.assertIsNone(backup._resolve_kit_index_template_path(config))
+            with mock.patch.object(
+                recovery_kit_index,
+                "TEMPLATES_RESOURCE_ROOT",
+                root / "pkg-templates",
+            ):
+                self.assertIsNone(
+                    recovery_kit_index.resolve_recovery_kit_index_template_path(config)
+                )
 
-            self.assertFalse(backup._is_compatible_kit_index_template(root / "missing.html.j2"))
+            self.assertFalse(
+                recovery_kit_index.is_compatible_kit_index_template(root / "missing.html.j2")
+            )
 
     def test_print_completion_actions_paths(self) -> None:
         result = BackupResult(

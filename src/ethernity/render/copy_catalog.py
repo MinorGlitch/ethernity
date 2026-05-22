@@ -173,7 +173,7 @@ def _recovery_document_copy(*, context: Mapping[str, object]) -> dict[str, objec
             "workspace_check_label": "Recovery Workspace Check",
             "completion_check_label": "Recovery Completion Check",
             "transcription_sequence_label": "Manual Transcription Sequence",
-            "transcription_helper": "Transcribe decrypted recovery lines exactly as shown.",
+            "transcription_helper": "Transcribe encoded fallback lines exactly as shown.",
             "continuation_hint": "Keep row order intact and copy each line exactly.",
             "workspace_checklist": (
                 "[ ] Network radios off (Wi-Fi / Ethernet / Bluetooth).",

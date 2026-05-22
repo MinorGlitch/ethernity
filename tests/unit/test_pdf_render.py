@@ -84,6 +84,7 @@ class TestPdfRender(unittest.TestCase):
                 output_path=output_path,
                 context=context,
                 doc_type="main",
+                lineage=RenderLineage(kind="root_backup"),
                 render_fallback=False,
             )
             render_frames_to_pdf(inputs)
@@ -122,6 +123,7 @@ class TestPdfRender(unittest.TestCase):
                 output_path=output_path,
                 context=context,
                 doc_type="main",
+                lineage=RenderLineage(kind="root_backup"),
                 render_qr=False,
                 render_fallback=False,
             )
@@ -162,6 +164,7 @@ class TestPdfRender(unittest.TestCase):
                 output_path=output_path,
                 context=context,
                 doc_type="kit_index",
+                lineage=RenderLineage(kind="root_backup"),
                 qr_payloads=(),
                 render_qr=False,
                 render_fallback=False,
@@ -184,7 +187,8 @@ class TestPdfRender(unittest.TestCase):
         self.assertIsNotNone(result.artifact_proof)
         assert result.artifact_proof is not None
         self.assertEqual(result.artifact_proof.frame_digests, ())
-        self.assertEqual(result.artifact_proof.qr_payload_count, 0)
+        self.assertEqual(result.artifact_proof.encoded_payload_count, 0)
+        self.assertEqual(result.artifact_proof.physical_qr_count, 0)
 
     def test_render_frames_to_pdf_uses_lineage_aware_copy_for_document_title(self) -> None:
         frames = [
@@ -289,6 +293,7 @@ class TestPdfRender(unittest.TestCase):
                 output_path=output_path,
                 context={"paper_size": "A4"},
                 doc_type="recovery",
+                lineage=RenderLineage(kind="root_backup"),
                 render_qr=False,
                 recovery_meta=build_recovery_meta(
                     passphrase="passphrase",
@@ -307,7 +312,8 @@ class TestPdfRender(unittest.TestCase):
         assert result.fallback_proof is not None
         assert result.artifact_proof is not None
         self.assertEqual(result.artifact_proof.doc_type, "recovery")
-        self.assertEqual(result.artifact_proof.qr_payload_count, 1)
+        self.assertEqual(result.artifact_proof.encoded_payload_count, 1)
+        self.assertEqual(result.artifact_proof.physical_qr_count, 0)
         self.assertEqual(result.artifact_proof.fallback_proof, result.fallback_proof)
         self.assertTrue(result.fallback_proof.fully_consumed)
         self.assertEqual(result.fallback_proof.expected_section_count, 2)
@@ -324,6 +330,43 @@ class TestPdfRender(unittest.TestCase):
                 hashlib.sha256(encode_frame(main_frame)).hexdigest(),
             ),
         )
+
+    def test_render_frames_to_pdf_counts_repeated_qr_placements(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=b"\x55" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        template_path = _template_path("forge", "shard_document.html.j2")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "shard.pdf"
+            inputs = RenderInputs(
+                frames=(frame,),
+                template_path=template_path,
+                output_path=output_path,
+                context={"paper_size": "A4", "shard_index": 1, "shard_total": 1},
+                doc_type="shard",
+                lineage=RenderLineage(kind="root_backup"),
+                render_qr=True,
+                render_fallback=True,
+                fallback_payload=b"x" * 512,
+            )
+            with mock.patch("ethernity.render.pdf_render.render_html_to_pdf"):
+                with mock.patch(
+                    "ethernity.render.pdf_render.render_template",
+                    return_value="<html></html>",
+                ) as render_template_mock:
+                    result = render_frames_to_pdf(inputs)
+
+        assert result.artifact_proof is not None
+        rendered_context = render_template_mock.call_args[0][1]
+        self.assertEqual(result.artifact_proof.encoded_payload_count, 1)
+        self.assertEqual(result.artifact_proof.physical_qr_count, 2)
+        self.assertEqual([len(page["qr_items"]) for page in rendered_context["pages"]], [1, 1])
 
     def test_render_frames_to_pdf_injects_forge_copy_from_style_capability(self) -> None:
         frames = [
@@ -371,6 +414,7 @@ class TestPdfRender(unittest.TestCase):
                 output_path=output_path,
                 context=context,
                 doc_type="main",
+                lineage=RenderLineage(kind="root_backup"),
                 render_qr=False,
                 render_fallback=False,
             )
@@ -436,6 +480,7 @@ class TestPdfRender(unittest.TestCase):
                 output_path=output_path,
                 context=context,
                 doc_type="main",
+                lineage=RenderLineage(kind="root_backup"),
                 render_qr=False,
                 render_fallback=False,
             )
@@ -477,6 +522,7 @@ class TestPdfRender(unittest.TestCase):
                 output_path=output_path,
                 context=context,
                 doc_type="main",
+                lineage=RenderLineage(kind="root_backup"),
                 render_qr=False,
                 render_fallback=False,
                 layout_debug_json_path=debug_path,
@@ -514,6 +560,7 @@ class TestPdfRender(unittest.TestCase):
                 output_path=output_path,
                 context={"paper_size": "A4"},
                 doc_type="main",
+                lineage=RenderLineage(kind="root_backup"),
                 render_qr=False,
                 render_fallback=False,
                 layout_debug_json_path=debug_path,
@@ -564,6 +611,7 @@ class TestPdfRender(unittest.TestCase):
             output_path="out.pdf",
             context={"paper_size": "A4"},
             doc_type="RECOVERY",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=False,
             recovery_meta=recovery_meta,
@@ -626,6 +674,7 @@ class TestPdfRender(unittest.TestCase):
             output_path="out.pdf",
             context={"paper_size": "A4"},
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=False,
             key_lines=["Passphrase:", "alpha beta"],
@@ -661,6 +710,7 @@ class TestPdfRender(unittest.TestCase):
             output_path="out.pdf",
             context={"paper_size": "A4"},
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=False,
             key_lines=["this line should not affect recovery metadata"],

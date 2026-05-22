@@ -31,7 +31,7 @@ from ethernity.render.spec import (
     QrSequenceSpec,
     TextBlockSpec,
 )
-from ethernity.render.types import Layout, RenderInputs
+from ethernity.render.types import Layout, RenderInputs, RenderLineage
 
 
 def _layout(
@@ -150,6 +150,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="KIT",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=False,
         )
@@ -194,6 +195,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="kit_index",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=False,
         )
@@ -238,6 +240,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=False,
         )
@@ -285,6 +288,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=False,
         )
@@ -340,6 +344,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=False,
         )
@@ -386,6 +391,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
         )
@@ -440,6 +446,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
         )
@@ -490,6 +497,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
         )
@@ -542,6 +550,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
         )
@@ -595,6 +604,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="signing_key_shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
         )
@@ -648,6 +658,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
         )
@@ -700,6 +711,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
         )
@@ -751,6 +763,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
         )
@@ -804,6 +817,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
         )
@@ -857,6 +871,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
         )
@@ -903,6 +918,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
         )
@@ -951,6 +967,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=False,
         )
@@ -998,6 +1015,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
         )
@@ -1046,6 +1064,7 @@ class TestBuildPages(unittest.TestCase):
             output_path="out.pdf",
             context={},
             doc_type="shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
         )
@@ -1093,6 +1112,7 @@ class TestBuildPages(unittest.TestCase):
                 output_path="out.pdf",
                 context={},
                 doc_type="main",
+                lineage=RenderLineage(kind="root_backup"),
                 render_qr=True,
                 render_fallback=False,
             )
@@ -1164,6 +1184,7 @@ class TestBuildPages(unittest.TestCase):
                     output_path="out.pdf",
                     context={},
                     doc_type="recovery",
+                    lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
                 ),
@@ -1182,6 +1203,7 @@ class TestBuildPages(unittest.TestCase):
                     output_path="out.pdf",
                     context={},
                     doc_type="recovery",
+                    lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
                 ),
@@ -1245,6 +1267,7 @@ class TestBuildPages(unittest.TestCase):
                     output_path="out.pdf",
                     context={},
                     doc_type="recovery",
+                    lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
                 ),
@@ -1263,6 +1286,7 @@ class TestBuildPages(unittest.TestCase):
                     output_path="out.pdf",
                     context={},
                     doc_type="recovery",
+                    lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
                 ),
@@ -1331,6 +1355,7 @@ class TestBuildPages(unittest.TestCase):
                     output_path="out.pdf",
                     context={},
                     doc_type="recovery",
+                    lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
                 ),
@@ -1349,6 +1374,7 @@ class TestBuildPages(unittest.TestCase):
                     output_path="out.pdf",
                     context={},
                     doc_type="recovery",
+                    lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
                 ),
@@ -1366,6 +1392,94 @@ class TestBuildPages(unittest.TestCase):
         bonus_first_groups = len(bonus_pages[0].fallback_blocks[0].lines[0].split())
         baseline_first_groups = len(baseline_pages[0].fallback_blocks[0].lines[0].split())
         self.assertGreater(bonus_first_groups, baseline_first_groups)
+
+    def test_recovery_first_page_section_limit_uses_semantic_capability(self) -> None:
+        frames = [
+            Frame(
+                version=1,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\xee" * DOC_ID_LEN,
+                index=0,
+                total=1,
+                data=b"payload",
+            )
+        ]
+        sections = [
+            FallbackSectionData(title="AUTH FRAME", tokens=("aaaaaaaaaa",), group_size=1),
+            FallbackSectionData(title="MAIN FRAME", tokens=("bbbbbbbbbb",), group_size=1),
+        ]
+        layout = replace(
+            _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=10),
+            content_start_y=90.0,
+            line_height=1.0,
+            line_length=10,
+        )
+
+        with TemporaryDirectory() as temp_dir:
+            template_root = Path(temp_dir)
+            semantic_template = _write_template(
+                template_root,
+                "semantic",
+                capabilities={
+                    "inject_forge_copy": True,
+                    "recovery_first_page_single_section": True,
+                },
+            )
+            copy_only_template = _write_template(
+                template_root,
+                "copy-only",
+                capabilities={"inject_forge_copy": True},
+            )
+
+            semantic_pages = build_pages(
+                inputs=RenderInputs(
+                    frames=frames,
+                    template_path=semantic_template,
+                    output_path="out.pdf",
+                    context={},
+                    doc_type="recovery",
+                    lineage=RenderLineage(kind="root_backup"),
+                    render_qr=False,
+                    render_fallback=True,
+                ),
+                spec=_spec(),
+                layout=layout,
+                layout_rest=layout,
+                fallback_lines=["L1"],
+                qr_image_builder=lambda idx: f"qr:{idx}",
+                fallback_sections_data=sections,
+                fallback_state=FallbackConsumerState(),
+            )
+            copy_only_pages = build_pages(
+                inputs=RenderInputs(
+                    frames=frames,
+                    template_path=copy_only_template,
+                    output_path="out.pdf",
+                    context={},
+                    doc_type="recovery",
+                    lineage=RenderLineage(kind="root_backup"),
+                    render_qr=False,
+                    render_fallback=True,
+                ),
+                spec=_spec(),
+                layout=layout,
+                layout_rest=layout,
+                fallback_lines=["L1"],
+                qr_image_builder=lambda idx: f"qr:{idx}",
+                fallback_sections_data=sections,
+                fallback_state=FallbackConsumerState(),
+            )
+
+        self.assertEqual(
+            [block.title for block in semantic_pages[0].fallback_blocks], ["AUTH FRAME"]
+        )
+        self.assertEqual(
+            [block.title for block in semantic_pages[1].fallback_blocks], ["MAIN FRAME"]
+        )
+        self.assertEqual(
+            [block.title for block in copy_only_pages[0].fallback_blocks],
+            ["AUTH FRAME", "MAIN FRAME"],
+        )
 
     def test_recovery_behavior_does_not_depend_on_template_directory_name(self) -> None:
         frames = [
@@ -1418,6 +1532,7 @@ class TestBuildPages(unittest.TestCase):
                     output_path="out.pdf",
                     context={},
                     doc_type="recovery",
+                    lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
                 ),
@@ -1436,6 +1551,7 @@ class TestBuildPages(unittest.TestCase):
                     output_path="out.pdf",
                     context={},
                     doc_type="recovery",
+                    lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
                 ),

@@ -91,6 +91,7 @@ conventions and a glob-based, working-tree inventory contract for contributors a
   `src/ethernity/render/template_style.py`.
 - Supported capability keys in template style.json files:
   - `inject_forge_copy`
+  - `recovery_first_page_single_section`
   - `repeat_primary_qr_on_shard_continuation`
   - `advanced_fallback_layout`
   - `extra_main_first_page_qr_slot`

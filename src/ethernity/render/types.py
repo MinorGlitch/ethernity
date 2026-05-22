@@ -60,6 +60,7 @@ class RenderInputs:
     output_path: str | Path
     context: dict[str, object]
     doc_type: str
+    lineage: RenderLineage
     qr_config: QrConfig | None = None
     qr_payloads: Sequence[bytes | str] | None = None
     fallback_payload: bytes | None = None
@@ -70,7 +71,10 @@ class RenderInputs:
     recovery_meta: "RecoveryMeta | None" = None
     render_jobs: int | Literal["auto"] | None = None
     layout_debug_json_path: str | Path | None = None
-    lineage: RenderLineage | None = None
+
+    def __post_init__(self) -> None:
+        if self.lineage is None:
+            raise ValueError("render lineage is required")
 
 
 @dataclass(frozen=True)
@@ -94,7 +98,8 @@ class RenderArtifactProof:
     output_path: str
     doc_type: str
     frame_digests: tuple[str, ...]
-    qr_payload_count: int
+    encoded_payload_count: int
+    physical_qr_count: int
     page_count: int = 0
     fallback_proof: RenderFallbackProof | None = None
 

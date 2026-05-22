@@ -21,7 +21,7 @@ from unittest import mock
 from ethernity.cli.features.backup.execution import _validate_rendered_pdf_artifact
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
 from ethernity.render.proofs import RenderProofError, frame_digest
-from ethernity.render.types import RenderArtifactProof, RenderInputs, RenderResult
+from ethernity.render.types import RenderArtifactProof, RenderInputs, RenderLineage, RenderResult
 
 
 class _Page:
@@ -53,13 +53,15 @@ class TestBackupRenderProofs(unittest.TestCase):
             output_path="/tmp/recovery.pdf",
             context={},
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
         )
         result = RenderResult(
             artifact_proof=RenderArtifactProof(
                 output_path="/tmp/recovery.pdf",
                 doc_type="recovery",
                 frame_digests=(frame_digest(frame),),
-                qr_payload_count=1,
+                encoded_payload_count=1,
+                physical_qr_count=1,
             )
         )
 
@@ -84,6 +86,7 @@ class TestBackupRenderProofs(unittest.TestCase):
             output_path="/tmp/recovery_kit_index.pdf",
             context={},
             doc_type="kit_index",
+            lineage=RenderLineage(kind="root_backup"),
             qr_payloads=(),
             render_qr=False,
             render_fallback=False,
@@ -93,7 +96,8 @@ class TestBackupRenderProofs(unittest.TestCase):
                 output_path="/tmp/recovery_kit_index.pdf",
                 doc_type="kit_index",
                 frame_digests=(),
-                qr_payload_count=0,
+                encoded_payload_count=0,
+                physical_qr_count=0,
             )
         )
 

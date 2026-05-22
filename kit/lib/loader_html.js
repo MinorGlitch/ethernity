@@ -34,6 +34,13 @@ function normalizeCompression(compression) {
   return normalized;
 }
 
+function requireNonEmptyString(value, name) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${name} must be a non-empty string`);
+  }
+  return value;
+}
+
 export function buildCompressedLoaderHtml({
   payloadBase91Safe,
   gzBase91Safe,
@@ -41,8 +48,9 @@ export function buildCompressedLoaderHtml({
   compression = "gzip",
   title = DEFAULT_TITLE,
 }) {
-  const payload = payloadBase91Safe ?? gzBase91Safe;
+  const payload = requireNonEmptyString(payloadBase91Safe ?? gzBase91Safe, "payloadBase91Safe");
+  const codecAlphabet = requireNonEmptyString(alphabet, "alphabet");
   const format = normalizeCompression(compression);
   const fallbackHtml = buildUnsupportedLoaderHtml({ title });
-  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><script>(async()=>{const p=${JSON.stringify(payload)};const a=${JSON.stringify(alphabet)};const f=${JSON.stringify(format)};const fallback=${JSON.stringify(fallbackHtml)};const renderFallback=()=>{document.open();document.write(fallback);document.close();};const decode=t=>{let b=0,n=0,v=-1,o=[];for(let i=0;i<t.length;i++){const c=a.indexOf(t[i]);if(c===-1)continue;if(v<0){v=c;continue}v+=c*91;b|=v<<n;n+=(v&8191)>88?13:14;while(n>7){o.push(b&255);b>>=8;n-=8}v=-1}if(v>=0)o.push((b|v<<n)&255);return new Uint8Array(o)};if(!("DecompressionStream" in window)){renderFallback();return;}try{const b=decode(p);const ds=new DecompressionStream(f);const s=new Blob([b]).stream().pipeThrough(ds);const t=await new Response(s).text();document.open();document.write(t);document.close();}catch{renderFallback();}})();</script>`;
+  return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><script>(async()=>{const p=${JSON.stringify(payload)};const a=${JSON.stringify(codecAlphabet)};const f=${JSON.stringify(format)};const fallback=${JSON.stringify(fallbackHtml)};const renderFallback=()=>{document.open();document.write(fallback);document.close();};const decode=t=>{let b=0,n=0,v=-1,o=[];for(let i=0;i<t.length;i++){const c=a.indexOf(t[i]);if(c===-1)continue;if(v<0){v=c;continue}v+=c*91;b|=v<<n;n+=(v&8191)>88?13:14;while(n>7){o.push(b&255);b>>=8;n-=8}v=-1}if(v>=0)o.push((b|v<<n)&255);return new Uint8Array(o)};if(!("DecompressionStream" in window)){renderFallback();return;}try{const b=decode(p);const ds=new DecompressionStream(f);const s=new Blob([b]).stream().pipeThrough(ds);const t=await new Response(s).text();document.open();document.write(t);document.close();}catch{renderFallback();}})();</script>`;
 }

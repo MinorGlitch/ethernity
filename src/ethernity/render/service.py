@@ -90,7 +90,7 @@ class RenderService:
         qr_payloads: Sequence[bytes | str] | None = None,
         context: dict[str, object] | None = None,
         layout_debug_json_path: str | Path | None = None,
-        lineage: RenderLineage | None = None,
+        lineage: RenderLineage,
     ) -> RenderInputs:
         """Build render inputs for the main QR document."""
 
@@ -116,7 +116,7 @@ class RenderService:
         fallback_sections: Sequence[FallbackSection] | None = None,
         context: dict[str, object] | None = None,
         layout_debug_json_path: str | Path | None = None,
-        lineage: RenderLineage | None = None,
+        lineage: RenderLineage,
     ) -> RenderInputs:
         """Build render inputs for the recovery document."""
 
@@ -146,7 +146,7 @@ class RenderService:
         template_path: str | Path | None = None,
         doc_type: str | None = None,
         layout_debug_json_path: str | Path | None = None,
-        lineage: RenderLineage | None = None,
+        lineage: RenderLineage,
     ) -> RenderInputs:
         """Build render inputs for a shard or signing-key shard document."""
 
@@ -179,7 +179,7 @@ class RenderService:
         template_path: str | Path | None = None,
         doc_type: str = DOC_TYPE_KIT,
         layout_debug_json_path: str | Path | None = None,
-        lineage: RenderLineage | None = None,
+        lineage: RenderLineage,
     ) -> RenderInputs:
         """Build render inputs for the QR-bearing recovery kit document."""
 
@@ -204,7 +204,7 @@ class RenderService:
         qr_page_count: int | None = None,
         qr_chunk_count: int = 0,
         layout_debug_json_path: str | Path | None = None,
-        lineage: RenderLineage | None = None,
+        lineage: RenderLineage,
     ) -> RenderInputs:
         """Build render inputs for the non-payload recovery kit index document."""
 
@@ -240,10 +240,12 @@ class RenderService:
         fallback_sections: Sequence[FallbackSection] | None = None,
         doc_type: str,
         layout_debug_json_path: str | Path | None = None,
-        lineage: RenderLineage | None = None,
+        lineage: RenderLineage,
     ) -> RenderInputs:
         """Construct a `RenderInputs` object with config defaults applied."""
 
+        if lineage is None:
+            raise ValueError("render lineage is required")
         resolved_context = self.base_context(context)
         return RenderInputs(
             frames=frames,
@@ -260,5 +262,5 @@ class RenderService:
             fallback_sections=fallback_sections,
             render_jobs=self.config.cli_defaults.runtime.render_jobs,
             layout_debug_json_path=layout_debug_json_path,
-            lineage=lineage or RenderLineage(kind="root_backup"),
+            lineage=lineage,
         )

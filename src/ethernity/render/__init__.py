@@ -30,6 +30,7 @@ from ethernity.render.types import (
     RenderArtifactProof,
     RenderFallbackProof,
     RenderInputs,
+    RenderLineage,
     RenderResult,
 )
 
@@ -38,6 +39,7 @@ __all__ = [
     "RenderArtifactProof",
     "RenderFallbackProof",
     "RenderInputs",
+    "RenderLineage",
     "RenderProofError",
     "RenderResult",
     "RenderService",

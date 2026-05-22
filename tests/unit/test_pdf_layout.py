@@ -20,7 +20,7 @@ from pathlib import Path
 from fpdf import FPDF
 
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
-from ethernity.render import RenderInputs
+from ethernity.render import RenderInputs, RenderLineage
 from ethernity.render.geometry import (
     fallback_lines_per_page,
     fallback_lines_per_page_text_only,
@@ -128,6 +128,7 @@ class TestPdfLayout(unittest.TestCase):
                     output_path="out.pdf",
                     context=context,
                     doc_type="main",
+                    lineage=RenderLineage(kind="root_backup"),
                     render_fallback=False,
                 )
                 spec = document_spec("main", "A4", context)
@@ -227,6 +228,7 @@ class TestPdfLayout(unittest.TestCase):
                     output_path="out.pdf",
                     context=context,
                     doc_type="recovery",
+                    lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
                     key_lines=key_lines,
@@ -311,6 +313,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frames[0].doc_id.hex()},
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_fallback=False,
         )
         spec = _build_spec(line_count=6, line_height=3.5)
@@ -346,6 +349,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frames[0].doc_id.hex()},
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_fallback=False,
         )
         spec = _build_spec(line_count=6, line_height=3.5)
@@ -381,6 +385,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frames[0].doc_id.hex()},
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_fallback=False,
         )
         spec = _build_spec(line_count=6, line_height=3.5)
@@ -422,6 +427,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context=context,
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_fallback=False,
         )
         spec = document_spec("main", "A4", context)
@@ -482,6 +488,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frames[0].doc_id.hex()},
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_fallback=True,
         )
         spec = _build_spec(line_count=4, line_height=10)
@@ -515,6 +522,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
             fallback_payload=b"recovery payload",
@@ -550,6 +558,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
             fallback_payload=b"recovery payload",
@@ -602,6 +611,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
             fallback_payload=b"recovery payload",
@@ -649,6 +659,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex(), "paper_size": "A4"},
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
             fallback_payload=b"payload",
@@ -705,6 +716,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context=base_context,
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
             fallback_payload=b"payload",
@@ -723,6 +735,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context=base_context,
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
             fallback_payload=b"payload",
@@ -777,6 +790,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context=base_context,
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
             fallback_payload=b"payload",
@@ -840,6 +854,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex(), "paper_size": "A4"},
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
             fallback_payload=b"payload",
@@ -934,6 +949,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
             fallback_payload=b"recovery payload",
@@ -990,6 +1006,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
             fallback_payload=b"shard payload",
@@ -1027,6 +1044,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
             fallback_payload=b"shard payload",
@@ -1054,6 +1072,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
             fallback_payload=b"shard payload",
@@ -1095,6 +1114,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
             fallback_payload=b"shard payload",
@@ -1139,6 +1159,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
             fallback_payload=b"shard payload",
@@ -1189,6 +1210,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="signing_key_shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
             fallback_payload=b"signing payload",
@@ -1226,6 +1248,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="signing_key_shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
             fallback_payload=b"signing payload",
@@ -1253,6 +1276,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="signing_key_shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
             fallback_payload=b"signing payload",
@@ -1294,6 +1318,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="signing_key_shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
             fallback_payload=b"signing payload",

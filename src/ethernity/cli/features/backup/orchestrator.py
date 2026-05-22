@@ -38,6 +38,9 @@ from ethernity.cli.features.backup.wizard import (
 )
 from ethernity.cli.shared.io.inputs import _load_input_files
 from ethernity.cli.shared.plan import _validate_backup_args, _validate_passphrase_words
+from ethernity.cli.shared.recovery_kit_index import (
+    resolve_recovery_kit_index_template_path,
+)
 from ethernity.cli.shared.types import BackupArgs, BackupResult, InputFile
 from ethernity.cli.shared.ui.summary import print_backup_summary
 from ethernity.cli.shared.ui_api import (
@@ -77,7 +80,6 @@ from ethernity.config import (
     load_app_config,
     mark_first_run_onboarding_complete,
 )
-from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
 from ethernity.core.models import DocumentPlan, ShardingConfig, SigningSeedMode
 from ethernity.formats import (
     envelope_codec as envelope_codec_module,
@@ -86,7 +88,6 @@ from ethernity.formats import (
 from ethernity.formats.envelope_types import SIGNING_SEED_LEN, PayloadPart
 from ethernity.render.types import RenderLineage
 
-_KIT_INDEX_TEMPLATE_MARKER = "kit_index_inventory_artifacts_v3"
 _BACKUP_WIZARD_SAVEABLE_FIELDS = frozenset(
     {
         ONBOARDING_FIELD_TEMPLATE_DESIGN,
@@ -510,7 +511,7 @@ def _build_review_rows(
     review_rows.append(("Debug output", "enabled" if debug else "disabled"))
     review_rows.append(("QR template", str(config.template_path)))
     review_rows.append(("Recovery template", str(config.recovery_template_path)))
-    kit_index_template = _resolve_kit_index_template_path(config)
+    kit_index_template = resolve_recovery_kit_index_template_path(config)
     if kit_index_template is not None:
         review_rows.append(("Recovery kit index template", str(kit_index_template)))
     if plan.sharding is not None:
@@ -581,31 +582,6 @@ def _build_payload_review_details(
             f"({ratio * 100:.1f}% of original, {abs(delta):.1f}% larger)"
         )
     return codec_label, ratio_label
-
-
-def _resolve_kit_index_template_path(config: AppConfig) -> Path | None:
-    """Return the kit index template path candidate for the active design."""
-
-    kit_template_path = config.kit_template_path
-    candidate = kit_template_path.with_name("kit_index_document.html.j2")
-    if candidate.is_file() and _is_compatible_kit_index_template(candidate):
-        return candidate
-    package_candidate = (
-        TEMPLATES_RESOURCE_ROOT / kit_template_path.parent.name / "kit_index_document.html.j2"
-    )
-    if package_candidate.is_file() and _is_compatible_kit_index_template(package_candidate):
-        return package_candidate
-    return None
-
-
-def _is_compatible_kit_index_template(path: Path) -> bool:
-    """Return whether a kit index template has the expected marker."""
-
-    try:
-        content = path.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    return _KIT_INDEX_TEMPLATE_MARKER in content
 
 
 def _print_completion_actions(result: BackupResult, quiet: bool) -> None:
@@ -977,7 +953,6 @@ def run_backup(
     passphrase: str | None,
     passphrase_words: int | None = None,
     config: AppConfig,
-    render_lineage: RenderLineage | None = None,
     debug: bool = False,
     debug_max_bytes: int | None = None,
     debug_reveal_secrets: bool = False,
@@ -997,7 +972,7 @@ def run_backup(
         passphrase=passphrase,
         passphrase_words=passphrase_words,
         config=config,
-        render_lineage=render_lineage,
+        render_lineage=RenderLineage(kind="root_backup"),
         debug=debug,
         debug_max_bytes=debug_max_bytes,
         debug_reveal_secrets=debug_reveal_secrets,

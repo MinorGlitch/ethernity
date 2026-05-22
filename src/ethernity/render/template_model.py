@@ -110,8 +110,8 @@ class RecoveryModel:
     passphrase: str | None
     passphrase_lines: tuple[str, ...]
     quorum_value: str | None
-    quorum_label: str
     signing_pub_lines: tuple[str, ...]
+    quorum_label: str = "Shard Quorum"
 
 
 @dataclass(frozen=True)

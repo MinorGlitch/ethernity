@@ -35,12 +35,9 @@ from ethernity.crypto.signing import (
 from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions import (
-    ExtensionChainLink,
-    build_virtual_chunk_source,
-    default_extension_chunker,
-    extract_root_logical_state,
-    reconstruct_latest_logical_state,
-    validate_extension_chain,
+    AuthenticatedExtensionChainLink,
+    reconstruct_authenticated_latest_logical_state,
+    validate_authenticated_extension_chain,
 )
 from ethernity.formats import decode_any_envelope
 from ethernity.formats.envelope_codec import extract_payloads
@@ -795,7 +792,7 @@ def _inspect_chain_documents(
         if document.doc_hash is None or not isinstance(document.decoded, ExtensionEnvelope):
             continue
         sorted_extensions.append((document, document.decoded))
-    links: list[ExtensionChainLink] = []
+    links: list[AuthenticatedExtensionChainLink] = []
     validated_extensions: list[tuple[_DecodedMainDocument, ExtensionEnvelope]] = []
     extension_root_authority_verified: dict[int, bool] = {}
     for document, envelope in sorted_extensions:
@@ -829,11 +826,19 @@ def _inspect_chain_documents(
             return None, [], trust_diagnostic
         extension_root_authority_verified[envelope.header.index] = True
         assert document.doc_hash is not None
-        links.append(ExtensionChainLink(doc_hash=document.doc_hash, document=envelope))
+        links.append(
+            AuthenticatedExtensionChainLink(
+                doc_hash=document.doc_hash,
+                document=envelope,
+                auth_payload=document.auth_payload,
+                expected_sign_pub=root_sign_pub,
+            )
+        )
         validated_extensions.append((document, envelope))
     try:
-        locked_chunking = validate_extension_chain(
+        validate_authenticated_extension_chain(
             root_doc_hash=root_document.doc_hash,
+            expected_sign_pub=root_sign_pub,
             extensions=links,
         )
     except Exception as exc:
@@ -845,23 +850,13 @@ def _inspect_chain_documents(
             validated_extensions=validated_extensions,
         )
         return None, [], trust_diagnostic
-    root_state = extract_root_logical_state(manifest, payload)
-    virtual_root_chunks = (
-        {}
-        if locked_chunking is None
-        else build_virtual_chunk_source(
-            tuple(item.data for item in root_state),
-            chunking=locked_chunking,
-            chunker=default_extension_chunker,
-        )
-    )
     try:
-        latest_state = reconstruct_latest_logical_state(
+        latest_state = reconstruct_authenticated_latest_logical_state(
             manifest,
             payload,
             root_doc_hash=root_document.doc_hash,
+            expected_sign_pub=root_sign_pub,
             extensions=links,
-            virtual_root_chunks=virtual_root_chunks,
         )
     except Exception as exc:
         trust_diagnostic = _projection_refusal_diagnostic(

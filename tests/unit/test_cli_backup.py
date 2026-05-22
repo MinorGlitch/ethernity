@@ -26,6 +26,7 @@ from unittest import mock
 from typer.testing import CliRunner
 
 from ethernity import cli
+from ethernity.cli.shared import recovery_kit_index
 from ethernity.cli.shared.io.inputs import _load_input_files
 from ethernity.cli.shared.types import BackupArgs
 from ethernity.config import (
@@ -505,8 +506,9 @@ class TestCliBackup(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with mock.patch(
-                "ethernity.cli.features.backup.execution.TEMPLATES_RESOURCE_ROOT",
+            with mock.patch.object(
+                recovery_kit_index,
+                "TEMPLATES_RESOURCE_ROOT",
                 templates_root,
             ):
                 with mock.patch(
@@ -567,8 +569,9 @@ class TestCliBackup(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with mock.patch(
-                "ethernity.cli.features.backup.execution.TEMPLATES_RESOURCE_ROOT",
+            with mock.patch.object(
+                recovery_kit_index,
+                "TEMPLATES_RESOURCE_ROOT",
                 templates_root,
             ):
                 with mock.patch(
@@ -616,8 +619,9 @@ class TestCliBackup(unittest.TestCase):
             config = replace(config, kit_template_path=kit_template)
 
             templates_root = Path(tmpdir) / "package-templates"
-            with mock.patch(
-                "ethernity.cli.features.backup.execution.TEMPLATES_RESOURCE_ROOT",
+            with mock.patch.object(
+                recovery_kit_index,
+                "TEMPLATES_RESOURCE_ROOT",
                 templates_root,
             ):
                 with mock.patch(

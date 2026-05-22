@@ -34,6 +34,10 @@ from ethernity.cli.shared.io.outputs import (
     _prepare_output_dir,
 )
 from ethernity.cli.shared.log import _warn
+from ethernity.cli.shared.recovery_kit_index import (
+    build_recovery_kit_index_inventory_rows,
+    resolve_recovery_kit_index_template_path,
+)
 from ethernity.cli.shared.types import BackupResult, InputFile
 from ethernity.cli.shared.ui.debug import (
     _append_signing_key_lines,
@@ -42,7 +46,6 @@ from ethernity.cli.shared.ui.debug import (
 )
 from ethernity.cli.shared.ui_api import progress, status
 from ethernity.config import AppConfig
-from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
 from ethernity.core.models import DocumentPlan, SigningSeedMode
 from ethernity.crypto import (
@@ -77,87 +80,9 @@ from ethernity.render.recovery_meta import build_recovery_meta
 from ethernity.render.service import RenderService
 from ethernity.render.types import RenderInputs, RenderLineage, RenderResult
 
-_KIT_INDEX_TEMPLATE_NAME = "kit_index_document.html.j2"
-_KIT_INDEX_TEMPLATE_MARKER = "kit_index_inventory_artifacts_v3"
-
-
-def _resolve_layout_debug_dir(path: str | None) -> str | None:
-    return resolve_layout_debug_dir(path)
-
 
 def _layout_debug_json_path(layout_debug_dir: str | None, stem: str) -> str | None:
     return layout_debug_json_path(layout_debug_dir, stem)
-
-
-def _is_compatible_kit_index_template(path: Path) -> bool:
-    """Return whether a kit index template contains the expected compatibility marker."""
-
-    try:
-        content = path.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    return _KIT_INDEX_TEMPLATE_MARKER in content
-
-
-def _resolve_kit_index_template_path(config: AppConfig) -> Path | None:
-    """Resolve an optional compatible recovery-kit index template for the active design."""
-
-    kit_template_path = Path(config.kit_template_path)
-    candidate = kit_template_path.with_name(_KIT_INDEX_TEMPLATE_NAME)
-    package_candidate = (
-        TEMPLATES_RESOURCE_ROOT / kit_template_path.parent.name / _KIT_INDEX_TEMPLATE_NAME
-    )
-
-    if candidate.is_file() and _is_compatible_kit_index_template(candidate):
-        return candidate
-
-    if package_candidate.is_file() and _is_compatible_kit_index_template(package_candidate):
-        return package_candidate
-
-    return None
-
-
-def _build_kit_index_inventory_rows(
-    *,
-    shard_payloads: list[ShardPayload],
-    signing_key_shard_payloads: list[ShardPayload],
-) -> list[dict[str, str]]:
-    """Build inventory rows for the optional recovery kit index document."""
-
-    rows = [
-        {
-            "component_id": "QR-DOC-01",
-            "detail": "Encrypted payload and auth QR frames",
-            "status": "Generated",
-        },
-        {
-            "component_id": "RECOVERY-DOC-01",
-            "detail": "Recovery keys and full fallback text",
-            "status": "Generated",
-        },
-    ]
-
-    if shard_payloads:
-        for shard in sorted(shard_payloads, key=lambda item: item.share_index):
-            rows.append(
-                {
-                    "component_id": f"SHARD-{shard.share_index:02d}",
-                    "detail": (f"Passphrase shard {shard.share_index} of {shard.share_count}"),
-                    "status": "Generated",
-                }
-            )
-
-    if signing_key_shard_payloads:
-        for shard in sorted(signing_key_shard_payloads, key=lambda item: item.share_index):
-            rows.append(
-                {
-                    "component_id": f"SIGNING-SHARD-{shard.share_index:02d}",
-                    "detail": (f"Signing-key shard {shard.share_index} of {shard.share_count}"),
-                    "status": "Generated",
-                }
-            )
-
-    return rows
 
 
 def _expected_kit_index_component_ids(inputs: RenderInputs) -> tuple[str, ...]:
@@ -234,7 +159,7 @@ def _render_shard(
     doc_type: str | None = None,
     layout_debug_json_path: str | None = None,
     qr_payload_codec: QrPayloadCodec = QR_PAYLOAD_CODEC_RAW,
-    lineage: RenderLineage | None = None,
+    lineage: RenderLineage,
 ) -> str:
     """Render a single shard document to PDF and return the output path."""
     shard_frame = Frame(
@@ -732,7 +657,7 @@ def run_backup(
     passphrase_words: int | None = None,
     config: AppConfig,
     signing_seed_override: bytes | None = None,
-    render_lineage: RenderLineage | None = None,
+    render_lineage: RenderLineage,
     debug: bool = False,
     debug_max_bytes: int | None = None,
     debug_reveal_secrets: bool = False,
@@ -908,7 +833,7 @@ def run_backup(
     output_dir_path = Path(staging_output_dir)
     qr_path = str(output_dir_path / "qr_document.pdf")
     recovery_path = str(output_dir_path / "recovery_document.pdf")
-    kit_index_template = _resolve_kit_index_template_path(config)
+    kit_index_template = resolve_recovery_kit_index_template_path(config)
     kit_index_path = None
     if kit_index_template is not None:
         kit_index_path = str(output_dir_path / "recovery_kit_index.pdf")
@@ -919,7 +844,9 @@ def run_backup(
             "staging output": staging_output_dir,
         },
     )
-    lineage = render_lineage or RenderLineage(kind="root_backup")
+    if render_lineage is None:
+        raise ValueError("backup execution requires explicit render lineage")
+    lineage = render_lineage
 
     render_service = RenderService(config)
     qr_payloads = render_service.build_qr_payloads(qr_frames, codec=qr_payload_codec_mode)
@@ -933,7 +860,7 @@ def run_backup(
     kit_index_context = render_service.base_context(
         {
             "doc_id": doc_id.hex(),
-            "inventory_rows": _build_kit_index_inventory_rows(
+            "inventory_rows": build_recovery_kit_index_inventory_rows(
                 shard_payloads=shard_payloads,
                 signing_key_shard_payloads=signing_key_shard_payloads,
             ),
