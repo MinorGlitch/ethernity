@@ -56,6 +56,7 @@ class TestRenderProofs(unittest.TestCase):
             context={},
             doc_type="main",
             lineage=RenderLineage(kind="root_backup"),
+            render_fallback=False,
         )
         proof = RenderArtifactProof(
             output_path="/tmp/out.pdf",
@@ -90,6 +91,7 @@ class TestRenderProofs(unittest.TestCase):
             context={},
             doc_type="main",
             lineage=RenderLineage(kind="root_backup"),
+            render_fallback=False,
         )
         proof = RenderArtifactProof(
             output_path="/tmp/out.pdf",
@@ -138,6 +140,7 @@ class TestRenderProofs(unittest.TestCase):
             context={},
             doc_type="main",
             lineage=RenderLineage(kind="root_backup"),
+            render_fallback=False,
         )
         proof = RenderArtifactProof(
             output_path="/tmp/out.pdf",
@@ -176,6 +179,7 @@ class TestRenderProofs(unittest.TestCase):
             context={},
             doc_type="shard",
             lineage=RenderLineage(kind="root_backup"),
+            render_fallback=False,
         )
         proof = RenderArtifactProof(
             output_path="/tmp/out.pdf",
@@ -211,6 +215,7 @@ class TestRenderProofs(unittest.TestCase):
             doc_type="recovery",
             lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
+            render_fallback=False,
         )
         proof = RenderArtifactProof(
             output_path="/tmp/out.pdf",
@@ -246,6 +251,7 @@ class TestRenderProofs(unittest.TestCase):
             doc_type="recovery",
             lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
+            render_fallback=False,
         )
 
         proof = build_render_artifact_proof(

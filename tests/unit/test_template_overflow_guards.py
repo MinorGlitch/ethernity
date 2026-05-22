@@ -83,7 +83,7 @@ class TestTemplateOverflowGuards(unittest.TestCase):
                 }
             ],
         }
-        context["copy"] = build_copy_bundle(template_name=template_path.name, context=context)
+        context["copy"] = build_copy_bundle(doc_type="recovery", context=context)
         rendered = render_template(template_path, context)
 
         self.assertIn('style="height: 5.80mm"', rendered)

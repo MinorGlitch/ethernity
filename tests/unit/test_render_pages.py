@@ -31,7 +31,7 @@ from ethernity.render.spec import (
     QrSequenceSpec,
     TextBlockSpec,
 )
-from ethernity.render.types import Layout, RenderInputs, RenderLineage
+from ethernity.render.types import FallbackSection, Layout, RenderInputs, RenderLineage
 
 
 def _layout(
@@ -90,6 +90,14 @@ def _spec() -> DocumentSpec:
         qr_sequence=QrSequenceSpec(enabled=False),
         fallback=FallbackSpec(),
     )
+
+
+def _fallback_sections(frame: Frame) -> tuple[FallbackSection, ...]:
+    return (FallbackSection(label=None, frame=frame),)
+
+
+def _line_section(lines: list[str]) -> list[FallbackSectionData]:
+    return [FallbackSectionData(title=None, tokens=tuple(lines), group_size=1)]
 
 
 def _write_template(
@@ -394,11 +402,17 @@ class TestBuildPages(unittest.TestCase):
             lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
+            fallback_sections=_fallback_sections(frames[0]),
         )
 
         fallback_lines = [f"L{idx}" for idx in range(10)]
-        layout = _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=3)
-        layout_rest = _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=4)
+        layout = replace(
+            _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=3), line_length=2
+        )
+        layout_rest = replace(
+            _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=4),
+            line_length=2,
+        )
         pages = build_pages(
             inputs=inputs,
             spec=_spec(),
@@ -406,8 +420,8 @@ class TestBuildPages(unittest.TestCase):
             layout_rest=layout_rest,
             fallback_lines=fallback_lines,
             qr_image_builder=lambda idx: f"qr:{idx}",
-            fallback_sections_data=None,
-            fallback_state=None,
+            fallback_sections_data=_line_section(fallback_lines),
+            fallback_state=FallbackConsumerState(),
         )
 
         rendered = []
@@ -449,18 +463,23 @@ class TestBuildPages(unittest.TestCase):
             lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
+            fallback_sections=_fallback_sections(frames[0]),
         )
 
-        layout = _layout(cols=1, rows=3, per_page=3, fallback_lines_per_page=3)
+        fallback_lines = ["L1", "L2"]
+        layout = replace(
+            _layout(cols=1, rows=3, per_page=3, fallback_lines_per_page=3),
+            line_length=2,
+        )
         pages = build_pages(
             inputs=inputs,
             spec=_spec(),
             layout=layout,
             layout_rest=None,
-            fallback_lines=["L1", "L2"],
+            fallback_lines=fallback_lines,
             qr_image_builder=lambda idx: f"qr:{idx}",
-            fallback_sections_data=None,
-            fallback_state=None,
+            fallback_sections_data=_line_section(fallback_lines),
+            fallback_state=FallbackConsumerState(),
         )
 
         self.assertEqual(len(pages), 1)
@@ -500,19 +519,29 @@ class TestBuildPages(unittest.TestCase):
             lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
+            fallback_sections=_fallback_sections(frames[0]),
         )
 
-        layout = _layout(cols=1, rows=2, per_page=1, fallback_lines_per_page=1)
-        layout_rest = _layout(cols=1, rows=2, per_page=1, fallback_lines_per_page=2)
+        fallback_lines = ["L1", "L2", "L3", "L4", "L5"]
+        layout = replace(
+            _layout(cols=1, rows=2, per_page=1, fallback_lines_per_page=1),
+            page_h=11.0,
+            line_length=2,
+        )
+        layout_rest = replace(
+            _layout(cols=1, rows=2, per_page=1, fallback_lines_per_page=2),
+            page_h=2.0,
+            line_length=2,
+        )
         pages = build_pages(
             inputs=inputs,
             spec=_spec(),
             layout=layout,
             layout_rest=layout_rest,
-            fallback_lines=["L1", "L2", "L3", "L4", "L5"],
+            fallback_lines=fallback_lines,
             qr_image_builder=lambda idx: f"qr:{idx}",
-            fallback_sections_data=None,
-            fallback_state=None,
+            fallback_sections_data=_line_section(fallback_lines),
+            fallback_state=FallbackConsumerState(),
         )
 
         self.assertGreaterEqual(len(pages), 2)
@@ -553,19 +582,29 @@ class TestBuildPages(unittest.TestCase):
             lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
+            fallback_sections=_fallback_sections(frames[0]),
         )
 
-        layout = _layout(cols=1, rows=2, per_page=1, fallback_lines_per_page=1)
-        layout_rest = _layout(cols=1, rows=2, per_page=1, fallback_lines_per_page=2)
+        fallback_lines = [f"L{idx:08d}" for idx in range(15)]
+        layout = replace(
+            _layout(cols=1, rows=2, per_page=1, fallback_lines_per_page=1),
+            page_h=11.0,
+            line_length=9,
+        )
+        layout_rest = replace(
+            _layout(cols=1, rows=2, per_page=1, fallback_lines_per_page=2),
+            page_h=12.0,
+            line_length=9,
+        )
         pages = build_pages(
             inputs=inputs,
             spec=_spec(),
             layout=layout,
             layout_rest=layout_rest,
-            fallback_lines=["L1", "L2", "L3"],
+            fallback_lines=fallback_lines,
             qr_image_builder=lambda idx: f"qr:{idx}",
-            fallback_sections_data=None,
-            fallback_state=None,
+            fallback_sections_data=_line_section(fallback_lines),
+            fallback_state=FallbackConsumerState(),
         )
 
         self.assertGreaterEqual(len(pages), 2)
@@ -607,19 +646,29 @@ class TestBuildPages(unittest.TestCase):
             lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
+            fallback_sections=_fallback_sections(frames[0]),
         )
 
-        layout = _layout(cols=1, rows=2, per_page=1, fallback_lines_per_page=1)
-        layout_rest = _layout(cols=1, rows=2, per_page=1, fallback_lines_per_page=2)
+        fallback_lines = [f"L{idx:08d}" for idx in range(15)]
+        layout = replace(
+            _layout(cols=1, rows=2, per_page=1, fallback_lines_per_page=1),
+            page_h=11.0,
+            line_length=9,
+        )
+        layout_rest = replace(
+            _layout(cols=1, rows=2, per_page=1, fallback_lines_per_page=2),
+            page_h=12.0,
+            line_length=9,
+        )
         pages = build_pages(
             inputs=inputs,
             spec=_spec(),
             layout=layout,
             layout_rest=layout_rest,
-            fallback_lines=["L1", "L2", "L3"],
+            fallback_lines=fallback_lines,
             qr_image_builder=lambda idx: f"qr:{idx}",
-            fallback_sections_data=None,
-            fallback_state=None,
+            fallback_sections_data=_line_section(fallback_lines),
+            fallback_state=FallbackConsumerState(),
         )
 
         self.assertGreaterEqual(len(pages), 2)
@@ -661,19 +710,29 @@ class TestBuildPages(unittest.TestCase):
             lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
+            fallback_sections=_fallback_sections(frames[0]),
         )
 
-        layout = _layout(cols=1, rows=2, per_page=1, fallback_lines_per_page=1)
-        layout_rest = _layout(cols=1, rows=2, per_page=1, fallback_lines_per_page=2)
+        fallback_lines = ["L1", "L2", "L3"]
+        layout = replace(
+            _layout(cols=1, rows=2, per_page=1, fallback_lines_per_page=1),
+            page_h=11.0,
+            line_length=2,
+        )
+        layout_rest = replace(
+            _layout(cols=1, rows=2, per_page=1, fallback_lines_per_page=2),
+            page_h=2.0,
+            line_length=2,
+        )
         pages = build_pages(
             inputs=inputs,
             spec=_spec(),
             layout=layout,
             layout_rest=layout_rest,
-            fallback_lines=["L1", "L2", "L3"],
+            fallback_lines=fallback_lines,
             qr_image_builder=lambda idx: f"qr:{idx}",
-            fallback_sections_data=None,
-            fallback_state=None,
+            fallback_sections_data=_line_section(fallback_lines),
+            fallback_state=FallbackConsumerState(),
         )
 
         self.assertGreaterEqual(len(pages), 2)
@@ -714,6 +773,7 @@ class TestBuildPages(unittest.TestCase):
             lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
+            fallback_sections=_fallback_sections(frames[0]),
         )
 
         sections = [
@@ -766,6 +826,7 @@ class TestBuildPages(unittest.TestCase):
             lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
+            fallback_sections=_fallback_sections(frames[0]),
         )
         sections = [
             FallbackSectionData(title="AUTH FRAME", tokens=("a", "b", "c", "d"), group_size=1),
@@ -820,6 +881,7 @@ class TestBuildPages(unittest.TestCase):
             lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
+            fallback_sections=_fallback_sections(frames[0]),
         )
         sections = [
             FallbackSectionData(title="AUTH FRAME", tokens=("a", "b"), group_size=1),
@@ -845,7 +907,7 @@ class TestBuildPages(unittest.TestCase):
                 fallback_state=FallbackConsumerState(),
             )
 
-    def test_non_section_fallback_raises_when_first_page_capacity_is_zero(self) -> None:
+    def test_section_fallback_raises_when_first_page_capacity_is_zero(self) -> None:
         frames = [
             Frame(
                 version=1,
@@ -874,6 +936,7 @@ class TestBuildPages(unittest.TestCase):
             lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
+            fallback_sections=_fallback_sections(frames[0]),
         )
         layout = _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=0)
 
@@ -888,11 +951,11 @@ class TestBuildPages(unittest.TestCase):
                 layout_rest=layout,
                 fallback_lines=["L1"],
                 qr_image_builder=lambda idx: f"qr:{idx}",
-                fallback_sections_data=None,
-                fallback_state=None,
+                fallback_sections_data=_line_section(["L1"]),
+                fallback_state=FallbackConsumerState(),
             )
 
-    def test_non_section_fallback_raises_when_continuation_capacity_is_zero(self) -> None:
+    def test_section_fallback_raises_when_continuation_capacity_is_zero(self) -> None:
         frames = [
             Frame(
                 version=1,
@@ -921,6 +984,7 @@ class TestBuildPages(unittest.TestCase):
             lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
+            fallback_sections=_fallback_sections(frames[0]),
         )
         layout = _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=1)
         layout_rest = _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=0)
@@ -936,8 +1000,8 @@ class TestBuildPages(unittest.TestCase):
                 layout_rest=layout_rest,
                 fallback_lines=["L1", "L2"],
                 qr_image_builder=lambda idx: f"qr:{idx}",
-                fallback_sections_data=None,
-                fallback_state=None,
+                fallback_sections_data=_line_section(["L1", "L2"]),
+                fallback_state=FallbackConsumerState(),
             )
 
     def test_qr_continuation_raises_when_continuation_capacity_is_zero(self) -> None:
@@ -989,7 +1053,7 @@ class TestBuildPages(unittest.TestCase):
                 fallback_state=None,
             )
 
-    def test_non_section_fallback_consumes_effective_page_capacity(self) -> None:
+    def test_section_fallback_consumes_effective_page_capacity(self) -> None:
         frames = [
             Frame(
                 version=1,
@@ -1018,19 +1082,25 @@ class TestBuildPages(unittest.TestCase):
             lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
+            fallback_sections=_fallback_sections(frames[0]),
         )
-        layout = _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=1)
         fallback_lines = [f"L{index:02d}" for index in range(91)]
+        layout = replace(
+            _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=1),
+            page_h=11.0,
+            line_length=3,
+        )
+        layout_rest = replace(layout, page_h=100.0, fallback_lines_per_page=90)
 
         pages = build_pages(
             inputs=inputs,
             spec=_spec(),
             layout=layout,
-            layout_rest=layout,
+            layout_rest=layout_rest,
             fallback_lines=fallback_lines,
             qr_image_builder=lambda idx: f"qr:{idx}",
-            fallback_sections_data=None,
-            fallback_state=None,
+            fallback_sections_data=_line_section(fallback_lines),
+            fallback_state=FallbackConsumerState(),
         )
 
         self.assertEqual(len(pages), 2)
@@ -1038,7 +1108,7 @@ class TestBuildPages(unittest.TestCase):
         self.assertEqual(len(pages[1].fallback_blocks[0].lines), 90)
         self.assertEqual(list(pages[1].fallback_blocks[0].lines), fallback_lines[1:])
 
-    def test_forge_shard_non_section_fallback_respects_effective_page_capacity(self) -> None:
+    def test_forge_shard_section_fallback_respects_effective_page_capacity(self) -> None:
         frames = [
             Frame(
                 version=1,
@@ -1067,26 +1137,32 @@ class TestBuildPages(unittest.TestCase):
             lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
+            fallback_sections=_fallback_sections(frames[0]),
         )
-        layout = _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=10)
-        fallback_lines = [f"L{i}" for i in range(1, 11)]
+        fallback_lines = [f"L{i:02d}" for i in range(1, 14)]
+        layout = replace(
+            _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=9),
+            page_h=9.0,
+            line_length=3,
+        )
+        layout_rest = replace(layout, page_h=13.0, fallback_lines_per_page=13)
 
         pages = build_pages(
             inputs=inputs,
             spec=_spec(),
             layout=layout,
-            layout_rest=layout,
+            layout_rest=layout_rest,
             fallback_lines=fallback_lines,
             qr_image_builder=lambda idx: f"qr:{idx}",
-            fallback_sections_data=None,
-            fallback_state=None,
+            fallback_sections_data=_line_section(fallback_lines),
+            fallback_state=FallbackConsumerState(),
         )
 
         self.assertEqual(len(pages), 2)
         self.assertEqual(pages[0].fallback_line_capacity, 9)
         self.assertEqual(pages[1].fallback_line_capacity, 13)
-        self.assertEqual(list(pages[0].fallback_blocks[0].lines), fallback_lines[:9])
-        self.assertEqual(list(pages[1].fallback_blocks[0].lines), fallback_lines[9:])
+        self.assertEqual(list(pages[0].fallback_blocks[0].lines), fallback_lines[:12])
+        self.assertEqual(list(pages[1].fallback_blocks[0].lines), fallback_lines[12:])
 
     def test_main_pages_repeat_instructions_when_capability_is_enabled(self) -> None:
         frames = [
@@ -1187,6 +1263,7 @@ class TestBuildPages(unittest.TestCase):
                     lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
+                    fallback_sections=_fallback_sections(frames[0]),
                 ),
                 spec=_spec(),
                 layout=layout,
@@ -1206,6 +1283,7 @@ class TestBuildPages(unittest.TestCase):
                     lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
+                    fallback_sections=_fallback_sections(frames[0]),
                 ),
                 spec=_spec(),
                 layout=layout,
@@ -1270,6 +1348,7 @@ class TestBuildPages(unittest.TestCase):
                     lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
+                    fallback_sections=_fallback_sections(frames[0]),
                 ),
                 spec=_spec(),
                 layout=layout,
@@ -1289,6 +1368,7 @@ class TestBuildPages(unittest.TestCase):
                     lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
+                    fallback_sections=_fallback_sections(frames[0]),
                 ),
                 spec=_spec(),
                 layout=layout,
@@ -1358,6 +1438,7 @@ class TestBuildPages(unittest.TestCase):
                     lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
+                    fallback_sections=_fallback_sections(frames[0]),
                 ),
                 spec=_spec(),
                 layout=layout,
@@ -1377,6 +1458,7 @@ class TestBuildPages(unittest.TestCase):
                     lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
+                    fallback_sections=_fallback_sections(frames[0]),
                 ),
                 spec=_spec(),
                 layout=layout,
@@ -1441,6 +1523,7 @@ class TestBuildPages(unittest.TestCase):
                     lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
+                    fallback_sections=_fallback_sections(frames[0]),
                 ),
                 spec=_spec(),
                 layout=layout,
@@ -1460,6 +1543,7 @@ class TestBuildPages(unittest.TestCase):
                     lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
+                    fallback_sections=_fallback_sections(frames[0]),
                 ),
                 spec=_spec(),
                 layout=layout,
@@ -1535,6 +1619,7 @@ class TestBuildPages(unittest.TestCase):
                     lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
+                    fallback_sections=_fallback_sections(frames[0]),
                 ),
                 spec=_spec(),
                 layout=layout,
@@ -1554,6 +1639,7 @@ class TestBuildPages(unittest.TestCase):
                     lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
+                    fallback_sections=_fallback_sections(frames[0]),
                 ),
                 spec=_spec(),
                 layout=layout,

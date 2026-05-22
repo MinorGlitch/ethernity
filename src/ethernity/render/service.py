@@ -150,6 +150,7 @@ class RenderService:
     ) -> RenderInputs:
         """Build render inputs for a shard or signing-key shard document."""
 
+        resolved_doc_type = doc_type or DOC_TYPE_SHARD
         return self._build_inputs(
             frames=[frame],
             template_path=template_path or self.config.shard_template_path,
@@ -164,7 +165,8 @@ class RenderService:
                 }
             ),
             qr_payloads=qr_payloads,
-            doc_type=doc_type or DOC_TYPE_SHARD,
+            fallback_sections=(FallbackSection(label=None, frame=frame),),
+            doc_type=resolved_doc_type,
             layout_debug_json_path=layout_debug_json_path,
             lineage=lineage,
         )

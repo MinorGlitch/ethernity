@@ -18,35 +18,32 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from ethernity.render.doc_types import (
+    DOC_TYPE_KIT,
+    DOC_TYPE_KIT_INDEX,
+    DOC_TYPE_MAIN,
+    DOC_TYPE_RECOVERY,
+    DOC_TYPE_SHARD,
+    DOC_TYPE_SIGNING_KEY_SHARD,
+)
 from ethernity.render.utils import int_value as _int_value
 
-_TEMPLATE_COPY_BUILDERS: dict[str, str] = {
-    "main_document.html.j2": "main_document",
-    "recovery_document.html.j2": "recovery_document",
-    "kit_document.html.j2": "kit_document",
-    "shard_document.html.j2": "shard_document",
-    "signing_key_shard_document.html.j2": "signing_key_shard_document",
-    "kit_index_document.html.j2": "kit_index_document",
-}
 
-
-def build_copy_bundle(*, template_name: str, context: Mapping[str, object]) -> dict[str, object]:
-    doc_key = _TEMPLATE_COPY_BUILDERS.get(template_name)
-    if doc_key is None:
-        return {}
-    if doc_key == "main_document":
+def build_copy_bundle(*, doc_type: str, context: Mapping[str, object]) -> dict[str, object]:
+    normalized_doc_type = doc_type.strip().lower()
+    if normalized_doc_type == DOC_TYPE_MAIN:
         return _main_document_copy(context=context)
-    if doc_key == "recovery_document":
+    if normalized_doc_type == DOC_TYPE_RECOVERY:
         return _recovery_document_copy(context=context)
-    if doc_key == "kit_document":
+    if normalized_doc_type == DOC_TYPE_KIT:
         return _kit_document_copy(context=context)
-    if doc_key == "shard_document":
+    if normalized_doc_type == DOC_TYPE_SHARD:
         return _shard_document_copy(context=context)
-    if doc_key == "signing_key_shard_document":
+    if normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD:
         return _signing_key_shard_document_copy(context=context)
-    if doc_key == "kit_index_document":
+    if normalized_doc_type == DOC_TYPE_KIT_INDEX:
         return _kit_index_document_copy(context=context)
-    return {}
+    raise ValueError(f"unsupported render doc_type for copy bundle: {doc_type!r}")
 
 
 def _lineage_mapping(context: Mapping[str, object]) -> Mapping[str, object]:

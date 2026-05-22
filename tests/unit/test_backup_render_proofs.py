@@ -21,7 +21,13 @@ from unittest import mock
 from ethernity.cli.features.backup.execution import _validate_rendered_pdf_artifact
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
 from ethernity.render.proofs import RenderProofError, frame_digest, qr_payload_digest
-from ethernity.render.types import RenderArtifactProof, RenderInputs, RenderLineage, RenderResult
+from ethernity.render.types import (
+    FallbackSection,
+    RenderArtifactProof,
+    RenderInputs,
+    RenderLineage,
+    RenderResult,
+)
 
 
 class _Page:
@@ -54,6 +60,7 @@ class TestBackupRenderProofs(unittest.TestCase):
             context={},
             doc_type="recovery",
             lineage=RenderLineage(kind="root_backup"),
+            fallback_sections=(FallbackSection(label="MAIN FRAME", frame=frame),),
         )
         result = RenderResult(
             artifact_proof=RenderArtifactProof(

@@ -54,7 +54,7 @@ class FallbackConsumerState:
 class FallbackSectionData:
     """Data for a fallback section."""
 
-    title: str
+    title: str | None
     tokens: tuple[str, ...]
     group_size: int
 
@@ -126,12 +126,12 @@ def build_fallback_sections_data(
     return sections, state
 
 
-def fallback_section_title(label: str | None) -> str:
+def fallback_section_title(label: str | None) -> str | None:
     """Normalize a fallback section title for display."""
 
     if isinstance(label, str) and label.strip():
         return label.strip()
-    return "Fallback Frame"
+    return None
 
 
 def fallback_sections_remaining(
@@ -201,7 +201,7 @@ def consume_fallback_blocks(
 
         # Check if we need to show title (only at start of section)
         show_title = state.token_idx == 0
-        title_lines = 1 if show_title else 0
+        title_lines = 1 if show_title and section.title else 0
 
         # Need room for at least title + 1 line
         if lines_left <= title_lines:

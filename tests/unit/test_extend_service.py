@@ -207,14 +207,20 @@ def _render_result_for_inputs(inputs: RenderInputs) -> RenderResult:
             section_frame_digests=tuple(
                 hashlib.sha256(encode_frame(section.frame)).hexdigest() for section in sections
             ),
-            section_titles=tuple(str(section.label or "Fallback Frame") for section in sections),
+            section_titles=tuple(
+                section.label.strip()
+                for section in sections
+                if isinstance(section.label, str) and section.label.strip()
+            ),
             expected_section_count=len(sections),
             emitted_block_count=len(sections),
             emitted_line_count=len(sections),
             consumed_section_count=len(sections),
             fully_consumed=True,
             emitted_fallback_lines=tuple(
-                str(section.label or "Fallback Frame") for section in sections
+                section.label.strip()
+                for section in sections
+                if isinstance(section.label, str) and section.label.strip()
             ),
         )
     )

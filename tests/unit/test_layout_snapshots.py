@@ -29,7 +29,7 @@ from ethernity.render.pdf_render import (
 )
 from ethernity.render.spec import document_spec
 from ethernity.render.template_style import load_template_style
-from ethernity.render.types import RenderInputs, RenderLineage
+from ethernity.render.types import FallbackSection, RenderInputs, RenderLineage
 
 _EXPECTED_LAYOUT_SNAPSHOT: dict[str, tuple[int, int, int, int, float, float]] = {
     "archive.main": (23, 13, 6, 9, 4.2, 4.2),
@@ -101,7 +101,7 @@ class TestLayoutSnapshots(unittest.TestCase):
                         lineage=RenderLineage(kind="root_backup"),
                         render_qr=True,
                         render_fallback=True,
-                        fallback_payload=b"payload",
+                        fallback_sections=(FallbackSection(label=None, frame=frame),),
                         key_lines=["Passphrase:", "one two three four five six"],
                     )
                     spec = document_spec(doc_type, "A4", context)

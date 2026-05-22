@@ -353,7 +353,19 @@ class TestPdfRender(unittest.TestCase):
                 lineage=RenderLineage(kind="root_backup"),
                 render_qr=True,
                 render_fallback=True,
-                fallback_payload=b"x" * 512,
+                fallback_sections=(
+                    FallbackSection(
+                        None,
+                        Frame(
+                            version=frame.version,
+                            frame_type=frame.frame_type,
+                            doc_id=frame.doc_id,
+                            index=0,
+                            total=1,
+                            data=b"x" * 512,
+                        ),
+                    ),
+                ),
             )
             with mock.patch("ethernity.render.pdf_render.render_html_to_pdf"):
                 with mock.patch(

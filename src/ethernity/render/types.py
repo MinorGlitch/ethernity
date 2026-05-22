@@ -63,7 +63,6 @@ class RenderInputs:
     lineage: RenderLineage
     qr_config: QrConfig | None = None
     qr_payloads: Sequence[bytes | str] | None = None
-    fallback_payload: bytes | None = None
     fallback_sections: Sequence[FallbackSection] | None = None
     render_qr: bool = True
     render_fallback: bool = True
@@ -75,6 +74,8 @@ class RenderInputs:
     def __post_init__(self) -> None:
         if self.lineage is None:
             raise ValueError("render lineage is required")
+        if self.render_fallback and not self.fallback_sections:
+            raise ValueError("fallback_sections are required when render_fallback is enabled")
 
 
 @dataclass(frozen=True)

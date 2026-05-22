@@ -321,7 +321,9 @@ def _build_render_fallback_proof(
                 frame_digest(section.frame) for section in inputs.fallback_sections
             ),
             section_titles=tuple(
-                str(section.label or "Fallback Frame") for section in inputs.fallback_sections
+                section.label.strip()
+                for section in inputs.fallback_sections
+                if isinstance(section.label, str) and section.label.strip()
             ),
             expected_section_count=len(inputs.fallback_sections),
             emitted_block_count=0,
@@ -332,7 +334,7 @@ def _build_render_fallback_proof(
         )
 
     blocks = [block for page in pages for block in getattr(page, "fallback_blocks", ())]
-    section_titles = tuple(section.title for section in fallback_sections_data)
+    section_titles = tuple(section.title for section in fallback_sections_data if section.title)
     emitted_lines = tuple(
         line for block in blocks for line in tuple(getattr(block, "lines", ()) or ())
     )
@@ -516,8 +518,7 @@ def render_frames_to_pdf(inputs: RenderInputs) -> RenderResult:
     for key in _CONTEXT_PASSTHROUGH_KEYS:
         if key in base_context:
             template_context[key] = base_context[key]
-    template_name = Path(inputs.template_path).name
-    copy = build_copy_bundle(template_name=template_name, context=template_context)
+    copy = build_copy_bundle(doc_type=inputs.doc_type, context=template_context)
     context = TemplateContext(
         page_size_css=_page_size_css(spec),
         page_width_mm=layout.page_w,

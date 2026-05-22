@@ -24,6 +24,14 @@ from ethernity.render.templating import render_template
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _ETHERNITY_ROOT = _PROJECT_ROOT / "src" / "ethernity"
 _MAIN_SUBTITLE = "Passphrase-protected payload"
+_TEMPLATE_DOC_TYPES = {
+    "main_document.html.j2": "main",
+    "recovery_document.html.j2": "recovery",
+    "kit_document.html.j2": "kit",
+    "kit_index_document.html.j2": "kit_index",
+    "shard_document.html.j2": "shard",
+    "signing_key_shard_document.html.j2": "signing_key_shard",
+}
 
 
 def _page_base(*, page_num: int, page_label: str) -> dict[str, object]:
@@ -94,7 +102,10 @@ def _base_document_context() -> dict[str, object]:
 
 
 def _inject_copy(context: dict[str, object], *, template_name: str) -> None:
-    context["copy"] = build_copy_bundle(template_name=template_name, context=context)
+    context["copy"] = build_copy_bundle(
+        doc_type=_TEMPLATE_DOC_TYPES[template_name],
+        context=context,
+    )
 
 
 class TestJinjaTemplates(unittest.TestCase):
