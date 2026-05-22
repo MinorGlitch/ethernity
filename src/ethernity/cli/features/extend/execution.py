@@ -19,6 +19,11 @@
 from __future__ import annotations
 
 import secrets
+import shutil
+import tempfile
+from contextlib import suppress
+from dataclasses import replace
+from pathlib import Path
 
 from ethernity import render as render_module
 from ethernity.artifacts.publish import publish_staged_artifacts
@@ -173,15 +178,20 @@ def execute_prepared_extend(
     """Build, render, validate, and publish one extension entry."""
 
     runtime = _runtime_impl.resolve_extend_runtime(prepared)
+    nonce_value = nonce or secrets.token_hex(4)
     publish = prepare_staged_extension_publish(
         prepared,
         chunker=default_extension_chunker if chunker is None else chunker,
-        nonce=nonce or secrets.token_hex(4),
+        nonce=nonce_value,
         publish_policy=runtime.to_publish_policy(),
+    )
+    render_runtime, layout_debug_staging_dir = _runtime_with_staged_layout_debug(
+        runtime,
+        nonce=nonce_value,
     )
 
     def _renderer(plan: PreparedExtensionPublishPlan) -> RenderedExtensionArtifacts:
-        return _render_extension_artifacts(plan, runtime=runtime)
+        return _render_extension_artifacts(plan, runtime=render_runtime)
 
     def _post_validate(
         plan: PreparedExtensionPublishPlan,
@@ -191,27 +201,67 @@ def execute_prepared_extend(
         validate_staged_shard_carriers(plan, rendered)
         validate_staged_recovery_kit_index_document(plan)
 
-    result = execute_staged_extension_publish(
-        publish,
-        renderer=_renderer,
-        post_validate=_post_validate,
-        root_passphrase_shard_threshold=(
-            runtime.passphrase.threshold
-            if isinstance(runtime.passphrase, ReuseRootPassphraseShards)
-            else None
-        ),
-        root_passphrase_shard_count=(
-            runtime.passphrase.share_count
-            if isinstance(runtime.passphrase, ReuseRootPassphraseShards)
-            else 0
-        ),
-    )
+    try:
+        result = execute_staged_extension_publish(
+            publish,
+            renderer=_renderer,
+            post_validate=_post_validate,
+            root_passphrase_shard_threshold=(
+                runtime.passphrase.threshold
+                if isinstance(runtime.passphrase, ReuseRootPassphraseShards)
+                else None
+            ),
+            root_passphrase_shard_count=(
+                runtime.passphrase.share_count
+                if isinstance(runtime.passphrase, ReuseRootPassphraseShards)
+                else 0
+            ),
+        )
+    except Exception:
+        _discard_staged_layout_debug(layout_debug_staging_dir)
+        raise
+    _publish_staged_layout_debug(layout_debug_staging_dir, runtime.layout_debug_dir)
     return ExecutedExtendRun(
         prepared=prepared,
         runtime=runtime,
         publish=publish,
         result=result,
     )
+
+
+def _runtime_with_staged_layout_debug(
+    runtime,
+    *,
+    nonce: str,
+):
+    if runtime.layout_debug_dir is None:
+        return runtime, None
+    layout_debug_dir = Path(runtime.layout_debug_dir)
+    staging_dir = Path(
+        tempfile.mkdtemp(
+            prefix=f".extension-layout-{nonce}-",
+            dir=str(layout_debug_dir),
+        )
+    )
+    return replace(runtime, layout_debug_dir=str(staging_dir)), staging_dir
+
+
+def _publish_staged_layout_debug(staging_dir: Path | None, final_dir: str | None) -> None:
+    if staging_dir is None or final_dir is None:
+        return
+    final_path = Path(final_dir)
+    try:
+        for path in sorted(staging_dir.glob("*.layout.json")):
+            path.replace(final_path / path.name)
+    finally:
+        _discard_staged_layout_debug(staging_dir)
+
+
+def _discard_staged_layout_debug(staging_dir: Path | None) -> None:
+    if staging_dir is None:
+        return
+    with suppress(OSError):
+        shutil.rmtree(staging_dir, ignore_errors=True)
 
 
 def _render_extension_artifacts(
