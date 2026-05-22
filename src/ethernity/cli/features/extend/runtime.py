@@ -20,12 +20,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ethernity.cli.features.backup import execution as backup_execution
 from ethernity.cli.features.extend.root_shards import published_root_passphrase_shard_policy
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.ndjson import ApiCommandError
+from ethernity.cli.shared.recovery_kit_index import resolve_recovery_kit_index_template_path
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.config import BackupDefaults, apply_template_design, load_app_config
+from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.crypto.signing import derive_public_key
 from ethernity.render.layout_debug import ensure_layout_debug_dir_allowed, resolve_layout_debug_dir
 
@@ -239,7 +240,7 @@ def resolve_extend_runtime(
             root_passphrase_shard_count=root_passphrase_shard_count,
         )
     )
-    kit_index_template_path = backup_execution._resolve_kit_index_template_path(config)
+    kit_index_template_path = resolve_recovery_kit_index_template_path(config)
     require_recovery_kit_index = kit_index_template_path is not None
     policy = resolve_extend_policy(
         args=prepared.args,
@@ -384,6 +385,11 @@ def resolve_quorum_override(
         raise ApiCommandError(
             code=EXTENSION_INVALID_POLICY,
             message=f"{label} must use non-negative integer settings",
+        )
+    if count > MAX_SHARES or threshold is not None and threshold > MAX_SHARES:
+        raise ApiCommandError(
+            code=EXTENSION_INVALID_POLICY,
+            message=f"{label} threshold and shard count must be <= {MAX_SHARES}",
         )
     if count == 0:
         if threshold not in {None, 0}:

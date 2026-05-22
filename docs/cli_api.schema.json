@@ -361,6 +361,166 @@
         }
       }
     },
+    "extendSelectedScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "files",
+        "directories",
+        "base_dir",
+        "file_count",
+        "total_bytes",
+        "input_origin",
+        "input_roots"
+      ],
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "directories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "base_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "file_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "input_origin": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "file",
+            "directory",
+            "mixed",
+            null
+          ]
+        },
+        "input_roots": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "nullableExtendSelectedScope": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/extendSelectedScope"
+        }
+      ]
+    },
+    "extendDiffSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "new_paths",
+        "changed_paths",
+        "unchanged_paths",
+        "missing_paths",
+        "new_count",
+        "changed_count",
+        "unchanged_count",
+        "missing_count"
+      ],
+      "properties": {
+        "new_paths": {
+          "$ref": "#/$defs/extendPathList"
+        },
+        "changed_paths": {
+          "$ref": "#/$defs/extendPathList"
+        },
+        "unchanged_paths": {
+          "$ref": "#/$defs/extendPathList"
+        },
+        "missing_paths": {
+          "$ref": "#/$defs/extendPathList"
+        },
+        "new_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "changed_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unchanged_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missing_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "nullableExtendDiffSummary": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/extendDiffSummary"
+        }
+      ]
+    },
+    "extendPathList": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "extendChunkReuse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reused_chunks",
+        "new_chunks"
+      ],
+      "properties": {
+        "reused_chunks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "new_chunks": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "nullableExtendChunkReuse": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/extendChunkReuse"
+        }
+      ]
+    },
     "backupPlan": {
       "type": "object",
       "additionalProperties": false,
@@ -504,10 +664,7 @@
           "$ref": "#/$defs/docIdHex"
         },
         "root_dir": {
-          "type": [
-            "string",
-            "null"
-          ],
+          "type": "string",
           "minLength": 1
         },
         "output_dir": {
@@ -560,13 +717,13 @@
           "$ref": "#/$defs/docHashHex"
         },
         "root_doc_id": {
-          "$ref": "#/$defs/nullableDocIdHex"
+          "$ref": "#/$defs/docIdHex"
         },
         "root_doc_hash": {
-          "$ref": "#/$defs/nullableDocHashHex"
+          "$ref": "#/$defs/docHashHex"
         },
         "chain_id": {
-          "$ref": "#/$defs/nullableDocHashHex"
+          "$ref": "#/$defs/docHashHex"
         },
         "extension_dir": {
           "$ref": "#/$defs/pathString"
@@ -575,25 +732,16 @@
           "$ref": "#/$defs/extendArtifacts"
         },
         "selected_scope": {
-          "type": [
-            "object",
-            "null"
-          ]
+          "$ref": "#/$defs/extendSelectedScope"
         },
         "diff_summary": {
-          "type": [
-            "object",
-            "null"
-          ]
+          "$ref": "#/$defs/extendDiffSummary"
         },
         "resolved_policy": {
           "$ref": "#/$defs/extendResolvedPolicyPreview"
         },
         "chunk_reuse": {
-          "type": [
-            "object",
-            "null"
-          ]
+          "$ref": "#/$defs/extendChunkReuse"
         },
         "extension_bytes": {
           "type": "integer",
@@ -1378,16 +1526,10 @@
           }
         },
         "selected_scope": {
-          "type": [
-            "object",
-            "null"
-          ]
+          "$ref": "#/$defs/nullableExtendSelectedScope"
         },
         "diff_summary": {
-          "type": [
-            "object",
-            "null"
-          ]
+          "$ref": "#/$defs/nullableExtendDiffSummary"
         },
         "resolved_policy": {
           "type": [
@@ -1426,10 +1568,7 @@
           }
         },
         "chunk_reuse": {
-          "type": [
-            "object",
-            "null"
-          ]
+          "$ref": "#/$defs/nullableExtendChunkReuse"
         },
         "estimated_extension_bytes": {
           "type": [
@@ -2265,14 +2404,16 @@
             "integer",
             "null"
           ],
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 255
         },
         "shard_count": {
           "type": [
             "integer",
             "null"
           ],
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 255
         },
         "signing_key_mode": {
           "type": [
@@ -2290,14 +2431,16 @@
             "integer",
             "null"
           ],
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 255
         },
         "signing_key_shard_count": {
           "type": [
             "integer",
             "null"
           ],
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 255
         },
         "quiet": {
           "type": "boolean"
@@ -2463,14 +2606,16 @@
             "integer",
             "null"
           ],
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 255
         },
         "shard_count": {
           "type": [
             "integer",
             "null"
           ],
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 255
         },
         "signing_key_mode": {
           "type": [
@@ -2488,14 +2633,16 @@
             "integer",
             "null"
           ],
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 255
         },
         "signing_key_shard_count": {
           "type": [
             "integer",
             "null"
           ],
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 255
         },
         "quiet": {
           "type": "boolean"
@@ -3256,11 +3403,13 @@
             },
             "threshold": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "maximum": 255
             },
             "share_count": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "maximum": 255
             }
           }
         }
@@ -3335,11 +3484,13 @@
             },
             "threshold": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "maximum": 255
             },
             "share_count": {
               "type": "integer",
-              "minimum": 1
+              "minimum": 1,
+              "maximum": 255
             }
           }
         }

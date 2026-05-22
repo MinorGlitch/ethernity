@@ -39,12 +39,18 @@ class TestCliApp(unittest.TestCase):
         "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",
         return_value=("secret", [], [], [], []),
     )
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_int", side_effect=[3, 2])
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_choice", side_effect=["extension-shards", "not-stored"]
+    )
     @mock.patch("ethernity.cli.bootstrap.app.prompt_paths_with_picker", return_value=["/tmp/input"])
     @mock.patch("ethernity.cli.bootstrap.app.prompt_path_with_picker", return_value="/tmp/root")
     def test_prompt_home_extend_args_prompts_root_then_passphrase_then_files(
         self,
         prompt_path_with_picker: mock.MagicMock,
         prompt_paths_with_picker: mock.MagicMock,
+        _prompt_choice: mock.MagicMock,
+        _prompt_int: mock.MagicMock,
         prompt_passphrase_unlock_material: mock.MagicMock,
     ) -> None:
         calls: list[str] = []
@@ -77,17 +83,25 @@ class TestCliApp(unittest.TestCase):
         self.assertEqual(args.input, ["/tmp/input"])
         self.assertIsNone(args.input_dir)
         self.assertEqual(args.passphrase, "secret")
+        self.assertEqual(args.unlock_policy, "self-contained")
+        self.assertEqual(args.shard_count, 3)
+        self.assertEqual(args.shard_threshold, 2)
+        self.assertEqual(args.signing_key_mode, "not-stored")
+        self.assertEqual(_prompt_int.call_args_list[0].kwargs["maximum"], 255)
+        self.assertEqual(_prompt_int.call_args_list[1].kwargs["maximum"], 3)
 
     @mock.patch(
         "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",
         return_value=(None, ["shards.txt"], ["payloads.txt"], ["scan.pdf"], [object()]),
     )
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_choice", return_value="reuse-root")
     @mock.patch("ethernity.cli.bootstrap.app.prompt_paths_with_picker", return_value=["/tmp/input"])
     @mock.patch("ethernity.cli.bootstrap.app.prompt_path_with_picker", return_value="/tmp/root")
     def test_prompt_home_extend_args_preserves_shard_unlock_inputs(
         self,
         _prompt_path_with_picker: mock.MagicMock,
         _prompt_paths_with_picker: mock.MagicMock,
+        _prompt_choice: mock.MagicMock,
         _prompt_passphrase_unlock_material: mock.MagicMock,
     ) -> None:
         args = app_module._prompt_home_extend_args(
@@ -102,6 +116,68 @@ class TestCliApp(unittest.TestCase):
         self.assertEqual(args.shard_payloads_file, ["payloads.txt"])
         self.assertEqual(args.shard_scan, ["scan.pdf"])
         self.assertEqual(len(args.shard_frames or []), 1)
+        self.assertEqual(args.unlock_policy, "reuse-root")
+
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",
+        return_value=("secret", [], [], [], []),
+    )
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_choice", return_value="plaintext")
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_paths_with_picker", return_value=["/tmp/input"])
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_path_with_picker", return_value="/tmp/root")
+    def test_prompt_home_extend_args_allows_explicit_plaintext_output(
+        self,
+        _prompt_path_with_picker: mock.MagicMock,
+        _prompt_paths_with_picker: mock.MagicMock,
+        _prompt_choice: mock.MagicMock,
+        _prompt_passphrase_unlock_material: mock.MagicMock,
+    ) -> None:
+        args = app_module._prompt_home_extend_args(
+            config="cfg",
+            paper="A4",
+            design="forge",
+            quiet=False,
+        )
+
+        self.assertEqual(args.unlock_policy, "self-contained")
+        self.assertEqual(args.shard_count, 0)
+        self.assertEqual(args.signing_key_mode, "not-stored")
+
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",
+        return_value=("secret", [], [], [], []),
+    )
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_int",
+        side_effect=[5, 3, 4, 2],
+    )
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_choice", side_effect=["extension-shards", "sharded"]
+    )
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_paths_with_picker", return_value=["/tmp/input"])
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_path_with_picker", return_value="/tmp/root")
+    def test_prompt_home_extend_args_allows_signing_key_shards(
+        self,
+        _prompt_path_with_picker: mock.MagicMock,
+        _prompt_paths_with_picker: mock.MagicMock,
+        _prompt_choice: mock.MagicMock,
+        _prompt_int: mock.MagicMock,
+        _prompt_passphrase_unlock_material: mock.MagicMock,
+    ) -> None:
+        args = app_module._prompt_home_extend_args(
+            config="cfg",
+            paper="A4",
+            design="forge",
+            quiet=False,
+        )
+
+        self.assertEqual(args.shard_count, 5)
+        self.assertEqual(args.shard_threshold, 3)
+        self.assertEqual(args.signing_key_mode, "sharded")
+        self.assertEqual(args.signing_key_shard_count, 4)
+        self.assertEqual(args.signing_key_shard_threshold, 2)
+        self.assertEqual(_prompt_int.call_args_list[0].kwargs["maximum"], 255)
+        self.assertEqual(_prompt_int.call_args_list[2].kwargs["maximum"], 255)
 
     @mock.patch("ethernity.cli.bootstrap.app._prompt_home_auth_inputs")
     @mock.patch(
@@ -646,6 +722,7 @@ class TestCliApp(unittest.TestCase):
             paper="A4",
             design="forge",
             quiet=False,
+            backup_defaults=BackupDefaults(),
         )
         run_extend_command.assert_called_once_with(extend_args, debug=True)
 

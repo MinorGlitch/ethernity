@@ -22,7 +22,6 @@ import secrets
 
 from ethernity import render as render_module
 from ethernity.artifacts.publish import publish_staged_artifacts
-from ethernity.cli.features.backup import execution as backup_execution
 from ethernity.cli.features.extend import rendering as _rendering_impl, runtime as _runtime_impl
 from ethernity.cli.features.extend.main_carrier_validation import (
     validate_staged_main_carrier,
@@ -44,9 +43,11 @@ from ethernity.cli.features.extend.prepare import (
 )
 from ethernity.cli.features.extend.shard_validation import validate_staged_shard_carriers
 from ethernity.cli.shared.events import emit_phase, emit_progress
+from ethernity.cli.shared.recovery_kit_index import build_recovery_kit_index_inventory_rows
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.extensions.build import Chunker, default_extension_chunker
 from ethernity.extensions.staging import validate_staged_extension_dir
+from ethernity.render.layout_debug import layout_debug_json_path
 
 
 def execute_staged_extension_publish(
@@ -222,8 +223,8 @@ def _render_extension_artifacts(
         plan,
         runtime=runtime,
         render_frames_to_pdf=render_module.render_frames_to_pdf,
-        layout_debug_json_path=backup_execution._layout_debug_json_path,
-        build_kit_index_inventory_rows=backup_execution._build_kit_index_inventory_rows,
+        layout_debug_json_path=layout_debug_json_path,
+        build_kit_index_inventory_rows=build_recovery_kit_index_inventory_rows,
     )
 
 

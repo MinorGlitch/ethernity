@@ -219,7 +219,7 @@ class TestUISummary(unittest.TestCase):
 
         rows = build_kv_table.call_args.args[0]
         self.assertNotIn(("Replay target", "explicit selection: extension 2"), rows)
-        self.assertIn(("Replay target", "latest authenticated extension 2"), rows)
+        self.assertIn(("Replay target", "latest supplied authenticated extension 2"), rows)
         self.assertIn(("Target doc hash", "cd" * 32), rows)
 
     def test_print_recover_summary_quiet_noop(self) -> None:

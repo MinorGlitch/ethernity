@@ -17,6 +17,7 @@ import hashlib
 import io
 import json
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
@@ -54,6 +55,7 @@ from ethernity.cli.features.extend.service import (
     encrypt_prepared_extension_document,
     execute_staged_extension_publish,
     prepare_extend_run,
+    prepare_extend_run_from_state,
     prepare_staged_extension_publish,
     resolve_extend_runtime,
     run_extend,
@@ -61,6 +63,7 @@ from ethernity.cli.features.extend.service import (
 from ethernity.cli.features.extend.shard_validation import (
     validate_rendered_shard_carrier as _validate_rendered_shard_carrier,
 )
+from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL
 from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.ndjson import ApiCommandError, ndjson_session
@@ -325,6 +328,76 @@ class TestExtendService(unittest.TestCase):
                 )
         self.assertEqual(ctx.exception.code, EXTENSION_NO_CHANGES)
 
+    def test_prepare_extend_run_rejects_incomplete_diff_summary(self) -> None:
+        resolved = _resolved_state(
+            diff_summary={
+                "new_paths": ["new.txt"],
+                "unchanged_paths": [],
+                "missing_paths": [],
+            },
+        )
+
+        with self.assertRaises(ApiCommandError) as ctx:
+            prepare_extend_run_from_state(
+                ExtendArgs(root_dir="/tmp/root", input=["/tmp/root/example.txt"]),
+                resolved,
+            )
+
+        self.assertEqual(ctx.exception.code, api_codes.RUNTIME_ERROR)
+        self.assertEqual(ctx.exception.details, {"missing_field": "changed_paths"})
+
+    def test_prepare_extend_run_from_state_rejects_missing_paths_without_planning_issue(
+        self,
+    ) -> None:
+        resolved = _resolved_state(
+            diff_summary={
+                "new_paths": ["new.txt"],
+                "changed_paths": [],
+                "unchanged_paths": [],
+                "missing_paths": ["removed.txt"],
+            },
+        )
+
+        with self.assertRaises(ApiCommandError) as ctx:
+            prepare_extend_run_from_state(
+                ExtendArgs(root_dir="/tmp/root", input=["/tmp/root/example.txt"]),
+                resolved,
+            )
+
+        self.assertEqual(ctx.exception.code, "DELETE_NOT_SUPPORTED")
+        self.assertEqual(ctx.exception.details, {"missing_paths": ["removed.txt"]})
+
+    def test_prepare_extend_run_from_state_rejects_missing_result_metadata(self) -> None:
+        resolved = _resolved_state(
+            diff_summary={
+                "new_paths": [],
+                "changed_paths": ["updated.txt"],
+                "unchanged_paths": [],
+                "missing_paths": [],
+            },
+        )
+        resolved = replace(
+            resolved,
+            inspection=replace(
+                resolved.inspection,
+                root_doc_id=None,
+                chain_id=None,
+                selected_scope=None,
+            ),
+        )
+
+        with self.assertRaises(ApiCommandError) as ctx:
+            prepare_extend_run_from_state(
+                ExtendArgs(root_dir="/tmp/root", input=["/tmp/root/example.txt"]),
+                resolved,
+            )
+
+        self.assertEqual(ctx.exception.code, "RUNTIME_ERROR")
+        self.assertEqual(
+            ctx.exception.details,
+            {"missing_fields": ["root_doc_id", "chain_id", "selected_scope"]},
+        )
+
     def test_prepare_extend_run_returns_changed_and_new_paths(self) -> None:
         with mock.patch(
             "ethernity.cli.features.extend.prepare.resolve_extend_state",
@@ -448,6 +521,28 @@ class TestExtendService(unittest.TestCase):
 
         self.assertEqual(ctx.exception.code, EXTENSION_INVALID_POLICY)
         self.assertIn("signing_key_mode", str(ctx.exception))
+
+    def test_resolve_extend_policy_rejects_shard_counts_above_shamir_limit(self) -> None:
+        for args in (
+            ExtendArgs(shard_threshold=1, shard_count=256),
+            ExtendArgs(
+                signing_key_mode="sharded",
+                signing_key_shard_threshold=1,
+                signing_key_shard_count=256,
+            ),
+        ):
+            with self.subTest(args=args):
+                with self.assertRaises(ApiCommandError) as ctx:
+                    resolve_extend_policy(
+                        args=args,
+                        defaults=BackupDefaults(shard_threshold=2, shard_count=3),
+                        root_passphrase_shard_threshold=None,
+                        root_passphrase_shard_count=0,
+                        require_recovery_kit_index=False,
+                    )
+
+                self.assertEqual(ctx.exception.code, EXTENSION_INVALID_POLICY)
+                self.assertIn("must be <= 255", str(ctx.exception))
 
     def test_resolve_extend_policy_rejects_implicit_plaintext_passphrase(self) -> None:
         with self.assertRaises(ApiCommandError) as ctx:
@@ -2010,8 +2105,7 @@ class TestExtendService(unittest.TestCase):
         kit_index_template_path = Path("/tmp/kit_index_document.html.j2")
         with (
             mock.patch(
-                "ethernity.cli.features.extend.runtime.backup_execution."
-                "_resolve_kit_index_template_path",
+                "ethernity.cli.features.extend.runtime.resolve_recovery_kit_index_template_path",
                 return_value=kit_index_template_path,
             ),
         ):
@@ -2039,8 +2133,7 @@ class TestExtendService(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.extend.runtime.backup_execution."
-                "_resolve_kit_index_template_path",
+                "ethernity.cli.features.extend.runtime.resolve_recovery_kit_index_template_path",
                 return_value=None,
             ),
         ):

@@ -210,8 +210,13 @@ class TestExtendCommand(unittest.TestCase):
         with (
             mock.patch(
                 "ethernity.cli.features.extend.command.prepare_extend_run",
-                return_value=SimpleNamespace(args=args),
+                return_value=SimpleNamespace(
+                    args=args,
+                    inspection=SimpleNamespace(root_dir="/tmp/root"),
+                    next_index=2,
+                ),
             ),
+            mock.patch("ethernity.cli.features.extend.command.preflight_extension_publish_target"),
             mock.patch("ethernity.cli.features.extend.command.resolve_extend_runtime"),
             mock.patch(
                 "ethernity.cli.features.extend.command.encrypt_prepared_extension_document",
@@ -226,13 +231,14 @@ class TestExtendCommand(unittest.TestCase):
 
     def test_extend_dry_run_validates_layout_debug_dir_without_creating_it(self) -> None:
         args = extend_command.ExtendArgs(
-            root_dir="/tmp/root",
+            root_dir="/tmp/request-root",
             input=["updated.txt"],
             layout_debug_dir="/tmp/layout-debug",
             quiet=True,
         )
         prepared = SimpleNamespace(
             args=args,
+            inspection=SimpleNamespace(root_dir="/tmp/prepared-root"),
             next_index=1,
             parent_doc_hash=b"\x11" * 32,
             changed_paths=(),
@@ -257,6 +263,9 @@ class TestExtendCommand(unittest.TestCase):
                 return_value=prepared,
             ),
             mock.patch(
+                "ethernity.cli.features.extend.command.preflight_extension_publish_target"
+            ) as preflight,
+            mock.patch(
                 "ethernity.cli.features.extend.command.resolve_extend_runtime",
                 return_value=runtime,
             ) as resolve_runtime,
@@ -268,7 +277,31 @@ class TestExtendCommand(unittest.TestCase):
             result = extend_command.run_extend_dry_run_command(args)
 
         self.assertEqual(result, 0)
+        preflight.assert_called_once_with("/tmp/prepared-root", index=1)
         resolve_runtime.assert_called_once_with(prepared, create_layout_debug_dir=False)
+
+    def test_extend_dry_run_reports_invalid_publish_target(self) -> None:
+        args = extend_command.ExtendArgs(root_dir="/tmp/root", input=["updated.txt"], quiet=True)
+        prepared = SimpleNamespace(
+            args=args,
+            inspection=SimpleNamespace(root_dir="/tmp/root"),
+            next_index=3,
+        )
+        with (
+            mock.patch(
+                "ethernity.cli.features.extend.command.prepare_extend_run",
+                return_value=prepared,
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.command.preflight_extension_publish_target",
+                side_effect=ValueError("canonical extension directory already exists: 03"),
+            ),
+        ):
+            with self.assertRaises(ApiCommandError) as ctx:
+                extend_command.run_extend_dry_run_command(args)
+
+        self.assertEqual(ctx.exception.code, "EXTENSION_PUBLISH_TARGET_INVALID")
+        self.assertEqual(ctx.exception.details, {"stage": "publish_target"})
 
     @mock.patch("ethernity.cli.features.extend.command.run_extend_command", return_value=0)
     @mock.patch(

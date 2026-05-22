@@ -39,6 +39,7 @@ from ethernity.cli.features.extend.service import (
     resolve_extend_runtime,
     run_extend,
 )
+from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.common import (
     _ctx_state,
     _paper_callback,
@@ -58,6 +59,7 @@ from ethernity.cli.shared.ui_api import (
 from ethernity.config import BackupDefaults
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
 from ethernity.extensions.build import default_extension_chunker
+from ethernity.extensions.staging import preflight_extension_publish_target
 
 _EXTEND_HELP = (
     "Create a new extension update inside a backup root folder "
@@ -69,7 +71,8 @@ _EXTEND_HELP = (
     "  ethernity extend --root-dir root --input in.txt --signing-key-mode sharded\n"
     "  ethernity extend --root-dir root --input-dir docs --base-dir docs\n\n"
     "Notes:\n"
-    "  reuse-root uses the published or supplied root passphrase shard policy.\n"
+    "  reuse-root requires a recoverable root passphrase shard quorum and emits no "
+    "extension-local passphrase shards.\n"
     "  pass --shard-count 0 to explicitly choose plaintext passphrase output.\n"
     "  sharded writes signing-key shard documents.\n"
 )
@@ -146,6 +149,14 @@ def run_extend_command(args: ExtendArgs, *, debug: bool = False) -> int:
 def run_extend_dry_run_command(args: ExtendArgs, *, debug: bool = False) -> int:
     _ = debug
     prepared = prepare_extend_run(args)
+    try:
+        preflight_extension_publish_target(prepared.inspection.root_dir, index=prepared.next_index)
+    except ValueError as exc:
+        raise ApiCommandError(
+            code=api_codes.EXTENSION_PUBLISH_TARGET_INVALID,
+            message=str(exc),
+            details={"stage": "publish_target"},
+        ) from exc
     runtime = resolve_extend_runtime(prepared, create_layout_debug_dir=False)
     encrypted = encrypt_prepared_extension_document(
         prepared,
@@ -294,8 +305,8 @@ def extend(
         typer.Option(
             "--unlock-policy",
             help=(
-                "Extension unlock artifact policy. reuse-root uses the published or supplied "
-                "root passphrase shard policy."
+                "Extension unlock artifact policy. reuse-root requires a recoverable root "
+                "passphrase shard quorum and emits no extension-local passphrase shards."
             ),
             rich_help_panel="Outputs",
         ),

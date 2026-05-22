@@ -156,6 +156,16 @@ the promoted `extension_dir`, a stable `artifacts` object for generated PDFs, an
 summaries for `selected_scope`, `diff_summary`, `resolved_policy`, `chunk_reuse`, and
 `extension_bytes`.
 
+Successful extend results always include non-null root lineage (`root_doc_id`, `root_doc_hash`,
+`chain_id`), selected-scope metadata, diff metadata, and chunk-reuse statistics. Missing readiness
+metadata is reported as an error before publishing instead of being represented as a partial success.
+
+Extend `selected_scope` uses a stable scope summary with `files`, `directories`, `base_dir`,
+`file_count`, `total_bytes`, `input_origin`, and `input_roots`. Extend `diff_summary` includes
+`new_paths`, `changed_paths`, `unchanged_paths`, `missing_paths`, and matching `*_count` fields.
+`chunk_reuse` includes `reused_chunks` and `new_chunks` when a publishable extension can be
+previewed. Extension shard thresholds and share counts are bounded to `1..255` when enabled.
+
 For `api inspect extend`, `resolved_policy`, `chunk_reuse`, and `estimated_extension_bytes` are
 execution-grade preview values for the pending extension when unlock/auth requirements are satisfied
 and the selected scope contains changes. `resolved_policy` is `null` when runtime policy cannot be
@@ -580,15 +590,20 @@ trusted or the UI needs the original backup state.
 - Treat stdin as opt-in for `api recover`; pass `--fallback-file -` for typed fallback text or `--payloads-file -` for QR payload lines
 - Do not extract fallback text from PDF or image files; PDF/image recovery inputs are QR scan inputs only
 `extend` also accepts `--unlock-policy self-contained|reuse-root`.
-`reuse-root` disables extension-local shard emission, uses the published or supplied root
-passphrase shard policy, and rejects explicit shard-policy overrides for the new extension.
-Operators then unlock the extension through that root shard set.
+`reuse-root` disables extension-local passphrase shard emission and rejects explicit shard-policy
+overrides for the new extension. It requires a recoverable root passphrase shard quorum, either
+from the shard set supplied to unlock the root backup or from authenticated root-level shard
+documents discovered in the backup root. Operators then unlock the extension through that root
+shard set.
 If no root or extension shard policy is available, `api extend` fails closed instead of emitting a
 plaintext passphrase recovery document by default; pass `--shard-count 0` only when plaintext
 passphrase output is intentional.
 
 `api extend` and `api inspect extend` can also unlock the selected backup with passphrase shard
 inputs by using `--shard-fallback-file`, `--shard-payloads-file`, or `--shard-scan`.
+When those shard inputs appear to target published extension state but cannot be matched to the
+current root chain, inspect reports `PASSPHRASE_SHARDS_INVALID` with
+`details.stage: "extension_shard_unlock"` instead of treating the shard inputs as absent.
 Both commands require `--root-dir`; the inspect form stays read-only and targets an existing
 non-symlink backup root directory.
 Both commands also accept `--input -` for stdin-backed file content when selecting an explicit
@@ -619,7 +634,9 @@ status is `verified` and the root-derived signing authority is present. Clients 
 field with `validated_head_auth_status` and `blocking_issues` before treating a head as trusted.
 
 `available_extensions` entries always include the numeric `index` alongside `dir_name`, `doc_id`,
-and `doc_hash`. When chain authentication has been evaluated, entries may also include:
+and `doc_hash`; `doc_hash` can be `null` for partially discovered extension directories whose
+payloads could not be fully decoded. When chain authentication has been evaluated, entries may also
+include:
 
 - `auth_status`
 - `root_authority_verified`

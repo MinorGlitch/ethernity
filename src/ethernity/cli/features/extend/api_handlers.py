@@ -61,6 +61,20 @@ from ethernity.extensions.build import default_extension_chunker
 from ethernity.extensions.layout import parse_extension_shard_filename
 from ethernity.extensions.staging import preflight_extension_publish_target
 
+_REQUIRED_UNLOCK_FIELDS = frozenset(
+    {
+        "mode",
+        "passphrase_provided",
+        "validated_shard_count",
+        "required_shard_threshold",
+        "shard_share_count",
+        "satisfied",
+    }
+)
+_REQUIRED_DIFF_SUMMARY_FIELDS = frozenset(
+    {"new_paths", "changed_paths", "unchanged_paths", "missing_paths"}
+)
+
 
 def _artifact_details(path: str) -> dict[str, object]:
     path_obj = Path(path)
@@ -84,6 +98,23 @@ def _preview_chunk_reuse(
         },
         len(encrypted.ciphertext),
     )
+
+
+def _require_diff_summary_list(diff_summary: dict[str, object], key: str) -> list[object]:
+    if key not in diff_summary:
+        raise ApiCommandError(
+            code=api_codes.RUNTIME_ERROR,
+            message=f"extend diff summary is missing required field {key!r}",
+            details={"missing_field": key},
+        )
+    raw_value = diff_summary[key]
+    if not isinstance(raw_value, list):
+        raise ApiCommandError(
+            code=api_codes.RUNTIME_ERROR,
+            message=f"extend diff summary field {key!r} must be a list",
+            details={"field": key},
+        )
+    return raw_value
 
 
 def _non_empty_started_string(value: str | None) -> str | None:
@@ -247,6 +278,14 @@ def run_extend_api_command(args: ExtendArgs, *, debug: bool = False) -> int:
     )
     emit_phase(phase="plan", label="Preparing extension publish plan")
     prepared = prepare_extend_run(args)
+    try:
+        preflight_extension_publish_target(prepared.inspection.root_dir, index=prepared.next_index)
+    except ValueError as exc:
+        raise ApiCommandError(
+            code=api_codes.EXTENSION_PUBLISH_TARGET_INVALID,
+            message=str(exc),
+            details={"stage": "publish_target"},
+        ) from exc
     ensure_playwright_browsers(quiet=True)
     emit_progress(
         phase="plan",
@@ -254,10 +293,10 @@ def run_extend_api_command(args: ExtendArgs, *, debug: bool = False) -> int:
         total=1,
         unit="step",
         details={
-            "root_dir": getattr(prepared.inspection, "root_dir", args.root_dir),
-            "next_index": getattr(prepared, "next_index", None),
-            "changed_count": len(getattr(prepared, "changed_paths", ())),
-            "new_count": len(getattr(prepared, "new_paths", ())),
+            "root_dir": prepared.inspection.root_dir,
+            "next_index": prepared.next_index,
+            "changed_count": len(prepared.changed_paths),
+            "new_count": len(prepared.new_paths),
         },
     )
     executed = execute_prepared_extend(prepared)
@@ -314,9 +353,13 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
         estimated_extension_bytes: int | None = None
         runtime: ResolvedExtendRuntime | None = None
         diff_summary = inspection.diff_summary
-        has_extension_changes = diff_summary is not None and (
-            bool(diff_summary.get("changed_paths")) or bool(diff_summary.get("new_paths"))
-        )
+        has_extension_changes = False
+        if diff_summary is not None:
+            for key in _REQUIRED_DIFF_SUMMARY_FIELDS:
+                _require_diff_summary_list(diff_summary, key)
+            has_extension_changes = bool(diff_summary["changed_paths"]) or bool(
+                diff_summary["new_paths"]
+            )
         if (
             not args.input
             and not args.input_dir
@@ -352,7 +395,7 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
                 prepared = prepare_extend_run_from_state(args, resolved)
                 try:
                     preflight_extension_publish_target(
-                        args.root_dir or inspection.root_dir,
+                        inspection.root_dir,
                         index=prepared.next_index,
                     )
                 except ValueError as exc:
@@ -447,7 +490,16 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
 
 def _unlock_payload(unlock: dict[str, object]) -> dict[str, object]:
     payload = dict(unlock)
-    payload.setdefault("shard_share_count", None)
+    missing_fields = sorted(_REQUIRED_UNLOCK_FIELDS.difference(payload))
+    if missing_fields:
+        raise ApiCommandError(
+            code=api_codes.RUNTIME_ERROR,
+            message=(
+                "extend inspection unlock payload is missing required field(s): "
+                f"{', '.join(missing_fields)}"
+            ),
+            details={"missing_fields": missing_fields},
+        )
     return payload
 
 

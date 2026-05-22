@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 import click
 import typer
@@ -40,8 +41,9 @@ from ethernity.cli.features.recover.orchestrator import run_recover_wizard
 from ethernity.cli.shared import common as cli_common, ndjson as cli_ndjson, ui_api as ui
 from ethernity.cli.shared.recovery_prompts import prompt_passphrase_unlock_material
 from ethernity.cli.shared.types import BackupArgs, CliContextState, CompactArgs, ExtendArgs
-from ethernity.config import CliDefaults, load_cli_defaults
+from ethernity.config import BackupDefaults, CliDefaults, load_cli_defaults
 from ethernity.config.install import DEFAULT_CONFIG_PATH, resolve_api_defaults_config_path
+from ethernity.crypto.sharding import MAX_SHARES
 
 
 def _argv_requests_help(argv: Sequence[str]) -> bool:
@@ -84,6 +86,7 @@ empty_mint_args = ui.empty_mint_args
 empty_recover_args = ui.empty_recover_args
 prompt_choice = ui.prompt_choice
 prompt_home_action = ui.prompt_home_action
+prompt_int = ui.prompt_int
 prompt_optional_path_with_picker = ui.prompt_optional_path_with_picker
 prompt_path_with_picker = ui.prompt_path_with_picker
 prompt_paths_with_picker = ui.prompt_paths_with_picker
@@ -95,6 +98,16 @@ _DEFAULTS_BOOTSTRAP_SUBCOMMANDS = frozenset(
     {"api", "backup", "compact", "extend", "recover", "kit", "mint", "render"}
 )
 _GLOBAL_OPTIONS_WITH_VALUES = frozenset({"--config", "--paper", "--design", "--debug-max-bytes"})
+
+
+@dataclass(frozen=True)
+class _HomeExtendOutputPolicy:
+    unlock_policy: Literal["self-contained", "reuse-root"]
+    shard_threshold: int | None = None
+    shard_count: int | None = None
+    signing_key_mode: Literal["not-stored", "sharded"] = "not-stored"
+    signing_key_shard_threshold: int | None = None
+    signing_key_shard_count: int | None = None
 
 
 def _subcommand_config_override(argv: Sequence[str]) -> str | None:
@@ -319,6 +332,7 @@ def _prompt_home_extend_args(
     paper: str | None,
     design: str | None,
     quiet: bool,
+    backup_defaults: BackupDefaults | None = None,
 ) -> ExtendArgs:
     root_dir = prompt_path_with_picker(
         "Backup folder to update",
@@ -357,6 +371,7 @@ def _prompt_home_extend_args(
         empty_message="Choose at least one file or folder to add to the backup.",
     )
     input_files, input_dirs = _split_existing_paths(selected_paths)
+    output_policy = _prompt_home_extend_output_policy(backup_defaults)
     return ExtendArgs(
         config=config,
         paper=paper,
@@ -369,8 +384,115 @@ def _prompt_home_extend_args(
         shard_payloads_file=shard_payloads_file or None,
         shard_scan=shard_scan or None,
         shard_frames=shard_frames or None,
+        unlock_policy=output_policy.unlock_policy,
+        shard_threshold=output_policy.shard_threshold,
+        shard_count=output_policy.shard_count,
+        signing_key_mode=output_policy.signing_key_mode,
+        signing_key_shard_threshold=output_policy.signing_key_shard_threshold,
+        signing_key_shard_count=output_policy.signing_key_shard_count,
         quiet=quiet,
     )
+
+
+def _prompt_home_extend_output_policy(
+    backup_defaults: BackupDefaults | None,
+) -> _HomeExtendOutputPolicy:
+    default_shard_count = backup_defaults.shard_count if backup_defaults is not None else None
+    default_shard_threshold = (
+        backup_defaults.shard_threshold if backup_defaults is not None else None
+    )
+    default_signing_key_mode = (
+        backup_defaults.signing_key_mode if backup_defaults is not None else "not-stored"
+    )
+    mode = prompt_choice(
+        "How should this extension be recoverable",
+        {
+            "extension-shards": "Create extension passphrase shard documents",
+            "reuse-root": "Use the root backup shard documents",
+            "plaintext": "Print the passphrase in the extension recovery document",
+        },
+        default="extension-shards",
+        help_text=(
+            "Choose where the recovery material for this extension should live. "
+            "Extension shards are safest when you are not sure the root shard set is available."
+        ),
+    )
+    if mode == "reuse-root":
+        return _HomeExtendOutputPolicy(unlock_policy="reuse-root")
+    if mode == "plaintext":
+        return _HomeExtendOutputPolicy(unlock_policy="self-contained", shard_count=0)
+
+    shard_count = prompt_int(
+        "Extension shard document count",
+        minimum=1,
+        maximum=MAX_SHARES,
+        help_text=_home_extend_shard_count_help(default_shard_count),
+    )
+    shard_threshold = prompt_int(
+        "Extension shard threshold",
+        minimum=1,
+        maximum=shard_count,
+        help_text=_home_extend_shard_threshold_help(default_shard_threshold, shard_count),
+    )
+    signing_key_mode = prompt_choice(
+        "Store signing-key recovery shards for this extension",
+        {
+            "not-stored": "No, do not store signing-key recovery shards",
+            "sharded": "Yes, create signing-key shard documents",
+        },
+        default=default_signing_key_mode if default_signing_key_mode == "sharded" else "not-stored",
+        help_text=(
+            "Signing-key shards allow future shard minting if the root signing seed is not "
+            "available elsewhere."
+        ),
+    )
+    if signing_key_mode != "sharded":
+        return _HomeExtendOutputPolicy(
+            unlock_policy="self-contained",
+            shard_threshold=shard_threshold,
+            shard_count=shard_count,
+            signing_key_mode="not-stored",
+        )
+
+    signing_key_shard_count = prompt_int(
+        "Signing-key shard document count",
+        minimum=1,
+        maximum=MAX_SHARES,
+        help_text=_home_extend_shard_count_help(
+            backup_defaults.signing_key_shard_count if backup_defaults is not None else None
+        ),
+    )
+    signing_key_shard_threshold = prompt_int(
+        "Signing-key shard threshold",
+        minimum=1,
+        maximum=signing_key_shard_count,
+        help_text=_home_extend_shard_threshold_help(
+            backup_defaults.signing_key_shard_threshold if backup_defaults is not None else None,
+            signing_key_shard_count,
+        ),
+    )
+    return _HomeExtendOutputPolicy(
+        unlock_policy="self-contained",
+        shard_threshold=shard_threshold,
+        shard_count=shard_count,
+        signing_key_mode="sharded",
+        signing_key_shard_threshold=signing_key_shard_threshold,
+        signing_key_shard_count=signing_key_shard_count,
+    )
+
+
+def _home_extend_shard_count_help(default_count: int | None) -> str:
+    suffix = f" Current configured default is {default_count}." if default_count else ""
+    return f"Choose how many printed shard documents to create (1-{MAX_SHARES}).{suffix}"
+
+
+def _home_extend_shard_threshold_help(default_threshold: int | None, shard_count: int) -> str:
+    suffix = (
+        f" Current configured default is {default_threshold}."
+        if default_threshold is not None and default_threshold <= shard_count
+        else ""
+    )
+    return f"Choose how many of the {shard_count} shard documents are required.{suffix}"
 
 
 def _prompt_home_compact_args(
@@ -595,6 +717,7 @@ def _run_home_screen(
         raise typer.Exit(code=2)
 
     config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
+    state = ctx.obj if isinstance(ctx.obj, CliContextState) else CliContextState()
     action = initial_action
     if action is None:
         with ui_screen_mode(quiet=quiet):
@@ -627,6 +750,7 @@ def _run_home_screen(
             paper=paper_value,
             design=design,
             quiet=quiet,
+            backup_defaults=state.backup_defaults,
         )
         _run_cli(lambda: run_extend_command(extend_args, debug=debug), debug=debug)
         return

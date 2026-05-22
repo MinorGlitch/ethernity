@@ -115,6 +115,9 @@ Both commands:
 
 If the UI runs `api inspect extend` before a scope is selected, treat
 `EXTENSION_INPUT_REQUIRED` in `blocking_issues` as the normal not-ready state.
+If supplied extension-local shard inputs are stale or from another chain, inspect reports
+`PASSPHRASE_SHARDS_INVALID` with `details.stage == "extension_shard_unlock"`; keep the write action
+disabled until the user supplies matching shards or a passphrase.
 When a selected scope is present, inspect also preflights the publish target without writing; treat
 `EXTENSION_PUBLISH_TARGET_INVALID` as a not-ready state for write-producing actions.
 
