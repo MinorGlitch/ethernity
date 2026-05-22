@@ -20,11 +20,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ethernity.cli.features.recover.key_recovery import (
-    InsufficientShardError,
-    _validated_shard_payloads_from_frames,
+from ethernity.cli.features.recover.key_recovery import InsufficientShardError
+from ethernity.cli.shared.root_shard_policy import (
+    has_potential_root_shard_frames,
+    root_level_key_frames_from_scan,
+    root_shard_quorum_from_frames,
 )
-from ethernity.cli.shared.io.frames import _shard_frames_from_scan
 from ethernity.crypto import sharding as sharding_module
 
 
@@ -38,33 +39,39 @@ def published_root_passphrase_shard_policy(
 ) -> tuple[int | None, int]:
     """Return the published root passphrase shard quorum, if the root publishes one."""
 
-    paths = sorted(root_dir.glob("shard-*.pdf"))
-    if not paths:
-        return None, 0
-    for path in paths:
-        if path.is_symlink():
-            raise ValueError(f"root passphrase shard must not be a symlink: {path.name}")
-    frames = _shard_frames_from_scan([str(path) for path in paths], quiet=quiet)
+    frames = root_level_key_frames_from_scan(root_dir, quiet=quiet)
     if not frames:
         return None, 0
-    try:
-        shares = _validated_shard_payloads_from_frames(
+    if sign_pub is None:
+        if has_potential_root_shard_frames(
             frames,
             expected_doc_id=root_doc_id,
             expected_doc_hash=root_doc_hash,
-            expected_sign_pub=sign_pub,
-            allow_unsigned=sign_pub is None,
+        ):
+            raise ValueError(
+                "root passphrase shard policy requires a verified root signing authority"
+            )
+        return None, 0
+    try:
+        threshold, share_count = root_shard_quorum_from_frames(
+            frames,
+            expected_doc_id=root_doc_id,
+            expected_doc_hash=root_doc_hash,
+            sign_pub=sign_pub,
             key_type=sharding_module.KEY_TYPE_PASSPHRASE,
             secret_label="passphrase",
+            require_quorum=True,
         )
     except InsufficientShardError as exc:
-        if exc.share_count is not None:
-            return None, 0
-        raise
-    first = shares[0]
-    if len(shares) != first.share_count:
+        raise ValueError(
+            "root passphrase shards are under quorum; "
+            f"need at least {exc.threshold}, found {exc.provided_count}"
+        ) from exc
+    if share_count <= 0:
         return None, 0
-    return first.threshold, first.share_count
+    if threshold is None:
+        return None, 0
+    return threshold, share_count
 
 
 __all__ = ["published_root_passphrase_shard_policy"]

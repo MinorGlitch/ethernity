@@ -137,6 +137,7 @@ def discover_validated_extension_directories(
     candidate_dirs: dict[int, Path] = {}
     invalid_decimal_dirs: dict[int, str] = {}
     invalid_reserved_entries: dict[int, tuple[str, str]] = {}
+    unexpected_extension_like_entries: set[str] = set()
     for entry in extensions_dir.iterdir():
         if entry.is_symlink():
             if (
@@ -160,6 +161,8 @@ def discover_validated_extension_directories(
                         f"extension directory must not be a symlink: {entry.name}",
                     ),
                 )
+            elif _is_extension_like_top_level_entry(entry.name):
+                unexpected_extension_like_entries.add(entry.name)
             continue
         if not entry.is_dir():
             if (
@@ -189,6 +192,8 @@ def discover_validated_extension_directories(
                         f"extension directory must be a directory: {entry.name}",
                     ),
                 )
+            elif _is_extension_like_top_level_entry(entry.name):
+                unexpected_extension_like_entries.add(entry.name)
             continue
         if is_staging_dir_name(entry.name):
             continue
@@ -200,6 +205,8 @@ def discover_validated_extension_directories(
             candidate_dirs[index] = entry
             continue
         if not is_canonical_extension_dir_name(entry.name):
+            if _is_extension_like_top_level_entry(entry.name):
+                unexpected_extension_like_entries.add(entry.name)
             continue
         candidate_dirs[parse_extension_dir_name(entry.name)] = entry
 
@@ -283,8 +290,24 @@ def discover_validated_extension_directories(
             first_invalid_dir_name=invalid_name,
             first_invalid_message=f"invalid non-canonical extension directory name: {invalid_name}",
         )
+    if unexpected_extension_like_entries:
+        invalid_name = sorted(unexpected_extension_like_entries)[0]
+        return ValidatedExtensionDiscovery(
+            directories=tuple(validated),
+            first_invalid_dir_name=invalid_name,
+            first_invalid_message=(
+                "extensions directory contains unexpected extension-like top-level entry: "
+                f"{invalid_name}"
+            ),
+        )
 
     return ValidatedExtensionDiscovery(directories=tuple(validated))
+
+
+def _is_extension_like_top_level_entry(name: str) -> bool:
+    return name.startswith(("extension-", "extension_")) or name.startswith(
+        _RECOGNIZED_FILENAME_PREFIXES
+    )
 
 
 def _discover_extension_directory(*, index: int, path: Path) -> DiscoveredExtensionDirectory:

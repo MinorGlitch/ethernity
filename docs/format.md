@@ -1235,6 +1235,10 @@ Import rules:
 - recursive directory scans of backup-export trees MUST exclude unpublished extension transaction
   workspaces named `extensions/.staging-*`; carriers in those workspaces are not published by the
   directory root
+- backup-export tree scans MUST treat extension-like non-canonical top-level entries under
+  `extensions/` as layout errors, including stale extension directory names such as `extension-01`
+  and extension artifact files placed directly under `extensions/`; clearly unrelated clutter MAY be
+  ignored
 - MAIN frames MUST be grouped by frame `doc_id`; each group MUST independently reassemble to one
   ciphertext
 - the authoritative `doc_id` and `doc_hash` MUST be derived from recovered ciphertext
@@ -1294,10 +1298,13 @@ Compaction rules:
   output directory
 - compaction MUST preserve the chain passphrase exactly; passphrase rotation is not part of this
   format
-- when compaction unlocks the source with validated passphrase shard carriers, the compacted
-  checkpoint MUST emit fresh passphrase shard documents with the same threshold and share count;
-  implementations MUST NOT downgrade to a plaintext-passphrase checkpoint because source shard
-  documents are stored outside the scanned backup root
+- when compaction unlocks the source with passphrase shard carriers validated against the trusted
+  root signing authority, the compacted checkpoint MUST emit fresh passphrase shard documents with
+  the same threshold and share count; implementations MUST NOT downgrade to a plaintext-passphrase
+  checkpoint because source shard documents are stored outside the scanned backup root
+- compaction shard policy inheritance MUST be content-first and authenticated: filename prefixes are
+  not policy signals, and unsigned or self-authority shard metadata MUST NOT select the compacted
+  checkpoint shard policy
 - compaction MUST preserve the root sealed/unsealed state
 - if the root is unsealed, compaction MUST preserve the root signing seed exactly
 - if the root is sealed, compaction MUST NOT emit signing-key shard documents

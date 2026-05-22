@@ -32,8 +32,12 @@ from ethernity.cli.features.recover.key_recovery import (
 )
 from ethernity.cli.features.recover.planning import plan_from_args as plan_recover_from_args
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.io.frames import _shard_frames_from_scan
 from ethernity.cli.shared.ndjson import ApiCommandError
+from ethernity.cli.shared.root_shard_policy import (
+    has_potential_root_shard_frames,
+    root_level_key_frames_from_scan,
+    root_shard_quorum_from_frames,
+)
 from ethernity.cli.shared.types import BackupArgs, BackupResult, CompactArgs, InputFile, RecoverArgs
 from ethernity.config import apply_template_design, load_app_config
 from ethernity.crypto import sharding as sharding_module
@@ -98,7 +102,6 @@ def _infer_root_publish_policy(
     sign_pub: bytes | None,
     passphrase_shard_frames: Sequence[Frame] = (),
     signing_key_shard_frames: Sequence[Frame] = (),
-    allow_unsigned: bool = False,
     require_quorum: bool = True,
     quiet: bool,
 ) -> _RootPublishPolicy:
@@ -120,27 +123,53 @@ def _infer_root_publish_policy(
             message=f"root backup directory must be a directory: {root_dir}",
         )
     root_doc_id = bytes.fromhex(root_doc_id_hex) if root_doc_id_hex else None
+    root_level_frames = _root_level_key_frames_for_policy(root_path, quiet=quiet)
+    policy_frames = (
+        *root_level_frames,
+        *tuple(passphrase_shard_frames),
+        *tuple(signing_key_shard_frames),
+    )
+    if sign_pub is None:
+        if has_potential_root_shard_frames(
+            policy_frames,
+            expected_doc_id=root_doc_id,
+            expected_doc_hash=root_doc_hash,
+        ):
+            raise ApiCommandError(
+                code=api_codes.COMPACT_INVALID_POLICY,
+                message=(
+                    "compact cannot inherit root shard policy without a verified "
+                    "root signing authority"
+                ),
+                details={"stage": "root_shard_policy"},
+            )
+        return _RootPublishPolicy(
+            passphrase_shard_threshold=None,
+            passphrase_shard_count=0,
+            signing_key_shard_threshold=None,
+            signing_key_shard_count=0,
+        )
+    if root_doc_id is None:
+        raise ApiCommandError(
+            code=api_codes.COMPACT_INVALID_POLICY,
+            message="compact cannot inherit root shard policy without a root document id",
+            details={"stage": "root_shard_policy"},
+        )
     passphrase_threshold, passphrase_count = _infer_root_quorum(
-        sorted(root_path.glob("shard-*.pdf")),
-        extra_frames=passphrase_shard_frames,
+        policy_frames,
         expected_doc_id=root_doc_id,
         expected_doc_hash=root_doc_hash,
         sign_pub=sign_pub,
-        allow_unsigned=allow_unsigned,
         require_quorum=require_quorum,
-        quiet=quiet,
         key_type=sharding_module.KEY_TYPE_PASSPHRASE,
         secret_label="passphrase",
     )
     signing_key_threshold, signing_key_count = _infer_root_quorum(
-        sorted(root_path.glob("signing-key-shard-*.pdf")),
-        extra_frames=signing_key_shard_frames,
+        policy_frames,
         expected_doc_id=root_doc_id,
         expected_doc_hash=root_doc_hash,
         sign_pub=sign_pub,
-        allow_unsigned=allow_unsigned,
         require_quorum=require_quorum,
-        quiet=quiet,
         key_type=sharding_module.KEY_TYPE_SIGNING_SEED,
         secret_label="signing key",
     )
@@ -153,36 +182,28 @@ def _infer_root_publish_policy(
 
 
 def _infer_root_quorum(
-    paths: list[Path],
+    frames: Sequence[Frame],
     *,
-    extra_frames: Sequence[Frame] = (),
-    expected_doc_id: bytes | None,
+    expected_doc_id: bytes,
     expected_doc_hash: bytes,
-    sign_pub: bytes | None,
-    allow_unsigned: bool,
+    sign_pub: bytes,
     require_quorum: bool = True,
-    quiet: bool,
     key_type: str,
     secret_label: str,
 ) -> tuple[int | None, int]:
-    frames = list(extra_frames)
-    if paths:
-        frames.extend(_shard_frames_from_scan([str(path) for path in paths], quiet=quiet))
     if not frames:
         return None, 0
     try:
-        shares = _validated_shard_payloads_from_frames(
+        return root_shard_quorum_from_frames(
             frames,
             expected_doc_id=expected_doc_id,
             expected_doc_hash=expected_doc_hash,
-            expected_sign_pub=sign_pub,
-            allow_unsigned=allow_unsigned,
+            sign_pub=sign_pub,
             key_type=key_type,
             secret_label=secret_label,
+            require_quorum=require_quorum,
         )
     except InsufficientShardError as exc:
-        if not require_quorum and exc.share_count is not None:
-            return exc.threshold, exc.share_count
         raise ApiCommandError(
             code=api_codes.COMPACT_INVALID_POLICY,
             message=(
@@ -190,8 +211,23 @@ def _infer_root_quorum(
                 f"need at least {exc.threshold}, found {exc.provided_count}"
             ),
         ) from exc
-    first = shares[0]
-    return first.threshold, first.share_count
+    except ValueError as exc:
+        raise ApiCommandError(
+            code=api_codes.COMPACT_INVALID_POLICY,
+            message=str(exc),
+            details={"stage": "root_shard_policy"},
+        ) from exc
+
+
+def _root_level_key_frames_for_policy(root_path: Path, *, quiet: bool) -> tuple[Frame, ...]:
+    try:
+        return root_level_key_frames_from_scan(root_path, quiet=quiet)
+    except ValueError as exc:
+        raise ApiCommandError(
+            code=api_codes.COMPACT_INVALID_POLICY,
+            message=str(exc),
+            details={"stage": "root_shard_policy"},
+        ) from exc
 
 
 def run_compact(args: CompactArgs) -> BackupResult:
@@ -231,7 +267,6 @@ def run_compact(args: CompactArgs) -> BackupResult:
     unlock_passphrase_policy = _infer_passphrase_shard_policy_from_frames(
         recover_plan.shard_frames,
         sign_pub=sign_pub,
-        allow_unsigned=sign_pub is None,
     )
 
     inherited = _infer_root_publish_policy(
@@ -244,7 +279,6 @@ def run_compact(args: CompactArgs) -> BackupResult:
             expected_doc_id=recover_plan.doc_id,
             expected_doc_hash=recover_plan.doc_hash,
         ),
-        allow_unsigned=sign_pub is None,
         quiet=args.quiet,
     )
     if unlock_passphrase_policy is not None:
@@ -342,7 +376,6 @@ def _infer_passphrase_shard_policy_from_frames(
     frames: Sequence[Frame],
     *,
     sign_pub: bytes | None,
-    allow_unsigned: bool,
 ) -> tuple[int, int] | None:
     passphrase_frames: list[Frame] = []
     for frame in frames:
@@ -356,6 +389,15 @@ def _infer_passphrase_shard_policy_from_frames(
             passphrase_frames.append(frame)
     if not passphrase_frames:
         return None
+    if sign_pub is None:
+        raise ApiCommandError(
+            code=api_codes.COMPACT_INVALID_POLICY,
+            message=(
+                "compact cannot inherit source passphrase shard policy without a verified "
+                "root signing authority"
+            ),
+            details={"stage": "source_shard_policy"},
+        )
 
     try:
         shares = _validated_shard_payloads_from_frames(
@@ -363,7 +405,7 @@ def _infer_passphrase_shard_policy_from_frames(
             expected_doc_id=None,
             expected_doc_hash=None,
             expected_sign_pub=sign_pub,
-            allow_unsigned=allow_unsigned,
+            allow_unsigned=False,
             key_type=sharding_module.KEY_TYPE_PASSPHRASE,
             secret_label="passphrase",
         )

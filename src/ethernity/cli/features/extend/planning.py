@@ -530,8 +530,6 @@ def _inspect_root_recovery(
         input_detail=str(root_dir.resolve()),
         quiet=args.quiet,
     )
-    if extension_inspection is None:
-        return _RootRecoveryInspection(root_inspection, "none")
     return _RootRecoveryInspection(extension_inspection, "extension")
 
 
@@ -546,7 +544,7 @@ def _inspect_root_recovery_with_extension_shards(
     extension_inventory: RecoveryExtensionInventory,
     input_detail: str,
     quiet: bool,
-) -> RecoveryInspection | None:
+) -> RecoveryInspection:
     root_document = ImportedRecoveryDocument(
         doc_id=root_inspection.doc_id,
         doc_hash=root_inspection.doc_hash,
@@ -574,14 +572,45 @@ def _inspect_root_recovery_with_extension_shards(
             allow_unsigned=False,
             quiet=quiet,
         )
-    except ValueError:
-        return None
+    except ValueError as exc:
+        return _extension_shard_unlock_failure_inspection(
+            root_inspection,
+            shard_frames=shard_frames,
+            shard_fallback_files=shard_fallback_files,
+            shard_payloads_file=shard_payloads_file,
+            shard_scan=shard_scan,
+            message=str(exc),
+            details={"stage": "extension_shard_unlock"},
+        )
     if (
         selection.root_document.doc_id != root_inspection.doc_id
         or selection.root_document.doc_hash != root_inspection.doc_hash
-        or selection.unlock.resolved_passphrase is None
     ):
-        return None
+        return _extension_shard_unlock_failure_inspection(
+            root_inspection,
+            shard_frames=shard_frames,
+            shard_fallback_files=shard_fallback_files,
+            shard_payloads_file=shard_payloads_file,
+            shard_scan=shard_scan,
+            message="extension passphrase shard inputs resolved a different root document",
+            details={
+                "stage": "extension_shard_unlock",
+                "expected_root_doc_id": root_inspection.doc_id.hex(),
+                "expected_root_doc_hash": root_inspection.doc_hash.hex(),
+                "selected_root_doc_id": selection.root_document.doc_id.hex(),
+                "selected_root_doc_hash": selection.root_document.doc_hash.hex(),
+            },
+        )
+    if selection.unlock.resolved_passphrase is None:
+        return _extension_shard_unlock_failure_inspection(
+            root_inspection,
+            shard_frames=shard_frames,
+            shard_fallback_files=shard_fallback_files,
+            shard_payloads_file=shard_payloads_file,
+            shard_scan=shard_scan,
+            message="extension passphrase shard inputs did not recover a passphrase",
+            details={"stage": "extension_shard_unlock"},
+        )
 
     unlocked = inspect_recovery_inputs(
         frames=frames,
@@ -603,6 +632,31 @@ def _inspect_root_recovery_with_extension_shards(
         shard_fallback_files=tuple(shard_fallback_files),
         shard_payloads_file=tuple(shard_payloads_file),
         shard_scan=tuple(shard_scan),
+    )
+
+
+def _extension_shard_unlock_failure_inspection(
+    root_inspection: RecoveryInspection,
+    *,
+    shard_frames: list[Frame],
+    shard_fallback_files: list[str],
+    shard_payloads_file: list[str],
+    shard_scan: list[str],
+    message: str,
+    details: dict[str, object],
+) -> RecoveryInspection:
+    issue = _blocking_issue(
+        api_codes.PASSPHRASE_SHARDS_INVALID,
+        f"extension passphrase shard inputs could not unlock the published root chain: {message}",
+        details=details,
+    )
+    return replace(
+        root_inspection,
+        shard_frames=tuple(shard_frames),
+        shard_fallback_files=tuple(shard_fallback_files),
+        shard_payloads_file=tuple(shard_payloads_file),
+        shard_scan=tuple(shard_scan),
+        blocking_issues=(*root_inspection.blocking_issues, issue),
     )
 
 

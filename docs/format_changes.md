@@ -37,6 +37,48 @@ Use this template for each change entry:
   - <none or short note>
 ```
 
+## 2026-05-22 - Authenticate compact shard policy inheritance
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: Compaction rules
+- Compatibility:
+  - Old decoders reading new artifacts: yes (artifact wire format is unchanged)
+  - New decoders reading old artifacts: partial (compaction refuses unsigned or filename-only shard
+    policy inheritance that older implementations accepted)
+- Version/profile bump required: no (validation is stricter, but the serialized backup and shard
+  formats are unchanged)
+- Implementation refs:
+  - `src/ethernity/cli/features/compact/service.py`
+  - `src/ethernity/cli/features/extend/root_shards.py`
+  - `src/ethernity/cli/shared/root_shard_policy.py`
+- Test refs:
+  - `tests/unit/test_compact_service.py`
+  - `tests/unit/test_extend_inspection.py`
+- Security impact:
+  - Prevents compaction and reuse-root policy inference from using filename prefixes or unsigned
+    shard metadata as authority for the output shard policy
+
+## 2026-05-22 - Reject stale extension-like export entries
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: 20
+- Compatibility:
+  - Old decoders reading new artifacts: yes (artifact wire format is unchanged)
+  - New decoders reading old artifacts: partial (backup-export trees with stale extension-like
+    top-level entries under `extensions/` are now rejected instead of treated as absent; unrelated
+    clutter remains ignored)
+- Version/profile bump required: no (this tightens export-layout validation without changing
+  serialized recovery carriers or extension envelopes)
+- Implementation refs:
+  - `src/ethernity/extensions/discovery.py`
+- Test refs:
+  - `tests/unit/test_extension_discovery.py`
+- Security impact:
+  - Prevents stale extension-like folders from being silently ignored during published export-tree
+    discovery.
+
 ## Versioning Guidance
 
 - Bump version/profile when an older decoder could misinterpret bytes, accept invalid data, or fail

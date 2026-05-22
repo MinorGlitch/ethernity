@@ -36,6 +36,7 @@ class TestExtensionDiscovery(unittest.TestCase):
             (extensions_dir / "02").mkdir(parents=True)
             (extensions_dir / ".staging-3-abcd").mkdir(parents=True)
             (extensions_dir / "notes").mkdir(parents=True)
+            self._write(extensions_dir / "README.txt")
 
             self._write(extensions_dir / "01" / "qr_document-01-deadbeefcafebabe.pdf")
             self._write(extensions_dir / "01" / "recovery_document-01-deadbeefcafebabe.pdf")
@@ -125,6 +126,45 @@ class TestExtensionDiscovery(unittest.TestCase):
             (extensions_dir / "001").mkdir(parents=True)
 
             with self.assertRaisesRegex(ValueError, "non-canonical extension directory name"):
+                discover_extension_directories(tmpdir)
+
+    def test_rejects_unknown_top_level_extension_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            extensions_dir = Path(tmpdir) / "extensions"
+            (extensions_dir / "extension-01").mkdir(parents=True)
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "unexpected extension-like top-level entry: extension-01",
+            ):
+                discover_extension_directories(tmpdir)
+
+    def test_validated_discovery_preserves_prefix_before_extension_like_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            extensions_dir = Path(tmpdir) / "extensions"
+            (extensions_dir / "01").mkdir(parents=True)
+            (extensions_dir / "extension-02").mkdir(parents=True)
+            self._write(extensions_dir / "01" / "qr_document-01-deadbeefcafebabe.pdf")
+            self._write(extensions_dir / "01" / "recovery_document-01-deadbeefcafebabe.pdf")
+
+            discovery = discover_validated_extension_directories(tmpdir)
+
+        self.assertEqual([item.dir_name for item in discovery.directories], ["01"])
+        self.assertEqual(discovery.first_invalid_dir_name, "extension-02")
+        self.assertEqual(
+            discovery.first_invalid_message,
+            "extensions directory contains unexpected extension-like top-level entry: extension-02",
+        )
+
+    def test_rejects_top_level_extension_artifact_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            extensions_dir = Path(tmpdir) / "extensions"
+            self._write(extensions_dir / "qr_document-01-deadbeefcafebabe.pdf")
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "unexpected extension-like top-level entry: qr_document-01-deadbeefcafebabe.pdf",
+            ):
                 discover_extension_directories(tmpdir)
 
     def test_rejects_canonical_extension_path_that_is_not_a_directory(self) -> None:

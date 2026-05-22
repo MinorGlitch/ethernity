@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
-from ethernity.core.validation import normalize_manifest_path
+from ethernity.core.validation import normalize_manifest_path, require_non_negative_int
 from ethernity.formats.extension_chunking import (
     Chunker,
     canonical_chunk_refs_for_bytes,
@@ -99,22 +99,26 @@ def build_extension_document(
     known_chunks = _normalize_chunk_map(existing_chunks)
     chunk_payloads: dict[bytes, bytes] = {}
     logical_bytes = 0
-    total_logical_bytes = existing_logical_bytes
+    total_logical_bytes = require_non_negative_int(
+        existing_logical_bytes,
+        label="existing logical bytes",
+    )
     new_chunks = 0
     reused_chunks = 0
     if total_logical_bytes > MAX_DECOMPRESSED_PAYLOAD_BYTES:
         raise ValueError("root logical bytes exceed MAX_DECOMPRESSED_PAYLOAD_BYTES")
-    known_file_sizes = {
-        normalize_manifest_path(path, label="extension file path"): size
-        for path, size in (existing_file_sizes or {}).items()
-    }
+    if total_logical_bytes > 0 and existing_file_sizes is None:
+        raise ValueError("existing file sizes are required when existing logical bytes are set")
+    known_file_sizes = _normalize_existing_file_sizes(existing_file_sizes)
+    if existing_file_sizes is not None and sum(known_file_sizes.values()) != total_logical_bytes:
+        raise ValueError("existing logical bytes must match existing file size total")
     if len(known_file_sizes) > MAX_MANIFEST_FILES:
         raise ValueError(
             "existing logical state exceeds MAX_MANIFEST_FILES "
             f"({MAX_MANIFEST_FILES}): {len(known_file_sizes)} entries"
         )
     final_file_sizes = dict(known_file_sizes)
-    final_logical_bytes = existing_logical_bytes
+    final_logical_bytes = total_logical_bytes
     for item in normalized_files:
         normalized_path = normalize_manifest_path(item.relative_path, label="extension file path")
         previous_size = final_file_sizes.get(normalized_path, 0)
@@ -285,6 +289,21 @@ def _normalize_chunk_map(chunk_map: Mapping[bytes, bytes] | None) -> dict[bytes,
             raise ValueError("existing chunk bytes do not hash to chunk_id")
         normalized[raw_chunk_id] = raw_chunk_bytes
     return normalized
+
+
+def _normalize_existing_file_sizes(
+    file_sizes: Mapping[str, int] | None,
+) -> dict[str, int]:
+    if file_sizes is None:
+        return {}
+
+    return {
+        normalize_manifest_path(path, label="extension file path"): require_non_negative_int(
+            size,
+            label="existing file size",
+        )
+        for path, size in file_sizes.items()
+    }
 
 
 __all__ = [

@@ -47,7 +47,7 @@ from ethernity.formats.extension_envelope import (
 
 
 @dataclass(frozen=True)
-class ExtensionChainLink:
+class _StructuralExtensionChainLink:
     """One extension document plus its ciphertext hash identity.
 
     This type validates structural ancestry only; it does not prove AUTH or root-authority trust.
@@ -66,7 +66,7 @@ class ExtensionChainLink:
 
 
 @dataclass(frozen=True)
-class AuthenticatedExtensionChainLink(ExtensionChainLink):
+class AuthenticatedExtensionChainLink(_StructuralExtensionChainLink):
     """Extension link whose AUTH payload is verified against the root signing authority."""
 
     auth_payload: AuthPayload
@@ -173,7 +173,7 @@ def _reconstruct_structural_latest_logical_state(
     payload: bytes,
     *,
     root_doc_hash: bytes,
-    extensions: Sequence[ExtensionChainLink],
+    extensions: Sequence[_StructuralExtensionChainLink],
 ) -> tuple[LogicalFileState, ...]:
     """Reconstruct latest state after structural-only chain validation.
 
@@ -277,7 +277,7 @@ def build_chain_available_chunks(
     root_state: Sequence[LogicalFileState],
     chunking: ExtensionChunkingProfile,
     *,
-    extensions: Sequence[ExtensionChainLink] = (),
+    extensions: Sequence[_StructuralExtensionChainLink] = (),
 ) -> dict[bytes, bytes]:
     """Return the chain-global chunk source before building a new extension."""
 
@@ -290,7 +290,7 @@ def build_chain_available_chunks(
 def _validate_structural_extension_chain(
     *,
     root_doc_hash: bytes,
-    extensions: Sequence[ExtensionChainLink],
+    extensions: Sequence[_StructuralExtensionChainLink],
 ) -> ExtensionChunkingProfile | None:
     """Validate extension-link ordering and ancestry metadata without AUTH checks."""
 
@@ -348,7 +348,6 @@ def validate_authenticated_extension_chain(
 
 __all__ = [
     "AuthenticatedExtensionChainLink",
-    "ExtensionChainLink",
     "LogicalFileState",
     "build_chain_available_chunks",
     "extract_root_logical_state",
@@ -438,7 +437,9 @@ def _merge_new_extension_chunks(
         target[chunk_record.chunk_id] = decoded_chunk
 
 
-def _extension_chunk_ref_counts(extensions: Sequence[ExtensionChainLink]) -> Counter[bytes]:
+def _extension_chunk_ref_counts(
+    extensions: Sequence[_StructuralExtensionChainLink],
+) -> Counter[bytes]:
     counts: Counter[bytes] = Counter()
     for link in extensions:
         for file_entry in link.document.files:

@@ -28,6 +28,7 @@ from ethernity.cli.features.extend.models import (
     PreparedExtensionPublishPlan,
 )
 from ethernity.cli.features.extend.planning import ResolvedExtendState, resolve_extend_state
+from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import ExtendArgs
@@ -77,10 +78,36 @@ def prepare_extend_run_from_state(
             code="RUNTIME_ERROR",
             message="extend planning did not produce a diff summary",
         )
+    required_result_metadata = {
+        "root_doc_id": inspection.root_doc_id,
+        "root_doc_hash": inspection.root_doc_hash,
+        "chain_id": inspection.chain_id,
+        "selected_scope": inspection.selected_scope,
+    }
+    missing_result_metadata = [
+        name for name, value in required_result_metadata.items() if value is None
+    ]
+    if missing_result_metadata:
+        raise ApiCommandError(
+            code=api_codes.RUNTIME_ERROR,
+            message=(
+                "extend planning did not produce required result metadata: "
+                f"{', '.join(missing_result_metadata)}"
+            ),
+            details={"missing_fields": missing_result_metadata},
+        )
 
     changed_paths = tuple(_read_diff_list(inspection.diff_summary, "changed_paths"))
     new_paths = tuple(_read_diff_list(inspection.diff_summary, "new_paths"))
     unchanged_paths = tuple(_read_diff_list(inspection.diff_summary, "unchanged_paths"))
+    missing_paths = tuple(_read_diff_list(inspection.diff_summary, "missing_paths"))
+
+    if missing_paths:
+        raise ApiCommandError(
+            code=api_codes.DELETE_NOT_SUPPORTED,
+            message="selected scope omits previously backed paths; delete/rename is unsupported",
+            details={"missing_paths": list(missing_paths)},
+        )
 
     if not changed_paths and not new_paths:
         raise ApiCommandError(
@@ -139,13 +166,18 @@ def prepare_extend_run_from_state(
 
 
 def _read_diff_list(diff_summary: dict[str, object], key: str) -> tuple[str, ...]:
-    raw_value = diff_summary.get(key)
-    if raw_value is None:
-        return ()
+    if key not in diff_summary:
+        raise ApiCommandError(
+            code="RUNTIME_ERROR",
+            message=f"extend diff summary is missing required field {key!r}",
+            details={"missing_field": key},
+        )
+    raw_value = diff_summary[key]
     if not isinstance(raw_value, list):
         raise ApiCommandError(
             code="RUNTIME_ERROR",
             message=f"extend diff summary field {key!r} must be a list",
+            details={"field": key},
         )
     return tuple(str(item) for item in raw_value)
 

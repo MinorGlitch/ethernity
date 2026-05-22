@@ -16,9 +16,7 @@
 
 """Curated public helpers for extension build, discovery, staging, and replay.
 
-The package facade intentionally exposes authenticated chain replay helpers only. Structural
-chain plumbing such as ``ExtensionChainLink`` and chunk-map construction remains available from
-implementation modules for internal callers, but is not part of the top-level supported surface.
+The package facade intentionally exposes authenticated chain replay helpers only.
 """
 
 from ethernity.extensions.build import (

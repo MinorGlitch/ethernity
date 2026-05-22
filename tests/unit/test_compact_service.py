@@ -19,11 +19,15 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from ethernity.cli.features.compact.service import _infer_root_publish_policy, run_compact
+from ethernity.cli.features.compact.service import (
+    _infer_passphrase_shard_policy_from_frames,
+    _infer_root_publish_policy,
+    run_compact,
+)
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import CompactArgs, RecoverArgs
-from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
+from ethernity.crypto.sharding import encode_shard_payload, split_passphrase, split_signing_seed
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import VERSION, Frame, FrameType
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
@@ -41,6 +45,37 @@ def _passphrase_shard_frames(
     sign_pub = derive_public_key(sign_priv)
     shards = split_passphrase(
         passphrase,
+        threshold=threshold,
+        shares=share_count,
+        doc_hash=doc_hash,
+        sign_priv=sign_priv,
+        sign_pub=sign_pub,
+    )
+    return tuple(
+        Frame(
+            version=VERSION,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=doc_id,
+            index=0,
+            total=1,
+            data=encode_shard_payload(shard),
+        )
+        for shard in shards
+    )
+
+
+def _signing_seed_shard_frames(
+    seed: bytes,
+    *,
+    threshold: int,
+    share_count: int,
+    doc_id: bytes,
+    doc_hash: bytes,
+    sign_priv: bytes,
+) -> tuple[Frame, ...]:
+    sign_pub = derive_public_key(sign_priv)
+    shards = split_signing_seed(
+        seed,
         threshold=threshold,
         shares=share_count,
         doc_hash=doc_hash,
@@ -150,6 +185,140 @@ class TestCompactService(unittest.TestCase):
         self.assertEqual(policy.passphrase_shard_count, 3)
         self.assertIsNone(policy.signing_key_shard_threshold)
         self.assertEqual(policy.signing_key_shard_count, 0)
+
+    def test_infer_root_publish_policy_scans_renamed_root_level_shard_content(self) -> None:
+        doc_id = b"\x22" * 8
+        doc_hash = b"\x44" * 32
+        sign_priv = b"\x33" * 32
+        sign_pub = derive_public_key(sign_priv)
+        shard_frames = _passphrase_shard_frames(
+            "secret passphrase",
+            threshold=2,
+            share_count=3,
+            doc_id=doc_id,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+        )[:2]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            renamed = root_dir / "renamed-root-policy.pdf"
+            renamed.write_bytes(b"not really a pdf; scanner is mocked")
+            with mock.patch(
+                "ethernity.cli.shared.root_shard_policy._frames_from_scan",
+                return_value=list(shard_frames),
+            ) as frames_from_scan:
+                policy = _infer_root_publish_policy(
+                    root_dir=str(root_dir),
+                    root_doc_id_hex=doc_id.hex(),
+                    root_doc_hash=doc_hash,
+                    sign_pub=sign_pub,
+                    quiet=True,
+                )
+
+        frames_from_scan.assert_called_once_with([str(renamed)])
+        self.assertEqual(policy.passphrase_shard_threshold, 2)
+        self.assertEqual(policy.passphrase_shard_count, 3)
+
+    def test_infer_root_publish_policy_classifies_signing_key_shards_by_payload(self) -> None:
+        doc_id = b"\x22" * 8
+        doc_hash = b"\x44" * 32
+        sign_priv = b"\x33" * 32
+        sign_pub = derive_public_key(sign_priv)
+        shard_frames = _signing_seed_shard_frames(
+            b"\x55" * 32,
+            threshold=2,
+            share_count=4,
+            doc_id=doc_id,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+        )[:2]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            renamed = root_dir / "not-a-signing-key-name.pdf"
+            renamed.write_bytes(b"scanner is mocked")
+            with mock.patch(
+                "ethernity.cli.shared.root_shard_policy._frames_from_scan",
+                return_value=list(shard_frames),
+            ):
+                policy = _infer_root_publish_policy(
+                    root_dir=str(root_dir),
+                    root_doc_id_hex=doc_id.hex(),
+                    root_doc_hash=doc_hash,
+                    sign_pub=sign_pub,
+                    quiet=True,
+                )
+
+        self.assertIsNone(policy.passphrase_shard_threshold)
+        self.assertEqual(policy.passphrase_shard_count, 0)
+        self.assertEqual(policy.signing_key_shard_threshold, 2)
+        self.assertEqual(policy.signing_key_shard_count, 4)
+
+    def test_infer_root_publish_policy_ignores_extension_directory_shards(self) -> None:
+        doc_id = b"\x22" * 8
+        doc_hash = b"\x44" * 32
+        sign_pub = derive_public_key(b"\x33" * 32)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            extension_dir = root_dir / "extensions" / "01"
+            extension_dir.mkdir(parents=True)
+            (extension_dir / "renamed-extension-shard.pdf").write_bytes(b"scanner must not run")
+            with mock.patch(
+                "ethernity.cli.shared.root_shard_policy._frames_from_scan",
+                side_effect=AssertionError("extension shards must not be scanned"),
+            ):
+                policy = _infer_root_publish_policy(
+                    root_dir=str(root_dir),
+                    root_doc_id_hex=doc_id.hex(),
+                    root_doc_hash=doc_hash,
+                    sign_pub=sign_pub,
+                    quiet=True,
+                )
+
+        self.assertIsNone(policy.passphrase_shard_threshold)
+        self.assertEqual(policy.passphrase_shard_count, 0)
+        self.assertIsNone(policy.signing_key_shard_threshold)
+        self.assertEqual(policy.signing_key_shard_count, 0)
+
+    def test_infer_root_publish_policy_rejects_shards_without_trusted_authority(self) -> None:
+        doc_id = b"\x22" * 8
+        doc_hash = b"\x44" * 32
+        shard_frames = _passphrase_shard_frames(
+            "secret passphrase",
+            threshold=2,
+            share_count=3,
+            doc_id=doc_id,
+            doc_hash=doc_hash,
+            sign_priv=b"\x33" * 32,
+        )[:2]
+
+        with self.assertRaises(ApiCommandError) as ctx:
+            _infer_root_publish_policy(
+                root_dir="/tmp/root",
+                root_doc_id_hex=doc_id.hex(),
+                root_doc_hash=doc_hash,
+                sign_pub=None,
+                passphrase_shard_frames=shard_frames,
+                quiet=True,
+            )
+
+        self.assertEqual(ctx.exception.code, api_codes.COMPACT_INVALID_POLICY)
+        self.assertEqual(ctx.exception.details, {"stage": "root_shard_policy"})
+
+    def test_infer_source_shard_policy_rejects_shards_without_trusted_authority(self) -> None:
+        shard_frames = _passphrase_shard_frames(
+            "secret passphrase",
+            threshold=2,
+            share_count=3,
+            doc_id=b"\x22" * 8,
+            doc_hash=b"\x44" * 32,
+            sign_priv=b"\x33" * 32,
+        )[:2]
+
+        with self.assertRaises(ApiCommandError) as ctx:
+            _infer_passphrase_shard_policy_from_frames(shard_frames, sign_pub=None)
+
+        self.assertEqual(ctx.exception.code, api_codes.COMPACT_INVALID_POLICY)
+        self.assertEqual(ctx.exception.details, {"stage": "source_shard_policy"})
 
     def test_run_compact_preserves_external_unlock_shard_policy(self) -> None:
         doc_id = b"\x22" * 8
@@ -660,7 +829,7 @@ class TestCompactService(unittest.TestCase):
             infer_root_publish_policy.call_args.kwargs["sign_pub"],
             derive_public_key(b"\x33" * 32),
         )
-        self.assertFalse(infer_root_publish_policy.call_args.kwargs["allow_unsigned"])
+        self.assertNotIn("allow_unsigned", infer_root_publish_policy.call_args.kwargs)
 
     @mock.patch("ethernity.cli.features.compact.service.run_backup", return_value="backup-result")
     @mock.patch(
@@ -687,8 +856,8 @@ class TestCompactService(unittest.TestCase):
     @mock.patch(
         "ethernity.cli.features.compact.service._infer_root_publish_policy",
         return_value=SimpleNamespace(
-            passphrase_shard_threshold=2,
-            passphrase_shard_count=3,
+            passphrase_shard_threshold=None,
+            passphrase_shard_count=0,
             signing_key_shard_threshold=None,
             signing_key_shard_count=0,
         ),
@@ -747,7 +916,10 @@ class TestCompactService(unittest.TestCase):
 
         self.assertEqual(result, "backup-result")
         self.assertIsNone(infer_root_publish_policy.call_args.kwargs["sign_pub"])
-        self.assertTrue(infer_root_publish_policy.call_args.kwargs["allow_unsigned"])
+        self.assertNotIn("allow_unsigned", infer_root_publish_policy.call_args.kwargs)
+        backup_args = _plan_backup_from_args.call_args.args[0]
+        self.assertIsNone(backup_args.shard_threshold)
+        self.assertIsNone(backup_args.shard_count)
         self.assertIsNone(run_backup_mock.call_args.kwargs["signing_seed_override"])
 
     @mock.patch(

@@ -28,8 +28,8 @@ from ethernity.extensions import (
     validate_authenticated_extension_chain,
 )
 from ethernity.extensions.chain import (
-    ExtensionChainLink,
     _reconstruct_structural_latest_logical_state as reconstruct_latest_logical_state,
+    _StructuralExtensionChainLink,
     _validate_structural_extension_chain as validate_extension_chain,
 )
 from ethernity.formats.envelope_codec import build_manifest_and_payload
@@ -228,7 +228,7 @@ class TestExtensionChain(unittest.TestCase):
         alpha_chunk_id = hashlib.sha256(b"alpha").digest()
         changed_chunk_id, changed_chunk = _raw_chunk(b"ALPHA-CHANGED")
 
-        ext1 = ExtensionChainLink(
+        ext1 = _StructuralExtensionChainLink(
             doc_hash=EXT1_DOC_HASH,
             document=ExtensionEnvelope(
                 header=build_extension_header(
@@ -270,7 +270,7 @@ class TestExtensionChain(unittest.TestCase):
             ),
         )
 
-        ext2 = ExtensionChainLink(
+        ext2 = _StructuralExtensionChainLink(
             doc_hash=EXT2_DOC_HASH,
             document=ExtensionEnvelope(
                 header=build_extension_header(
@@ -355,7 +355,7 @@ class TestExtensionChain(unittest.TestCase):
         alpha_chunk_id = hashlib.sha256(b"alpha").digest()
         changed_chunk_id, changed_chunk = _raw_chunk(b"ALPHA-CHANGED")
         duplicate_alpha_chunk_id, duplicate_alpha_chunk = _raw_chunk(b"alpha")
-        ext1 = ExtensionChainLink(
+        ext1 = _StructuralExtensionChainLink(
             doc_hash=EXT1_DOC_HASH,
             document=ExtensionEnvelope(
                 header=build_extension_header(
@@ -384,7 +384,7 @@ class TestExtensionChain(unittest.TestCase):
                 chunks=(changed_chunk,),
             ),
         )
-        ext2 = ExtensionChainLink(
+        ext2 = _StructuralExtensionChainLink(
             doc_hash=EXT2_DOC_HASH,
             document=ExtensionEnvelope(
                 header=build_extension_header(
@@ -434,7 +434,7 @@ class TestExtensionChain(unittest.TestCase):
         )
         first_chunk_id, first_chunk = _raw_chunk(b"first")
         second_chunk_id, second_chunk = _raw_chunk(b"second")
-        ext1 = ExtensionChainLink(
+        ext1 = _StructuralExtensionChainLink(
             doc_hash=EXT1_DOC_HASH,
             document=ExtensionEnvelope(
                 header=build_extension_header(
@@ -463,7 +463,7 @@ class TestExtensionChain(unittest.TestCase):
                 chunks=(first_chunk,),
             ),
         )
-        ext2 = ExtensionChainLink(
+        ext2 = _StructuralExtensionChainLink(
             doc_hash=EXT2_DOC_HASH,
             document=ExtensionEnvelope(
                 header=build_extension_header(
@@ -524,7 +524,7 @@ class TestExtensionChain(unittest.TestCase):
         )
         first_chunk_id, first_chunk = _raw_chunk(b"first")
         second_chunk_id, second_chunk = _raw_chunk(b"second")
-        ext1 = ExtensionChainLink(
+        ext1 = _StructuralExtensionChainLink(
             doc_hash=EXT1_DOC_HASH,
             document=ExtensionEnvelope(
                 header=build_extension_header(
@@ -553,7 +553,7 @@ class TestExtensionChain(unittest.TestCase):
                 chunks=(first_chunk,),
             ),
         )
-        ext2 = ExtensionChainLink(
+        ext2 = _StructuralExtensionChainLink(
             doc_hash=EXT2_DOC_HASH,
             document=ExtensionEnvelope(
                 header=build_extension_header(
@@ -605,7 +605,7 @@ class TestExtensionChain(unittest.TestCase):
 
     def test_validate_chain_rejects_parent_doc_hash_mismatch(self) -> None:
         chunk_id, chunk = _raw_chunk(b"x")
-        link = ExtensionChainLink(
+        link = _StructuralExtensionChainLink(
             doc_hash=EXT1_DOC_HASH,
             document=ExtensionEnvelope(
                 header=build_extension_header(
@@ -635,7 +635,7 @@ class TestExtensionChain(unittest.TestCase):
 
     def test_validate_chain_rejects_chunking_profile_drift(self) -> None:
         chunk_id, chunk = _raw_chunk(b"x")
-        ext1 = ExtensionChainLink(
+        ext1 = _StructuralExtensionChainLink(
             doc_hash=EXT1_DOC_HASH,
             document=ExtensionEnvelope(
                 header=build_extension_header(
@@ -659,7 +659,7 @@ class TestExtensionChain(unittest.TestCase):
                 chunks=(chunk,),
             ),
         )
-        ext2 = ExtensionChainLink(
+        ext2 = _StructuralExtensionChainLink(
             doc_hash=EXT2_DOC_HASH,
             document=ExtensionEnvelope(
                 header=build_extension_header(
@@ -702,7 +702,7 @@ class TestExtensionChain(unittest.TestCase):
             input_roots=(),
         )
         missing_chunk_id = hashlib.sha256(b"missing").digest()
-        link = ExtensionChainLink(
+        link = _StructuralExtensionChainLink(
             doc_hash=EXT1_DOC_HASH,
             document=ExtensionEnvelope(
                 header=build_extension_header(
@@ -752,7 +752,7 @@ class TestExtensionChain(unittest.TestCase):
         full_data = b"abcdefgh"
         first_chunk_id, first_chunk = _raw_chunk(full_data[:1])
         second_chunk_id, second_chunk = _raw_chunk(full_data[1:])
-        link = ExtensionChainLink(
+        link = _StructuralExtensionChainLink(
             doc_hash=EXT1_DOC_HASH,
             document=ExtensionEnvelope(
                 header=build_extension_header(
@@ -804,7 +804,7 @@ class TestExtensionChain(unittest.TestCase):
             input_roots=(),
         )
         chunk_id, chunk = _raw_chunk(b"ab")
-        link = ExtensionChainLink(
+        link = _StructuralExtensionChainLink(
             doc_hash=EXT1_DOC_HASH,
             document=ExtensionEnvelope(
                 header=build_extension_header(
@@ -846,7 +846,7 @@ class TestExtensionChain(unittest.TestCase):
             input_roots=("docs",),
         )
         chunk_id, chunk = _raw_chunk(b"new")
-        link = ExtensionChainLink(
+        link = _StructuralExtensionChainLink(
             doc_hash=EXT1_DOC_HASH,
             document=ExtensionEnvelope(
                 header=build_extension_header(
@@ -895,7 +895,7 @@ class TestExtensionChain(unittest.TestCase):
             input_roots=("docs",),
         )
         chunk_id, chunk = _raw_chunk(b"replacement")
-        link = ExtensionChainLink(
+        link = _StructuralExtensionChainLink(
             doc_hash=EXT1_DOC_HASH,
             document=ExtensionEnvelope(
                 header=build_extension_header(
@@ -952,7 +952,7 @@ class TestExtensionChain(unittest.TestCase):
         )
         grown_chunk_id, grown_chunk = _raw_chunk(b"a" * 20)
         shrunk_chunk_id, shrunk_chunk = _raw_chunk(b"z" * 5)
-        link = ExtensionChainLink(
+        link = _StructuralExtensionChainLink(
             doc_hash=EXT1_DOC_HASH,
             document=ExtensionEnvelope(
                 header=build_extension_header(
