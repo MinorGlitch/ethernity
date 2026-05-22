@@ -43,12 +43,11 @@ function requireNonEmptyString(value, name) {
 
 export function buildCompressedLoaderHtml({
   payloadBase91Safe,
-  gzBase91Safe,
   alphabet,
   compression = "gzip",
   title = DEFAULT_TITLE,
 }) {
-  const payload = requireNonEmptyString(payloadBase91Safe ?? gzBase91Safe, "payloadBase91Safe");
+  const payload = requireNonEmptyString(payloadBase91Safe, "payloadBase91Safe");
   const codecAlphabet = requireNonEmptyString(alphabet, "alphabet");
   const format = normalizeCompression(compression);
   const fallbackHtml = buildUnsupportedLoaderHtml({ title });

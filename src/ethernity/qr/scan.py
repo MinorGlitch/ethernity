@@ -111,20 +111,8 @@ def scan_qr_payloads(paths: Sequence[str | Path]) -> list[bytes]:
 
     decoder = _load_decoder()
     payloads: list[bytes] = []
-    for raw in paths:
-        path = Path(raw)
-        if path.is_symlink():
-            raise QrScanError(f"scan path must not be a symlink: {path}")
-        if not path.exists():
-            raise QrScanError(f"scan path not found: {path}")
-        if path.is_dir():
-            scan_files = _iter_scan_files(path)
-            if not scan_files:
-                raise QrScanError(f"no scan files found in directory: {path}")
-            for scan_file in scan_files:
-                payloads.extend(_scan_one_path(scan_file, decoder))
-        else:
-            payloads.extend(_scan_one_path(path, decoder))
+    for path in _expand_paths(paths):
+        payloads.extend(_scan_one_path(path, decoder))
 
     if not payloads:
         raise QrScanError("no QR codes found in scan inputs")

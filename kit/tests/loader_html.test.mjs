@@ -73,15 +73,6 @@ test("buildCompressedLoaderHtml rejects missing loader payload inputs", () => {
   );
 });
 
-test("buildCompressedLoaderHtml accepts legacy gzBase91Safe payload input", () => {
-  const html = buildCompressedLoaderHtml({
-    gzBase91Safe: "abc123",
-    alphabet: "abc123",
-  });
-
-  assert.match(html, /const p="abc123"/);
-});
-
 test("buildCompressedLoaderHtml decodes and renders gzip payload", async () => {
   const sourceHtml = "<!doctype html><p>ok</p>";
   const payloadBase91Safe = base91Encode(gzipSync(Buffer.from(sourceHtml))).replaceAll(
