@@ -170,12 +170,6 @@ def encode_envelope(payload: bytes, manifest: EnvelopeManifest) -> bytes:
     return b"".join(parts)
 
 
-def encode_envelope_v1(payload: bytes, manifest: EnvelopeManifest) -> bytes:
-    """Explicit V1 wrapper used by future version-dispatch call sites."""
-
-    return encode_envelope(payload, manifest)
-
-
 def decode_envelope(data: bytes) -> tuple[EnvelopeManifest, bytes]:
     """Decode an envelope and return `(manifest, payload)`."""
 
@@ -211,12 +205,6 @@ def decode_envelope(data: bytes) -> tuple[EnvelopeManifest, bytes]:
     return manifest, payload
 
 
-def decode_envelope_v1(data: bytes) -> tuple[EnvelopeManifest, bytes]:
-    """Explicit V1 wrapper used by future version-dispatch call sites."""
-
-    return decode_envelope(data)
-
-
 def encode_extension_envelope(document: object) -> bytes:
     """Encode an extension envelope."""
 
@@ -241,7 +229,7 @@ def decode_any_envelope(data: bytes) -> tuple[int, object]:
         raise ValueError("invalid envelope magic")
     version, _next_idx = _decode_uvarint(data, idx)
     if version == VERSION:
-        return version, decode_envelope_v1(data)
+        return version, decode_envelope(data)
     if version == 2:
         return version, decode_extension_envelope(data)
     raise ValueError(f"unsupported envelope version: {version}")
