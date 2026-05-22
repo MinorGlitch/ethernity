@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import unittest
 
-from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
+from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
 from ethernity.render.proofs import (
     RenderProofError,
     build_render_artifact_proof,
     frame_digest,
+    qr_payload_digest,
     validate_fallback_render_proof,
     validate_fallback_text_in_pdf,
     validate_render_artifact_proof,
@@ -32,6 +33,10 @@ from ethernity.render.types import (
     RenderInputs,
     RenderLineage,
 )
+
+
+def _qr_payload_digest_for_frame(frame: Frame) -> str:
+    return qr_payload_digest(encode_frame(frame))
 
 
 class TestRenderProofs(unittest.TestCase):
@@ -58,6 +63,9 @@ class TestRenderProofs(unittest.TestCase):
             frame_digests=(frame_digest(frame),),
             encoded_payload_count=1,
             physical_qr_count=1,
+            qr_payload_digests=(_qr_payload_digest_for_frame(frame),),
+            physical_qr_payload_indexes=(0,),
+            physical_qr_payload_digests=(_qr_payload_digest_for_frame(frame),),
         )
 
         validate_render_artifact_proof(
@@ -89,6 +97,9 @@ class TestRenderProofs(unittest.TestCase):
             frame_digests=("not-the-frame",),
             encoded_payload_count=1,
             physical_qr_count=1,
+            qr_payload_digests=(_qr_payload_digest_for_frame(frame),),
+            physical_qr_payload_indexes=(0,),
+            physical_qr_payload_digests=(_qr_payload_digest_for_frame(frame),),
         )
 
         with self.assertRaises(RenderProofError) as ctx:
@@ -99,6 +110,89 @@ class TestRenderProofs(unittest.TestCase):
             )
 
         self.assertIn("frame digests", str(ctx.exception))
+
+    def test_validate_render_artifact_proof_rejects_duplicate_omitted_qr_payload(self) -> None:
+        frames = (
+            Frame(
+                version=VERSION,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\x44" * DOC_ID_LEN,
+                index=0,
+                total=2,
+                data=b"payload-1",
+            ),
+            Frame(
+                version=VERSION,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=b"\x44" * DOC_ID_LEN,
+                index=1,
+                total=2,
+                data=b"payload-2",
+            ),
+        )
+        payload_digests = tuple(_qr_payload_digest_for_frame(frame) for frame in frames)
+        inputs = RenderInputs(
+            frames=frames,
+            template_path="/tmp/template.html.j2",
+            output_path="/tmp/out.pdf",
+            context={},
+            doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
+        )
+        proof = RenderArtifactProof(
+            output_path="/tmp/out.pdf",
+            doc_type="main",
+            frame_digests=tuple(frame_digest(frame) for frame in frames),
+            encoded_payload_count=2,
+            physical_qr_count=2,
+            qr_payload_digests=payload_digests,
+            physical_qr_payload_indexes=(0, 0),
+            physical_qr_payload_digests=(payload_digests[0], payload_digests[0]),
+        )
+
+        with self.assertRaises(RenderProofError) as ctx:
+            validate_render_artifact_proof(
+                artifact_label="rendered QR document",
+                inputs=inputs,
+                artifact_proof=proof,
+            )
+
+        self.assertIn("omit or reorder", str(ctx.exception))
+
+    def test_validate_render_artifact_proof_accepts_intentional_repeated_qr_payload(self) -> None:
+        frame = Frame(
+            version=VERSION,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=b"\x44" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        payload_digest = _qr_payload_digest_for_frame(frame)
+        inputs = RenderInputs(
+            frames=(frame,),
+            template_path="/tmp/template.html.j2",
+            output_path="/tmp/out.pdf",
+            context={},
+            doc_type="shard",
+            lineage=RenderLineage(kind="root_backup"),
+        )
+        proof = RenderArtifactProof(
+            output_path="/tmp/out.pdf",
+            doc_type="shard",
+            frame_digests=(frame_digest(frame),),
+            encoded_payload_count=1,
+            physical_qr_count=2,
+            qr_payload_digests=(payload_digest,),
+            physical_qr_payload_indexes=(0, 0),
+            physical_qr_payload_digests=(payload_digest, payload_digest),
+        )
+
+        validate_render_artifact_proof(
+            artifact_label="rendered shard document",
+            inputs=inputs,
+            artifact_proof=proof,
+        )
 
     def test_validate_render_artifact_proof_rejects_physical_qr_count_mismatch(self) -> None:
         frame = Frame(

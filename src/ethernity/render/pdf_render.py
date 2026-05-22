@@ -571,8 +571,12 @@ def render_frames_to_pdf(inputs: RenderInputs) -> RenderResult:
     return RenderResult(
         artifact_proof=build_render_artifact_proof(
             inputs=inputs,
+            qr_payloads=qr_payloads,
             encoded_payload_count=len(qr_payloads),
             physical_qr_count=sum(len(page.qr_items) for page in pages),
+            physical_qr_payload_indexes=tuple(
+                qr_item.index - 1 for page in pages for qr_item in page.qr_items
+            ),
             page_count=len(pages),
             fallback_proof=fallback_proof,
         ),

@@ -42,15 +42,45 @@ def frame_digest(frame: Frame) -> str:
     return hashlib.sha256(encode_frame(frame)).hexdigest()
 
 
+def qr_payload_digest(payload: bytes | str) -> str:
+    """Return the stable digest used by render proofs for an encoded QR payload."""
+
+    digest = hashlib.sha256()
+    if isinstance(payload, str):
+        digest.update(b"str\x00")
+        digest.update(payload.encode("utf-8"))
+    else:
+        digest.update(b"bytes\x00")
+        digest.update(bytes(payload))
+    return digest.hexdigest()
+
+
 def build_render_artifact_proof(
     inputs: RenderInputs,
     *,
+    qr_payloads: Sequence[bytes | str] | None = None,
     encoded_payload_count: int,
     physical_qr_count: int,
+    physical_qr_payload_indexes: Sequence[int] | None = None,
     page_count: int = 0,
     fallback_proof: RenderFallbackProof | None,
 ) -> RenderArtifactProof:
     """Build the app-wide render proof for one PDF artifact."""
+
+    if qr_payloads is not None:
+        planned_payloads = tuple(qr_payloads)
+    elif inputs.qr_payloads is not None:
+        planned_payloads = tuple(inputs.qr_payloads)
+    else:
+        planned_payloads = tuple(encode_frame(frame) for frame in inputs.frames)
+    qr_payload_digests = tuple(qr_payload_digest(payload) for payload in planned_payloads)
+    physical_indexes = tuple(physical_qr_payload_indexes or ())
+    if physical_indexes:
+        _validate_physical_qr_indexes(
+            physical_indexes,
+            expected_encoded_payload_count=len(qr_payload_digests),
+        )
+    physical_payload_digests = tuple(qr_payload_digests[index] for index in physical_indexes)
 
     return RenderArtifactProof(
         output_path=str(inputs.output_path),
@@ -60,6 +90,9 @@ def build_render_artifact_proof(
         physical_qr_count=physical_qr_count,
         page_count=page_count,
         fallback_proof=fallback_proof,
+        qr_payload_digests=qr_payload_digests,
+        physical_qr_payload_indexes=physical_indexes,
+        physical_qr_payload_digests=physical_payload_digests,
     )
 
 
@@ -161,12 +194,36 @@ def validate_render_artifact_proof(
                 "proof_encoded_payload_count": artifact_proof.encoded_payload_count,
             },
         )
+    expected_qr_payload_digests = _expected_qr_payload_digests(inputs)
+    proof_qr_payload_digests = (
+        artifact_proof.qr_payload_digests
+        if artifact_proof.qr_payload_digests
+        else expected_qr_payload_digests
+    )
+    if proof_qr_payload_digests != expected_qr_payload_digests:
+        raise RenderProofError(
+            f"{artifact_label} proof QR payload digests do not match render inputs",
+            details={
+                "expected_qr_payload_count": len(expected_qr_payload_digests),
+                "proof_qr_payload_count": len(proof_qr_payload_digests),
+            },
+        )
     if not inputs.render_qr and artifact_proof.physical_qr_count != 0:
         raise RenderProofError(
             f"{artifact_label} proof physical QR count does not match render inputs",
             details={
                 "expected_physical_qr_count": 0,
                 "proof_physical_qr_count": artifact_proof.physical_qr_count,
+            },
+        )
+    if not inputs.render_qr and (
+        artifact_proof.physical_qr_payload_indexes or artifact_proof.physical_qr_payload_digests
+    ):
+        raise RenderProofError(
+            f"{artifact_label} proof physical QR payloads do not match render inputs",
+            details={
+                "expected_physical_qr_count": 0,
+                "proof_physical_qr_payload_count": len(artifact_proof.physical_qr_payload_digests),
             },
         )
     if inputs.render_qr and artifact_proof.physical_qr_count < expected_encoded_payload_count:
@@ -177,6 +234,94 @@ def validate_render_artifact_proof(
                 "proof_physical_qr_count": artifact_proof.physical_qr_count,
             },
         )
+    if inputs.render_qr:
+        _validate_physical_qr_indexes(
+            artifact_proof.physical_qr_payload_indexes,
+            expected_encoded_payload_count=expected_encoded_payload_count,
+        )
+        expected_physical_digests = tuple(
+            expected_qr_payload_digests[index]
+            for index in artifact_proof.physical_qr_payload_indexes
+        )
+        if artifact_proof.physical_qr_payload_digests != expected_physical_digests:
+            raise RenderProofError(
+                f"{artifact_label} proof physical QR payload digests do not match QR indexes",
+                details={
+                    "proof_physical_qr_count": artifact_proof.physical_qr_count,
+                    "proof_physical_qr_payload_count": len(
+                        artifact_proof.physical_qr_payload_digests
+                    ),
+                },
+            )
+        if (
+            len(artifact_proof.physical_qr_payload_indexes) != artifact_proof.physical_qr_count
+            or len(artifact_proof.physical_qr_payload_digests) != artifact_proof.physical_qr_count
+        ):
+            raise RenderProofError(
+                f"{artifact_label} proof physical QR payload count does not match placements",
+                details={
+                    "proof_physical_qr_count": artifact_proof.physical_qr_count,
+                    "proof_physical_qr_index_count": len(
+                        artifact_proof.physical_qr_payload_indexes
+                    ),
+                    "proof_physical_qr_payload_count": len(
+                        artifact_proof.physical_qr_payload_digests
+                    ),
+                },
+            )
+        if _first_physical_qr_occurrences(artifact_proof.physical_qr_payload_indexes) != tuple(
+            range(expected_encoded_payload_count)
+        ):
+            raise RenderProofError(
+                f"{artifact_label} proof physical QR placements omit or reorder payloads",
+                details={
+                    "expected_payload_indexes": tuple(range(expected_encoded_payload_count)),
+                    "proof_first_payload_indexes": _first_physical_qr_occurrences(
+                        artifact_proof.physical_qr_payload_indexes
+                    ),
+                },
+            )
+
+
+def _expected_qr_payload_digests(inputs: RenderInputs) -> tuple[str, ...]:
+    payloads: Sequence[bytes | str]
+    if inputs.qr_payloads is not None:
+        payloads = inputs.qr_payloads
+    else:
+        payloads = tuple(encode_frame(frame) for frame in inputs.frames)
+    return tuple(qr_payload_digest(payload) for payload in payloads)
+
+
+def _validate_physical_qr_indexes(
+    indexes: Sequence[int],
+    *,
+    expected_encoded_payload_count: int,
+) -> None:
+    for index in indexes:
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index >= expected_encoded_payload_count
+        ):
+            raise RenderProofError(
+                "render proof contains an invalid physical QR payload index",
+                details={
+                    "invalid_index": index,
+                    "expected_encoded_payload_count": expected_encoded_payload_count,
+                },
+            )
+
+
+def _first_physical_qr_occurrences(indexes: Sequence[int]) -> tuple[int, ...]:
+    seen: set[int] = set()
+    first_indexes: list[int] = []
+    for index in indexes:
+        if index in seen:
+            continue
+        seen.add(index)
+        first_indexes.append(index)
+    return tuple(first_indexes)
 
 
 def validate_fallback_text_in_pdf(

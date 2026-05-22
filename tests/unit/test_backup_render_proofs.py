@@ -19,8 +19,8 @@ import unittest
 from unittest import mock
 
 from ethernity.cli.features.backup.execution import _validate_rendered_pdf_artifact
-from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
-from ethernity.render.proofs import RenderProofError, frame_digest
+from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
+from ethernity.render.proofs import RenderProofError, frame_digest, qr_payload_digest
 from ethernity.render.types import RenderArtifactProof, RenderInputs, RenderLineage, RenderResult
 
 
@@ -62,6 +62,9 @@ class TestBackupRenderProofs(unittest.TestCase):
                 frame_digests=(frame_digest(frame),),
                 encoded_payload_count=1,
                 physical_qr_count=1,
+                qr_payload_digests=(qr_payload_digest(encode_frame(frame)),),
+                physical_qr_payload_indexes=(0,),
+                physical_qr_payload_digests=(qr_payload_digest(encode_frame(frame)),),
             )
         )
 

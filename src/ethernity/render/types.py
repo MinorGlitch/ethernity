@@ -102,6 +102,9 @@ class RenderArtifactProof:
     physical_qr_count: int
     page_count: int = 0
     fallback_proof: RenderFallbackProof | None = None
+    qr_payload_digests: tuple[str, ...] = ()
+    physical_qr_payload_indexes: tuple[int, ...] = ()
+    physical_qr_payload_digests: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
