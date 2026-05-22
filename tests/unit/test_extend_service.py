@@ -77,6 +77,7 @@ from ethernity.extensions.chain import LogicalFileState
 from ethernity.extensions.staging import ExtensionPublishPolicy
 from ethernity.formats.extension_envelope import ExtensionChunkingProfile
 from ethernity.formats.extension_envelope_constants import CHUNK_ALGORITHM_FASTCDC
+from ethernity.render.proofs import build_render_artifact_proof
 from ethernity.render.types import RenderFallbackProof, RenderInputs, RenderResult
 
 
@@ -200,10 +201,9 @@ def _shard_payload(
 
 def _render_result_for_inputs(inputs: RenderInputs) -> RenderResult:
     sections = tuple(inputs.fallback_sections or ())
-    if not sections:
-        return RenderResult()
-    return RenderResult(
-        fallback_proof=RenderFallbackProof(
+    fallback_proof = None
+    if sections:
+        fallback_proof = RenderFallbackProof(
             section_frame_digests=tuple(
                 hashlib.sha256(encode_frame(section.frame)).hexdigest() for section in sections
             ),
@@ -223,6 +223,18 @@ def _render_result_for_inputs(inputs: RenderInputs) -> RenderResult:
                 if isinstance(section.label, str) and section.label.strip()
             ),
         )
+    qr_payload_count = len(inputs.qr_payloads or inputs.frames)
+    physical_qr_payload_indexes = tuple(range(qr_payload_count)) if inputs.render_qr else ()
+    return RenderResult(
+        artifact_proof=build_render_artifact_proof(
+            inputs,
+            encoded_payload_count=qr_payload_count,
+            physical_qr_count=len(physical_qr_payload_indexes),
+            physical_qr_payload_indexes=physical_qr_payload_indexes,
+            page_count=1,
+            fallback_proof=fallback_proof,
+        ),
+        fallback_proof=fallback_proof,
     )
 
 

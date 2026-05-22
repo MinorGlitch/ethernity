@@ -154,7 +154,7 @@ def render_extension_shard(
     qr_payload_codec: Any,
     layout_debug_dir: str | None,
     stem: str,
-    render_frames_to_pdf: Callable[[RenderInputs], RenderResult | None],
+    render_frames_to_pdf: Callable[[RenderInputs], RenderResult],
     layout_debug_json_path: Callable[[str | None, str], str | None],
     lineage: RenderLineage,
     doc_type: str | None = None,
@@ -179,7 +179,12 @@ def render_extension_shard(
         layout_debug_json_path=layout_debug_json_path(layout_debug_dir, stem),
         lineage=lineage,
     )
-    render_frames_to_pdf(shard_inputs)
+    render_result = render_frames_to_pdf(shard_inputs)
+    if render_result.artifact_proof is None:
+        raise ApiCommandError(
+            code="RUNTIME_ERROR",
+            message=f"{stem} render did not return an artifact proof",
+        )
 
 
 SIGNING_KEY_SHARD_DOC_TYPE = DOC_TYPE_SIGNING_KEY_SHARD

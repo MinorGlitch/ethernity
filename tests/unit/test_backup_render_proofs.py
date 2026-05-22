@@ -44,6 +44,46 @@ class _Reader:
 
 
 class TestBackupRenderProofs(unittest.TestCase):
+    def test_artifact_validation_requires_render_result(self) -> None:
+        inputs = RenderInputs(
+            frames=(),
+            template_path="/tmp/qr.html.j2",
+            output_path="/tmp/qr.pdf",
+            context={},
+            doc_type="qr",
+            lineage=RenderLineage(kind="root_backup"),
+            render_fallback=False,
+        )
+
+        with self.assertRaises(RenderProofError) as ctx:
+            _validate_rendered_pdf_artifact(
+                inputs=inputs,
+                result=object(),
+                artifact_label="rendered QR document",
+            )
+
+        self.assertIn("renderer did not return RenderResult", str(ctx.exception))
+
+    def test_artifact_validation_requires_render_artifact_proof(self) -> None:
+        inputs = RenderInputs(
+            frames=(),
+            template_path="/tmp/qr.html.j2",
+            output_path="/tmp/qr.pdf",
+            context={},
+            doc_type="qr",
+            lineage=RenderLineage(kind="root_backup"),
+            render_fallback=False,
+        )
+
+        with self.assertRaises(RenderProofError) as ctx:
+            _validate_rendered_pdf_artifact(
+                inputs=inputs,
+                result=RenderResult(),
+                artifact_label="rendered QR document",
+            )
+
+        self.assertIn("missing render artifact proof", str(ctx.exception))
+
     def test_recovery_artifact_validation_requires_fallback_proof(self) -> None:
         frame = Frame(
             version=VERSION,

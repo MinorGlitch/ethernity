@@ -44,23 +44,24 @@ from .shard_rendering import (
 
 def _update_kit_index_qr_page_count(
     kit_index_inputs: RenderInputs | None,
-    render_result: RenderResult | None,
+    render_result: RenderResult,
 ) -> None:
-    if (
-        kit_index_inputs is None
-        or render_result is None
-        or render_result.artifact_proof is None
-        or render_result.artifact_proof.page_count <= 0
-    ):
+    if kit_index_inputs is None:
         return
-    kit_index_inputs.context["kit_qr_page_count"] = render_result.artifact_proof.page_count
+    if render_result.artifact_proof is None:
+        raise ApiCommandError(
+            code="RUNTIME_ERROR",
+            message="QR document render did not return an artifact proof",
+        )
+    if render_result.artifact_proof.page_count > 0:
+        kit_index_inputs.context["kit_qr_page_count"] = render_result.artifact_proof.page_count
 
 
 def render_extension_artifacts(
     plan: PreparedExtensionPublishPlan,
     *,
     runtime: ResolvedExtendRuntime,
-    render_frames_to_pdf: Callable[[RenderInputs], RenderResult | None],
+    render_frames_to_pdf: Callable[[RenderInputs], RenderResult],
     layout_debug_json_path: Callable[[str | None, str], str | None],
     build_kit_index_inventory_rows: Callable[..., list[dict[str, str]]],
 ) -> RenderedExtensionArtifacts:
@@ -155,7 +156,5 @@ def render_extension_artifacts(
         recovery_document_fallback_frames=tuple(
             section.frame for section in recovery_inputs.fallback_sections or ()
         ),
-        recovery_document_fallback_proof=(
-            recovery_render_result.fallback_proof if recovery_render_result is not None else None
-        ),
+        recovery_document_fallback_proof=recovery_render_result.fallback_proof,
     )

@@ -105,6 +105,7 @@ from ethernity.formats.envelope_codec import (
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile, PayloadPart
 from ethernity.formats.extension_envelope import ExtensionChunkingProfile
 from ethernity.formats.extension_envelope_constants import CHUNK_ALGORITHM_FASTCDC
+from tests.unit.render_test_helpers import render_result_for_inputs
 
 
 def _extend_root_inspection(
@@ -5363,7 +5364,10 @@ class TestCliApi(unittest.TestCase):
                 "ethernity.cli.features.backup.execution.choose_frame_chunk_size",
                 return_value=128,
             ),
-            mock.patch("ethernity.render.render_frames_to_pdf"),
+            mock.patch(
+                "ethernity.render.render_frames_to_pdf",
+                side_effect=render_result_for_inputs,
+            ),
             ndjson_session(stream=buffer),
         ):
             result = cli.run_backup(
@@ -5454,7 +5458,10 @@ class TestCliApi(unittest.TestCase):
                 "ethernity.cli.features.backup.execution.choose_frame_chunk_size",
                 return_value=128,
             ),
-            mock.patch("ethernity.render.render_frames_to_pdf"),
+            mock.patch(
+                "ethernity.render.render_frames_to_pdf",
+                side_effect=render_result_for_inputs,
+            ),
             mock.patch("ethernity.cli.features.backup.execution.print_backup_debug") as debug_mock,
             ndjson_session(stream=io.StringIO()),
         ):

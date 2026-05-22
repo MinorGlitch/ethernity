@@ -70,6 +70,7 @@ from ethernity.render.layout_debug import (
     resolve_layout_debug_dir,
 )
 from ethernity.render.proofs import (
+    RenderProofError,
     validate_fallback_render_proof,
     validate_fallback_text_in_pdf,
     validate_pdf_has_pages,
@@ -98,16 +99,14 @@ def _expected_kit_index_component_ids(inputs: RenderInputs) -> tuple[str, ...]:
 
 def _update_kit_index_qr_page_count(
     kit_index_inputs: RenderInputs | None,
-    render_result: object,
+    render_result: RenderResult,
 ) -> None:
-    if (
-        kit_index_inputs is None
-        or not isinstance(render_result, RenderResult)
-        or render_result.artifact_proof is None
-        or render_result.artifact_proof.page_count <= 0
-    ):
+    if kit_index_inputs is None:
         return
-    kit_index_inputs.context["kit_qr_page_count"] = render_result.artifact_proof.page_count
+    if render_result.artifact_proof is None:
+        raise RenderProofError("rendered QR document is missing render artifact proof")
+    if render_result.artifact_proof.page_count > 0:
+        kit_index_inputs.context["kit_qr_page_count"] = render_result.artifact_proof.page_count
 
 
 def _validate_rendered_pdf_artifact(
@@ -118,16 +117,22 @@ def _validate_rendered_pdf_artifact(
     fallback_frames: tuple[Frame, ...] = (),
     expected_text: tuple[str, ...] = (),
 ) -> None:
-    if not isinstance(result, RenderResult) or result.artifact_proof is None:
-        return
+    if not isinstance(result, RenderResult):
+        raise RenderProofError(
+            f"{artifact_label} renderer did not return RenderResult",
+            details={"result_type": type(result).__name__},
+        )
+    artifact_proof = result.artifact_proof
+    if artifact_proof is None:
+        raise RenderProofError(f"{artifact_label} is missing render artifact proof")
     validate_render_artifact_proof(
         artifact_label=artifact_label,
         inputs=inputs,
-        artifact_proof=result.artifact_proof,
+        artifact_proof=artifact_proof,
     )
     reader = validate_pdf_has_pages(inputs.output_path, artifact_label=artifact_label)
     if fallback_frames:
-        fallback_proof = result.artifact_proof.fallback_proof or result.fallback_proof
+        fallback_proof = artifact_proof.fallback_proof or result.fallback_proof
         validate_fallback_render_proof(
             artifact_label=artifact_label,
             frames=fallback_frames,

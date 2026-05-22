@@ -44,6 +44,7 @@ from ethernity.core.models import DocumentPlan, ShardingConfig, SigningSeedMode
 from ethernity.encoding.framing import Frame
 from ethernity.formats import envelope_codec as envelope_codec_module
 from ethernity.render.recovery_meta import RecoveryMeta
+from tests.unit.render_test_helpers import patch_render_frames_to_pdf
 
 _BACKUP_ORCHESTRATOR_MODULE = "ethernity.cli.features.backup.orchestrator"
 _UNSET = object()
@@ -81,7 +82,7 @@ def _run_backup_with_plan(
                 "ethernity.formats.envelope_codec.build_manifest_and_payload",
                 side_effect=capture_build,
             ):
-                with mock.patch("ethernity.render.render_frames_to_pdf"):
+                with patch_render_frames_to_pdf():
                     with mock.patch(
                         "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                         return_value=(b"ciphertext", "auto-pass"),
@@ -224,7 +225,7 @@ class TestCliBackup(unittest.TestCase):
                                 "ethernity.cli.features.backup.execution.choose_frame_chunk_size",
                                 return_value=256,
                             ):
-                                with mock.patch("ethernity.render.render_frames_to_pdf"):
+                                with patch_render_frames_to_pdf():
                                     if expect_error:
                                         with self.assertRaisesRegex(
                                             ValueError, "MAX_CIPHERTEXT_BYTES"
@@ -266,10 +267,7 @@ class TestCliBackup(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_dir = Path(tmpdir) / "out"
-            with mock.patch(
-                "ethernity.render.render_frames_to_pdf",
-                side_effect=lambda inputs: rendered_inputs.append(inputs),
-            ):
+            with patch_render_frames_to_pdf(rendered_inputs):
                 cli.run_backup(
                     input_files=[input_file],
                     base_dir=None,
@@ -308,7 +306,7 @@ class TestCliBackup(unittest.TestCase):
                     return_value=512,
                 ):
                     with mock.patch("ethernity.cli.features.backup.execution._warn") as warn_mock:
-                        with mock.patch("ethernity.render.render_frames_to_pdf"):
+                        with patch_render_frames_to_pdf():
                             cli.run_backup(
                                 input_files=[input_file],
                                 base_dir=None,
@@ -350,7 +348,7 @@ class TestCliBackup(unittest.TestCase):
                     return_value=1024,
                 ):
                     with mock.patch("ethernity.cli.features.backup.execution._warn") as warn_mock:
-                        with mock.patch("ethernity.render.render_frames_to_pdf"):
+                        with patch_render_frames_to_pdf():
                             cli.run_backup(
                                 input_files=[input_file],
                                 base_dir=None,
@@ -390,8 +388,7 @@ class TestCliBackup(unittest.TestCase):
                 "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                 return_value=(b"ciphertext", "auto-pass"),
             ) as encrypt_mock:
-                with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
-                    render_mock.side_effect = lambda inputs: calls.append(inputs)
+                with patch_render_frames_to_pdf(calls):
                     result = cli.run_backup(
                         input_files=[input_file],
                         base_dir=None,
@@ -448,8 +445,7 @@ class TestCliBackup(unittest.TestCase):
                 "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                 return_value=(b"ciphertext", "auto-pass"),
             ):
-                with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
-                    render_mock.side_effect = lambda inputs: calls.append(inputs)
+                with patch_render_frames_to_pdf(calls):
                     result = cli.run_backup(
                         input_files=[input_file],
                         base_dir=None,
@@ -515,8 +511,7 @@ class TestCliBackup(unittest.TestCase):
                     "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                     return_value=(b"ciphertext", "auto-pass"),
                 ):
-                    with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
-                        render_mock.side_effect = lambda inputs: calls.append(inputs)
+                    with patch_render_frames_to_pdf(calls):
                         result = cli.run_backup(
                             input_files=[input_file],
                             base_dir=None,
@@ -578,8 +573,7 @@ class TestCliBackup(unittest.TestCase):
                     "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                     return_value=(b"ciphertext", "auto-pass"),
                 ):
-                    with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
-                        render_mock.side_effect = lambda inputs: calls.append(inputs)
+                    with patch_render_frames_to_pdf(calls):
                         result = cli.run_backup(
                             input_files=[input_file],
                             base_dir=None,
@@ -628,8 +622,7 @@ class TestCliBackup(unittest.TestCase):
                     "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                     return_value=(b"ciphertext", "auto-pass"),
                 ):
-                    with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
-                        render_mock.side_effect = lambda inputs: calls.append(inputs)
+                    with patch_render_frames_to_pdf(calls):
                         result = cli.run_backup(
                             input_files=[input_file],
                             base_dir=None,
@@ -691,8 +684,7 @@ class TestCliBackup(unittest.TestCase):
                             "ethernity.crypto.sharding.encode_shard_payload",
                             return_value=b"shard",
                         ):
-                            with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
-                                render_mock.side_effect = lambda inputs: calls.append(inputs)
+                            with patch_render_frames_to_pdf(calls):
                                 cli.run_backup(
                                     input_files=[input_file],
                                     base_dir=None,
@@ -753,7 +745,7 @@ class TestCliBackup(unittest.TestCase):
                             "ethernity.crypto.sharding.encode_shard_payload",
                             return_value=b"shard",
                         ):
-                            with mock.patch("ethernity.render.render_frames_to_pdf"):
+                            with patch_render_frames_to_pdf():
                                 result = cli.run_backup(
                                     input_files=[input_file],
                                     base_dir=None,
@@ -812,7 +804,7 @@ class TestCliBackup(unittest.TestCase):
                             "ethernity.crypto.sharding.split_passphrase",
                             return_value=[],
                         ):
-                            with mock.patch("ethernity.render.render_frames_to_pdf"):
+                            with patch_render_frames_to_pdf():
                                 cli.run_backup(
                                     input_files=[input_file],
                                     base_dir=None,
@@ -900,7 +892,7 @@ class TestCliBackup(unittest.TestCase):
                                     "ethernity.crypto.sharding.encode_shard_payload",
                                     return_value=b"shard",
                                 ):
-                                    with mock.patch("ethernity.render.render_frames_to_pdf"):
+                                    with patch_render_frames_to_pdf():
                                         result = cli.run_backup(
                                             input_files=[input_file],
                                             base_dir=None,
