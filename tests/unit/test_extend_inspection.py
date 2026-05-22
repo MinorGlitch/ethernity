@@ -29,7 +29,7 @@ from ethernity.cli.features.extend.planning import (
 )
 from ethernity.cli.features.extend.root_shards import published_root_passphrase_shard_policy
 from ethernity.cli.features.recover.chain import (
-    DiscoveredRecoveryExtension,
+    ImportedRecoveryDocument,
     RecoveryChainInspection,
     RecoveryExtensionInventory,
     RecoveryHeadTrustRefusal,
@@ -109,7 +109,7 @@ def _root_recovery(
 
 def _recovery_chain_inspection(
     *,
-    extensions: tuple[DiscoveredRecoveryExtension, ...] = (),
+    extensions: tuple[ImportedRecoveryDocument, ...] = (),
     refusal: RecoveryHeadTrustRefusal | None = None,
     validated_head_index: int = 0,
     validated_head_doc_hash: str = "22" * 32,
@@ -144,7 +144,7 @@ def _recovery_chain_inspection(
 
 def _extension_inventory(
     *,
-    extensions: tuple[DiscoveredRecoveryExtension, ...] = (),
+    extensions: tuple[ImportedRecoveryDocument, ...] = (),
     failure: RecoveryReplayFailure | None = None,
 ) -> RecoveryExtensionInventory:
     return RecoveryExtensionInventory(
@@ -177,15 +177,16 @@ def _discovered_extension(
     index: int = 1,
     dir_name: str = "01",
     doc_id_hex: str = "deadbeefcafebabe",
-    doc_hash: bytes = b"\xca\xfe\xba\xbe",
-) -> DiscoveredRecoveryExtension:
-    return DiscoveredRecoveryExtension(
-        index=index,
-        dir_name=dir_name,
-        doc_id_hex=doc_id_hex,
+    doc_hash: bytes = b"\xca\xfe\xba\xbe" * 8,
+) -> ImportedRecoveryDocument:
+    return ImportedRecoveryDocument(
+        doc_id=bytes.fromhex(doc_id_hex),
         doc_hash=doc_hash,
         ciphertext=b"extension",
         auth_frames=(),
+        source_label=dir_name,
+        extension_index=index,
+        extension_dir_name=dir_name,
     )
 
 
@@ -237,7 +238,7 @@ class TestExtendInspection(unittest.TestCase):
             mock.patch(
                 "ethernity.cli.features.extend.planning._inspect_published_extension_inventory",
                 return_value=_extension_inventory(
-                    extensions=(_discovered_extension(doc_hash=b"\xca\xfe\xba\xbe"),),
+                    extensions=(_discovered_extension(doc_hash=b"\xca\xfe\xba\xbe" * 8),),
                 ),
             ),
         ):
@@ -270,7 +271,7 @@ class TestExtendInspection(unittest.TestCase):
                     "index": 1,
                     "dir_name": "01",
                     "doc_id": "deadbeefcafebabe",
-                    "doc_hash": "cafebabe",
+                    "doc_hash": "cafebabe" * 8,
                 },
             ),
         )
@@ -1282,13 +1283,14 @@ max_size = 65536
                 "explicit_selection": False,
             },
         )
-        extension = DiscoveredRecoveryExtension(
-            index=1,
-            dir_name="01",
-            doc_id_hex="de" * 8,
+        extension = ImportedRecoveryDocument(
+            doc_id=bytes.fromhex("de" * 8),
             doc_hash=b"\xaa" * 32,
             ciphertext=b"extension-01",
             auth_frames=(),
+            source_label="01",
+            extension_index=1,
+            extension_dir_name="01",
         )
         chain_inspection = _recovery_chain_inspection(
             extensions=(extension,),
@@ -1416,13 +1418,14 @@ max_size = 65536
                 ),
             }
         )
-        extension = DiscoveredRecoveryExtension(
-            index=1,
-            dir_name="01",
-            doc_id_hex="de" * 8,
+        extension = ImportedRecoveryDocument(
+            doc_id=bytes.fromhex("de" * 8),
             doc_hash=b"\xaa" * 32,
             ciphertext=b"extension-01",
             auth_frames=(),
+            source_label="01",
+            extension_index=1,
+            extension_dir_name="01",
         )
         decoded_link = mock.Mock(
             auth_status="verified",

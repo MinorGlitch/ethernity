@@ -30,7 +30,6 @@ from ethernity.cli.features.extend.scope import (
 )
 from ethernity.cli.features.recover.chain import (
     DecodedExtensionLink,
-    DiscoveredRecoveryExtension,
     ImportedRecoveryDocument,
     RecoveryChainInspection,
     RecoveryExtensionInventory,
@@ -552,19 +551,7 @@ def _inspect_root_recovery_with_extension_shards(
         auth_frames=root_inspection.auth_frames,
         source_label="published root",
     )
-    documents = (
-        root_document,
-        *(
-            ImportedRecoveryDocument(
-                doc_id=bytes.fromhex(item.doc_id_hex),
-                doc_hash=item.doc_hash,
-                ciphertext=item.ciphertext,
-                auth_frames=item.auth_frames,
-                source_label=item.dir_name,
-            )
-            for item in extension_inventory.extensions
-        ),
-    )
+    documents = (root_document, *extension_inventory.extensions)
     try:
         selection = select_root_import_document_from_passphrase_shards(
             documents,
@@ -746,7 +733,7 @@ def _inspect_published_extension_inventory(
     quiet: bool,
 ) -> RecoveryExtensionInventory:
     discovery = discover_validated_extension_directories(root_dir)
-    extensions: list[DiscoveredRecoveryExtension] = []
+    extensions: list[ImportedRecoveryDocument] = []
     failure: RecoveryReplayFailure | None = None
     for item in discovery.directories:
         try:
@@ -768,13 +755,14 @@ def _inspect_published_extension_inventory(
             )
             break
         extensions.append(
-            DiscoveredRecoveryExtension(
-                index=item.index,
-                dir_name=item.dir_name,
-                doc_id_hex=item.doc_id_hex,
+            ImportedRecoveryDocument(
+                doc_id=bytes.fromhex(item.doc_id_hex),
                 doc_hash=doc_hash,
                 ciphertext=ciphertext,
                 auth_frames=tuple(auth_frames),
+                source_label=item.dir_name,
+                extension_index=item.index,
+                extension_dir_name=item.dir_name,
             )
         )
 

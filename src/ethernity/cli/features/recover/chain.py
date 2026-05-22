@@ -57,35 +57,49 @@ RECONSTRUCTED_STATE_INPUT_ROOTS = ("reconstructed-state",)
 
 @dataclass(frozen=True)
 class ImportedRecoveryDocument:
-    """One reassembled MAIN document discovered from content, independent of filenames."""
+    """One reassembled MAIN document discovered from content."""
 
     doc_id: bytes
     doc_hash: bytes
     ciphertext: bytes
     auth_frames: tuple[Frame, ...]
     source_label: str
+    extension_index: int | None = None
+    extension_dir_name: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.doc_id, (bytes, bytearray)) or len(self.doc_id) != 8:
             raise ValueError("imported recovery document doc_id must be 8 bytes")
         if not isinstance(self.doc_hash, (bytes, bytearray)) or len(self.doc_hash) != 32:
             raise ValueError("imported recovery document doc_hash must be 32 bytes")
+        if self.extension_index is not None and (
+            isinstance(self.extension_index, bool)
+            or not isinstance(self.extension_index, int)
+            or self.extension_index <= 0
+        ):
+            raise ValueError("published extension index must be a positive integer")
+        if self.extension_dir_name is not None and (
+            not isinstance(self.extension_dir_name, str) or not self.extension_dir_name
+        ):
+            raise ValueError("published extension directory name must be non-empty")
         object.__setattr__(self, "doc_id", bytes(self.doc_id))
         object.__setattr__(self, "doc_hash", bytes(self.doc_hash))
         object.__setattr__(self, "ciphertext", bytes(self.ciphertext))
         object.__setattr__(self, "auth_frames", tuple(self.auth_frames))
 
+    @property
+    def doc_id_hex(self) -> str:
+        return self.doc_id.hex()
 
-@dataclass(frozen=True)
-class DiscoveredRecoveryExtension:
-    """Compatibility shell for callers that already have one extension ciphertext."""
+    @property
+    def index(self) -> int:
+        if self.extension_index is None:
+            raise ValueError("recovery document is not a published extension")
+        return self.extension_index
 
-    index: int
-    dir_name: str
-    doc_id_hex: str
-    doc_hash: bytes
-    ciphertext: bytes
-    auth_frames: tuple[Frame, ...]
+    @property
+    def dir_name(self) -> str:
+        return self.extension_dir_name or self.source_label
 
 
 @dataclass(frozen=True)
@@ -128,9 +142,9 @@ class RecoveryHeadTrustRefusal:
 
 @dataclass(frozen=True)
 class RecoveryExtensionInventory:
-    """Content-import inventory summary retained for inspect/API payload compatibility."""
+    """Published extension inventory assembled from recovery document content."""
 
-    extensions: tuple[DiscoveredRecoveryExtension, ...]
+    extensions: tuple[ImportedRecoveryDocument, ...]
     explicit_selection: bool = False
     requested_head_index: int | None = None
     requested_head_doc_hash: str | None = None
@@ -853,7 +867,7 @@ def validate_root_manifest_authority(
 
 
 def decode_authenticated_extension_link(
-    item: DiscoveredRecoveryExtension,
+    item: ImportedRecoveryDocument,
     *,
     passphrase: str,
     expected_sign_pub: bytes | None,
@@ -862,15 +876,8 @@ def decode_authenticated_extension_link(
 ) -> DecodedExtensionLink:
     if expected_sign_pub is None:
         raise ValueError("extension replay requires an unsealed root signing authority")
-    document = ImportedRecoveryDocument(
-        doc_id=bytes.fromhex(item.doc_id_hex),
-        doc_hash=item.doc_hash,
-        ciphertext=item.ciphertext,
-        auth_frames=item.auth_frames,
-        source_label=item.dir_name,
-    )
     return decode_imported_extension_link(
-        document,
+        item,
         passphrase=passphrase,
         expected_sign_pub=expected_sign_pub,
         quiet=quiet,
@@ -930,7 +937,6 @@ def _synthetic_manifest_from_state(
 __all__ = [
     "ChainRecoveryResult",
     "DecodedExtensionLink",
-    "DiscoveredRecoveryExtension",
     "ImportedRecoveryDocument",
     "RecoveryChainInspection",
     "RecoveryExtensionInventory",
