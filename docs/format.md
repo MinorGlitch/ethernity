@@ -569,6 +569,9 @@ Current version values:
 - AUTH_VERSION = `1`
 - SHARD_VERSION = `2`
 
+Extension chain metadata constants:
+- CHAIN_ID_PERSONALIZATION = `"ETHERNITY-CHAIN-V1"` encoded as ASCII bytes
+
 ### 12.1) Stable v1 Profile Baseline Contract
 
 This document defines the stable v1 profile baseline.
@@ -923,6 +926,8 @@ Requirements:
 - `created_at`: int
 - `chunking`: list `[algorithm_id, target_size, min_size, max_size]`
   - all values MUST be positive ints
+  - `target_size`, `min_size`, and `max_size` MUST each be
+    `<= MAX_DECOMPRESSED_PAYLOAD_BYTES`
   - `min_size <= target_size <= max_size`
   - `algorithm_id == 1` identifies the extension-envelope FastCDC-style content-defined chunking
     profile
@@ -951,7 +956,8 @@ The extension body MUST be a CBOR map with exactly these integer keys:
 ```
 
 `files` MUST be a non-empty array of file recipes. `chunks` MUST be an array of newly introduced
-chunk records and MAY be empty.
+chunk records and MAY be empty. Each chunk record in `chunks` MUST be referenced by at least one file
+recipe in the same extension body.
 
 Unknown body keys MUST be rejected.
 
@@ -1160,6 +1166,15 @@ Requirements:
 A valid extension chain is a standalone root Version 1 backup plus zero or more extension
 envelopes discovered from disk (Section 20).
 
+`chain_id` is deterministic chain metadata derived from the authenticated root backup identity:
+
+```text
+chain_id = BLAKE2b-256(CHAIN_ID_PERSONALIZATION || root_doc_hash)
+```
+
+`chain_id` is not an extension header field and does not replace per-link `parent_doc_hash` or
+`root_doc_hash` validation.
+
 Requirements:
 - every extension ciphertext in one chain MUST decrypt with the same passphrase as the root backup
 - chain validation MUST start from the authenticated root `doc_hash`
@@ -1244,8 +1259,9 @@ but such audit rules are outside the recovery format.
 
 For this release profile, extension `qr_document-*` artifacts are the only machine-readable
 payload-bearing MAIN carriers. Extension `recovery_document-*` artifacts are human-readable fallback
-documents for manual transcription when QR scanning is unavailable or damaged; implementations MUST
-NOT treat PDF text extracted from `recovery_document-*` as a content-import or chain-replay carrier.
+documents for manual transcription when QR scanning is unavailable or damaged. Manually typed or
+transcribed fallback text MAY be accepted through explicit text inputs, but implementations MUST NOT
+extract or parse fallback text from PDF or image files as a content-import or chain-replay carrier.
 Publish implementations MUST validate every machine-readable payload-bearing carrier before
 promotion. They MAY also perform PDF integrity and visible fallback-text checks on recovery
 documents, but MUST NOT derive recovery semantics by scraping human-display text from the PDF.

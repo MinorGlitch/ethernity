@@ -23,6 +23,7 @@ from ethernity.extensions import (
     ValidatedStagedExtension,
     create_extension_staging_dir,
     create_staged_extension_artifact_plan,
+    preflight_extension_publish_target,
     promote_staged_extension_dir,
     snapshot_staged_extension_dir,
     validate_staged_extension_dir,
@@ -91,6 +92,35 @@ class TestExtensionStaging(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "root backup directory not found"):
                 create_extension_staging_dir(missing_root, index=1, nonce="abc123")
+
+    def test_preflight_extension_publish_target_rejects_non_directory_extensions_path(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            (root_dir / "extensions").write_text("not a directory", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "extensions path must be a directory"):
+                preflight_extension_publish_target(root_dir, index=1)
+
+    def test_preflight_extension_publish_target_rejects_existing_final_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            final_dir = Path(tmpdir) / "extensions" / "01"
+            final_dir.mkdir(parents=True)
+
+            with self.assertRaisesRegex(ValueError, "canonical extension directory already exists"):
+                preflight_extension_publish_target(tmpdir, index=1)
+
+    def test_preflight_extension_publish_target_rejects_existing_promotion_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock_dir = Path(tmpdir) / "extensions" / ".01.lock"
+            lock_dir.mkdir(parents=True)
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "canonical extension directory is already being promoted",
+            ):
+                preflight_extension_publish_target(tmpdir, index=1)
 
     def test_validate_and_promote_staged_extension_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

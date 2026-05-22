@@ -21,6 +21,7 @@ from ethernity.cli.features.recover.chain import (
     ImportedRecoveryDocument,
     imported_documents_from_recovery_frames,
     recover_chain_entries,
+    select_root_import_document,
 )
 from ethernity.cli.features.recover.planning import RecoveryPlan
 from ethernity.cli.shared import api_codes
@@ -318,7 +319,8 @@ class TestRecoverChain(unittest.TestCase):
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
             mock.patch(
-                "ethernity.cli.features.recover.chain.reconstruct_latest_logical_state",
+                "ethernity.cli.features.recover.chain."
+                "reconstruct_authenticated_latest_logical_state",
                 side_effect=ValueError(
                     "extension parent_doc_hash does not match previous document"
                 ),
@@ -514,6 +516,43 @@ class TestRecoverChain(unittest.TestCase):
         )
         self.assertEqual(caught.exception.details["unsigned_recovery"], True)
 
+    def test_recover_chain_entries_requires_verified_root_auth_for_extension_replay(self) -> None:
+        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+        extension_ciphertext = _extension_ciphertext(root_doc_hash)
+        extension_doc_id, extension_doc_hash = _doc_id_and_hash_from_ciphertext(
+            extension_ciphertext
+        )
+        base_plan = dataclasses.replace(
+            _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
+            import_documents=(
+                _imported_document(root_ciphertext),
+                _imported_document(
+                    extension_ciphertext,
+                    auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+                ),
+            ),
+        )
+
+        plan_variants = (
+            dataclasses.replace(base_plan, auth_payload=None, auth_status="missing"),
+            dataclasses.replace(base_plan, auth_status="skipped"),
+        )
+        for plan in plan_variants:
+            with (
+                self.subTest(auth_status=plan.auth_status, has_auth=plan.auth_payload is not None),
+                mock.patch(
+                    "ethernity.cli.features.recover.chain.decrypt_bytes",
+                    side_effect=lambda data, *, passphrase, debug=False: data,
+                ),
+                self.assertRaises(ApiCommandError) as caught,
+            ):
+                recover_chain_entries(plan, quiet=True)
+
+            self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+            self.assertIn("requires verified root AUTH", caught.exception.message)
+            self.assertEqual(caught.exception.details["stage"], "auth")
+            self.assertEqual(caught.exception.details["root_auth_status"], plan.auth_status)
+
     def test_recover_chain_entries_selects_earlier_index_despite_broken_later_extension(
         self,
     ) -> None:
@@ -669,6 +708,34 @@ class TestRecoverChain(unittest.TestCase):
 
         self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertIn("did not decode as an extension envelope", caught.exception.message)
+
+    def test_select_root_import_document_rejects_missing_decryptable_root(self) -> None:
+        root_ciphertext, _root_doc_id, root_doc_hash = _root_ciphertext()
+        extension_ciphertext = _extension_ciphertext(root_doc_hash)
+        documents = (_imported_document(extension_ciphertext),)
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                side_effect=lambda data, *, passphrase, debug=False: data,
+            ),
+            self.assertRaisesRegex(ValueError, "did not contain a decryptable root backup"),
+        ):
+            select_root_import_document(documents, passphrase="secret", debug=False)
+
+    def test_select_root_import_document_rejects_multiple_decryptable_roots(self) -> None:
+        first_ciphertext, _first_doc_id, _first_doc_hash = _root_ciphertext(b"one")
+        second_ciphertext, _second_doc_id, _second_doc_hash = _root_ciphertext(b"two")
+        documents = (_imported_document(first_ciphertext), _imported_document(second_ciphertext))
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                side_effect=lambda data, *, passphrase, debug=False: data,
+            ),
+            self.assertRaisesRegex(ValueError, "contains multiple root backups"),
+        ):
+            select_root_import_document(documents, passphrase="secret", debug=False)
 
 
 if __name__ == "__main__":

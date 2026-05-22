@@ -136,9 +136,10 @@ class RecoveryInspection:
 
 
 @dataclass(frozen=True)
-class _ImportShardRootSelection:
+class PassphraseShardRootSelection:
     root_document: ImportedRecoveryDocument
     target_document: ImportedRecoveryDocument
+    target_shard_frames: tuple[Frame, ...]
     unlock: RecoveryUnlockStatus
 
 
@@ -154,8 +155,6 @@ def validate_recover_args(args: RecoverArgs) -> None:
 
     if args.fallback_file and args.payloads_file:
         raise ValueError("use either --fallback-file or --payloads-file, not both")
-    if args.scan and (args.fallback_file or args.payloads_file):
-        raise ValueError("use either --scan or --fallback-file/--payloads-file, not both")
     if args.auth_fallback_file and args.auth_payloads_file:
         raise ValueError("use either --auth-fallback-file or --auth-payloads-file, not both")
     if args.extension_index is not None and args.extension_doc_hash is not None:
@@ -218,7 +217,7 @@ def inspect_from_args(args: RecoverArgs) -> RecoveryInspection:
                 )
         elif shard_frames:
             try:
-                selection = _select_root_import_document_from_shards(
+                selection = select_root_import_document_from_passphrase_shards(
                     import_documents,
                     shard_frames=shard_frames,
                     allow_unsigned=allow_unsigned,
@@ -485,7 +484,7 @@ def build_recovery_plan(
                 debug=False,
             )
         elif shard_frames:
-            selection = _select_root_import_document_from_shards(
+            selection = select_root_import_document_from_passphrase_shards(
                 import_documents,
                 shard_frames=shard_frames,
                 allow_unsigned=allow_unsigned,
@@ -586,70 +585,76 @@ def build_recovery_plan(
     )
 
 
-def _select_root_import_document_from_shards(
+def select_root_import_document_from_passphrase_shards(
     documents: tuple[ImportedRecoveryDocument, ...],
     *,
     shard_frames: list[Frame],
     allow_unsigned: bool,
     quiet: bool,
-) -> _ImportShardRootSelection:
-    target_document = _select_import_document_bound_to_passphrase_shards(
+) -> PassphraseShardRootSelection:
+    candidates = _select_import_documents_bound_to_passphrase_shards(
         documents,
         shard_frames=shard_frames,
     )
-    target_auth_payload, _target_auth_status = _resolve_auth_payload(
-        list(target_document.auth_frames),
-        doc_id=target_document.doc_id,
-        doc_hash=target_document.doc_hash,
-        allow_unsigned=allow_unsigned,
-        require_auth=not allow_unsigned,
-        quiet=quiet,
-    )
-    unlock = _inspect_unlock_status(
-        passphrase=None,
-        shard_frames=shard_frames,
-        doc_id=target_document.doc_id,
-        doc_hash=target_document.doc_hash,
-        sign_pub=target_auth_payload.sign_pub if target_auth_payload is not None else None,
-        allow_unsigned=allow_unsigned,
-    )
-    if not unlock.satisfied or unlock.resolved_passphrase is None:
-        raise ValueError(_unlock_failure_message(unlock))
-    root_document = select_root_import_document(
-        documents,
-        passphrase=unlock.resolved_passphrase,
-        debug=False,
-    )
-    root_auth_payload, _root_auth_status = _resolve_auth_payload(
-        list(root_document.auth_frames),
-        doc_id=root_document.doc_id,
-        doc_hash=root_document.doc_hash,
-        allow_unsigned=allow_unsigned,
-        require_auth=not allow_unsigned,
-        quiet=quiet,
-    )
-    _verify_shard_target_belongs_to_selected_root(
-        target_document=target_document,
-        root_document=root_document,
-        passphrase=unlock.resolved_passphrase,
-        root_auth_payload=root_auth_payload,
-        allow_unsigned=allow_unsigned,
-        quiet=quiet,
-    )
-    return _ImportShardRootSelection(
-        root_document=root_document,
-        target_document=target_document,
-        unlock=unlock,
+    last_unlock_failure: str | None = None
+    for target_document, target_shard_frames in candidates:
+        target_auth_payload, _target_auth_status = _resolve_auth_payload(
+            list(target_document.auth_frames),
+            doc_id=target_document.doc_id,
+            doc_hash=target_document.doc_hash,
+            allow_unsigned=allow_unsigned,
+            require_auth=not allow_unsigned,
+            quiet=quiet,
+        )
+        unlock = _inspect_unlock_status(
+            passphrase=None,
+            shard_frames=list(target_shard_frames),
+            doc_id=target_document.doc_id,
+            doc_hash=target_document.doc_hash,
+            sign_pub=target_auth_payload.sign_pub if target_auth_payload is not None else None,
+            allow_unsigned=allow_unsigned,
+        )
+        if not unlock.satisfied or unlock.resolved_passphrase is None:
+            last_unlock_failure = _unlock_failure_message(unlock)
+            continue
+        root_document = select_root_import_document(
+            documents,
+            passphrase=unlock.resolved_passphrase,
+            debug=False,
+        )
+        root_auth_payload, _root_auth_status = _resolve_auth_payload(
+            list(root_document.auth_frames),
+            doc_id=root_document.doc_id,
+            doc_hash=root_document.doc_hash,
+            allow_unsigned=allow_unsigned,
+            require_auth=not allow_unsigned,
+            quiet=quiet,
+        )
+        _verify_shard_target_belongs_to_selected_root(
+            target_document=target_document,
+            root_document=root_document,
+            passphrase=unlock.resolved_passphrase,
+            root_auth_payload=root_auth_payload,
+            allow_unsigned=allow_unsigned,
+            quiet=quiet,
+        )
+        return PassphraseShardRootSelection(
+            root_document=root_document,
+            target_document=target_document,
+            target_shard_frames=target_shard_frames,
+            unlock=unlock,
+        )
+    raise ValueError(
+        last_unlock_failure or "shard payloads do not match any imported recovery document"
     )
 
 
-def _select_import_document_bound_to_passphrase_shards(
+def _select_import_documents_bound_to_passphrase_shards(
     documents: tuple[ImportedRecoveryDocument, ...],
     *,
     shard_frames: list[Frame],
-) -> ImportedRecoveryDocument:
-    target_doc_id: bytes | None = None
-    target_doc_hash: bytes | None = None
+) -> tuple[tuple[ImportedRecoveryDocument, tuple[Frame, ...]], ...]:
+    shard_groups: dict[tuple[bytes, bytes], list[Frame]] = {}
     for frame in shard_frames:
         if frame.frame_type != FrameType.KEY_DOCUMENT:
             continue
@@ -658,23 +663,20 @@ def _select_import_document_bound_to_passphrase_shards(
         payload = decode_shard_payload(frame.data)
         if payload.key_type != KEY_TYPE_PASSPHRASE:
             continue
-        if target_doc_id is None:
-            target_doc_id = frame.doc_id
-        elif target_doc_id != frame.doc_id:
-            raise ValueError("shard payload doc_id does not match ciphertext")
-        if target_doc_hash is None:
-            target_doc_hash = payload.doc_hash
-        elif target_doc_hash != payload.doc_hash:
-            raise ValueError("shard doc_hash does not match")
+        shard_groups.setdefault((frame.doc_id, payload.doc_hash), []).append(frame)
 
-    if target_doc_id is None or target_doc_hash is None:
+    if not shard_groups:
         raise ValueError(
             "passphrase is required when recovery input contains multiple MAIN documents"
         )
+    candidates: list[tuple[ImportedRecoveryDocument, tuple[Frame, ...]]] = []
     for document in documents:
-        if document.doc_id == target_doc_id and document.doc_hash == target_doc_hash:
-            return document
-    raise ValueError("shard payloads do not match any imported recovery document")
+        frames = shard_groups.get((document.doc_id, document.doc_hash))
+        if frames:
+            candidates.append((document, tuple(frames)))
+    if not candidates:
+        raise ValueError("shard payloads do not match any imported recovery document")
+    return tuple(candidates)
 
 
 def _verify_shard_target_belongs_to_selected_root(
@@ -1188,20 +1190,25 @@ def _frames_from_args(
     allow_unsigned: bool,
     quiet: bool,
 ) -> tuple[list[Frame], str | None, str | None, Path | None]:
-    """Load primary recovery frames from fallback text, payload lists, or scans."""
+    """Load primary recovery frames from fallback text, payload lists, scans, or mixed inputs."""
 
     fallback_file = expanduser_cli_path(args.fallback_file)
     payloads_file = expanduser_cli_path(args.payloads_file)
     scan = expanduser_cli_paths(list(args.scan or []))
+    sources: list[tuple[str, str, list[Frame]]] = []
 
     if fallback_file:
-        input_label = "Recovery text"
-        input_detail = fallback_file
         try:
-            frames = _frames_from_fallback(
-                fallback_file,
-                allow_invalid_auth=allow_unsigned,
-                quiet=quiet,
+            sources.append(
+                (
+                    "Recovery text",
+                    fallback_file,
+                    _frames_from_fallback(
+                        fallback_file,
+                        allow_invalid_auth=allow_unsigned,
+                        quiet=quiet,
+                    ),
+                )
             )
         except ValueError as exc:
             message = str(exc).lower()
@@ -1211,22 +1218,37 @@ def _frames_from_args(
                     "--scan, or provide non-empty stdin."
                 ) from exc
             raise ValueError(format_fallback_error(exc, context="Recovery text")) from exc
-    elif payloads_file:
-        input_label = RECOVERY_QR_TEXT_LABEL
-        input_detail = payloads_file
+    if payloads_file:
         try:
-            frames = _frames_from_payloads(payloads_file)
+            sources.append(
+                (
+                    RECOVERY_QR_TEXT_LABEL,
+                    payloads_file,
+                    _frames_from_payloads(payloads_file),
+                )
+            )
         except ValueError as exc:
             raise ValueError(format_recovery_input_error(exc)) from exc
-    elif scan:
-        input_label = RECOVERY_SCAN_LABEL
-        input_detail = ", ".join(scan)
+    if scan:
+        scan_detail = ", ".join(scan)
         try:
-            frames = _recovery_frames_from_scan(scan, quiet=quiet)
+            sources.append(
+                (
+                    RECOVERY_SCAN_LABEL,
+                    scan_detail,
+                    _recovery_frames_from_scan(scan, quiet=quiet),
+                )
+            )
         except ValueError as exc:
             raise ValueError(format_recovery_input_error(exc)) from exc
-    else:
+    if not sources:
         raise ValueError("either --fallback-file, --payloads-file, or --scan is required")
+    if len(sources) == 1:
+        input_label, input_detail, frames = sources[0]
+    else:
+        input_label = "Recovery inputs"
+        input_detail = "; ".join(f"{label}: {detail}" for label, detail, _frames in sources)
+        frames = [frame for _label, _detail, source_frames in sources for frame in source_frames]
     return frames, input_label, input_detail, None
 
 

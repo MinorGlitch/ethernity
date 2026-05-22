@@ -94,7 +94,10 @@ from ethernity.crypto.sharding import (
 )
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import Frame
-from ethernity.extensions.chain import reconstruct_latest_logical_state, validate_extension_chain
+from ethernity.extensions.chain import (
+    reconstruct_authenticated_latest_logical_state,
+    validate_authenticated_extension_chain,
+)
 from ethernity.formats.envelope_codec import decode_any_envelope, decode_envelope
 from ethernity.formats.envelope_types import EnvelopeManifest
 from ethernity.formats.extension_envelope import ExtensionEnvelope
@@ -663,7 +666,13 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                         "advanced auth-input options"
                     )
                 plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
-                manifest, _payload = decode_envelope(plaintext)
+                manifest, root_payload = decode_envelope(plaintext)
+                plan = _resolve_mint_chain_target(
+                    plan,
+                    quiet=quiet,
+                    debug=debug,
+                    root_decoded=(manifest, root_payload),
+                )
                 needs_signing_authority = manifest.signing_seed is None
                 scope_step_number = 4 if needs_signing_authority else 3
                 quorum_step_number = scope_step_number + 1
@@ -1326,6 +1335,7 @@ def _resolve_mint_chain_target(
     *,
     quiet: bool,
     debug: bool,
+    root_decoded: tuple[EnvelopeManifest, bytes] | None = None,
 ) -> Any:
     auth_payload = getattr(plan, "auth_payload", None)
     passphrase = getattr(plan, "passphrase", None)
@@ -1336,11 +1346,14 @@ def _resolve_mint_chain_target(
     decoded_links = []
     documents_by_doc_hash = {document.doc_hash: document for document in import_documents}
     try:
-        root_manifest, root_payload = decode_root_manifest(
-            ciphertext=plan.ciphertext,
-            passphrase=passphrase,
-            debug=debug,
-        )
+        if root_decoded is None:
+            root_manifest, root_payload = decode_root_manifest(
+                ciphertext=plan.ciphertext,
+                passphrase=passphrase,
+                debug=debug,
+            )
+        else:
+            root_manifest, root_payload = root_decoded
         root_sign_pub = validate_root_manifest_authority(root_manifest, auth_payload)
     except ValueError as exc:
         raise ValueError(f"imported extension chain could not be trusted: {exc}") from exc
@@ -1388,20 +1401,22 @@ def _resolve_mint_chain_target(
                 raise ValueError(f"imported extension could not be trusted: {exc}") from exc
             continue
         if decoded.link.document.header.root_doc_hash != plan.doc_hash:
-            continue
+            raise ValueError("imported root-authority extension targets a different root backup")
         decoded_links.append(decoded)
     if not decoded_links:
         return plan
     decoded_links.sort(key=lambda item: item.link.document.header.index)
     try:
-        validate_extension_chain(
+        validate_authenticated_extension_chain(
             root_doc_hash=plan.doc_hash,
+            expected_sign_pub=root_sign_pub,
             extensions=tuple(item.link for item in decoded_links),
         )
-        reconstruct_latest_logical_state(
+        reconstruct_authenticated_latest_logical_state(
             root_manifest,
             root_payload,
             root_doc_hash=plan.doc_hash,
+            expected_sign_pub=root_sign_pub,
             extensions=tuple(item.link for item in decoded_links),
         )
     except ValueError as exc:
@@ -1416,6 +1431,9 @@ def _resolve_mint_chain_target(
         doc_hash=latest.doc_hash,
         auth_payload=latest_decoded.auth_payload,
         auth_status=latest_decoded.auth_status,
+        extension_index=latest_decoded.link.document.header.index,
+        extension_doc_hash=latest.doc_hash.hex(),
+        import_documents=(),
     )
 
 
@@ -1929,11 +1947,14 @@ def _mint_from_plan(
 
     return MintResult(
         doc_id=target_plan.doc_id,
+        doc_hash=target_plan.doc_hash,
         output_dir=output_dir,
         shard_paths=final_shard_paths,
         signing_key_shard_paths=final_signing_key_shard_paths,
         signing_key_source=signing_key_source,
         notes=notes,
+        selected_extension_index=getattr(target_plan, "extension_index", None),
+        selected_extension_doc_hash=getattr(target_plan, "extension_doc_hash", None),
     )
 
 

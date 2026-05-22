@@ -106,7 +106,17 @@ Both commands:
 - require `--root-dir`
 - can unlock with `--passphrase`, `--shard-fallback-file`, `--shard-payloads-file`, or `--shard-scan`
 - accept explicit scope selection through `--input`, `--input-dir`, and `--base-dir`
+- accept preview/render knobs through `--qr-chunk-size` and `--layout-debug-dir`
+- use `--unlock-policy self-contained|reuse-root`, `--shard-threshold`, and `--shard-count` for
+  extension passphrase recovery policy
+- use `--signing-key-mode not-stored|sharded`, `--signing-key-shard-threshold`, and
+  `--signing-key-shard-count` for extension-local signing-key recovery
 - reuse saved backup/config defaults when the UI does not override them explicitly
+
+If the UI runs `api inspect extend` before a scope is selected, treat
+`EXTENSION_INPUT_REQUIRED` in `blocking_issues` as the normal not-ready state.
+When a selected scope is present, inspect also preflights the publish target without writing; treat
+`EXTENSION_PUBLISH_TARGET_INVALID` as a not-ready state for write-producing actions.
 
 For `api inspect extend`, use these final `result` fields for chain-head state:
 
@@ -116,9 +126,12 @@ For `api inspect extend`, use these final `result` fields for chain-head state:
 - `validated_head_auth_status`: auth status for the validated head when known
 - `validated_head_root_authority_verified`: whether the validated head is signed by the root
   authority when known
-- `available_extensions`: discovered extension entries; entries may include `auth_status` and
-  `root_authority_verified` after chain authentication has been evaluated
+- `available_extensions`: discovered extension entries with explicit `index`, `dir_name`, `doc_id`,
+  and `doc_hash`; entries may include `auth_status` and `root_authority_verified` after chain
+  authentication has been evaluated
 - `ancestry_valid`: whether the inspected chain ancestry is valid when the backend can determine it
+- `resolved_policy`: the execution-grade passphrase/signing-key/output preview when the selected
+  scope can be prepared, otherwise `null`
 
 If `blocking_issues` contains `RECOVERY_HEAD_UNTRUSTED`, show the extension chain as not ready for
 write-producing actions. The `details` object identifies the failed/latest/requested head and the
@@ -161,9 +174,14 @@ Both commands accept the same recovery input flags in one of these ways:
 - `--extension-index 0` for intentional root-only recovery
 - optional shard/auth inputs when the UI has them
 
+A scan input may be combined with either `--payloads-file` or `--fallback-file` when the user has
+a mix of QR-readable artifacts and typed/transcribed recovery text. `--fallback-file` and
+`--payloads-file` are still mutually exclusive with each other.
+
 Extension `recovery_document-*` PDFs are human-readable fallback artifacts, not machine-readable
-scan inputs. Use extension `qr_document-*` artifacts for `--scan`, or ask the user to transcribe
-fallback text into `--fallback-file`.
+scan inputs. Use extension `qr_document-*` artifacts for `--scan`. If QR recovery is unavailable,
+users may manually type or transcribe fallback text into `--fallback-file`; do not extract fallback
+text from PDF or image files.
 
 Important:
 

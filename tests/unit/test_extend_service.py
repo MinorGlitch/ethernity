@@ -14,6 +14,8 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 import hashlib
+import io
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -33,6 +35,7 @@ from ethernity.cli.features.extend.models import (
     PlaintextPassphrase,
     RenderedExtensionArtifacts,
     ReuseRootPassphraseShards,
+    SigningKeyNotStored,
 )
 from ethernity.cli.features.extend.planning import ExtendInspection, ResolvedExtendState
 from ethernity.cli.features.extend.runtime import (
@@ -60,7 +63,7 @@ from ethernity.cli.features.extend.shard_validation import (
 )
 from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL
 from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
-from ethernity.cli.shared.ndjson import ApiCommandError
+from ethernity.cli.shared.ndjson import ApiCommandError, ndjson_session
 from ethernity.cli.shared.types import ExtendArgs, InputFile
 from ethernity.config import BackupDefaults
 from ethernity.crypto.sharding import ShardPayload, encode_shard_payload
@@ -370,6 +373,82 @@ class TestExtendService(unittest.TestCase):
         self.assertEqual(policy.to_publish_policy().passphrase_shard_count, 3)
         self.assertEqual(policy.to_publish_policy().signing_key_shard_count, 3)
 
+    def test_resolve_extend_policy_uses_not_stored_signing_key_mode(self) -> None:
+        policy = resolve_extend_policy(
+            args=ExtendArgs(signing_key_mode="not-stored"),
+            defaults=BackupDefaults(
+                shard_threshold=2,
+                shard_count=3,
+                signing_key_mode="sharded",
+                signing_key_shard_threshold=2,
+                signing_key_shard_count=3,
+            ),
+            root_passphrase_shard_threshold=None,
+            root_passphrase_shard_count=0,
+            require_recovery_kit_index=False,
+        )
+
+        self.assertEqual(policy.signing_key, SigningKeyNotStored())
+        self.assertEqual(policy.to_publish_policy().signing_key_shard_count, 0)
+
+    def test_resolve_extend_policy_treats_explicit_signing_key_shards_as_sharded(self) -> None:
+        policy = resolve_extend_policy(
+            args=ExtendArgs(
+                signing_key_shard_threshold=2,
+                signing_key_shard_count=3,
+            ),
+            defaults=BackupDefaults(
+                shard_threshold=2,
+                shard_count=3,
+                signing_key_mode="embedded",
+            ),
+            root_passphrase_shard_threshold=None,
+            root_passphrase_shard_count=0,
+            require_recovery_kit_index=False,
+        )
+
+        self.assertEqual(
+            policy.signing_key,
+            ExtensionSigningKeyShards(threshold=2, share_count=3),
+        )
+        self.assertEqual(policy.to_publish_policy().signing_key_shard_count, 3)
+
+    def test_resolve_extend_policy_rejects_not_stored_with_signing_key_shards(self) -> None:
+        with self.assertRaises(ApiCommandError) as ctx:
+            resolve_extend_policy(
+                args=ExtendArgs(
+                    signing_key_mode="not-stored",
+                    signing_key_shard_threshold=2,
+                    signing_key_shard_count=3,
+                ),
+                defaults=BackupDefaults(shard_threshold=2, shard_count=3),
+                root_passphrase_shard_threshold=None,
+                root_passphrase_shard_count=0,
+                require_recovery_kit_index=False,
+            )
+
+        self.assertEqual(ctx.exception.code, EXTENSION_INVALID_POLICY)
+        self.assertIn("signing-key shard options require", str(ctx.exception))
+
+    def test_resolve_extend_policy_rejects_unknown_signing_key_mode(self) -> None:
+        with self.assertRaises(ApiCommandError) as ctx:
+            resolve_extend_policy(
+                args=ExtendArgs(signing_key_mode="embedded"),  # type: ignore[arg-type]
+                defaults=BackupDefaults(
+                    shard_threshold=2,
+                    shard_count=3,
+                    signing_key_mode="sharded",
+                    signing_key_shard_threshold=2,
+                    signing_key_shard_count=3,
+                ),
+                root_passphrase_shard_threshold=None,
+                root_passphrase_shard_count=0,
+                require_recovery_kit_index=False,
+            )
+
+        self.assertEqual(ctx.exception.code, EXTENSION_INVALID_POLICY)
+        self.assertIn("signing_key_mode", str(ctx.exception))
+
     def test_resolve_extend_policy_rejects_implicit_plaintext_passphrase(self) -> None:
         with self.assertRaises(ApiCommandError) as ctx:
             resolve_extend_policy(
@@ -418,6 +497,20 @@ class TestExtendService(unittest.TestCase):
             self.assertEqual(resolved, str(debug_dir.resolve()))
             self.assertTrue(debug_dir.is_dir())
 
+    def test_extend_layout_debug_dir_can_validate_without_creating_directory(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            debug_dir = Path(tmpdir) / "layout-debug"
+
+            resolved = resolve_extend_layout_debug_dir(
+                str(debug_dir),
+                root_dir=str(root_dir),
+                create=False,
+            )
+
+            self.assertEqual(resolved, str(debug_dir.resolve()))
+            self.assertFalse(debug_dir.exists())
+
     def test_resolve_extend_policy_uses_validated_unlock_policy_for_reuse_root(self) -> None:
         policy = resolve_extend_policy(
             args=ExtendArgs(unlock_policy="reuse-root"),
@@ -440,6 +533,47 @@ class TestExtendService(unittest.TestCase):
         self.assertEqual(policy.to_publish_policy().passphrase_shard_count, 0)
         self.assertEqual(policy.to_publish_policy().signing_key_shard_count, 0)
         self.assertTrue(policy.require_recovery_kit_index)
+
+    def test_resolve_extend_policy_allows_explicit_not_stored_for_reuse_root(self) -> None:
+        policy = resolve_extend_policy(
+            args=ExtendArgs(unlock_policy="reuse-root", signing_key_mode="not-stored"),
+            defaults=BackupDefaults(
+                shard_threshold=2,
+                shard_count=3,
+                signing_key_mode="sharded",
+                signing_key_shard_threshold=2,
+                signing_key_shard_count=3,
+            ),
+            root_passphrase_shard_threshold=2,
+            root_passphrase_shard_count=2,
+            require_recovery_kit_index=True,
+        )
+
+        self.assertEqual(
+            policy.passphrase,
+            ReuseRootPassphraseShards(threshold=2, share_count=2),
+        )
+        self.assertEqual(policy.signing_key, SigningKeyNotStored())
+        self.assertEqual(policy.to_publish_policy().signing_key_shard_count, 0)
+
+    def test_resolve_extend_policy_rejects_sharded_signing_key_mode_for_reuse_root(self) -> None:
+        with self.assertRaises(ApiCommandError) as ctx:
+            resolve_extend_policy(
+                args=ExtendArgs(unlock_policy="reuse-root", signing_key_mode="sharded"),
+                defaults=BackupDefaults(
+                    shard_threshold=2,
+                    shard_count=3,
+                    signing_key_mode="sharded",
+                    signing_key_shard_threshold=2,
+                    signing_key_shard_count=3,
+                ),
+                root_passphrase_shard_threshold=2,
+                root_passphrase_shard_count=2,
+                require_recovery_kit_index=True,
+            )
+
+        self.assertEqual(ctx.exception.code, EXTENSION_INVALID_POLICY)
+        self.assertIn("--signing-key-mode", str(ctx.exception))
 
     def test_run_extend_fails_closed_before_artifact_creation_on_untrusted_latest_head(
         self,
@@ -740,10 +874,18 @@ class TestExtendService(unittest.TestCase):
                 for path in plan.artifacts.shard_paths:
                     path.write_bytes(b"shard")
 
-            result = execute_staged_extension_publish(
-                publish,
-                renderer=_renderer,
-                post_validate=lambda _plan, _result: None,
+            buffer = io.StringIO()
+            with ndjson_session(stream=buffer):
+                result = execute_staged_extension_publish(
+                    publish,
+                    renderer=_renderer,
+                    post_validate=lambda _plan, _result: None,
+                )
+
+            events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
+            self.assertEqual(
+                [event["id"] for event in events if event["type"] == "phase"],
+                ["render", "validate", "publish"],
             )
 
             self.assertEqual(result.index, 2)
@@ -840,6 +982,7 @@ class TestExtendService(unittest.TestCase):
                         "Recovery Kit Index",
                         publish.encrypted.doc_id.hex(),
                         "Extension 02",
+                        "ROOT-BACKUP",
                         "QR-DOC-01",
                         "RECOVERY-DOC-01",
                     ]
@@ -1167,6 +1310,17 @@ class TestExtendService(unittest.TestCase):
             self.assertEqual(
                 kit_index_inputs.context["kit_qr_chunk_count"],
                 len(qr_inputs.frames),
+            )
+            self.assertIn(
+                {
+                    "component_id": "ROOT-BACKUP",
+                    "detail": (
+                        "Requires matching root backup QR and recovery documents "
+                        "for root document deadbeef"
+                    ),
+                    "status": "External",
+                },
+                kit_index_inputs.context["inventory_rows"],
             )
             self.assertEqual(
                 [section.label for section in recovery_inputs.fallback_sections or ()],
@@ -1621,6 +1775,17 @@ class TestExtendService(unittest.TestCase):
             kit_index_inputs = rendered_inputs[result.recovery_kit_index_path.name]
             self.assertIn(
                 {
+                    "component_id": "ROOT-BACKUP",
+                    "detail": (
+                        "Requires matching root backup QR and recovery documents "
+                        "for root document deadbeef"
+                    ),
+                    "status": "External",
+                },
+                kit_index_inputs.context["inventory_rows"],
+            )
+            self.assertIn(
+                {
                     "component_id": "ROOT-SHARDS",
                     "detail": "Requires root passphrase shard quorum 2 of 2",
                     "status": "External",
@@ -1692,6 +1857,75 @@ class TestExtendService(unittest.TestCase):
             runtime = resolve_extend_runtime(prepared)
 
         self.assertEqual(runtime.passphrase, ExtensionPassphraseShards(threshold=2, share_count=3))
+
+    def test_resolve_extend_runtime_self_contained_defers_unused_root_shard_scan(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir()
+            config_path = _config_with_no_shard_defaults(Path(tmpdir) / "config.toml")
+            resolved = _resolved_state(
+                diff_summary={
+                    "new_paths": ["new.txt"],
+                    "changed_paths": ["updated.txt"],
+                    "unchanged_paths": [],
+                    "missing_paths": [],
+                },
+            )
+            with mock.patch(
+                "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                return_value=resolved,
+            ):
+                prepared = prepare_extend_run(
+                    ExtendArgs(
+                        config=str(config_path),
+                        root_dir=str(root_dir),
+                        input=["/tmp/root/example.txt"],
+                        shard_count=0,
+                    )
+                )
+
+            with mock.patch(
+                "ethernity.cli.features.extend.runtime.published_root_passphrase_shard_policy",
+                side_effect=AssertionError("root shard scan should not run"),
+            ):
+                runtime = resolve_extend_runtime(prepared)
+
+        self.assertEqual(runtime.passphrase, PlaintextPassphrase())
+
+    def test_resolve_extend_runtime_self_contained_uses_published_root_policy_when_inherited(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir()
+            config_path = _config_with_no_shard_defaults(Path(tmpdir) / "config.toml")
+            resolved = _resolved_state(
+                diff_summary={
+                    "new_paths": ["new.txt"],
+                    "changed_paths": ["updated.txt"],
+                    "unchanged_paths": [],
+                    "missing_paths": [],
+                },
+            )
+            with mock.patch(
+                "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                return_value=resolved,
+            ):
+                prepared = prepare_extend_run(
+                    ExtendArgs(
+                        config=str(config_path),
+                        root_dir=str(root_dir),
+                        input=["/tmp/root/example.txt"],
+                    )
+                )
+
+            with mock.patch(
+                "ethernity.cli.features.extend.runtime.published_root_passphrase_shard_policy",
+                return_value=(2, 5),
+            ):
+                runtime = resolve_extend_runtime(prepared)
+
+        self.assertEqual(runtime.passphrase, ExtensionPassphraseShards(threshold=2, share_count=5))
 
     def test_resolve_extend_runtime_reuse_root_requires_validated_unlock_shard_policy(
         self,

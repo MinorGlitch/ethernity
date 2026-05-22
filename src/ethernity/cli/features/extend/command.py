@@ -146,7 +146,7 @@ def run_extend_command(args: ExtendArgs, *, debug: bool = False) -> int:
 def run_extend_dry_run_command(args: ExtendArgs, *, debug: bool = False) -> int:
     _ = debug
     prepared = prepare_extend_run(args)
-    runtime = resolve_extend_runtime(prepared)
+    runtime = resolve_extend_runtime(prepared, create_layout_debug_dir=False)
     encrypted = encrypt_prepared_extension_document(
         prepared,
         chunker=default_extension_chunker,
@@ -317,10 +317,13 @@ def extend(
         ),
     ] = None,
     signing_key_mode: Annotated[
-        Literal["embedded", "sharded"] | None,
+        Literal["not-stored", "sharded"] | None,
         typer.Option(
             "--signing-key-mode",
-            help="How to store signing-key recovery.",
+            help=(
+                "Signing-key recovery for the extension: not-stored "
+                "(no extension-local private-key recovery) or sharded."
+            ),
             rich_help_panel="Outputs",
         ),
     ] = None,

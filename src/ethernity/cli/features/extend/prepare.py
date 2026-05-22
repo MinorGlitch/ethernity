@@ -133,6 +133,8 @@ def prepare_extend_run_from_state(
         changed_paths=changed_paths,
         new_paths=new_paths,
         unchanged_paths=unchanged_paths,
+        unlock_passphrase_shard_threshold=resolved.unlock_passphrase_shard_threshold,
+        unlock_passphrase_shard_count=resolved.unlock_passphrase_shard_count,
     )
 
 

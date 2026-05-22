@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+import re
 import shutil
 import tempfile
 import unittest
@@ -25,9 +26,20 @@ from ethernity.cli.features.backup.orchestrator import run_backup_command
 from ethernity.cli.features.mint.workflow import execute_mint
 from ethernity.cli.features.recover.orchestrator import run_recover_command
 from ethernity.cli.shared import api_codes
+from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
+from ethernity.cli.shared.io.fallback_parser import (
+    detect_fallback_section,
+    filter_fallback_lines,
+)
+from ethernity.cli.shared.io.frames import _frames_from_fallback_lines, _recovery_frames_from_scan
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import BackupArgs, CompactArgs, ExtendArgs, MintArgs, RecoverArgs
 from ethernity.config.paths import DEFAULT_CONFIG_PATH, SUPPORTED_TEMPLATE_DESIGNS
+from ethernity.encoding.chunking import reassemble_payload
+from ethernity.encoding.framing import VERSION, Frame, FrameType, encode_frame
+from ethernity.encoding.qr_payloads import encode_qr_payload
+from ethernity.render import FallbackSection
+from ethernity.render.fallback import fallback_lines_from_sections
 from tests.test_support import ensure_playwright_browsers, suppress_output, temp_env
 
 TEST_PASSPHRASE = "extension-integration-passphrase"
@@ -37,6 +49,7 @@ _V1_0_FILE_NO_SHARD_ROOT = (
 )
 _V1_0_SOURCE_ROOT = _REPO_ROOT / "tests" / "fixtures" / "v1_0" / "source"
 _V1_0_PASSPHRASE = "stable-v1-baseline-passphrase"
+_PDF_FALLBACK_LINE_COUNTER_RE = re.compile(r"^\s*(?P<counter>\d+)[.)]?\s+")
 
 
 class TestIntegrationExtensions(unittest.TestCase):
@@ -55,16 +68,24 @@ class TestIntegrationExtensions(unittest.TestCase):
             (source_dir / "nested" / "beta.txt").write_text("root-beta", encoding="utf-8")
 
             with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
-                self._run_backup(source_dir=source_dir, root_dir=root_dir)
+                self._run_backup(source_dir=source_dir, root_dir=root_dir, design="sentinel")
 
                 (source_dir / "alpha.txt").write_text("first-alpha", encoding="utf-8")
                 (source_dir / "gamma.txt").write_text("gamma-one", encoding="utf-8")
-                first_extension = self._run_extend(source_dir=source_dir, root_dir=root_dir)
+                first_extension = self._run_extend(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    design="sentinel",
+                )
 
                 (source_dir / "alpha.txt").write_text("second-alpha", encoding="utf-8")
                 (source_dir / "gamma.txt").write_text("gamma-two", encoding="utf-8")
                 (source_dir / "nested" / "delta.txt").write_text("delta", encoding="utf-8")
-                second_extension = self._run_extend(source_dir=source_dir, root_dir=root_dir)
+                second_extension = self._run_extend(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    design="sentinel",
+                )
 
                 expected_latest_state = {
                     "alpha.txt": b"second-alpha",
@@ -75,6 +96,42 @@ class TestIntegrationExtensions(unittest.TestCase):
                 latest_dir = tmp_path / "recovered-latest"
                 self._run_recover(root_dir=root_dir, output_dir=latest_dir)
                 self.assertEqual(self._snapshot_tree(latest_dir), expected_latest_state)
+
+                main_payloads = tmp_path / "main_payloads.txt"
+                auth_payloads = tmp_path / "auth_payloads.txt"
+                self._write_split_payload_files(
+                    (
+                        root_dir / "qr_document.pdf",
+                        first_extension.qr_document_path,
+                        second_extension.qr_document_path,
+                    ),
+                    main_payloads=main_payloads,
+                    auth_payloads=auth_payloads,
+                )
+                separate_auth_dir = tmp_path / "recovered-separate-auth"
+                self._run_recover(
+                    root_dir=root_dir,
+                    output_dir=separate_auth_dir,
+                    scan=[],
+                    payloads_file=str(main_payloads),
+                    auth_payloads_file=str(auth_payloads),
+                )
+                self.assertEqual(self._snapshot_tree(separate_auth_dir), expected_latest_state)
+
+                extension_fallback = tmp_path / "extension_fallback.txt"
+                self._write_extension_recovery_pdf_fallback_file(
+                    second_extension.recovery_document_path,
+                    extension_fallback,
+                    expected_doc_id=second_extension.doc_id,
+                )
+                fallback_recovered_dir = tmp_path / "recovered-extension-fallback"
+                self._run_recover(
+                    root_dir=root_dir,
+                    output_dir=fallback_recovered_dir,
+                    scan=[str(root_dir / "qr_document.pdf"), str(first_extension.qr_document_path)],
+                    fallback_file=str(extension_fallback),
+                )
+                self.assertEqual(self._snapshot_tree(fallback_recovered_dir), expected_latest_state)
 
                 expected_first = {
                     "alpha.txt": b"first-alpha",
@@ -150,6 +207,137 @@ class TestIntegrationExtensions(unittest.TestCase):
                     )
 
             self.assertEqual(exit_code, 0)
+            self.assertEqual(
+                self._snapshot_tree(recovered_dir),
+                {
+                    "alpha.txt": b"extension-alpha",
+                    "beta.txt": b"extension-beta",
+                },
+            )
+
+    def test_extend_with_previous_extension_local_shards_appends_next_extension(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup-root"
+            recovered_dir = tmp_path / "recovered-latest"
+            source_dir.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(source_dir=source_dir, root_dir=root_dir)
+
+                (source_dir / "alpha.txt").write_text("extension-alpha", encoding="utf-8")
+                (source_dir / "beta.txt").write_text("extension-beta", encoding="utf-8")
+                first_extension = self._run_extend(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    shard_threshold=2,
+                    shard_count=3,
+                )
+
+                (source_dir / "gamma.txt").write_text("second-extension-gamma", encoding="utf-8")
+                second_extension = self._run_extend(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    passphrase=None,
+                    shard_scan=[str(path) for path in first_extension.shard_paths[:2]],
+                )
+
+                self.assertEqual(second_extension.index, 2)
+                self._run_recover(root_dir=root_dir, output_dir=recovered_dir)
+
+            self.assertEqual(
+                self._snapshot_tree(recovered_dir),
+                {
+                    "alpha.txt": b"extension-alpha",
+                    "beta.txt": b"extension-beta",
+                    "gamma.txt": b"second-extension-gamma",
+                },
+            )
+
+    def test_reuse_root_extension_unlocks_with_root_shards_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup-root"
+            recovered_dir = tmp_path / "recovered-reuse-root"
+            source_dir.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    shard_threshold=2,
+                    shard_count=3,
+                )
+
+                (source_dir / "alpha.txt").write_text("extension-alpha", encoding="utf-8")
+                extension = self._run_extend(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    unlock_policy="reuse-root",
+                    shard_threshold=None,
+                    shard_count=None,
+                )
+
+                self.assertEqual(extension.shard_paths, ())
+                root_shards = sorted(root_dir.glob("shard-*.pdf"))
+                self.assertEqual(len(root_shards), 3)
+                self._run_recover(
+                    root_dir=root_dir,
+                    output_dir=recovered_dir,
+                    passphrase=None,
+                    shard_scan=[str(path) for path in root_shards[:2]],
+                )
+
+            self.assertEqual(
+                self._snapshot_tree(recovered_dir),
+                {"alpha.txt": b"extension-alpha"},
+            )
+
+    def test_recover_with_mixed_root_and_extension_shard_scan_uses_extension_quorum(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup-root"
+            recovered_dir = tmp_path / "recovered-mixed-shards"
+            source_dir.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    shard_threshold=2,
+                    shard_count=3,
+                )
+                root_shards = sorted(root_dir.glob("shard-*.pdf"))
+                self.assertEqual(len(root_shards), 3)
+
+                (source_dir / "alpha.txt").write_text("extension-alpha", encoding="utf-8")
+                (source_dir / "beta.txt").write_text("extension-beta", encoding="utf-8")
+                extension = self._run_extend(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    shard_threshold=2,
+                    shard_count=3,
+                )
+
+                self.assertEqual(len(extension.shard_paths), 3)
+                self._run_recover(
+                    root_dir=root_dir,
+                    output_dir=recovered_dir,
+                    passphrase=None,
+                    shard_scan=[
+                        *(str(path) for path in root_shards[:2]),
+                        *(str(path) for path in extension.shard_paths[:2]),
+                    ],
+                )
+
             self.assertEqual(
                 self._snapshot_tree(recovered_dir),
                 {
@@ -276,6 +464,56 @@ class TestIntegrationExtensions(unittest.TestCase):
                     "beta.txt": b"extension-beta",
                 },
             )
+
+    def test_mint_replaces_extension_signing_key_shard_from_scanned_extension_shards(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup-root"
+            mint_dir = tmp_path / "minted-signing-key-replacement"
+            source_dir.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(source_dir=source_dir, root_dir=root_dir)
+
+                (source_dir / "alpha.txt").write_text("extension-alpha", encoding="utf-8")
+                extension = self._run_extend(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    shard_threshold=2,
+                    shard_count=3,
+                    signing_key_mode="sharded",
+                    signing_key_shard_threshold=2,
+                    signing_key_shard_count=3,
+                )
+
+                self.assertEqual(len(extension.shard_paths), 3)
+                self.assertEqual(len(extension.signing_key_shard_paths), 3)
+                with suppress_output():
+                    mint_result = execute_mint(
+                        MintArgs(
+                            config=str(DEFAULT_CONFIG_PATH),
+                            scan=[str(root_dir)],
+                            passphrase=TEST_PASSPHRASE,
+                            signing_key_shard_scan=[
+                                str(path) for path in extension.signing_key_shard_paths[:2]
+                            ],
+                            output_dir=str(mint_dir),
+                            mint_passphrase_shards=False,
+                            mint_signing_key_shards=True,
+                            signing_key_replacement_count=1,
+                            quiet=True,
+                        )
+                    )
+
+            self.assertEqual(mint_result.doc_id, extension.doc_id)
+            self.assertEqual(mint_result.doc_hash, extension.doc_hash)
+            self.assertEqual(mint_result.shard_paths, ())
+            self.assertEqual(len(mint_result.signing_key_shard_paths), 1)
+            self.assertEqual(mint_result.selected_extension_index, extension.index)
+            self.assertEqual(mint_result.selected_extension_doc_hash, extension.doc_hash.hex())
+            self.assertTrue(Path(mint_result.signing_key_shard_paths[0]).exists())
 
     def test_compact_with_extension_local_shards_preserves_latest_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -582,6 +820,11 @@ class TestIntegrationExtensions(unittest.TestCase):
         shard_threshold: int | None = None,
         shard_count: int | None = 0,
         passphrase: str = TEST_PASSPHRASE,
+        unlock_policy: str | None = None,
+        signing_key_mode: str | None = None,
+        signing_key_shard_threshold: int | None = None,
+        signing_key_shard_count: int | None = None,
+        shard_scan: list[str] | None = None,
     ):
         with suppress_output():
             return run_extend(
@@ -591,9 +834,14 @@ class TestIntegrationExtensions(unittest.TestCase):
                     input_dir=[str(source_dir)],
                     base_dir=str(source_dir),
                     passphrase=passphrase,
+                    shard_scan=shard_scan,
                     design=design,
                     shard_threshold=shard_threshold,
                     shard_count=shard_count,
+                    unlock_policy=unlock_policy,
+                    signing_key_mode=signing_key_mode,
+                    signing_key_shard_threshold=signing_key_shard_threshold,
+                    signing_key_shard_count=signing_key_shard_count,
                     quiet=True,
                 )
             )
@@ -640,14 +888,21 @@ class TestIntegrationExtensions(unittest.TestCase):
         extension_doc_hash: str | None = None,
         passphrase: str | None = TEST_PASSPHRASE,
         shard_scan: list[str] | None = None,
+        scan: list[str] | None = None,
+        fallback_file: str | None = None,
+        payloads_file: str | None = None,
+        auth_payloads_file: str | None = None,
     ) -> None:
         with suppress_output():
             exit_code = run_recover_command(
                 RecoverArgs(
                     config=str(DEFAULT_CONFIG_PATH),
-                    scan=[str(root_dir)],
+                    fallback_file=fallback_file,
+                    payloads_file=payloads_file,
+                    scan=[str(root_dir)] if scan is None else scan,
                     passphrase=passphrase,
                     shard_scan=shard_scan,
+                    auth_payloads_file=auth_payloads_file,
                     extension_index=extension_index,
                     extension_doc_hash=extension_doc_hash,
                     output=str(output_dir),
@@ -657,6 +912,160 @@ class TestIntegrationExtensions(unittest.TestCase):
                 )
             )
         self.assertEqual(exit_code, 0)
+
+    def _write_extension_recovery_pdf_fallback_file(
+        self,
+        recovery_document: Path,
+        fallback_path: Path,
+        *,
+        expected_doc_id: bytes,
+    ) -> None:
+        lines = self._fallback_lines_from_recovery_document(recovery_document)
+        frames = _frames_from_fallback_lines(lines, allow_invalid_auth=False, quiet=True)
+        main_frames = [frame for frame in frames if frame.frame_type == FrameType.MAIN_DOCUMENT]
+        auth_frames = [frame for frame in frames if frame.frame_type == FrameType.AUTH]
+
+        self.assertEqual(len(main_frames), 1)
+        self.assertEqual(len(auth_frames), 1)
+        self.assertEqual(main_frames[0].doc_id, expected_doc_id)
+        self.assertEqual(auth_frames[0].doc_id, expected_doc_id)
+        fallback_path.write_text("\n".join(lines), encoding="utf-8")
+
+    def _fallback_lines_from_recovery_document(self, recovery_document: Path) -> list[str]:
+        reader = PdfReader(recovery_document)
+        lines: list[str] = []
+        current_section: str | None = None
+        accept_payload_continuation = False
+        expected_row = 1
+        for page in reader.pages:
+            for raw_line in (page.extract_text() or "").splitlines():
+                section = detect_fallback_section(raw_line)
+                if section in {"auth", "main"}:
+                    current_section = section
+                    accept_payload_continuation = False
+                    expected_row = 1
+                    lines.append(AUTH_FALLBACK_LABEL if section == "auth" else MAIN_FALLBACK_LABEL)
+                    continue
+                if current_section not in {"auth", "main"}:
+                    continue
+                payload_line = self._extract_pdf_fallback_payload_line(
+                    raw_line,
+                    require_counter=True,
+                    expected_counter=expected_row,
+                )
+                if payload_line is None and accept_payload_continuation:
+                    payload_line = self._extract_pdf_fallback_payload_line(
+                        raw_line,
+                        require_counter=False,
+                        expected_counter=None,
+                    )
+                if payload_line is None:
+                    accept_payload_continuation = False
+                    continue
+                lines.append(payload_line)
+                if _PDF_FALLBACK_LINE_COUNTER_RE.match(raw_line) is not None:
+                    expected_row += 1
+                accept_payload_continuation = True
+
+        self.assertIn(AUTH_FALLBACK_LABEL, lines)
+        self.assertIn(MAIN_FALLBACK_LABEL, lines)
+        return lines
+
+    def _extract_pdf_fallback_payload_line(
+        self,
+        line: str,
+        *,
+        require_counter: bool,
+        expected_counter: int | None,
+    ) -> str | None:
+        counter_match = _PDF_FALLBACK_LINE_COUNTER_RE.match(line)
+        has_counter = counter_match is not None
+        if require_counter and counter_match is None:
+            return None
+        if (
+            expected_counter is not None
+            and counter_match is not None
+            and int(counter_match.group("counter")) != expected_counter
+        ):
+            return None
+        candidate = (
+            _PDF_FALLBACK_LINE_COUNTER_RE.sub("", line.strip()) if has_counter else line.strip()
+        )
+        tokens: list[str] = []
+        for token in candidate.split():
+            if len(token) > 4:
+                break
+            try:
+                filter_fallback_lines([token])
+            except ValueError:
+                break
+            tokens.append(token)
+        if not tokens:
+            return None
+        candidate = " ".join(tokens)
+        try:
+            filter_fallback_lines([candidate])
+        except ValueError:
+            return None
+        return candidate
+
+    def _write_split_payload_files(
+        self,
+        qr_documents: tuple[Path, ...],
+        *,
+        main_payloads: Path,
+        auth_payloads: Path,
+    ) -> None:
+        frames: list[Frame] = []
+        for path in qr_documents:
+            frames.extend(_recovery_frames_from_scan([str(path)], quiet=True))
+        main_lines = [
+            self._payload_line(frame)
+            for frame in frames
+            if frame.frame_type == FrameType.MAIN_DOCUMENT
+        ]
+        auth_lines = [
+            self._payload_line(frame) for frame in frames if frame.frame_type == FrameType.AUTH
+        ]
+
+        self.assertTrue(main_lines)
+        self.assertTrue(auth_lines)
+        main_payloads.write_text("\n".join(main_lines), encoding="utf-8")
+        auth_payloads.write_text("\n".join(auth_lines), encoding="utf-8")
+
+    def _write_extension_fallback_file(self, qr_document: Path, fallback_path: Path) -> None:
+        frames = _recovery_frames_from_scan([str(qr_document)], quiet=True)
+        main_frames = [frame for frame in frames if frame.frame_type == FrameType.MAIN_DOCUMENT]
+        auth_frames = [frame for frame in frames if frame.frame_type == FrameType.AUTH]
+        self.assertTrue(main_frames)
+        self.assertEqual(len(auth_frames), 1)
+        ciphertext = reassemble_payload(
+            main_frames,
+            expected_frame_type=FrameType.MAIN_DOCUMENT,
+        )
+        main_fallback_frame = Frame(
+            version=VERSION,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=main_frames[0].doc_id,
+            index=0,
+            total=1,
+            data=ciphertext,
+        )
+        lines = fallback_lines_from_sections(
+            (
+                FallbackSection(label=AUTH_FALLBACK_LABEL, frame=auth_frames[0]),
+                FallbackSection(label=MAIN_FALLBACK_LABEL, frame=main_fallback_frame),
+            ),
+            group_size=4,
+            line_length=64,
+        )
+        fallback_path.write_text("\n".join(lines), encoding="utf-8")
+
+    def _payload_line(self, frame: Frame) -> str:
+        payload = encode_qr_payload(encode_frame(frame))
+        if isinstance(payload, bytes):
+            return payload.decode("ascii")
+        return payload
 
     def _assert_recover_head_untrusted(
         self,

@@ -97,6 +97,14 @@ def build_kit_index_inputs(
             "detail": f"Document ID {plan.encrypted.doc_id.hex()}",
             "status": "Generated",
         },
+        {
+            "component_id": "ROOT-BACKUP",
+            "detail": (
+                "Requires matching root backup QR and recovery documents"
+                f" for root document {plan.prepared.inspection.root_doc_id}"
+            ),
+            "status": "External",
+        },
         *_root_shard_dependency_rows(runtime.passphrase),
         *build_kit_index_inventory_rows(
             shard_payloads=list(passphrase_shards),

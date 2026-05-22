@@ -17,13 +17,20 @@ import hashlib
 import unittest
 from unittest import mock
 
+import ethernity.extensions as extension_api
 import ethernity.extensions.chain as chain_module
 from ethernity.core.bounds import MAX_MANIFEST_FILES
+from ethernity.crypto.signing import AuthPayload, generate_signing_keypair, sign_auth
 from ethernity.extensions import (
-    ExtensionChainLink,
+    AuthenticatedExtensionChainLink,
     extract_root_logical_state,
-    reconstruct_latest_logical_state,
-    validate_extension_chain,
+    reconstruct_authenticated_latest_logical_state,
+    validate_authenticated_extension_chain,
+)
+from ethernity.extensions.chain import (
+    ExtensionChainLink,
+    _reconstruct_structural_latest_logical_state as reconstruct_latest_logical_state,
+    _validate_structural_extension_chain as validate_extension_chain,
 )
 from ethernity.formats.envelope_codec import build_manifest_and_payload
 from ethernity.formats.envelope_types import PayloadPart
@@ -86,6 +93,17 @@ def _malformed_extension_file(
 
 
 class TestExtensionChain(unittest.TestCase):
+    def test_top_level_extension_facade_excludes_structural_chain_plumbing(self) -> None:
+        self.assertIn("AuthenticatedExtensionChainLink", extension_api.__all__)
+        self.assertIs(
+            extension_api.AuthenticatedExtensionChainLink,
+            AuthenticatedExtensionChainLink,
+        )
+        self.assertNotIn("ExtensionChainLink", extension_api.__all__)
+        self.assertNotIn("build_chain_available_chunks", extension_api.__all__)
+        self.assertFalse(hasattr(extension_api, "ExtensionChainLink"))
+        self.assertFalse(hasattr(extension_api, "build_chain_available_chunks"))
+
     def test_extract_root_logical_state(self) -> None:
         manifest, payload = build_manifest_and_payload(
             (
@@ -104,6 +122,96 @@ class TestExtensionChain(unittest.TestCase):
         self.assertEqual([item.path for item in state], ["alpha.txt", "beta.txt"])
         self.assertEqual(state[0].data, b"alpha")
         self.assertEqual(state[1].data, b"beta")
+
+    def test_authenticated_chain_link_verifies_root_authority_auth(self) -> None:
+        sign_priv, sign_pub = generate_signing_keypair()
+        payload_bytes = b"extension payload"
+        chunk_id, chunk = _raw_chunk(payload_bytes)
+        document = ExtensionEnvelope(
+            header=build_extension_header(
+                index=1,
+                parent_doc_hash=ROOT_DOC_HASH,
+                root_doc_hash=ROOT_DOC_HASH,
+                chunking=_profile(),
+                input_origin="file",
+                input_roots=(),
+                created_at=2,
+            ),
+            files=(
+                ExtensionFile(
+                    path="new.txt",
+                    size=len(payload_bytes),
+                    sha256=chunk_id,
+                    mtime=3,
+                    chunk_refs=(
+                        ExtensionChunkRef(
+                            chunk_id=chunk_id,
+                            uncompressed_len=len(payload_bytes),
+                        ),
+                    ),
+                ),
+            ),
+            chunks=(chunk,),
+        )
+        auth_payload = AuthPayload(
+            version=1,
+            doc_hash=EXT1_DOC_HASH,
+            sign_pub=sign_pub,
+            signature=sign_auth(EXT1_DOC_HASH, sign_pub=sign_pub, sign_priv=sign_priv),
+        )
+
+        link = AuthenticatedExtensionChainLink(
+            doc_hash=EXT1_DOC_HASH,
+            document=document,
+            auth_payload=auth_payload,
+            expected_sign_pub=sign_pub,
+        )
+
+        self.assertEqual(
+            validate_authenticated_extension_chain(
+                root_doc_hash=ROOT_DOC_HASH,
+                expected_sign_pub=sign_pub,
+                extensions=(link,),
+            ),
+            _profile(),
+        )
+
+        manifest, payload = build_manifest_and_payload(
+            (PayloadPart(path="alpha.txt", data=b"alpha", mtime=1),),
+            sealed=False,
+            signing_seed=SIGNING_SEED,
+            created_at=1.0,
+            input_origin="file",
+            input_roots=(),
+        )
+        latest = reconstruct_authenticated_latest_logical_state(
+            manifest,
+            payload,
+            root_doc_hash=ROOT_DOC_HASH,
+            expected_sign_pub=sign_pub,
+            extensions=(link,),
+        )
+        self.assertEqual({item.path: item.data for item in latest}["new.txt"], payload_bytes)
+
+        with self.assertRaisesRegex(ValueError, "signing key"):
+            AuthenticatedExtensionChainLink(
+                doc_hash=EXT1_DOC_HASH,
+                document=document,
+                auth_payload=auth_payload,
+                expected_sign_pub=b"\xff" * 32,
+            )
+        with self.assertRaisesRegex(ValueError, "signature"):
+            AuthenticatedExtensionChainLink(
+                doc_hash=EXT1_DOC_HASH,
+                document=document,
+                auth_payload=AuthPayload(
+                    version=1,
+                    doc_hash=EXT1_DOC_HASH,
+                    sign_pub=sign_pub,
+                    signature=b"\x00" * 64,
+                ),
+                expected_sign_pub=sign_pub,
+            )
 
     def test_reconstruct_latest_state_supports_chain_global_chunk_reuse(self) -> None:
         manifest, payload = build_manifest_and_payload(
@@ -458,6 +566,18 @@ class TestExtensionChain(unittest.TestCase):
                     created_at=3,
                 ),
                 files=(
+                    ExtensionFile(
+                        path="first-copy.txt",
+                        size=len(b"first"),
+                        sha256=first_chunk_id,
+                        mtime=3,
+                        chunk_refs=(
+                            ExtensionChunkRef(
+                                chunk_id=first_chunk_id,
+                                uncompressed_len=len(b"first"),
+                            ),
+                        ),
+                    ),
                     ExtensionFile(
                         path="second.txt",
                         size=len(b"second"),

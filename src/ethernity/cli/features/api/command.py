@@ -105,7 +105,8 @@ _INSPECT_HELP = (
     "Inspect commands do not write files or emit artifact events."
 )
 
-SigningKeyMode = Literal["embedded", "sharded"]
+BackupSigningKeyMode = Literal["embedded", "sharded"]
+ExtensionSigningKeyMode = Literal["not-stored", "sharded"]
 
 
 class _DisplayOnlyParamType(click.ParamType):
@@ -306,7 +307,7 @@ def _parse_api_extension_doc_hash_option(value: str | None) -> str | None:
     return normalized
 
 
-def _parse_signing_key_mode(value: str | None) -> str | None:
+def _parse_backup_signing_key_mode(value: str | None) -> str | None:
     if value is None:
         return None
     normalized = value.strip().lower()
@@ -319,13 +320,26 @@ def _parse_signing_key_mode(value: str | None) -> str | None:
     return normalized
 
 
+def _parse_extension_signing_key_mode(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized not in {"not-stored", "sharded"}:
+        raise ApiCommandError(
+            code=api_codes.EXTENSION_INVALID_POLICY,
+            message="--signing-key-mode must be 'not-stored' or 'sharded'",
+            details={"option": "--signing-key-mode", "value": value},
+        )
+    return normalized
+
+
 def _parse_unlock_policy(value: str | None) -> str | None:
     if value is None:
         return None
     normalized = value.strip().lower()
     if normalized not in {"self-contained", "reuse-root"}:
         raise ApiCommandError(
-            code=api_codes.INVALID_INPUT,
+            code=api_codes.EXTENSION_INVALID_POLICY,
             message="--unlock-policy must be 'self-contained' or 'reuse-root'",
             details={"option": "--unlock-policy", "value": value},
         )
@@ -355,11 +369,25 @@ def _optional_int_for_started(value: str | None, *, min_value: int = 0) -> int |
     return parsed
 
 
+def _non_empty_string_for_started(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return value if normalized else None
+
+
 def _normalized_signing_key_mode_for_started(value: str | None) -> str | None:
     if value is None:
         return None
     normalized = value.strip().lower()
     return normalized if normalized in {"embedded", "sharded"} else None
+
+
+def _normalized_extension_signing_key_mode_for_started(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    return normalized if normalized in {"not-stored", "sharded"} else None
 
 
 def _normalized_unlock_policy_for_started(value: str | None) -> str | None:
@@ -556,6 +584,8 @@ def _extend_started_args_for_error(
         "input": _stringify_paths(input),
         "input_dir": _stringify_paths(input_dir),
         "base_dir": base_dir,
+        "layout_debug_dir": _non_empty_string_for_started(layout_debug_dir),
+        "qr_chunk_size": _optional_int_for_started(qr_chunk_size, min_value=1),
         "has_passphrase": passphrase is not None,
         "shard_fallback_file": list(shard_fallback_file or []),
         "shard_payloads_file": list(shard_payloads_file or []),
@@ -563,7 +593,7 @@ def _extend_started_args_for_error(
         "unlock_policy": _normalized_unlock_policy_for_started(unlock_policy),
         "shard_threshold": _optional_int_for_started(shard_threshold),
         "shard_count": _optional_int_for_started(shard_count),
-        "signing_key_mode": _normalized_signing_key_mode_for_started(signing_key_mode),
+        "signing_key_mode": _normalized_extension_signing_key_mode_for_started(signing_key_mode),
         "signing_key_shard_threshold": _optional_int_for_started(signing_key_shard_threshold),
         "signing_key_shard_count": _optional_int_for_started(signing_key_shard_count),
         "quiet": True,
@@ -571,9 +601,6 @@ def _extend_started_args_for_error(
     }
     if operation is not None:
         payload["operation"] = operation
-    else:
-        payload["layout_debug_dir"] = layout_debug_dir
-        payload["qr_chunk_size"] = _optional_int_for_started(qr_chunk_size, min_value=1)
     return payload
 
 
@@ -953,7 +980,7 @@ def _build_backup_api_args(
     passphrase_words_value = _parse_api_int_option("--passphrase-words", passphrase_words)
     shard_threshold_cli = _parse_api_int_option("--shard-threshold", shard_threshold)
     shard_count_cli = _parse_api_int_option("--shard-count", shard_count)
-    signing_key_mode_cli = _parse_signing_key_mode(signing_key_mode)
+    signing_key_mode_cli = _parse_backup_signing_key_mode(signing_key_mode)
     signing_key_shard_threshold_cli = _parse_api_int_option(
         "--signing-key-shard-threshold",
         signing_key_shard_threshold,
@@ -983,7 +1010,7 @@ def _build_backup_api_args(
         ),
         shard_count=shard_count_cli if shard_count_cli is not None else defaults.shard_count,
         signing_key_mode=cast(
-            SigningKeyMode | None,
+            BackupSigningKeyMode | None,
             signing_key_mode_cli if signing_key_mode_cli is not None else defaults.signing_key_mode,
         ),
         signing_key_shard_threshold=(
@@ -1027,6 +1054,7 @@ def _build_extend_api_args(
     signing_key_shard_threshold: str | None,
     signing_key_shard_count: str | None,
 ) -> ExtendArgs:
+    defaults = _state_backup_defaults(state)
     qr_chunk_size_cli = _parse_api_int_option(
         "--qr-chunk-size",
         qr_chunk_size,
@@ -1039,7 +1067,7 @@ def _build_extend_api_args(
         min_value=0,
     )
     shard_count_cli = _parse_api_int_option("--shard-count", shard_count, min_value=0)
-    signing_key_mode_cli = _parse_signing_key_mode(signing_key_mode)
+    signing_key_mode_cli = _parse_extension_signing_key_mode(signing_key_mode)
     signing_key_shard_threshold_cli = _parse_api_int_option(
         "--signing-key-shard-threshold",
         signing_key_shard_threshold,
@@ -1057,7 +1085,7 @@ def _build_extend_api_args(
         root_dir=root_dir,
         input=[str(path) for path in (input or [])],
         input_dir=[str(path) for path in (input_dir or [])],
-        base_dir=base_dir,
+        base_dir=base_dir if base_dir is not None else defaults.base_dir,
         layout_debug_dir=layout_debug_dir,
         qr_chunk_size=qr_chunk_size_cli,
         passphrase=passphrase,
@@ -1071,7 +1099,7 @@ def _build_extend_api_args(
         shard_threshold=shard_threshold_cli,
         shard_count=shard_count_cli,
         signing_key_mode=cast(
-            SigningKeyMode | None,
+            ExtensionSigningKeyMode | None,
             signing_key_mode_cli,
         ),
         signing_key_shard_threshold=signing_key_shard_threshold_cli,
@@ -1320,7 +1348,9 @@ def extend(
         str | None,
         typer.Option(
             "--signing-key-mode",
-            help="Signing key handling for the new extension. Accepted values: embedded, sharded.",
+            help=(
+                "Signing key handling for the new extension. Accepted values: not-stored, sharded."
+            ),
             click_type=_MODE_HELP_TYPE,
         ),
     ] = None,
@@ -1909,6 +1939,21 @@ def inspect_extend(
         str | None,
         typer.Option("--base-dir", help="Base path for stored relative names."),
     ] = None,
+    qr_chunk_size: Annotated[
+        str | None,
+        typer.Option(
+            "--qr-chunk-size",
+            help="Preferred ciphertext bytes per QR frame.",
+            metavar="INTEGER",
+        ),
+    ] = None,
+    layout_debug_dir: Annotated[
+        str | None,
+        typer.Option(
+            "--layout-debug-dir",
+            help="Validate per-document layout diagnostics output policy.",
+        ),
+    ] = None,
     passphrase: Annotated[
         str | None,
         typer.Option(
@@ -1972,7 +2017,9 @@ def inspect_extend(
         str | None,
         typer.Option(
             "--signing-key-mode",
-            help="Signing key handling for the new extension. Accepted values: embedded, sharded.",
+            help=(
+                "Signing key handling for the new extension. Accepted values: not-stored, sharded."
+            ),
             click_type=_MODE_HELP_TYPE,
         ),
     ] = None,
@@ -2018,8 +2065,8 @@ def inspect_extend(
             input=input,
             input_dir=input_dir,
             base_dir=base_dir,
-            layout_debug_dir=None,
-            qr_chunk_size=None,
+            layout_debug_dir=layout_debug_dir,
+            qr_chunk_size=qr_chunk_size,
             passphrase=passphrase,
             shard_fallback_file=shard_fallback_file,
             shard_payloads_file=shard_payloads_file,
@@ -2047,8 +2094,8 @@ def inspect_extend(
                 input=input,
                 input_dir=input_dir,
                 base_dir=base_dir,
-                layout_debug_dir=None,
-                qr_chunk_size=None,
+                layout_debug_dir=layout_debug_dir,
+                qr_chunk_size=qr_chunk_size,
                 passphrase=passphrase,
                 shard_fallback_file=shard_fallback_file,
                 shard_payloads_file=shard_payloads_file,

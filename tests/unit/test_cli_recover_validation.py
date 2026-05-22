@@ -98,12 +98,6 @@ class TestCliRecoverValidation(unittest.TestCase):
                 "payloads_file": "frames.txt",
                 "scan": [],
             },
-            {
-                "name": "scan-with-fallback",
-                "fallback_file": "fallback.txt",
-                "payloads_file": None,
-                "scan": ["scan.png"],
-            },
         )
         for case in cases:
             with self.subTest(case=case["name"]):

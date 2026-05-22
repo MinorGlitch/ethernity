@@ -80,6 +80,7 @@ Current phases:
 
 - Backup: `plan`, `input`, `backup`, `prepare`, `encrypt`, `shard`, `render`
 - Config: `load`, `validate`, `write`
+- Extend: `plan`, `render`, `validate`, `publish`
 - Extend inspect: `plan`
 - Mint: `plan`, `mint`, `render`
 - Recover: `plan`, `decrypt`, `write`
@@ -147,15 +148,18 @@ For `api mint`, if `--output-dir` points to an existing directory, it is treated
 directory and Ethernity creates `mint-<doc_id>` inside it. If the path does not exist, Ethernity
 creates that exact directory.
 
-Mint results include `signing_key_source` and a stable `artifacts` object for minted shard paths.
+Mint results include `doc_hash`, `selected_extension_index`, `selected_extension_doc_hash`,
+`signing_key_source`, and a stable `artifacts` object for minted shard paths.
 
 Extend results include `index`, `doc_id`, `doc_hash`, `root_doc_id`, `root_doc_hash`, `chain_id`,
 the promoted `extension_dir`, a stable `artifacts` object for generated PDFs, and execution
-summaries for `selected_scope`, `diff_summary`, `chunk_reuse`, and `extension_bytes`.
+summaries for `selected_scope`, `diff_summary`, `resolved_policy`, `chunk_reuse`, and
+`extension_bytes`.
 
-For `api inspect extend`, `chunk_reuse` and `estimated_extension_bytes` are execution-grade preview
-values for the pending extension when unlock/auth requirements are satisfied and the selected scope
-contains changes.
+For `api inspect extend`, `resolved_policy`, `chunk_reuse`, and `estimated_extension_bytes` are
+execution-grade preview values for the pending extension when unlock/auth requirements are satisfied
+and the selected scope contains changes. `resolved_policy` is `null` when runtime policy cannot be
+evaluated yet.
 
 Compact results include the source `root_dir`, the emitted standalone `output_dir`, a fresh
 standalone `doc_id`, and a stable `artifacts` object for generated PDFs.
@@ -204,7 +208,7 @@ Current command-specific error codes:
 - `SIGNING_KEY_SHARD_DIR_INVALID`: `--signing-key-shard-dir` path is not a directory
 - `SIGNING_KEY_SHARD_DIR_EMPTY`: `--signing-key-shard-dir` contains no `.txt` files
 - `EXTENSION_INPUT_REQUIRED`: `ethernity api extend` was invoked without `--input`, `--input-dir`,
-  or `--input -`
+  or `--input -`; `ethernity api inspect extend` has no explicit selected scope
 - `EXTENSION_INVALID_POLICY`: `ethernity api extend` received an unsupported or inconsistent shard /
   unlock-policy combination
 - `EXTENSION_NO_CHANGES`: `ethernity api extend` found no changed or new paths in the selected
@@ -212,6 +216,8 @@ Current command-specific error codes:
 - `EXTENSION_MAIN_CARRIER_INVALID`: staged extension MAIN carriers failed ciphertext / AUTH validation
 - `EXTENSION_SHARD_CARRIER_INVALID`: staged extension shard carriers failed payload validation
 - `EXTENSION_TOO_LARGE`: the encrypted extension ciphertext exceeds the release size limit
+- `EXTENSION_PUBLISH_TARGET_INVALID`: the extension publish target cannot be validated before
+  writing
 - `COMPACT_INVALID_POLICY`: `ethernity api compact` could not preserve the root shard policy
 - `RECOVERY_HEAD_UNTRUSTED`: recover or compact could not authenticate or reconstruct the requested
   recovery head, or the latest supplied recovery head when no explicit head was requested
@@ -270,8 +276,10 @@ Current inspect `blocking_issues[].code` values:
 - `SIGNING_KEY_REPLACEMENT_NOT_READY`
 - `ROOT_AUTHORITY_MISMATCH`
 - `ROOT_SHARD_POLICY_INVALID`
+- `EXTENSION_INPUT_REQUIRED`
 - `RECOVERY_HEAD_UNTRUSTED`
 - `EXTENSION_LAYOUT_INVALID`
+- `EXTENSION_PUBLISH_TARGET_INVALID`
 - `EXTENSION_INVALID_POLICY`
 - `EXTENSION_NO_CHANGES`
 - `EXTENSION_TOO_LARGE`
@@ -301,6 +309,7 @@ Stable phase ids currently emitted by the API:
 
 - Backup: `plan`, `input`, `backup`, `prepare`, `encrypt`, `shard`, `render`
 - Config: `load`, `validate`, `write`
+- Extend: `plan`, `render`, `validate`, `publish`
 - Extend inspect: `plan`
 - Mint: `plan`, `mint`, `render`
 - Recover: `plan`, `decrypt`, `write`
@@ -354,7 +363,7 @@ machine-readable extension carriers.
 - `unlock.mode|passphrase_provided|validated_shard_count|required_shard_threshold|shard_share_count|satisfied`
 - `validated_head_auth_status`, `validated_head_root_authority_verified`
 - `available_extensions`, `ancestry_valid`, `signing_authority`
-- `selected_scope`, `diff_summary`, `chunk_reuse`, `estimated_extension_bytes`
+- `selected_scope`, `diff_summary`, `resolved_policy`, `chunk_reuse`, `estimated_extension_bytes`
 - `blocking_issues` and `warnings`
 
 For mint inspect, `frame_counts.signing_key_shard` reports decoded signing-key shard input frames.
@@ -364,7 +373,8 @@ and can be `0` when the backup already embeds a signing seed.
 For extend inspect, `unlock.satisfied` only describes root decryption readiness. Use
 `blocking_issues`, `signing_authority.satisfied`, and the validated-head fields to decide whether
 the write-producing extend action is ready. A selected scope with no changed or new paths reports
-`EXTENSION_NO_CHANGES` as a blocking issue.
+`EXTENSION_NO_CHANGES` as a blocking issue. A missing explicit scope reports
+`EXTENSION_INPUT_REQUIRED` as a blocking issue.
 
 `mint_capabilities` is per output type and reflects both readiness and the currently enabled
 output toggles. A replacement-shard blocker can disable one capability while leaving the other
@@ -540,6 +550,10 @@ Recover can also scan QR payloads directly from PDFs, images, or directories by 
 ethernity api recover --scan "/path/to/qr_document.pdf" --passphrase "correct horse battery staple" --output "/tmp/recovered.bin"
 ```
 
+`--scan` may be combined with either `--payloads-file` or `--fallback-file` when a recovery set
+spans QR-readable artifacts and typed/transcribed text. `--fallback-file` and `--payloads-file`
+remain mutually exclusive with each other.
+
 Passphrase shard PDFs/images can be scanned separately with `--shard-scan`:
 
 ```bash
@@ -563,7 +577,8 @@ trusted or the UI needs the original backup state.
 - Expect `api backup` / `api compact` / `api extend` / `api mint` / `api recover` to use the existing user config when present
 - Expect `api inspect extend` / `api inspect recover` / `api inspect mint` to avoid file writes and artifact events
 - Prefer `code` values for logic and `message` values for display
-- Treat stdin as opt-in for `api recover`; pass `--fallback-file -` for recovery text or `--payloads-file -` for QR payload lines
+- Treat stdin as opt-in for `api recover`; pass `--fallback-file -` for typed fallback text or `--payloads-file -` for QR payload lines
+- Do not extract fallback text from PDF or image files; PDF/image recovery inputs are QR scan inputs only
 `extend` also accepts `--unlock-policy self-contained|reuse-root`.
 `reuse-root` disables extension-local shard emission, uses the published or supplied root
 passphrase shard policy, and rejects explicit shard-policy overrides for the new extension.
@@ -579,13 +594,16 @@ non-symlink backup root directory.
 Both commands also accept `--input -` for stdin-backed file content when selecting an explicit
 scope.
 `api inspect extend` accepts the same extension-policy preview knobs as `api extend`:
-`--unlock-policy`, `--shard-threshold`, `--shard-count`, `--signing-key-mode`,
-`--signing-key-shard-threshold`, and `--signing-key-shard-count`.
+`--qr-chunk-size`, `--layout-debug-dir`, `--unlock-policy`, `--shard-threshold`,
+`--shard-count`, `--signing-key-mode not-stored|sharded`, `--signing-key-shard-threshold`, and
+`--signing-key-shard-count`. The inspect form validates `--layout-debug-dir` and the extension
+publish target without creating files or directories.
 When the active design provides a compatible `recovery_kit_index` template, `api extend` emits an
-extension-local recovery kit index. `api inspect extend` does not emit artifact paths, but its
-readiness preview reflects the same policy by estimating the extension payload and surfacing
-blocking issues when runtime preparation would fail. Designs without a compatible template omit that
-optional index document.
+extension-local recovery kit index. The index records the required root backup documents as external
+dependencies because extension recovery is not self-contained. `api inspect extend` does not emit
+artifact paths, but its readiness preview reflects the same policy by estimating the extension
+payload and surfacing blocking issues when runtime preparation would fail. Designs without a
+compatible template omit that optional index document.
 
 If `api extend` encounters an inspect-time blocking issue while preparing the publish plan, it emits
 that stable `blocking_issues[].code` as the command `error.code`. Clients should therefore handle
@@ -596,7 +614,12 @@ For `api inspect extend`, result events also surface authenticated-head status:
 - `validated_head_auth_status`
 - `validated_head_root_authority_verified`
 
-When chain authentication has been evaluated, `available_extensions` entries may also include:
+For a root-only head, `validated_head_root_authority_verified` is `true` only when the root AUTH
+status is `verified` and the root-derived signing authority is present. Clients should pair this
+field with `validated_head_auth_status` and `blocking_issues` before treating a head as trusted.
+
+`available_extensions` entries always include the numeric `index` alongside `dir_name`, `doc_id`,
+and `doc_hash`. When chain authentication has been evaluated, entries may also include:
 
 - `auth_status`
 - `root_authority_verified`

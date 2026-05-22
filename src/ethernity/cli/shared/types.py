@@ -136,11 +136,14 @@ class MintArgs:
 @dataclass(frozen=True)
 class MintResult:
     doc_id: bytes
+    doc_hash: bytes
     output_dir: str
     shard_paths: tuple[str, ...]
     signing_key_shard_paths: tuple[str, ...]
     signing_key_source: str
     notes: tuple[str, ...] = ()
+    selected_extension_index: int | None = None
+    selected_extension_doc_hash: str | None = None
 
 
 @dataclass
@@ -164,7 +167,7 @@ class ExtendArgs:
     unlock_policy: Literal["self-contained", "reuse-root"] | None = None
     shard_threshold: int | None = None
     shard_count: int | None = None
-    signing_key_mode: Literal["embedded", "sharded"] | None = None
+    signing_key_mode: Literal["not-stored", "sharded"] | None = None
     signing_key_shard_threshold: int | None = None
     signing_key_shard_count: int | None = None
     quiet: bool = False

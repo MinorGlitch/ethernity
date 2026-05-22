@@ -14,7 +14,12 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Helpers for extension layout and naming."""
+"""Curated public helpers for extension build, discovery, staging, and replay.
+
+The package facade intentionally exposes authenticated chain replay helpers only. Structural
+chain plumbing such as ``ExtensionChainLink`` and chunk-map construction remains available from
+implementation modules for internal callers, but is not part of the top-level supported surface.
+"""
 
 from ethernity.extensions.build import (
     BuiltExtensionDocument,
@@ -24,12 +29,11 @@ from ethernity.extensions.build import (
     default_extension_chunker,
 )
 from ethernity.extensions.chain import (
-    ExtensionChainLink,
+    AuthenticatedExtensionChainLink,
     LogicalFileState,
-    build_chain_available_chunks,
     extract_root_logical_state,
-    reconstruct_latest_logical_state,
-    validate_extension_chain,
+    reconstruct_authenticated_latest_logical_state,
+    validate_authenticated_extension_chain,
 )
 from ethernity.extensions.discovery import (
     EXTENSIONS_DIR_NAME,
@@ -61,6 +65,7 @@ from ethernity.extensions.staging import (
     ValidatedStagedExtension,
     create_extension_staging_dir,
     create_staged_extension_artifact_plan,
+    preflight_extension_publish_target,
     promote_staged_extension_dir,
     snapshot_staged_extension_dir,
     validate_staged_extension_dir,
@@ -74,7 +79,7 @@ __all__ = [
     "DiscoveredExtensionShardCarrier",
     "ValidatedExtensionDiscovery",
     "ExtensionBuildStats",
-    "ExtensionChainLink",
+    "AuthenticatedExtensionChainLink",
     "ExtensionMainArtifactName",
     "ExtensionPublishPolicy",
     "ExtensionShardArtifactName",
@@ -85,7 +90,6 @@ __all__ = [
     "build_extension_main_filename",
     "build_extension_shard_filename",
     "build_staging_dir_name",
-    "build_chain_available_chunks",
     "build_virtual_chunk_source",
     "canonical_extension_dir_name",
     "create_staged_extension_artifact_plan",
@@ -101,9 +105,10 @@ __all__ = [
     "parse_extension_main_filename",
     "parse_extension_shard_filename",
     "payload_main_carriers",
+    "preflight_extension_publish_target",
     "promote_staged_extension_dir",
-    "reconstruct_latest_logical_state",
+    "reconstruct_authenticated_latest_logical_state",
     "snapshot_staged_extension_dir",
     "validate_staged_extension_dir",
-    "validate_extension_chain",
+    "validate_authenticated_extension_chain",
 ]

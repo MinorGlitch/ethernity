@@ -34,6 +34,7 @@ from ethernity.formats.extension_envelope import (
     ExtensionEnvelopeHeader,
     ExtensionFile,
     build_extension_header,
+    derive_chain_id,
 )
 from ethernity.formats.extension_envelope_constants import (
     CHUNK_ALGORITHM_FASTCDC,
@@ -113,6 +114,13 @@ def _non_canonical_uvarint(value: int) -> bytes:
 
 
 class TestExtensionEnvelope(unittest.TestCase):
+    def test_chain_id_derivation_matches_deterministic_vector(self) -> None:
+        root_doc_hash = bytes(range(32))
+        self.assertEqual(
+            derive_chain_id(root_doc_hash).hex(),
+            "787dedb7d7af8b647e234457dc72c8d6217198c7e4a15606dd6c5c6ab9ed7a21",
+        )
+
     def test_roundtrip_with_raw_chunk(self) -> None:
         chunk_bytes = b"hello extension"
         chunk_id = hashlib.sha256(chunk_bytes).digest()
@@ -463,6 +471,15 @@ class TestExtensionEnvelope(unittest.TestCase):
                 max_size=256 * 1024,
             )
 
+    def test_rejects_chunking_profile_sizes_above_decompressed_payload_limit(self) -> None:
+        with self.assertRaisesRegex(ValueError, "target_size exceeds MAX_DECOMPRESSED"):
+            ExtensionChunkingProfile(
+                algorithm_id=CHUNK_ALGORITHM_FASTCDC,
+                target_size=MAX_DECOMPRESSED_PAYLOAD_BYTES + 1,
+                min_size=16 * 1024,
+                max_size=MAX_DECOMPRESSED_PAYLOAD_BYTES + 1,
+            )
+
     def test_rejects_unknown_body_keys(self) -> None:
         chunk_bytes = b"body"
         chunk_id = hashlib.sha256(chunk_bytes).digest()
@@ -754,6 +771,52 @@ class TestExtensionEnvelope(unittest.TestCase):
                         data=chunk_bytes,
                     ),
                 ),
+            )
+
+    def test_rejects_inline_chunks_unused_by_same_envelope(self) -> None:
+        chunk_bytes = b"x"
+        chunk_id = hashlib.sha256(chunk_bytes).digest()
+        unused_bytes = b"unused"
+        unused_chunk_id = hashlib.sha256(unused_bytes).digest()
+        chunks = sorted(
+            (
+                ExtensionChunkRecord(
+                    chunk_id=chunk_id,
+                    codec=CHUNK_CODEC_RAW,
+                    raw_len=len(chunk_bytes),
+                    data=chunk_bytes,
+                ),
+                ExtensionChunkRecord(
+                    chunk_id=unused_chunk_id,
+                    codec=CHUNK_CODEC_RAW,
+                    raw_len=len(unused_bytes),
+                    data=unused_bytes,
+                ),
+            ),
+            key=lambda item: item.chunk_id,
+        )
+
+        with self.assertRaisesRegex(ValueError, "inline chunks must be referenced"):
+            ExtensionEnvelope(
+                header=build_extension_header(
+                    index=2,
+                    parent_doc_hash=TEST_DOC_HASH,
+                    root_doc_hash=TEST_ROOT_DOC_HASH,
+                    chunking=_make_profile(),
+                    input_origin="directory",
+                    input_roots=("root",),
+                    created_at=123,
+                ),
+                files=(
+                    ExtensionFile(
+                        path="a.txt",
+                        size=1,
+                        sha256=chunk_id,
+                        mtime=None,
+                        chunk_refs=(ExtensionChunkRef(chunk_id=chunk_id, uncompressed_len=1),),
+                    ),
+                ),
+                chunks=tuple(chunks),
             )
 
     def test_decode_rejects_non_canonical_version_uvarint(self) -> None:

@@ -36,12 +36,14 @@ from ethernity.cli.features.extend.models import (
     PreparedExtensionPublishPlan,
     PublishedExtensionResult,
     RenderedExtensionArtifacts,
+    ReuseRootPassphraseShards,
 )
 from ethernity.cli.features.extend.prepare import (
     prepare_extend_run,
     prepare_staged_extension_publish,
 )
 from ethernity.cli.features.extend.shard_validation import validate_staged_shard_carriers
+from ethernity.cli.shared.events import emit_phase, emit_progress
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.extensions.build import Chunker, default_extension_chunker
 from ethernity.extensions.staging import validate_staged_extension_dir
@@ -52,26 +54,63 @@ def execute_staged_extension_publish(
     *,
     renderer: ExtensionArtifactRenderer,
     post_validate: ExtensionArtifactPostValidator,
+    root_passphrase_shard_threshold: int | None = None,
+    root_passphrase_shard_count: int | None = None,
 ) -> PublishedExtensionResult:
     """Render into a staged extension directory, validate, and promote atomically."""
 
     staging_dir = plan.artifacts.staging_dir
+    validate_phase_emitted = False
 
     def _validate_staging(path) -> None:
+        nonlocal validate_phase_emitted
+        if not validate_phase_emitted:
+            emit_phase(phase="validate", label="Validating staged extension artifacts")
+            validate_phase_emitted = True
         validate_staged_extension_dir(
             path,
             expected_index=plan.prepared.next_index,
             publish_policy=plan.publish_policy,
         )
 
+    def _populate() -> RenderedExtensionArtifacts:
+        emit_phase(phase="render", label="Rendering extension artifacts")
+        rendered = renderer(plan)
+        emit_progress(
+            phase="render",
+            current=1,
+            total=1,
+            unit="step",
+            details={"staging_dir": staging_dir},
+        )
+        return rendered
+
+    def _validate_artifacts(rendered: RenderedExtensionArtifacts) -> None:
+        post_validate(plan, rendered)
+        emit_progress(
+            phase="validate",
+            current=1,
+            total=1,
+            unit="step",
+            details={"staging_dir": staging_dir},
+        )
+        emit_phase(phase="publish", label="Publishing extension artifacts")
+
     publish_result = publish_staged_artifacts(
         staging_dir=staging_dir,
         final_dir=plan.artifacts.final_dir,
-        populate=lambda: renderer(plan),
+        populate=_populate,
         validate_staging=_validate_staging,
-        validate_artifacts=lambda rendered: post_validate(plan, rendered),
+        validate_artifacts=_validate_artifacts,
     )
     final_dir = publish_result.final_dir
+    emit_progress(
+        phase="publish",
+        current=1,
+        total=1,
+        unit="step",
+        details={"extension_dir": final_dir},
+    )
 
     return PublishedExtensionResult(
         index=plan.prepared.next_index,
@@ -90,12 +129,19 @@ def execute_staged_extension_publish(
             final_dir / path.name for path in plan.artifacts.signing_key_shard_paths
         ),
         root_passphrase_shard_threshold=(
-            plan.prepared.root_passphrase_shard_threshold
+            _result_root_passphrase_shard_threshold(
+                plan,
+                root_passphrase_shard_threshold=root_passphrase_shard_threshold,
+                root_passphrase_shard_count=root_passphrase_shard_count,
+            )
             if plan.prepared.args.unlock_policy == "reuse-root"
             else None
         ),
         root_passphrase_shard_count=(
-            plan.prepared.root_passphrase_shard_count
+            _result_root_passphrase_shard_count(
+                plan,
+                root_passphrase_shard_count=root_passphrase_shard_count,
+            )
             if plan.prepared.args.unlock_policy == "reuse-root"
             else 0
         ),
@@ -148,6 +194,16 @@ def execute_prepared_extend(
         publish,
         renderer=_renderer,
         post_validate=_post_validate,
+        root_passphrase_shard_threshold=(
+            runtime.passphrase.threshold
+            if isinstance(runtime.passphrase, ReuseRootPassphraseShards)
+            else None
+        ),
+        root_passphrase_shard_count=(
+            runtime.passphrase.share_count
+            if isinstance(runtime.passphrase, ReuseRootPassphraseShards)
+            else 0
+        ),
     )
     return ExecutedExtendRun(
         prepared=prepared,
@@ -169,6 +225,27 @@ def _render_extension_artifacts(
         layout_debug_json_path=backup_execution._layout_debug_json_path,
         build_kit_index_inventory_rows=backup_execution._build_kit_index_inventory_rows,
     )
+
+
+def _result_root_passphrase_shard_threshold(
+    plan: PreparedExtensionPublishPlan,
+    *,
+    root_passphrase_shard_threshold: int | None,
+    root_passphrase_shard_count: int | None,
+) -> int | None:
+    if root_passphrase_shard_count is None:
+        return plan.prepared.root_passphrase_shard_threshold
+    return root_passphrase_shard_threshold
+
+
+def _result_root_passphrase_shard_count(
+    plan: PreparedExtensionPublishPlan,
+    *,
+    root_passphrase_shard_count: int | None,
+) -> int:
+    if root_passphrase_shard_count is None:
+        return plan.prepared.root_passphrase_shard_count
+    return root_passphrase_shard_count
 
 
 __all__ = [

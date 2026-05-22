@@ -260,6 +260,7 @@ def expected_recovery_kit_index_component_ids(
     component_ids = [
         plan.encrypted.doc_id.hex(),
         f"Extension {plan.prepared.next_index:02d}",
+        "ROOT-BACKUP",
         "QR-DOC-01",
         "RECOVERY-DOC-01",
     ]

@@ -20,6 +20,7 @@ from pathlib import Path
 from ethernity.extensions import (
     discover_extension_directories,
     discover_validated_extension_directories,
+    payload_main_carriers,
 )
 
 
@@ -98,6 +99,24 @@ class TestExtensionDiscovery(unittest.TestCase):
             self.assertEqual(
                 discovered[0].recovery_kit_index_carrier.doc_type,
                 "recovery_kit_index",
+            )
+
+    def test_payload_main_carriers_excludes_recovery_documents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            extensions_dir = Path(tmpdir) / "extensions"
+            (extensions_dir / "01").mkdir(parents=True)
+
+            self._write(extensions_dir / "01" / "qr_document-01-deadbeefcafebabe.pdf")
+            self._write(extensions_dir / "01" / "recovery_document-01-deadbeefcafebabe.pdf")
+
+            discovered = discover_extension_directories(tmpdir)
+
+            self.assertEqual(
+                [
+                    carrier.doc_type
+                    for carrier in payload_main_carriers(discovered[0].main_carriers)
+                ],
+                ["qr_document"],
             )
 
     def test_rejects_non_canonical_decimal_directory_name(self) -> None:

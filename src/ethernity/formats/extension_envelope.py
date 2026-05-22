@@ -119,6 +119,15 @@ class ExtensionChunkingProfile:
         target_size = require_positive_int(self.target_size, label="extension chunking target_size")
         min_size = require_positive_int(self.min_size, label="extension chunking min_size")
         max_size = require_positive_int(self.max_size, label="extension chunking max_size")
+        for label, value in (
+            ("target_size", target_size),
+            ("min_size", min_size),
+            ("max_size", max_size),
+        ):
+            if value > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+                raise ValueError(
+                    f"extension chunking {label} exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES"
+                )
         if min_size > target_size or target_size > max_size:
             raise ValueError("extension chunking sizes must satisfy min <= target <= max")
         object.__setattr__(self, "algorithm_id", algorithm_id)
@@ -402,6 +411,7 @@ class ExtensionEnvelope:
             )
         seen_paths: set[str] = set()
         previous_path = ""
+        referenced_chunk_ids: set[bytes] = set()
         for file_entry in files:
             if file_entry.path in seen_paths:
                 raise ValueError(f"duplicate extension file path: {file_entry.path}")
@@ -409,6 +419,7 @@ class ExtensionEnvelope:
                 raise ValueError("extension files must be ordered by normalized path")
             previous_path = file_entry.path
             seen_paths.add(file_entry.path)
+            referenced_chunk_ids.update(chunk_ref.chunk_id for chunk_ref in file_entry.chunk_refs)
         seen_chunk_ids: set[bytes] = set()
         previous_chunk_id = b""
         total_inline_chunk_bytes = 0
@@ -424,6 +435,11 @@ class ExtensionEnvelope:
                 raise ValueError("extension chunks must be ordered by raw chunk_id")
             previous_chunk_id = chunk_record.chunk_id
             seen_chunk_ids.add(chunk_record.chunk_id)
+        if unused_chunk_ids := seen_chunk_ids - referenced_chunk_ids:
+            raise ValueError(
+                "extension inline chunks must be referenced by files in the same envelope: "
+                f"{len(unused_chunk_ids)} unused chunk(s)"
+            )
         object.__setattr__(self, "files", files)
         object.__setattr__(self, "chunks", chunks)
 

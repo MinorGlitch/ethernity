@@ -39,9 +39,9 @@ from ethernity.crypto.signing import AuthPayload, derive_public_key
 from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions.chain import (
-    ExtensionChainLink,
+    AuthenticatedExtensionChainLink,
     LogicalFileState,
-    reconstruct_latest_logical_state,
+    reconstruct_authenticated_latest_logical_state,
 )
 from ethernity.formats.envelope_codec import decode_any_envelope, extract_payloads
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
@@ -90,7 +90,7 @@ class DiscoveredRecoveryExtension:
 
 @dataclass(frozen=True)
 class DecodedExtensionLink:
-    link: ExtensionChainLink
+    link: AuthenticatedExtensionChainLink
     auth_payload: AuthPayload | None
     auth_status: str
     root_authority_verified: bool
@@ -298,6 +298,18 @@ def recover_imported_chain_entries(
             },
         )
 
+    if plan.auth_payload is None or plan.auth_status != "verified":
+        raise ApiCommandError(
+            code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+            message="extension import recovery requires verified root AUTH",
+            details={
+                "stage": "auth",
+                "root_auth_status": plan.auth_status,
+                "validated_head_index": 0,
+                "validated_head_doc_hash": plan.doc_hash.hex(),
+            },
+        )
+
     root_sign_pub = validate_root_manifest_authority(root_manifest, plan.auth_payload)
     if root_sign_pub is None:
         raise ApiCommandError(
@@ -335,10 +347,11 @@ def recover_imported_chain_entries(
         )
 
     try:
-        latest_state = reconstruct_latest_logical_state(
+        latest_state = reconstruct_authenticated_latest_logical_state(
             root_manifest,
             payload,
             root_doc_hash=plan.doc_hash,
+            expected_sign_pub=root_sign_pub,
             extensions=tuple(item.link for item in selected_links),
         )
     except ValueError as exc:
@@ -349,6 +362,7 @@ def recover_imported_chain_entries(
             selected_links=selected_links,
             root_manifest=root_manifest,
             payload=payload,
+            expected_sign_pub=root_sign_pub,
         ) from exc
     latest_manifest = _synthetic_manifest_from_state(
         root_manifest,
@@ -372,11 +386,13 @@ def _chain_replay_head_untrusted_error(
     selected_links: tuple[DecodedExtensionLink, ...],
     root_manifest: EnvelopeManifest,
     payload: bytes,
+    expected_sign_pub: bytes,
 ) -> ApiCommandError:
     failure, validated_links = locate_replay_failure(
         root_manifest=root_manifest,
         payload=payload,
         root_doc_hash=plan.doc_hash,
+        expected_sign_pub=expected_sign_pub,
         selected_links=selected_links,
     )
     head_index, head_hash, head_auth, head_verified = _validated_head_details(
@@ -417,15 +433,17 @@ def locate_replay_failure(
     root_manifest: EnvelopeManifest,
     payload: bytes,
     root_doc_hash: bytes,
+    expected_sign_pub: bytes,
     selected_links: tuple[DecodedExtensionLink, ...],
 ) -> tuple[DecodedExtensionLink, tuple[DecodedExtensionLink, ...]]:
     for end in range(1, len(selected_links) + 1):
         prefix = selected_links[:end]
         try:
-            reconstruct_latest_logical_state(
+            reconstruct_authenticated_latest_logical_state(
                 root_manifest,
                 payload,
                 root_doc_hash=root_doc_hash,
+                expected_sign_pub=expected_sign_pub,
                 extensions=tuple(item.link for item in prefix),
             )
         except ValueError:
@@ -644,7 +662,14 @@ def _authenticate_imported_extension_candidates(
 
         links.append(
             DecodedExtensionLink(
-                link=ExtensionChainLink(doc_hash=document.doc_hash, document=candidate.decoded),
+                link=AuthenticatedExtensionChainLink(
+                    doc_hash=document.doc_hash,
+                    document=candidate.decoded,
+                    auth_payload=auth_payload,
+                    expected_sign_pub=expected_sign_pub,
+                    auth_status=auth_status,
+                    root_authority_verified=True,
+                ),
                 auth_payload=auth_payload,
                 auth_status=auth_status,
                 root_authority_verified=True,
@@ -722,7 +747,14 @@ def decode_imported_extension_link(
         raise ValueError("extension AUTH signing key does not match root authority")
 
     return DecodedExtensionLink(
-        link=ExtensionChainLink(doc_hash=document.doc_hash, document=decoded),
+        link=AuthenticatedExtensionChainLink(
+            doc_hash=document.doc_hash,
+            document=decoded,
+            auth_payload=auth_payload,
+            expected_sign_pub=expected_sign_pub,
+            auth_status=auth_status,
+            root_authority_verified=True,
+        ),
         auth_payload=auth_payload,
         auth_status=auth_status,
         root_authority_verified=True,
@@ -825,7 +857,6 @@ def decode_authenticated_extension_link(
     *,
     passphrase: str,
     expected_sign_pub: bytes | None,
-    allow_unsigned: bool,
     quiet: bool,
     debug: bool,
 ) -> DecodedExtensionLink:

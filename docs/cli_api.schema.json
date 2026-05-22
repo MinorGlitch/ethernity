@@ -56,7 +56,8 @@
         "decrypt",
         "write",
         "load",
-        "validate"
+        "validate",
+        "publish"
       ]
     },
     "artifactKind": {
@@ -534,6 +535,7 @@
         "artifacts",
         "selected_scope",
         "diff_summary",
+        "resolved_policy",
         "chunk_reuse",
         "extension_bytes"
       ],
@@ -564,11 +566,7 @@
           "$ref": "#/$defs/nullableDocHashHex"
         },
         "chain_id": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/nullableDocHashHex"
         },
         "extension_dir": {
           "$ref": "#/$defs/pathString"
@@ -587,6 +585,9 @@
             "object",
             "null"
           ]
+        },
+        "resolved_policy": {
+          "$ref": "#/$defs/extendResolvedPolicyPreview"
         },
         "chunk_reuse": {
           "type": [
@@ -1154,6 +1155,7 @@
         "signing_authority",
         "selected_scope",
         "diff_summary",
+        "resolved_policy",
         "chunk_reuse",
         "estimated_extension_bytes",
         "blocking_issues",
@@ -1226,11 +1228,7 @@
           "$ref": "#/$defs/nullableDocHashHex"
         },
         "chain_id": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/nullableDocHashHex"
         },
         "auth_status": {
           "$ref": "#/$defs/authStatus"
@@ -1315,11 +1313,16 @@
             "type": "object",
             "additionalProperties": false,
             "required": [
+              "index",
               "dir_name",
               "doc_id",
               "doc_hash"
             ],
             "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": 1
+              },
               "dir_name": {
                 "type": "string",
                 "minLength": 1
@@ -1385,6 +1388,42 @@
             "object",
             "null"
           ]
+        },
+        "resolved_policy": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "passphrase",
+            "signing_key",
+            "recovery_kit_index",
+            "qr_chunk_size",
+            "layout_debug_dir"
+          ],
+          "properties": {
+            "passphrase": {
+              "$ref": "#/$defs/extendPassphrasePolicyPreview"
+            },
+            "signing_key": {
+              "$ref": "#/$defs/extendSigningKeyPolicyPreview"
+            },
+            "recovery_kit_index": {
+              "type": "boolean"
+            },
+            "qr_chunk_size": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "layout_debug_dir": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            }
+          }
         },
         "chunk_reuse": {
           "type": [
@@ -1489,6 +1528,7 @@
         "ROOT_AUTHORITY_MISMATCH",
         "ROOT_SHARD_POLICY_INVALID",
         "EXTENSION_LAYOUT_INVALID",
+        "EXTENSION_PUBLISH_TARGET_INVALID",
         "SEALED_ROOT_NOT_EXTENDABLE",
         "CHAIN_INVALID",
         "DELETE_NOT_SUPPORTED",
@@ -1559,8 +1599,10 @@
         "SIGNING_KEY_REPLACEMENT_NOT_READY",
         "ROOT_AUTHORITY_MISMATCH",
         "ROOT_SHARD_POLICY_INVALID",
+        "EXTENSION_INPUT_REQUIRED",
         "RECOVERY_HEAD_UNTRUSTED",
         "EXTENSION_LAYOUT_INVALID",
+        "EXTENSION_PUBLISH_TARGET_INVALID",
         "EXTENSION_INVALID_POLICY",
         "EXTENSION_NO_CHANGES",
         "EXTENSION_TOO_LARGE",
@@ -2104,6 +2146,8 @@
         "input",
         "input_dir",
         "base_dir",
+        "layout_debug_dir",
+        "qr_chunk_size",
         "shard_fallback_file",
         "shard_payloads_file",
         "shard_scan",
@@ -2170,6 +2214,20 @@
           ],
           "minLength": 1
         },
+        "layout_debug_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "qr_chunk_size": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
         "shard_fallback_file": {
           "type": "array",
           "items": {
@@ -2222,7 +2280,7 @@
             "null"
           ],
           "enum": [
-            "embedded",
+            "not-stored",
             "sharded",
             null
           ]
@@ -2420,7 +2478,7 @@
             "null"
           ],
           "enum": [
-            "embedded",
+            "not-stored",
             "sharded",
             null
           ]
@@ -3011,10 +3069,13 @@
         "ok",
         "command",
         "doc_id",
+        "doc_hash",
         "output_dir",
         "artifacts",
         "signing_key_source",
-        "notes"
+        "notes",
+        "selected_extension_index",
+        "selected_extension_doc_hash"
       ],
       "properties": {
         "type": {
@@ -3028,6 +3089,9 @@
         },
         "doc_id": {
           "$ref": "#/$defs/docIdHex"
+        },
+        "doc_hash": {
+          "$ref": "#/$defs/docHashHex"
         },
         "output_dir": {
           "$ref": "#/$defs/pathString"
@@ -3045,6 +3109,16 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "selected_extension_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "selected_extension_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
         }
       }
     },
@@ -3142,6 +3216,134 @@
           }
         }
       }
+    },
+    "extendPassphrasePolicyPreview": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "threshold",
+            "share_count"
+          ],
+          "properties": {
+            "mode": {
+              "const": "plaintext"
+            },
+            "threshold": {
+              "type": "null"
+            },
+            "share_count": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "threshold",
+            "share_count"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "extension-shards",
+                "reuse-root-shards"
+              ]
+            },
+            "threshold": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "share_count": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      ]
+    },
+    "extendResolvedPolicyPreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "passphrase",
+        "signing_key",
+        "recovery_kit_index",
+        "qr_chunk_size",
+        "layout_debug_dir"
+      ],
+      "properties": {
+        "passphrase": {
+          "$ref": "#/$defs/extendPassphrasePolicyPreview"
+        },
+        "signing_key": {
+          "$ref": "#/$defs/extendSigningKeyPolicyPreview"
+        },
+        "recovery_kit_index": {
+          "type": "boolean"
+        },
+        "qr_chunk_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "layout_debug_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "extendSigningKeyPolicyPreview": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "threshold",
+            "share_count"
+          ],
+          "properties": {
+            "mode": {
+              "const": "not-stored"
+            },
+            "threshold": {
+              "type": "null"
+            },
+            "share_count": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "threshold",
+            "share_count"
+          ],
+          "properties": {
+            "mode": {
+              "const": "extension-shards"
+            },
+            "threshold": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "share_count": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      ]
     },
     "configOperation": {
       "type": "string",

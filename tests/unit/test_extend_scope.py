@@ -139,3 +139,28 @@ class TestExtendScope(unittest.TestCase):
         self.assertEqual(len(scope.input_files), 1)
         self.assertEqual(scope.input_files[0].relative_path, "data.txt")
         self.assertEqual(scope.input_files[0].data, b"stdin payload")
+
+    def test_load_selected_scope_rejects_root_artifacts_before_loading_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            extension_dir = root_dir / "extensions" / "01"
+            extension_dir.mkdir(parents=True)
+            (root_dir / "qr_document.pdf").write_bytes(b"root qr")
+
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.scope.load_input_scope",
+                    side_effect=AssertionError("input scope should not load"),
+                ),
+                self.assertRaisesRegex(
+                    ValueError,
+                    "extend input scope must not include backup root artifacts",
+                ),
+            ):
+                load_selected_scope(
+                    ExtendArgs(
+                        root_dir=str(root_dir),
+                        input_dir=[str(root_dir)],
+                        base_dir=str(root_dir),
+                    )
+                )

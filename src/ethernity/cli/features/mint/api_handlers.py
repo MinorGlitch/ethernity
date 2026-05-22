@@ -144,6 +144,7 @@ def run_mint_api_command(args: MintArgs, *, debug: bool = False) -> int:
     emit_result(
         command="mint",
         doc_id=result.doc_id.hex(),
+        doc_hash=result.doc_hash.hex(),
         output_dir=result.output_dir,
         artifacts={
             "shard_documents": list(result.shard_paths),
@@ -151,6 +152,8 @@ def run_mint_api_command(args: MintArgs, *, debug: bool = False) -> int:
         },
         signing_key_source=result.signing_key_source,
         notes=list(result.notes),
+        selected_extension_index=result.selected_extension_index,
+        selected_extension_doc_hash=result.selected_extension_doc_hash,
     )
     return 0
 

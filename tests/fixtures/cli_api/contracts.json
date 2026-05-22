@@ -42,6 +42,7 @@
     "ROOT_AUTHORITY_MISMATCH",
     "ROOT_SHARD_POLICY_INVALID",
     "EXTENSION_LAYOUT_INVALID",
+    "EXTENSION_PUBLISH_TARGET_INVALID",
     "SEALED_ROOT_NOT_EXTENDABLE",
     "CHAIN_INVALID",
     "DELETE_NOT_SUPPORTED"
@@ -86,8 +87,10 @@
     "SIGNING_KEY_REPLACEMENT_NOT_READY",
     "ROOT_AUTHORITY_MISMATCH",
     "ROOT_SHARD_POLICY_INVALID",
+    "EXTENSION_INPUT_REQUIRED",
     "RECOVERY_HEAD_UNTRUSTED",
     "EXTENSION_LAYOUT_INVALID",
+    "EXTENSION_PUBLISH_TARGET_INVALID",
     "EXTENSION_INVALID_POLICY",
     "EXTENSION_NO_CHANGES",
     "EXTENSION_TOO_LARGE",
@@ -126,6 +129,8 @@
   ],
   "extend_mocked_event_types": [
     "started",
+    "phase",
+    "progress",
     "artifact",
     "artifact",
     "artifact",
@@ -135,6 +140,8 @@
   ],
   "extend_minimal_event_types": [
     "started",
+    "phase",
+    "progress",
     "artifact",
     "artifact",
     "result"

@@ -64,6 +64,8 @@ class PreparedExtendRun:
     changed_paths: tuple[str, ...]
     new_paths: tuple[str, ...]
     unchanged_paths: tuple[str, ...]
+    unlock_passphrase_shard_threshold: int | None = None
+    unlock_passphrase_shard_count: int = 0
 
 
 @dataclass(frozen=True)

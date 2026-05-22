@@ -19,7 +19,15 @@ from __future__ import annotations
 from pathlib import Path
 
 from ethernity.cli.bootstrap.startup import ensure_playwright_browsers
+from ethernity.cli.features.extend.models import (
+    ExtensionPassphraseShards,
+    ExtensionSigningKeyShards,
+    PlaintextPassphrase,
+    ResolvedExtendRuntime,
+    ReuseRootPassphraseShards,
+)
 from ethernity.cli.features.extend.planning import require_extend_root_dir, resolve_extend_state
+from ethernity.cli.features.extend.runtime import resolve_extend_layout_debug_dir
 from ethernity.cli.features.extend.service import (
     EXTENSION_INPUT_REQUIRED,
     PublishedExtensionResult,
@@ -51,6 +59,7 @@ from ethernity.cli.shared.types import ExtendArgs
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
 from ethernity.extensions.build import default_extension_chunker
 from ethernity.extensions.layout import parse_extension_shard_filename
+from ethernity.extensions.staging import preflight_extension_publish_target
 
 
 def _artifact_details(path: str) -> dict[str, object]:
@@ -77,6 +86,13 @@ def _preview_chunk_reuse(
     )
 
 
+def _non_empty_started_string(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return value if normalized else None
+
+
 def _extend_started_args(
     args: ExtendArgs,
     *,
@@ -91,6 +107,8 @@ def _extend_started_args(
         "input": list(args.input or []),
         "input_dir": list(args.input_dir or []),
         "base_dir": args.base_dir,
+        "layout_debug_dir": _non_empty_started_string(args.layout_debug_dir),
+        "qr_chunk_size": args.qr_chunk_size,
         "has_passphrase": args.passphrase is not None,
         "shard_fallback_file": list(args.shard_fallback_file or []),
         "shard_payloads_file": list(args.shard_payloads_file or []),
@@ -106,10 +124,49 @@ def _extend_started_args(
     }
     if operation is not None:
         payload["operation"] = operation
-    else:
-        payload["layout_debug_dir"] = args.layout_debug_dir
-        payload["qr_chunk_size"] = args.qr_chunk_size
     return payload
+
+
+def _resolved_policy_payload(runtime: ResolvedExtendRuntime | None) -> dict[str, object] | None:
+    if runtime is None:
+        return None
+    return {
+        "passphrase": _passphrase_policy_payload(runtime),
+        "signing_key": _signing_key_policy_payload(runtime),
+        "recovery_kit_index": runtime.kit_index_template_path is not None,
+        "qr_chunk_size": runtime.qr_chunk_size,
+        "layout_debug_dir": runtime.layout_debug_dir,
+    }
+
+
+def _passphrase_policy_payload(runtime: ResolvedExtendRuntime) -> dict[str, object]:
+    policy = runtime.passphrase
+    if isinstance(policy, ReuseRootPassphraseShards):
+        return {
+            "mode": "reuse-root-shards",
+            "threshold": policy.threshold,
+            "share_count": policy.share_count,
+        }
+    if isinstance(policy, ExtensionPassphraseShards):
+        return {
+            "mode": "extension-shards",
+            "threshold": policy.threshold,
+            "share_count": policy.share_count,
+        }
+    if isinstance(policy, PlaintextPassphrase):
+        return {"mode": "plaintext", "threshold": None, "share_count": None}
+    raise TypeError(f"unknown extension passphrase policy: {type(policy).__name__}")
+
+
+def _signing_key_policy_payload(runtime: ResolvedExtendRuntime) -> dict[str, object]:
+    policy = runtime.signing_key
+    if isinstance(policy, ExtensionSigningKeyShards):
+        return {
+            "mode": "extension-shards",
+            "threshold": policy.threshold,
+            "share_count": policy.share_count,
+        }
+    return {"mode": "not-stored", "threshold": None, "share_count": None}
 
 
 def _emit_extend_artifacts(result: PublishedExtensionResult) -> None:
@@ -188,8 +245,21 @@ def run_extend_api_command(args: ExtendArgs, *, debug: bool = False) -> int:
         schema_version=SCHEMA_VERSION,
         args=_extend_started_args(args, debug=debug),
     )
-    ensure_playwright_browsers(quiet=True)
+    emit_phase(phase="plan", label="Preparing extension publish plan")
     prepared = prepare_extend_run(args)
+    ensure_playwright_browsers(quiet=True)
+    emit_progress(
+        phase="plan",
+        current=1,
+        total=1,
+        unit="step",
+        details={
+            "root_dir": getattr(prepared.inspection, "root_dir", args.root_dir),
+            "next_index": getattr(prepared, "next_index", None),
+            "changed_count": len(getattr(prepared, "changed_paths", ())),
+            "new_count": len(getattr(prepared, "new_paths", ())),
+        },
+    )
     executed = execute_prepared_extend(prepared)
     result = executed.result
     _emit_extend_artifacts(result)
@@ -216,6 +286,7 @@ def run_extend_api_command(args: ExtendArgs, *, debug: bool = False) -> int:
         },
         selected_scope=prepared.inspection.selected_scope,
         diff_summary=prepared.inspection.diff_summary,
+        resolved_policy=_resolved_policy_payload(executed.runtime),
         chunk_reuse={
             "reused_chunks": executed.publish.encrypted.built.stats.reused_chunks,
             "new_chunks": executed.publish.encrypted.built.stats.new_chunks,
@@ -241,10 +312,24 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
         blocking_issues = [dict(item) for item in inspection.blocking_issues]
         chunk_reuse: dict[str, int] | None = None
         estimated_extension_bytes: int | None = None
+        runtime: ResolvedExtendRuntime | None = None
         diff_summary = inspection.diff_summary
         has_extension_changes = diff_summary is not None and (
             bool(diff_summary.get("changed_paths")) or bool(diff_summary.get("new_paths"))
         )
+        if (
+            not args.input
+            and not args.input_dir
+            and not any(issue.get("code") == EXTENSION_INPUT_REQUIRED for issue in blocking_issues)
+        ):
+            blocking_issues.append(
+                blocking_issue(
+                    code=EXTENSION_INPUT_REQUIRED,
+                    message=(
+                        "extend requires at least one explicit --input or --input-dir selection"
+                    ),
+                )
+            )
         if not blocking_issues and diff_summary is not None and not has_extension_changes:
             blocking_issues.append(
                 blocking_issue(
@@ -252,27 +337,51 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
                     message="selected scope matches the current chain state; nothing to extend",
                 )
             )
+        if args.layout_debug_dir:
+            try:
+                resolve_extend_layout_debug_dir(
+                    args.layout_debug_dir,
+                    root_dir=args.root_dir,
+                    create=False,
+                )
+            except ApiCommandError as exc:
+                code, details = _inspect_blocking_issue_payload(exc.code, exc.details)
+                blocking_issues.append(blocking_issue(code=code, message=str(exc), details=details))
         if not blocking_issues and has_extension_changes:
             try:
                 prepared = prepare_extend_run_from_state(args, resolved)
-                resolve_extend_runtime(prepared)
-                chunk_reuse, estimated_extension_bytes = _preview_chunk_reuse(prepared)
-                if (
-                    estimated_extension_bytes is not None
-                    and estimated_extension_bytes > MAX_CIPHERTEXT_BYTES
-                ):
+                try:
+                    preflight_extension_publish_target(
+                        args.root_dir or inspection.root_dir,
+                        index=prepared.next_index,
+                    )
+                except ValueError as exc:
                     blocking_issues.append(
                         blocking_issue(
-                            code=api_codes.EXTENSION_TOO_LARGE,
-                            message=(
-                                "extension ciphertext exceeds MAX_CIPHERTEXT_BYTES "
-                                f"({MAX_CIPHERTEXT_BYTES}): "
-                                f"{estimated_extension_bytes} bytes"
-                            ),
+                            code=api_codes.EXTENSION_PUBLISH_TARGET_INVALID,
+                            message=str(exc),
+                            details={"stage": "publish_target"},
                         )
                     )
-                    chunk_reuse = None
-                    estimated_extension_bytes = None
+                else:
+                    runtime = resolve_extend_runtime(prepared, create_layout_debug_dir=False)
+                    chunk_reuse, estimated_extension_bytes = _preview_chunk_reuse(prepared)
+                    if (
+                        estimated_extension_bytes is not None
+                        and estimated_extension_bytes > MAX_CIPHERTEXT_BYTES
+                    ):
+                        blocking_issues.append(
+                            blocking_issue(
+                                code=api_codes.EXTENSION_TOO_LARGE,
+                                message=(
+                                    "extension ciphertext exceeds MAX_CIPHERTEXT_BYTES "
+                                    f"({MAX_CIPHERTEXT_BYTES}): "
+                                    f"{estimated_extension_bytes} bytes"
+                                ),
+                            )
+                        )
+                        chunk_reuse = None
+                        estimated_extension_bytes = None
             except ApiCommandError as exc:
                 code, details = _inspect_blocking_issue_payload(exc.code, exc.details)
                 blocking_issues.append(blocking_issue(code=code, message=str(exc), details=details))
@@ -328,6 +437,7 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
                 signing_authority=inspection.signing_authority,
                 selected_scope=inspection.selected_scope,
                 diff_summary=inspection.diff_summary,
+                resolved_policy=_resolved_policy_payload(runtime),
                 chunk_reuse=chunk_reuse,
                 estimated_extension_bytes=estimated_extension_bytes,
             )

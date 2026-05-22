@@ -46,11 +46,68 @@ Use this template for each change entry:
 
 ## Entries
 
+## 2026-05-14 - Bound extension chunking profile sizes
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: 19.2
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged
+  - New decoders reading old artifacts: partial (hand-authored extension envelopes whose chunking
+    profile sizes exceed `MAX_DECOMPRESSED_PAYLOAD_BYTES` are now rejected)
+- Version/profile bump required: no (wire bytes are unchanged; this tightens fail-closed profile
+  validation before FastCDC mask arithmetic)
+- Implementation refs:
+  - `src/ethernity/formats/extension_envelope.py`
+- Test refs:
+  - `tests/unit/test_extension_envelope.py`
+- Security impact:
+  - Prevents absurd authenticated chunking profiles from reaching replay arithmetic.
+
+## 2026-05-14 - Reject dormant extension inline chunks
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: 19.3
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged
+  - New decoders reading old artifacts: partial (hand-authored extension envelopes that carry
+    unreferenced inline chunks are now rejected)
+- Version/profile bump required: no (wire bytes are unchanged; this tightens fail-closed
+  acceptance of extension bodies)
+- Implementation refs:
+  - `src/ethernity/formats/extension_envelope.py`
+- Test refs:
+  - `tests/unit/test_extension_envelope.py`
+- Security impact:
+  - Prevents signed extensions from carrying dormant chunks that only become visible as future
+    dependencies.
+
+## 2026-05-11 - Define extension chain_id derivation
+
+- Type: editorial
+- Normative spec updated: yes
+- Sections changed: 12, 19.4
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged
+  - New decoders reading old artifacts: unchanged
+- Version/profile bump required: no (chain_id is deterministic metadata derived from the root
+  doc_hash and is not carried in extension envelope bytes)
+- Implementation refs:
+  - `src/ethernity/formats/extension_envelope.py`
+  - `src/ethernity/formats/extension_envelope_constants.py`
+- Test refs:
+  - `tests/unit/test_extension_envelope.py`
+  - `tests/unit/test_extend_inspection.py`
+  - `tests/unit/test_cli_api.py`
+- Security impact:
+  - Documents that chain grouping metadata does not replace authenticated per-link ancestry checks.
+
 ## 2026-05-11 - Clarify extension recovery documents as human fallback only
 
 - Type: validation
 - Normative spec updated: yes
-- Sections changed: 19, 21
+- Sections changed: 20
 - Compatibility:
   - Old decoders reading new artifacts: unchanged
   - New decoders reading old artifacts: unchanged for machine-readable QR carriers; extension
@@ -67,7 +124,8 @@ Use this template for each change entry:
   - `tests/integration/test_integration_extensions.py`
 - Security impact:
   - Keeps extension chain replay tied to authenticated machine-readable carriers and prevents PDF
-    display text extraction from becoming a recovery trust boundary.
+    display text extraction from becoming a recovery trust boundary while preserving explicit typed
+    fallback text inputs.
 
 ## 2026-05-09 - Validate extension carrier copies and mint replay targets
 
@@ -77,8 +135,8 @@ Use this template for each change entry:
 - Compatibility:
   - Old decoders reading new artifacts: unchanged
   - New decoders reading old artifacts: partial (published extension sets with a broken redundant
-    recovery-document render contract are rejected at publish time, and mint refuses authenticated
-    extension heads that cannot replay)
+    recovery-document fallback-proof render contract are rejected at publish time, and mint refuses
+    authenticated extension heads that cannot replay)
 - Version/profile bump required: no (wire bytes are unchanged; this aligns publish and mint
   trust decisions with existing authenticated replay invariants)
 - Implementation refs:

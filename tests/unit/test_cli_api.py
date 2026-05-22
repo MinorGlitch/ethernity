@@ -44,6 +44,17 @@ from ethernity.cli.features.extend.api_handlers import (
     run_extend_api_command,
     run_extend_inspect_api_command,
 )
+from ethernity.cli.features.extend.models import (
+    ExtensionPassphraseShards,
+    ExtensionSigningKeyShards,
+    PlaintextPassphrase,
+    SigningKeyNotStored,
+)
+from ethernity.cli.features.extend.planning import (
+    ExtendInspection,
+    ResolvedExtendState,
+    _RootRecoveryInspection,
+)
 from ethernity.cli.features.extend.service import (
     encrypt_prepared_extension_document,
     prepare_extend_run,
@@ -125,6 +136,17 @@ def _extend_root_inspection(
             blocking_issues=(),
         ),
         blocking_issues=(),
+    )
+
+
+def _extend_root_recovery(
+    *,
+    passphrase: str | None = None,
+    satisfied: bool = False,
+) -> _RootRecoveryInspection:
+    return _RootRecoveryInspection(
+        _extend_root_inspection(passphrase=passphrase, satisfied=satisfied),
+        "none",
     )
 
 
@@ -216,6 +238,57 @@ def _extension_envelope(root_doc_hash: bytes) -> bytes:
     return encode_extension_envelope(built.document)
 
 
+def _resolved_extend_state(root_dir: Path) -> ResolvedExtendState:
+    inspection = ExtendInspection(
+        doc_id="0123456789abcdef",
+        root_dir=str(root_dir),
+        input_label="Backup root directory",
+        input_detail=str(root_dir),
+        input_kind="standalone_root",
+        source_summary=None,
+        frame_counts={"main": 0, "auth": 0, "shard": 0},
+        root_doc_id="0123456789abcdef",
+        root_doc_hash="22" * 32,
+        chain_id="44" * 32,
+        auth_status="verified",
+        unlock={
+            "mode": "passphrase",
+            "passphrase_provided": True,
+            "validated_shard_count": 0,
+            "required_shard_threshold": None,
+            "shard_share_count": None,
+            "satisfied": True,
+        },
+        discovered_extension_dirs=(),
+        validated_head_index=0,
+        validated_head_doc_hash="22" * 32,
+        available_extensions=(),
+        ancestry_valid=True,
+        validated_head_auth_status="verified",
+        validated_head_root_authority_verified=True,
+        signing_authority={
+            "available": True,
+            "satisfied": True,
+            "source": "embedded_seed",
+        },
+        selected_scope=None,
+        diff_summary=None,
+        blocking_issues=(),
+    )
+    return ResolvedExtendState(
+        inspection=inspection,
+        loaded_scope=None,
+        current_state=None,
+        available_chunks=(),
+        resolved_passphrase=None,
+        root_doc_hash=None,
+        parent_doc_hash=None,
+        next_index=None,
+        signing_seed=None,
+        chunking=None,
+    )
+
+
 @lru_cache(maxsize=1)
 def _schema_validator():
     schema = json.loads(CLI_API_SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -252,6 +325,49 @@ class TestCliApi(unittest.TestCase):
 
     def test_cli_api_schema_is_valid(self) -> None:
         self.assertIsNotNone(_schema_validator())
+
+    def test_extend_resolved_policy_schema_rejects_impossible_states(self) -> None:
+        schema = json.loads(CLI_API_SCHEMA_PATH.read_text(encoding="utf-8"))
+        defs = schema["$defs"]
+        passphrase_schema = defs["extendPassphrasePolicyPreview"]
+        signing_key_schema = defs["extendSigningKeyPolicyPreview"]
+        validator_cls = validators.validator_for(schema)
+        validator_cls.check_schema(passphrase_schema)
+        validator_cls.check_schema(signing_key_schema)
+        passphrase_validator = validator_cls(passphrase_schema)
+        signing_key_validator = validator_cls(signing_key_schema)
+
+        passphrase_validator.validate(
+            {"mode": "extension-shards", "threshold": 2, "share_count": 3}
+        )
+        passphrase_validator.validate({"mode": "plaintext", "threshold": None, "share_count": None})
+        signing_key_validator.validate(
+            {"mode": "extension-shards", "threshold": 2, "share_count": 3}
+        )
+        signing_key_validator.validate(
+            {"mode": "not-stored", "threshold": None, "share_count": None}
+        )
+
+        for invalid_policy, validator in (
+            (
+                {"mode": "extension-shards", "threshold": None, "share_count": None},
+                passphrase_validator,
+            ),
+            (
+                {"mode": "not-stored", "threshold": 1, "share_count": 1},
+                signing_key_validator,
+            ),
+            (
+                {"mode": "reuse-root-shards", "threshold": None, "share_count": 2},
+                passphrase_validator,
+            ),
+            (
+                {"mode": "plaintext", "threshold": 1, "share_count": 1},
+                passphrase_validator,
+            ),
+        ):
+            with self.assertRaises(ValidationError):
+                validator.validate(invalid_policy)
 
     def test_recover_manifest_schema_enforces_payload_raw_len_by_codec(self) -> None:
         validator = _recover_manifest_validator()
@@ -339,6 +455,8 @@ class TestCliApi(unittest.TestCase):
             "input": ["input.txt"],
             "input_dir": [],
             "base_dir": None,
+            "layout_debug_dir": None,
+            "qr_chunk_size": None,
             "has_passphrase": False,
             "shard_fallback_file": [],
             "shard_payloads_file": [],
@@ -358,8 +476,6 @@ class TestCliApi(unittest.TestCase):
             "command": "extend",
             "args": {
                 **shared_args,
-                "layout_debug_dir": None,
-                "qr_chunk_size": None,
             },
         }
         inspect_extend_started = {
@@ -437,7 +553,7 @@ class TestCliApi(unittest.TestCase):
         self.assertIn("Required in API mode", output)
         self.assertIn("Accepted values:", output)
         self.assertIn("self-contained, reuse-root", output)
-        self.assertIn("embedded, sharded", output)
+        self.assertIn("not-stored, sharded", output)
         self.assertIn("INTEGER", output)
         self.assertIn("POLICY", output)
         self.assertIn("MODE", output)
@@ -980,6 +1096,8 @@ class TestCliApi(unittest.TestCase):
             captured["root_dir"] = args.root_dir
             captured["input"] = list(args.input or [])
             captured["shard_scan"] = list(args.shard_scan or [])
+            captured["layout_debug_dir"] = args.layout_debug_dir
+            captured["qr_chunk_size"] = args.qr_chunk_size
             captured["unlock_policy"] = args.unlock_policy
             captured["shard_threshold"] = args.shard_threshold
             captured["shard_count"] = args.shard_count
@@ -1008,6 +1126,10 @@ class TestCliApi(unittest.TestCase):
                         "-",
                         "--shard-scan",
                         "scan-a.pdf",
+                        "--layout-debug-dir",
+                        "/tmp/layout",
+                        "--qr-chunk-size",
+                        "32",
                         "--unlock-policy",
                         "reuse-root",
                         "--shard-threshold",
@@ -1028,6 +1150,8 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(captured["root_dir"], "/tmp/root")
         self.assertEqual(captured["input"], ["-"])
         self.assertEqual(captured["shard_scan"], ["scan-a.pdf"])
+        self.assertEqual(captured["layout_debug_dir"], "/tmp/layout")
+        self.assertEqual(captured["qr_chunk_size"], 32)
         self.assertEqual(captured["unlock_policy"], "reuse-root")
         self.assertEqual(captured["shard_threshold"], 2)
         self.assertEqual(captured["shard_count"], 3)
@@ -1039,6 +1163,7 @@ class TestCliApi(unittest.TestCase):
     def test_build_extend_api_args_preserves_raw_policy_values(self) -> None:
         state = CliContextState(
             backup_defaults=BackupDefaults(
+                base_dir="/saved/base",
                 shard_threshold=2,
                 shard_count=3,
                 signing_key_mode="sharded",
@@ -1074,6 +1199,7 @@ class TestCliApi(unittest.TestCase):
         self_contained_args = _build_args(None)
         reuse_root_args = _build_args("reuse-root")
 
+        self.assertEqual(self_contained_args.base_dir, "/saved/base")
         self.assertIsNone(self_contained_args.unlock_policy)
         self.assertIsNone(self_contained_args.shard_threshold)
         self.assertIsNone(self_contained_args.shard_count)
@@ -1081,6 +1207,7 @@ class TestCliApi(unittest.TestCase):
         self.assertIsNone(self_contained_args.signing_key_shard_threshold)
         self.assertIsNone(self_contained_args.signing_key_shard_count)
         self.assertEqual(reuse_root_args.unlock_policy, "reuse-root")
+        self.assertEqual(reuse_root_args.base_dir, "/saved/base")
         self.assertIsNone(reuse_root_args.shard_threshold)
         self.assertIsNone(reuse_root_args.shard_count)
         self.assertIsNone(reuse_root_args.signing_key_mode)
@@ -1117,6 +1244,31 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(args.signing_key_mode, "sharded")
         self.assertEqual(args.signing_key_shard_threshold, 2)
         self.assertEqual(args.signing_key_shard_count, 4)
+
+        not_stored_args = api_command._build_extend_api_args(
+            state=None,
+            config_value=None,
+            paper_value=None,
+            design=None,
+            root_dir="/tmp/root",
+            input=["input.txt"],
+            input_dir=None,
+            base_dir=None,
+            layout_debug_dir=None,
+            qr_chunk_size=None,
+            passphrase="secret",
+            shard_fallback_file=None,
+            shard_payloads_file=None,
+            shard_scan=None,
+            unlock_policy=None,
+            shard_threshold=None,
+            shard_count=None,
+            signing_key_mode="not-stored",
+            signing_key_shard_threshold=None,
+            signing_key_shard_count=None,
+        )
+
+        self.assertEqual(not_stored_args.signing_key_mode, "not-stored")
 
     def test_build_extend_api_args_rejects_schema_invalid_integer_values(self) -> None:
         base_kwargs = {
@@ -1155,6 +1307,18 @@ class TestCliApi(unittest.TestCase):
 
             self.assertEqual(caught.exception.code, api_codes.INVALID_INPUT)
 
+        with self.assertRaises(ApiCommandError) as caught:
+            api_command._build_extend_api_args(**{**base_kwargs, "signing_key_mode": "embedded"})
+
+        self.assertEqual(caught.exception.code, api_codes.EXTENSION_INVALID_POLICY)
+        self.assertIn("not-stored", caught.exception.message)
+
+        with self.assertRaises(ApiCommandError) as caught:
+            api_command._build_extend_api_args(**{**base_kwargs, "unlock_policy": "detached"})
+
+        self.assertEqual(caught.exception.code, api_codes.EXTENSION_INVALID_POLICY)
+        self.assertIn("self-contained", caught.exception.message)
+
     def test_api_extend_rejects_invalid_qr_chunk_size_with_schema_valid_events(self) -> None:
         with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             result = self.runner.invoke(
@@ -1180,6 +1344,32 @@ class TestCliApi(unittest.TestCase):
         self.assertIsNone(events[0]["args"]["qr_chunk_size"])
         self.assertEqual(events[-1]["code"], api_codes.INVALID_INPUT)
         self.assertIn("--qr-chunk-size must be >= 1", events[-1]["message"])
+
+    def test_api_inspect_extend_empty_layout_debug_dir_started_arg_is_null(self) -> None:
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "inspect",
+                    "extend",
+                    "--root-dir",
+                    "/tmp/root",
+                    "--layout-debug-dir",
+                    "",
+                    "--qr-chunk-size",
+                    "0",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 2)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual([event["type"] for event in events], ["started", "error"])
+        self.assertIsNone(events[0]["args"]["layout_debug_dir"])
+        self.assertEqual(events[-1]["code"], api_codes.INVALID_INPUT)
 
     def test_api_compact_rejects_invalid_qr_chunk_size_with_schema_valid_events(self) -> None:
         with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
@@ -2006,7 +2196,7 @@ class TestCliApi(unittest.TestCase):
             tempfile.TemporaryDirectory() as tmpdir,
             mock.patch(
                 "ethernity.cli.features.extend.planning._inspect_root_recovery",
-                return_value=_extend_root_inspection(),
+                return_value=_extend_root_recovery(),
             ),
             mock.patch(
                 "ethernity.cli.features.extend.planning._inspect_published_extension_inventory",
@@ -2064,7 +2254,14 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["discovered_extension_dirs"], [1])
         self.assertEqual(
             events[-1]["available_extensions"],
-            [{"dir_name": "01", "doc_id": "deadbeefcafebabe", "doc_hash": "ca" * 32}],
+            [
+                {
+                    "index": 1,
+                    "dir_name": "01",
+                    "doc_id": "deadbeefcafebabe",
+                    "doc_hash": "ca" * 32,
+                }
+            ],
         )
         self.assertEqual(
             events[-1]["selected_scope"],
@@ -2085,7 +2282,7 @@ class TestCliApi(unittest.TestCase):
             tempfile.TemporaryDirectory() as tmpdir,
             mock.patch(
                 "ethernity.cli.features.extend.planning._inspect_root_recovery",
-                return_value=_extend_root_inspection(),
+                return_value=_extend_root_recovery(),
             ),
         ):
             root_dir = Path(tmpdir) / "backup-root"
@@ -2166,6 +2363,10 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["validated_head_auth_status"], "verified")
         self.assertEqual(events[-1]["validated_head_root_authority_verified"], True)
         self.assertEqual(events[-1]["available_extensions"], [])
+        self.assertEqual(
+            events[-1]["blocking_issues"][0]["code"],
+            api_codes.EXTENSION_INPUT_REQUIRED,
+        )
 
     def test_api_inspect_extend_preserves_null_validated_head_trust_fields(self) -> None:
         trust_details = {
@@ -2210,6 +2411,7 @@ class TestCliApi(unittest.TestCase):
             validated_head_doc_hash="22" * 32,
             available_extensions=(
                 {
+                    "index": 1,
                     "dir_name": "01",
                     "doc_id": "deadbeefcafebabe",
                     "doc_hash": "aa" * 32,
@@ -2249,6 +2451,10 @@ class TestCliApi(unittest.TestCase):
         self.assertIsNone(events[-1]["validated_head_auth_status"])
         self.assertIsNone(events[-1]["validated_head_root_authority_verified"])
         self.assertEqual(events[-1]["blocking_issues"][0]["details"], trust_details)
+        self.assertEqual(
+            [issue["code"] for issue in events[-1]["blocking_issues"]],
+            [api_codes.RECOVERY_HEAD_UNTRUSTED, api_codes.EXTENSION_INPUT_REQUIRED],
+        )
 
     def test_api_inspect_extend_preserves_recovery_head_untrusted_blocking_issue(self) -> None:
         trust_details = {
@@ -2293,6 +2499,7 @@ class TestCliApi(unittest.TestCase):
             validated_head_doc_hash="aa" * 32,
             available_extensions=(
                 {
+                    "index": 1,
                     "dir_name": "01",
                     "doc_id": "deadbeefcafebabe",
                     "doc_hash": "aa" * 32,
@@ -2409,6 +2616,74 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["blocking_issues"][0]["message"], "bad shard scan")
         self.assertEqual(events[-1]["blocking_issues"][0]["details"]["cause_code"], "INVALID_INPUT")
 
+    def test_run_extend_inspect_api_command_preflights_publish_target(self) -> None:
+        args = ExtendArgs(root_dir="/tmp/root", input=["/tmp/root/example.txt"], quiet=True)
+        inspection = SimpleNamespace(
+            doc_id="1111111111111111",
+            input_label="Backup root directory",
+            input_detail="/tmp/root",
+            input_kind="standalone_root",
+            source_summary=None,
+            frame_counts={"main": 1, "auth": 1, "shard": 0},
+            root_doc_id="1111111111111111",
+            root_doc_hash="22" * 32,
+            chain_id="33" * 32,
+            auth_status="verified",
+            unlock={
+                "mode": "passphrase",
+                "passphrase_provided": True,
+                "validated_shard_count": 0,
+                "required_shard_threshold": None,
+                "shard_share_count": None,
+                "satisfied": True,
+            },
+            discovered_extension_dirs=(),
+            validated_head_index=0,
+            validated_head_doc_hash="22" * 32,
+            available_extensions=(),
+            ancestry_valid=True,
+            validated_head_auth_status="verified",
+            validated_head_root_authority_verified=True,
+            signing_authority={"available": True, "satisfied": True, "source": "embedded_seed"},
+            selected_scope=None,
+            diff_summary={"changed_paths": ["updated.txt"], "new_paths": [], "unchanged_paths": []},
+            blocking_issues=(),
+            root_dir="/tmp/root",
+        )
+        buffer = io.StringIO()
+        with (
+            mock.patch(
+                "ethernity.cli.features.extend.api_handlers.resolve_extend_state",
+                return_value=SimpleNamespace(inspection=inspection),
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.api_handlers.prepare_extend_run_from_state",
+                return_value=SimpleNamespace(next_index=1),
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.api_handlers.preflight_extension_publish_target",
+                side_effect=ValueError("extensions path is not writable"),
+            ),
+            ndjson_session(stream=buffer),
+        ):
+            exit_code = run_extend_inspect_api_command(args)
+
+        self.assertEqual(exit_code, 0)
+        events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual(
+            events[-1]["blocking_issues"],
+            [
+                {
+                    "code": api_codes.EXTENSION_PUBLISH_TARGET_INVALID,
+                    "message": "extensions path is not writable",
+                    "details": {"stage": "publish_target"},
+                }
+            ],
+        )
+        self.assertIsNone(events[-1]["chunk_reuse"])
+        self.assertIsNone(events[-1]["estimated_extension_bytes"])
+
     def test_api_inspect_extend_emits_unlocked_diff_summary(self) -> None:
         manifest, payload = build_manifest_and_payload(
             (PayloadPart(path="alpha.txt", data=b"alpha", mtime=1),),
@@ -2423,7 +2698,7 @@ class TestCliApi(unittest.TestCase):
             tempfile.TemporaryDirectory() as tmpdir,
             mock.patch(
                 "ethernity.cli.features.extend.planning._inspect_root_recovery",
-                return_value=_extend_root_inspection(passphrase="secret", satisfied=True),
+                return_value=_extend_root_recovery(passphrase="secret", satisfied=True),
             ),
             mock.patch(
                 "ethernity.cli.features.extend.planning._decode_root_manifest",
@@ -2510,7 +2785,7 @@ class TestCliApi(unittest.TestCase):
             tempfile.TemporaryDirectory() as tmpdir,
             mock.patch(
                 "ethernity.cli.features.extend.planning._inspect_root_recovery",
-                return_value=_extend_root_inspection(passphrase="secret", satisfied=True),
+                return_value=_extend_root_recovery(passphrase="secret", satisfied=True),
             ),
             mock.patch(
                 "ethernity.cli.features.extend.planning._decode_root_manifest",
@@ -2570,6 +2845,8 @@ class TestCliApi(unittest.TestCase):
                         "secret",
                         "--shard-count",
                         "0",
+                        "--qr-chunk-size",
+                        "32",
                     ],
                 )
 
@@ -2591,6 +2868,24 @@ class TestCliApi(unittest.TestCase):
             events[-1]["estimated_extension_bytes"],
             len(expected_encrypted.ciphertext),
         )
+        self.assertEqual(
+            events[-1]["resolved_policy"],
+            {
+                "passphrase": {
+                    "mode": "plaintext",
+                    "threshold": None,
+                    "share_count": None,
+                },
+                "signing_key": {
+                    "mode": "not-stored",
+                    "threshold": None,
+                    "share_count": None,
+                },
+                "recovery_kit_index": True,
+                "qr_chunk_size": 32,
+                "layout_debug_dir": None,
+            },
+        )
 
     def test_api_inspect_extend_reuses_stdin_scope_for_preview_metrics(self) -> None:
         manifest, payload = build_manifest_and_payload(
@@ -2606,7 +2901,7 @@ class TestCliApi(unittest.TestCase):
             tempfile.TemporaryDirectory() as tmpdir,
             mock.patch(
                 "ethernity.cli.features.extend.planning._inspect_root_recovery",
-                return_value=_extend_root_inspection(passphrase="secret", satisfied=True),
+                return_value=_extend_root_recovery(passphrase="secret", satisfied=True),
             ),
             mock.patch(
                 "ethernity.cli.features.extend.planning._decode_root_manifest",
@@ -2670,7 +2965,7 @@ class TestCliApi(unittest.TestCase):
             tempfile.TemporaryDirectory() as tmpdir,
             mock.patch(
                 "ethernity.cli.features.extend.planning._inspect_root_recovery",
-                return_value=_extend_root_inspection(passphrase="secret", satisfied=True),
+                return_value=_extend_root_recovery(passphrase="secret", satisfied=True),
             ),
             mock.patch(
                 "ethernity.cli.features.extend.planning._decode_root_manifest",
@@ -2751,7 +3046,7 @@ class TestCliApi(unittest.TestCase):
             tempfile.TemporaryDirectory() as tmpdir,
             mock.patch(
                 "ethernity.cli.features.extend.planning._inspect_root_recovery",
-                return_value=_extend_root_inspection(passphrase="secret", satisfied=True),
+                return_value=_extend_root_recovery(passphrase="secret", satisfied=True),
             ),
             mock.patch(
                 "ethernity.cli.features.extend.planning._decode_root_manifest",
@@ -2821,6 +3116,57 @@ class TestCliApi(unittest.TestCase):
             },
             events[-1]["blocking_issues"],
         )
+
+    def test_api_inspect_extend_validates_layout_debug_dir_without_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "backup-root"
+            root_dir.mkdir()
+            resolved = _resolved_extend_state(root_dir)
+            buffer = io.StringIO()
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.api_handlers.resolve_extend_state",
+                    return_value=resolved,
+                ),
+                ndjson_session(stream=buffer),
+            ):
+                exit_code = run_extend_inspect_api_command(
+                    ExtendArgs(
+                        root_dir=str(root_dir),
+                        layout_debug_dir=str(root_dir / "extensions" / "debug"),
+                    )
+                )
+
+        self.assertEqual(exit_code, 0)
+        events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        issue_codes = {issue["code"] for issue in events[-1]["blocking_issues"]}
+        self.assertIn(api_codes.EXTENSION_INPUT_REQUIRED, issue_codes)
+        self.assertIn(api_codes.EXTENSION_INVALID_POLICY, issue_codes)
+
+    def test_run_extend_inspect_api_command_empty_layout_debug_dir_started_arg_is_null(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "backup-root"
+            root_dir.mkdir()
+            resolved = _resolved_extend_state(root_dir)
+            buffer = io.StringIO()
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.api_handlers.resolve_extend_state",
+                    return_value=resolved,
+                ),
+                ndjson_session(stream=buffer),
+            ):
+                exit_code = run_extend_inspect_api_command(
+                    ExtendArgs(root_dir=str(root_dir), layout_debug_dir="")
+                )
+
+        self.assertEqual(exit_code, 0)
+        events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertIsNone(events[0]["args"]["layout_debug_dir"])
 
     def test_api_recover_does_not_implicitly_read_stdin(self) -> None:
         captured: dict[str, object] = {}
@@ -3474,11 +3820,14 @@ class TestCliApi(unittest.TestCase):
         )
         result = MintResult(
             doc_id=b"\x02" * 8,
+            doc_hash=b"\x55" * 32,
             output_dir="/tmp/mint-out",
             shard_paths=("/tmp/mint-out/shard-1.pdf",),
             signing_key_shard_paths=("/tmp/mint-out/signing-key-shard-1.pdf",),
             signing_key_source="embedded signing seed",
             notes=("legacy note",),
+            selected_extension_index=2,
+            selected_extension_doc_hash="55" * 32,
         )
         buffer = io.StringIO()
         with (
@@ -3505,6 +3854,9 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[1]["kind"], "shard_document")
         self.assertEqual(events[2]["kind"], "signing_key_shard_document")
         self.assertEqual(events[-1]["artifacts"]["shard_documents"], list(result.shard_paths))
+        self.assertEqual(events[-1]["doc_hash"], "55" * 32)
+        self.assertEqual(events[-1]["selected_extension_index"], 2)
+        self.assertEqual(events[-1]["selected_extension_doc_hash"], "55" * 32)
         self.assertEqual(events[-1]["signing_key_source"], result.signing_key_source)
         self.assertEqual(events[-1]["notes"], list(result.notes))
 
@@ -3558,6 +3910,13 @@ class TestCliApi(unittest.TestCase):
         )
         executed = SimpleNamespace(
             prepared=prepared,
+            runtime=SimpleNamespace(
+                passphrase=ExtensionPassphraseShards(threshold=2, share_count=3),
+                signing_key=ExtensionSigningKeyShards(threshold=2, share_count=2),
+                kit_index_template_path=Path("/tmp/templates/recovery_kit_index.html.j2"),
+                qr_chunk_size=512,
+                layout_debug_dir="/tmp/layout",
+            ),
             publish=SimpleNamespace(
                 encrypted=SimpleNamespace(
                     built=SimpleNamespace(stats=SimpleNamespace(reused_chunks=1, new_chunks=2)),
@@ -3593,13 +3952,32 @@ class TestCliApi(unittest.TestCase):
         )
         self.assertEqual(events[0]["args"]["root_dir"], "/tmp/root")
         self.assertEqual(events[0]["args"]["shard_scan"], ["shard-a.pdf"])
-        self.assertEqual(events[1]["kind"], "qr_document")
-        self.assertEqual(events[2]["kind"], "recovery_document")
-        self.assertEqual(events[3]["kind"], "recovery_kit_index")
-        self.assertEqual(events[4]["kind"], "shard_document")
-        self.assertEqual(events[5]["kind"], "signing_key_shard_document")
+        artifacts = [event for event in events if event["type"] == "artifact"]
+        self.assertEqual(artifacts[0]["kind"], "qr_document")
+        self.assertEqual(artifacts[1]["kind"], "recovery_document")
+        self.assertEqual(artifacts[2]["kind"], "recovery_kit_index")
+        self.assertEqual(artifacts[3]["kind"], "shard_document")
+        self.assertEqual(artifacts[4]["kind"], "signing_key_shard_document")
         self.assertEqual(events[-1]["extension_dir"], str(result.final_dir))
         self.assertEqual(events[-1]["artifacts"]["qr_document"], str(result.qr_document_path))
+        self.assertEqual(
+            events[-1]["resolved_policy"],
+            {
+                "passphrase": {
+                    "mode": "extension-shards",
+                    "threshold": 2,
+                    "share_count": 3,
+                },
+                "signing_key": {
+                    "mode": "extension-shards",
+                    "threshold": 2,
+                    "share_count": 2,
+                },
+                "recovery_kit_index": True,
+                "qr_chunk_size": 512,
+                "layout_debug_dir": "/tmp/layout",
+            },
+        )
         self.assertEqual(events[-1]["chunk_reuse"]["reused_chunks"], 1)
         self.assertEqual(events[-1]["extension_bytes"], len(b"ciphertext"))
 
@@ -3640,6 +4018,13 @@ class TestCliApi(unittest.TestCase):
         )
         executed = SimpleNamespace(
             prepared=prepared,
+            runtime=SimpleNamespace(
+                passphrase=PlaintextPassphrase(),
+                signing_key=SigningKeyNotStored(),
+                kit_index_template_path=None,
+                qr_chunk_size=256,
+                layout_debug_dir=None,
+            ),
             publish=SimpleNamespace(
                 encrypted=SimpleNamespace(
                     built=SimpleNamespace(stats=SimpleNamespace(reused_chunks=0, new_chunks=1)),
@@ -3670,11 +4055,30 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(
             [event["type"] for event in events], _contracts()["extend_minimal_event_types"]
         )
-        self.assertEqual(events[1]["kind"], "qr_document")
-        self.assertEqual(events[2]["kind"], "recovery_document")
+        artifacts = [event for event in events if event["type"] == "artifact"]
+        self.assertEqual(artifacts[0]["kind"], "qr_document")
+        self.assertEqual(artifacts[1]["kind"], "recovery_document")
         self.assertIsNone(events[-1]["artifacts"]["recovery_kit_index"])
         self.assertEqual(events[-1]["artifacts"]["shard_documents"], [])
         self.assertEqual(events[-1]["artifacts"]["signing_key_shard_documents"], [])
+        self.assertEqual(
+            events[-1]["resolved_policy"],
+            {
+                "passphrase": {
+                    "mode": "plaintext",
+                    "threshold": None,
+                    "share_count": None,
+                },
+                "signing_key": {
+                    "mode": "not-stored",
+                    "threshold": None,
+                    "share_count": None,
+                },
+                "recovery_kit_index": False,
+                "qr_chunk_size": 256,
+                "layout_debug_dir": None,
+            },
+        )
 
     def test_run_compact_api_command_emits_ndjson_artifacts(self) -> None:
         args = CompactArgs(

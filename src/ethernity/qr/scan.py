@@ -33,7 +33,7 @@ from ethernity.extensions.layout import is_staging_dir_name
 def _optional_import(name: str) -> Any | None:
     try:
         return importlib.import_module(name)
-    except ModuleNotFoundError:
+    except (ImportError, OSError):
         return None
 
 
@@ -113,6 +113,8 @@ def scan_qr_payloads(paths: Sequence[str | Path]) -> list[bytes]:
     payloads: list[bytes] = []
     for raw in paths:
         path = Path(raw)
+        if path.is_symlink():
+            raise QrScanError(f"scan path must not be a symlink: {path}")
         if not path.exists():
             raise QrScanError(f"scan path not found: {path}")
         if path.is_dir():
@@ -203,6 +205,8 @@ def _expand_paths(paths: Sequence[str | Path]) -> Iterable[Path]:
 
     for raw in paths:
         path = Path(raw)
+        if path.is_symlink():
+            raise QrScanError(f"scan path must not be a symlink: {path}")
         if not path.exists():
             raise QrScanError(f"scan path not found: {path}")
         if path.is_dir():
@@ -217,24 +221,30 @@ def _expand_paths(paths: Sequence[str | Path]) -> Iterable[Path]:
 def _iter_scan_files(directory: Path) -> list[Path]:
     """Collect supported scan files from a directory tree."""
 
+    if directory.is_symlink():
+        raise QrScanError(f"scan directory must not be a symlink: {directory}")
     if _is_under_unpublished_extension_workspace(directory):
         return []
 
     files: list[Path] = []
     for root, dirnames, filenames in os.walk(directory):
         root_path = Path(root)
-        dirnames[:] = sorted(
-            name
-            for name in dirnames
-            if not _is_under_unpublished_extension_workspace(root_path / name)
-        )
+        dirnames[:] = sorted(name for name in dirnames if _keep_scan_dir(root_path / name))
         for filename in filenames:
             path = root_path / filename
+            if path.is_symlink():
+                raise QrScanError(f"scan file must not be a symlink: {path}")
             suffix = path.suffix.lower()
             if _looks_like_scan_file(path) or suffix == ".pdf" or suffix in _IMAGE_SUFFIXES:
                 files.append(path)
     files.sort()
     return files
+
+
+def _keep_scan_dir(path: Path) -> bool:
+    if path.is_symlink():
+        raise QrScanError(f"scan directory must not contain symlinked directories: {path}")
+    return not _is_under_unpublished_extension_workspace(path)
 
 
 def _is_under_unpublished_extension_workspace(path: Path) -> bool:

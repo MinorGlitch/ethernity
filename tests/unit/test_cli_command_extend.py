@@ -224,6 +224,52 @@ class TestExtendCommand(unittest.TestCase):
 
         self.assertEqual(ctx.exception.code, EXTENSION_TOO_LARGE)
 
+    def test_extend_dry_run_validates_layout_debug_dir_without_creating_it(self) -> None:
+        args = extend_command.ExtendArgs(
+            root_dir="/tmp/root",
+            input=["updated.txt"],
+            layout_debug_dir="/tmp/layout-debug",
+            quiet=True,
+        )
+        prepared = SimpleNamespace(
+            args=args,
+            next_index=1,
+            parent_doc_hash=b"\x11" * 32,
+            changed_paths=(),
+            new_paths=(),
+            unchanged_paths=(),
+        )
+        runtime = SimpleNamespace(
+            qr_chunk_size=512,
+            passphrase=extend_command.PlaintextPassphrase(),
+            signing_key=object(),
+            kit_index_template_path=None,
+        )
+        encrypted = SimpleNamespace(
+            ciphertext=b"x",
+            built=SimpleNamespace(
+                stats=SimpleNamespace(reused_chunks=1, new_chunks=2),
+            ),
+        )
+        with (
+            mock.patch(
+                "ethernity.cli.features.extend.command.prepare_extend_run",
+                return_value=prepared,
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.command.resolve_extend_runtime",
+                return_value=runtime,
+            ) as resolve_runtime,
+            mock.patch(
+                "ethernity.cli.features.extend.command.encrypt_prepared_extension_document",
+                return_value=encrypted,
+            ),
+        ):
+            result = extend_command.run_extend_dry_run_command(args)
+
+        self.assertEqual(result, 0)
+        resolve_runtime.assert_called_once_with(prepared, create_layout_debug_dir=False)
+
     @mock.patch("ethernity.cli.features.extend.command.run_extend_command", return_value=0)
     @mock.patch(
         "ethernity.cli.features.extend.command._run_cli", side_effect=lambda func, debug: func()

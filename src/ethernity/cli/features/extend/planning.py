@@ -18,9 +18,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from ethernity.cli.features.extend.scope import (
     SelectedExtendScope,
@@ -31,6 +31,7 @@ from ethernity.cli.features.extend.scope import (
 from ethernity.cli.features.recover.chain import (
     DecodedExtensionLink,
     DiscoveredRecoveryExtension,
+    ImportedRecoveryDocument,
     RecoveryChainInspection,
     RecoveryExtensionInventory,
     RecoveryHeadTrustRefusal,
@@ -41,12 +42,12 @@ from ethernity.cli.features.recover.chain import (
     resolve_root_manifest_authority,
     scan_extension_carriers,
 )
-from ethernity.cli.features.recover.key_recovery import (
-    InsufficientShardError,
-    _resolve_auth_payload,
-    _validated_shard_payloads_from_frames,
+from ethernity.cli.features.recover.key_recovery import _resolve_auth_payload
+from ethernity.cli.features.recover.planning import (
+    RecoveryInspection,
+    inspect_recovery_inputs,
+    select_root_import_document_from_passphrase_shards,
 )
-from ethernity.cli.features.recover.planning import RecoveryInspection, inspect_recovery_inputs
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.io.fallback_parser import format_fallback_error
@@ -61,14 +62,13 @@ from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.paths import expanduser_cli_paths
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.config.load import load_app_config
-from ethernity.crypto import sharding as sharding_module
 from ethernity.encoding.framing import Frame
 from ethernity.extensions.chain import (
     LogicalFileState,
     build_chain_available_chunks,
     extract_root_logical_state,
-    reconstruct_latest_logical_state,
-    validate_extension_chain,
+    reconstruct_authenticated_latest_logical_state,
+    validate_authenticated_extension_chain,
 )
 from ethernity.extensions.discovery import (
     DiscoveredExtensionDirectory,
@@ -126,6 +126,14 @@ class ResolvedExtendState:
     chunking: ExtensionChunkingProfile | None
     root_passphrase_shard_threshold: int | None = None
     root_passphrase_shard_count: int = 0
+    unlock_passphrase_shard_threshold: int | None = None
+    unlock_passphrase_shard_count: int = 0
+
+
+@dataclass(frozen=True)
+class _RootRecoveryInspection:
+    inspection: RecoveryInspection
+    shard_unlock_target: Literal["none", "root", "extension"]
 
 
 def inspect_from_args(args: ExtendArgs) -> ExtendInspection:
@@ -143,6 +151,14 @@ def require_extend_root_dir(
             message=f"--root-dir is required for `{command_name}`",
         )
     return args.root_dir
+
+
+def _root_head_root_authority_verified(
+    *,
+    root_auth_status: str | None,
+    expected_sign_pub: bytes | None,
+) -> bool:
+    return root_auth_status == "verified" and expected_sign_pub is not None
 
 
 def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
@@ -218,12 +234,46 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
     elif args.base_dir:
         selected_scope = empty_scope_inspection_payload(base_dir_arg=args.base_dir)
 
-    root_inspection = _inspect_root_recovery(root_dir, args)
-    blocking_issues.extend(dict(item) for item in root_inspection.blocking_issues)
+    root_recovery = _inspect_root_recovery(
+        root_dir,
+        args,
+        extension_inventory=extension_inventory,
+    )
 
+    return _resolve_extend_state_after_root_inspection(
+        args=args,
+        root_dir=root_dir,
+        root_recovery=root_recovery,
+        blocking_issues=blocking_issues,
+        loaded_scope=loaded_scope,
+        selected_scope=selected_scope,
+        discovered_extension_dirs=discovered_extension_dirs,
+        available_extensions=available_extensions,
+        input_kind=input_kind,
+        extension_inventory=extension_inventory,
+        new_chain_chunking=new_chain_chunking,
+    )
+
+
+def _resolve_extend_state_after_root_inspection(
+    *,
+    args: ExtendArgs,
+    root_dir: Path,
+    root_recovery: _RootRecoveryInspection,
+    blocking_issues: list[dict[str, object]],
+    loaded_scope: SelectedExtendScope | None,
+    selected_scope: dict[str, object] | None,
+    discovered_extension_dirs: tuple[int, ...],
+    available_extensions: tuple[dict[str, object], ...],
+    input_kind: str,
+    extension_inventory: RecoveryExtensionInventory | None,
+    new_chain_chunking: ExtensionChunkingProfile,
+) -> ResolvedExtendState:
+    root_inspection = root_recovery.inspection
     doc_id_hex = root_inspection.doc_id.hex()
     doc_hash_hex = root_inspection.doc_hash.hex()
     chain_id_hex = derive_chain_id(root_inspection.doc_hash).hex()
+    blocking_issues.extend(dict(item) for item in root_inspection.blocking_issues)
     source_summary: dict[str, object] | None = None
     validated_head_index: int | None = None
     validated_head_doc_hash: str | None = None
@@ -241,16 +291,22 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
     next_index: int | None = None
     signing_seed: bytes | None = None
     chunking: ExtensionChunkingProfile | None = None
-    root_passphrase_shard_threshold = (
+    unlock_passphrase_shard_threshold = (
         root_inspection.unlock.required_shard_threshold
         if root_inspection.unlock.mode == "shards"
         else None
     )
-    root_passphrase_shard_count = (
+    unlock_passphrase_shard_count = (
         root_inspection.unlock.shard_share_count
         if root_inspection.unlock.mode == "shards"
         and root_inspection.unlock.shard_share_count is not None
         else 0
+    )
+    root_passphrase_shard_threshold = (
+        unlock_passphrase_shard_threshold if root_recovery.shard_unlock_target == "root" else None
+    )
+    root_passphrase_shard_count = (
+        unlock_passphrase_shard_count if root_recovery.shard_unlock_target == "root" else 0
     )
 
     current_state: tuple[LogicalFileState, ...] | None = None
@@ -297,27 +353,6 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
                         "satisfied": True,
                         "source": "embedded_seed",
                     }
-                    if root_passphrase_shard_count <= 0:
-                        try:
-                            (
-                                root_passphrase_shard_threshold,
-                                root_passphrase_shard_count,
-                            ) = _published_root_passphrase_shard_policy(
-                                root_dir,
-                                root_doc_id=root_inspection.doc_id,
-                                root_doc_hash=root_inspection.doc_hash,
-                                sign_pub=authority.embedded_sign_pub,
-                                quiet=args.quiet,
-                            )
-                        except ValueError as exc:
-                            blocking_issues.append(
-                                _blocking_issue(
-                                    api_codes.ROOT_SHARD_POLICY_INVALID,
-                                    str(exc),
-                                    details={"stage": "shards"},
-                                )
-                            )
-
                     if (
                         extension_inventory is not None
                         and _extension_chain_present(extension_inventory)
@@ -355,8 +390,9 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
                         validated_head_doc_hash = root_inspection.doc_hash.hex()
                         ancestry_valid = True
                         validated_head_auth_status = root_inspection.auth_status
-                        validated_head_root_authority_verified = (
-                            authority.embedded_sign_pub is not None
+                        validated_head_root_authority_verified = _root_head_root_authority_verified(
+                            root_auth_status=root_inspection.auth_status,
+                            expected_sign_pub=authority.embedded_sign_pub,
                         )
                         parent_doc_hash = root_inspection.doc_hash
                         next_index = 1
@@ -437,10 +473,17 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
         chunking=chunking,
         root_passphrase_shard_threshold=root_passphrase_shard_threshold,
         root_passphrase_shard_count=root_passphrase_shard_count,
+        unlock_passphrase_shard_threshold=unlock_passphrase_shard_threshold,
+        unlock_passphrase_shard_count=unlock_passphrase_shard_count,
     )
 
 
-def _inspect_root_recovery(root_dir: Path, args: ExtendArgs) -> RecoveryInspection:
+def _inspect_root_recovery(
+    root_dir: Path,
+    args: ExtendArgs,
+    *,
+    extension_inventory: RecoveryExtensionInventory | None,
+) -> _RootRecoveryInspection:
     scan_paths = _published_root_scan_paths(root_dir)
     if not scan_paths:
         raise ApiCommandError(
@@ -452,7 +495,7 @@ def _inspect_root_recovery(root_dir: Path, args: ExtendArgs) -> RecoveryInspecti
     shard_frames, shard_fallback_files, shard_payloads_file, shard_scan = (
         _shard_frames_from_extend_args(args, quiet=args.quiet)
     )
-    return inspect_recovery_inputs(
+    root_inspection = inspect_recovery_inputs(
         frames=frames,
         extra_auth_frames=[],
         shard_frames=shard_frames,
@@ -465,43 +508,102 @@ def _inspect_root_recovery(root_dir: Path, args: ExtendArgs) -> RecoveryInspecti
         shard_scan=shard_scan,
         quiet=args.quiet,
     )
-
-
-def _published_root_passphrase_shard_policy(
-    root_dir: Path,
-    *,
-    root_doc_id: bytes,
-    root_doc_hash: bytes,
-    sign_pub: bytes | None,
-    quiet: bool,
-) -> tuple[int | None, int]:
-    paths = sorted(root_dir.glob("shard-*.pdf"))
-    if not paths:
-        return None, 0
-    for path in paths:
-        if path.is_symlink():
-            raise ValueError(f"root passphrase shard must not be a symlink: {path.name}")
-    frames = _shard_frames_from_scan([str(path) for path in paths], quiet=quiet)
-    if not frames:
-        return None, 0
-    try:
-        shares = _validated_shard_payloads_from_frames(
-            frames,
-            expected_doc_id=root_doc_id,
-            expected_doc_hash=root_doc_hash,
-            expected_sign_pub=sign_pub,
-            allow_unsigned=sign_pub is None,
-            key_type=sharding_module.KEY_TYPE_PASSPHRASE,
-            secret_label="passphrase",
+    if (
+        args.passphrase
+        or root_inspection.unlock.satisfied
+        or not shard_frames
+        or extension_inventory is None
+        or not extension_inventory.extensions
+    ):
+        shard_target: Literal["none", "root"] = (
+            "root" if root_inspection.unlock.mode == "shards" else "none"
         )
-    except InsufficientShardError as exc:
-        if exc.share_count is not None:
-            return None, 0
-        raise
-    first = shares[0]
-    if len(shares) != first.share_count:
-        return None, 0
-    return first.threshold, first.share_count
+        return _RootRecoveryInspection(root_inspection, shard_target)
+    extension_inspection = _inspect_root_recovery_with_extension_shards(
+        root_inspection,
+        frames=frames,
+        shard_frames=shard_frames,
+        shard_fallback_files=shard_fallback_files,
+        shard_payloads_file=shard_payloads_file,
+        shard_scan=shard_scan,
+        extension_inventory=extension_inventory,
+        input_detail=str(root_dir.resolve()),
+        quiet=args.quiet,
+    )
+    if extension_inspection is None:
+        return _RootRecoveryInspection(root_inspection, "none")
+    return _RootRecoveryInspection(extension_inspection, "extension")
+
+
+def _inspect_root_recovery_with_extension_shards(
+    root_inspection: RecoveryInspection,
+    *,
+    frames: list[Frame],
+    shard_frames: list[Frame],
+    shard_fallback_files: list[str],
+    shard_payloads_file: list[str],
+    shard_scan: list[str],
+    extension_inventory: RecoveryExtensionInventory,
+    input_detail: str,
+    quiet: bool,
+) -> RecoveryInspection | None:
+    root_document = ImportedRecoveryDocument(
+        doc_id=root_inspection.doc_id,
+        doc_hash=root_inspection.doc_hash,
+        ciphertext=root_inspection.ciphertext,
+        auth_frames=root_inspection.auth_frames,
+        source_label="published root",
+    )
+    documents = (
+        root_document,
+        *(
+            ImportedRecoveryDocument(
+                doc_id=bytes.fromhex(item.doc_id_hex),
+                doc_hash=item.doc_hash,
+                ciphertext=item.ciphertext,
+                auth_frames=item.auth_frames,
+                source_label=item.dir_name,
+            )
+            for item in extension_inventory.extensions
+        ),
+    )
+    try:
+        selection = select_root_import_document_from_passphrase_shards(
+            documents,
+            shard_frames=shard_frames,
+            allow_unsigned=False,
+            quiet=quiet,
+        )
+    except ValueError:
+        return None
+    if (
+        selection.root_document.doc_id != root_inspection.doc_id
+        or selection.root_document.doc_hash != root_inspection.doc_hash
+        or selection.unlock.resolved_passphrase is None
+    ):
+        return None
+
+    unlocked = inspect_recovery_inputs(
+        frames=frames,
+        extra_auth_frames=[],
+        shard_frames=[],
+        passphrase=selection.unlock.resolved_passphrase,
+        allow_unsigned=False,
+        input_label="Backup root directory",
+        input_detail=input_detail,
+        shard_fallback_files=[],
+        shard_payloads_file=[],
+        shard_scan=[],
+        quiet=quiet,
+    )
+    return replace(
+        unlocked,
+        unlock=selection.unlock,
+        shard_frames=tuple(shard_frames),
+        shard_fallback_files=tuple(shard_fallback_files),
+        shard_payloads_file=tuple(shard_payloads_file),
+        shard_scan=tuple(shard_scan),
+    )
 
 
 def _shard_frames_from_extend_args(
@@ -546,6 +648,7 @@ def _available_extensions_from_inventory(
         return ()
     return tuple(
         {
+            "index": item.index,
             "dir_name": item.dir_name,
             "doc_id": item.doc_id_hex,
             "doc_hash": item.doc_hash.hex(),
@@ -730,7 +833,7 @@ def _inspect_published_extension_chain(
     root_doc_hash: bytes,
     passphrase: str,
     expected_sign_pub: bytes | None,
-    allow_unsigned: bool,
+    root_auth_status: str | None,
     quiet: bool,
     debug: bool,
     inventory: RecoveryExtensionInventory,
@@ -760,7 +863,6 @@ def _inspect_published_extension_chain(
                 item,
                 passphrase=passphrase,
                 expected_sign_pub=expected_sign_pub,
-                allow_unsigned=allow_unsigned,
                 quiet=quiet,
                 debug=debug,
             )
@@ -800,19 +902,24 @@ def _inspect_published_extension_chain(
             refusal=None,
             validated_head_index=0,
             validated_head_doc_hash=root_doc_hash.hex(),
-            validated_head_auth_status=None,
-            validated_head_root_authority_verified=expected_sign_pub is not None,
+            validated_head_auth_status=root_auth_status,
+            validated_head_root_authority_verified=_root_head_root_authority_verified(
+                root_auth_status=root_auth_status,
+                expected_sign_pub=expected_sign_pub,
+            ),
         )
 
     try:
-        locked_chunking = validate_extension_chain(
+        locked_chunking = validate_authenticated_extension_chain(
             root_doc_hash=root_doc_hash,
+            expected_sign_pub=expected_sign_pub,
             extensions=tuple(item.link for item in links),
         )
-        latest_state = reconstruct_latest_logical_state(
+        latest_state = reconstruct_authenticated_latest_logical_state(
             manifest,
             payload,
             root_doc_hash=root_doc_hash,
+            expected_sign_pub=expected_sign_pub,
             extensions=tuple(item.link for item in links),
         )
     except ValueError as exc:
@@ -820,6 +927,7 @@ def _inspect_published_extension_chain(
             root_manifest=manifest,
             payload=payload,
             root_doc_hash=root_doc_hash,
+            expected_sign_pub=expected_sign_pub,
             selected_links=tuple(links),
         )
         head_index, head_hash, head_auth, head_verified = _validated_head_details(
@@ -883,6 +991,7 @@ def _available_extensions_from_recovery_chain(
     available_extensions: list[dict[str, object]] = []
     for index, item in enumerate(chain_inspection.inventory.extensions):
         extension_payload: dict[str, object] = {
+            "index": item.index,
             "dir_name": item.dir_name,
             "doc_id": item.doc_id_hex,
             "doc_hash": item.doc_hash.hex(),
@@ -937,7 +1046,7 @@ def _reconstruct_extension_state(
         root_doc_hash=root_doc_hash,
         passphrase=passphrase,
         expected_sign_pub=expected_sign_pub,
-        allow_unsigned=False,
+        root_auth_status=root_auth_status,
         quiet=quiet,
         debug=False,
         inventory=inventory,
@@ -954,7 +1063,10 @@ def _reconstruct_extension_state(
         refusal_details = dict(chain_inspection.refusal.details)
         if chain_inspection.validated_head_index == 0:
             validated_head_auth_status = root_auth_status
-            validated_head_root_authority_verified = expected_sign_pub is not None
+            validated_head_root_authority_verified = _root_head_root_authority_verified(
+                root_auth_status=root_auth_status,
+                expected_sign_pub=expected_sign_pub,
+            )
             refusal_details["validated_head_auth_status"] = validated_head_auth_status
             refusal_details["validated_head_root_authority_verified"] = (
                 validated_head_root_authority_verified

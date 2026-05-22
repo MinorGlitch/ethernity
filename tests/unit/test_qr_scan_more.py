@@ -103,6 +103,12 @@ def _patched_modules(replacements: dict[str, object]):
 
 
 class TestQrScanMore(unittest.TestCase):
+    def test_optional_import_treats_broken_optional_dependency_as_unavailable(self) -> None:
+        for exc in (ImportError("broken import"), OSError("broken shared library")):
+            with self.subTest(exc=type(exc).__name__):
+                with mock.patch.object(qr_scan.importlib, "import_module", side_effect=exc):
+                    self.assertIsNone(qr_scan._optional_import("PIL.Image"))
+
     def test_iter_scan_files_collects_supported_types(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -117,6 +123,34 @@ class TestQrScanMore(unittest.TestCase):
             [path.name for path in files],
             ["a.png", "c.PDF", "scan-without-extension"],
         )
+
+    def test_iter_scan_files_rejects_symlinked_scan_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            target = root / "outside.pdf"
+            target.write_bytes(b"%PDF-1.7\n")
+            link = root / "linked.pdf"
+            try:
+                link.symlink_to(target)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+
+            with self.assertRaisesRegex(QrScanError, "scan file must not be a symlink"):
+                _iter_scan_files(root)
+
+    def test_scan_qr_payloads_rejects_explicit_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            target = root / "outside.pdf"
+            target.write_bytes(b"%PDF-1.7\n")
+            link = root / "linked.pdf"
+            try:
+                link.symlink_to(target)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+
+            with self.assertRaisesRegex(QrScanError, "scan path must not be a symlink"):
+                qr_scan.scan_qr_payloads([link])
 
     def test_iter_scan_files_ignores_unpublished_extension_staging(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

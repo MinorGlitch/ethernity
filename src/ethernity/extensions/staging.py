@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -94,6 +95,36 @@ def create_extension_staging_dir(root_dir: str | Path, *, index: int, nonce: str
     staging_dir.mkdir(parents=False, exist_ok=False)
     staging_dir.chmod(0o700)
     return staging_dir
+
+
+def preflight_extension_publish_target(root_dir: str | Path, *, index: int) -> None:
+    """Validate extension publish target paths without creating files or directories."""
+
+    if isinstance(index, bool) or not isinstance(index, int) or index <= 0:
+        raise ValueError("extension index must be a positive integer")
+    root_path = Path(root_dir).expanduser()
+    if root_path.is_symlink():
+        raise ValueError("root backup directory must not be a symlink")
+    if not root_path.exists():
+        raise ValueError(f"root backup directory not found: {root_dir}")
+    if not root_path.is_dir():
+        raise ValueError(f"root backup directory must be a directory: {root_dir}")
+    extensions_dir = root_path / EXTENSIONS_DIR_NAME
+    if extensions_dir.is_symlink():
+        raise ValueError("extensions path must not be a symlink")
+    if extensions_dir.exists() and not extensions_dir.is_dir():
+        raise ValueError("extensions path must be a directory")
+    writable_dir = extensions_dir if extensions_dir.exists() else root_path
+    if not os.access(writable_dir, os.W_OK | os.X_OK):
+        raise ValueError(f"extension publish target is not writable: {writable_dir}")
+    final_dir = extensions_dir / canonical_extension_dir_name(index)
+    if final_dir.exists() or final_dir.is_symlink():
+        raise ValueError(f"canonical extension directory already exists: {final_dir.name}")
+    lock_dir = extensions_dir / f".{final_dir.name}.lock"
+    if lock_dir.exists() or lock_dir.is_symlink():
+        raise ValueError(
+            f"canonical extension directory is already being promoted: {final_dir.name}"
+        )
 
 
 def create_staged_extension_artifact_plan(

@@ -21,6 +21,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from ethernity.cli.features.backup import execution as backup_execution
+from ethernity.cli.features.extend.root_shards import published_root_passphrase_shard_policy
+from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.config import BackupDefaults, apply_template_design, load_app_config
@@ -59,7 +61,7 @@ def reject_reuse_root_shard_overrides(args: ExtendArgs) -> None:
         conflicting_options.append("--shard-threshold")
     if args.shard_count is not None:
         conflicting_options.append("--shard-count")
-    if args.signing_key_mode is not None:
+    if args.signing_key_mode not in {None, "not-stored"}:
         conflicting_options.append("--signing-key-mode")
     if args.signing_key_shard_threshold is not None:
         conflicting_options.append("--signing-key-shard-threshold")
@@ -82,6 +84,8 @@ def resolve_extend_policy(
     root_passphrase_shard_threshold: int | None,
     root_passphrase_shard_count: int,
     require_recovery_kit_index: bool,
+    inherited_passphrase_shard_threshold: int | None = None,
+    inherited_passphrase_shard_count: int = 0,
 ) -> ResolvedExtendPolicy:
     unlock_policy = resolve_unlock_policy(args.unlock_policy)
     if unlock_policy == "reuse-root":
@@ -103,6 +107,10 @@ def resolve_extend_policy(
             signing_key=SigningKeyNotStored(),
         )
 
+    if inherited_passphrase_shard_count <= 0 and root_passphrase_shard_count > 0:
+        inherited_passphrase_shard_threshold = root_passphrase_shard_threshold
+        inherited_passphrase_shard_count = root_passphrase_shard_count
+
     requested_passphrase_threshold = (
         args.shard_threshold
         if args.shard_threshold is not None
@@ -115,13 +123,13 @@ def resolve_extend_policy(
         label="passphrase shards",
         requested_threshold=requested_passphrase_threshold,
         requested_count=requested_passphrase_count,
-        inherited_threshold=root_passphrase_shard_threshold,
-        inherited_count=root_passphrase_shard_count,
+        inherited_threshold=inherited_passphrase_shard_threshold,
+        inherited_count=inherited_passphrase_shard_count,
     )
 
-    signing_key_mode = args.signing_key_mode or defaults.signing_key_mode or "embedded"
+    signing_key_mode = _resolve_extension_signing_key_mode(args, defaults)
     signing_key_policy: SigningKeyStoragePolicy
-    if signing_key_mode == "embedded":
+    if signing_key_mode == "not-stored":
         signing_key_policy = SigningKeyNotStored()
     else:
         if passphrase_shard_count <= 0:
@@ -182,8 +190,37 @@ def resolve_extend_policy(
     )
 
 
+def _resolve_extension_signing_key_mode(args: ExtendArgs, defaults: BackupDefaults) -> str:
+    explicit_shard_policy = (
+        args.signing_key_shard_threshold is not None or args.signing_key_shard_count is not None
+    )
+    if args.signing_key_mode is not None:
+        if args.signing_key_mode not in {"not-stored", "sharded"}:
+            raise ApiCommandError(
+                code=EXTENSION_INVALID_POLICY,
+                message="signing_key_mode must be 'not-stored' or 'sharded'",
+                details={"signing_key_mode": args.signing_key_mode},
+            )
+        if args.signing_key_mode == "not-stored" and explicit_shard_policy:
+            raise ApiCommandError(
+                code=EXTENSION_INVALID_POLICY,
+                message=(
+                    "signing-key shard options require signing_key_mode='sharded' "
+                    "or no explicit signing_key_mode"
+                ),
+            )
+        return args.signing_key_mode
+    if explicit_shard_policy:
+        return "sharded"
+    if defaults.signing_key_mode == "sharded":
+        return "sharded"
+    return "not-stored"
+
+
 def resolve_extend_runtime(
     prepared: PreparedExtendRun,
+    *,
+    create_layout_debug_dir: bool = True,
 ) -> ResolvedExtendRuntime:
     """Resolve config, validated unlock shard policy, and render settings."""
 
@@ -192,13 +229,25 @@ def resolve_extend_runtime(
         prepared.args.design,
     )
     sign_pub = derive_public_key(prepared.signing_seed)
+    root_passphrase_shard_threshold, root_passphrase_shard_count = (
+        resolve_root_passphrase_shard_policy(prepared, defaults=config.cli_defaults.backup)
+    )
+    inherited_passphrase_shard_threshold, inherited_passphrase_shard_count = (
+        resolve_inherited_passphrase_shard_policy(
+            prepared,
+            root_passphrase_shard_threshold=root_passphrase_shard_threshold,
+            root_passphrase_shard_count=root_passphrase_shard_count,
+        )
+    )
     kit_index_template_path = backup_execution._resolve_kit_index_template_path(config)
     require_recovery_kit_index = kit_index_template_path is not None
     policy = resolve_extend_policy(
         args=prepared.args,
         defaults=config.cli_defaults.backup,
-        root_passphrase_shard_threshold=prepared.root_passphrase_shard_threshold,
-        root_passphrase_shard_count=prepared.root_passphrase_shard_count,
+        root_passphrase_shard_threshold=root_passphrase_shard_threshold,
+        root_passphrase_shard_count=root_passphrase_shard_count,
+        inherited_passphrase_shard_threshold=inherited_passphrase_shard_threshold,
+        inherited_passphrase_shard_count=inherited_passphrase_shard_count,
         require_recovery_kit_index=require_recovery_kit_index,
     )
 
@@ -214,6 +263,7 @@ def resolve_extend_runtime(
         layout_debug_dir=resolve_extend_layout_debug_dir(
             prepared.args.layout_debug_dir,
             root_dir=prepared.args.root_dir,
+            create=create_layout_debug_dir,
         ),
         passphrase=policy.passphrase,
         signing_key=policy.signing_key,
@@ -222,11 +272,80 @@ def resolve_extend_runtime(
     )
 
 
-def resolve_extend_layout_debug_dir(path: str | None, *, root_dir: str | None) -> str | None:
+def resolve_root_passphrase_shard_policy(
+    prepared: PreparedExtendRun,
+    *,
+    defaults: BackupDefaults,
+) -> tuple[int | None, int]:
+    threshold = prepared.root_passphrase_shard_threshold
+    count = prepared.root_passphrase_shard_count
+    if count > 0 or not _needs_published_root_passphrase_shard_policy(prepared.args, defaults):
+        return threshold, count
+    if (
+        prepared.unlock_passphrase_shard_count > 0
+        and resolve_unlock_policy(prepared.args.unlock_policy) != "reuse-root"
+    ):
+        return threshold, count
+
+    root_dir = prepared.args.root_dir
+    root_doc_id = prepared.inspection.root_doc_id
+    if not root_dir or root_doc_id is None:
+        return threshold, count
+
+    try:
+        return published_root_passphrase_shard_policy(
+            Path(root_dir).expanduser().resolve(),
+            root_doc_id=bytes.fromhex(root_doc_id),
+            root_doc_hash=prepared.root_doc_hash,
+            sign_pub=derive_public_key(prepared.signing_seed),
+            quiet=prepared.args.quiet,
+        )
+    except ValueError as exc:
+        raise ApiCommandError(
+            code=api_codes.ROOT_SHARD_POLICY_INVALID,
+            message=str(exc),
+            details={"stage": "shards"},
+        ) from exc
+
+
+def resolve_inherited_passphrase_shard_policy(
+    prepared: PreparedExtendRun,
+    *,
+    root_passphrase_shard_threshold: int | None,
+    root_passphrase_shard_count: int,
+) -> tuple[int | None, int]:
+    if prepared.unlock_passphrase_shard_count > 0:
+        return (
+            prepared.unlock_passphrase_shard_threshold,
+            prepared.unlock_passphrase_shard_count,
+        )
+    return root_passphrase_shard_threshold, root_passphrase_shard_count
+
+
+def _needs_published_root_passphrase_shard_policy(
+    args: ExtendArgs,
+    defaults: BackupDefaults,
+) -> bool:
+    unlock_policy = resolve_unlock_policy(args.unlock_policy)
+    if unlock_policy == "reuse-root":
+        return True
+    if args.shard_count is not None:
+        return False
+    return defaults.shard_count is None
+
+
+def resolve_extend_layout_debug_dir(
+    path: str | None,
+    *,
+    root_dir: str | None,
+    create: bool = True,
+) -> str | None:
     if path is None or not path.strip():
         return None
     debug_dir = Path(path).expanduser().resolve()
     ensure_extend_layout_debug_dir_allowed(debug_dir, root_dir=root_dir)
+    if not create:
+        return str(debug_dir)
     return resolve_layout_debug_dir(str(debug_dir))
 
 
