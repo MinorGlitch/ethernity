@@ -14,6 +14,7 @@
     "recovery_first_page_single_section": true,
     "repeat_primary_qr_on_shard_continuation": true,
     "advanced_fallback_layout": true,
+    "recovery_kit_index_document": true,
     "recovery_main_section_start_reserved_lines": 1,
     "shard_first_page_estimate_bonus_lines": 1,
     "shard_first_page_bonus_lines": 3,

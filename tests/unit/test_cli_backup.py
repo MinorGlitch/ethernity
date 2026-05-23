@@ -50,6 +50,29 @@ _BACKUP_ORCHESTRATOR_MODULE = "ethernity.cli.features.backup.orchestrator"
 _UNSET = object()
 
 
+def _write_template_style(template_dir: Path, *, recovery_kit_index_document: bool) -> None:
+    capability = "true" if recovery_kit_index_document else "false"
+    (template_dir / "style.json").write_text(
+        f"""{{
+  "name": "forge",
+  "header": {{
+    "meta_row_gap_mm": 1.2,
+    "stack_gap_mm": 1.0,
+    "divider_thickness_mm": 0.5
+  }},
+  "content_offset": {{
+    "divider_gap_extra_mm": 0.0,
+    "doc_types": []
+  }},
+  "capabilities": {{
+    "recovery_kit_index_document": {capability}
+  }}
+}}
+""",
+        encoding="utf-8",
+    )
+
+
 class _CaptureBuild:
     def __init__(self, captured: dict[str, object], real_build):
         self._captured = captured
@@ -432,13 +455,11 @@ class TestCliBackup(unittest.TestCase):
             output_dir = Path(tmpdir) / "out"
             templates_dir = Path(tmpdir) / "templates"
             templates_dir.mkdir(parents=True, exist_ok=True)
+            _write_template_style(templates_dir, recovery_kit_index_document=True)
             kit_template = templates_dir / "kit_document.html.j2"
             kit_template.write_text("{{ doc.title }}", encoding="utf-8")
             kit_index_template = templates_dir / "kit_index_document.html.j2"
-            kit_index_template.write_text(
-                "kit_index_inventory_artifacts_v3 {{ doc.title }}",
-                encoding="utf-8",
-            )
+            kit_index_template.write_text("{{ doc.title }}", encoding="utf-8")
             config = replace(config, kit_template_path=kit_template)
 
             with mock.patch(
@@ -496,11 +517,9 @@ class TestCliBackup(unittest.TestCase):
             templates_root = Path(tmpdir) / "package-templates"
             package_design_dir = templates_root / "forge"
             package_design_dir.mkdir(parents=True, exist_ok=True)
+            _write_template_style(package_design_dir, recovery_kit_index_document=True)
             packaged_kit_index = package_design_dir / "kit_index_document.html.j2"
-            packaged_kit_index.write_text(
-                "kit_index_inventory_artifacts_v3 {{ doc.title }}",
-                encoding="utf-8",
-            )
+            packaged_kit_index.write_text("{{ doc.title }}", encoding="utf-8")
 
             with mock.patch.object(
                 recovery_kit_index,
@@ -558,11 +577,9 @@ class TestCliBackup(unittest.TestCase):
             templates_root = Path(tmpdir) / "package-templates"
             package_design_dir = templates_root / "forge"
             package_design_dir.mkdir(parents=True, exist_ok=True)
+            _write_template_style(package_design_dir, recovery_kit_index_document=True)
             packaged_kit_index = package_design_dir / "kit_index_document.html.j2"
-            packaged_kit_index.write_text(
-                "kit_index_inventory_artifacts_v3 {{ doc.title }}",
-                encoding="utf-8",
-            )
+            packaged_kit_index.write_text("{{ doc.title }}", encoding="utf-8")
 
             with mock.patch.object(
                 recovery_kit_index,
@@ -659,13 +676,11 @@ class TestCliBackup(unittest.TestCase):
             output_dir = Path(tmpdir) / "out"
             templates_dir = Path(tmpdir) / "templates"
             templates_dir.mkdir(parents=True, exist_ok=True)
+            _write_template_style(templates_dir, recovery_kit_index_document=True)
             kit_template = templates_dir / "kit_document.html.j2"
             kit_template.write_text("{{ doc.title }}", encoding="utf-8")
             kit_index_template = templates_dir / "kit_index_document.html.j2"
-            kit_index_template.write_text(
-                "kit_index_inventory_artifacts_v3 {{ doc.title }}",
-                encoding="utf-8",
-            )
+            kit_index_template.write_text("{{ doc.title }}", encoding="utf-8")
             config = replace(config, kit_template_path=kit_template)
 
             with mock.patch(

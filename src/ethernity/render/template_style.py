@@ -80,6 +80,7 @@ class TemplateCapabilities:
     extra_main_first_page_qr_slot: bool = False
     uniform_main_qr_capacity: bool = False
     repeat_main_instructions_on_all_pages: bool = False
+    recovery_kit_index_document: bool = False
     main_qr_grid_size_mm: float | None = None
     main_qr_grid_max_cols: int | None = None
     fallback_layout: FallbackLayoutProfile | None = None
@@ -212,6 +213,7 @@ def _parse_capabilities(value: object, *, path: Path) -> TemplateCapabilities:
                 "extra_main_first_page_qr_slot",
                 "uniform_main_qr_capacity",
                 "repeat_main_instructions_on_all_pages",
+                "recovery_kit_index_document",
                 "main_qr_grid_size_mm",
                 "main_qr_grid_max_cols",
                 "fallback_layout",
@@ -288,6 +290,12 @@ def _parse_capabilities(value: object, *, path: Path) -> TemplateCapabilities:
         repeat_main_instructions_on_all_pages=_optional_bool(
             value,
             "repeat_main_instructions_on_all_pages",
+            default=False,
+            path=path,
+        ),
+        recovery_kit_index_document=_optional_bool(
+            value,
+            "recovery_kit_index_document",
             default=False,
             path=path,
         ),

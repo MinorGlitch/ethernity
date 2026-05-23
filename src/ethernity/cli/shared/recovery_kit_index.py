@@ -23,19 +23,17 @@ from pathlib import Path
 from ethernity.config import AppConfig
 from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
 from ethernity.crypto.sharding import ShardPayload
+from ethernity.render.template_style import load_template_style
 
-KIT_INDEX_TEMPLATE_MARKER = "kit_index_inventory_artifacts_v3"
 KIT_INDEX_TEMPLATE_NAME = "kit_index_document.html.j2"
 
 
-def is_compatible_kit_index_template(path: Path) -> bool:
-    """Return whether a kit index template contains the expected compatibility marker."""
+def supports_recovery_kit_index_template(path: Path) -> bool:
+    """Return whether a template's design opts into recovery-kit index rendering."""
 
-    try:
-        content = path.read_text(encoding="utf-8")
-    except OSError:
+    if not path.is_file():
         return False
-    return KIT_INDEX_TEMPLATE_MARKER in content
+    return load_template_style(path).capabilities.recovery_kit_index_document
 
 
 def resolve_recovery_kit_index_template_path(config: AppConfig) -> Path | None:
@@ -47,10 +45,10 @@ def resolve_recovery_kit_index_template_path(config: AppConfig) -> Path | None:
         TEMPLATES_RESOURCE_ROOT / kit_template_path.parent.name / KIT_INDEX_TEMPLATE_NAME
     )
 
-    if candidate.is_file() and is_compatible_kit_index_template(candidate):
+    if supports_recovery_kit_index_template(candidate):
         return candidate
 
-    if package_candidate.is_file() and is_compatible_kit_index_template(package_candidate):
+    if supports_recovery_kit_index_template(package_candidate):
         return package_candidate
 
     return None
@@ -100,9 +98,8 @@ def build_recovery_kit_index_inventory_rows(
 
 
 __all__ = [
-    "KIT_INDEX_TEMPLATE_MARKER",
     "KIT_INDEX_TEMPLATE_NAME",
     "build_recovery_kit_index_inventory_rows",
-    "is_compatible_kit_index_template",
     "resolve_recovery_kit_index_template_path",
+    "supports_recovery_kit_index_template",
 ]
