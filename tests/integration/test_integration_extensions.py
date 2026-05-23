@@ -559,6 +559,61 @@ class TestIntegrationExtensions(unittest.TestCase):
                 },
             )
 
+    def test_compact_with_mixed_root_and_extension_shards_uses_extension_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup-root"
+            compacted_dir = tmp_path / "compacted-mixed-shards"
+            recovered_dir = tmp_path / "recovered-compacted-mixed-shards"
+            source_dir.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    shard_threshold=2,
+                    shard_count=3,
+                )
+                root_shards = sorted(root_dir.glob("shard-*.pdf"))
+                self.assertEqual(len(root_shards), 3)
+
+                (source_dir / "alpha.txt").write_text("extension-alpha", encoding="utf-8")
+                (source_dir / "beta.txt").write_text("extension-beta", encoding="utf-8")
+                extension = self._run_extend(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    shard_threshold=2,
+                    shard_count=3,
+                )
+
+                compact_result = self._run_compact(
+                    root_dir=root_dir,
+                    output_dir=compacted_dir,
+                    passphrase=None,
+                    shard_scan=[
+                        *(str(path) for path in root_shards[:2]),
+                        *(str(path) for path in extension.shard_paths[:2]),
+                    ],
+                )
+                self.assertEqual(len(compact_result.shard_paths), 3)
+
+                self._run_recover(
+                    root_dir=compacted_dir,
+                    output_dir=recovered_dir,
+                    passphrase=None,
+                    shard_scan=list(compact_result.shard_paths[:2]),
+                )
+
+            self.assertEqual(
+                self._snapshot_tree(recovered_dir),
+                {
+                    "alpha.txt": b"extension-alpha",
+                    "beta.txt": b"extension-beta",
+                },
+            )
+
     def test_compact_preserves_latest_state_from_degraded_redundant_carrier(
         self,
     ) -> None:
@@ -670,6 +725,17 @@ class TestIntegrationExtensions(unittest.TestCase):
                         root_dir=root_dir,
                         output_dir=tmp_path / "corrupt-recovered",
                     )
+
+                root_only_dir = tmp_path / "corrupt-root-only-recovered"
+                self._run_recover(
+                    root_dir=root_dir,
+                    output_dir=root_only_dir,
+                    extension_index=0,
+                )
+                self.assertEqual(
+                    self._snapshot_tree(root_only_dir),
+                    {"alpha.txt": b"root-alpha"},
+                )
 
                 with self.assertRaisesRegex(ValueError, "failed to read PDF"):
                     self._run_compact(

@@ -88,6 +88,50 @@ Use this template for each change entry:
 
 ## Entries
 
+## 2026-05-23 - Enforce scan layout and root-only recovery selection
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: 20
+- Compatibility:
+  - Old decoders reading new artifacts: yes (artifact wire format is unchanged)
+  - New decoders reading old artifacts: partial (backup-export scans now reject extension-like
+    top-level clutter under `extensions/`; explicit root-only recovery no longer requires published
+    extension carrier files to be readable)
+- Version/profile bump required: no (this changes scan selection and export-tree validation only;
+  serialized recovery carriers and extension envelopes are unchanged)
+- Implementation refs:
+  - `src/ethernity/qr/scan.py`
+  - `src/ethernity/cli/shared/io/frames.py`
+  - `src/ethernity/cli/features/recover/planning.py`
+- Test refs:
+  - `tests/unit/test_qr_scan_more.py`
+  - `tests/unit/test_frames_io.py`
+  - `tests/unit/test_recover_plan_paths.py`
+- Security impact:
+  - Preserves root-only recovery as an emergency escape hatch while still rejecting malformed
+    extension-like export-tree entries.
+
+## 2026-05-23 - Distinguish recovery-valid and append-valid extension heads
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: 20
+- Compatibility:
+  - Old decoders reading new artifacts: yes (artifact wire format is unchanged)
+  - New decoders reading old artifacts: yes for recovery; append operations can still reject
+    degraded published export trees that are missing required redundant artifacts
+- Version/profile bump required: no (this clarifies product validation boundaries without changing
+  serialized bytes)
+- Implementation refs:
+  - `src/ethernity/extensions/discovery.py`
+  - `src/ethernity/extensions/staging.py`
+- Test refs:
+  - `tests/integration/test_integration_extensions.py`
+- Security impact:
+  - Keeps content recovery permissive for damaged redundant carriers while requiring complete
+    canonical published state before appending a new extension.
+
 ## 2026-05-14 - Bound extension chunking profile sizes
 
 - Type: validation

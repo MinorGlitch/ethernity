@@ -82,6 +82,33 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
         self.assertIsNone(root_dir)
         scan_mock.assert_called_once_with([str(home / "backup-dir")], quiet=True)
 
+    def test_frames_from_args_root_only_scan_excludes_extension_carriers(self) -> None:
+        args = RecoverArgs(scan=["~/backup-dir"], extension_index=0)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir) / "home"
+            home.mkdir()
+            with mock.patch.dict("os.environ", _home_env(home), clear=False):
+                with mock.patch.object(
+                    recover_plan,
+                    "_recovery_frames_from_scan",
+                    return_value=["root-main", "root-auth"],
+                ) as scan_mock:
+                    frames, label, detail, root_dir = recover_plan._frames_from_args(
+                        args,
+                        allow_unsigned=False,
+                        quiet=True,
+                    )
+
+        self.assertEqual(frames, ["root-main", "root-auth"])
+        self.assertEqual(label, "Backup PDF or images")
+        self.assertEqual(detail, str(home / "backup-dir"))
+        self.assertIsNone(root_dir)
+        scan_mock.assert_called_once_with(
+            [str(home / "backup-dir")],
+            quiet=True,
+            include_extension_carriers=False,
+        )
+
     def test_frames_from_args_can_mix_scan_with_fallback_text(self) -> None:
         args = RecoverArgs(fallback_file="~/extension.txt", scan=["~/root.pdf"])
         with tempfile.TemporaryDirectory() as tmpdir:

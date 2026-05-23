@@ -123,7 +123,14 @@ def _prompt_recovery_input(
         input_label = RECOVERY_SCAN_LABEL
         input_detail = ", ".join(args.scan)
         with status("Scanning QR images...", quiet=quiet):
-            frames = _recovery_frames_from_scan(args.scan, quiet=quiet)
+            if args.extension_index == 0:
+                frames = _recovery_frames_from_scan(
+                    args.scan,
+                    quiet=quiet,
+                    include_extension_carriers=False,
+                )
+            else:
+                frames = _recovery_frames_from_scan(args.scan, quiet=quiet)
     else:
         frames, input_label, input_detail = prompt_recovery_input_interactive(
             allow_unsigned=allow_unsigned,

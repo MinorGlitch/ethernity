@@ -42,6 +42,7 @@ from ethernity.extensions.discovery import (
     discover_extension_directories,
     discover_validated_extension_directories,
     extension_root_dir,
+    is_extension_like_top_level_entry,
     payload_main_carriers,
 )
 from ethernity.extensions.layout import (
@@ -98,6 +99,7 @@ __all__ = [
     "extension_root_dir",
     "extract_root_logical_state",
     "is_canonical_extension_dir_name",
+    "is_extension_like_top_level_entry",
     "is_staging_dir_name",
     "parse_extension_dir_name",
     "parse_extension_main_filename",

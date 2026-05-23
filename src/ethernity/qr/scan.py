@@ -27,7 +27,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
-from ethernity.extensions.layout import is_staging_dir_name
+from ethernity.extensions.discovery import (
+    EXTENSIONS_DIR_NAME,
+    is_extension_like_top_level_entry,
+)
+from ethernity.extensions.layout import is_canonical_extension_dir_name, is_staging_dir_name
 
 
 def _optional_import(name: str) -> Any | None:
@@ -58,7 +62,6 @@ class QrDecoder:
 
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff", ".webp"}
-_EXTENSIONS_DIR_NAME = "extensions"
 _PDF_MAGIC = b"%PDF-"
 _IMAGE_MAGICS = (
     b"\x89PNG\r\n\x1a\n",
@@ -106,12 +109,16 @@ def _decode_image_bytes(data: bytes, *, zxing_module, image_module) -> list[byte
         return _decode_image(image, zxing_module=zxing_module)
 
 
-def scan_qr_payloads(paths: Sequence[str | Path]) -> list[bytes]:
+def scan_qr_payloads(
+    paths: Sequence[str | Path],
+    *,
+    include_extension_carriers: bool = True,
+) -> list[bytes]:
     """Scan one or more paths and return decoded QR payload bytes."""
 
     decoder = _load_decoder()
     payloads: list[bytes] = []
-    for path in _expand_paths(paths):
+    for path in _expand_paths(paths, include_extension_carriers=include_extension_carriers):
         payloads.extend(_scan_one_path(path, decoder))
 
     if not payloads:
@@ -188,7 +195,11 @@ def _scan_pdf(path: Path, decoder: QrDecoder) -> list[bytes]:
     return payloads
 
 
-def _expand_paths(paths: Sequence[str | Path]) -> Iterable[Path]:
+def _expand_paths(
+    paths: Sequence[str | Path],
+    *,
+    include_extension_carriers: bool = True,
+) -> Iterable[Path]:
     """Expand path inputs, recursing into directories for supported scan files."""
 
     for raw in paths:
@@ -198,7 +209,10 @@ def _expand_paths(paths: Sequence[str | Path]) -> Iterable[Path]:
         if not path.exists():
             raise QrScanError(f"scan path not found: {path}")
         if path.is_dir():
-            scan_files = _iter_scan_files(path)
+            scan_files = _iter_scan_files(
+                path,
+                include_extension_carriers=include_extension_carriers,
+            )
             if not scan_files:
                 raise QrScanError(f"no scan files found in directory: {path}")
             yield from scan_files
@@ -206,18 +220,27 @@ def _expand_paths(paths: Sequence[str | Path]) -> Iterable[Path]:
             yield path
 
 
-def _iter_scan_files(directory: Path) -> list[Path]:
+def _iter_scan_files(directory: Path, *, include_extension_carriers: bool = True) -> list[Path]:
     """Collect supported scan files from a directory tree."""
 
     if directory.is_symlink():
         raise QrScanError(f"scan directory must not be a symlink: {directory}")
     if _is_under_unpublished_extension_workspace(directory):
         return []
+    _validate_backup_export_scan_layout(directory)
 
     files: list[Path] = []
     for root, dirnames, filenames in os.walk(directory):
         root_path = Path(root)
-        dirnames[:] = sorted(name for name in dirnames if _keep_scan_dir(root_path / name))
+        dirnames[:] = sorted(
+            name
+            for name in dirnames
+            if _keep_scan_dir(
+                root_path / name,
+                scan_root=directory,
+                include_extension_carriers=include_extension_carriers,
+            )
+        )
         for filename in filenames:
             path = root_path / filename
             if path.is_symlink():
@@ -229,16 +252,50 @@ def _iter_scan_files(directory: Path) -> list[Path]:
     return files
 
 
-def _keep_scan_dir(path: Path) -> bool:
+def _keep_scan_dir(
+    path: Path,
+    *,
+    scan_root: Path,
+    include_extension_carriers: bool,
+) -> bool:
     if path.is_symlink():
         raise QrScanError(f"scan directory must not contain symlinked directories: {path}")
+    if (
+        not include_extension_carriers
+        and path.parent == scan_root
+        and path.name == EXTENSIONS_DIR_NAME
+    ):
+        return False
     return not _is_under_unpublished_extension_workspace(path)
+
+
+def _validate_backup_export_scan_layout(directory: Path) -> None:
+    extensions_dir = directory / EXTENSIONS_DIR_NAME
+    if not extensions_dir.exists():
+        return
+    if extensions_dir.is_symlink():
+        raise QrScanError(f"extensions path must not be a symlink: {extensions_dir}")
+    if not extensions_dir.is_dir():
+        raise QrScanError(f"extensions path must be a directory: {extensions_dir}")
+    for entry in extensions_dir.iterdir():
+        if is_staging_dir_name(entry.name):
+            continue
+        if entry.name.isdecimal() and not is_canonical_extension_dir_name(entry.name):
+            raise QrScanError(
+                "extensions directory contains unexpected extension-like top-level entry: "
+                f"{entry.name}"
+            )
+        if is_extension_like_top_level_entry(entry.name):
+            raise QrScanError(
+                "extensions directory contains unexpected extension-like top-level entry: "
+                f"{entry.name}"
+            )
 
 
 def _is_under_unpublished_extension_workspace(path: Path) -> bool:
     parts = path.parts
     for index, part in enumerate(parts[:-1]):
-        if part == _EXTENSIONS_DIR_NAME and is_staging_dir_name(parts[index + 1]):
+        if part == EXTENSIONS_DIR_NAME and is_staging_dir_name(parts[index + 1]):
             return True
     return False
 

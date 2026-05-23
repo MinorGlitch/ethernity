@@ -1232,11 +1232,19 @@ def _frames_from_args(
     if scan:
         scan_detail = ", ".join(scan)
         try:
+            if args.extension_index == 0:
+                scan_frames = _recovery_frames_from_scan(
+                    scan,
+                    quiet=quiet,
+                    include_extension_carriers=False,
+                )
+            else:
+                scan_frames = _recovery_frames_from_scan(scan, quiet=quiet)
             sources.append(
                 (
                     RECOVERY_SCAN_LABEL,
                     scan_detail,
-                    _recovery_frames_from_scan(scan, quiet=quiet),
+                    scan_frames,
                 )
             )
         except ValueError as exc:

@@ -404,6 +404,24 @@ class TestFramesIo(unittest.TestCase):
         self.assertEqual(frames, [main, auth])
         warn_mock.assert_called_once()
 
+    def test_recovery_frames_from_scan_can_exclude_extension_carriers(self) -> None:
+        main = self._frame(frame_type=FrameType.MAIN_DOCUMENT, doc_id=b"\x40" * DOC_ID_LEN)
+        with mock.patch(
+            "ethernity.cli.shared.io.frames._frames_from_scan",
+            return_value=[main],
+        ) as scan_mock:
+            frames = _recovery_frames_from_scan(
+                ["backup-dir"],
+                quiet=True,
+                include_extension_carriers=False,
+            )
+
+        self.assertEqual(frames, [main])
+        scan_mock.assert_called_once_with(
+            ["backup-dir"],
+            include_extension_carriers=False,
+        )
+
     def test_recovery_frames_from_scan_rejects_shard_only_input(self) -> None:
         shard = self._frame(frame_type=FrameType.KEY_DOCUMENT, doc_id=b"\x41" * DOC_ID_LEN)
         with mock.patch("ethernity.cli.shared.io.frames._frames_from_scan", return_value=[shard]):

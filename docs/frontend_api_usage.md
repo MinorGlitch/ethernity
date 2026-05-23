@@ -120,6 +120,9 @@ If supplied extension-local shard inputs are stale or from another chain, inspec
 disabled until the user supplies matching shards or a passphrase.
 When a selected scope is present, inspect also preflights the publish target without writing; treat
 `EXTENSION_PUBLISH_TARGET_INVALID` as a not-ready state for write-producing actions.
+Do not treat a successful `api recover` as proof that the same folder is appendable: recovery can
+succeed from authenticated machine-readable carriers while `api extend` still blocks on a missing
+redundant `recovery_document-*` artifact or another canonical export-layout issue.
 
 For `api inspect extend`, use these final `result` fields for chain-head state:
 
@@ -185,6 +188,11 @@ Extension `recovery_document-*` PDFs are human-readable fallback artifacts, not 
 scan inputs. Use extension `qr_document-*` artifacts for `--scan`. If QR recovery is unavailable,
 users may manually type or transcribe fallback text into `--fallback-file`; do not extract fallback
 text from PDF or image files.
+
+When users choose root-only recovery with `--extension-index 0`, a recursive backup-root scan should
+recover from the root carriers even if published extension carrier PDFs are damaged. The scan still
+reports malformed top-level `extensions/` layout entries because those are export-tree errors, not
+carrier-readability errors.
 
 Important:
 

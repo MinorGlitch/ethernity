@@ -264,8 +264,14 @@ def run_compact(args: CompactArgs) -> BackupResult:
         if manifest.signing_seed is not None
         else (recover_plan.auth_payload.sign_pub if recover_plan.auth_payload is not None else None)
     )
-    unlock_passphrase_policy = _infer_passphrase_shard_policy_from_frames(
+    unlock_passphrase_frames = _passphrase_shard_frames_for_selected_head(
         recover_plan.shard_frames,
+        root_doc_id=recover_plan.doc_id,
+        root_doc_hash=recover_plan.doc_hash,
+        selected_extension_doc_hash=getattr(chain, "selected_extension_doc_hash", None),
+    )
+    unlock_passphrase_policy = _infer_passphrase_shard_policy_from_frames(
+        unlock_passphrase_frames,
         sign_pub=sign_pub,
     )
 
@@ -356,9 +362,44 @@ def _passphrase_shard_frames_for_doc(
     expected_doc_id: bytes,
     expected_doc_hash: bytes,
 ) -> tuple[Frame, ...]:
+    return _passphrase_shard_frames_for_document(
+        frames,
+        expected_doc_id=expected_doc_id,
+        expected_doc_hash=expected_doc_hash,
+    )
+
+
+def _passphrase_shard_frames_for_selected_head(
+    frames: Sequence[Frame],
+    *,
+    root_doc_id: bytes,
+    root_doc_hash: bytes,
+    selected_extension_doc_hash: str | None,
+) -> tuple[Frame, ...]:
+    if selected_extension_doc_hash:
+        return _passphrase_shard_frames_for_document(
+            frames,
+            expected_doc_id=None,
+            expected_doc_hash=bytes.fromhex(selected_extension_doc_hash),
+        )
+    return _passphrase_shard_frames_for_document(
+        frames,
+        expected_doc_id=root_doc_id,
+        expected_doc_hash=root_doc_hash,
+    )
+
+
+def _passphrase_shard_frames_for_document(
+    frames: Sequence[Frame],
+    *,
+    expected_doc_id: bytes | None,
+    expected_doc_hash: bytes,
+) -> tuple[Frame, ...]:
     selected: list[Frame] = []
     for frame in frames:
-        if frame.frame_type != FrameType.KEY_DOCUMENT or frame.doc_id != expected_doc_id:
+        if frame.frame_type != FrameType.KEY_DOCUMENT:
+            continue
+        if expected_doc_id is not None and frame.doc_id != expected_doc_id:
             continue
         try:
             payload = sharding_module.decode_shard_payload(frame.data)

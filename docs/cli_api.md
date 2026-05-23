@@ -633,6 +633,13 @@ For a root-only head, `validated_head_root_authority_verified` is `true` only wh
 status is `verified` and the root-derived signing authority is present. Clients should pair this
 field with `validated_head_auth_status` and `blocking_issues` before treating a head as trusted.
 
+Recovery-valid and append-valid are intentionally different. `api recover` may restore content from
+the available authenticated machine-readable carriers, including a degraded extension directory
+whose redundant `recovery_document-*` PDF is missing. `api extend` and `api inspect extend` require
+the published head to remain append-valid before creating another extension, so a degraded directory
+can still produce a blocking issue such as `EXTENSION_LAYOUT_INVALID` or
+`RECOVERY_HEAD_UNTRUSTED`.
+
 `available_extensions` entries always include the numeric `index` alongside `dir_name`, `doc_id`,
 and `doc_hash`; `doc_hash` can be `null` for partially discovered extension directories whose
 payloads could not be fully decoded. When chain authentication has been evaluated, entries may also

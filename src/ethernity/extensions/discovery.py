@@ -161,7 +161,7 @@ def discover_validated_extension_directories(
                         f"extension directory must not be a symlink: {entry.name}",
                     ),
                 )
-            elif _is_extension_like_top_level_entry(entry.name):
+            elif is_extension_like_top_level_entry(entry.name):
                 unexpected_extension_like_entries.add(entry.name)
             continue
         if not entry.is_dir():
@@ -192,7 +192,7 @@ def discover_validated_extension_directories(
                         f"extension directory must be a directory: {entry.name}",
                     ),
                 )
-            elif _is_extension_like_top_level_entry(entry.name):
+            elif is_extension_like_top_level_entry(entry.name):
                 unexpected_extension_like_entries.add(entry.name)
             continue
         if is_staging_dir_name(entry.name):
@@ -205,7 +205,7 @@ def discover_validated_extension_directories(
             candidate_dirs[index] = entry
             continue
         if not is_canonical_extension_dir_name(entry.name):
-            if _is_extension_like_top_level_entry(entry.name):
+            if is_extension_like_top_level_entry(entry.name):
                 unexpected_extension_like_entries.add(entry.name)
             continue
         candidate_dirs[parse_extension_dir_name(entry.name)] = entry
@@ -304,7 +304,9 @@ def discover_validated_extension_directories(
     return ValidatedExtensionDiscovery(directories=tuple(validated))
 
 
-def _is_extension_like_top_level_entry(name: str) -> bool:
+def is_extension_like_top_level_entry(name: str) -> bool:
+    """Return whether an `extensions/` top-level name looks like a misplaced extension."""
+
     return name.startswith(("extension-", "extension_")) or name.startswith(
         _RECOGNIZED_FILENAME_PREFIXES
     )

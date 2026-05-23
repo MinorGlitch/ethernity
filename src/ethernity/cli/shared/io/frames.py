@@ -386,11 +386,14 @@ def _frames_from_shard_inputs(
     return frames
 
 
-def _frames_from_scan(paths: list[str]) -> list[Frame]:
+def _frames_from_scan(paths: list[str], *, include_extension_carriers: bool = True) -> list[Frame]:
     """Scan PDFs/images for QR payloads and decode valid frames."""
 
     try:
-        payloads = scan_qr_payloads(expanduser_cli_paths(paths))
+        payloads = scan_qr_payloads(
+            expanduser_cli_paths(paths),
+            include_extension_carriers=include_extension_carriers,
+        )
     except QrScanError as exc:
         raise ValueError(f"scan failed: {exc}") from exc
     if not payloads:
@@ -411,10 +414,15 @@ def _frames_from_scan(paths: list[str]) -> list[Frame]:
     return frames
 
 
-def _recovery_frames_from_scan(paths: list[str], *, quiet: bool = False) -> list[Frame]:
+def _recovery_frames_from_scan(
+    paths: list[str],
+    *,
+    quiet: bool = False,
+    include_extension_carriers: bool = True,
+) -> list[Frame]:
     """Scan recovery input and keep only MAIN/AUTH frames."""
 
-    frames = _frames_from_scan(paths)
+    frames = _frames_from_scan(paths, include_extension_carriers=include_extension_carriers)
     recovery_frames = [
         frame for frame in frames if frame.frame_type in (FrameType.MAIN_DOCUMENT, FrameType.AUTH)
     ]

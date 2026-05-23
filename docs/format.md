@@ -1239,6 +1239,9 @@ Import rules:
   `extensions/` as layout errors, including stale extension directory names such as `extension-01`
   and extension artifact files placed directly under `extensions/`; clearly unrelated clutter MAY be
   ignored
+- when a caller explicitly selects the root backup head, recursive backup-export scans MUST NOT
+  require canonical published extension carrier files to be readable; implementations MAY ignore
+  published extension carrier contents after enforcing the `extensions/` top-level layout rules
 - MAIN frames MUST be grouped by frame `doc_id`; each group MUST independently reassemble to one
   ciphertext
 - the authoritative `doc_id` and `doc_hash` MUST be derived from recovered ciphertext
@@ -1260,6 +1263,14 @@ Recovery MAY succeed from any complete, authenticated machine-readable MAIN carr
 Multiple carrier copies are redundancy, not identity. Implementations MAY provide separate audit
 tooling for checking whether an exported digital folder contains all expected redundant artifacts,
 but such audit rules are outside the recovery format.
+
+Recovery-valid and append-valid are distinct states. A recovery implementation MAY restore content
+from a complete authenticated machine-readable carrier set even when a published export tree is
+missing redundant human-readable artifacts. An implementation that appends a new published
+extension, however, MUST require the existing published chain head to satisfy the canonical export
+layout before publishing the next extension. For this release profile, a published extension
+directory is append-valid only when the required `qr_document-*` and `recovery_document-*` MAIN
+artifacts are present and pass publish/discovery validation.
 
 For this release profile, extension `qr_document-*` artifacts are the only machine-readable
 payload-bearing MAIN carriers. Extension `recovery_document-*` artifacts are human-readable fallback

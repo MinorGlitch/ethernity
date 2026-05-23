@@ -169,6 +169,32 @@ class TestPromptRecoveryInput(unittest.TestCase):
         self.assertEqual((label, detail), ("Backup PDF or images", "a.png, b.png"))
         recovery_frames_from_scan.assert_called_once_with(["a.png", "b.png"], quiet=False)
 
+    @mock.patch("ethernity.cli.features.recover.wizard._recovery_frames_from_scan")
+    @mock.patch(
+        "ethernity.cli.features.recover.wizard.status", return_value=contextlib.nullcontext(None)
+    )
+    def test_root_only_scan_path_excludes_extension_carriers(
+        self,
+        _status: mock.MagicMock,
+        recovery_frames_from_scan: mock.MagicMock,
+    ) -> None:
+        main = _frame(FrameType.MAIN_DOCUMENT)
+        recovery_frames_from_scan.return_value = [main]
+
+        frames, label, detail = wizard._prompt_recovery_input(
+            RecoverArgs(scan=["backup-root"], extension_index=0),
+            allow_unsigned=False,
+            quiet=True,
+        )
+
+        self.assertEqual(frames, [main])
+        self.assertEqual((label, detail), ("Backup PDF or images", "backup-root"))
+        recovery_frames_from_scan.assert_called_once_with(
+            ["backup-root"],
+            quiet=True,
+            include_extension_carriers=False,
+        )
+
     @mock.patch("ethernity.cli.features.recover.wizard.prompt_recovery_input_interactive")
     def test_interactive_prompt_fallback_when_no_input_flags(
         self,
