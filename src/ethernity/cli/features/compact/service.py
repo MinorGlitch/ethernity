@@ -28,7 +28,7 @@ from ethernity.cli.features.backup.service import apply_qr_chunk_size_override
 from ethernity.cli.features.recover.chain import recover_chain_entries
 from ethernity.cli.features.recover.key_recovery import (
     InsufficientShardError,
-    _validated_shard_payloads_from_frames,
+    validated_shard_payloads_from_frames,
 )
 from ethernity.cli.features.recover.planning import plan_from_args as plan_recover_from_args
 from ethernity.cli.shared import api_codes
@@ -441,7 +441,7 @@ def _infer_passphrase_shard_policy_from_frames(
         )
 
     try:
-        shares = _validated_shard_payloads_from_frames(
+        shares = validated_shard_payloads_from_frames(
             passphrase_frames,
             expected_doc_id=None,
             expected_doc_hash=None,

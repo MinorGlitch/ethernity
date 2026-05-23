@@ -41,21 +41,21 @@ from ethernity.cli.features.recover.chain import (
     resolve_root_manifest_authority,
     scan_extension_carriers,
 )
-from ethernity.cli.features.recover.key_recovery import _resolve_auth_payload
+from ethernity.cli.features.recover.key_recovery import resolve_auth_payload
 from ethernity.cli.features.recover.planning import (
     RecoveryInspection,
     inspect_recovery_inputs,
     select_root_import_document_from_passphrase_shards,
 )
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
+from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.io.fallback_parser import format_fallback_error
 from ethernity.cli.shared.io.frames import (
     _frame_from_fallback,
     _frames_from_payloads,
-    _recovery_frames_from_scan,
-    _shard_frames_from_scan,
     format_shard_input_error,
+    recovery_frames_from_scan,
+    shard_frames_from_scan,
 )
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.paths import expanduser_cli_paths
@@ -490,7 +490,7 @@ def _inspect_root_recovery(
             message="root backup documents not found in the writable backup directory",
             details={"root_dir": str(root_dir)},
         )
-    frames = _recovery_frames_from_scan(scan_paths, quiet=args.quiet)
+    frames = recovery_frames_from_scan(scan_paths, quiet=args.quiet)
     shard_frames, shard_fallback_files, shard_payloads_file, shard_scan = (
         _shard_frames_from_extend_args(args, quiet=args.quiet)
     )
@@ -668,7 +668,7 @@ def _shard_frames_from_extend_args(
             raise ValueError(format_shard_input_error(exc)) from exc
     if shard_scan:
         try:
-            shard_frames.extend(_shard_frames_from_scan(shard_scan, quiet=quiet))
+            shard_frames.extend(shard_frames_from_scan(shard_scan, quiet=quiet))
         except ValueError as exc:
             raise ValueError(format_shard_input_error(exc)) from exc
     if (
@@ -741,7 +741,7 @@ def _inspect_published_extension_inventory(
                 item,
                 quiet=quiet,
             )
-            doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+            doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
             if doc_id.hex() != item.doc_id_hex:
                 raise ValueError(
                     f"extension {item.dir_name} MAIN carriers do not match the filename doc_id"
@@ -798,9 +798,7 @@ def _scan_published_extension_payload_carriers(
             candidate_auth_frames,
             candidate_auth_sign_pub,
         ) = _scan_published_extension_payload_carrier(item, carrier, quiet=quiet)
-        candidate_doc_id, candidate_doc_hash = _doc_id_and_hash_from_ciphertext(
-            candidate_ciphertext
-        )
+        candidate_doc_id, candidate_doc_hash = doc_id_and_hash_from_ciphertext(candidate_ciphertext)
         if candidate_doc_id.hex() != item.doc_id_hex:
             raise ValueError(
                 f"extension {item.dir_name} {carrier.doc_type} carrier does not match "
@@ -837,8 +835,8 @@ def _scan_published_extension_payload_carrier(
         if carrier.doc_type != "qr_document":
             raise ValueError(f"{carrier.doc_type} is not a machine-readable extension carrier")
         ciphertext, auth_frames = scan_extension_carriers([str(carrier.path)], quiet=quiet)
-        doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
-        auth_payload, _auth_status = _resolve_auth_payload(
+        doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
+        auth_payload, _auth_status = resolve_auth_payload(
             list(auth_frames),
             doc_id=doc_id,
             doc_hash=doc_hash,

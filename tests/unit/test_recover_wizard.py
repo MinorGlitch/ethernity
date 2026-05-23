@@ -147,7 +147,7 @@ class TestPromptRecoveryInput(unittest.TestCase):
         self.assertEqual((label, detail), ("Backup text lines", "payloads.txt"))
         frames_from_payloads.assert_called_once_with("payloads.txt", label="frame")
 
-    @mock.patch("ethernity.cli.features.recover.wizard._recovery_frames_from_scan")
+    @mock.patch("ethernity.cli.features.recover.wizard.recovery_frames_from_scan")
     @mock.patch(
         "ethernity.cli.features.recover.wizard.status", return_value=contextlib.nullcontext(None)
     )
@@ -169,7 +169,7 @@ class TestPromptRecoveryInput(unittest.TestCase):
         self.assertEqual((label, detail), ("Backup PDF or images", "a.png, b.png"))
         recovery_frames_from_scan.assert_called_once_with(["a.png", "b.png"], quiet=False)
 
-    @mock.patch("ethernity.cli.features.recover.wizard._recovery_frames_from_scan")
+    @mock.patch("ethernity.cli.features.recover.wizard.recovery_frames_from_scan")
     @mock.patch(
         "ethernity.cli.features.recover.wizard.status", return_value=contextlib.nullcontext(None)
     )

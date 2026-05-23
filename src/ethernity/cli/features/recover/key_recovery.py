@@ -33,6 +33,14 @@ from ethernity.crypto.sharding import (
 from ethernity.crypto.signing import decode_auth_payload, verify_auth, verify_shard
 from ethernity.encoding.framing import Frame, FrameType
 
+__all__ = [
+    "InsufficientShardError",
+    "passphrase_from_shard_frames",
+    "resolve_auth_payload",
+    "signing_seed_from_shard_frames",
+    "validated_shard_payloads_from_frames",
+]
+
 
 class InsufficientShardError(ValueError):
     """Raised when a shard set is well-formed but under quorum."""
@@ -60,7 +68,7 @@ def _resolve_recovery_keys(args: RecoverArgs) -> str:
     raise ValueError("passphrase is required for recovery")
 
 
-def _resolve_auth_payload(
+def resolve_auth_payload(
     auth_frames: list[Frame],
     *,
     doc_id: bytes,
@@ -128,7 +136,7 @@ def _resolve_auth_payload(
     return payload, "verified"
 
 
-def _passphrase_from_shard_frames(
+def passphrase_from_shard_frames(
     frames: list[Frame],
     *,
     expected_doc_id: bytes | None,
@@ -136,7 +144,7 @@ def _passphrase_from_shard_frames(
     expected_sign_pub: bytes | None,
     allow_unsigned: bool,
 ) -> str:
-    share_list = _validated_shard_payloads_from_frames(
+    share_list = validated_shard_payloads_from_frames(
         frames,
         expected_doc_id=expected_doc_id,
         expected_doc_hash=expected_doc_hash,
@@ -148,7 +156,7 @@ def _passphrase_from_shard_frames(
     return recover_passphrase(share_list, verify_signatures=False)
 
 
-def _signing_seed_from_shard_frames(
+def signing_seed_from_shard_frames(
     frames: list[Frame],
     *,
     expected_doc_id: bytes | None,
@@ -156,7 +164,7 @@ def _signing_seed_from_shard_frames(
     expected_sign_pub: bytes | None,
     allow_unsigned: bool,
 ) -> bytes:
-    share_list = _validated_shard_payloads_from_frames(
+    share_list = validated_shard_payloads_from_frames(
         frames,
         expected_doc_id=expected_doc_id,
         expected_doc_hash=expected_doc_hash,
@@ -168,7 +176,7 @@ def _signing_seed_from_shard_frames(
     return recover_signing_seed(share_list, verify_signatures=False)
 
 
-def _validated_shard_payloads_from_frames(
+def validated_shard_payloads_from_frames(
     frames: list[Frame],
     *,
     expected_doc_id: bytes | None,

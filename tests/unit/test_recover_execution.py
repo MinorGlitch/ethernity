@@ -17,7 +17,7 @@ import unittest
 
 from ethernity.cli.features.recover.execution import decrypt_manifest_and_extract
 from ethernity.cli.features.recover.planning import RecoveryPlan
-from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
+from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.crypto.signing import AuthPayload, derive_public_key
 from ethernity.formats.envelope_codec import build_manifest_and_payload, encode_envelope
@@ -38,7 +38,7 @@ class TestRecoverExecution(unittest.TestCase):
             plaintext,
             passphrase="secret",
         )
-        doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+        doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
         plan = RecoveryPlan(
             ciphertext=ciphertext,
             doc_id=doc_id,

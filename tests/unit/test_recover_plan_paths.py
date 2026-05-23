@@ -68,7 +68,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
             with mock.patch.dict("os.environ", _home_env(home), clear=False):
                 with mock.patch.object(
                     recover_plan,
-                    "_recovery_frames_from_scan",
+                    "recovery_frames_from_scan",
                     return_value=["main", "auth"],
                 ) as scan_mock:
                     frames, label, detail, root_dir = recover_plan._frames_from_args(
@@ -90,7 +90,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
             with mock.patch.dict("os.environ", _home_env(home), clear=False):
                 with mock.patch.object(
                     recover_plan,
-                    "_recovery_frames_from_scan",
+                    "recovery_frames_from_scan",
                     return_value=["root-main", "root-auth"],
                 ) as scan_mock:
                     frames, label, detail, root_dir = recover_plan._frames_from_args(
@@ -122,7 +122,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
                 ) as fallback_mock:
                     with mock.patch.object(
                         recover_plan,
-                        "_recovery_frames_from_scan",
+                        "recovery_frames_from_scan",
                         return_value=["root-main", "root-auth"],
                     ) as scan_mock:
                         frames, label, detail, root_dir = recover_plan._frames_from_args(
@@ -177,7 +177,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
                     ) as shard_payload_mock:
                         with mock.patch.object(
                             recover_plan,
-                            "_shard_frames_from_scan",
+                            "shard_frames_from_scan",
                             return_value=["scan-shard"],
                         ) as shard_scan_mock:
                             shard_frames, shard_fallback, shard_payloads, shard_scan = (

@@ -25,13 +25,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ethernity.cli.features.recover.key_recovery import _resolve_auth_payload
+from ethernity.cli.features.recover.key_recovery import resolve_auth_payload
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
+from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.io.frames import (
     _dedupe_frames,
-    _recovery_frames_from_scan,
     _split_main_and_auth_frames,
+    recovery_frames_from_scan,
 )
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.crypto import decrypt_bytes
@@ -196,7 +196,7 @@ def imported_documents_from_recovery_frames(
             main_by_doc_id[doc_id],
             expected_frame_type=FrameType.MAIN_DOCUMENT,
         )
-        derived_doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+        derived_doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
         if derived_doc_id != doc_id:
             raise ValueError("MAIN frame doc_id does not match recovered ciphertext")
         documents.append(
@@ -647,7 +647,7 @@ def _authenticate_imported_extension_candidates(
     for candidate in candidates:
         document = candidate.document
         try:
-            auth_payload, auth_status = _resolve_auth_payload(
+            auth_payload, auth_status = resolve_auth_payload(
                 list(document.auth_frames),
                 doc_id=document.doc_id,
                 doc_hash=document.doc_hash,
@@ -715,7 +715,7 @@ def _raise_if_document_signed_by_root_authority(
     message: str,
 ) -> None:
     try:
-        auth_payload, _auth_status = _resolve_auth_payload(
+        auth_payload, _auth_status = resolve_auth_payload(
             list(document.auth_frames),
             doc_id=document.doc_id,
             doc_hash=document.doc_hash,
@@ -749,7 +749,7 @@ def decode_imported_extension_link(
     if version != 2 or not isinstance(decoded, ExtensionEnvelope):
         raise ValueError("imported document did not decode as an extension envelope")
 
-    auth_payload, auth_status = _resolve_auth_payload(
+    auth_payload, auth_status = resolve_auth_payload(
         list(document.auth_frames),
         doc_id=document.doc_id,
         doc_hash=document.doc_hash,
@@ -890,7 +890,7 @@ def scan_extension_carriers(paths: list[str], *, quiet: bool) -> tuple[bytes, li
 
     if not paths:
         raise ValueError("no extension MAIN carriers were provided")
-    frames = _recovery_frames_from_scan(paths, quiet=quiet)
+    frames = recovery_frames_from_scan(paths, quiet=quiet)
     documents = imported_documents_from_recovery_frames(frames, source_label="extension carrier")
     if len(documents) != 1:
         raise ValueError("extension carrier input must contain exactly one MAIN document")

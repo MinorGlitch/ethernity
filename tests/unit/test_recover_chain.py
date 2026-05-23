@@ -25,7 +25,7 @@ from ethernity.cli.features.recover.chain import (
 )
 from ethernity.cli.features.recover.planning import RecoveryPlan
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
+from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import InputFile
 from ethernity.crypto.signing import AuthPayload, derive_public_key, encode_auth_payload, sign_auth
@@ -50,7 +50,7 @@ def _root_ciphertext(data: bytes = b"root") -> tuple[bytes, bytes, bytes]:
         input_roots=(),
     )
     envelope = encode_envelope(payload, manifest)
-    doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(envelope)
+    doc_id, doc_hash = doc_id_and_hash_from_ciphertext(envelope)
     return envelope, doc_id, doc_hash
 
 
@@ -117,7 +117,7 @@ def _imported_document(
     auth_frames: tuple[Frame, ...] = (),
     source_label: str = "scan",
 ) -> ImportedRecoveryDocument:
-    doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+    doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
     return ImportedRecoveryDocument(
         doc_id=doc_id,
         doc_hash=doc_hash,
@@ -168,9 +168,7 @@ class TestRecoverChain(unittest.TestCase):
     def test_recover_chain_entries_replays_content_import_without_directory_layout(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
         extension_ciphertext = _extension_ciphertext(root_doc_hash)
-        extension_doc_id, extension_doc_hash = _doc_id_and_hash_from_ciphertext(
-            extension_ciphertext
-        )
+        extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
             import_documents=(
@@ -201,7 +199,7 @@ class TestRecoverChain(unittest.TestCase):
     def test_recover_chain_entries_rejects_imported_doc_id_collision(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
         extension_ciphertext = _extension_ciphertext(root_doc_hash)
-        _extension_doc_id, extension_doc_hash = _doc_id_and_hash_from_ciphertext(
+        _extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(
             extension_ciphertext
         )
         plan = dataclasses.replace(
@@ -261,9 +259,9 @@ class TestRecoverChain(unittest.TestCase):
     def test_recover_chain_entries_rejects_duplicate_authenticated_extension_index(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
         first_ciphertext = _extension_ciphertext(root_doc_hash, index=1, data=b"one")
-        first_doc_id, first_doc_hash = _doc_id_and_hash_from_ciphertext(first_ciphertext)
+        first_doc_id, first_doc_hash = doc_id_and_hash_from_ciphertext(first_ciphertext)
         second_ciphertext = _extension_ciphertext(root_doc_hash, index=1, data=b"two")
-        second_doc_id, second_doc_hash = _doc_id_and_hash_from_ciphertext(second_ciphertext)
+        second_doc_id, second_doc_hash = doc_id_and_hash_from_ciphertext(second_ciphertext)
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
             import_documents=(
@@ -298,9 +296,7 @@ class TestRecoverChain(unittest.TestCase):
     def test_recover_chain_entries_wraps_replay_topology_failure_as_untrusted_head(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
         extension_ciphertext = _extension_ciphertext(root_doc_hash)
-        extension_doc_id, extension_doc_hash = _doc_id_and_hash_from_ciphertext(
-            extension_ciphertext
-        )
+        extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
             import_documents=(
@@ -348,21 +344,21 @@ class TestRecoverChain(unittest.TestCase):
     def test_recover_chain_entries_reports_first_replay_failure_not_latest_head(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
         first_ciphertext = _extension_ciphertext(root_doc_hash, index=1, data=b"one")
-        first_doc_id, first_doc_hash = _doc_id_and_hash_from_ciphertext(first_ciphertext)
+        first_doc_id, first_doc_hash = doc_id_and_hash_from_ciphertext(first_ciphertext)
         second_ciphertext = _extension_ciphertext(
             root_doc_hash,
             index=2,
             parent_doc_hash=b"\x88" * 32,
             data=b"two",
         )
-        second_doc_id, second_doc_hash = _doc_id_and_hash_from_ciphertext(second_ciphertext)
+        second_doc_id, second_doc_hash = doc_id_and_hash_from_ciphertext(second_ciphertext)
         third_ciphertext = _extension_ciphertext(
             root_doc_hash,
             index=3,
             parent_doc_hash=second_doc_hash,
             data=b"three",
         )
-        third_doc_id, third_doc_hash = _doc_id_and_hash_from_ciphertext(third_ciphertext)
+        third_doc_id, third_doc_hash = doc_id_and_hash_from_ciphertext(third_ciphertext)
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
             import_documents=(
@@ -411,9 +407,7 @@ class TestRecoverChain(unittest.TestCase):
     def test_recover_chain_entries_selects_root_only_despite_broken_later_extension(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
         extension_ciphertext = _extension_ciphertext(root_doc_hash)
-        extension_doc_id, extension_doc_hash = _doc_id_and_hash_from_ciphertext(
-            extension_ciphertext
-        )
+        extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash, extension_index=0),
             import_documents=(
@@ -449,9 +443,7 @@ class TestRecoverChain(unittest.TestCase):
     def test_recover_chain_entries_allows_internal_unsigned_root_only_selection(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
         extension_ciphertext = _extension_ciphertext(root_doc_hash)
-        extension_doc_id, extension_doc_hash = _doc_id_and_hash_from_ciphertext(
-            extension_ciphertext
-        )
+        extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash, extension_index=0),
             allow_unsigned=True,
@@ -485,9 +477,7 @@ class TestRecoverChain(unittest.TestCase):
     def test_recover_chain_entries_rejects_internal_unsigned_extension_replay(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
         extension_ciphertext = _extension_ciphertext(root_doc_hash)
-        extension_doc_id, extension_doc_hash = _doc_id_and_hash_from_ciphertext(
-            extension_ciphertext
-        )
+        extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
             allow_unsigned=True,
@@ -519,9 +509,7 @@ class TestRecoverChain(unittest.TestCase):
     def test_recover_chain_entries_requires_verified_root_auth_for_extension_replay(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
         extension_ciphertext = _extension_ciphertext(root_doc_hash)
-        extension_doc_id, extension_doc_hash = _doc_id_and_hash_from_ciphertext(
-            extension_ciphertext
-        )
+        extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
         base_plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
             import_documents=(
@@ -558,14 +546,14 @@ class TestRecoverChain(unittest.TestCase):
     ) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
         first_ciphertext = _extension_ciphertext(root_doc_hash, index=1, data=b"root!")
-        first_doc_id, first_doc_hash = _doc_id_and_hash_from_ciphertext(first_ciphertext)
+        first_doc_id, first_doc_hash = doc_id_and_hash_from_ciphertext(first_ciphertext)
         second_ciphertext = _extension_ciphertext(
             root_doc_hash,
             index=2,
             parent_doc_hash=first_doc_hash,
             data=b"root!!",
         )
-        second_doc_id, second_doc_hash = _doc_id_and_hash_from_ciphertext(second_ciphertext)
+        second_doc_id, second_doc_hash = doc_id_and_hash_from_ciphertext(second_ciphertext)
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash, extension_index=1),
             import_documents=(
@@ -603,9 +591,7 @@ class TestRecoverChain(unittest.TestCase):
     def test_recover_chain_entries_rejects_missing_selected_extension_index(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
         extension_ciphertext = _extension_ciphertext(root_doc_hash, index=1)
-        extension_doc_id, extension_doc_hash = _doc_id_and_hash_from_ciphertext(
-            extension_ciphertext
-        )
+        extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash, extension_index=2),
             import_documents=(
@@ -649,9 +635,7 @@ class TestRecoverChain(unittest.TestCase):
     ) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
         extension_ciphertext = _extension_ciphertext(root_doc_hash)
-        extension_doc_id, extension_doc_hash = _doc_id_and_hash_from_ciphertext(
-            extension_ciphertext
-        )
+        extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
         plan = dataclasses.replace(
             _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
             import_documents=(

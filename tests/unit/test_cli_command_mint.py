@@ -209,7 +209,7 @@ class TestMintFlow(unittest.TestCase):
         mint_flow._validate_mint_args(args)
 
     @mock.patch(
-        "ethernity.cli.features.mint.workflow._validated_shard_payloads_from_frames",
+        "ethernity.cli.features.mint.workflow.validated_shard_payloads_from_frames",
         side_effect=mint_flow.InsufficientShardError(
             threshold=2,
             provided_count=1,
@@ -219,7 +219,7 @@ class TestMintFlow(unittest.TestCase):
     )
     def test_replacement_payload_resolution_preserves_legacy_version_under_quorum(
         self,
-        _validated_shard_payloads_from_frames: mock.MagicMock,
+        validated_shard_payloads_from_frames: mock.MagicMock,
     ) -> None:
         resolution = mint_flow._replacement_payloads_from_frames(
             [mock.Mock()],
@@ -585,7 +585,7 @@ class TestMintFlow(unittest.TestCase):
         print_completion_panel.assert_not_called()
 
     @mock.patch(
-        "ethernity.cli.features.mint.workflow._signing_seed_from_shard_frames",
+        "ethernity.cli.features.mint.workflow.signing_seed_from_shard_frames",
         return_value=b"s" * 32,
     )
     def test_resolve_signing_authority_uses_signing_key_shards_when_sealed(

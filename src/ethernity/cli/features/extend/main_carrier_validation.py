@@ -22,12 +22,12 @@ from pathlib import Path
 
 from pypdf import PdfReader
 
-from ethernity.cli.features.recover.key_recovery import _resolve_auth_payload
-from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
+from ethernity.cli.features.recover.key_recovery import resolve_auth_payload
+from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.io.frames import (
     _dedupe_frames,
-    _recovery_frames_from_scan,
     _split_main_and_auth_frames,
+    recovery_frames_from_scan,
 )
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.crypto.signing import derive_public_key
@@ -84,7 +84,7 @@ def validate_single_main_carrier(
     quiet: bool,
 ) -> None:
     try:
-        frames = _recovery_frames_from_scan([str(path)], quiet=quiet)
+        frames = recovery_frames_from_scan([str(path)], quiet=quiet)
         _validate_main_carrier_frames(
             path=path,
             frames=frames,
@@ -199,7 +199,7 @@ def _validate_main_carrier_frames(
         main_frames,
         expected_frame_type=FrameType.MAIN_DOCUMENT,
     )
-    doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+    doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
     if doc_id != expected_doc_id or doc_hash != expected_doc_hash:
         raise ApiCommandError(
             code=EXTENSION_MAIN_CARRIER_INVALID,
@@ -207,7 +207,7 @@ def _validate_main_carrier_frames(
                 f"rendered MAIN carrier {path.name} does not match the planned extension ciphertext"
             ),
         )
-    auth_payload, _auth_status = _resolve_auth_payload(
+    auth_payload, _auth_status = resolve_auth_payload(
         auth_frames,
         doc_id=expected_doc_id,
         doc_hash=expected_doc_hash,

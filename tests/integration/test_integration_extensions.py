@@ -31,7 +31,7 @@ from ethernity.cli.shared.io.fallback_parser import (
     detect_fallback_section,
     filter_fallback_lines,
 )
-from ethernity.cli.shared.io.frames import _frames_from_fallback_lines, _recovery_frames_from_scan
+from ethernity.cli.shared.io.frames import _frames_from_fallback_lines, recovery_frames_from_scan
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import BackupArgs, CompactArgs, ExtendArgs, MintArgs, RecoverArgs
 from ethernity.config.paths import DEFAULT_CONFIG_PATH, SUPPORTED_TEMPLATE_DESIGNS
@@ -1084,7 +1084,7 @@ class TestIntegrationExtensions(unittest.TestCase):
     ) -> None:
         frames: list[Frame] = []
         for path in qr_documents:
-            frames.extend(_recovery_frames_from_scan([str(path)], quiet=True))
+            frames.extend(recovery_frames_from_scan([str(path)], quiet=True))
         main_lines = [
             self._payload_line(frame)
             for frame in frames
@@ -1100,7 +1100,7 @@ class TestIntegrationExtensions(unittest.TestCase):
         auth_payloads.write_text("\n".join(auth_lines), encoding="utf-8")
 
     def _write_extension_fallback_file(self, qr_document: Path, fallback_path: Path) -> None:
-        frames = _recovery_frames_from_scan([str(qr_document)], quiet=True)
+        frames = recovery_frames_from_scan([str(qr_document)], quiet=True)
         main_frames = [frame for frame in frames if frame.frame_type == FrameType.MAIN_DOCUMENT]
         auth_frames = [frame for frame in frames if frame.frame_type == FrameType.AUTH]
         self.assertTrue(main_frames)

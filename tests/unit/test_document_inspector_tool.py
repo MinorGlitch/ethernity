@@ -7,7 +7,7 @@ from pathlib import Path
 
 import tooling.document_inspector as inspector
 
-from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
+from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.types import InputFile
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.crypto.signing import derive_public_key, encode_auth_payload, sign_auth
@@ -51,7 +51,7 @@ def _payload_text_from_frames(frames: list[Frame]) -> str:
 
 def _encrypted_main_frames(plaintext: bytes, *, passphrase: str) -> tuple[list[Frame], bytes]:
     ciphertext, _ = encrypt_bytes_with_passphrase(plaintext, passphrase=passphrase)
-    doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+    doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
     frames = chunk_payload(
         ciphertext,
         doc_id=doc_id,
@@ -696,7 +696,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
             b"not-an-extension-envelope",
             passphrase=_EXTENSION_TEST_PASSPHRASE,
         )
-        bad_extension_doc_id, bad_extension_doc_hash = _doc_id_and_hash_from_ciphertext(
+        bad_extension_doc_id, bad_extension_doc_hash = doc_id_and_hash_from_ciphertext(
             bad_extension_ciphertext
         )
         bad_extension_frames = list(

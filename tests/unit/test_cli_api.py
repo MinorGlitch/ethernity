@@ -74,7 +74,7 @@ from ethernity.cli.features.recover.service import (
     execute_recover_plan,
 )
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
+from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.ndjson import ApiCommandError, ndjson_session
 from ethernity.cli.shared.types import (
     BackupArgs,
@@ -175,7 +175,7 @@ def _expected_host_path(path: str) -> str:
 
 
 def _main_frame(ciphertext: bytes) -> Frame:
-    doc_id, _doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+    doc_id, _doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
     return Frame(
         version=1,
         frame_type=FrameType.MAIN_DOCUMENT,
@@ -187,7 +187,7 @@ def _main_frame(ciphertext: bytes) -> Frame:
 
 
 def _auth_frame(ciphertext: bytes, *, signing_seed: bytes = TEST_SIGNING_SEED) -> Frame:
-    doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+    doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
     sign_pub = derive_public_key(signing_seed)
     return Frame(
         version=1,
@@ -1953,7 +1953,7 @@ class TestCliApi(unittest.TestCase):
 
     def test_api_inspect_recover_mixed_import_without_passphrase_returns_readiness(self) -> None:
         root_ciphertext = _root_envelope()
-        _root_doc_id, root_doc_hash = _doc_id_and_hash_from_ciphertext(root_ciphertext)
+        _root_doc_id, root_doc_hash = doc_id_and_hash_from_ciphertext(root_ciphertext)
         extension_ciphertext = _extension_envelope(root_doc_hash)
         frames = [_main_frame(root_ciphertext), _main_frame(extension_ciphertext)]
         auth_frames = [_auth_frame(root_ciphertext), _auth_frame(extension_ciphertext)]
@@ -2001,7 +2001,7 @@ class TestCliApi(unittest.TestCase):
 
     def test_api_inspect_recover_mixed_import_bad_passphrase_returns_readiness(self) -> None:
         root_ciphertext = _root_envelope()
-        _root_doc_id, root_doc_hash = _doc_id_and_hash_from_ciphertext(root_ciphertext)
+        _root_doc_id, root_doc_hash = doc_id_and_hash_from_ciphertext(root_ciphertext)
         extension_ciphertext = _extension_envelope(root_doc_hash)
         frames = [_main_frame(root_ciphertext), _main_frame(extension_ciphertext)]
         args = RecoverArgs(

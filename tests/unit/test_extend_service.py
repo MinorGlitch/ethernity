@@ -66,7 +66,7 @@ from ethernity.cli.features.extend.shard_validation import (
 )
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL
-from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
+from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.ndjson import ApiCommandError, ndjson_session
 from ethernity.cli.shared.types import ExtendArgs, InputFile
 from ethernity.config import BackupDefaults
@@ -855,7 +855,7 @@ class TestExtendService(unittest.TestCase):
                     prepared,
                     chunker=lambda data, _profile: (data,),
                 )
-        expected_doc_id, expected_doc_hash = _doc_id_and_hash_from_ciphertext(encrypted.ciphertext)
+        expected_doc_id, expected_doc_hash = doc_id_and_hash_from_ciphertext(encrypted.ciphertext)
         self.assertEqual(encrypted.ciphertext[:4], b"enc:")
         self.assertEqual(encrypted.doc_id, expected_doc_id)
         self.assertEqual(encrypted.doc_hash, expected_doc_hash)
@@ -1513,7 +1513,7 @@ class TestExtendService(unittest.TestCase):
                     side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.shard_validation._shard_frames_from_scan",
+                    "ethernity.cli.features.extend.shard_validation.shard_frames_from_scan",
                     side_effect=lambda paths, **_kwargs: shard_frames_by_path[str(paths[0])],
                 ),
                 mock.patch(
@@ -1521,7 +1521,7 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
+                    "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",
                     side_effect=_scan_main_carrier,
                 ),
                 mock.patch(
@@ -1631,7 +1631,7 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
+                    "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",
                     side_effect=lambda *_args, **_kwargs: [
                         Frame(
                             version=VERSION,
@@ -1738,7 +1738,7 @@ class TestExtendService(unittest.TestCase):
 
             with (
                 mock.patch(
-                    "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
+                    "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",
                     return_value=qr_frames,
                 ),
                 mock.patch(
@@ -1751,7 +1751,7 @@ class TestExtendService(unittest.TestCase):
                     return_value=None,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.main_carrier_validation._resolve_auth_payload",
+                    "ethernity.cli.features.extend.main_carrier_validation.resolve_auth_payload",
                     return_value=(
                         AuthPayload(
                             version=1,
@@ -1831,7 +1831,7 @@ class TestExtendService(unittest.TestCase):
                     side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.shard_validation._shard_frames_from_scan",
+                    "ethernity.cli.features.extend.shard_validation.shard_frames_from_scan",
                     return_value=[invalid_frame],
                 ),
                 mock.patch(
@@ -1839,7 +1839,7 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
+                    "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",
                     side_effect=lambda *_args, **_kwargs: list(captured["frames"]),
                 ),
                 mock.patch(
@@ -1853,7 +1853,7 @@ class TestExtendService(unittest.TestCase):
                     return_value=None,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.main_carrier_validation._resolve_auth_payload",
+                    "ethernity.cli.features.extend.main_carrier_validation.resolve_auth_payload",
                     return_value=(
                         AuthPayload(
                             version=1,
@@ -1903,7 +1903,7 @@ class TestExtendService(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.extend.shard_validation._shard_frames_from_scan",
+                "ethernity.cli.features.extend.shard_validation.shard_frames_from_scan",
                 return_value=[frame],
             ),
             mock.patch(
@@ -1974,7 +1974,7 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
+                    "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",
                     side_effect=lambda *_args, **_kwargs: list(captured["frames"]),
                 ),
                 mock.patch(
@@ -1988,7 +1988,7 @@ class TestExtendService(unittest.TestCase):
                     return_value=None,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.main_carrier_validation._resolve_auth_payload",
+                    "ethernity.cli.features.extend.main_carrier_validation.resolve_auth_payload",
                     return_value=(
                         AuthPayload(
                             version=1,
@@ -2411,7 +2411,7 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
+                    "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",
                     side_effect=lambda *_args, **_kwargs: list(captured["frames"]),
                 ),
             ):
@@ -2432,7 +2432,7 @@ class TestExtendService(unittest.TestCase):
         self,
     ) -> None:
         ciphertext = b"enc:extension"
-        doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+        doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
         main_frame = Frame(
             version=VERSION,
             frame_type=FrameType.MAIN_DOCUMENT,
@@ -2443,7 +2443,7 @@ class TestExtendService(unittest.TestCase):
         )
 
         with mock.patch(
-            "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
+            "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",
             return_value=[main_frame],
         ):
             with self.assertRaises(ApiCommandError) as ctx:
@@ -2461,7 +2461,7 @@ class TestExtendService(unittest.TestCase):
 
     def test_validate_single_recovery_document_carrier_uses_render_contract_frames(self) -> None:
         ciphertext = b"enc:extension"
-        doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+        doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
         auth_frame = Frame(
             version=VERSION,
             frame_type=FrameType.AUTH,
@@ -2491,7 +2491,7 @@ class TestExtendService(unittest.TestCase):
                 return_value=None,
             ),
             mock.patch(
-                "ethernity.cli.features.extend.main_carrier_validation._resolve_auth_payload",
+                "ethernity.cli.features.extend.main_carrier_validation.resolve_auth_payload",
                 return_value=(
                     AuthPayload(
                         version=1,
@@ -2537,7 +2537,7 @@ class TestExtendService(unittest.TestCase):
             pages = [_Page()]
 
         ciphertext = b"enc:extension"
-        doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+        doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
         auth_frame = Frame(
             version=VERSION,
             frame_type=FrameType.AUTH,
@@ -2562,7 +2562,7 @@ class TestExtendService(unittest.TestCase):
                 return_value=_Reader(),
             ),
             mock.patch(
-                "ethernity.cli.features.extend.main_carrier_validation._resolve_auth_payload",
+                "ethernity.cli.features.extend.main_carrier_validation.resolve_auth_payload",
                 return_value=(
                     AuthPayload(
                         version=1,
@@ -2603,7 +2603,7 @@ class TestExtendService(unittest.TestCase):
 
     def test_validate_single_recovery_document_carrier_requires_render_proof(self) -> None:
         ciphertext = b"enc:extension"
-        doc_id, _doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+        doc_id, _doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
         main_frame = Frame(
             version=VERSION,
             frame_type=FrameType.MAIN_DOCUMENT,
@@ -2636,7 +2636,7 @@ class TestExtendService(unittest.TestCase):
         self,
     ) -> None:
         ciphertext = b"enc:extension"
-        doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+        doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
         main_frame = Frame(
             version=VERSION,
             frame_type=FrameType.MAIN_DOCUMENT,
@@ -2656,11 +2656,11 @@ class TestExtendService(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
+                "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",
                 return_value=[main_frame, auth_frame],
             ),
             mock.patch(
-                "ethernity.cli.features.extend.main_carrier_validation._resolve_auth_payload",
+                "ethernity.cli.features.extend.main_carrier_validation.resolve_auth_payload",
                 return_value=(
                     AuthPayload(
                         version=1,
@@ -2689,10 +2689,10 @@ class TestExtendService(unittest.TestCase):
         self,
     ) -> None:
         ciphertext = b"enc:extension"
-        doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+        doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
 
         with mock.patch(
-            "ethernity.cli.features.extend.main_carrier_validation._recovery_frames_from_scan",
+            "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",
             side_effect=ValueError("scan failed: no QR codes found in scan inputs"),
         ):
             with self.assertRaises(ApiCommandError) as ctx:

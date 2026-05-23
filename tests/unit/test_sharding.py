@@ -19,7 +19,7 @@ import unittest
 
 import cbor2
 
-from ethernity.cli.features.recover.key_recovery import _passphrase_from_shard_frames
+from ethernity.cli.features.recover.key_recovery import passphrase_from_shard_frames
 from ethernity.crypto.sharding import (
     KEY_TYPE_PASSPHRASE,
     KEY_TYPE_SIGNING_SEED,
@@ -159,7 +159,7 @@ class TestSharding(unittest.TestCase):
             sign_priv=sign_priv,
             sign_pub=sign_pub,
         )
-        recovered = _passphrase_from_shard_frames(
+        recovered = passphrase_from_shard_frames(
             [
                 Frame(
                     version=VERSION,
@@ -215,7 +215,7 @@ class TestSharding(unittest.TestCase):
                 data=encode_shard_payload(shares[1]),
             ),
         ]
-        recovered = _passphrase_from_shard_frames(
+        recovered = passphrase_from_shard_frames(
             frames,
             expected_doc_id=b"\x12" * DOC_ID_LEN,
             expected_doc_hash=doc_hash,
@@ -1113,7 +1113,7 @@ class TestSharding(unittest.TestCase):
             data=encode_shard_payload(shares[0]),
         )
         with self.assertRaises(ValueError):
-            _passphrase_from_shard_frames(
+            passphrase_from_shard_frames(
                 [frame],
                 expected_doc_id=b"\x22" * DOC_ID_LEN,
                 expected_doc_hash=doc_hash,
@@ -1142,7 +1142,7 @@ class TestSharding(unittest.TestCase):
             data=encode_shard_payload(shares[0]),
         )
         with self.assertRaises(ValueError):
-            _passphrase_from_shard_frames(
+            passphrase_from_shard_frames(
                 [frame],
                 expected_doc_id=b"\x44" * DOC_ID_LEN,
                 expected_doc_hash=doc_hash,

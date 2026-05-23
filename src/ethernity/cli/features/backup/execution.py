@@ -26,7 +26,7 @@ from rich.progress import Progress
 from ethernity import render as render_module
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
-from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
+from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.events import active_event_sink, emit_phase, emit_progress
 from ethernity.cli.shared.io.outputs import (
     _commit_prepared_output_dir,
@@ -771,7 +771,7 @@ def run_backup(
     )
 
     # Create document identifiers and auth frame
-    doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+    doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
     auth_frame = _create_auth_frame(doc_id, doc_hash, sign_priv, sign_pub)
 
     # Create shard payloads if sharding is enabled

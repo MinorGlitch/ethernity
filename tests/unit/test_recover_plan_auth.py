@@ -30,7 +30,7 @@ from ethernity.cli.features.recover.planning import (
     inspect_recovery_inputs,
     plan_from_args,
 )
-from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
+from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.types import InputFile, MintArgs, RecoverArgs
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
 from ethernity.crypto.signing import derive_public_key, encode_auth_payload, sign_auth
@@ -54,7 +54,7 @@ TEST_SIGNING_SEED = b"\x33" * 32
 
 
 def _main_frame(ciphertext: bytes) -> Frame:
-    doc_id, _doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+    doc_id, _doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
     return Frame(
         version=1,
         frame_type=FrameType.MAIN_DOCUMENT,
@@ -66,7 +66,7 @@ def _main_frame(ciphertext: bytes) -> Frame:
 
 
 def _auth_frame(ciphertext: bytes, *, signing_seed: bytes = TEST_SIGNING_SEED) -> Frame:
-    doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+    doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
     sign_pub = derive_public_key(signing_seed)
     return Frame(
         version=1,
@@ -223,7 +223,7 @@ class TestInspectAuthPayload(unittest.TestCase):
 
     def test_inspect_filters_separate_auth_to_selected_root_document(self) -> None:
         root_ciphertext = _root_envelope()
-        _root_doc_id, root_doc_hash = _doc_id_and_hash_from_ciphertext(root_ciphertext)
+        _root_doc_id, root_doc_hash = doc_id_and_hash_from_ciphertext(root_ciphertext)
         extension_ciphertext = _extension_envelope(root_doc_hash)
         frames = [_main_frame(root_ciphertext), _main_frame(extension_ciphertext)]
         extra_auth_frames = [_auth_frame(root_ciphertext), _auth_frame(extension_ciphertext)]
@@ -259,11 +259,9 @@ class TestInspectAuthPayload(unittest.TestCase):
 
     def test_extension_local_shards_select_root_and_replay_imported_chain(self) -> None:
         root_ciphertext = _root_envelope()
-        root_doc_id, root_doc_hash = _doc_id_and_hash_from_ciphertext(root_ciphertext)
+        root_doc_id, root_doc_hash = doc_id_and_hash_from_ciphertext(root_ciphertext)
         extension_ciphertext = _extension_envelope(root_doc_hash)
-        extension_doc_id, extension_doc_hash = _doc_id_and_hash_from_ciphertext(
-            extension_ciphertext
-        )
+        extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
         frames = [
             _main_frame(root_ciphertext),
             _auth_frame(root_ciphertext),
@@ -313,11 +311,9 @@ class TestInspectAuthPayload(unittest.TestCase):
 
     def test_inspect_reports_extension_local_shards_as_root_unlock(self) -> None:
         root_ciphertext = _root_envelope()
-        root_doc_id, root_doc_hash = _doc_id_and_hash_from_ciphertext(root_ciphertext)
+        root_doc_id, root_doc_hash = doc_id_and_hash_from_ciphertext(root_ciphertext)
         extension_ciphertext = _extension_envelope(root_doc_hash)
-        extension_doc_id, extension_doc_hash = _doc_id_and_hash_from_ciphertext(
-            extension_ciphertext
-        )
+        extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
         frames = [
             _main_frame(root_ciphertext),
             _auth_frame(root_ciphertext),
@@ -384,7 +380,7 @@ class TestInspectAuthPayload(unittest.TestCase):
                 )
 
     def test_build_recovery_plan_requires_auth_even_with_shards_in_strict_mode(self) -> None:
-        doc_id, _doc_hash = _doc_id_and_hash_from_ciphertext(b"ciphertext")
+        doc_id, _doc_hash = doc_id_and_hash_from_ciphertext(b"ciphertext")
         main_frame = Frame(
             version=1,
             frame_type=FrameType.MAIN_DOCUMENT,
@@ -403,7 +399,7 @@ class TestInspectAuthPayload(unittest.TestCase):
         )
 
         with mock.patch(
-            "ethernity.cli.features.recover.planning._resolve_auth_payload",
+            "ethernity.cli.features.recover.planning.resolve_auth_payload",
             return_value=(None, "missing"),
         ) as resolve_auth_mock:
             with mock.patch(

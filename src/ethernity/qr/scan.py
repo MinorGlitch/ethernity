@@ -61,6 +61,15 @@ class QrDecoder:
     decode_image_bytes: Callable[[bytes], list[bytes]]
 
 
+__all__ = [
+    "QrDecoder",
+    "QrScanError",
+    "looks_like_image",
+    "looks_like_pdf",
+    "scan_qr_payloads",
+]
+
+
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff", ".webp"}
 _PDF_MAGIC = b"%PDF-"
 _IMAGE_MAGICS = (
@@ -127,9 +136,9 @@ def scan_qr_payloads(
 
 
 def _scan_one_path(path: Path, decoder: QrDecoder) -> list[bytes]:
-    if _looks_like_pdf(path):
+    if looks_like_pdf(path):
         return _scan_pdf(path, decoder)
-    if _looks_like_image(path):
+    if looks_like_image(path):
         return _scan_image(path, decoder)
     suffix = path.suffix.lower()
     if suffix == ".pdf":
@@ -301,7 +310,7 @@ def _is_under_unpublished_extension_workspace(path: Path) -> bool:
 
 
 def _looks_like_scan_file(path: Path) -> bool:
-    return _looks_like_pdf(path) or _looks_like_image(path)
+    return looks_like_pdf(path) or looks_like_image(path)
 
 
 def _read_file_prefix(path: Path, size: int = 16) -> bytes:
@@ -312,11 +321,11 @@ def _read_file_prefix(path: Path, size: int = 16) -> bytes:
         return b""
 
 
-def _looks_like_pdf(path: Path) -> bool:
+def looks_like_pdf(path: Path) -> bool:
     return _read_file_prefix(path).startswith(_PDF_MAGIC)
 
 
-def _looks_like_image(path: Path) -> bool:
+def looks_like_image(path: Path) -> bool:
     prefix = _read_file_prefix(path)
     if any(prefix.startswith(magic) for magic in _IMAGE_MAGICS):
         if prefix.startswith(b"RIFF") and prefix[8:12] != b"WEBP":

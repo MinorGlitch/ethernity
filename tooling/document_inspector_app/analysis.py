@@ -8,11 +8,11 @@ from typing import cast
 
 from ethernity.cli.features.recover.key_recovery import (
     InsufficientShardError,
-    _resolve_auth_payload,
-    _validated_shard_payloads_from_frames,
+    resolve_auth_payload,
+    validated_shard_payloads_from_frames,
 )
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
+from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.io.frames import (
     _detect_recovery_input_mode,
     _frames_from_fallback_lines,
@@ -1112,13 +1112,13 @@ def _reassemble_main_documents(
                 expected_doc_id=doc_id,
                 expected_frame_type=FrameType.MAIN_DOCUMENT,
             )
-            resolved_doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+            resolved_doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
             if resolved_doc_id != doc_id:
                 raise ValueError("reassembled doc_id does not match MAIN frame doc_id")
             auth_payload: AuthPayload | None = None
             auth_status: str | None = None
             try:
-                auth_payload, auth_status = _resolve_auth_payload(
+                auth_payload, auth_status = resolve_auth_payload(
                     auth_by_doc_id.get(doc_id, []),
                     doc_id=doc_id,
                     doc_hash=doc_hash,
@@ -1169,7 +1169,7 @@ def _recover_secret_records(
     for (key_type, doc_hash, _sign_pub), frames in sorted(grouped.items()):
         secret_label = "passphrase" if key_type == KEY_TYPE_PASSPHRASE else "signing key"
         try:
-            payloads = _validated_shard_payloads_from_frames(
+            payloads = validated_shard_payloads_from_frames(
                 list(frames),
                 expected_doc_id=expected_doc_id,
                 expected_doc_hash=expected_doc_hash,

@@ -115,7 +115,7 @@ class TestCliFlowPrompts(unittest.TestCase):
         frame_one = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
         frame_two = _build_shard_frame(share_index=2, share=b"\xbb" * 16)
         with (
-            mock.patch.object(prompts, "_frames_from_scan", return_value=[frame_one]),
+            mock.patch.object(prompts, "frames_from_scan", return_value=[frame_one]),
             mock.patch.object(prompts, "_read_text_lines", return_value=["line"]),
             mock.patch.object(
                 prompts, "_frames_from_shard_text_or_payload_lines", return_value=[frame_two]
@@ -125,7 +125,7 @@ class TestCliFlowPrompts(unittest.TestCase):
         self.assertEqual(frames, [frame_one, frame_two])
 
         with (
-            mock.patch.object(prompts, "_frames_from_scan", return_value=[]),
+            mock.patch.object(prompts, "frames_from_scan", return_value=[]),
             mock.patch.object(prompts, "_read_text_lines", return_value=["line"]),
             mock.patch.object(prompts, "_frames_from_shard_text_or_payload_lines", return_value=[]),
         ):

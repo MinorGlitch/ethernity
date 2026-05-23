@@ -23,12 +23,12 @@ from typing import Sequence
 
 from ethernity.cli.features.recover.key_recovery import (
     InsufficientShardError,
-    _validated_shard_payloads_from_frames,
+    validated_shard_payloads_from_frames,
 )
-from ethernity.cli.shared.io.frames import _frames_from_scan
+from ethernity.cli.shared.io.frames import frames_from_scan
 from ethernity.crypto import sharding as sharding_module
 from ethernity.encoding.framing import Frame, FrameType
-from ethernity.qr.scan import _looks_like_image, _looks_like_pdf
+from ethernity.qr.scan import looks_like_image, looks_like_pdf
 
 _SCAN_FILE_SUFFIXES = {
     ".pdf",
@@ -51,7 +51,7 @@ def root_level_key_frames_from_scan(root_dir: Path, *, quiet: bool) -> tuple[Fra
     if not candidates:
         return ()
     try:
-        frames = _frames_from_scan([str(path) for path in candidates])
+        frames = frames_from_scan([str(path) for path in candidates])
     except ValueError as exc:
         raise ValueError(f"root shard policy scan failed: {exc}") from exc
     return tuple(frame for frame in frames if frame.frame_type == FrameType.KEY_DOCUMENT)
@@ -80,7 +80,7 @@ def root_shard_quorum_from_frames(
     if not selected:
         return None, 0
     try:
-        shares = _validated_shard_payloads_from_frames(
+        shares = validated_shard_payloads_from_frames(
             selected,
             expected_doc_id=expected_doc_id,
             expected_doc_hash=expected_doc_hash,
@@ -131,7 +131,7 @@ def _root_level_scan_candidates(root_dir: Path) -> tuple[Path, ...]:
         if not path.is_file():
             continue
         suffix = path.suffix.lower()
-        if suffix in _SCAN_FILE_SUFFIXES or _looks_like_pdf(path) or _looks_like_image(path):
+        if suffix in _SCAN_FILE_SUFFIXES or looks_like_pdf(path) or looks_like_image(path):
             candidates.append(path)
     return tuple(candidates)
 

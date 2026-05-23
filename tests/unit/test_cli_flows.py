@@ -193,7 +193,7 @@ class TestRecoverFlow(unittest.TestCase):
         """Test decrypt_and_extract with real encryption using full RecoveryPlan."""
         from ethernity.cli.features.recover.execution import decrypt_and_extract
         from ethernity.cli.features.recover.planning import RecoveryPlan
-        from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
+        from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
         from ethernity.crypto import encrypt_bytes_with_passphrase
         from ethernity.formats.envelope_codec import (
             build_manifest_and_payload,
@@ -216,7 +216,7 @@ class TestRecoverFlow(unittest.TestCase):
         ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
 
         # Get doc_id and doc_hash from ciphertext
-        doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+        doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
 
         # Create recovery plan with all required fields
         plan = RecoveryPlan(

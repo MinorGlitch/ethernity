@@ -467,11 +467,11 @@ class TestExtendInspection(unittest.TestCase):
                     side_effect=_scan,
                 ) as scan_mock,
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._resolve_auth_payload",
+                    "ethernity.cli.features.extend.planning.resolve_auth_payload",
                     return_value=(SimpleNamespace(sign_pub=b"\x44" * 32), "verified"),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning._doc_id_and_hash_from_ciphertext",
+                    "ethernity.cli.features.extend.planning.doc_id_and_hash_from_ciphertext",
                     return_value=(b"\x11" * 8, b"\x22" * 32),
                 ),
             ):
@@ -856,7 +856,7 @@ class TestExtendInspection(unittest.TestCase):
                 return_value=[Path("/tmp/root/recovery.pdf")],
             ),
             mock.patch(
-                "ethernity.cli.features.extend.planning._recovery_frames_from_scan",
+                "ethernity.cli.features.extend.planning.recovery_frames_from_scan",
                 return_value=[Frame(1, FrameType.MAIN_DOCUMENT, b"\x11" * 8, 0, 1, b"root")],
             ),
             mock.patch(
@@ -924,7 +924,7 @@ class TestExtendInspection(unittest.TestCase):
                 return_value=[Path("/tmp/root/recovery.pdf")],
             ),
             mock.patch(
-                "ethernity.cli.features.extend.planning._recovery_frames_from_scan",
+                "ethernity.cli.features.extend.planning.recovery_frames_from_scan",
                 return_value=[Frame(1, FrameType.MAIN_DOCUMENT, b"\x11" * 8, 0, 1, b"root")],
             ),
             mock.patch(

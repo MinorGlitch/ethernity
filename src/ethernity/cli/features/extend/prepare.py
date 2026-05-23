@@ -29,7 +29,7 @@ from ethernity.cli.features.extend.models import (
 )
 from ethernity.cli.features.extend.planning import ResolvedExtendState, resolve_extend_state
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
+from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.crypto import encrypt_bytes_with_passphrase
@@ -228,7 +228,7 @@ def encrypt_prepared_extension_document(
         plaintext,
         passphrase=prepared.encryption_passphrase,
     )
-    doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+    doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
     return EncryptedPreparedExtension(
         built=built,
         plaintext=plaintext,

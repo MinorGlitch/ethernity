@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ethernity.cli.shared.io.frames import _shard_frames_from_scan
+from ethernity.cli.shared.io.frames import shard_frames_from_scan
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.crypto import sharding as sharding_module
 from ethernity.crypto.signing import verify_shard
@@ -69,7 +69,7 @@ def validate_rendered_shard_carrier(
     quiet: bool,
     secret_label: str,
 ) -> None:
-    frames = _shard_frames_from_scan([str(path)], quiet=quiet)
+    frames = shard_frames_from_scan([str(path)], quiet=quiet)
     if len(frames) != 1:
         raise ApiCommandError(
             code=EXTENSION_SHARD_CARRIER_INVALID,

@@ -26,8 +26,8 @@ from ethernity.cli.shared.io.frames import (
     _frame_from_fallback_lines,
     _frame_from_payload_text,
     _frames_from_payload_lines,
-    _frames_from_scan,
     _read_text_lines,
+    frames_from_scan,
 )
 from ethernity.cli.shared.text import format_qr_input_error
 from ethernity.cli.shared.ui_api import (
@@ -801,7 +801,7 @@ def _frames_from_shard_text_or_payload_files(paths: list[str]) -> list[Frame]:
         else:
             text_paths.append(path)
     if scan_paths:
-        frames.extend(_frames_from_scan(scan_paths))
+        frames.extend(frames_from_scan(scan_paths))
     for path in text_paths:
         lines = _read_text_lines(path)
         frames.extend(_frames_from_shard_text_or_payload_lines(lines, source=path))

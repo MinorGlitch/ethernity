@@ -32,8 +32,8 @@ from ethernity.cli.features.recover.input_collection import (
 )
 from ethernity.cli.shared.io.frames import (
     _frame_from_payload_text,
-    _frames_from_scan,
     _read_text_lines,
+    frames_from_scan,
 )
 from ethernity.core.bounds import MAX_QR_PAYLOAD_CHARS
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
@@ -263,7 +263,7 @@ class TestRecoverInput(unittest.TestCase):
             return_value=[oversized_payload],
         ):
             with self.assertRaisesRegex(ValueError, "MAX_QR_PAYLOAD_CHARS"):
-                _frames_from_scan(["scan.png"])
+                frames_from_scan(["scan.png"])
 
     def test_read_text_lines_rejects_recovery_text_file_size_overflow(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -744,7 +744,7 @@ class TestRecoverInput(unittest.TestCase):
                 return_value="scan.png",
             ):
                 with mock.patch(
-                    "ethernity.cli.features.recover.input_collection._recovery_frames_from_scan",
+                    "ethernity.cli.features.recover.input_collection.recovery_frames_from_scan",
                     return_value=[frame],
                 ) as recovery_scan:
                     with mock.patch(
@@ -778,7 +778,7 @@ class TestRecoverInput(unittest.TestCase):
                 return_value="backup-dir",
             ):
                 with mock.patch(
-                    "ethernity.cli.features.recover.input_collection._recovery_frames_from_scan",
+                    "ethernity.cli.features.recover.input_collection.recovery_frames_from_scan",
                     return_value=[main],
                 ) as recovery_scan:
                     with mock.patch(
@@ -816,7 +816,7 @@ class TestRecoverInput(unittest.TestCase):
                     side_effect=[ValueError("bad"), ["line"]],
                 ):
                     with mock.patch(
-                        "ethernity.cli.features.recover.input_collection._recovery_frames_from_scan",
+                        "ethernity.cli.features.recover.input_collection.recovery_frames_from_scan",
                         return_value=[frame],
                     ):
                         with mock.patch(

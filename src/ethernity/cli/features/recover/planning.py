@@ -35,13 +35,13 @@ from ethernity.cli.features.recover.input_collection import (
 )
 from ethernity.cli.features.recover.key_recovery import (
     InsufficientShardError,
-    _passphrase_from_shard_frames,
-    _resolve_auth_payload,
     _resolve_recovery_keys,
-    _validated_shard_payloads_from_frames,
+    passphrase_from_shard_frames,
+    resolve_auth_payload,
+    validated_shard_payloads_from_frames,
 )
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import _doc_id_and_hash_from_ciphertext
+from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.io.fallback_parser import format_fallback_error
 from ethernity.cli.shared.io.frames import (
     _auth_frames_from_fallback,
@@ -51,11 +51,11 @@ from ethernity.cli.shared.io.frames import (
     _frame_from_fallback,
     _frames_from_fallback,
     _frames_from_payloads,
-    _recovery_frames_from_scan,
-    _shard_frames_from_scan,
     _split_main_and_auth_frames,
     format_recovery_input_error,
     format_shard_input_error,
+    recovery_frames_from_scan,
+    shard_frames_from_scan,
 )
 from ethernity.cli.shared.log import _warn
 from ethernity.cli.shared.paths import expanduser_cli_path, expanduser_cli_paths
@@ -404,7 +404,7 @@ def inspect_recovery_inputs(
         auth_frames = _dedupe_auth_frames([*auth_frames, *extra_auth_frames])
 
     ciphertext = reassemble_payload(main_frames, expected_frame_type=FrameType.MAIN_DOCUMENT)
-    doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+    doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
     auth_payload, auth_status, auth_blocking_issues = _inspect_auth_payload(
         auth_frames,
         doc_id=doc_id,
@@ -540,9 +540,9 @@ def build_recovery_plan(
         auth_frames = _dedupe_auth_frames([*auth_frames, *extra_auth_frames])
 
     ciphertext = reassemble_payload(main_frames, expected_frame_type=FrameType.MAIN_DOCUMENT)
-    doc_id, doc_hash = _doc_id_and_hash_from_ciphertext(ciphertext)
+    doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
 
-    auth_payload, auth_status = _resolve_auth_payload(
+    auth_payload, auth_status = resolve_auth_payload(
         auth_frames,
         doc_id=doc_id,
         doc_hash=doc_hash,
@@ -598,7 +598,7 @@ def select_root_import_document_from_passphrase_shards(
     )
     last_unlock_failure: str | None = None
     for target_document, target_shard_frames in candidates:
-        target_auth_payload, _target_auth_status = _resolve_auth_payload(
+        target_auth_payload, _target_auth_status = resolve_auth_payload(
             list(target_document.auth_frames),
             doc_id=target_document.doc_id,
             doc_hash=target_document.doc_hash,
@@ -622,7 +622,7 @@ def select_root_import_document_from_passphrase_shards(
             passphrase=unlock.resolved_passphrase,
             debug=False,
         )
-        root_auth_payload, _root_auth_status = _resolve_auth_payload(
+        root_auth_payload, _root_auth_status = resolve_auth_payload(
             list(root_document.auth_frames),
             doc_id=root_document.doc_id,
             doc_hash=root_document.doc_hash,
@@ -1030,7 +1030,7 @@ def _inspect_unlock_status(
         raise ValueError("use either shard inputs or passphrase, not both")
     if shard_frames:
         try:
-            shard_payloads = _validated_shard_payloads_from_frames(
+            shard_payloads = validated_shard_payloads_from_frames(
                 shard_frames,
                 expected_doc_id=doc_id,
                 expected_doc_hash=doc_hash,
@@ -1072,7 +1072,7 @@ def _inspect_unlock_status(
                     ),
                 ),
             )
-        recovered = _passphrase_from_shard_frames(
+        recovered = passphrase_from_shard_frames(
             shard_frames,
             expected_doc_id=doc_id,
             expected_doc_hash=doc_hash,
@@ -1162,7 +1162,7 @@ def _resolve_passphrase(
     if shard_frames and passphrase:
         raise ValueError("use either shard inputs or passphrase, not both")
     if shard_frames:
-        recovered = _passphrase_from_shard_frames(
+        recovered = passphrase_from_shard_frames(
             shard_frames,
             expected_doc_id=doc_id,
             expected_doc_hash=doc_hash,
@@ -1233,13 +1233,13 @@ def _frames_from_args(
         scan_detail = ", ".join(scan)
         try:
             if args.extension_index == 0:
-                scan_frames = _recovery_frames_from_scan(
+                scan_frames = recovery_frames_from_scan(
                     scan,
                     quiet=quiet,
                     include_extension_carriers=False,
                 )
             else:
-                scan_frames = _recovery_frames_from_scan(scan, quiet=quiet)
+                scan_frames = recovery_frames_from_scan(scan, quiet=quiet)
             sources.append(
                 (
                     RECOVERY_SCAN_LABEL,
@@ -1312,7 +1312,7 @@ def _shard_frames_from_args(
             raise ValueError(format_shard_input_error(exc)) from exc
     if shard_scan:
         try:
-            shard_frames.extend(_shard_frames_from_scan(shard_scan, quiet=quiet))
+            shard_frames.extend(shard_frames_from_scan(shard_scan, quiet=quiet))
         except ValueError as exc:
             raise ValueError(format_shard_input_error(exc)) from exc
     if (

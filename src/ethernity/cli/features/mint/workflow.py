@@ -41,9 +41,9 @@ from ethernity.cli.features.recover.input_collection import (
 )
 from ethernity.cli.features.recover.key_recovery import (
     InsufficientShardError,
-    _resolve_auth_payload,
-    _signing_seed_from_shard_frames,
-    _validated_shard_payloads_from_frames,
+    resolve_auth_payload,
+    signing_seed_from_shard_frames,
+    validated_shard_payloads_from_frames,
 )
 from ethernity.cli.features.recover.planning import (
     RecoveryInspection,
@@ -1220,7 +1220,7 @@ def _inspect_mint_signing_key_state(
             ],
         )
     try:
-        payloads = _validated_shard_payloads_from_frames(
+        payloads = validated_shard_payloads_from_frames(
             signing_key_frames,
             expected_doc_id=recovery.doc_id,
             expected_doc_hash=recovery.doc_hash,
@@ -1474,7 +1474,7 @@ def _mint_document_signed_by_authority(
     quiet: bool,
 ) -> bool:
     try:
-        auth_payload, _auth_status = _resolve_auth_payload(
+        auth_payload, _auth_status = resolve_auth_payload(
             list(document.auth_frames),
             doc_id=document.doc_id,
             doc_hash=document.doc_hash,
@@ -1991,7 +1991,7 @@ def _resolve_signing_authority(
         raise ValueError(
             "backup is sealed; provide signing-key shard inputs to mint new shard documents"
         )
-    signing_seed = _signing_seed_from_shard_frames(
+    signing_seed = signing_seed_from_shard_frames(
         signing_key_frames,
         expected_doc_id=doc_id,
         expected_doc_hash=doc_hash,
@@ -2013,7 +2013,7 @@ def _replacement_payloads_from_frames(
     if not frames:
         return _ReplacementShardResolution()
     try:
-        payloads = _validated_shard_payloads_from_frames(
+        payloads = validated_shard_payloads_from_frames(
             frames,
             expected_doc_id=doc_id,
             expected_doc_hash=doc_hash,

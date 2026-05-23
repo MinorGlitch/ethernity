@@ -46,9 +46,9 @@ from ethernity.cli.shared.io.frames import (
     _frame_from_fallback,
     _frames_from_fallback,
     _frames_from_payloads,
-    _recovery_frames_from_scan,
-    _shard_frames_from_scan,
     format_shard_input_error,
+    recovery_frames_from_scan,
+    shard_frames_from_scan,
 )
 from ethernity.cli.shared.io.outputs import _single_entry_uses_directory_output
 from ethernity.cli.shared.log import _warn
@@ -124,13 +124,13 @@ def _prompt_recovery_input(
         input_detail = ", ".join(args.scan)
         with status("Scanning QR images...", quiet=quiet):
             if args.extension_index == 0:
-                frames = _recovery_frames_from_scan(
+                frames = recovery_frames_from_scan(
                     args.scan,
                     quiet=quiet,
                     include_extension_carriers=False,
                 )
             else:
-                frames = _recovery_frames_from_scan(args.scan, quiet=quiet)
+                frames = recovery_frames_from_scan(args.scan, quiet=quiet)
     else:
         frames, input_label, input_detail = prompt_recovery_input_interactive(
             allow_unsigned=allow_unsigned,
@@ -482,7 +482,7 @@ def _load_shard_frames(
                     raise ValueError(format_shard_input_error(exc)) from exc
             if shard_scan:
                 try:
-                    shard_frames.extend(_shard_frames_from_scan(shard_scan, quiet=quiet))
+                    shard_frames.extend(shard_frames_from_scan(shard_scan, quiet=quiet))
                 except ValueError as exc:
                     raise ValueError(format_shard_input_error(exc)) from exc
     if not shard_frames:

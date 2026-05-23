@@ -37,6 +37,14 @@ from ethernity.encoding.framing import Frame, FrameType, decode_frame
 from ethernity.encoding.qr_payloads import decode_qr_payload
 from ethernity.qr.scan import QrScanError, scan_qr_payloads
 
+__all__ = [
+    "format_recovery_input_error",
+    "format_shard_input_error",
+    "frames_from_scan",
+    "recovery_frames_from_scan",
+    "shard_frames_from_scan",
+]
+
 
 def format_recovery_input_error(exc: Exception) -> str:
     """Format recovery input errors with actionable user hints."""
@@ -386,7 +394,7 @@ def _frames_from_shard_inputs(
     return frames
 
 
-def _frames_from_scan(paths: list[str], *, include_extension_carriers: bool = True) -> list[Frame]:
+def frames_from_scan(paths: list[str], *, include_extension_carriers: bool = True) -> list[Frame]:
     """Scan PDFs/images for QR payloads and decode valid frames."""
 
     try:
@@ -414,7 +422,7 @@ def _frames_from_scan(paths: list[str], *, include_extension_carriers: bool = Tr
     return frames
 
 
-def _recovery_frames_from_scan(
+def recovery_frames_from_scan(
     paths: list[str],
     *,
     quiet: bool = False,
@@ -422,7 +430,7 @@ def _recovery_frames_from_scan(
 ) -> list[Frame]:
     """Scan recovery input and keep only MAIN/AUTH frames."""
 
-    frames = _frames_from_scan(paths, include_extension_carriers=include_extension_carriers)
+    frames = frames_from_scan(paths, include_extension_carriers=include_extension_carriers)
     recovery_frames = [
         frame for frame in frames if frame.frame_type in (FrameType.MAIN_DOCUMENT, FrameType.AUTH)
     ]
@@ -443,10 +451,10 @@ def _recovery_frames_from_scan(
     return recovery_frames
 
 
-def _shard_frames_from_scan(paths: list[str], *, quiet: bool = False) -> list[Frame]:
+def shard_frames_from_scan(paths: list[str], *, quiet: bool = False) -> list[Frame]:
     """Scan shard input and keep only KEY_DOCUMENT frames."""
 
-    frames = _frames_from_scan(paths)
+    frames = frames_from_scan(paths)
     shard_frames = [frame for frame in frames if frame.frame_type == FrameType.KEY_DOCUMENT]
     ignored_non_shards = len(frames) - len(shard_frames)
     if not shard_frames:

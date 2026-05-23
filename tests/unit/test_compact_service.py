@@ -204,7 +204,7 @@ class TestCompactService(unittest.TestCase):
             renamed = root_dir / "renamed-root-policy.pdf"
             renamed.write_bytes(b"not really a pdf; scanner is mocked")
             with mock.patch(
-                "ethernity.cli.shared.root_shard_policy._frames_from_scan",
+                "ethernity.cli.shared.root_shard_policy.frames_from_scan",
                 return_value=list(shard_frames),
             ) as frames_from_scan:
                 policy = _infer_root_publish_policy(
@@ -237,7 +237,7 @@ class TestCompactService(unittest.TestCase):
             renamed = root_dir / "not-a-signing-key-name.pdf"
             renamed.write_bytes(b"scanner is mocked")
             with mock.patch(
-                "ethernity.cli.shared.root_shard_policy._frames_from_scan",
+                "ethernity.cli.shared.root_shard_policy.frames_from_scan",
                 return_value=list(shard_frames),
             ):
                 policy = _infer_root_publish_policy(
@@ -263,7 +263,7 @@ class TestCompactService(unittest.TestCase):
             extension_dir.mkdir(parents=True)
             (extension_dir / "renamed-extension-shard.pdf").write_bytes(b"scanner must not run")
             with mock.patch(
-                "ethernity.cli.shared.root_shard_policy._frames_from_scan",
+                "ethernity.cli.shared.root_shard_policy.frames_from_scan",
                 side_effect=AssertionError("extension shards must not be scanned"),
             ):
                 policy = _infer_root_publish_policy(

@@ -36,12 +36,12 @@ from ethernity.cli.shared.io.frames import (
     _frame_from_payload_text,
     _frames_from_fallback_lines,
     _frames_from_payload_lines,
-    _frames_from_scan,
     _frames_from_shard_inputs,
     _parse_fallback_section,
     _read_text_lines,
-    _recovery_frames_from_scan,
     _split_main_and_auth_frames,
+    frames_from_scan,
+    recovery_frames_from_scan,
 )
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import encode_qr_payload
@@ -362,12 +362,12 @@ class TestFramesIo(unittest.TestCase):
             side_effect=QrScanError("boom"),
         ):
             with self.assertRaisesRegex(ValueError, "scan failed"):
-                _frames_from_scan(["scan.png"])
+                frames_from_scan(["scan.png"])
 
     def test_frames_from_scan_reports_no_payloads(self) -> None:
         with mock.patch("ethernity.cli.shared.io.frames.scan_qr_payloads", return_value=[]):
             with self.assertRaisesRegex(ValueError, "no QR payloads found"):
-                _frames_from_scan(["scan.png"])
+                frames_from_scan(["scan.png"])
 
     def test_frames_from_scan_reports_all_invalid_payloads(self) -> None:
         with mock.patch(
@@ -379,7 +379,7 @@ class TestFramesIo(unittest.TestCase):
                 side_effect=[ValueError("bad one"), ValueError("bad two")],
             ):
                 with self.assertRaisesRegex(ValueError, r"invalid QR payloads \(2\)"):
-                    _frames_from_scan(["scan.png"])
+                    frames_from_scan(["scan.png"])
 
     def test_frames_from_scan_accepts_raw_frame_bytes(self) -> None:
         frame = self._frame(frame_type=FrameType.AUTH, doc_id=b"\x31" * DOC_ID_LEN, data=b"auth")
@@ -387,7 +387,7 @@ class TestFramesIo(unittest.TestCase):
             "ethernity.cli.shared.io.frames.scan_qr_payloads",
             return_value=[encode_frame(frame)],
         ):
-            parsed = _frames_from_scan(["scan.png"])
+            parsed = frames_from_scan(["scan.png"])
         self.assertEqual(len(parsed), 1)
         self.assertEqual(parsed[0].frame_type, FrameType.AUTH)
         self.assertEqual(parsed[0].doc_id, frame.doc_id)
@@ -397,20 +397,20 @@ class TestFramesIo(unittest.TestCase):
         auth = self._frame(frame_type=FrameType.AUTH, doc_id=b"\x40" * DOC_ID_LEN, data=b"auth")
         shard = self._frame(frame_type=FrameType.KEY_DOCUMENT, doc_id=b"\x40" * DOC_ID_LEN)
         with mock.patch(
-            "ethernity.cli.shared.io.frames._frames_from_scan", return_value=[main, auth, shard]
+            "ethernity.cli.shared.io.frames.frames_from_scan", return_value=[main, auth, shard]
         ):
             with mock.patch("ethernity.cli.shared.io.frames._warn") as warn_mock:
-                frames = _recovery_frames_from_scan(["backup-dir"], quiet=False)
+                frames = recovery_frames_from_scan(["backup-dir"], quiet=False)
         self.assertEqual(frames, [main, auth])
         warn_mock.assert_called_once()
 
     def test_recovery_frames_from_scan_can_exclude_extension_carriers(self) -> None:
         main = self._frame(frame_type=FrameType.MAIN_DOCUMENT, doc_id=b"\x40" * DOC_ID_LEN)
         with mock.patch(
-            "ethernity.cli.shared.io.frames._frames_from_scan",
+            "ethernity.cli.shared.io.frames.frames_from_scan",
             return_value=[main],
         ) as scan_mock:
-            frames = _recovery_frames_from_scan(
+            frames = recovery_frames_from_scan(
                 ["backup-dir"],
                 quiet=True,
                 include_extension_carriers=False,
@@ -424,9 +424,9 @@ class TestFramesIo(unittest.TestCase):
 
     def test_recovery_frames_from_scan_rejects_shard_only_input(self) -> None:
         shard = self._frame(frame_type=FrameType.KEY_DOCUMENT, doc_id=b"\x41" * DOC_ID_LEN)
-        with mock.patch("ethernity.cli.shared.io.frames._frames_from_scan", return_value=[shard]):
+        with mock.patch("ethernity.cli.shared.io.frames.frames_from_scan", return_value=[shard]):
             with self.assertRaisesRegex(ValueError, "did not contain recovery QR payloads"):
-                _recovery_frames_from_scan(["backup-dir"], quiet=True)
+                recovery_frames_from_scan(["backup-dir"], quiet=True)
 
     def test_dedupe_frames_accepts_identical_duplicates(self) -> None:
         frame = self._frame()

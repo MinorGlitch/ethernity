@@ -28,8 +28,8 @@ from ethernity.cli.shared.io.frames import (
     _frames_from_fallback_lines,
     _frames_from_payload_lines,
     _read_text_lines,
-    _recovery_frames_from_scan,
     format_recovery_input_error,
+    recovery_frames_from_scan,
 )
 from ethernity.cli.shared.ui_api import (
     console,
@@ -111,7 +111,7 @@ def prompt_recovery_input_interactive(
                 input_label = RECOVERY_SCAN_LABEL
                 input_detail = path
                 with status("Scanning QR images...", quiet=quiet):
-                    frames = _recovery_frames_from_scan([path], quiet=quiet)
+                    frames = recovery_frames_from_scan([path], quiet=quiet)
             return frames, input_label, input_detail
         except (OSError, ValueError) as exc:
             console_err.print(f"[error]{format_recovery_input_error(exc)}[/error]")
