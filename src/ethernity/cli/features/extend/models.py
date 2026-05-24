@@ -159,7 +159,7 @@ class SigningKeyNotStored:
 
 @dataclass(frozen=True)
 class ExtensionSigningKeyShards:
-    """Extension-local signing-key shards store signing-key recovery material."""
+    """Extension-local shards store root/chain signing authority recovery material."""
 
     threshold: int
     share_count: int

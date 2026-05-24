@@ -17,6 +17,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from ethernity.extensions import (
     ExtensionPublishPolicy,
@@ -386,6 +387,35 @@ class TestExtensionStaging(unittest.TestCase):
                 self.skipTest(f"symlinks unavailable: {exc}")
 
             with self.assertRaisesRegex(ValueError, "extensions path must not be a symlink"):
+                create_extension_staging_dir(root_dir, index=10, nonce="abc123")
+
+    def test_create_staging_dir_rejects_extensions_root_symlink_swap_after_mkdir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            extensions_dir = root_dir / "extensions"
+            target_dir = Path(tmpdir) / "external-extensions"
+            root_dir.mkdir()
+            original_mkdir = Path.mkdir
+
+            def _mkdir(
+                path: Path,
+                mode: int = 0o777,
+                parents: bool = False,
+                exist_ok: bool = False,
+            ) -> None:
+                original_mkdir(path, mode=mode, parents=parents, exist_ok=exist_ok)
+                if path == extensions_dir:
+                    shutil.rmtree(path)
+                    original_mkdir(target_dir)
+                    try:
+                        path.symlink_to(target_dir, target_is_directory=True)
+                    except OSError as exc:
+                        self.skipTest(f"symlinks unavailable: {exc}")
+
+            with (
+                mock.patch.object(Path, "mkdir", autospec=True, side_effect=_mkdir),
+                self.assertRaisesRegex(ValueError, "extensions path must not be a symlink"),
+            ):
                 create_extension_staging_dir(root_dir, index=10, nonce="abc123")
 
     @staticmethod

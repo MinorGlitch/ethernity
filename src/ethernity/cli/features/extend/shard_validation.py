@@ -56,7 +56,7 @@ def validate_staged_shard_carriers(
             expected_doc_id=plan.encrypted.doc_id,
             expected_doc_hash=plan.encrypted.doc_hash,
             quiet=plan.prepared.args.quiet,
-            secret_label="signing-key shard",
+            secret_label="root/chain signing authority shard",
         )
 
 

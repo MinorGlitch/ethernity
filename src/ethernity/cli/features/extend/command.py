@@ -74,7 +74,7 @@ _EXTEND_HELP = (
     "  reuse-root requires a recoverable root passphrase shard quorum and emits no "
     "extension-local passphrase shards.\n"
     "  pass --shard-count 0 to explicitly choose plaintext passphrase output.\n"
-    "  sharded writes signing-key shard documents.\n"
+    "  sharded writes root/chain signing authority shard documents.\n"
 )
 
 
@@ -131,7 +131,7 @@ def _print_completion_actions(result: PublishedExtensionResult, *, quiet: bool) 
     if result.signing_key_shard_paths:
         actions.append(
             "Store "
-            f"{len(result.signing_key_shard_paths)} extension signing-key shard documents "
+            f"{len(result.signing_key_shard_paths)} root/chain signing authority shard documents "
             "separately."
         )
     actions.append("Verify the extended chain before retiring any older media set.")
@@ -216,7 +216,7 @@ def _print_extend_dry_run_summary(
                     ("New chunks", str(chunk_reuse["new_chunks"])),
                     ("Estimated ciphertext bytes", str(estimated_extension_bytes)),
                     ("Passphrase recovery", _passphrase_policy_label(passphrase_policy)),
-                    ("Signing-key recovery", _signing_key_policy_label(signing_key_policy)),
+                    ("Signing authority recovery", _signing_key_policy_label(signing_key_policy)),
                     ("Recovery kit index", "yes" if recovery_kit_index else "no"),
                     ("QR chunk size", str(qr_chunk_size)),
                 ]
@@ -237,7 +237,7 @@ def _passphrase_policy_label(policy: PassphraseStoragePolicy) -> str:
 
 def _signing_key_policy_label(policy: SigningKeyStoragePolicy) -> str:
     if isinstance(policy, ExtensionSigningKeyShards):
-        return f"extension signing-key shards ({policy.threshold} of {policy.share_count})"
+        return f"root/chain signing authority shards ({policy.threshold} of {policy.share_count})"
     return "not stored in extension artifacts"
 
 
@@ -332,8 +332,8 @@ def extend(
         typer.Option(
             "--signing-key-mode",
             help=(
-                "Signing-key recovery for the extension: not-stored "
-                "(no extension-local private-key recovery) or sharded."
+                "Root/chain signing authority recovery for future extension minting: "
+                "not-stored or sharded."
             ),
             rich_help_panel="Outputs",
         ),
@@ -342,7 +342,7 @@ def extend(
         int | None,
         typer.Option(
             "--signing-key-shard-threshold",
-            help="Signing-key shards needed to recover.",
+            help="Root/chain signing authority shards needed to recover.",
             rich_help_panel="Outputs",
         ),
     ] = None,
@@ -350,7 +350,7 @@ def extend(
         int | None,
         typer.Option(
             "--signing-key-shard-count",
-            help="Signing-key shard documents to create.",
+            help="Root/chain signing authority shard documents to create.",
             rich_help_panel="Outputs",
         ),
     ] = None,

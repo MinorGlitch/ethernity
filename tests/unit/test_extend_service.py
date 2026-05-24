@@ -520,7 +520,7 @@ class TestExtendService(unittest.TestCase):
             )
 
         self.assertEqual(ctx.exception.code, EXTENSION_INVALID_POLICY)
-        self.assertIn("signing-key shard options require", str(ctx.exception))
+        self.assertIn("signing authority shard options require", str(ctx.exception))
 
     def test_resolve_extend_policy_rejects_unknown_signing_key_mode(self) -> None:
         with self.assertRaises(ApiCommandError) as ctx:

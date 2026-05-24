@@ -136,10 +136,10 @@ def resolve_extend_policy(
         if passphrase_shard_count <= 0:
             raise ApiCommandError(
                 code=EXTENSION_INVALID_POLICY,
-                message="signing-key shard PDFs require passphrase shard PDFs",
+                message="root/chain signing authority shard PDFs require passphrase shard PDFs",
             )
         signing_key_shard_threshold, signing_key_shard_count = resolve_quorum_override(
-            label="signing-key shards",
+            label="root/chain signing authority shards",
             requested_threshold=(
                 args.signing_key_shard_threshold
                 if args.signing_key_shard_threshold is not None
@@ -156,7 +156,10 @@ def resolve_extend_policy(
         if signing_key_shard_count <= 0:
             raise ApiCommandError(
                 code=EXTENSION_INVALID_POLICY,
-                message="signing-key-mode=sharded requires at least one signing-key shard PDF",
+                message=(
+                    "signing-key-mode=sharded requires at least one root/chain signing "
+                    "authority shard PDF"
+                ),
             )
         assert signing_key_shard_threshold is not None
         signing_key_policy = ExtensionSigningKeyShards(
@@ -206,8 +209,8 @@ def _resolve_extension_signing_key_mode(args: ExtendArgs, defaults: BackupDefaul
             raise ApiCommandError(
                 code=EXTENSION_INVALID_POLICY,
                 message=(
-                    "signing-key shard options require signing_key_mode='sharded' "
-                    "or no explicit signing_key_mode"
+                    "root/chain signing authority shard options require "
+                    "signing_key_mode='sharded' or no explicit signing_key_mode"
                 ),
             )
         return args.signing_key_mode

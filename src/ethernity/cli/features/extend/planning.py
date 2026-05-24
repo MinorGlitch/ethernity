@@ -822,7 +822,18 @@ def _scan_published_extension_payload_carriers(
             )
     if ciphertext is None or auth_frames is None:
         raise ValueError(f"extension {item.dir_name} MAIN carriers could not be reconstructed")
+    _required_published_extension_main_carrier(item, "recovery_document")
     return ciphertext, auth_frames
+
+
+def _required_published_extension_main_carrier(
+    item: DiscoveredExtensionDirectory,
+    doc_type: str,
+) -> DiscoveredExtensionMainCarrier:
+    for carrier in item.main_carriers:
+        if carrier.doc_type == doc_type:
+            return carrier
+    raise ValueError(f"extension {item.dir_name} is missing required {doc_type} carrier")
 
 
 def _scan_published_extension_payload_carrier(

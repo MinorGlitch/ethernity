@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import os
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -81,20 +82,39 @@ def create_extension_staging_dir(root_dir: str | Path, *, index: int, nonce: str
     """Create and return a non-canonical staging directory under the extensions root."""
 
     root_path = Path(root_dir).expanduser()
-    if root_path.is_symlink():
-        raise ValueError("root backup directory must not be a symlink")
-    if not root_path.exists():
-        raise ValueError(f"root backup directory not found: {root_dir}")
-    if not root_path.is_dir():
-        raise ValueError(f"root backup directory must be a directory: {root_dir}")
+    _require_existing_directory_no_symlink(
+        root_path,
+        label="root backup directory",
+        display_path=root_dir,
+    )
     extensions_dir = root_path / EXTENSIONS_DIR_NAME
     if extensions_dir.is_symlink():
         raise ValueError("extensions path must not be a symlink")
-    extensions_dir.mkdir(parents=True, exist_ok=True)
+    extensions_dir.mkdir(mode=0o700, parents=False, exist_ok=True)
+    _require_existing_directory_no_symlink(extensions_dir, label="extensions path")
     staging_dir = extensions_dir / build_staging_dir_name(index, nonce)
-    staging_dir.mkdir(parents=False, exist_ok=False)
+    staging_dir.mkdir(mode=0o700, parents=False, exist_ok=False)
+    _require_existing_directory_no_symlink(staging_dir, label="staging directory")
     staging_dir.chmod(0o700)
+    _require_existing_directory_no_symlink(staging_dir, label="staging directory")
     return staging_dir
+
+
+def _require_existing_directory_no_symlink(
+    path: Path,
+    *,
+    label: str,
+    display_path: str | Path | None = None,
+) -> None:
+    path_label = path if display_path is None else display_path
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError as exc:
+        raise ValueError(f"{label} not found: {path_label}") from exc
+    if stat.S_ISLNK(metadata.st_mode):
+        raise ValueError(f"{label} must not be a symlink")
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise ValueError(f"{label} must be a directory: {path_label}")
 
 
 def preflight_extension_publish_target(root_dir: str | Path, *, index: int) -> None:

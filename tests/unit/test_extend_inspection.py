@@ -480,6 +480,55 @@ class TestExtendInspection(unittest.TestCase):
         self.assertEqual(scan_mock.call_args_list, [mock.call([str(qr_path)], quiet=False)])
         self.assertEqual(inspection.discovered_extension_dirs, (1,))
 
+    def test_inspect_from_args_does_not_parse_recovery_document_pdf_text(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            mock.patch(
+                "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                return_value=_root_recovery(),
+            ),
+        ):
+            root_dir = Path(tmpdir) / "backup-root"
+            extension_dir = root_dir / "extensions" / "01"
+            qr_path = extension_dir / "qr_document-01-1111111111111111.pdf"
+            recovery_path = extension_dir / "recovery_document-01-1111111111111111.pdf"
+            extension_dir.mkdir(parents=True)
+            qr_path.write_bytes(b"x")
+            recovery_path.write_bytes(b"not a pdf and not fallback text")
+
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.planning.scan_extension_carriers",
+                    return_value=(
+                        b"extension-ciphertext",
+                        [
+                            Frame(
+                                version=1,
+                                frame_type=FrameType.AUTH,
+                                doc_id=b"\x11" * 8,
+                                index=0,
+                                total=1,
+                                data=b"auth",
+                            )
+                        ],
+                    ),
+                ) as scan_mock,
+                mock.patch(
+                    "ethernity.cli.features.extend.planning.resolve_auth_payload",
+                    return_value=(SimpleNamespace(sign_pub=b"\x44" * 32), "verified"),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning.doc_id_and_hash_from_ciphertext",
+                    return_value=(b"\x11" * 8, b"\x22" * 32),
+                ),
+            ):
+                inspection = inspect_from_args(ExtendArgs(root_dir=str(root_dir)))
+
+        self.assertEqual(scan_mock.call_args_list, [mock.call([str(qr_path)], quiet=False)])
+        self.assertEqual(inspection.discovered_extension_dirs, (1,))
+        self.assertEqual(inspection.available_extensions[0]["index"], 1)
+        self.assertFalse(inspection.blocking_issues)
+
     def test_inspect_from_args_rejects_valid_prefix_when_suffix_is_invalid(self) -> None:
         with (
             tempfile.TemporaryDirectory() as tmpdir,
