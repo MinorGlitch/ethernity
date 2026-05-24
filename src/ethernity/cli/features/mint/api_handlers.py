@@ -87,6 +87,9 @@ def _mint_started_args(
     debug: bool,
     operation: str | None = None,
 ) -> dict[str, object]:
+    normalized_extension_doc_hash = (
+        None if args.extension_doc_hash is None else args.extension_doc_hash.strip().lower()
+    )
     payload: dict[str, object] = {
         "config": args.config,
         "paper": args.paper,
@@ -100,6 +103,8 @@ def _mint_started_args(
         "shard_scan": list(args.shard_scan or []),
         "auth_fallback_file": args.auth_fallback_file,
         "auth_payloads_file": args.auth_payloads_file,
+        "extension_index": args.extension_index,
+        "extension_doc_hash": normalized_extension_doc_hash,
         "signing_key_shard_fallback_file": list(args.signing_key_shard_fallback_file or []),
         "signing_key_shard_payloads_file": list(args.signing_key_shard_payloads_file or []),
         "signing_key_shard_scan": list(args.signing_key_shard_scan or []),

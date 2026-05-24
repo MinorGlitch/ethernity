@@ -127,6 +127,12 @@ class _ReplacementShardResolution:
 
 
 @dataclass(frozen=True)
+class _MintExtensionCandidate:
+    document: Any
+    envelope: ExtensionEnvelope
+
+
+@dataclass(frozen=True)
 class _MintInputState:
     config: Any
     recover_args: RecoverArgs
@@ -423,8 +429,8 @@ def _build_recovery_plan_for_mint(
         shard_scan=list(state.shard_scan),
         output_path=None,
         root_dir=None,
-        extension_index=None,
-        extension_doc_hash=None,
+        extension_index=args.extension_index,
+        extension_doc_hash=args.extension_doc_hash,
         args=state.recover_args,
         quiet=args.quiet,
     )
@@ -655,8 +661,8 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                     shard_scan=list(working_args.shard_scan or []),
                     output_path=None,
                     root_dir=None,
-                    extension_index=None,
-                    extension_doc_hash=None,
+                    extension_index=working_args.extension_index,
+                    extension_doc_hash=working_args.extension_doc_hash,
                     args=recover_args,
                     quiet=quiet,
                 )
@@ -688,7 +694,7 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                             ) = _prompt_shard_inputs(
                                 quiet=quiet,
                                 key_type=KEY_TYPE_SIGNING_SEED,
-                                label="Signing-key shard documents",
+                                label="Signing authority shard documents",
                                 stop_at_quorum=False,
                             )
                     stage_index += 1
@@ -700,8 +706,8 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                         and not output_state.signing_key_frames
                     ):
                         raise ValueError(
-                            "signing-key replacement minting requires existing "
-                            "signing-key shard inputs"
+                            "signing authority replacement minting requires existing "
+                            "signing authority shard inputs"
                         )
                     stage_index += 1
                     continue
@@ -753,6 +759,8 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
         config=args.config,
         paper=args.paper,
         design=args.design,
+        extension_index=working_args.extension_index,
+        extension_doc_hash=working_args.extension_doc_hash,
         output_dir=working_args.output_dir,
         output_dir_existing_parent=working_args.output_dir_existing_parent,
         layout_debug_dir=args.layout_debug_dir,
@@ -820,7 +828,7 @@ def _resolve_mint_scope(
     if not _signing_key_output_is_preset(working_args):
         with wizard_substep("Choose outputs"):
             resolved.mint_signing_key_shards = prompt_yes_no(
-                "Create new signing-key shard documents",
+                "Create new signing authority shard documents",
                 default=True,
             )
     if not resolved.mint_passphrase_shards and not resolved.mint_signing_key_shards:
@@ -867,18 +875,19 @@ def _resolve_mint_scope(
             and not resolved.signing_key_frames
             and manifest.signing_seed is not None
         ):
-            with wizard_substep("Signing-key shards"):
+            with wizard_substep("Signing authority shards"):
                 use_existing_signing_key_shards = prompt_yes_no(
-                    "Use existing signing-key shards to fill missing slots",
+                    "Use existing signing authority shards to fill missing slots",
                     default=False,
                     help_text=(
-                        "Choose yes if you already have signing-key shard documents from this "
-                        "backup and want compatible replacements to fill only the missing slots. "
+                        "Choose yes if you already have signing authority shard documents from "
+                        "this backup and want compatible replacements to fill only the missing "
+                        "slots. "
                         "Choose no to create a full new set."
                     ),
                 )
             if use_existing_signing_key_shards:
-                with wizard_substep("Signing-key shards"):
+                with wizard_substep("Signing authority shards"):
                     (
                         _fallback_files,
                         _payload_files,
@@ -886,7 +895,7 @@ def _resolve_mint_scope(
                     ) = _prompt_shard_inputs(
                         quiet=quiet,
                         key_type=KEY_TYPE_SIGNING_SEED,
-                        label="Signing-key shard documents",
+                        label="Signing authority shard documents",
                         stop_at_quorum=False,
                     )
         resolved.signing_resolution = _resolve_output_replacement_scope(
@@ -906,19 +915,22 @@ def _resolve_mint_scope(
         ):
             missing_count = _missing_replacement_count(list(resolved.signing_resolution.payloads))
             if missing_count > 0:
-                with wizard_substep("Signing-key shards"):
+                with wizard_substep("Signing authority shards"):
                     mode = _prompt_shard_mint_mode(
-                        label="signing-key",
+                        label="signing authority",
                         threshold=resolved.signing_resolution.payloads[0].threshold,
                         share_count=resolved.signing_resolution.payloads[0].share_count,
                         missing_count=missing_count,
                     )
                 if mode == "replacement":
-                    with wizard_substep("Signing-key shards"):
+                    with wizard_substep("Signing authority shards"):
                         resolved.signing_key_replacement_count = (
                             1
                             if missing_count == 1
-                            else _prompt_replacement_count("signing-key", maximum=missing_count)
+                            else _prompt_replacement_count(
+                                "signing authority",
+                                maximum=missing_count,
+                            )
                         )
     return resolved
 
@@ -988,25 +1000,25 @@ def _resolve_mint_quorums(
     ):
         return resolved
     if resolved.passphrase_sharding is not None:
-        with wizard_substep("Signing-key quorum"):
+        with wizard_substep("Signing authority quorum"):
             use_same = prompt_yes_no(
                 (
-                    "Use same quorum for signing-key shards "
+                    "Use same quorum for signing authority shards "
                     f"({resolved.passphrase_sharding.threshold} "
                     f"of {resolved.passphrase_sharding.shares})"
                 ),
                 default=True,
-                help_text="Choose no if you want a different signing-key shard set size.",
+                help_text="Choose no if you want a different signing authority shard set size.",
             )
         if use_same:
             resolved.signing_key_sharding = None
             return resolved
-    with wizard_substep("Signing-key quorum"):
+    with wizard_substep("Signing authority quorum"):
         resolved.signing_key_sharding = _prompt_quorum_choice(
-            title="Signing-key shard quorum",
+            title="Signing authority shard quorum",
             help_text=(
-                "Choose how many fresh signing-key shard documents to create and how many are "
-                "required to recover."
+                "Choose how many fresh signing authority shard documents to create and how many "
+                "are required to recover."
             ),
         )
     return resolved
@@ -1051,7 +1063,7 @@ def _build_mint_review_rows(
             ),
         ),
         (
-            "Signing-key shards",
+            "Signing authority shards",
             _describe_mint_output_plan(
                 mint_enabled=output_state.mint_signing_key_shards,
                 replacement_count=output_state.signing_key_replacement_count,
@@ -1060,7 +1072,11 @@ def _build_mint_review_rows(
         ),
         (
             "Signing authority",
-            "signing-key shards" if output_state.signing_key_frames else "embedded signing seed",
+            (
+                "signing authority shards"
+                if output_state.signing_key_frames
+                else "embedded signing seed"
+            ),
         ),
         (
             "Authenticated backup",
@@ -1189,7 +1205,7 @@ def _inspect_mint_signing_key_state(
     if manifest.signing_seed is not None:
         return 0, None, True, "embedded signing seed", []
 
-    source = "signing-key shards"
+    source = "signing authority shards"
     if recovery.auth_payload is None:
         return (
             0,
@@ -1213,7 +1229,7 @@ def _inspect_mint_signing_key_state(
                 _mint_blocking_issue(
                     "SIGNING_KEY_SHARDS_REQUIRED",
                     (
-                        "backup is sealed; provide signing-key shard inputs "
+                        "backup is sealed; provide signing authority shard inputs "
                         "to mint new shard documents"
                     ),
                 )
@@ -1340,10 +1356,18 @@ def _resolve_mint_chain_target(
     auth_payload = getattr(plan, "auth_payload", None)
     passphrase = getattr(plan, "passphrase", None)
     import_documents = getattr(plan, "import_documents", ())
+    requested_index = getattr(plan, "extension_index", None)
+    requested_doc_hash = getattr(plan, "extension_doc_hash", None)
+    _validate_mint_extension_selector(requested_index, requested_doc_hash)
+    if requested_index == 0:
+        return replace(plan, extension_index=None, extension_doc_hash=None, import_documents=())
+
+    explicit_extension_selection = requested_index is not None or requested_doc_hash is not None
     if len(import_documents) <= 1 or auth_payload is None or passphrase is None:
+        if explicit_extension_selection:
+            _raise_missing_mint_extension_target(requested_index, requested_doc_hash)
         return plan
 
-    decoded_links = []
     documents_by_doc_hash = {document.doc_hash: document for document in import_documents}
     try:
         if root_decoded is None:
@@ -1369,42 +1393,40 @@ def _resolve_mint_chain_target(
                 "imported extension chain could not be trusted: "
                 "extension minting requires an unsealed root signing authority"
             )
+        if explicit_extension_selection:
+            _raise_missing_mint_extension_target(requested_index, requested_doc_hash)
         return plan
 
-    for document in import_documents:
-        if document.doc_hash == plan.doc_hash:
-            continue
-        _raise_if_mint_doc_id_collision(document, plan)
+    candidates = _decode_mint_extension_candidates(
+        plan,
+        import_documents=tuple(import_documents),
+        passphrase=passphrase,
+        root_sign_pub=root_sign_pub,
+        fail_on_root_authority_errors=not explicit_extension_selection,
+        quiet=quiet,
+        debug=debug,
+    )
+    candidates = _select_mint_extension_candidates(
+        candidates,
+        requested_index=requested_index,
+        requested_doc_hash=requested_doc_hash,
+    )
+    decoded_links = []
+    for candidate in candidates:
         try:
-            decoded = decode_imported_extension_link(
-                document,
-                passphrase=passphrase,
-                expected_sign_pub=root_sign_pub,
-                quiet=quiet,
-                debug=debug,
+            decoded_links.append(
+                decode_imported_extension_link(
+                    candidate.document,
+                    passphrase=passphrase,
+                    expected_sign_pub=root_sign_pub,
+                    quiet=quiet,
+                    debug=debug,
+                )
             )
         except ValueError as exc:
-            if _mint_document_signed_by_authority(
-                document,
-                expected_sign_pub=root_sign_pub,
-                quiet=quiet,
-            ):
-                raise ValueError(
-                    f"imported root-authority document could not be trusted: {exc}"
-                ) from exc
-            if _mint_document_targets_current_root(
-                document,
-                passphrase=passphrase,
-                root_doc_hash=plan.doc_hash,
-                debug=debug,
-            ):
-                raise ValueError(f"imported extension could not be trusted: {exc}") from exc
-            continue
-        if decoded.link.document.header.root_doc_hash != plan.doc_hash:
-            raise ValueError("imported root-authority extension targets a different root backup")
-        decoded_links.append(decoded)
+            raise ValueError(f"imported extension chain could not be trusted: {exc}") from exc
     if not decoded_links:
-        return plan
+        return replace(plan, extension_index=None, extension_doc_hash=None, import_documents=())
     decoded_links.sort(key=lambda item: item.link.document.header.index)
     try:
         validate_authenticated_extension_chain(
@@ -1435,6 +1457,139 @@ def _resolve_mint_chain_target(
         extension_doc_hash=latest.doc_hash.hex(),
         import_documents=(),
     )
+
+
+def _validate_mint_extension_selector(
+    requested_index: int | None,
+    requested_doc_hash: str | None,
+) -> None:
+    if requested_index is not None and requested_doc_hash is not None:
+        raise ValueError("use either --extension-index or --extension-doc-hash, not both")
+    if requested_index is not None and (isinstance(requested_index, bool) or requested_index < 0):
+        raise ValueError("--extension-index must be >= 0")
+    if requested_doc_hash is not None:
+        _parse_mint_extension_doc_hash(requested_doc_hash)
+
+
+def _raise_missing_mint_extension_target(
+    requested_index: int | None,
+    requested_doc_hash: str | None,
+) -> None:
+    if requested_index is not None:
+        raise ValueError(f"extension index {requested_index} was not found")
+    if requested_doc_hash is not None:
+        _parse_mint_extension_doc_hash(requested_doc_hash)
+        raise ValueError(f"extension doc_hash {requested_doc_hash.strip().lower()} was not found")
+
+
+def _parse_mint_extension_doc_hash(value: str) -> bytes:
+    normalized = value.strip().lower()
+    try:
+        requested_bytes = bytes.fromhex(normalized)
+    except ValueError as exc:
+        raise ValueError("--extension-doc-hash must be lowercase hex") from exc
+    if len(requested_bytes) != 32:
+        raise ValueError("--extension-doc-hash must be a 32-byte hex value")
+    return requested_bytes
+
+
+def _decode_mint_extension_candidates(
+    plan: Any,
+    *,
+    import_documents: tuple[Any, ...],
+    passphrase: str,
+    root_sign_pub: bytes,
+    fail_on_root_authority_errors: bool,
+    quiet: bool,
+    debug: bool,
+) -> tuple[_MintExtensionCandidate, ...]:
+    candidates: list[_MintExtensionCandidate] = []
+    seen_doc_hashes = {plan.doc_hash}
+    for document in import_documents:
+        if document.doc_hash in seen_doc_hashes:
+            continue
+        _raise_if_mint_doc_id_collision(document, plan)
+        try:
+            plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
+            version, decoded = decode_any_envelope(plaintext)
+        except Exception as exc:
+            if fail_on_root_authority_errors:
+                if _mint_document_signed_by_authority(
+                    document,
+                    expected_sign_pub=root_sign_pub,
+                    quiet=quiet,
+                ):
+                    raise ValueError(
+                        f"imported root-authority document could not be trusted: {exc}"
+                    ) from exc
+                if _mint_document_targets_current_root(
+                    document,
+                    passphrase=passphrase,
+                    root_doc_hash=plan.doc_hash,
+                    debug=debug,
+                ):
+                    raise ValueError(f"imported extension could not be trusted: {exc}") from exc
+            continue
+        if version != 2 or not isinstance(decoded, ExtensionEnvelope):
+            if fail_on_root_authority_errors and _mint_document_signed_by_authority(
+                document,
+                expected_sign_pub=root_sign_pub,
+                quiet=quiet,
+            ):
+                raise ValueError(
+                    "imported root-authority document could not be trusted: "
+                    "imported document did not decode as an extension envelope"
+                )
+            continue
+        if decoded.header.root_doc_hash != plan.doc_hash:
+            if fail_on_root_authority_errors and _mint_document_signed_by_authority(
+                document,
+                expected_sign_pub=root_sign_pub,
+                quiet=quiet,
+            ):
+                raise ValueError(
+                    "imported root-authority extension targets a different root backup"
+                )
+            continue
+        seen_doc_hashes.add(document.doc_hash)
+        candidates.append(_MintExtensionCandidate(document=document, envelope=decoded))
+    return tuple(sorted(candidates, key=lambda item: item.envelope.header.index))
+
+
+def _select_mint_extension_candidates(
+    candidates: tuple[_MintExtensionCandidate, ...],
+    *,
+    requested_index: int | None,
+    requested_doc_hash: str | None,
+) -> tuple[_MintExtensionCandidate, ...]:
+    if requested_index is not None:
+        if requested_index == 0:
+            return ()
+        if not any(candidate.envelope.header.index == requested_index for candidate in candidates):
+            raise ValueError(f"extension index {requested_index} was not found")
+        return tuple(
+            candidate
+            for candidate in candidates
+            if candidate.envelope.header.index <= requested_index
+        )
+    if requested_doc_hash is not None:
+        requested = _parse_mint_extension_doc_hash(requested_doc_hash)
+        target_index = next(
+            (
+                candidate.envelope.header.index
+                for candidate in candidates
+                if candidate.document.doc_hash == requested
+            ),
+            None,
+        )
+        if target_index is None:
+            raise ValueError(
+                f"extension doc_hash {requested_doc_hash.strip().lower()} was not found"
+            )
+        return tuple(
+            candidate for candidate in candidates if candidate.envelope.header.index <= target_index
+        )
+    return candidates
 
 
 def _raise_if_mint_doc_id_collision(document: Any, plan: Any) -> None:
@@ -1519,6 +1674,8 @@ def _recover_args_from_mint_args(args: MintArgs) -> RecoverArgs:
         shard_scan=list(args.shard_scan or []),
         auth_fallback_file=args.auth_fallback_file,
         auth_payloads_file=args.auth_payloads_file,
+        extension_index=args.extension_index,
+        extension_doc_hash=args.extension_doc_hash,
         output=None,
         allow_unsigned=False,
         assume_yes=True,
@@ -1549,7 +1706,8 @@ def _validate_mint_args(args: MintArgs, *, require_output_configuration: bool = 
         and not args.mint_signing_key_shards
     ):
         raise ValueError(
-            "cannot request signing-key replacement shards when signing-key output is off"
+            "cannot request signing authority replacement shards when signing authority output "
+            "is off"
         )
     if args.passphrase_replacement_count is not None and args.passphrase_replacement_count < 1:
         raise ValueError("passphrase replacement count must be >= 1")
@@ -1575,7 +1733,7 @@ def _validate_mint_args(args: MintArgs, *, require_output_configuration: bool = 
         )
     ):
         raise ValueError(
-            "signing-key replacement minting requires existing signing-key shard inputs"
+            "signing authority replacement minting requires existing signing authority shard inputs"
         )
     _recover_args_from_mint_args(args)
     _validate_quorum_pair(
@@ -1593,8 +1751,8 @@ def _validate_mint_args(args: MintArgs, *, require_output_configuration: bool = 
     _validate_quorum_pair(
         args.signing_key_shard_threshold,
         args.signing_key_shard_count,
-        threshold_label="signing key shard threshold",
-        count_label="signing key shard count",
+        threshold_label="signing authority shard threshold",
+        count_label="signing authority shard count",
         pair_label=("--signing-key-shard-threshold and --signing-key-shard-count"),
         required=False,
     )
@@ -1608,8 +1766,8 @@ def _validate_mint_args(args: MintArgs, *, require_output_configuration: bool = 
         has_passphrase_quorum = args.shard_threshold is not None and args.shard_count is not None
         if not has_explicit_signing_quorum and not has_passphrase_quorum:
             raise ValueError(
-                "minting signing-key shards requires a shard quorum or an explicit "
-                "signing-key shard quorum"
+                "minting signing authority shards requires a shard quorum or an explicit "
+                "signing authority shard quorum"
             )
 
 
@@ -1620,7 +1778,8 @@ def _validate_wizard_output_args(args: MintArgs) -> None:
         )
     if not args.mint_signing_key_shards and args.signing_key_replacement_count is not None:
         raise ValueError(
-            "cannot request signing-key replacement shards when signing-key output is off"
+            "cannot request signing authority replacement shards when signing authority output "
+            "is off"
         )
     if args.passphrase_replacement_count is not None and args.passphrase_replacement_count < 1:
         raise ValueError("passphrase replacement count must be >= 1")
@@ -1637,8 +1796,8 @@ def _validate_wizard_output_args(args: MintArgs) -> None:
     _validate_quorum_pair(
         args.signing_key_shard_threshold,
         args.signing_key_shard_count,
-        threshold_label="signing key shard threshold",
-        count_label="signing key shard count",
+        threshold_label="signing authority shard threshold",
+        count_label="signing authority shard count",
         pair_label="--signing-key-shard-threshold and --signing-key-shard-count",
         required=False,
     )
@@ -1989,7 +2148,7 @@ def _resolve_signing_authority(
         return manifest_signing_seed, "embedded signing seed"
     if not signing_key_frames:
         raise ValueError(
-            "backup is sealed; provide signing-key shard inputs to mint new shard documents"
+            "backup is sealed; provide signing authority shard inputs to mint new shard documents"
         )
     signing_seed = signing_seed_from_shard_frames(
         signing_key_frames,
@@ -1998,7 +2157,7 @@ def _resolve_signing_authority(
         expected_sign_pub=expected_sign_pub,
         allow_unsigned=False,
     )
-    return signing_seed, "signing-key shards"
+    return signing_seed, "signing authority shards"
 
 
 def _replacement_payloads_from_frames(
@@ -2048,8 +2207,8 @@ def _legacy_replacement_notes(
         )
     if args.signing_key_replacement_count is not None and signing_resolution.uses_legacy_shards:
         notes.append(
-            "Legacy v1 signing-key shards detected. Compatible replacements stay on v1; "
-            "prefer minting a full new signing-key shard set to migrate to shard payload v2."
+            "Legacy v1 signing authority shards detected. Compatible replacements stay on v1; "
+            "prefer minting a full new signing authority shard set to migrate to shard payload v2."
         )
     return tuple(notes)
 
@@ -2208,7 +2367,7 @@ def _print_completion_actions(result: MintResult, *, quiet: bool) -> None:
     if result.signing_key_shard_paths:
         actions.append(
             "Store "
-            f"{len(result.signing_key_shard_paths)} fresh signing-key shard documents "
+            f"{len(result.signing_key_shard_paths)} fresh signing authority shard documents "
             "separately."
         )
     actions.append("Verify the new shard documents before retiring any older set.")

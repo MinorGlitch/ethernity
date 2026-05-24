@@ -65,6 +65,15 @@ def _recover_target_rows(
     return rows
 
 
+def _mint_target_rows(result: MintResult) -> list[tuple[str, str]]:
+    if result.selected_extension_index is None:
+        return [("Mint target", "root backup")]
+    rows = [("Mint target", f"extension {result.selected_extension_index}")]
+    if result.selected_extension_doc_hash is not None:
+        rows.append(("Target doc hash", result.selected_extension_doc_hash))
+    return rows
+
+
 def print_backup_summary(
     result: BackupResult,
     plan: DocumentPlan,
@@ -148,6 +157,7 @@ def print_mint_summary(result: MintResult, *, quiet: bool) -> None:
                 [
                     ("Output", result.output_dir),
                     ("Signing authority", result.signing_key_source),
+                    *_mint_target_rows(result),
                 ]
             ),
         )

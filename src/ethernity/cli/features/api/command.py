@@ -620,6 +620,8 @@ def _mint_started_args_for_error(
     shard_scan: list[str] | None,
     auth_fallback_file: str | None,
     auth_payloads_file: str | None,
+    extension_index: str | None,
+    extension_doc_hash: str | None,
     signing_key_shard_fallback_file: list[str] | None,
     signing_key_shard_payloads_file: list[str] | None,
     signing_key_shard_scan: list[str] | None,
@@ -648,6 +650,8 @@ def _mint_started_args_for_error(
         "shard_scan": list(shard_scan or []),
         "auth_fallback_file": auth_fallback_file,
         "auth_payloads_file": auth_payloads_file,
+        "extension_index": _optional_int_for_started(extension_index),
+        "extension_doc_hash": _normalized_extension_doc_hash_for_started(extension_doc_hash),
         "signing_key_shard_fallback_file": list(signing_key_shard_fallback_file or []),
         "signing_key_shard_payloads_file": list(signing_key_shard_payloads_file or []),
         "signing_key_shard_scan": list(signing_key_shard_scan or []),
@@ -804,6 +808,8 @@ def _build_mint_api_args(
     shard_scan: list[str] | None,
     auth_fallback_file: str | None,
     auth_payloads_file: str | None,
+    extension_index: int | None,
+    extension_doc_hash: str | None,
     signing_key_shard_fallback_file: list[str] | None,
     signing_key_shard_dir: str | None,
     signing_key_shard_payloads_file: list[str] | None,
@@ -839,6 +845,7 @@ def _build_mint_api_args(
             label="signing-key shard",
         )
     )
+    extension_doc_hash_value = _parse_api_extension_doc_hash_option(extension_doc_hash)
     return MintArgs(
         config=config_value,
         paper=paper_value,
@@ -852,6 +859,8 @@ def _build_mint_api_args(
         shard_scan=list(shard_scan or []),
         auth_fallback_file=auth_fallback_file,
         auth_payloads_file=auth_payloads_file,
+        extension_index=extension_index,
+        extension_doc_hash=extension_doc_hash_value,
         signing_key_shard_fallback_file=signing_key_shard_files,
         signing_key_shard_payloads_file=list(signing_key_shard_payloads_file or []),
         signing_key_shard_scan=list(signing_key_shard_scan or []),
@@ -903,6 +912,8 @@ def _run_mint_operation(
     shard_scan: list[str] | None,
     auth_fallback_file: str | None,
     auth_payloads_file: str | None,
+    extension_index: int | None,
+    extension_doc_hash: str | None,
     signing_key_shard_fallback_file: list[str] | None,
     signing_key_shard_dir: str | None,
     signing_key_shard_payloads_file: list[str] | None,
@@ -935,6 +946,8 @@ def _run_mint_operation(
         shard_scan=list(shard_scan or []),
         auth_fallback_file=auth_fallback_file,
         auth_payloads_file=auth_payloads_file,
+        extension_index=extension_index,
+        extension_doc_hash=extension_doc_hash,
         signing_key_shard_fallback_file=list(signing_key_shard_fallback_file or []),
         signing_key_shard_dir=signing_key_shard_dir,
         signing_key_shard_payloads_file=list(signing_key_shard_payloads_file or []),
@@ -2158,6 +2171,21 @@ def mint(
         str | None,
         typer.Option("--auth-payloads-file", help="Auth QR payloads (one per line)."),
     ] = None,
+    extension_index: Annotated[
+        str | None,
+        typer.Option(
+            "--extension-index",
+            help="Mint against a specific extension index (0 = root only).",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
+    ] = None,
+    extension_doc_hash: Annotated[
+        str | None,
+        typer.Option(
+            "--extension-doc-hash",
+            help="Mint against the extension with this authenticated doc hash.",
+        ),
+    ] = None,
     signing_key_shard_fallback_file: Annotated[
         list[str] | None,
         typer.Option(
@@ -2288,6 +2316,12 @@ def mint(
             shard_scan=shard_scan,
             auth_fallback_file=auth_fallback_file,
             auth_payloads_file=auth_payloads_file,
+            extension_index=_parse_api_int_option(
+                "--extension-index",
+                extension_index,
+                min_value=0,
+            ),
+            extension_doc_hash=extension_doc_hash,
             signing_key_shard_fallback_file=signing_key_shard_fallback_file,
             signing_key_shard_dir=signing_key_shard_dir,
             signing_key_shard_payloads_file=signing_key_shard_payloads_file,
@@ -2324,6 +2358,8 @@ def mint(
                 shard_scan=shard_scan,
                 auth_fallback_file=auth_fallback_file,
                 auth_payloads_file=auth_payloads_file,
+                extension_index=extension_index,
+                extension_doc_hash=extension_doc_hash,
                 signing_key_shard_fallback_file=signing_key_shard_fallback_file,
                 signing_key_shard_payloads_file=signing_key_shard_payloads_file,
                 signing_key_shard_scan=signing_key_shard_scan,
@@ -2387,6 +2423,21 @@ def inspect_mint(
     auth_payloads_file: Annotated[
         str | None,
         typer.Option("--auth-payloads-file", help="Auth QR payloads (one per line)."),
+    ] = None,
+    extension_index: Annotated[
+        str | None,
+        typer.Option(
+            "--extension-index",
+            help="Inspect minting against a specific extension index (0 = root only).",
+            click_type=_INTEGER_HELP_TYPE,
+        ),
+    ] = None,
+    extension_doc_hash: Annotated[
+        str | None,
+        typer.Option(
+            "--extension-doc-hash",
+            help="Inspect minting against the extension with this authenticated doc hash.",
+        ),
     ] = None,
     signing_key_shard_fallback_file: Annotated[
         list[str] | None,
@@ -2510,6 +2561,12 @@ def inspect_mint(
             shard_scan=shard_scan,
             auth_fallback_file=auth_fallback_file,
             auth_payloads_file=auth_payloads_file,
+            extension_index=_parse_api_int_option(
+                "--extension-index",
+                extension_index,
+                min_value=0,
+            ),
+            extension_doc_hash=extension_doc_hash,
             signing_key_shard_fallback_file=signing_key_shard_fallback_file,
             signing_key_shard_dir=signing_key_shard_dir,
             signing_key_shard_payloads_file=signing_key_shard_payloads_file,
@@ -2546,6 +2603,8 @@ def inspect_mint(
                 shard_scan=shard_scan,
                 auth_fallback_file=auth_fallback_file,
                 auth_payloads_file=auth_payloads_file,
+                extension_index=extension_index,
+                extension_doc_hash=extension_doc_hash,
                 signing_key_shard_fallback_file=signing_key_shard_fallback_file,
                 signing_key_shard_payloads_file=signing_key_shard_payloads_file,
                 signing_key_shard_scan=signing_key_shard_scan,

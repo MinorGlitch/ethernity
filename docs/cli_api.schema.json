@@ -2668,6 +2668,8 @@
         "shard_scan",
         "auth_fallback_file",
         "auth_payloads_file",
+        "extension_index",
+        "extension_doc_hash",
         "signing_key_shard_fallback_file",
         "signing_key_shard_payloads_file",
         "signing_key_shard_scan",
@@ -2764,6 +2766,20 @@
             "null"
           ],
           "minLength": 1
+        },
+        "extension_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "extension_doc_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
         },
         "signing_key_shard_fallback_file": {
           "type": "array",
@@ -2870,6 +2886,8 @@
         "shard_scan",
         "auth_fallback_file",
         "auth_payloads_file",
+        "extension_index",
+        "extension_doc_hash",
         "signing_key_shard_fallback_file",
         "signing_key_shard_payloads_file",
         "signing_key_shard_scan",
@@ -2967,6 +2985,20 @@
             "null"
           ],
           "minLength": 1
+        },
+        "extension_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "extension_doc_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
         },
         "signing_key_shard_fallback_file": {
           "type": "array",

@@ -153,6 +153,22 @@ def mint(
             rich_help_panel="Unlock",
         ),
     ] = None,
+    extension_index: Annotated[
+        int | None,
+        typer.Option(
+            "--extension-index",
+            help="Mint against a specific extension index (0 = root only).",
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
+    extension_doc_hash: Annotated[
+        str | None,
+        typer.Option(
+            "--extension-doc-hash",
+            help="Mint against the extension with this authenticated doc hash.",
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
     signing_key_shard_fallback_file: Annotated[
         list[str] | None,
         typer.Option(
@@ -326,6 +342,8 @@ def mint(
         shard_scan=list(shard_scan or []),
         auth_fallback_file=auth_fallback_file,
         auth_payloads_file=auth_payloads_file,
+        extension_index=extension_index,
+        extension_doc_hash=extension_doc_hash,
         signing_key_shard_fallback_file=signing_key_shard_files,
         signing_key_shard_payloads_file=list(signing_key_shard_payloads_file or []),
         signing_key_shard_scan=list(signing_key_shard_scan or []),

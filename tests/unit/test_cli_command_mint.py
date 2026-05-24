@@ -46,6 +46,8 @@ class TestMintCommand(unittest.TestCase):
             "shard_scan": None,
             "auth_fallback_file": None,
             "auth_payloads_file": None,
+            "extension_index": None,
+            "extension_doc_hash": None,
             "signing_key_shard_fallback_file": None,
             "signing_key_shard_dir": None,
             "signing_key_shard_payloads_file": None,
@@ -110,6 +112,7 @@ class TestMintCommand(unittest.TestCase):
             shard_count=3,
             passphrase_replacement_count=1,
             signing_key_replacement_count=2,
+            extension_index=0,
         )
         args = run_mint_command.call_args.args[0]
         self.assertIsInstance(args, MintArgs)
@@ -123,6 +126,8 @@ class TestMintCommand(unittest.TestCase):
             ["manual-signing.txt", "signing-dir.txt"],
         )
         self.assertEqual(args.signing_key_shard_scan, ["signing-scan-a.pdf", "signing-scan-b.pdf"])
+        self.assertEqual(args.extension_index, 0)
+        self.assertIsNone(args.extension_doc_hash)
         self.assertTrue(args.output_dir_existing_parent)
         self.assertEqual(args.passphrase_replacement_count, 1)
         self.assertEqual(args.signing_key_replacement_count, 2)
@@ -600,7 +605,7 @@ class TestMintFlow(unittest.TestCase):
             expected_sign_pub=b"p" * 32,
         )
         self.assertEqual(seed, b"s" * 32)
-        self.assertEqual(source, "signing-key shards")
+        self.assertEqual(source, "signing authority shards")
         signing_seed_from_frames.assert_called_once()
 
     @mock.patch("ethernity.cli.features.mint.workflow._print_completion_actions")
@@ -1113,7 +1118,7 @@ class TestMintFlow(unittest.TestCase):
     ) -> None:
         prompt_key_material.return_value = ("passphrase", [], [], [])
 
-        with self.assertRaisesRegex(ValueError, "existing signing-key shard inputs"):
+        with self.assertRaisesRegex(ValueError, "existing signing authority shard inputs"):
             mint_flow.run_mint_wizard(
                 MintArgs(
                     signing_key_replacement_count=1,
@@ -1328,7 +1333,7 @@ class TestMintFlow(unittest.TestCase):
             output_dir="mint-dd",
             shard_paths=(),
             signing_key_shard_paths=(),
-            signing_key_source="signing-key shards",
+            signing_key_source="signing authority shards",
         ),
     )
     @mock.patch(
@@ -1858,11 +1863,11 @@ class TestMintFlow(unittest.TestCase):
         prompt_shard_inputs.assert_called_once_with(
             quiet=True,
             key_type=KEY_TYPE_SIGNING_SEED,
-            label="Signing-key shard documents",
+            label="Signing authority shard documents",
             stop_at_quorum=False,
         )
         prompt_shard_mint_mode.assert_called_once()
-        prompt_replacement_count.assert_called_once_with("signing-key", maximum=2)
+        prompt_replacement_count.assert_called_once_with("signing authority", maximum=2)
         prompt_quorum_choice.assert_not_called()
         wizard_args = mint_from_plan.call_args.kwargs["args"]
         self.assertEqual(wizard_args.signing_key_replacement_count, 1)
@@ -1964,9 +1969,9 @@ class TestMintFlow(unittest.TestCase):
         self.assertEqual(result, 0)
         prompt_shard_inputs.assert_not_called()
         prompt_quorum_choice.assert_called_once_with(
-            title="Signing-key shard quorum",
+            title="Signing authority shard quorum",
             help_text=(
-                "Choose how many fresh signing-key shard documents to create "
+                "Choose how many fresh signing authority shard documents to create "
                 "and how many are required to recover."
             ),
         )

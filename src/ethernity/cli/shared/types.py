@@ -116,6 +116,8 @@ class MintArgs:
     shard_scan: list[str] | None = None
     auth_fallback_file: str | None = None
     auth_payloads_file: str | None = None
+    extension_index: int | None = None
+    extension_doc_hash: str | None = None
     signing_key_shard_fallback_file: list[str] | None = None
     signing_key_shard_payloads_file: list[str] | None = None
     signing_key_shard_scan: list[str] | None = None
