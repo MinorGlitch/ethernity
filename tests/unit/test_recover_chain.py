@@ -256,6 +256,13 @@ class TestRecoverChain(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "conflicting duplicate frames"):
             imported_documents_from_recovery_frames(frames)
 
+    def test_imported_documents_reject_orphan_auth_frame(self) -> None:
+        _root_ciphertext_bytes, _root_doc_id, root_doc_hash = _root_ciphertext()
+        auth_frame = _extension_auth_frame(b"\xaa" * 8, root_doc_hash)
+
+        with self.assertRaisesRegex(ValueError, "AUTH frame.*without matching MAIN"):
+            imported_documents_from_recovery_frames([auth_frame])
+
     def test_recover_chain_entries_rejects_duplicate_authenticated_extension_index(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
         first_ciphertext = _extension_ciphertext(root_doc_hash, index=1, data=b"one")

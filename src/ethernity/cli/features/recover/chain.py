@@ -182,6 +182,14 @@ def imported_documents_from_recovery_frames(
     """Group MAIN/AUTH recovery frames into independently recoverable documents."""
 
     deduped = _dedupe_frames(frames)
+    pre_main_doc_ids = {
+        frame.doc_id for frame in deduped if frame.frame_type == FrameType.MAIN_DOCUMENT
+    }
+    pre_auth_doc_ids = {frame.doc_id for frame in deduped if frame.frame_type == FrameType.AUTH}
+    pre_orphan_auth_doc_ids = sorted(pre_auth_doc_ids - pre_main_doc_ids)
+    if pre_orphan_auth_doc_ids:
+        preview = ", ".join(doc_id.hex() for doc_id in pre_orphan_auth_doc_ids[:3])
+        raise ValueError(f"{source_label} contains AUTH frame(s) without matching MAIN: {preview}")
     main_frames, auth_frames = _split_main_and_auth_frames(deduped)
     main_by_doc_id: dict[bytes, list[Frame]] = {}
     auth_by_doc_id: dict[bytes, list[Frame]] = {}
@@ -189,6 +197,10 @@ def imported_documents_from_recovery_frames(
         main_by_doc_id.setdefault(frame.doc_id, []).append(frame)
     for frame in auth_frames:
         auth_by_doc_id.setdefault(frame.doc_id, []).append(frame)
+    orphan_auth_doc_ids = sorted(set(auth_by_doc_id) - set(main_by_doc_id))
+    if orphan_auth_doc_ids:
+        preview = ", ".join(doc_id.hex() for doc_id in orphan_auth_doc_ids[:3])
+        raise ValueError(f"{source_label} contains AUTH frame(s) without matching MAIN: {preview}")
 
     documents: list[ImportedRecoveryDocument] = []
     for doc_id in sorted(main_by_doc_id):
