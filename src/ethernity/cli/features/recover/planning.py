@@ -183,12 +183,13 @@ def inspect_from_args(args: RecoverArgs) -> RecoveryInspection:
         args,
         quiet=quiet,
     )
-    import_documents = imported_documents_from_recovery_frames(
-        [*frames, *extra_auth_frames],
-        source_label=input_detail or input_label or "content import",
-    )
     source_frames = tuple(frames)
     source_extra_auth_frames = tuple(extra_auth_frames)
+    import_documents = _import_documents_from_recovery_inputs(
+        frames,
+        extra_auth_frames,
+        source_label=input_detail or input_label or "content import",
+    )
     import_shard_unlock: RecoveryUnlockStatus | None = None
     if len(import_documents) > 1:
         if args.passphrase:
@@ -471,8 +472,9 @@ def build_recovery_plan(
             hint = "Check the scan path and image quality, then try again."
         raise ValueError(f"no backup data found. {hint}")
 
-    import_documents = imported_documents_from_recovery_frames(
-        [*frames, *extra_auth_frames],
+    import_documents = _import_documents_from_recovery_inputs(
+        frames,
+        extra_auth_frames,
         source_label=input_detail or input_label or "content import",
     )
     if len(import_documents) > 1:
@@ -583,6 +585,29 @@ def build_recovery_plan(
         extension_doc_hash=extension_doc_hash,
         import_documents=import_documents,
     )
+
+
+def _import_documents_from_recovery_inputs(
+    frames: list[Frame],
+    extra_auth_frames: list[Frame],
+    *,
+    source_label: str,
+) -> tuple[ImportedRecoveryDocument, ...]:
+    try:
+        return imported_documents_from_recovery_frames(
+            [*frames, *extra_auth_frames],
+            source_label=source_label,
+        )
+    except ValueError as exc:
+        if "AUTH frame(s) without matching MAIN" not in str(exc):
+            raise
+        import_documents = imported_documents_from_recovery_frames(
+            frames,
+            source_label=source_label,
+        )
+        if len(import_documents) > 1:
+            raise
+        return import_documents
 
 
 def select_root_import_document_from_passphrase_shards(
