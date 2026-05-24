@@ -1454,14 +1454,18 @@ class TestCliApi(unittest.TestCase):
             "signing_key_shard_count": None,
         }
 
-        invalid_values = {
-            "qr_chunk_size": "0",
-            "shard_threshold": "-1",
-            "shard_count": "-1",
-            "signing_key_shard_threshold": "-1",
-            "signing_key_shard_count": "-1",
-        }
-        for field, value in invalid_values.items():
+        invalid_values = (
+            ("qr_chunk_size", "0"),
+            ("shard_threshold", "-1"),
+            ("shard_count", "-1"),
+            ("signing_key_shard_threshold", "-1"),
+            ("signing_key_shard_count", "-1"),
+            ("shard_threshold", "256"),
+            ("shard_count", "256"),
+            ("signing_key_shard_threshold", "256"),
+            ("signing_key_shard_count", "256"),
+        )
+        for field, value in invalid_values:
             with self.subTest(field=field), self.assertRaises(ApiCommandError) as caught:
                 api_command._build_extend_api_args(**{**base_kwargs, field: value})
 
@@ -1504,6 +1508,33 @@ class TestCliApi(unittest.TestCase):
         self.assertIsNone(events[0]["args"]["qr_chunk_size"])
         self.assertEqual(events[-1]["code"], api_codes.INVALID_INPUT)
         self.assertIn("--qr-chunk-size must be >= 1", events[-1]["message"])
+
+    def test_api_inspect_extend_rejects_oversized_shard_count_with_schema_valid_events(
+        self,
+    ) -> None:
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "inspect",
+                    "extend",
+                    "--root-dir",
+                    "/tmp/root",
+                    "--shard-count",
+                    "999",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 2)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual([event["type"] for event in events], ["started", "error"])
+        self.assertIsNone(events[0]["args"]["shard_count"])
+        self.assertEqual(events[-1]["code"], api_codes.INVALID_INPUT)
+        self.assertIn("--shard-count must be <= 255", events[-1]["message"])
 
     def test_api_inspect_extend_empty_layout_debug_dir_started_arg_is_null(self) -> None:
         with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
@@ -1556,6 +1587,31 @@ class TestCliApi(unittest.TestCase):
         self.assertIsNone(events[0]["args"]["qr_chunk_size"])
         self.assertEqual(events[-1]["code"], api_codes.INVALID_INPUT)
         self.assertIn("--qr-chunk-size must be >= 1", events[-1]["message"])
+
+    def test_api_inspect_mint_rejects_zero_shard_threshold_with_schema_valid_events(
+        self,
+    ) -> None:
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            result = self.runner.invoke(
+                cli.app,
+                [
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "api",
+                    "inspect",
+                    "mint",
+                    "--shard-threshold",
+                    "0",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 2)
+        events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertEqual([event["type"] for event in events], ["started", "error"])
+        self.assertIsNone(events[0]["args"]["shard_threshold"])
+        self.assertEqual(events[-1]["code"], api_codes.INVALID_INPUT)
+        self.assertIn("--shard-threshold must be >= 1", events[-1]["message"])
 
     def test_api_compact_flag_values_reach_command(self) -> None:
         captured: dict[str, object] = {}

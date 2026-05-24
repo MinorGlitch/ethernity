@@ -65,6 +65,7 @@ from ethernity.cli.shared.types import (
     RecoverArgs,
 )
 from ethernity.config import BackupDefaults
+from ethernity.crypto.sharding import MAX_SHARES
 
 _API_HELP = (
     "Machine-readable CLI for GUI clients and automation.\n\n"
@@ -274,6 +275,7 @@ def _parse_api_int_option(
     value: str | None,
     *,
     min_value: int | None = None,
+    max_value: int | None = None,
 ) -> int | None:
     if value is None:
         return None
@@ -290,6 +292,12 @@ def _parse_api_int_option(
             code=api_codes.INVALID_INPUT,
             message=f"{name} must be >= {min_value}",
             details={"option": name, "value": value, "minimum": min_value},
+        )
+    if max_value is not None and parsed > max_value:
+        raise ApiCommandError(
+            code=api_codes.INVALID_INPUT,
+            message=f"{name} must be <= {max_value}",
+            details={"option": name, "value": value, "maximum": max_value},
         )
     return parsed
 
@@ -357,7 +365,12 @@ def _normalized_paper_for_started(value: str | None) -> str | None:
     return normalized if normalized in {"A4", "LETTER"} else None
 
 
-def _optional_int_for_started(value: str | None, *, min_value: int = 0) -> int | None:
+def _optional_int_for_started(
+    value: str | None,
+    *,
+    min_value: int = 0,
+    max_value: int | None = None,
+) -> int | None:
     if value is None:
         return None
     try:
@@ -365,6 +378,8 @@ def _optional_int_for_started(value: str | None, *, min_value: int = 0) -> int |
     except ValueError:
         return None
     if parsed < min_value:
+        return None
+    if max_value is not None and parsed > max_value:
         return None
     return parsed
 
@@ -591,11 +606,17 @@ def _extend_started_args_for_error(
         "shard_payloads_file": list(shard_payloads_file or []),
         "shard_scan": list(shard_scan or []),
         "unlock_policy": _normalized_unlock_policy_for_started(unlock_policy),
-        "shard_threshold": _optional_int_for_started(shard_threshold),
-        "shard_count": _optional_int_for_started(shard_count),
+        "shard_threshold": _optional_int_for_started(shard_threshold, max_value=MAX_SHARES),
+        "shard_count": _optional_int_for_started(shard_count, max_value=MAX_SHARES),
         "signing_key_mode": _normalized_extension_signing_key_mode_for_started(signing_key_mode),
-        "signing_key_shard_threshold": _optional_int_for_started(signing_key_shard_threshold),
-        "signing_key_shard_count": _optional_int_for_started(signing_key_shard_count),
+        "signing_key_shard_threshold": _optional_int_for_started(
+            signing_key_shard_threshold,
+            max_value=MAX_SHARES,
+        ),
+        "signing_key_shard_count": _optional_int_for_started(
+            signing_key_shard_count,
+            max_value=MAX_SHARES,
+        ),
         "quiet": True,
         "debug": _state_debug_enabled(state),
     }
@@ -655,12 +676,24 @@ def _mint_started_args_for_error(
         "signing_key_shard_fallback_file": list(signing_key_shard_fallback_file or []),
         "signing_key_shard_payloads_file": list(signing_key_shard_payloads_file or []),
         "signing_key_shard_scan": list(signing_key_shard_scan or []),
-        "shard_threshold": _optional_int_for_started(shard_threshold),
-        "shard_count": _optional_int_for_started(shard_count),
-        "signing_key_shard_threshold": _optional_int_for_started(signing_key_shard_threshold),
-        "signing_key_shard_count": _optional_int_for_started(signing_key_shard_count),
-        "passphrase_replacement_count": _optional_int_for_started(passphrase_replacement_count),
-        "signing_key_replacement_count": _optional_int_for_started(signing_key_replacement_count),
+        "shard_threshold": _optional_int_for_started(shard_threshold, min_value=1),
+        "shard_count": _optional_int_for_started(shard_count, min_value=1),
+        "signing_key_shard_threshold": _optional_int_for_started(
+            signing_key_shard_threshold,
+            min_value=1,
+        ),
+        "signing_key_shard_count": _optional_int_for_started(
+            signing_key_shard_count,
+            min_value=1,
+        ),
+        "passphrase_replacement_count": _optional_int_for_started(
+            passphrase_replacement_count,
+            min_value=1,
+        ),
+        "signing_key_replacement_count": _optional_int_for_started(
+            signing_key_replacement_count,
+            min_value=1,
+        ),
         "mint_passphrase_shards": mint_passphrase_shards,
         "mint_signing_key_shards": mint_signing_key_shards,
         "quiet": True,
@@ -1078,18 +1111,26 @@ def _build_extend_api_args(
         "--shard-threshold",
         shard_threshold,
         min_value=0,
+        max_value=MAX_SHARES,
     )
-    shard_count_cli = _parse_api_int_option("--shard-count", shard_count, min_value=0)
+    shard_count_cli = _parse_api_int_option(
+        "--shard-count",
+        shard_count,
+        min_value=0,
+        max_value=MAX_SHARES,
+    )
     signing_key_mode_cli = _parse_extension_signing_key_mode(signing_key_mode)
     signing_key_shard_threshold_cli = _parse_api_int_option(
         "--signing-key-shard-threshold",
         signing_key_shard_threshold,
         min_value=0,
+        max_value=MAX_SHARES,
     )
     signing_key_shard_count_cli = _parse_api_int_option(
         "--signing-key-shard-count",
         signing_key_shard_count,
         min_value=0,
+        max_value=MAX_SHARES,
     )
     return ExtendArgs(
         config=config_value,
