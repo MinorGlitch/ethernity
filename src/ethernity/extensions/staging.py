@@ -39,6 +39,8 @@ from ethernity.extensions.layout import (
     parse_extension_shard_filename,
 )
 
+EXTENSION_CHAIN_LOCK_DIR_NAME = ".chain.lock"
+
 
 @dataclass(frozen=True)
 class ExtensionPublishPolicy:
@@ -145,6 +147,9 @@ def preflight_extension_publish_target(root_dir: str | Path, *, index: int) -> N
         raise ValueError(
             f"canonical extension directory is already being promoted: {final_dir.name}"
         )
+    chain_lock_dir = extensions_dir / EXTENSION_CHAIN_LOCK_DIR_NAME
+    if chain_lock_dir.exists() or chain_lock_dir.is_symlink():
+        raise ValueError("extension chain is already being promoted")
 
 
 def create_staged_extension_artifact_plan(

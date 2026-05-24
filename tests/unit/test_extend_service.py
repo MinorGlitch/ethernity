@@ -989,7 +989,13 @@ class TestExtendService(unittest.TestCase):
                     path.write_bytes(b"shard")
 
             buffer = io.StringIO()
-            with ndjson_session(stream=buffer):
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.execution.resolve_extend_state",
+                    return_value=resolved,
+                ),
+                ndjson_session(stream=buffer),
+            ):
                 result = execute_staged_extension_publish(
                     publish,
                     renderer=_renderer,
@@ -1015,6 +1021,59 @@ class TestExtendService(unittest.TestCase):
                 ],
             )
             self.assertFalse((root_dir / "extensions" / ".staging-2-abc123").exists())
+
+    def test_execute_staged_extension_publish_rejects_changed_published_head(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
+            resolved = _resolved_state(
+                diff_summary={
+                    "new_paths": ["new.txt"],
+                    "changed_paths": ["updated.txt"],
+                    "unchanged_paths": [],
+                    "missing_paths": [],
+                },
+            )
+            with mock.patch(
+                "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                return_value=resolved,
+            ):
+                prepared = prepare_extend_run(
+                    ExtendArgs(root_dir=str(root_dir), input=["/tmp/root/example.txt"])
+                )
+                with mock.patch(
+                    "ethernity.cli.features.extend.prepare.encrypt_bytes_with_passphrase",
+                    side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
+                ):
+                    publish = prepare_staged_extension_publish(
+                        prepared,
+                        chunker=lambda data, _profile: (data,),
+                        nonce="abc123",
+                        publish_policy=ExtensionPublishPolicy(),
+                    )
+
+            def _renderer(plan) -> None:
+                plan.artifacts.qr_document_path.write_bytes(b"qr")
+                plan.artifacts.recovery_document_path.write_bytes(b"recovery")
+
+            current = replace(resolved, parent_doc_hash=b"\x99" * 32)
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.execution.resolve_extend_state",
+                    return_value=current,
+                ),
+                self.assertRaises(ApiCommandError) as ctx,
+            ):
+                execute_staged_extension_publish(
+                    publish,
+                    renderer=_renderer,
+                    post_validate=lambda _plan, _result: None,
+                )
+
+            self.assertEqual(ctx.exception.code, api_codes.CHAIN_INVALID)
+            self.assertIn("chain head changed", str(ctx.exception))
+            self.assertFalse(publish.artifacts.staging_dir.exists())
+            self.assertFalse(publish.artifacts.final_dir.exists())
 
     def test_validate_staged_recovery_kit_index_document_rejects_invalid_pdf(self) -> None:
         with TemporaryDirectory() as tmpdir:
@@ -1509,6 +1568,10 @@ class TestExtendService(unittest.TestCase):
                     return_value=resolved,
                 ),
                 mock.patch(
+                    "ethernity.cli.features.extend.execution.resolve_extend_state",
+                    return_value=resolved,
+                ),
+                mock.patch(
                     "ethernity.cli.features.extend.prepare.encrypt_bytes_with_passphrase",
                     side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
                 ),
@@ -1620,6 +1683,10 @@ class TestExtendService(unittest.TestCase):
             with (
                 mock.patch(
                     "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                    return_value=resolved,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.execution.resolve_extend_state",
                     return_value=resolved,
                 ),
                 mock.patch(
@@ -1827,6 +1894,10 @@ class TestExtendService(unittest.TestCase):
                     return_value=resolved,
                 ),
                 mock.patch(
+                    "ethernity.cli.features.extend.execution.resolve_extend_state",
+                    return_value=resolved,
+                ),
+                mock.patch(
                     "ethernity.cli.features.extend.prepare.encrypt_bytes_with_passphrase",
                     side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
                 ),
@@ -1963,6 +2034,10 @@ class TestExtendService(unittest.TestCase):
             with (
                 mock.patch(
                     "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                    return_value=resolved,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.execution.resolve_extend_state",
                     return_value=resolved,
                 ),
                 mock.patch(

@@ -123,6 +123,14 @@ class TestExtensionStaging(unittest.TestCase):
             ):
                 preflight_extension_publish_target(tmpdir, index=1)
 
+    def test_preflight_extension_publish_target_rejects_existing_chain_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lock_dir = Path(tmpdir) / "extensions" / ".chain.lock"
+            lock_dir.mkdir(parents=True)
+
+            with self.assertRaisesRegex(ValueError, "extension chain is already being promoted"):
+                preflight_extension_publish_target(tmpdir, index=1)
+
     def test_validate_and_promote_staged_extension_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             staging_dir = create_extension_staging_dir(tmpdir, index=1, nonce="abc123")

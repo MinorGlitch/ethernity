@@ -74,6 +74,8 @@ def publish_staged_artifacts(
     populate: Callable[[], _T],
     validate_staging: Callable[[Path], None] | None = None,
     validate_artifacts: Callable[[_T], None] | None = None,
+    validate_promotion: Callable[[], None] | None = None,
+    lock_dir: str | Path | None = None,
     cleanup_on_error: bool = True,
 ) -> ArtifactPublishResult[_T]:
     """Populate, validate, snapshot, and promote a staged artifact directory."""
@@ -92,6 +94,8 @@ def publish_staged_artifacts(
             final_path,
             expected_snapshot=snapshot,
             validate_staging=validate_staging,
+            validate_promotion=validate_promotion,
+            lock_dir=lock_dir,
         )
     except Exception:
         if cleanup_on_error:
@@ -106,6 +110,7 @@ def promote_staged_artifact_dir(
     *,
     expected_snapshot: ArtifactSnapshot | None = None,
     validate_staging: Callable[[Path], None] | None = None,
+    validate_promotion: Callable[[], None] | None = None,
     lock_dir: str | Path | None = None,
 ) -> Path:
     """Atomically promote a validated staging directory into its final location."""
@@ -141,6 +146,8 @@ def promote_staged_artifact_dir(
             and snapshot_artifact_dir(staging_path) != expected_snapshot
         ):
             raise ValueError("validated staging_dir artifacts changed before promotion")
+        if validate_promotion is not None:
+            validate_promotion()
         staging_path.rename(final_path)
     finally:
         with suppress(OSError):

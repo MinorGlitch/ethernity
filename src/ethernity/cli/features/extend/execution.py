@@ -42,16 +42,22 @@ from ethernity.cli.features.extend.models import (
     RenderedExtensionArtifacts,
     ReuseRootPassphraseShards,
 )
+from ethernity.cli.features.extend.planning import resolve_extend_state
 from ethernity.cli.features.extend.prepare import (
     prepare_extend_run,
     prepare_staged_extension_publish,
 )
 from ethernity.cli.features.extend.shard_validation import validate_staged_shard_carriers
+from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.events import emit_phase, emit_progress
+from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.recovery_kit_index import build_recovery_kit_index_inventory_rows
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.extensions.build import Chunker, default_extension_chunker
-from ethernity.extensions.staging import validate_staged_extension_dir
+from ethernity.extensions.staging import (
+    EXTENSION_CHAIN_LOCK_DIR_NAME,
+    validate_staged_extension_dir,
+)
 from ethernity.render.layout_debug import layout_debug_json_path
 
 
@@ -108,6 +114,8 @@ def execute_staged_extension_publish(
         populate=_populate,
         validate_staging=_validate_staging,
         validate_artifacts=_validate_artifacts,
+        validate_promotion=lambda: _validate_published_chain_head_for_promotion(plan),
+        lock_dir=staging_dir.parent / EXTENSION_CHAIN_LOCK_DIR_NAME,
     )
     final_dir = publish_result.final_dir
     emit_progress(
@@ -152,6 +160,71 @@ def execute_staged_extension_publish(
             else 0
         ),
     )
+
+
+def _validate_published_chain_head_for_promotion(plan: PreparedExtensionPublishPlan) -> None:
+    """Verify the published chain still matches the lineage used to build the extension."""
+
+    try:
+        current = resolve_extend_state(
+            replace(
+                plan.prepared.args,
+                input=None,
+                input_dir=None,
+                base_dir=None,
+            )
+        )
+    except ApiCommandError as exc:
+        raise ApiCommandError(
+            code=api_codes.CHAIN_INVALID,
+            message=f"published extension chain could not be revalidated: {exc.message}",
+            details={
+                "stage": "publish_head",
+                "cause_code": exc.code,
+                "cause_details": exc.details,
+            },
+        ) from exc
+
+    if current.inspection.blocking_issues:
+        first_issue = current.inspection.blocking_issues[0]
+        raise ApiCommandError(
+            code=api_codes.CHAIN_INVALID,
+            message=(
+                "published extension chain is no longer valid before promotion: "
+                f"{first_issue.get('message')}"
+            ),
+            details={
+                "stage": "publish_head",
+                "issue": dict(first_issue),
+            },
+        )
+
+    mismatches: dict[str, object] = {}
+    if current.root_doc_hash != plan.prepared.root_doc_hash:
+        mismatches["root_doc_hash"] = {
+            "expected": plan.prepared.root_doc_hash.hex(),
+            "actual": _hex_or_none(current.root_doc_hash),
+        }
+    if current.parent_doc_hash != plan.prepared.parent_doc_hash:
+        mismatches["parent_doc_hash"] = {
+            "expected": plan.prepared.parent_doc_hash.hex(),
+            "actual": _hex_or_none(current.parent_doc_hash),
+        }
+    if current.next_index != plan.prepared.next_index:
+        mismatches["next_index"] = {
+            "expected": plan.prepared.next_index,
+            "actual": current.next_index,
+        }
+    if mismatches:
+        raise ApiCommandError(
+            code=api_codes.CHAIN_INVALID,
+            message="published extension chain head changed before promotion",
+            details={"stage": "publish_head", "mismatches": mismatches},
+        )
+
+
+def _hex_or_none(value: bytes | None) -> str | None:
+    return None if value is None else value.hex()
 
 
 def run_extend(
