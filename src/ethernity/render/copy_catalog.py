@@ -376,15 +376,16 @@ def _signing_key_shard_document_copy(*, context: Mapping[str, object]) -> dict[s
         if lineage_label is None:
             raise ValueError("extension lineage label is required")
         return {
-            "title": "Extension Signing Key Shard",
-            "subtitle": f"{lineage_label} - Signing key shard {shard_index} of {shard_total}",
-            "header_guidance": "Store apart from passphrase and sibling signing shards",
-            "footer_guidance": "Store apart from passphrase and sibling signing shards",
+            "title": "Extension Signing Authority Shard",
+            "subtitle": f"{lineage_label} - Signing authority shard {shard_index} of {shard_total}",
+            "header_guidance": "Store apart from passphrase and sibling authority shards",
+            "footer_guidance": "Store apart from passphrase and sibling authority shards",
             "warning_title": "Critical Security Notice",
             "warning_body": (
-                f"This page contains one signing key shard for {lineage_label.lower()}. Never "
-                "store it with other signing shards, passphrase documents, or the wrong "
-                "extension generation."
+                "This page contains one root/chain signing authority shard for "
+                f"{lineage_label.lower()}. A quorum can authorize future extensions. Never "
+                "store it with other authority shards, passphrase documents, or the wrong "
+                "chain generation."
             ),
             "key_material_label": "Key Material Payload",
             "master_fingerprint_label": "Master Fingerprint",
@@ -393,16 +394,17 @@ def _signing_key_shard_document_copy(*, context: Mapping[str, object]) -> dict[s
         }
     if lineage_kind == "compaction_checkpoint":
         return {
-            "title": "Compaction Checkpoint Signing Key Shard",
+            "title": "Compaction Checkpoint Signing Authority Shard",
             "subtitle": (
-                f"Compaction Checkpoint - Signing key shard {shard_index} of {shard_total}"
+                f"Compaction Checkpoint - Signing authority shard {shard_index} of {shard_total}"
             ),
-            "header_guidance": "Store apart from passphrase and sibling signing shards",
-            "footer_guidance": "Store apart from passphrase and sibling signing shards",
+            "header_guidance": "Store apart from passphrase and sibling authority shards",
+            "footer_guidance": "Store apart from passphrase and sibling authority shards",
             "warning_title": "Critical Security Notice",
             "warning_body": (
-                "This page contains one signing key shard for the compaction checkpoint. Never "
-                "store it with other signing shards or passphrase documents."
+                "This page contains one root/chain signing authority shard for the compaction "
+                "checkpoint. A quorum can authorize future extensions. Never store it with "
+                "other authority shards or passphrase documents."
             ),
             "key_material_label": "Key Material Payload",
             "master_fingerprint_label": "Master Fingerprint",
@@ -411,15 +413,16 @@ def _signing_key_shard_document_copy(*, context: Mapping[str, object]) -> dict[s
         }
     if lineage_kind == "minted_shard_set":
         return {
-            "title": "Minted Signing Key Shard",
-            "subtitle": f"Minted signing key shard {shard_index} of {shard_total}",
-            "header_guidance": "Store apart from passphrase and sibling signing shards",
-            "footer_guidance": "Store apart from passphrase and sibling signing shards",
+            "title": "Minted Signing Authority Shard",
+            "subtitle": f"Minted signing authority shard {shard_index} of {shard_total}",
+            "header_guidance": "Store apart from passphrase and sibling authority shards",
+            "footer_guidance": "Store apart from passphrase and sibling authority shards",
             "warning_title": "Critical Security Notice",
             "warning_body": (
-                "This page contains one freshly minted signing key shard. Never store it with "
-                "other signing shards or passphrase documents, and verify the minted set before "
-                "retiring any older set."
+                "This page contains one freshly minted root/chain signing authority shard. "
+                "A quorum can authorize future extensions. Never store it with other authority "
+                "shards or passphrase documents, and verify the minted set before retiring any "
+                "older set."
             ),
             "key_material_label": "Key Material Payload",
             "master_fingerprint_label": "Master Fingerprint",
@@ -427,14 +430,15 @@ def _signing_key_shard_document_copy(*, context: Mapping[str, object]) -> dict[s
             "lineage_badge": "Minted Shard Set",
         }
     return {
-        "title": "Signing Key Shard",
-        "subtitle": f"Signing key shard {shard_index} of {shard_total}",
-        "header_guidance": "Store apart from passphrase and sibling signing shards",
-        "footer_guidance": "Store apart from passphrase and sibling signing shards",
+        "title": "Signing Authority Shard",
+        "subtitle": f"Signing authority shard {shard_index} of {shard_total}",
+        "header_guidance": "Store apart from passphrase and sibling authority shards",
+        "footer_guidance": "Store apart from passphrase and sibling authority shards",
         "warning_title": "Critical Security Notice",
         "warning_body": (
-            "This page contains one signing key shard. Never store it with other signing "
-            "shards or passphrase documents."
+            "This page contains one root/chain signing authority shard. A quorum can authorize "
+            "future extensions. Never store it with other authority shards or passphrase "
+            "documents."
         ),
         "key_material_label": "Key Material Payload",
         "master_fingerprint_label": "Master Fingerprint",

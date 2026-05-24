@@ -470,22 +470,22 @@ def _build_review_rows(
         elif plan.signing_seed_mode == SigningSeedMode.EMBEDDED:
             signing_label = "embedded in main document"
         else:
-            signing_label = "separate signing-key shard documents"
-        review_rows.append(("Signing key handling", signing_label))
+            signing_label = "separate signing authority shard documents"
+        review_rows.append(("Signing authority handling", signing_label))
         if plan.signing_seed_mode == SigningSeedMode.SHARDED:
             if plan.signing_seed_sharding:
                 signing_seed_sharding = plan.signing_seed_sharding
                 review_rows.append(
                     (
-                        "Signing-key shards",
+                        "Signing authority shards",
                         f"{signing_seed_sharding.threshold} of {signing_seed_sharding.shares}",
                     )
                 )
             else:
-                review_rows.append(("Signing-key shards", "same as passphrase"))
+                review_rows.append(("Signing authority shards", "same as passphrase"))
     else:
         review_rows.append(("Sharding", "disabled"))
-        review_rows.append(("Signing key handling", "not applicable"))
+        review_rows.append(("Signing authority handling", "not applicable"))
 
     review_rows.append(("Sealed", "yes" if plan.sealed else "no"))
     review_rows.append(("Inputs", None))
@@ -522,7 +522,7 @@ def _build_review_rows(
         and plan.signing_seed_mode == SigningSeedMode.SHARDED
     ):
         review_rows.append(
-            ("Signing-key shard template", str(config.signing_key_shard_template_path))
+            ("Signing authority shard template", str(config.signing_key_shard_template_path))
         )
     return review_rows
 
@@ -600,7 +600,8 @@ def _print_completion_actions(result: BackupResult, quiet: bool) -> None:
         actions.append(f"Store {len(result.shard_paths)} shard documents in different locations.")
     if result.signing_key_shard_paths:
         actions.append(
-            f"Store {len(result.signing_key_shard_paths)} signing-key shard documents separately."
+            f"Store {len(result.signing_key_shard_paths)} signing authority shard documents "
+            "separately."
         )
     actions.append("Run `ethernity recover` to verify the backup.")
     print_completion_panel("Backup complete", actions, quiet=quiet)

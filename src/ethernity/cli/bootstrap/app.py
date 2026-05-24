@@ -435,15 +435,15 @@ def _prompt_home_extend_output_policy(
         help_text=_home_extend_shard_threshold_help(default_shard_threshold, shard_count),
     )
     signing_key_mode = prompt_choice(
-        "Store signing-key recovery shards for this extension",
+        "Store root/chain signing authority shards for this extension",
         {
-            "not-stored": "No, do not store signing-key recovery shards",
-            "sharded": "Yes, create signing-key shard documents",
+            "not-stored": "No, do not store signing authority shards",
+            "sharded": "Yes, create root/chain signing authority shard documents",
         },
         default=default_signing_key_mode if default_signing_key_mode == "sharded" else "not-stored",
         help_text=(
-            "Signing-key shards allow future shard minting if the root signing seed is not "
-            "available elsewhere."
+            "These shards can recover the root/chain signing authority, which can authorize "
+            "future extensions if the root signing seed is not available elsewhere."
         ),
     )
     if signing_key_mode != "sharded":
@@ -455,7 +455,7 @@ def _prompt_home_extend_output_policy(
         )
 
     signing_key_shard_count = prompt_int(
-        "Signing-key shard document count",
+        "Signing authority shard document count",
         minimum=1,
         maximum=MAX_SHARES,
         help_text=_home_extend_shard_count_help(
@@ -463,7 +463,7 @@ def _prompt_home_extend_output_policy(
         ),
     )
     signing_key_shard_threshold = prompt_int(
-        "Signing-key shard threshold",
+        "Signing authority shard threshold",
         minimum=1,
         maximum=signing_key_shard_count,
         help_text=_home_extend_shard_threshold_help(

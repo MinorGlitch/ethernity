@@ -292,7 +292,7 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
                     debug=False,
                 )
         self.assertIn(("Sharding", "disabled"), rows)
-        self.assertIn(("Signing key handling", "not applicable"), rows)
+        self.assertIn(("Signing authority handling", "not applicable"), rows)
         self.assertIn(("Recovery kit index template", str(template_path)), rows)
 
         sharded_plan = DocumentPlan(
@@ -316,11 +316,15 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
             debug=True,
         )
         self.assertIn(("Sharding", "2 of 3"), rows)
-        self.assertIn(("Signing key handling", "separate signing-key shard documents"), rows)
-        self.assertIn(("Signing-key shards", "same as passphrase"), rows)
+        self.assertIn(
+            ("Signing authority handling", "separate signing authority shard documents"),
+            rows,
+        )
+        self.assertIn(("Signing authority shards", "same as passphrase"), rows)
         self.assertIn(("Shard template", str(config.shard_template_path)), rows)
         self.assertIn(
-            ("Signing-key shard template", str(config.signing_key_shard_template_path)), rows
+            ("Signing authority shard template", str(config.signing_key_shard_template_path)),
+            rows,
         )
 
         sealed_sharded_plan = DocumentPlan(
@@ -343,8 +347,8 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
             config=config,
             debug=False,
         )
-        self.assertIn(("Signing key handling", "not stored (sealed backup)"), rows)
-        self.assertIn(("Signing-key shards", "1 of 2"), rows)
+        self.assertIn(("Signing authority handling", "not stored (sealed backup)"), rows)
+        self.assertIn(("Signing authority shards", "1 of 2"), rows)
 
     def test_build_review_rows_shows_gzip_compression_ratio_when_used(self) -> None:
         input_files = [
@@ -599,7 +603,7 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
         actions = completion_panel.call_args.args[1]
         self.assertIn("Store the recovery kit index separately.", actions)
         self.assertIn("Store 2 shard documents in different locations.", actions)
-        self.assertIn("Store 1 signing-key shard documents separately.", actions)
+        self.assertIn("Store 1 signing authority shard documents separately.", actions)
 
         with mock.patch.object(backup, "print_completion_panel") as completion_panel:
             backup._print_completion_actions(result, quiet=True)

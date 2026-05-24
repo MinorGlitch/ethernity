@@ -405,7 +405,7 @@ class TestUIHelpers(unittest.TestCase):
         rendered = out.getvalue()
         self.assertIn("Recovery kit index", rendered)
         self.assertIn("shard-1.pdf", rendered)
-        self.assertIn("Signing-key shard documents", rendered)
+        self.assertIn("Signing authority shard documents", rendered)
 
         self.assertIsNone(ui_module.build_recovered_tree([], output_path=None))
         single = ui_module.build_recovered_tree([(SimpleNamespace(path="a.txt"), b"x")], "a.txt")

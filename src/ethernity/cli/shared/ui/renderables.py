@@ -119,7 +119,7 @@ def build_outputs_tree(
             shards.add(path)
     if signing_key_shard_paths:
         shards = tree.add(
-            f"[accent]Signing-key shard documents[/accent] ({len(signing_key_shard_paths)})"
+            f"[accent]Signing authority shard documents[/accent] ({len(signing_key_shard_paths)})"
         )
         for path in signing_key_shard_paths:
             shards.add(path)
@@ -137,7 +137,7 @@ def build_mint_outputs_tree(
             shards.add(path)
     if signing_key_shard_paths:
         shards = tree.add(
-            f"[accent]Signing-key shard documents[/accent] ({len(signing_key_shard_paths)})"
+            f"[accent]Signing authority shard documents[/accent] ({len(signing_key_shard_paths)})"
         )
         for path in signing_key_shard_paths:
             shards.add(path)

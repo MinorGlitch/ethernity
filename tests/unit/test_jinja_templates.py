@@ -347,7 +347,7 @@ class TestJinjaTemplates(unittest.TestCase):
             ]
             context["shard_threshold"] = 2
             context["doc"] = {
-                "title": "Signing Key Shard"
+                "title": "Signing Authority Shard"
                 if template_name == "signing_key_shard_document.html.j2"
                 else "Shard Document",
                 "subtitle": "Shard 1 of 3",
@@ -442,7 +442,7 @@ class TestJinjaTemplates(unittest.TestCase):
                 }
             ]
             context["doc"] = {
-                "title": "Signing Key Shard"
+                "title": "Signing Authority Shard"
                 if template_name == "signing_key_shard_document.html.j2"
                 else "Shard Document",
                 "subtitle": "Shard 1 of 3",
@@ -1018,7 +1018,10 @@ class TestJinjaTemplates(unittest.TestCase):
             "recovery_document.html.j2": ("Recovery Document", "Keys + Text Fallback"),
             "kit_document.html.j2": ("Recovery Kit", "Offline HTML bundle"),
             "shard_document.html.j2": ("Shard Document", "Shard 1 of 3"),
-            "signing_key_shard_document.html.j2": ("Signing Key Shard", "Signing key shard 1 of 3"),
+            "signing_key_shard_document.html.j2": (
+                "Signing Authority Shard",
+                "Signing authority shard 1 of 3",
+            ),
             "kit_index_document.html.j2": ("Recovery Kit Index", "Inventory + Custody Log"),
         }
         renderers = (

@@ -92,8 +92,8 @@ class TestCopyCatalog(unittest.TestCase):
             doc_type="signing_key_shard",
             context={"shard_index": 4, "shard_total": 7},
         )
-        self.assertEqual(copy["title"], "Signing Key Shard")
-        self.assertEqual(copy["subtitle"], "Signing key shard 4 of 7")
+        self.assertEqual(copy["title"], "Signing Authority Shard")
+        self.assertEqual(copy["subtitle"], "Signing authority shard 4 of 7")
         self.assertEqual(copy["key_material_label"], "Key Material Payload")
 
     def test_compaction_signing_key_shard_bundle_mentions_checkpoint(self) -> None:
@@ -105,10 +105,10 @@ class TestCopyCatalog(unittest.TestCase):
                 "lineage": {"kind": "compaction_checkpoint", "extension_index": None},
             },
         )
-        self.assertEqual(copy["title"], "Compaction Checkpoint Signing Key Shard")
+        self.assertEqual(copy["title"], "Compaction Checkpoint Signing Authority Shard")
         self.assertEqual(
             copy["subtitle"],
-            "Compaction Checkpoint - Signing key shard 4 of 7",
+            "Compaction Checkpoint - Signing authority shard 4 of 7",
         )
         self.assertEqual(copy["lineage_badge"], "Compaction Checkpoint")
 
