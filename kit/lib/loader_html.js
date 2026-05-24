@@ -26,8 +26,8 @@ export function buildUnsupportedLoaderHtml({ title = DEFAULT_TITLE } = {}) {
   return `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{margin:0;font:16px/1.5 ui-sans-serif,system-ui,sans-serif;background:#f5f1e8;color:#231f19}main{max-width:42rem;margin:0 auto;padding:4rem 1.5rem}h1{margin:0 0 1rem;font-size:2rem;line-height:1.1}p{margin:0 0 1rem}.panel{padding:1.25rem 1.5rem;border:1px solid #c8bca6;border-radius:1rem;background:#fffaf1;box-shadow:0 0.75rem 2rem rgba(35,31,25,.08)}</style><main><div class="panel"><h1>Recovery kit cannot open here</h1><p>${UNSUPPORTED_MESSAGE}</p><p>${UNSUPPORTED_HINT}</p></div></main>`;
 }
 
-function normalizeCompression(compression) {
-  const normalized = String(compression || "gzip").toLowerCase();
+function normalizeCompression(compression = "gzip") {
+  const normalized = String(compression).toLowerCase();
   if (!SUPPORTED_COMPRESSIONS.has(normalized)) {
     throw new Error("compression must be one of: gzip, brotli");
   }

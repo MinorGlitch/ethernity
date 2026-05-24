@@ -73,6 +73,20 @@ test("buildCompressedLoaderHtml rejects missing loader payload inputs", () => {
   );
 });
 
+test("buildCompressedLoaderHtml rejects invalid compression values", () => {
+  const validInputs = {
+    payloadBase91Safe: "abc123",
+    alphabet: BASE91_ALPHABET,
+  };
+
+  for (const compression of ["", null, false, 0, "zip"]) {
+    assert.throws(
+      () => buildCompressedLoaderHtml({ ...validInputs, compression }),
+      /compression must be one of: gzip, brotli/,
+    );
+  }
+});
+
 test("buildCompressedLoaderHtml decodes and renders gzip payload", async () => {
   const sourceHtml = "<!doctype html><p>ok</p>";
   const payloadBase91Safe = base91Encode(gzipSync(Buffer.from(sourceHtml))).replaceAll(
