@@ -1279,6 +1279,56 @@ max_size = 65536
         self.assertIsNone(inspection.signing_authority["source"])
         self.assertEqual(inspection.blocking_issues[0]["code"], "ROOT_AUTHORITY_MISMATCH")
 
+    def test_inspect_from_args_reports_post_unlock_state_errors_as_chain_invalid(self) -> None:
+        manifest, payload = build_manifest_and_payload(
+            (PayloadPart(path="alpha.txt", data=b"alpha", mtime=1),),
+            sealed=False,
+            signing_seed=b"\x33" * 32,
+            created_at=1.0,
+            input_origin="file",
+            input_roots=(),
+        )
+        unlocked_root = RecoveryInspection(
+            **{
+                **_root_inspection(passphrase="secret").__dict__,
+                "unlock": RecoveryUnlockStatus(
+                    mode="passphrase",
+                    passphrase_provided=True,
+                    validated_shard_count=0,
+                    required_shard_threshold=None,
+                    satisfied=True,
+                    resolved_passphrase="secret",
+                    blocking_issues=(),
+                ),
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "backup-root"
+            root_dir.mkdir()
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    return_value=_RootRecoveryInspection(unlocked_root, "none"),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    return_value=(manifest, payload),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                    side_effect=ValueError("invalid logical root state"),
+                ),
+            ):
+                inspection = inspect_from_args(
+                    ExtendArgs(root_dir=str(root_dir), passphrase="secret")
+                )
+
+        issue_codes = {issue["code"] for issue in inspection.blocking_issues}
+        self.assertIn(api_codes.CHAIN_INVALID, issue_codes)
+        self.assertNotIn("UNLOCK_FAILED", issue_codes)
+        self.assertEqual(inspection.blocking_issues[0]["details"], {"stage": "chain"})
+
     def test_inspect_from_args_uses_shared_recovery_head_refusal_for_degraded_latest_chain(
         self,
     ) -> None:

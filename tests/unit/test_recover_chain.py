@@ -619,6 +619,44 @@ class TestRecoverChain(unittest.TestCase):
         ):
             recover_chain_entries(plan, quiet=True)
 
+    def test_recover_chain_entries_rejects_bad_selected_extension_doc_hash_as_untrusted(
+        self,
+    ) -> None:
+        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+        selected_ciphertext = b"not an extension envelope"
+        selected_doc_id, selected_doc_hash = doc_id_and_hash_from_ciphertext(selected_ciphertext)
+        plan = dataclasses.replace(
+            _recovery_plan(
+                root_ciphertext,
+                root_doc_id,
+                root_doc_hash,
+                extension_doc_hash=selected_doc_hash.hex(),
+            ),
+            import_documents=(
+                _imported_document(root_ciphertext),
+                _imported_document(
+                    selected_ciphertext,
+                    auth_frames=(_extension_auth_frame(selected_doc_id, selected_doc_hash),),
+                ),
+            ),
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                side_effect=lambda data, *, passphrase, debug=False: data,
+            ),
+            self.assertRaises(ApiCommandError) as caught,
+        ):
+            recover_chain_entries(plan, quiet=True)
+
+        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertIn("could not be decoded", caught.exception.message)
+        self.assertNotIn("was not found", caught.exception.message)
+        self.assertEqual(caught.exception.details["stage"], "decode")
+        self.assertEqual(caught.exception.details["extension_doc_hash"], selected_doc_hash.hex())
+        self.assertTrue(caught.exception.details["explicit_selection"])
+
     def test_recover_chain_entries_rejects_missing_selected_extension_for_root_only(
         self,
     ) -> None:

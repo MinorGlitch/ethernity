@@ -316,104 +316,6 @@ def _resolve_extend_state_after_root_inspection(
                 root_inspection.ciphertext,
                 passphrase=root_inspection.unlock.resolved_passphrase,
             )
-            source_summary = _manifest_summary_payload(manifest)
-            current_state = extract_root_logical_state(manifest, payload)
-            if manifest.sealed:
-                blocking_issues.append(
-                    _blocking_issue(
-                        "SEALED_ROOT_NOT_EXTENDABLE",
-                        "sealed roots are terminal in v1 and cannot be extended",
-                    )
-                )
-            else:
-                authority = resolve_root_manifest_authority(manifest, root_inspection.auth_payload)
-                embedded_signing_seed = manifest.signing_seed
-                if embedded_signing_seed is None:
-                    raise ValueError("root backup manifest is missing an embedded signing seed")
-                if authority.mismatch:
-                    blocking_issues.append(
-                        _blocking_issue(
-                            "ROOT_AUTHORITY_MISMATCH",
-                            (
-                                "embedded signing seed does not match the verified "
-                                "root AUTH authority"
-                            ),
-                        )
-                    )
-                    signing_authority = {
-                        "available": True,
-                        "satisfied": False,
-                        "source": None,
-                    }
-                else:
-                    signing_seed = embedded_signing_seed
-                    signing_authority = {
-                        "available": True,
-                        "satisfied": True,
-                        "source": "embedded_seed",
-                    }
-                    if (
-                        extension_inventory is not None
-                        and _extension_chain_present(extension_inventory)
-                        and not manifest.sealed
-                    ):
-                        (
-                            current_state,
-                            validated_head_index,
-                            validated_head_doc_hash,
-                            ancestry_valid,
-                            parent_doc_hash,
-                            next_index,
-                            chunking,
-                            available_chunks,
-                            available_extensions,
-                            validated_head_auth_status,
-                            validated_head_root_authority_verified,
-                            discovered_extension_dirs,
-                            input_kind,
-                        ) = _reconstruct_extension_state(
-                            root_dir=root_dir,
-                            manifest=manifest,
-                            payload=payload,
-                            root_doc_hash=root_inspection.doc_hash,
-                            passphrase=root_inspection.unlock.resolved_passphrase,
-                            expected_sign_pub=authority.embedded_sign_pub,
-                            root_auth_status=root_inspection.auth_status,
-                            blocking_issues=blocking_issues,
-                            inventory=extension_inventory,
-                            new_chain_chunking=new_chain_chunking,
-                            quiet=args.quiet,
-                        )
-                    else:
-                        validated_head_index = 0
-                        validated_head_doc_hash = root_inspection.doc_hash.hex()
-                        ancestry_valid = True
-                        validated_head_auth_status = root_inspection.auth_status
-                        validated_head_root_authority_verified = _root_head_root_authority_verified(
-                            root_auth_status=root_inspection.auth_status,
-                            expected_sign_pub=authority.embedded_sign_pub,
-                        )
-                        parent_doc_hash = root_inspection.doc_hash
-                        next_index = 1
-                        chunking = new_chain_chunking
-                        available_chunks = _sorted_chunk_items(
-                            build_chain_available_chunks(current_state, chunking)
-                        )
-
-            if current_state is not None and loaded_scope is not None:
-                diff = summarize_scope_diff(current_state, loaded_scope)
-                diff_summary = diff.to_payload()
-                if diff.missing_paths:
-                    blocking_issues.append(
-                        _blocking_issue(
-                            "DELETE_NOT_SUPPORTED",
-                            (
-                                "selected scope omits previously backed paths; "
-                                "delete/rename is unsupported"
-                            ),
-                            details={"missing_paths": list(diff.missing_paths)},
-                        )
-                    )
         except ValueError as exc:
             blocking_issues.append(
                 _blocking_issue(
@@ -422,6 +324,118 @@ def _resolve_extend_state_after_root_inspection(
                     details={"stage": "decrypt"},
                 )
             )
+        else:
+            try:
+                source_summary = _manifest_summary_payload(manifest)
+                current_state = extract_root_logical_state(manifest, payload)
+                if manifest.sealed:
+                    blocking_issues.append(
+                        _blocking_issue(
+                            "SEALED_ROOT_NOT_EXTENDABLE",
+                            "sealed roots are terminal in v1 and cannot be extended",
+                        )
+                    )
+                else:
+                    authority = resolve_root_manifest_authority(
+                        manifest, root_inspection.auth_payload
+                    )
+                    embedded_signing_seed = manifest.signing_seed
+                    if embedded_signing_seed is None:
+                        raise ValueError("root backup manifest is missing an embedded signing seed")
+                    if authority.mismatch:
+                        blocking_issues.append(
+                            _blocking_issue(
+                                "ROOT_AUTHORITY_MISMATCH",
+                                (
+                                    "embedded signing seed does not match the verified "
+                                    "root AUTH authority"
+                                ),
+                            )
+                        )
+                        signing_authority = {
+                            "available": True,
+                            "satisfied": False,
+                            "source": None,
+                        }
+                    else:
+                        signing_seed = embedded_signing_seed
+                        signing_authority = {
+                            "available": True,
+                            "satisfied": True,
+                            "source": "embedded_seed",
+                        }
+                        if (
+                            extension_inventory is not None
+                            and _extension_chain_present(extension_inventory)
+                            and not manifest.sealed
+                        ):
+                            (
+                                current_state,
+                                validated_head_index,
+                                validated_head_doc_hash,
+                                ancestry_valid,
+                                parent_doc_hash,
+                                next_index,
+                                chunking,
+                                available_chunks,
+                                available_extensions,
+                                validated_head_auth_status,
+                                validated_head_root_authority_verified,
+                                discovered_extension_dirs,
+                                input_kind,
+                            ) = _reconstruct_extension_state(
+                                root_dir=root_dir,
+                                manifest=manifest,
+                                payload=payload,
+                                root_doc_hash=root_inspection.doc_hash,
+                                passphrase=root_inspection.unlock.resolved_passphrase,
+                                expected_sign_pub=authority.embedded_sign_pub,
+                                root_auth_status=root_inspection.auth_status,
+                                blocking_issues=blocking_issues,
+                                inventory=extension_inventory,
+                                new_chain_chunking=new_chain_chunking,
+                                quiet=args.quiet,
+                            )
+                        else:
+                            validated_head_index = 0
+                            validated_head_doc_hash = root_inspection.doc_hash.hex()
+                            ancestry_valid = True
+                            validated_head_auth_status = root_inspection.auth_status
+                            validated_head_root_authority_verified = (
+                                _root_head_root_authority_verified(
+                                    root_auth_status=root_inspection.auth_status,
+                                    expected_sign_pub=authority.embedded_sign_pub,
+                                )
+                            )
+                            parent_doc_hash = root_inspection.doc_hash
+                            next_index = 1
+                            chunking = new_chain_chunking
+                            available_chunks = _sorted_chunk_items(
+                                build_chain_available_chunks(current_state, chunking)
+                            )
+
+                if current_state is not None and loaded_scope is not None:
+                    diff = summarize_scope_diff(current_state, loaded_scope)
+                    diff_summary = diff.to_payload()
+                    if diff.missing_paths:
+                        blocking_issues.append(
+                            _blocking_issue(
+                                "DELETE_NOT_SUPPORTED",
+                                (
+                                    "selected scope omits previously backed paths; "
+                                    "delete/rename is unsupported"
+                                ),
+                                details={"missing_paths": list(diff.missing_paths)},
+                            )
+                        )
+            except ValueError as exc:
+                blocking_issues.append(
+                    _blocking_issue(
+                        api_codes.CHAIN_INVALID,
+                        str(exc),
+                        details={"stage": "chain"},
+                    )
+                )
 
     inspection = ExtendInspection(
         doc_id=doc_id_hex,

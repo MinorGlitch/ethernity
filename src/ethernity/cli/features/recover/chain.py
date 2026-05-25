@@ -523,6 +523,7 @@ def _decode_imported_extension_links(
         passphrase=passphrase,
         expected_sign_pub=expected_sign_pub,
         fail_on_root_authority_errors=requested_index is None and requested_doc_hash is None,
+        requested_doc_hash=_requested_extension_doc_hash_bytes(requested_doc_hash),
         quiet=quiet,
         debug=debug,
     )
@@ -546,6 +547,7 @@ def _decode_imported_extension_candidates(
     passphrase: str,
     expected_sign_pub: bytes,
     fail_on_root_authority_errors: bool,
+    requested_doc_hash: bytes | None,
     quiet: bool,
     debug: bool,
 ) -> tuple[_DecodedExtensionCandidate, ...]:
@@ -572,43 +574,71 @@ def _decode_imported_extension_candidates(
             plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
             version, decoded_document = decode_any_envelope(plaintext)
         except Exception as exc:
+            message = f"imported root-authority document could not be decoded: {exc}"
+            if document.doc_hash == requested_doc_hash:
+                _raise_selected_extension_candidate_error(
+                    document,
+                    expected_sign_pub=expected_sign_pub,
+                    quiet=quiet,
+                    stage="decode",
+                    message=message,
+                )
             if fail_on_root_authority_errors:
                 _raise_if_document_signed_by_root_authority(
                     document,
                     expected_sign_pub=expected_sign_pub,
                     quiet=quiet,
                     stage="decode",
-                    message=f"imported root-authority document could not be decoded: {exc}",
+                    message=message,
                 )
             continue
         if version != 2 or not isinstance(decoded_document, ExtensionEnvelope):
+            message = "imported root-authority document did not decode as an extension envelope"
+            if document.doc_hash == requested_doc_hash:
+                _raise_selected_extension_candidate_error(
+                    document,
+                    expected_sign_pub=expected_sign_pub,
+                    quiet=quiet,
+                    stage="decode",
+                    message=message,
+                )
             if fail_on_root_authority_errors:
                 _raise_if_document_signed_by_root_authority(
                     document,
                     expected_sign_pub=expected_sign_pub,
                     quiet=quiet,
                     stage="decode",
-                    message=(
-                        "imported root-authority document did not decode as an extension envelope"
-                    ),
+                    message=message,
                 )
             continue
         if decoded_document.header.root_doc_hash != root_doc_hash:
+            message = "imported root-authority extension does not target the selected root document"
+            if document.doc_hash == requested_doc_hash:
+                _raise_selected_extension_candidate_error(
+                    document,
+                    expected_sign_pub=expected_sign_pub,
+                    quiet=quiet,
+                    stage="chain",
+                    message=message,
+                )
             if fail_on_root_authority_errors:
                 _raise_if_document_signed_by_root_authority(
                     document,
                     expected_sign_pub=expected_sign_pub,
                     quiet=quiet,
                     stage="chain",
-                    message=(
-                        "imported root-authority extension does not target the selected "
-                        "root document"
-                    ),
+                    message=message,
                 )
             continue
         seen_doc_hashes.add(document.doc_hash)
         candidates.append(_DecodedExtensionCandidate(document=document, decoded=decoded_document))
     return tuple(candidates)
+
+
+def _requested_extension_doc_hash_bytes(requested_doc_hash: str | None) -> bytes | None:
+    if requested_doc_hash is None:
+        return None
+    return _parse_extension_doc_hash(requested_doc_hash)
 
 
 def _select_extension_candidates_for_auth(
@@ -746,6 +776,41 @@ def _raise_if_document_signed_by_root_authority(
                 "extension_doc_hash": document.doc_hash.hex(),
             },
         )
+
+
+def _raise_selected_extension_candidate_error(
+    document: ImportedRecoveryDocument,
+    *,
+    expected_sign_pub: bytes,
+    quiet: bool,
+    stage: str,
+    message: str,
+) -> None:
+    details: dict[str, object] = {
+        "stage": stage,
+        "extension_doc_hash": document.doc_hash.hex(),
+        "explicit_selection": True,
+    }
+    try:
+        auth_payload, _auth_status = resolve_auth_payload(
+            list(document.auth_frames),
+            doc_id=document.doc_id,
+            doc_hash=document.doc_hash,
+            allow_unsigned=False,
+            require_auth=True,
+            quiet=quiet,
+        )
+    except ValueError as exc:
+        details["auth_error"] = str(exc)
+    else:
+        details["root_authority_verified"] = (
+            auth_payload is not None and auth_payload.sign_pub == expected_sign_pub
+        )
+    raise ApiCommandError(
+        code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+        message=message,
+        details=details,
+    )
 
 
 def decode_imported_extension_link(
