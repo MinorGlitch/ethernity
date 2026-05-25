@@ -369,6 +369,7 @@ def _discover_extension_directory(*, index: int, path: Path) -> DiscoveredExtens
             raise ValueError(
                 f"extension directory {path.name} shard carrier doc_id does not match MAIN carriers"
             )
+    _require_complete_shard_carrier_sets(path=path, shard_carriers=shard_carriers)
 
     return DiscoveredExtensionDirectory(
         index=index,
@@ -413,6 +414,32 @@ def _collect_extension_artifact(
         )
     shard_keys.add(shard_key)
     shard_carriers.append(parsed_shard)
+
+
+def _require_complete_shard_carrier_sets(
+    *,
+    path: Path,
+    shard_carriers: list[DiscoveredExtensionShardCarrier],
+) -> None:
+    carriers_by_type: dict[str, list[DiscoveredExtensionShardCarrier]] = {}
+    for carrier in shard_carriers:
+        carriers_by_type.setdefault(carrier.doc_type, []).append(carrier)
+
+    for doc_type, carriers in carriers_by_type.items():
+        share_counts = {carrier.share_count for carrier in carriers}
+        if len(share_counts) != 1:
+            raise ValueError(
+                f"extension directory {path.name} {doc_type} carriers must all declare "
+                "the same share_count"
+            )
+        expected_count = next(iter(share_counts))
+        actual_indexes = {carrier.share_index for carrier in carriers}
+        expected_indexes = set(range(1, expected_count + 1))
+        if actual_indexes != expected_indexes:
+            raise ValueError(
+                f"extension directory {path.name} {doc_type} carriers must include shares "
+                f"1 through {expected_count}"
+            )
 
 
 def _parse_main_carrier(*, entry: Path, expected_index: int) -> DiscoveredExtensionMainCarrier:

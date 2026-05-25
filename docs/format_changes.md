@@ -37,48 +37,6 @@ Use this template for each change entry:
   - <none or short note>
 ```
 
-## 2026-05-22 - Authenticate compact shard policy inheritance
-
-- Type: validation
-- Normative spec updated: yes
-- Sections changed: Compaction rules
-- Compatibility:
-  - Old decoders reading new artifacts: yes (artifact wire format is unchanged)
-  - New decoders reading old artifacts: partial (compaction refuses unsigned or filename-only shard
-    policy inheritance that older implementations accepted)
-- Version/profile bump required: no (validation is stricter, but the serialized backup and shard
-  formats are unchanged)
-- Implementation refs:
-  - `src/ethernity/cli/features/compact/service.py`
-  - `src/ethernity/cli/features/extend/root_shards.py`
-  - `src/ethernity/cli/shared/root_shard_policy.py`
-- Test refs:
-  - `tests/unit/test_compact_service.py`
-  - `tests/unit/test_extend_inspection.py`
-- Security impact:
-  - Prevents compaction and reuse-root policy inference from using filename prefixes or unsigned
-    shard metadata as authority for the output shard policy
-
-## 2026-05-22 - Reject stale extension-like export entries
-
-- Type: validation
-- Normative spec updated: yes
-- Sections changed: 20
-- Compatibility:
-  - Old decoders reading new artifacts: yes (artifact wire format is unchanged)
-  - New decoders reading old artifacts: partial (backup-export trees with stale extension-like
-    top-level entries under `extensions/` are now rejected instead of treated as absent; unrelated
-    clutter remains ignored)
-- Version/profile bump required: no (this tightens export-layout validation without changing
-  serialized recovery carriers or extension envelopes)
-- Implementation refs:
-  - `src/ethernity/extensions/discovery.py`
-- Test refs:
-  - `tests/unit/test_extension_discovery.py`
-- Security impact:
-  - Prevents stale extension-like folders from being silently ignored during published export-tree
-    discovery.
-
 ## Versioning Guidance
 
 - Bump version/profile when an older decoder could misinterpret bytes, accept invalid data, or fail
@@ -143,17 +101,61 @@ Use this template for each change entry:
   - Old decoders reading new artifacts: yes (artifact wire format is unchanged)
   - New decoders reading old artifacts: yes for recovery, including arbitrary-named scanned PDF/image
     carriers with valid QR payloads; append operations can still reject degraded published export
-    trees that are missing required redundant artifacts
+    trees that are missing required redundant artifacts or complete shard carrier sets
 - Version/profile bump required: no (this clarifies product validation boundaries without changing
   serialized bytes)
 - Implementation refs:
   - `src/ethernity/extensions/discovery.py`
   - `src/ethernity/extensions/staging.py`
 - Test refs:
+  - `tests/unit/test_extension_discovery.py`
   - `tests/integration/test_integration_extensions.py`
 - Security impact:
   - Keeps content recovery permissive for damaged, renamed, or partial redundant carriers while
-    requiring complete canonical published state before appending a new extension.
+    requiring complete canonical published state, including internally consistent shard carrier
+    sets, before appending a new extension.
+
+## 2026-05-22 - Authenticate compact shard policy inheritance
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: Compaction rules
+- Compatibility:
+  - Old decoders reading new artifacts: yes (artifact wire format is unchanged)
+  - New decoders reading old artifacts: partial (compaction refuses unsigned or filename-only shard
+    policy inheritance that older implementations accepted)
+- Version/profile bump required: no (validation is stricter, but the serialized backup and shard
+  formats are unchanged)
+- Implementation refs:
+  - `src/ethernity/cli/features/compact/service.py`
+  - `src/ethernity/cli/features/extend/root_shards.py`
+  - `src/ethernity/cli/shared/root_shard_policy.py`
+- Test refs:
+  - `tests/unit/test_compact_service.py`
+  - `tests/unit/test_extend_inspection.py`
+- Security impact:
+  - Prevents compaction and reuse-root policy inference from using filename prefixes or unsigned
+    shard metadata as authority for the output shard policy
+
+## 2026-05-22 - Reject stale extension-like export entries
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: 20
+- Compatibility:
+  - Old decoders reading new artifacts: yes (artifact wire format is unchanged)
+  - New decoders reading old artifacts: partial (backup-export trees with stale extension-like
+    top-level entries under `extensions/` are now rejected instead of treated as absent; unrelated
+    clutter remains ignored)
+- Version/profile bump required: no (this tightens export-layout validation without changing
+  serialized recovery carriers or extension envelopes)
+- Implementation refs:
+  - `src/ethernity/extensions/discovery.py`
+- Test refs:
+  - `tests/unit/test_extension_discovery.py`
+- Security impact:
+  - Prevents stale extension-like folders from being silently ignored during published export-tree
+    discovery.
 
 ## 2026-05-14 - Bound extension chunking profile sizes
 
@@ -342,6 +344,28 @@ Use this template for each change entry:
 - Security impact:
   - Prevents release docs and user-facing errors from implying absolute proof that no later
     extension exists without an external freshness source
+
+## 2026-05-08 - Replace extension directory recovery with content import
+
+- Type: wire-format recovery profile
+- Normative spec updated: yes
+- Sections changed: 20, 21
+- Compatibility:
+  - Old decoders reading new artifacts: unchanged for envelope bytes, but old recovery tools may
+    require extension directories that are no longer normative
+  - New decoders reading old artifacts: yes, as long as the carriers can be scanned or pasted
+- Version/profile bump required: no envelope version bump; this removes filesystem layout from the
+  recovery profile without changing extension-envelope bytes
+- Implementation refs:
+  - `src/ethernity/cli/features/recover/chain.py`
+  - `src/ethernity/cli/features/recover/planning.py`
+- Test refs:
+  - `tests/unit/test_recover_chain.py`
+  - `tests/unit/test_recover_plan_paths.py`
+  - `tests/unit/test_recover_wizard.py`
+- Security impact:
+  - Moves recovery identity to ciphertext `doc_hash`, AUTH, and decrypted extension headers instead
+    of directory names or filenames
 
 ## 2026-05-08 - Preserve extension input root label whitespace
 
@@ -614,28 +638,6 @@ Use this template for each change entry:
 - Security impact:
   - Makes staged extension promotion fail closed for shard media and aligns replay/build chunking
     behavior with the stored chain profile
-
-## 2026-05-08 - Replace extension directory recovery with content import
-
-- Type: wire-format recovery profile
-- Normative spec updated: yes
-- Sections changed: 20, 21
-- Compatibility:
-  - Old decoders reading new artifacts: unchanged for envelope bytes, but old recovery tools may
-    require extension directories that are no longer normative
-  - New decoders reading old artifacts: yes, as long as the carriers can be scanned or pasted
-- Version/profile bump required: no envelope version bump; this removes filesystem layout from the
-  recovery profile without changing extension-envelope bytes
-- Implementation refs:
-  - `src/ethernity/cli/features/recover/chain.py`
-  - `src/ethernity/cli/features/recover/planning.py`
-- Test refs:
-  - `tests/unit/test_recover_chain.py`
-  - `tests/unit/test_recover_plan_paths.py`
-  - `tests/unit/test_recover_wizard.py`
-- Security impact:
-  - Moves recovery identity to ciphertext `doc_hash`, AUTH, and decrypted extension headers instead
-    of directory names or filenames
 
 ## 2026-04-09 - Add extension-envelope chain and compaction format rules
 

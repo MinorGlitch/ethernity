@@ -43,6 +43,7 @@ class TestExtensionDiscovery(unittest.TestCase):
             self._write(extensions_dir / "02" / "qr_document-02-cafebabedeadbeef.pdf")
             self._write(extensions_dir / "02" / "recovery_document-02-cafebabedeadbeef.pdf")
             self._write(extensions_dir / "02" / "shard-02-cafebabedeadbeef-1-of-2.pdf")
+            self._write(extensions_dir / "02" / "shard-02-cafebabedeadbeef-2-of-2.pdf")
 
             discovered = discover_extension_directories(tmpdir)
 
@@ -59,7 +60,7 @@ class TestExtensionDiscovery(unittest.TestCase):
                     (carrier.doc_type, carrier.share_index, carrier.share_count)
                     for carrier in discovered[1].shard_carriers
                 ],
-                [("shard", 1, 2)],
+                [("shard", 1, 2), ("shard", 2, 2)],
             )
 
     def test_discovers_numeric_order_after_index_99(self) -> None:
@@ -299,6 +300,32 @@ class TestExtensionDiscovery(unittest.TestCase):
             self._write(extensions_dir / "01" / "shard-01-deadbeefcafebabe-1-of-3.pdf")
 
             with self.assertRaisesRegex(ValueError, "duplicate shard carrier shard 1-of-3"):
+                discover_extension_directories(tmpdir)
+
+    def test_rejects_incomplete_shard_share_set(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            extensions_dir = Path(tmpdir) / "extensions"
+            (extensions_dir / "01").mkdir(parents=True)
+            self._write(extensions_dir / "01" / "qr_document-01-deadbeefcafebabe.pdf")
+            self._write(extensions_dir / "01" / "recovery_document-01-deadbeefcafebabe.pdf")
+            self._write(extensions_dir / "01" / "shard-01-deadbeefcafebabe-1-of-2.pdf")
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "shard carriers must include shares 1 through 2",
+            ):
+                discover_extension_directories(tmpdir)
+
+    def test_rejects_mixed_shard_share_counts_for_same_doc_type(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            extensions_dir = Path(tmpdir) / "extensions"
+            (extensions_dir / "01").mkdir(parents=True)
+            self._write(extensions_dir / "01" / "qr_document-01-deadbeefcafebabe.pdf")
+            self._write(extensions_dir / "01" / "recovery_document-01-deadbeefcafebabe.pdf")
+            self._write(extensions_dir / "01" / "shard-01-deadbeefcafebabe-1-of-2.pdf")
+            self._write(extensions_dir / "01" / "shard-01-deadbeefcafebabe-2-of-3.pdf")
+
+            with self.assertRaisesRegex(ValueError, "shard carriers must all declare"):
                 discover_extension_directories(tmpdir)
 
     def test_rejects_duplicate_main_doc_type(self) -> None:

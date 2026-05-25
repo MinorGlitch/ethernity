@@ -1273,7 +1273,10 @@ missing redundant human-readable artifacts. An implementation that appends a new
 extension, however, MUST require the existing published chain head to satisfy the canonical export
 layout before publishing the next extension. For this release profile, a published extension
 directory is append-valid only when the required `qr_document-*` and `recovery_document-*` MAIN
-artifacts are present and pass publish/discovery validation.
+artifacts are present and pass publish/discovery validation. If shard artifacts are present in the
+published extension directory, each shard document type MUST form a complete set with one declared
+`share_count` and share indexes `1..share_count`; passphrase shards and signing-key shards are
+validated as independent sets.
 
 For this release profile, `qr_document-*` artifacts are the only machine-readable
 payload-bearing MAIN carriers in a canonical published extension directory. This filename role is an
