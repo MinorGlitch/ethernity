@@ -53,6 +53,7 @@
         "shard",
         "mint",
         "render",
+        "compact",
         "decrypt",
         "write",
         "load",

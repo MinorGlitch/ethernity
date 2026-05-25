@@ -4588,11 +4588,23 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[0]["args"]["root_dir"], "/tmp/root")
         self.assertEqual(events[0]["args"]["shard_scan"], ["shard-a.pdf"])
         self.assertEqual(events[0]["args"]["auth_payloads_file"], "auth.payloads")
-        self.assertEqual(events[1]["kind"], "qr_document")
-        self.assertEqual(events[2]["kind"], "recovery_document")
-        self.assertEqual(events[3]["kind"], "recovery_kit_index")
-        self.assertEqual(events[4]["kind"], "shard_document")
-        self.assertEqual(events[5]["kind"], "signing_key_shard_document")
+        phase_events = [event for event in events if event["type"] == "phase"]
+        self.assertEqual(phase_events[0]["id"], "compact")
+        progress_events = [event for event in events if event["type"] == "progress"]
+        self.assertEqual([event["current"] for event in progress_events], [0, 1])
+        self.assertEqual(progress_events[0]["details"]["root_dir"], "/tmp/root")
+        self.assertEqual(progress_events[1]["details"]["output_dir"], "/tmp/out")
+        artifact_events = [event for event in events if event["type"] == "artifact"]
+        self.assertEqual(
+            [event["kind"] for event in artifact_events],
+            [
+                "qr_document",
+                "recovery_document",
+                "recovery_kit_index",
+                "shard_document",
+                "signing_key_shard_document",
+            ],
+        )
         self.assertEqual(events[-1]["root_dir"], "/tmp/root")
         self.assertEqual(events[-1]["output_dir"], "/tmp/out")
 
@@ -4651,9 +4663,15 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(result.exit_code, 2)
         events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
         self._assert_valid_events(events)
-        self.assertEqual([event["type"] for event in events], ["started", "error"])
+        self.assertEqual(
+            [event["type"] for event in events],
+            ["started", "phase", "progress", "error"],
+        )
         self.assertEqual(events[0]["command"], "compact")
         self.assertEqual(events[0]["args"]["root_dir"], "/tmp/root")
+        self.assertEqual(events[1]["id"], "compact")
+        self.assertEqual(events[2]["phase"], "compact")
+        self.assertEqual(events[2]["current"], 0)
         self.assertEqual(events[-1]["code"], api_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertEqual(
             events[-1]["message"],

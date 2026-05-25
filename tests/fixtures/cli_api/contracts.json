@@ -111,6 +111,9 @@
   ],
   "compact_mocked_event_types": [
     "started",
+    "phase",
+    "progress",
+    "progress",
     "artifact",
     "artifact",
     "artifact",

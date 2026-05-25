@@ -22,7 +22,7 @@ from pathlib import Path
 from ethernity.cli.bootstrap.startup import ensure_playwright_browsers
 from ethernity.cli.features.compact.service import run_compact
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.events import emit_artifact, emit_result
+from ethernity.cli.shared.events import emit_artifact, emit_phase, emit_progress, emit_result
 from ethernity.cli.shared.ndjson import SCHEMA_VERSION, ApiCommandError, emit_started
 from ethernity.cli.shared.types import BackupResult, CompactArgs
 
@@ -127,8 +127,23 @@ def run_compact_api_command(args: CompactArgs, *, debug: bool = False) -> int:
         },
     )
 
+    emit_phase(phase="compact", label="Replaying source chain and preparing checkpoint")
+    emit_progress(
+        phase="compact",
+        current=0,
+        total=1,
+        unit="step",
+        details={"root_dir": args.root_dir, "output_dir": args.output_dir},
+    )
     ensure_playwright_browsers(quiet=True)
     result = run_compact(args)
+    emit_progress(
+        phase="compact",
+        current=1,
+        total=1,
+        unit="step",
+        details={"root_dir": args.root_dir, "output_dir": str(Path(result.qr_path).parent)},
+    )
     _emit_compact_artifacts(result)
     _emit_layout_debug_artifacts(layout_debug_dir=args.layout_debug_dir, result=result)
     emit_result(

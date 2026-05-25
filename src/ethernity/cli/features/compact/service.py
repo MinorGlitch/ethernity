@@ -31,6 +31,7 @@ from ethernity.cli.features.recover.key_recovery import (
 )
 from ethernity.cli.features.recover.planning import plan_from_args as plan_recover_from_args
 from ethernity.cli.shared import api_codes
+from ethernity.cli.shared.crypto import doc_id_from_doc_hash
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.root_shard_policy import (
     has_potential_root_shard_frames,
@@ -330,15 +331,28 @@ def run_compact(args: CompactArgs) -> BackupResult:
         if manifest.signing_seed is not None
         else (recover_plan.auth_payload.sign_pub if recover_plan.auth_payload is not None else None)
     )
+    selected_extension_doc_hash = getattr(chain, "selected_extension_doc_hash", None)
     unlock_passphrase_frames = _passphrase_shard_frames_for_selected_head(
         recover_plan.shard_frames,
         root_doc_id=recover_plan.doc_id,
         root_doc_hash=recover_plan.doc_hash,
-        selected_extension_doc_hash=getattr(chain, "selected_extension_doc_hash", None),
+        selected_extension_doc_hash=selected_extension_doc_hash,
+    )
+    unlock_doc_hash = (
+        bytes.fromhex(selected_extension_doc_hash)
+        if selected_extension_doc_hash
+        else recover_plan.doc_hash
+    )
+    unlock_doc_id = (
+        doc_id_from_doc_hash(unlock_doc_hash)
+        if selected_extension_doc_hash
+        else recover_plan.doc_id
     )
     unlock_passphrase_policy = _infer_passphrase_shard_policy_from_frames(
         unlock_passphrase_frames,
         sign_pub=sign_pub,
+        expected_doc_id=unlock_doc_id,
+        expected_doc_hash=unlock_doc_hash,
     )
 
     inherited = _infer_root_publish_policy(
@@ -448,10 +462,12 @@ def _passphrase_shard_frames_for_selected_head(
     selected_extension_doc_hash: str | None,
 ) -> tuple[Frame, ...]:
     if selected_extension_doc_hash:
+        selected_doc_hash = bytes.fromhex(selected_extension_doc_hash)
         return _passphrase_shard_frames_for_document(
             frames,
-            expected_doc_id=None,
-            expected_doc_hash=bytes.fromhex(selected_extension_doc_hash),
+            expected_doc_id=doc_id_from_doc_hash(selected_doc_hash),
+            expected_doc_hash=selected_doc_hash,
+            strict_doc_id=True,
         )
     return _passphrase_shard_frames_for_document(
         frames,
@@ -465,22 +481,29 @@ def _passphrase_shard_frames_for_document(
     *,
     expected_doc_id: bytes | None,
     expected_doc_hash: bytes,
+    strict_doc_id: bool = False,
 ) -> tuple[Frame, ...]:
     selected: list[Frame] = []
     for frame in frames:
         if frame.frame_type != FrameType.KEY_DOCUMENT:
             continue
-        if expected_doc_id is not None and frame.doc_id != expected_doc_id:
-            continue
         try:
             payload = sharding_module.decode_shard_payload(frame.data)
         except ValueError:
             continue
-        if (
-            payload.key_type == sharding_module.KEY_TYPE_PASSPHRASE
-            and payload.doc_hash == expected_doc_hash
-        ):
-            selected.append(frame)
+        if payload.key_type != sharding_module.KEY_TYPE_PASSPHRASE:
+            continue
+        if payload.doc_hash != expected_doc_hash:
+            continue
+        if expected_doc_id is not None and frame.doc_id != expected_doc_id:
+            if strict_doc_id:
+                raise ApiCommandError(
+                    code=api_codes.COMPACT_INVALID_POLICY,
+                    message="source passphrase shard frame doc_id does not match selected document",
+                    details={"stage": "source_shard_policy"},
+                )
+            continue
+        selected.append(frame)
     return tuple(selected)
 
 
@@ -488,6 +511,8 @@ def _infer_passphrase_shard_policy_from_frames(
     frames: Sequence[Frame],
     *,
     sign_pub: bytes | None,
+    expected_doc_id: bytes | None = None,
+    expected_doc_hash: bytes | None = None,
 ) -> tuple[int, int] | None:
     passphrase_frames: list[Frame] = []
     for frame in frames:
@@ -514,8 +539,8 @@ def _infer_passphrase_shard_policy_from_frames(
     try:
         shares = validated_shard_payloads_from_frames(
             passphrase_frames,
-            expected_doc_id=None,
-            expected_doc_hash=None,
+            expected_doc_id=expected_doc_id,
+            expected_doc_hash=expected_doc_hash,
             expected_sign_pub=sign_pub,
             allow_unsigned=False,
             key_type=sharding_module.KEY_TYPE_PASSPHRASE,

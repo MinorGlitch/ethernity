@@ -301,6 +301,7 @@ def _resolve_extend_state_after_root_inspection(
 
     current_state: tuple[LogicalFileState, ...] | None = None
     available_chunks: tuple[tuple[bytes, bytes], ...] = ()
+    root_decrypt_succeeded = False
     if root_inspection.unlock.satisfied and root_inspection.unlock.resolved_passphrase is not None:
         try:
             manifest, payload = _decode_root_manifest(
@@ -316,6 +317,7 @@ def _resolve_extend_state_after_root_inspection(
                 )
             )
         else:
+            root_decrypt_succeeded = True
             try:
                 source_summary = _manifest_summary_payload(manifest)
                 current_state = extract_root_logical_state(manifest, payload)
@@ -450,7 +452,7 @@ def _resolve_extend_state_after_root_inspection(
             "validated_shard_count": root_inspection.unlock.validated_shard_count,
             "required_shard_threshold": root_inspection.unlock.required_shard_threshold,
             "shard_share_count": root_inspection.unlock.shard_share_count,
-            "satisfied": root_inspection.unlock.satisfied,
+            "satisfied": root_inspection.unlock.satisfied and root_decrypt_succeeded,
         },
         discovered_extension_dirs=discovered_extension_dirs,
         validated_head_index=validated_head_index,

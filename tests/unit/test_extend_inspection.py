@@ -684,6 +684,39 @@ class TestExtendInspection(unittest.TestCase):
             },
         )
 
+    def test_inspect_from_args_reports_unlock_unsatisfied_when_decrypt_fails(self) -> None:
+        base_root = _root_inspection(passphrase="wrong-passphrase")
+        unlocked_root = replace(
+            base_root,
+            unlock=replace(
+                base_root.unlock,
+                passphrase_provided=True,
+                satisfied=True,
+                resolved_passphrase="wrong-passphrase",
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "backup-root"
+            root_dir.mkdir()
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    return_value=_RootRecoveryInspection(unlocked_root, "none"),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    side_effect=ValueError("decrypt failed"),
+                ),
+            ):
+                inspection = inspect_from_args(
+                    ExtendArgs(root_dir=str(root_dir), passphrase="wrong-passphrase")
+                )
+
+        self.assertFalse(inspection.unlock["satisfied"])
+        self.assertIsNone(inspection.source_summary)
+        self.assertIn("UNLOCK_FAILED", {issue["code"] for issue in inspection.blocking_issues})
+
     def test_inspect_from_args_blocks_directory_scope_deletes(self) -> None:
         manifest, payload = build_manifest_and_payload(
             (

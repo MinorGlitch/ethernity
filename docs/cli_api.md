@@ -79,6 +79,7 @@ Fields:
 Current phases:
 
 - Backup: `plan`, `input`, `backup`, `prepare`, `encrypt`, `shard`, `render`
+- Compact: `compact`
 - Config: `load`, `validate`, `write`
 - Extend: `plan`, `render`, `validate`, `publish`
 - Extend inspect: `plan`
@@ -228,7 +229,8 @@ Current command-specific error codes:
 - `EXTENSION_TOO_LARGE`: the encrypted extension ciphertext exceeds the release size limit
 - `EXTENSION_PUBLISH_TARGET_INVALID`: the extension publish target cannot be validated before
   writing
-- `COMPACT_INVALID_POLICY`: `ethernity api compact` could not preserve the root shard policy
+- `COMPACT_INVALID_POLICY`: `ethernity api compact` could not preserve the source or root shard
+  policy
 - `RECOVERY_HEAD_UNTRUSTED`: recover or compact could not authenticate or reconstruct the requested
   recovery head, or the latest supplied recovery head when no explicit head was requested
 
@@ -306,6 +308,8 @@ Current artifact kinds:
 
 - Backup: `qr_document`, `recovery_document`, `recovery_kit_index`, `shard_document`,
   `signing_key_shard_document`, `layout_debug_json`
+- Compact: `qr_document`, `recovery_document`, `recovery_kit_index`, `shard_document`,
+  `signing_key_shard_document`, `layout_debug_json`
 - Extend: `qr_document`, `recovery_document`, `recovery_kit_index`, `shard_document`,
   `signing_key_shard_document`, `layout_debug_json`
 - Mint: `shard_document`, `signing_key_shard_document`, `layout_debug_json`
@@ -318,6 +322,7 @@ Inspect commands never emit `artifact` events.
 Stable phase ids currently emitted by the API:
 
 - Backup: `plan`, `input`, `backup`, `prepare`, `encrypt`, `shard`, `render`
+- Compact: `compact`
 - Config: `load`, `validate`, `write`
 - Extend: `plan`, `render`, `validate`, `publish`
 - Extend inspect: `plan`
@@ -543,6 +548,9 @@ Example onboarding patch:
 
 ```json
 {"type":"started","schema_version":1,"command":"compact","args":{"config":null,"paper":null,"design":null,"root_dir":"backup-aa11","output_dir":"compacted","shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"layout_debug_dir":null,"qr_chunk_size":null,"has_passphrase":true,"quiet":true,"debug":false}}
+{"type":"phase","id":"compact","label":"Replaying source chain and preparing checkpoint"}
+{"type":"progress","phase":"compact","current":0,"total":1,"unit":"step","details":{"root_dir":"backup-aa11","output_dir":"compacted"}}
+{"type":"progress","phase":"compact","current":1,"total":1,"unit":"step","details":{"root_dir":"backup-aa11","output_dir":"compacted"}}
 {"type":"artifact","kind":"qr_document","path":"compacted/qr_document.pdf","details":{"filename":"qr_document.pdf","size":1234}}
 {"type":"artifact","kind":"recovery_document","path":"compacted/recovery_document.pdf","details":{"filename":"recovery_document.pdf","size":2345}}
 {"type":"result","ok":true,"command":"compact","doc_id":"0123456789abcdef","root_dir":"backup-aa11","output_dir":"compacted","artifacts":{"qr_document":"compacted/qr_document.pdf","recovery_document":"compacted/recovery_document.pdf","recovery_kit_index":null,"shard_documents":[],"signing_key_shard_documents":[]}}

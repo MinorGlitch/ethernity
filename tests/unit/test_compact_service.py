@@ -25,6 +25,7 @@ from ethernity.cli.features.compact.service import (
     run_compact,
 )
 from ethernity.cli.shared import api_codes
+from ethernity.cli.shared.crypto import doc_id_from_doc_hash
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import CompactArgs, RecoverArgs
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase, split_signing_seed
@@ -411,8 +412,8 @@ class TestCompactService(unittest.TestCase):
     def test_run_compact_preserves_extension_local_unlock_shard_policy(self) -> None:
         root_doc_id = b"\x22" * 8
         root_doc_hash = b"\x44" * 32
-        extension_doc_id = b"\x55" * 8
-        extension_doc_hash = b"\x66" * 32
+        extension_doc_hash = b"\x55" * 16 + b"\x66" * 16
+        extension_doc_id = doc_id_from_doc_hash(extension_doc_hash)
         sign_priv = b"\x33" * 32
         sign_pub = derive_public_key(sign_priv)
         shard_frames = _passphrase_shard_frames(
@@ -500,11 +501,77 @@ class TestCompactService(unittest.TestCase):
         self.assertEqual(backup_args.shard_count, 3)
         self.assertTrue(backup_args.sealed)
 
+    def test_run_compact_rejects_selected_extension_unlock_shard_with_wrong_frame_doc_id(
+        self,
+    ) -> None:
+        root_doc_id = b"\x22" * 8
+        root_doc_hash = b"\x44" * 32
+        extension_doc_hash = b"\x55" * 16 + b"\x66" * 16
+        sign_priv = b"\x33" * 32
+        sign_pub = derive_public_key(sign_priv)
+        shard_frames = _passphrase_shard_frames(
+            "secret passphrase",
+            threshold=2,
+            share_count=3,
+            doc_id=b"\x99" * 8,
+            doc_hash=extension_doc_hash,
+            sign_priv=sign_priv,
+        )[:2]
+        chain = SimpleNamespace(
+            manifest=EnvelopeManifest(
+                format_version=1,
+                created_at=1,
+                sealed=True,
+                signing_seed=None,
+                files=(ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1),),
+                input_origin="file",
+                input_roots=(),
+            ),
+            extracted=(
+                (ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1), b"data"),
+            ),
+            selected_extension_index=1,
+            selected_extension_doc_hash=extension_doc_hash.hex(),
+        )
+        recover_plan = SimpleNamespace(
+            passphrase="secret passphrase",
+            doc_id=root_doc_id,
+            doc_hash=root_doc_hash,
+            auth_payload=SimpleNamespace(sign_pub=sign_pub),
+            shard_frames=shard_frames,
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir()
+            output_dir = Path(tmpdir) / "compacted"
+            with (
+                mock.patch(
+                    "ethernity.cli.features.compact.service.plan_recover_from_args",
+                    return_value=recover_plan,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.compact.service.recover_chain_entries",
+                    return_value=chain,
+                ),
+            ):
+                with self.assertRaises(ApiCommandError) as ctx:
+                    run_compact(
+                        CompactArgs(
+                            root_dir=str(root_dir),
+                            output_dir=str(output_dir),
+                            shard_scan=["/separate/extension-shard-a.pdf"],
+                            quiet=True,
+                        )
+                    )
+
+        self.assertEqual(ctx.exception.code, api_codes.COMPACT_INVALID_POLICY)
+        self.assertEqual(ctx.exception.details, {"stage": "source_shard_policy"})
+
     def test_run_compact_filters_mixed_unlock_shards_to_selected_head_policy(self) -> None:
         root_doc_id = b"\x22" * 8
         root_doc_hash = b"\x44" * 32
-        extension_doc_id = b"\x55" * 8
-        extension_doc_hash = b"\x66" * 32
+        extension_doc_hash = b"\x55" * 16 + b"\x66" * 16
+        extension_doc_id = doc_id_from_doc_hash(extension_doc_hash)
         sign_priv = b"\x33" * 32
         sign_pub = derive_public_key(sign_priv)
         root_shard_frames = _passphrase_shard_frames(
