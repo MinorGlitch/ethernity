@@ -17,13 +17,6 @@ import dataclasses
 import unittest
 from unittest import mock
 
-from ethernity.cli.features.recover.chain import (
-    ImportedRecoveryDocument,
-    decode_imported_extension_link,
-    imported_documents_from_recovery_frames,
-    recover_chain_entries,
-    select_root_import_document,
-)
 from ethernity.cli.features.recover.planning import RecoveryPlan
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
@@ -32,6 +25,13 @@ from ethernity.cli.shared.types import InputFile
 from ethernity.crypto.signing import AuthPayload, derive_public_key, encode_auth_payload, sign_auth
 from ethernity.encoding.framing import VERSION, Frame, FrameType
 from ethernity.extensions.build import build_extension_document
+from ethernity.extensions.recovery import (
+    ImportedRecoveryDocument,
+    decode_imported_extension_link,
+    imported_documents_from_recovery_frames,
+    recover_chain_entries,
+    select_root_import_document,
+)
 from ethernity.formats.envelope_codec import (
     build_manifest_and_payload,
     encode_envelope,
@@ -183,7 +183,7 @@ class TestRecoverChain(unittest.TestCase):
         )
 
         with mock.patch(
-            "ethernity.cli.features.recover.chain.decrypt_bytes",
+            "ethernity.extensions.recovery.decrypt_bytes",
             side_effect=lambda data, *, passphrase, debug=False: data,
         ):
             result = recover_chain_entries(plan, quiet=True)
@@ -219,7 +219,7 @@ class TestRecoverChain(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
             self.assertRaises(ApiCommandError) as caught,
@@ -289,7 +289,7 @@ class TestRecoverChain(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
             self.assertRaises(ApiCommandError) as caught,
@@ -319,12 +319,11 @@ class TestRecoverChain(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
             mock.patch(
-                "ethernity.cli.features.recover.chain."
-                "reconstruct_authenticated_latest_logical_state",
+                "ethernity.extensions.recovery.reconstruct_authenticated_latest_logical_state",
                 side_effect=ValueError(
                     "extension parent_doc_hash does not match previous document"
                 ),
@@ -388,7 +387,7 @@ class TestRecoverChain(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
             self.assertRaises(ApiCommandError) as caught,
@@ -434,7 +433,7 @@ class TestRecoverChain(unittest.TestCase):
         )
 
         with mock.patch(
-            "ethernity.cli.features.recover.chain.decrypt_bytes",
+            "ethernity.extensions.recovery.decrypt_bytes",
             side_effect=lambda data, *, passphrase, debug=False: data,
         ):
             result = recover_chain_entries(plan, quiet=True)
@@ -471,7 +470,7 @@ class TestRecoverChain(unittest.TestCase):
         )
 
         with mock.patch(
-            "ethernity.cli.features.recover.chain.decrypt_bytes",
+            "ethernity.extensions.recovery.decrypt_bytes",
             side_effect=lambda data, *, passphrase, debug=False: data,
         ):
             result = recover_chain_entries(plan, quiet=True)
@@ -500,7 +499,7 @@ class TestRecoverChain(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
             self.assertRaises(ApiCommandError) as caught,
@@ -537,7 +536,7 @@ class TestRecoverChain(unittest.TestCase):
             with (
                 self.subTest(auth_status=plan.auth_status, has_auth=plan.auth_payload is not None),
                 mock.patch(
-                    "ethernity.cli.features.recover.chain.decrypt_bytes",
+                    "ethernity.extensions.recovery.decrypt_bytes",
                     side_effect=lambda data, *, passphrase, debug=False: data,
                 ),
                 self.assertRaises(ApiCommandError) as caught,
@@ -584,7 +583,7 @@ class TestRecoverChain(unittest.TestCase):
         )
 
         with mock.patch(
-            "ethernity.cli.features.recover.chain.decrypt_bytes",
+            "ethernity.extensions.recovery.decrypt_bytes",
             side_effect=lambda data, *, passphrase, debug=False: data,
         ):
             result = recover_chain_entries(plan, quiet=True)
@@ -613,7 +612,7 @@ class TestRecoverChain(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
             self.assertRaises(ApiCommandError) as caught,
@@ -656,7 +655,7 @@ class TestRecoverChain(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
             self.assertRaises(ApiCommandError) as caught,
@@ -700,7 +699,7 @@ class TestRecoverChain(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
             self.assertRaises(ApiCommandError) as caught,
@@ -725,7 +724,7 @@ class TestRecoverChain(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
             self.assertRaises(ApiCommandError) as caught,
@@ -775,7 +774,7 @@ class TestRecoverChain(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=_decrypt,
             ),
             self.assertRaises(ApiCommandError) as caught,
@@ -823,7 +822,7 @@ class TestRecoverChain(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=_decrypt,
             ),
             self.assertRaises(ApiCommandError) as caught,
@@ -856,7 +855,7 @@ class TestRecoverChain(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=AssertionError("extension body was decrypted before AUTH verification"),
             ) as decrypt_bytes,
             self.assertRaisesRegex(ValueError, "signing key does not match"),
@@ -889,7 +888,7 @@ class TestRecoverChain(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
             self.assertRaises(ApiCommandError) as caught,
@@ -906,7 +905,7 @@ class TestRecoverChain(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
             self.assertRaisesRegex(ValueError, "did not contain a decryptable root backup"),
@@ -920,7 +919,7 @@ class TestRecoverChain(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
             self.assertRaisesRegex(ValueError, "contains multiple root backups"),

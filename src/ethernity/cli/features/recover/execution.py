@@ -21,10 +21,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from ethernity.cli.features.recover.chain import (
-    recover_chain_entries,
-    validate_root_manifest_authority,
-)
 from ethernity.cli.features.recover.planning import RecoveryPlan
 from ethernity.cli.shared.io.outputs import (
     _single_entry_uses_directory_output,
@@ -34,6 +30,10 @@ from ethernity.cli.shared.ui.debug import print_recover_debug
 from ethernity.cli.shared.ui.summary import format_auth_status, print_recover_summary
 from ethernity.cli.shared.ui_api import print_completion_panel, status
 from ethernity.crypto import decrypt_bytes
+from ethernity.extensions.recovery import (
+    recover_chain_entries,
+    validate_root_manifest_authority,
+)
 from ethernity.formats.envelope_codec import decode_envelope, extract_payloads
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
 

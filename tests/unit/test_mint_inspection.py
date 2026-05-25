@@ -24,7 +24,6 @@ from ethernity.cli.features.mint.workflow import (
     execute_mint,
     inspect_mint_inputs,
 )
-from ethernity.cli.features.recover.chain import ImportedRecoveryDocument
 from ethernity.cli.features.recover.planning import (
     RecoveryInspection,
     RecoveryPlan,
@@ -41,6 +40,7 @@ from ethernity.crypto.signing import (
     sign_auth,
 )
 from ethernity.encoding.framing import VERSION, Frame, FrameType
+from ethernity.extensions.recovery import ImportedRecoveryDocument
 
 ROOT_SIGNING_SEED = b"\x33" * 32
 ROOT_SIGN_PUB = derive_public_key(ROOT_SIGNING_SEED)

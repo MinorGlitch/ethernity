@@ -29,12 +29,6 @@ from ethernity.cli.features.backup.execution import (
     _render_shard,
 )
 from ethernity.cli.features.backup.wizard import _prompt_quorum_choice
-from ethernity.cli.features.recover.chain import (
-    decode_imported_extension_link,
-    decode_root_manifest,
-    recover_chain_entries,
-    validate_root_manifest_authority,
-)
 from ethernity.cli.features.recover.input_collection import (
     RECOVERY_SCAN_LABEL,
     prompt_recovery_input_interactive,
@@ -98,6 +92,12 @@ from ethernity.encoding.framing import Frame
 from ethernity.extensions.chain import (
     reconstruct_authenticated_latest_logical_state,
     validate_authenticated_extension_chain,
+)
+from ethernity.extensions.recovery import (
+    decode_imported_extension_link,
+    decode_root_manifest,
+    recover_chain_entries,
+    validate_root_manifest_authority,
 )
 from ethernity.formats.envelope_codec import decode_any_envelope, decode_envelope
 from ethernity.formats.envelope_types import EnvelopeManifest

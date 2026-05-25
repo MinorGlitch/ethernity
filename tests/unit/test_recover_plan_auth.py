@@ -21,7 +21,6 @@ from pathlib import Path
 from unittest import mock
 
 from ethernity.cli.features.mint.workflow import _signing_key_shard_frames_from_args
-from ethernity.cli.features.recover.chain import recover_chain_entries
 from ethernity.cli.features.recover.planning import (
     _inspect_auth_payload,
     _shard_frames_from_args,
@@ -36,6 +35,7 @@ from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
 from ethernity.crypto.signing import derive_public_key, encode_auth_payload, sign_auth
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
 from ethernity.extensions.build import build_extension_document
+from ethernity.extensions.recovery import recover_chain_entries
 from ethernity.formats.envelope_codec import (
     build_manifest_and_payload,
     encode_envelope,
@@ -243,7 +243,7 @@ class TestInspectAuthPayload(unittest.TestCase):
                 return_value=([], [], [], []),
             ),
             mock.patch(
-                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
         ):
@@ -274,7 +274,7 @@ class TestInspectAuthPayload(unittest.TestCase):
         )
 
         with mock.patch(
-            "ethernity.cli.features.recover.chain.decrypt_bytes",
+            "ethernity.extensions.recovery.decrypt_bytes",
             side_effect=lambda data, *, passphrase, debug=False: data,
         ):
             plan = build_recovery_plan(
@@ -340,7 +340,7 @@ class TestInspectAuthPayload(unittest.TestCase):
                 return_value=(shard_frames, [], [], []),
             ),
             mock.patch(
-                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
         ):

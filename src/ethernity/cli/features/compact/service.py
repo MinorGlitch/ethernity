@@ -25,7 +25,6 @@ from pathlib import Path
 from ethernity.cli.features.backup.execution import run_backup
 from ethernity.cli.features.backup.planning import plan_from_args as plan_backup_from_args
 from ethernity.cli.features.backup.service import apply_qr_chunk_size_override
-from ethernity.cli.features.recover.chain import recover_chain_entries
 from ethernity.cli.features.recover.key_recovery import (
     InsufficientShardError,
     validated_shard_payloads_from_frames,
@@ -43,6 +42,7 @@ from ethernity.config import apply_template_design, load_app_config
 from ethernity.crypto import sharding as sharding_module
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import Frame, FrameType
+from ethernity.extensions.recovery import recover_chain_entries
 from ethernity.render.types import RenderLineage
 
 

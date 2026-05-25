@@ -22,13 +22,6 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
-from ethernity.cli.features.recover.chain import (
-    DecodedExtensionLink,
-    ImportedRecoveryDocument,
-    decode_imported_extension_link,
-    imported_documents_from_recovery_frames,
-    select_root_import_document,
-)
 from ethernity.cli.features.recover.input_collection import (
     RECOVERY_QR_TEXT_LABEL,
     RECOVERY_SCAN_LABEL,
@@ -69,6 +62,13 @@ from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE, decode_shard_payload
 from ethernity.crypto.signing import AuthPayload, decode_auth_payload, verify_auth
 from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import Frame, FrameType
+from ethernity.extensions.recovery import (
+    DecodedExtensionLink,
+    ImportedRecoveryDocument,
+    decode_imported_extension_link,
+    imported_documents_from_recovery_frames,
+    select_root_import_document,
+)
 
 
 @dataclass(frozen=True)

@@ -18,10 +18,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from ethernity.cli.features.recover.chain import (
-    recover_chain_entries,
-    validate_root_manifest_authority,
-)
 from ethernity.cli.features.recover.planning import (
     inspect_from_args,
     plan_from_inspection,
@@ -44,6 +40,10 @@ from ethernity.cli.shared.inspection import (
 from ethernity.cli.shared.ndjson import SCHEMA_VERSION, ApiCommandError, emit_started
 from ethernity.cli.shared.types import RecoverArgs
 from ethernity.crypto import decrypt_bytes
+from ethernity.extensions.recovery import (
+    recover_chain_entries,
+    validate_root_manifest_authority,
+)
 from ethernity.formats.envelope_codec import decode_envelope
 from ethernity.formats.envelope_types import EnvelopeManifest
 

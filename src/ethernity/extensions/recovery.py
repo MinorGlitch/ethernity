@@ -22,20 +22,20 @@ headers.
 
 from __future__ import annotations
 
+import hmac
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import Protocol
 
-from ethernity.cli.features.recover.key_recovery import resolve_auth_payload
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
-from ethernity.cli.shared.io.frames import (
-    _dedupe_frames,
-    _split_main_and_auth_frames,
-    recovery_frames_from_scan,
-)
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.crypto import decrypt_bytes
-from ethernity.crypto.signing import AuthPayload, derive_public_key
+from ethernity.crypto.signing import (
+    AuthPayload,
+    decode_auth_payload,
+    derive_public_key,
+    verify_auth,
+)
 from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions.chain import (
@@ -46,10 +46,6 @@ from ethernity.extensions.chain import (
 from ethernity.formats.envelope_codec import decode_any_envelope, extract_payloads
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
 from ethernity.formats.extension_envelope import ExtensionChunkingProfile, ExtensionEnvelope
-
-if TYPE_CHECKING:
-    from ethernity.cli.features.recover.planning import RecoveryPlan
-
 
 RECONSTRUCTED_STATE_INPUT_ORIGIN = "directory"
 RECONSTRUCTED_STATE_INPUT_ROOTS = ("reconstructed-state",)
@@ -168,12 +164,80 @@ class RecoveryChainInspection:
     validated_head_root_authority_verified: bool | None
 
 
+class RecoveryPlanLike(Protocol):
+    @property
+    def ciphertext(self) -> bytes: ...
+
+    @property
+    def doc_id(self) -> bytes: ...
+
+    @property
+    def doc_hash(self) -> bytes: ...
+
+    @property
+    def passphrase(self) -> str: ...
+
+    @property
+    def auth_payload(self) -> AuthPayload | None: ...
+
+    @property
+    def auth_status(self) -> str: ...
+
+    @property
+    def allow_unsigned(self) -> bool: ...
+
+    @property
+    def extension_index(self) -> int | None: ...
+
+    @property
+    def extension_doc_hash(self) -> str | None: ...
+
+    @property
+    def import_documents(self) -> tuple[ImportedRecoveryDocument, ...]: ...
+
+
 @dataclass(frozen=True)
 class _DecodedExtensionCandidate:
     document: ImportedRecoveryDocument
     decoded: ExtensionEnvelope
     auth_payload: AuthPayload
     auth_status: str
+
+
+def _dedupe_frames(frames: list[Frame]) -> list[Frame]:
+    """Deduplicate frames by type/index/doc_id, rejecting conflicts."""
+
+    seen: dict[tuple[int, int, bytes], Frame] = {}
+    deduped: list[Frame] = []
+    for frame in frames:
+        key = (int(frame.frame_type), int(frame.index), frame.doc_id)
+        existing = seen.get(key)
+        if existing:
+            if existing.data != frame.data or existing.total != frame.total:
+                raise ValueError("conflicting duplicate frames detected")
+            continue
+        seen[key] = frame
+        deduped.append(frame)
+    return deduped
+
+
+def _split_main_and_auth_frames(frames: list[Frame]) -> tuple[list[Frame], list[Frame]]:
+    """Split decoded frames into MAIN and AUTH lists."""
+
+    main_frames: list[Frame] = []
+    auth_frames: list[Frame] = []
+    for frame in frames:
+        if frame.frame_type == FrameType.MAIN_DOCUMENT:
+            main_frames.append(frame)
+        elif frame.frame_type == FrameType.AUTH:
+            auth_frames.append(frame)
+        else:
+            raise ValueError("unexpected frame type in main document QR payloads")
+    if not main_frames:
+        raise ValueError(
+            "no main document payloads provided; check the MAIN QR payloads or recovery text"
+        )
+    return main_frames, auth_frames
 
 
 def imported_documents_from_recovery_frames(
@@ -225,6 +289,17 @@ def imported_documents_from_recovery_frames(
     return tuple(documents)
 
 
+def imported_document_from_recovery_frames(
+    frames: list[Frame],
+    *,
+    source_label: str = "content import",
+) -> ImportedRecoveryDocument:
+    documents = imported_documents_from_recovery_frames(frames, source_label=source_label)
+    if len(documents) != 1:
+        raise ValueError("extension carrier input must contain exactly one MAIN document")
+    return documents[0]
+
+
 def select_root_import_document(
     documents: tuple[ImportedRecoveryDocument, ...],
     *,
@@ -262,7 +337,10 @@ def select_root_import_document(
 
 
 def recover_chain_entries(
-    plan: "RecoveryPlan", *, quiet: bool, debug: bool = False
+    plan: RecoveryPlanLike,
+    *,
+    quiet: bool,
+    debug: bool = False,
 ) -> ChainRecoveryResult:
     if plan.import_documents:
         return recover_imported_chain_entries(plan, quiet=quiet, debug=debug)
@@ -282,7 +360,7 @@ def recover_chain_entries(
 
 
 def recover_imported_chain_entries(
-    plan: "RecoveryPlan", *, quiet: bool, debug: bool = False
+    plan: RecoveryPlanLike, *, quiet: bool, debug: bool = False
 ) -> ChainRecoveryResult:
     root_manifest, payload = decode_root_manifest(
         ciphertext=plan.ciphertext,
@@ -411,7 +489,7 @@ def recover_imported_chain_entries(
 def _chain_replay_head_untrusted_error(
     exc: ValueError,
     *,
-    plan: "RecoveryPlan",
+    plan: RecoveryPlanLike,
     decoded_links: tuple[DecodedExtensionLink, ...],
     selected_links: tuple[DecodedExtensionLink, ...],
     root_manifest: EnvelopeManifest,
@@ -759,6 +837,31 @@ def _select_extension_candidates_for_auth(
     return candidates
 
 
+def resolve_required_auth_payload(
+    auth_frames: tuple[Frame, ...] | list[Frame],
+    *,
+    doc_id: bytes,
+    doc_hash: bytes,
+) -> tuple[AuthPayload, str]:
+    """Resolve and verify a required AUTH payload for extension replay."""
+
+    if not auth_frames:
+        raise ValueError("missing auth payload; provide AUTH input to verify recovery")
+    if len(auth_frames) > 1:
+        raise ValueError("multiple auth payloads provided")
+    frame = auth_frames[0]
+    if frame.doc_id != doc_id:
+        raise ValueError("auth payload doc_id does not match ciphertext")
+    if frame.total != 1 or frame.index != 0:
+        raise ValueError("auth payload must be a single-frame payload")
+    payload = decode_auth_payload(frame.data)
+    if not hmac.compare_digest(payload.doc_hash, doc_hash):
+        raise ValueError("auth doc_hash does not match ciphertext")
+    if not verify_auth(doc_hash, sign_pub=payload.sign_pub, signature=payload.signature):
+        raise ValueError("invalid auth signature")
+    return payload, "verified"
+
+
 def _authenticate_imported_extension_candidates(
     candidates: tuple[_DecodedExtensionCandidate, ...],
     *,
@@ -808,18 +911,13 @@ def _resolve_verified_extension_auth(
     quiet: bool,
 ) -> tuple[AuthPayload, str]:
     try:
-        auth_payload, auth_status = resolve_auth_payload(
-            list(document.auth_frames),
+        auth_payload, auth_status = resolve_required_auth_payload(
+            document.auth_frames,
             doc_id=document.doc_id,
             doc_hash=document.doc_hash,
-            allow_unsigned=False,
-            require_auth=True,
-            quiet=quiet,
         )
     except ValueError as exc:
         raise ValueError(f"imported extension AUTH could not be verified: {exc}") from exc
-    if auth_payload is None:
-        raise ValueError("imported extension AUTH could not be verified: missing auth payload")
     if auth_payload.sign_pub != expected_sign_pub:
         raise ValueError("imported extension AUTH signing key does not match root authority")
     return auth_payload, auth_status
@@ -853,17 +951,14 @@ def _raise_if_document_signed_by_root_authority(
     message: str,
 ) -> None:
     try:
-        auth_payload, _auth_status = resolve_auth_payload(
-            list(document.auth_frames),
+        auth_payload, _auth_status = resolve_required_auth_payload(
+            document.auth_frames,
             doc_id=document.doc_id,
             doc_hash=document.doc_hash,
-            allow_unsigned=False,
-            require_auth=True,
-            quiet=quiet,
         )
     except ValueError:
         return
-    if auth_payload is not None and auth_payload.sign_pub == expected_sign_pub:
+    if auth_payload.sign_pub == expected_sign_pub:
         raise ApiCommandError(
             code=api_codes.RECOVERY_HEAD_UNTRUSTED,
             message=message,
@@ -888,20 +983,15 @@ def _raise_selected_extension_candidate_error(
         "explicit_selection": True,
     }
     try:
-        auth_payload, _auth_status = resolve_auth_payload(
-            list(document.auth_frames),
+        auth_payload, _auth_status = resolve_required_auth_payload(
+            document.auth_frames,
             doc_id=document.doc_id,
             doc_hash=document.doc_hash,
-            allow_unsigned=False,
-            require_auth=True,
-            quiet=quiet,
         )
     except ValueError as exc:
         details["auth_error"] = str(exc)
     else:
-        details["root_authority_verified"] = (
-            auth_payload is not None and auth_payload.sign_pub == expected_sign_pub
-        )
+        details["root_authority_verified"] = auth_payload.sign_pub == expected_sign_pub
     raise ApiCommandError(
         code=api_codes.RECOVERY_HEAD_UNTRUSTED,
         message=message,
@@ -1084,19 +1174,6 @@ def decode_authenticated_extension_link(
     )
 
 
-def scan_extension_carriers(paths: list[str], *, quiet: bool) -> tuple[bytes, list[Frame]]:
-    """Reassemble one extension document from explicitly provided carrier paths."""
-
-    if not paths:
-        raise ValueError("no extension MAIN carriers were provided")
-    frames = recovery_frames_from_scan(paths, quiet=quiet)
-    documents = imported_documents_from_recovery_frames(frames, source_label="extension carrier")
-    if len(documents) != 1:
-        raise ValueError("extension carrier input must contain exactly one MAIN document")
-    document = documents[0]
-    return document.ciphertext, list(document.auth_frames)
-
-
 def _parse_extension_doc_hash(value: str) -> bytes:
     normalized = value.strip().lower()
     try:
@@ -1140,15 +1217,18 @@ __all__ = [
     "RecoveryChainInspection",
     "RecoveryExtensionInventory",
     "RecoveryHeadTrustRefusal",
+    "RecoveryReplayFailure",
+    "RootManifestAuthority",
     "decode_authenticated_extension_link",
     "decode_imported_extension_link",
     "decode_root_manifest",
+    "imported_document_from_recovery_frames",
     "imported_documents_from_recovery_frames",
     "locate_replay_failure",
     "recover_chain_entries",
     "recover_imported_chain_entries",
+    "resolve_required_auth_payload",
     "resolve_root_manifest_authority",
-    "scan_extension_carriers",
     "select_root_import_document",
     "validate_root_manifest_authority",
 ]

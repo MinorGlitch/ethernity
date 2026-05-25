@@ -28,13 +28,6 @@ from ethernity.cli.features.extend.planning import (
     resolve_extend_state,
 )
 from ethernity.cli.features.extend.root_shards import published_root_passphrase_shard_policy
-from ethernity.cli.features.recover.chain import (
-    ImportedRecoveryDocument,
-    RecoveryChainInspection,
-    RecoveryExtensionInventory,
-    RecoveryHeadTrustRefusal,
-    RecoveryReplayFailure,
-)
 from ethernity.cli.features.recover.key_recovery import InsufficientShardError
 from ethernity.cli.features.recover.planning import RecoveryInspection, RecoveryUnlockStatus
 from ethernity.cli.shared import api_codes
@@ -43,6 +36,13 @@ from ethernity.cli.shared.types import ExtendArgs
 from ethernity.crypto.signing import AuthPayload
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions import LogicalFileState
+from ethernity.extensions.recovery import (
+    ImportedRecoveryDocument,
+    RecoveryChainInspection,
+    RecoveryExtensionInventory,
+    RecoveryHeadTrustRefusal,
+    RecoveryReplayFailure,
+)
 from ethernity.formats.envelope_codec import build_manifest_and_payload
 from ethernity.formats.envelope_types import PayloadPart
 from ethernity.formats.extension_envelope import ExtensionChunkingProfile
@@ -467,7 +467,7 @@ class TestExtendInspection(unittest.TestCase):
                     side_effect=_scan,
                 ) as scan_mock,
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.resolve_auth_payload",
+                    "ethernity.extensions.published.resolve_required_auth_payload",
                     return_value=(SimpleNamespace(sign_pub=b"\x44" * 32), "verified"),
                 ),
                 mock.patch(
@@ -514,7 +514,7 @@ class TestExtendInspection(unittest.TestCase):
                     ),
                 ) as scan_mock,
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.resolve_auth_payload",
+                    "ethernity.extensions.published.resolve_required_auth_payload",
                     return_value=(SimpleNamespace(sign_pub=b"\x44" * 32), "verified"),
                 ),
                 mock.patch(
