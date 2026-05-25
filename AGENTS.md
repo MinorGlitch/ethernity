@@ -64,6 +64,10 @@ conventions and a glob-based, working-tree inventory contract for contributors a
 - Format rationale and operations: keep non-normative guidance in `docs/format_notes.md`.
 - Format change ledger: append each format-related delta to `docs/format_changes.md` with
   compatibility and version/profile bump rationale.
+- Format ledger discipline: before adding a new `docs/format_changes.md` entry, verify whether the
+  underlying behavior/spec rule already exists on the release base (for example `master` or the
+  merge-base). If the behavior was introduced only on the current unreleased branch, update the
+  existing branch entry that introduced it instead of adding a second changelog/ledger entry.
 - Format PR discipline: when normative format behavior changes, update spec + implementation + tests
   in the same change.
 

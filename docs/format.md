@@ -1221,8 +1221,11 @@ Replay rules:
 - total reconstructed logical files MUST remain `<= MAX_MANIFEST_FILES`
 - total reconstructed logical bytes MUST remain `<= MAX_DECOMPRESSED_PAYLOAD_BYTES`
 - when replay emits a synthetic Version 1 manifest for recovered or compacted extension state, it
-  MUST use `input_origin == "directory"` and `input_roots == ["reconstructed-state"]`; it MUST NOT
-  inherit root-source metadata or the latest extension header scope
+  MUST identify file provenance with `input_origin == "directory"` and
+  `input_roots == ["reconstructed-state"]`; it MUST NOT inherit root input provenance or the latest
+  extension header scope
+- synthetic replay manifests MUST preserve root chain security fields required for recovery and
+  compaction, including the root sealed/unsealed state and the unsealed root signing seed
 
 ## 20) Content-Import Extension Recovery
 
@@ -1272,14 +1275,17 @@ layout before publishing the next extension. For this release profile, a publish
 directory is append-valid only when the required `qr_document-*` and `recovery_document-*` MAIN
 artifacts are present and pass publish/discovery validation.
 
-For this release profile, extension `qr_document-*` artifacts are the only machine-readable
-payload-bearing MAIN carriers. Extension `recovery_document-*` artifacts are human-readable fallback
-documents for manual transcription when QR scanning is unavailable or damaged. Manually typed or
-transcribed fallback text MAY be accepted through explicit text inputs, but implementations MUST NOT
-extract or parse fallback text from PDF or image files as a content-import or chain-replay carrier.
-Publish implementations MUST validate every machine-readable payload-bearing carrier before
-promotion. They MAY also perform PDF integrity and visible fallback-text checks on recovery
-documents, but MUST NOT derive recovery semantics by scraping human-display text from the PDF.
+For this release profile, `qr_document-*` artifacts are the only machine-readable
+payload-bearing MAIN carriers in a canonical published extension directory. This filename role is an
+export-layout rule, not a recovery-input naming requirement: scan/import MAY accept any user-supplied
+PDF or image filename when the file content contains complete, authenticated machine-readable QR
+payloads. Extension `recovery_document-*` artifacts are human-readable fallback documents for manual
+transcription when QR scanning is unavailable or damaged. Manually typed or transcribed fallback text
+MAY be accepted through explicit text inputs, but implementations MUST NOT extract or parse fallback
+text from PDF or image files as a content-import or chain-replay carrier. Publish implementations
+MUST validate every machine-readable payload-bearing carrier before promotion. They MAY also perform
+PDF integrity and visible fallback-text checks on recovery documents, but MUST NOT derive recovery
+semantics by scraping human-display text from the PDF.
 
 The authoritative extension identity comes from recovered ciphertext, AUTH, and decrypted
 extension-header metadata.

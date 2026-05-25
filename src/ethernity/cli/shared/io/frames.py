@@ -19,8 +19,11 @@
 from __future__ import annotations
 
 import errno
+import os
+import stat as stat_module
 import sys
 from pathlib import Path
+from typing import BinaryIO
 
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.io.fallback_parser import (
@@ -90,37 +93,78 @@ def _read_text_lines(path: str) -> list[str]:
     if normalized_path == "-":
         text = _read_stdin_text_with_limit()
     else:
-        file_path = Path(normalized_path)
-        try:
-            file_bytes = file_path.stat().st_size
-        except OSError:
-            file_bytes = None
-        if file_bytes is not None and file_bytes > MAX_RECOVERY_TEXT_BYTES:
-            raise ValueError(
-                "recovery input exceeds "
-                f"MAX_RECOVERY_TEXT_BYTES ({MAX_RECOVERY_TEXT_BYTES}): {file_bytes} bytes"
-            )
-        try:
-            with file_path.open("r", encoding="utf-8") as handle:
-                text = handle.read()
-        except UnicodeDecodeError as exc:
-            raise ValueError(
-                f"file is not UTF-8 text: {file_path}. "
-                "If this is a PDF or image, scan it for QR payloads instead."
-            ) from exc
-        except FileNotFoundError as exc:
-            raise FileNotFoundError(errno.ENOENT, "file not found", str(file_path)) from exc
-        except PermissionError as exc:
-            raise PermissionError(f"unable to read file: {file_path}") from exc
-        except OSError as exc:
-            raise OSError(f"unable to read file: {file_path}") from exc
-        text_bytes = len(text.encode("utf-8"))
-        if text_bytes > MAX_RECOVERY_TEXT_BYTES:
-            raise ValueError(
-                "recovery input exceeds "
-                f"MAX_RECOVERY_TEXT_BYTES ({MAX_RECOVERY_TEXT_BYTES}): {text_bytes} bytes"
-            )
+        text = _read_text_file_with_limit(Path(normalized_path))
     return text.splitlines()
+
+
+def _read_text_file_with_limit(file_path: Path) -> str:
+    """Read a regular UTF-8 recovery text file without following symlinks."""
+
+    try:
+        initial_stat = file_path.lstat()
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(errno.ENOENT, "file not found", str(file_path)) from exc
+    except PermissionError as exc:
+        raise PermissionError(f"unable to read file: {file_path}") from exc
+    except OSError as exc:
+        raise OSError(f"unable to read file: {file_path}") from exc
+    _validate_recovery_text_file_stat(file_path, initial_stat)
+    fd = -1
+    try:
+        fd = os.open(file_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        opened_stat = os.fstat(fd)
+        _validate_recovery_text_file_stat(file_path, opened_stat)
+        if (opened_stat.st_dev, opened_stat.st_ino) != (initial_stat.st_dev, initial_stat.st_ino):
+            raise ValueError(f"recovery input file changed while opening: {file_path}")
+        with os.fdopen(fd, "rb") as handle:
+            fd = -1
+            data = _read_file_bytes_with_limit(handle)
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(errno.ENOENT, "file not found", str(file_path)) from exc
+    except PermissionError as exc:
+        raise PermissionError(f"unable to read file: {file_path}") from exc
+    except OSError as exc:
+        raise OSError(f"unable to read file: {file_path}") from exc
+    finally:
+        if fd >= 0:
+            os.close(fd)
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(
+            f"file is not UTF-8 text: {file_path}. "
+            "If this is a PDF or image, scan it for QR payloads instead."
+        ) from exc
+
+
+def _validate_recovery_text_file_stat(file_path: Path, file_stat: os.stat_result) -> None:
+    if stat_module.S_ISLNK(file_stat.st_mode):
+        raise ValueError(f"recovery input file must not be a symlink: {file_path}")
+    if not stat_module.S_ISREG(file_stat.st_mode):
+        raise ValueError(f"recovery input file must be a regular file: {file_path}")
+    if file_stat.st_size > MAX_RECOVERY_TEXT_BYTES:
+        raise ValueError(
+            "recovery input exceeds "
+            f"MAX_RECOVERY_TEXT_BYTES ({MAX_RECOVERY_TEXT_BYTES}): {file_stat.st_size} bytes"
+        )
+
+
+def _read_file_bytes_with_limit(handle: BinaryIO) -> bytes:
+    chunks: list[bytes] = []
+    total_bytes = 0
+    while True:
+        remaining = MAX_RECOVERY_TEXT_BYTES + 1 - total_bytes
+        chunk = handle.read(min(64 * 1024, remaining))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total_bytes += len(chunk)
+        if total_bytes > MAX_RECOVERY_TEXT_BYTES:
+            raise ValueError(
+                "recovery input exceeds "
+                f"MAX_RECOVERY_TEXT_BYTES ({MAX_RECOVERY_TEXT_BYTES}): {total_bytes} bytes"
+            )
+    return b"".join(chunks)
 
 
 def _read_stdin_text_with_limit() -> str:

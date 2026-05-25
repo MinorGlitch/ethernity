@@ -26,7 +26,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from ethernity import render as render_module
-from ethernity.artifacts.publish import publish_staged_artifacts
+from ethernity.artifacts.publish import discard_staged_artifact_dir, publish_staged_artifacts
 from ethernity.cli.features.extend import rendering as _rendering_impl, runtime as _runtime_impl
 from ethernity.cli.features.extend.main_carrier_validation import (
     validate_staged_main_carrier,
@@ -50,6 +50,7 @@ from ethernity.cli.features.extend.prepare import (
 from ethernity.cli.features.extend.shard_validation import validate_staged_shard_carriers
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.events import emit_phase, emit_progress
+from ethernity.cli.shared.log import _warn
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.recovery_kit_index import build_recovery_kit_index_inventory_rows
 from ethernity.cli.shared.types import ExtendArgs
@@ -258,10 +259,14 @@ def execute_prepared_extend(
         nonce=nonce_value,
         publish_policy=runtime.to_publish_policy(),
     )
-    render_runtime, layout_debug_staging_dir = _runtime_with_staged_layout_debug(
-        runtime,
-        nonce=nonce_value,
-    )
+    try:
+        render_runtime, layout_debug_staging_dir = _runtime_with_staged_layout_debug(
+            runtime,
+            nonce=nonce_value,
+        )
+    except Exception:
+        discard_staged_artifact_dir(publish.artifacts.staging_dir)
+        raise
 
     def _renderer(plan: PreparedExtensionPublishPlan) -> RenderedExtensionArtifacts:
         return _render_extension_artifacts(plan, runtime=render_runtime)
@@ -293,7 +298,11 @@ def execute_prepared_extend(
     except Exception:
         _discard_staged_layout_debug(layout_debug_staging_dir)
         raise
-    _publish_staged_layout_debug(layout_debug_staging_dir, runtime.layout_debug_dir)
+    _publish_staged_layout_debug(
+        layout_debug_staging_dir,
+        runtime.layout_debug_dir,
+        quiet=prepared.args.quiet,
+    )
     return ExecutedExtendRun(
         prepared=prepared,
         runtime=runtime,
@@ -319,13 +328,29 @@ def _runtime_with_staged_layout_debug(
     return replace(runtime, layout_debug_dir=str(staging_dir)), staging_dir
 
 
-def _publish_staged_layout_debug(staging_dir: Path | None, final_dir: str | None) -> None:
+def _publish_staged_layout_debug(
+    staging_dir: Path | None,
+    final_dir: str | None,
+    *,
+    quiet: bool,
+) -> None:
     if staging_dir is None or final_dir is None:
         return
     final_path = Path(final_dir)
     try:
-        for path in sorted(staging_dir.glob("*.layout.json")):
-            path.replace(final_path / path.name)
+        try:
+            for path in sorted(staging_dir.glob("*.layout.json")):
+                path.replace(final_path / path.name)
+        except OSError as exc:
+            _warn(
+                "Extension published, but layout debug sidecar promotion failed.",
+                quiet=quiet,
+                details={
+                    "layout_debug_dir": str(final_path),
+                    "layout_debug_staging_dir": str(staging_dir),
+                    "error": str(exc),
+                },
+            )
     finally:
         _discard_staged_layout_debug(staging_dir)
 

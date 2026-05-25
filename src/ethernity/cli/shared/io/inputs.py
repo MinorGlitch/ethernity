@@ -18,16 +18,18 @@ from __future__ import annotations
 
 import errno
 import os
+import stat as stat_module
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import BinaryIO, Literal
 
 from rich.progress import Progress, TaskID
 
 from ethernity.cli.shared.paths import expanduser_cli_path
 from ethernity.cli.shared.types import InputFile
+from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
 from ethernity.core.validation import normalize_path
 
 # Progress reporting intervals
@@ -56,6 +58,14 @@ class _ScanTracker:
                 description=f"Scanning input files... ({self.scanned} found)",
             )
             self.progress.refresh()
+
+
+@dataclass(frozen=True)
+class _PlannedInputFile:
+    source_path: Path
+    absolute_path: Path
+    relative_path: str
+    file_stat: os.stat_result
 
 
 def _load_input_files(
@@ -125,35 +135,26 @@ def _load_input_files(
         progress.refresh()
 
     base = _resolve_base_dir(paths, base_dir)
+    planned_files = _plan_input_files(paths, base)
     entries: list[InputFile] = []
-    seen: dict[str, Path] = {}
     total = len(paths)
     read_task_id = progress.add_task("Reading input files...", total=total) if progress else None
     if progress is not None and read_task_id is not None:
         progress.refresh()
     read = 0
-    for path in paths:
-        _reject_symlink(path, "input file")
-        if not path.exists():
-            raise _missing_path_error(path, "input file not found")
-        if not path.is_file():
-            raise ValueError(f"input path is not a file: {path}")
-        abs_path = path.resolve()
-        rel = _relative_path(abs_path, base)
-        if rel in seen:
-            raise ValueError(f"duplicate relative path '{rel}' from {seen[rel]} and {abs_path}")
-        stat = abs_path.stat()
-        data = abs_path.read_bytes()
-        mtime = int(stat.st_mtime)
+    seen = {plan.relative_path: plan.absolute_path for plan in planned_files}
+    total_input_bytes = sum(plan.file_stat.st_size for plan in planned_files)
+    for plan in planned_files:
+        data = _read_planned_input_file(plan)
+        mtime = int(plan.file_stat.st_mtime)
         entries.append(
             InputFile(
-                source_path=abs_path,
-                relative_path=rel,
+                source_path=plan.absolute_path,
+                relative_path=plan.relative_path,
                 data=data,
                 mtime=mtime,
             )
         )
-        seen[rel] = abs_path
         read += 1
         if progress is not None and read_task_id is not None:
             progress.advance(read_task_id)
@@ -168,11 +169,17 @@ def _load_input_files(
         rel = normalize_path("data.txt", label="relative path")
         if rel in seen:
             raise ValueError(f"duplicate relative path '{rel}' from stdin")
-        data = sys.stdin.read().encode("utf-8")
+        if len(planned_files) + 1 > MAX_MANIFEST_FILES:
+            raise ValueError(
+                f"input files exceed MAX_MANIFEST_FILES ({MAX_MANIFEST_FILES}): "
+                f"{len(planned_files) + 1}"
+            )
+        data = _read_stdin_input_with_limit(total_input_bytes)
         if not data:
             raise ValueError(
                 "stdin input is empty; provide data with --input - or use --input/--input-dir"
             )
+        total_input_bytes += len(data)
         entries.append(
             InputFile(
                 source_path=None,
@@ -190,6 +197,131 @@ def _load_input_files(
     else:
         input_origin = "file"
     return entries, base, input_origin, input_roots
+
+
+def _plan_input_files(paths: list[Path], base_dir: Path | None) -> list[_PlannedInputFile]:
+    planned: list[_PlannedInputFile] = []
+    seen: dict[str, Path] = {}
+    total_bytes = 0
+    for path in paths:
+        file_stat = _input_file_lstat(path)
+        abs_path = path.resolve()
+        rel = _relative_path(abs_path, base_dir)
+        if rel in seen:
+            raise ValueError(f"duplicate relative path '{rel}' from {seen[rel]} and {abs_path}")
+        seen[rel] = abs_path
+        planned.append(
+            _PlannedInputFile(
+                source_path=path,
+                absolute_path=abs_path,
+                relative_path=rel,
+                file_stat=file_stat,
+            )
+        )
+        if len(planned) > MAX_MANIFEST_FILES:
+            raise ValueError(
+                f"input files exceed MAX_MANIFEST_FILES ({MAX_MANIFEST_FILES}): {len(planned)}"
+            )
+        total_bytes += file_stat.st_size
+        if total_bytes > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+            raise ValueError(
+                "input files exceed MAX_DECOMPRESSED_PAYLOAD_BYTES "
+                f"({MAX_DECOMPRESSED_PAYLOAD_BYTES}): {total_bytes} bytes"
+            )
+    return planned
+
+
+def _input_file_lstat(path: Path) -> os.stat_result:
+    try:
+        file_stat = path.lstat()
+    except FileNotFoundError:
+        raise _missing_path_error(path, "input file not found") from None
+    except PermissionError as exc:
+        raise PermissionError(f"unable to read input file: {path}") from exc
+    except OSError as exc:
+        raise OSError(f"unable to read input file: {path}") from exc
+    _validate_input_file_stat(path, file_stat)
+    return file_stat
+
+
+def _validate_input_file_stat(path: Path, file_stat: os.stat_result) -> None:
+    if stat_module.S_ISLNK(file_stat.st_mode):
+        raise ValueError(f"input file must not be a symlink: {path}")
+    if not stat_module.S_ISREG(file_stat.st_mode):
+        raise ValueError(f"input path is not a file: {path}")
+    if file_stat.st_size > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+        raise ValueError(
+            "input file exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES "
+            f"({MAX_DECOMPRESSED_PAYLOAD_BYTES}): {file_stat.st_size} bytes"
+        )
+
+
+def _read_planned_input_file(plan: _PlannedInputFile) -> bytes:
+    fd = -1
+    try:
+        fd = os.open(plan.absolute_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        opened_stat = os.fstat(fd)
+        _validate_input_file_stat(plan.source_path, opened_stat)
+        if (
+            opened_stat.st_dev,
+            opened_stat.st_ino,
+            opened_stat.st_size,
+        ) != (
+            plan.file_stat.st_dev,
+            plan.file_stat.st_ino,
+            plan.file_stat.st_size,
+        ):
+            raise ValueError(f"input file changed while opening: {plan.source_path}")
+        with os.fdopen(fd, "rb") as handle:
+            fd = -1
+            data = _read_file_bytes_with_limit(handle, max_bytes=plan.file_stat.st_size)
+    except FileNotFoundError:
+        raise _missing_path_error(plan.source_path, "input file not found") from None
+    except PermissionError as exc:
+        raise PermissionError(f"unable to read input file: {plan.source_path}") from exc
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise ValueError(f"input file must not be a symlink: {plan.source_path}") from exc
+        raise OSError(f"unable to read input file: {plan.source_path}") from exc
+    finally:
+        if fd >= 0:
+            os.close(fd)
+    if len(data) != plan.file_stat.st_size:
+        raise ValueError(f"input file changed while reading: {plan.source_path}")
+    return data
+
+
+def _read_file_bytes_with_limit(handle: BinaryIO, *, max_bytes: int) -> bytes:
+    chunks: list[bytes] = []
+    total_bytes = 0
+    while True:
+        remaining = max_bytes + 1 - total_bytes
+        chunk = handle.read(min(64 * 1024, remaining))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        total_bytes += len(chunk)
+        if total_bytes > max_bytes:
+            raise ValueError("input file changed while reading")
+    return b"".join(chunks)
+
+
+def _read_stdin_input_with_limit(existing_bytes: int) -> bytes:
+    chunks: list[bytes] = []
+    total_bytes = existing_bytes
+    while True:
+        chunk = sys.stdin.read(64 * 1024)
+        if not chunk:
+            break
+        data = chunk.encode("utf-8")
+        chunks.append(data)
+        total_bytes += len(data)
+        if total_bytes > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+            raise ValueError(
+                "input files exceed MAX_DECOMPRESSED_PAYLOAD_BYTES "
+                f"({MAX_DECOMPRESSED_PAYLOAD_BYTES}): {total_bytes} bytes"
+            )
+    return b"".join(chunks)
 
 
 def _walk_directory(path: Path, *, on_file: Callable[[], None] | None = None) -> list[Path]:

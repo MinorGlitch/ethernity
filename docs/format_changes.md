@@ -88,6 +88,25 @@ Use this template for each change entry:
 
 ## Entries
 
+## 2026-05-25 - Preflight selected input bounds before reading
+
+- Type: validation
+- Normative spec updated: no
+- Sections changed: none (enforces existing Sections 17 and 19.5 bounds at input admission)
+- Compatibility:
+  - Old decoders reading new artifacts: yes (artifact wire format is unchanged)
+  - New decoders reading old artifacts: yes (valid existing artifacts are unaffected; oversized or
+    non-regular selected source inputs fail before artifact creation)
+- Version/profile bump required: no (this is CLI input hardening and earlier fail-closed validation,
+  not a serialized format change)
+- Implementation refs:
+  - `src/ethernity/cli/shared/io/inputs.py`
+- Test refs:
+  - `tests/unit/test_input_files.py`
+- Security impact:
+  - Prevents selected input files, stdin, or file-count explosions from exhausting memory before
+    format bounds apply, and keeps symlinks/non-regular files rejected at preflight and open time.
+
 ## 2026-05-23 - Enforce scan layout and root-only recovery selection
 
 - Type: validation
@@ -97,9 +116,11 @@ Use this template for each change entry:
   - Old decoders reading new artifacts: yes (artifact wire format is unchanged)
   - New decoders reading old artifacts: partial (backup-export scans now reject extension-like
     top-level clutter under `extensions/`; explicit root-only recovery no longer requires published
-    extension carrier files to be readable)
+    extension carrier files to be readable; content-based scan/import remains filename-independent
+    for PDFs and images that contain valid QR payloads)
 - Version/profile bump required: no (this changes scan selection and export-tree validation only;
-  serialized recovery carriers and extension envelopes are unchanged)
+  serialized recovery carriers and extension envelopes are unchanged, and canonical export filename
+  roles do not constrain user-supplied scan filenames)
 - Implementation refs:
   - `src/ethernity/qr/scan.py`
   - `src/ethernity/cli/shared/io/frames.py`
@@ -110,7 +131,8 @@ Use this template for each change entry:
   - `tests/unit/test_recover_plan_paths.py`
 - Security impact:
   - Preserves root-only recovery as an emergency escape hatch while still rejecting malformed
-    extension-like export-tree entries.
+    extension-like export-tree entries and avoiding filename-based rejection of valid scanned paper
+    backups.
 
 ## 2026-05-23 - Distinguish recovery-valid and append-valid extension heads
 
@@ -119,8 +141,9 @@ Use this template for each change entry:
 - Sections changed: 20
 - Compatibility:
   - Old decoders reading new artifacts: yes (artifact wire format is unchanged)
-  - New decoders reading old artifacts: yes for recovery; append operations can still reject
-    degraded published export trees that are missing required redundant artifacts
+  - New decoders reading old artifacts: yes for recovery, including arbitrary-named scanned PDF/image
+    carriers with valid QR payloads; append operations can still reject degraded published export
+    trees that are missing required redundant artifacts
 - Version/profile bump required: no (this clarifies product validation boundaries without changing
   serialized bytes)
 - Implementation refs:
@@ -129,8 +152,8 @@ Use this template for each change entry:
 - Test refs:
   - `tests/integration/test_integration_extensions.py`
 - Security impact:
-  - Keeps content recovery permissive for damaged redundant carriers while requiring complete
-    canonical published state before appending a new extension.
+  - Keeps content recovery permissive for damaged, renamed, or partial redundant carriers while
+    requiring complete canonical published state before appending a new extension.
 
 ## 2026-05-14 - Bound extension chunking profile sizes
 
@@ -372,7 +395,7 @@ Use this template for each change entry:
   - Old decoders reading new artifacts: unchanged (the wire format is unchanged)
   - New decoders reading old artifacts: changed metadata semantics for replayed extension states;
     synthetic recovered/compacted manifests now identify themselves as reconstructed state instead
-    of borrowing root or latest-extension source scope
+    of borrowing root or latest-extension source scope, while preserving root chain security fields
 - Version/profile bump required: no (this changes synthetic manifest metadata produced during
   replay/compaction, not the encoded extension document profile)
 - Implementation refs:
@@ -383,7 +406,8 @@ Use this template for each change entry:
   - `tests/unit/test_compact_service.py`
 - Security impact:
   - Prevents compacted full-state backups from presenting a misleading narrow provenance inherited
-    from the final extension document.
+    from the final extension document while preserving the root sealed/unsealed state and unsealed
+    signing authority needed for future recovery and extension operations.
 
 ## 2026-05-08 - Clarify chain-global root chunk reuse
 

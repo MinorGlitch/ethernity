@@ -273,6 +273,23 @@ class TestRecoverInput(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "MAX_RECOVERY_TEXT_BYTES"):
                     _read_text_lines(str(path))
 
+    def test_read_text_lines_rejects_recovery_text_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "recovery.txt"
+            link = Path(tmpdir) / "recovery-link.txt"
+            target.write_text("ok", encoding="utf-8")
+            try:
+                link.symlink_to(target)
+            except (NotImplementedError, OSError):
+                self.skipTest("symlinks are not available")
+            with self.assertRaisesRegex(ValueError, "must not be a symlink"):
+                _read_text_lines(str(link))
+
+    def test_read_text_lines_rejects_recovery_text_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaisesRegex(ValueError, "regular file"):
+                _read_text_lines(tmpdir)
+
     def test_read_text_lines_rejects_recovery_text_stdin_size_overflow(self) -> None:
         with mock.patch("ethernity.cli.shared.io.frames.MAX_RECOVERY_TEXT_BYTES", 10):
             with mock.patch("ethernity.cli.shared.io.frames.sys.stdin", new=io.StringIO("x" * 11)):
