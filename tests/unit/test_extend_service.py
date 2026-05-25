@@ -625,6 +625,22 @@ class TestExtendService(unittest.TestCase):
             self.assertEqual(resolved, str(debug_dir.resolve()))
             self.assertFalse(debug_dir.exists())
 
+    def test_extend_layout_debug_dir_create_false_rejects_non_directory_parent(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            parent_file = Path(tmpdir) / "not-a-dir"
+            parent_file.write_text("nope", encoding="utf-8")
+
+            with self.assertRaises(ApiCommandError) as ctx:
+                resolve_extend_layout_debug_dir(
+                    str(parent_file / "layout-debug"),
+                    root_dir=str(root_dir),
+                    create=False,
+                )
+
+        self.assertEqual(ctx.exception.code, EXTENSION_INVALID_POLICY)
+        self.assertIn("--layout-debug-dir is not usable", str(ctx.exception))
+
     def test_resolve_extend_policy_uses_validated_unlock_policy_for_reuse_root(self) -> None:
         policy = resolve_extend_policy(
             args=ExtendArgs(unlock_policy="reuse-root"),

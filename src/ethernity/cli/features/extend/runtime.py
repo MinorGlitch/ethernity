@@ -28,7 +28,11 @@ from ethernity.cli.shared.types import ExtendArgs
 from ethernity.config import BackupDefaults, apply_template_design, load_app_config
 from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.crypto.signing import derive_public_key
-from ethernity.render.layout_debug import ensure_layout_debug_dir_allowed, resolve_layout_debug_dir
+from ethernity.render.layout_debug import (
+    ensure_layout_debug_dir_allowed,
+    ensure_layout_debug_dir_ready,
+    resolve_layout_debug_dir,
+)
 
 from .models import (
     EXTENSION_INVALID_POLICY,
@@ -349,6 +353,14 @@ def resolve_extend_layout_debug_dir(
     debug_dir = Path(path).expanduser().resolve()
     ensure_extend_layout_debug_dir_allowed(debug_dir, root_dir=root_dir)
     if not create:
+        try:
+            ensure_layout_debug_dir_ready(debug_dir)
+        except ValueError as exc:
+            raise ApiCommandError(
+                code=EXTENSION_INVALID_POLICY,
+                message=f"--layout-debug-dir is not usable: {exc}",
+                details={"layout_debug_dir": str(debug_dir)},
+            ) from exc
         return str(debug_dir)
     return resolve_layout_debug_dir(str(debug_dir))
 

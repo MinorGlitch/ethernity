@@ -3507,6 +3507,40 @@ class TestCliApi(unittest.TestCase):
         self.assertIn(api_codes.EXTENSION_INPUT_REQUIRED, issue_codes)
         self.assertIn(api_codes.EXTENSION_INVALID_POLICY, issue_codes)
 
+    def test_api_inspect_extend_rejects_uncreatable_layout_debug_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "backup-root"
+            root_dir.mkdir()
+            parent_file = Path(tmpdir) / "not-a-dir"
+            parent_file.write_text("nope", encoding="utf-8")
+            resolved = _resolved_extend_state(root_dir)
+            buffer = io.StringIO()
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.api_handlers.resolve_extend_state",
+                    return_value=resolved,
+                ),
+                ndjson_session(stream=buffer),
+            ):
+                exit_code = run_extend_inspect_api_command(
+                    ExtendArgs(
+                        root_dir=str(root_dir),
+                        layout_debug_dir=str(parent_file / "layout-debug"),
+                    )
+                )
+
+        self.assertEqual(exit_code, 0)
+        events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        blocking_issues = events[-1]["blocking_issues"]
+        self.assertIn(
+            api_codes.EXTENSION_INVALID_POLICY,
+            {issue["code"] for issue in blocking_issues},
+        )
+        self.assertTrue(
+            any("--layout-debug-dir is not usable" in issue["message"] for issue in blocking_issues)
+        )
+
     def test_run_extend_inspect_api_command_empty_layout_debug_dir_started_arg_is_null(
         self,
     ) -> None:

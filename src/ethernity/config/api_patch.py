@@ -325,6 +325,7 @@ def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
     ui_table = _raw_table(raw, "ui")
     debug_table = _raw_table(raw, "debug")
     runtime_table = _raw_table(raw, "runtime")
+    default_extension_chunking = dict(extension_chunking)
 
     page["size"] = _coerce_enum(page_table.get("size"), allowed=_PAGE_SIZES, fallback=page["size"])
     qr["error"] = _coerce_enum(
@@ -345,6 +346,12 @@ def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
         extension_chunking_table.get("max_size"),
         fallback=extension_chunking["max_size"],
     )
+    if not (
+        cast(int, extension_chunking["min_size"])
+        <= cast(int, extension_chunking["target_size"])
+        <= cast(int, extension_chunking["max_size"])
+    ):
+        extension_chunking.update(default_extension_chunking)
 
     backup["base_dir"] = _coerce_optional_string(
         backup_table.get("base_dir"), fallback=backup["base_dir"]
