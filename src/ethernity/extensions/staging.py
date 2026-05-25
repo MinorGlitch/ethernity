@@ -40,6 +40,7 @@ from ethernity.extensions.layout import (
 )
 
 EXTENSION_CHAIN_LOCK_DIR_NAME = ".chain.lock"
+DirectoryIdentity = tuple[int, int]
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,8 @@ class ValidatedStagedExtension:
     doc_id_hex: str
     expected_index: int
     publish_policy: ExtensionPublishPolicy
+    root_dir_identity: DirectoryIdentity
+    extensions_dir_identity: DirectoryIdentity
 
 
 StagedExtensionSnapshot = ArtifactSnapshot
@@ -73,6 +76,8 @@ StagedExtensionSnapshot = ArtifactSnapshot
 class PlannedStagedExtensionArtifacts:
     staging_dir: Path
     final_dir: Path
+    root_dir_identity: DirectoryIdentity
+    extensions_dir_identity: DirectoryIdentity
     qr_document_path: Path
     recovery_document_path: Path
     recovery_kit_index_path: Path | None
@@ -108,6 +113,15 @@ def _require_existing_directory_no_symlink(
     label: str,
     display_path: str | Path | None = None,
 ) -> None:
+    _directory_identity(path, label=label, display_path=display_path)
+
+
+def _directory_identity(
+    path: Path,
+    *,
+    label: str,
+    display_path: str | Path | None = None,
+) -> DirectoryIdentity:
     path_label = path if display_path is None else display_path
     try:
         metadata = path.lstat()
@@ -117,6 +131,33 @@ def _require_existing_directory_no_symlink(
         raise ValueError(f"{label} must not be a symlink")
     if not stat.S_ISDIR(metadata.st_mode):
         raise ValueError(f"{label} must be a directory: {path_label}")
+    return metadata.st_dev, metadata.st_ino
+
+
+def _require_directory_identity(
+    path: Path,
+    *,
+    expected: DirectoryIdentity,
+    label: str,
+) -> None:
+    actual = _directory_identity(path, label=label)
+    if actual != expected:
+        raise ValueError(f"{label} changed before promotion")
+
+
+def _require_publish_directory_identities(validated: ValidatedStagedExtension) -> None:
+    extensions_dir = validated.staging_dir.parent
+    root_dir = extensions_dir.parent
+    _require_directory_identity(
+        root_dir,
+        expected=validated.root_dir_identity,
+        label="root backup directory",
+    )
+    _require_directory_identity(
+        extensions_dir,
+        expected=validated.extensions_dir_identity,
+        label="extensions directory",
+    )
 
 
 def preflight_extension_publish_target(root_dir: str | Path, *, index: int) -> None:
@@ -164,6 +205,7 @@ def create_staged_extension_artifact_plan(
 
     staging_dir = create_extension_staging_dir(root_dir, index=index, nonce=nonce)
     final_dir = staging_dir.parent / canonical_extension_dir_name(index)
+    root_dir_identity, extensions_dir_identity = _publish_directory_identities(staging_dir)
     qr_document_path = staging_dir / build_extension_main_filename("qr_document", index, doc_id_hex)
     recovery_document_path = staging_dir / build_extension_main_filename(
         "recovery_document",
@@ -200,6 +242,8 @@ def create_staged_extension_artifact_plan(
     return PlannedStagedExtensionArtifacts(
         staging_dir=staging_dir,
         final_dir=final_dir,
+        root_dir_identity=root_dir_identity,
+        extensions_dir_identity=extensions_dir_identity,
         qr_document_path=qr_document_path,
         recovery_document_path=recovery_document_path,
         recovery_kit_index_path=recovery_kit_index_path,
@@ -213,6 +257,8 @@ def validate_staged_extension_dir(
     *,
     expected_index: int,
     publish_policy: ExtensionPublishPolicy,
+    expected_root_dir_identity: DirectoryIdentity | None = None,
+    expected_extensions_dir_identity: DirectoryIdentity | None = None,
 ) -> ValidatedStagedExtension:
     """Validate a staged extension artifact set before atomic promotion."""
 
@@ -223,6 +269,14 @@ def validate_staged_extension_dir(
         raise ValueError("staging_dir must be an existing directory")
     if not is_staging_dir_name(path.name):
         raise ValueError("staging_dir must use a non-canonical .staging-* name")
+    root_dir_identity, extensions_dir_identity = _publish_directory_identities(path)
+    if expected_root_dir_identity is not None and root_dir_identity != expected_root_dir_identity:
+        raise ValueError("root backup directory changed before promotion")
+    if (
+        expected_extensions_dir_identity is not None
+        and extensions_dir_identity != expected_extensions_dir_identity
+    ):
+        raise ValueError("extensions directory changed before promotion")
 
     main_doc_ids: dict[str, str] = {}
     passphrase_shares: dict[int, tuple[int, str]] = {}
@@ -291,6 +345,8 @@ def validate_staged_extension_dir(
         doc_id_hex=doc_id_hex,
         expected_index=expected_index,
         publish_policy=publish_policy,
+        root_dir_identity=root_dir_identity,
+        extensions_dir_identity=extensions_dir_identity,
     )
 
 
@@ -302,6 +358,7 @@ def promote_staged_extension_dir(
     """Atomically promote a validated staged extension into its canonical directory."""
 
     staging_dir = validated.staging_dir
+    _require_publish_directory_identities(validated)
     if staging_dir.is_symlink():
         raise ValueError("validated staging_dir must not be a symlink")
     if not staging_dir.exists() or not staging_dir.is_dir():
@@ -310,6 +367,7 @@ def promote_staged_extension_dir(
     final_dir = staging_dir.parent / expected_final_dir_name
 
     def _validate_for_promotion(path: Path) -> None:
+        _require_publish_directory_identities(validated)
         revalidated = validate_staged_extension_dir(
             path,
             expected_index=validated.expected_index,
@@ -343,6 +401,14 @@ def snapshot_staged_extension_dir(staging_dir: str | Path) -> StagedExtensionSna
     """Return a content fingerprint for all regular files in a staged extension directory."""
 
     return snapshot_artifact_dir(staging_dir)
+
+
+def _publish_directory_identities(staging_dir: Path) -> tuple[DirectoryIdentity, DirectoryIdentity]:
+    extensions_dir = staging_dir.parent
+    root_dir = extensions_dir.parent
+    root_dir_identity = _directory_identity(root_dir, label="root backup directory")
+    extensions_dir_identity = _directory_identity(extensions_dir, label="extensions directory")
+    return root_dir_identity, extensions_dir_identity
 
 
 def _require_index_match(*, entry: Path, actual_index: int, expected_index: int) -> None:

@@ -84,6 +84,8 @@ def execute_staged_extension_publish(
             path,
             expected_index=plan.prepared.next_index,
             publish_policy=plan.publish_policy,
+            expected_root_dir_identity=plan.artifacts.root_dir_identity,
+            expected_extensions_dir_identity=plan.artifacts.extensions_dir_identity,
         )
 
     def _populate() -> RenderedExtensionArtifacts:

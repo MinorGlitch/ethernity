@@ -172,6 +172,8 @@ class RecoveryChainInspection:
 class _DecodedExtensionCandidate:
     document: ImportedRecoveryDocument
     decoded: ExtensionEnvelope
+    auth_payload: AuthPayload
+    auth_status: str
 
 
 def imported_documents_from_recovery_frames(
@@ -610,6 +612,22 @@ def _decode_imported_extension_candidates(
                 },
             )
         try:
+            auth_payload, auth_status = _resolve_verified_extension_auth(
+                document,
+                expected_sign_pub=expected_sign_pub,
+                quiet=quiet,
+            )
+        except ValueError as exc:
+            if document.doc_hash == requested_doc_hash:
+                raise _extension_auth_api_error(
+                    document,
+                    message=str(exc),
+                    explicit_selection=True,
+                ) from exc
+            if fail_on_root_authority_errors:
+                raise _extension_auth_api_error(document, message=str(exc)) from exc
+            continue
+        try:
             plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
             version, decoded_document = decode_any_envelope(plaintext)
         except Exception as exc:
@@ -670,7 +688,14 @@ def _decode_imported_extension_candidates(
                 )
             continue
         seen_doc_hashes.add(document.doc_hash)
-        candidates.append(_DecodedExtensionCandidate(document=document, decoded=decoded_document))
+        candidates.append(
+            _DecodedExtensionCandidate(
+                document=document,
+                decoded=decoded_document,
+                auth_payload=auth_payload,
+                auth_status=auth_status,
+            )
+        )
     return tuple(candidates)
 
 
@@ -743,46 +768,19 @@ def _authenticate_imported_extension_candidates(
     links: list[DecodedExtensionLink] = []
     for candidate in candidates:
         document = candidate.document
-        try:
-            auth_payload, auth_status = resolve_auth_payload(
-                list(document.auth_frames),
-                doc_id=document.doc_id,
-                doc_hash=document.doc_hash,
-                allow_unsigned=False,
-                require_auth=True,
-                quiet=quiet,
-            )
-        except ValueError as exc:
-            raise ApiCommandError(
-                code=api_codes.RECOVERY_HEAD_UNTRUSTED,
-                message=f"imported extension AUTH could not be verified: {exc}",
-                details={
-                    "stage": "auth",
-                    "extension_doc_hash": document.doc_hash.hex(),
-                },
-            ) from exc
-        if auth_payload is None or auth_payload.sign_pub != expected_sign_pub:
-            raise ApiCommandError(
-                code=api_codes.RECOVERY_HEAD_UNTRUSTED,
-                message="imported extension AUTH signing key does not match root authority",
-                details={
-                    "stage": "auth",
-                    "extension_doc_hash": document.doc_hash.hex(),
-                },
-            )
 
         links.append(
             DecodedExtensionLink(
                 link=AuthenticatedExtensionChainLink(
                     doc_hash=document.doc_hash,
                     document=candidate.decoded,
-                    auth_payload=auth_payload,
+                    auth_payload=candidate.auth_payload,
                     expected_sign_pub=expected_sign_pub,
-                    auth_status=auth_status,
+                    auth_status=candidate.auth_status,
                     root_authority_verified=True,
                 ),
-                auth_payload=auth_payload,
-                auth_status=auth_status,
+                auth_payload=candidate.auth_payload,
+                auth_status=candidate.auth_status,
                 root_authority_verified=True,
             )
         )
@@ -801,6 +799,49 @@ def _authenticate_imported_extension_candidates(
             )
         by_index[index] = link
     return tuple(by_index[index] for index in sorted(by_index))
+
+
+def _resolve_verified_extension_auth(
+    document: ImportedRecoveryDocument,
+    *,
+    expected_sign_pub: bytes,
+    quiet: bool,
+) -> tuple[AuthPayload, str]:
+    try:
+        auth_payload, auth_status = resolve_auth_payload(
+            list(document.auth_frames),
+            doc_id=document.doc_id,
+            doc_hash=document.doc_hash,
+            allow_unsigned=False,
+            require_auth=True,
+            quiet=quiet,
+        )
+    except ValueError as exc:
+        raise ValueError(f"imported extension AUTH could not be verified: {exc}") from exc
+    if auth_payload is None:
+        raise ValueError("imported extension AUTH could not be verified: missing auth payload")
+    if auth_payload.sign_pub != expected_sign_pub:
+        raise ValueError("imported extension AUTH signing key does not match root authority")
+    return auth_payload, auth_status
+
+
+def _extension_auth_api_error(
+    document: ImportedRecoveryDocument,
+    *,
+    message: str,
+    explicit_selection: bool = False,
+) -> ApiCommandError:
+    details: dict[str, object] = {
+        "stage": "auth",
+        "extension_doc_hash": document.doc_hash.hex(),
+    }
+    if explicit_selection:
+        details["explicit_selection"] = True
+    return ApiCommandError(
+        code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+        message=message,
+        details=details,
+    )
 
 
 def _raise_if_document_signed_by_root_authority(
@@ -876,21 +917,15 @@ def decode_imported_extension_link(
     quiet: bool,
     debug: bool,
 ) -> DecodedExtensionLink:
+    auth_payload, auth_status = _resolve_verified_extension_auth(
+        document,
+        expected_sign_pub=expected_sign_pub,
+        quiet=quiet,
+    )
     plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
     version, decoded = decode_any_envelope(plaintext)
     if version != 2 or not isinstance(decoded, ExtensionEnvelope):
         raise ValueError("imported document did not decode as an extension envelope")
-
-    auth_payload, auth_status = resolve_auth_payload(
-        list(document.auth_frames),
-        doc_id=document.doc_id,
-        doc_hash=document.doc_hash,
-        allow_unsigned=False,
-        require_auth=True,
-        quiet=quiet,
-    )
-    if auth_payload is None or auth_payload.sign_pub != expected_sign_pub:
-        raise ValueError("extension AUTH signing key does not match root authority")
 
     return DecodedExtensionLink(
         link=AuthenticatedExtensionChainLink(

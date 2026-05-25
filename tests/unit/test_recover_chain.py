@@ -19,6 +19,7 @@ from unittest import mock
 
 from ethernity.cli.features.recover.chain import (
     ImportedRecoveryDocument,
+    decode_imported_extension_link,
     imported_documents_from_recovery_frames,
     recover_chain_entries,
     select_root_import_document,
@@ -764,11 +765,18 @@ class TestRecoverChain(unittest.TestCase):
                 ),
             ),
         )
+        decrypt_calls: list[bytes] = []
+
+        def _decrypt(data: bytes, *, passphrase: str, debug: bool = False) -> bytes:
+            decrypt_calls.append(data)
+            if data == extension_ciphertext:
+                raise AssertionError("extension body was decrypted before AUTH verification")
+            return data
 
         with (
             mock.patch(
                 "ethernity.cli.features.recover.chain.decrypt_bytes",
-                side_effect=lambda data, *, passphrase, debug=False: data,
+                side_effect=_decrypt,
             ),
             self.assertRaises(ApiCommandError) as caught,
         ):
@@ -776,6 +784,92 @@ class TestRecoverChain(unittest.TestCase):
 
         self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
         self.assertIn("signing key does not match", caught.exception.message)
+        self.assertNotIn(extension_ciphertext, decrypt_calls)
+
+    def test_recover_chain_entries_rejects_selected_bad_auth_before_decrypt(
+        self,
+    ) -> None:
+        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+        extension_ciphertext = _extension_ciphertext(root_doc_hash)
+        extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
+        plan = dataclasses.replace(
+            _recovery_plan(
+                root_ciphertext,
+                root_doc_id,
+                root_doc_hash,
+                extension_doc_hash=extension_doc_hash.hex(),
+            ),
+            import_documents=(
+                _imported_document(root_ciphertext),
+                _imported_document(
+                    extension_ciphertext,
+                    auth_frames=(
+                        _extension_auth_frame(
+                            extension_doc_id,
+                            extension_doc_hash,
+                            signing_seed=b"\x77" * 32,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        decrypt_calls: list[bytes] = []
+
+        def _decrypt(data: bytes, *, passphrase: str, debug: bool = False) -> bytes:
+            decrypt_calls.append(data)
+            if data == extension_ciphertext:
+                raise AssertionError("extension body was decrypted before AUTH verification")
+            return data
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                side_effect=_decrypt,
+            ),
+            self.assertRaises(ApiCommandError) as caught,
+        ):
+            recover_chain_entries(plan, quiet=True)
+
+        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertIn("signing key does not match", caught.exception.message)
+        self.assertEqual(caught.exception.details["stage"], "auth")
+        self.assertEqual(caught.exception.details["extension_doc_hash"], extension_doc_hash.hex())
+        self.assertTrue(caught.exception.details["explicit_selection"])
+        self.assertNotIn(extension_ciphertext, decrypt_calls)
+
+    def test_decode_imported_extension_link_rejects_bad_auth_before_decrypt(
+        self,
+    ) -> None:
+        _root_ciphertext_bytes, _root_doc_id, root_doc_hash = _root_ciphertext()
+        extension_ciphertext = _extension_ciphertext(root_doc_hash)
+        extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
+        document = _imported_document(
+            extension_ciphertext,
+            auth_frames=(
+                _extension_auth_frame(
+                    extension_doc_id,
+                    extension_doc_hash,
+                    signing_seed=b"\x77" * 32,
+                ),
+            ),
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                side_effect=AssertionError("extension body was decrypted before AUTH verification"),
+            ) as decrypt_bytes,
+            self.assertRaisesRegex(ValueError, "signing key does not match"),
+        ):
+            decode_imported_extension_link(
+                document,
+                passphrase="secret",
+                expected_sign_pub=derive_public_key(b"\x33" * 32),
+                quiet=True,
+                debug=False,
+            )
+
+        decrypt_bytes.assert_not_called()
 
     def test_recover_chain_entries_rejects_root_authority_non_extension_document(
         self,

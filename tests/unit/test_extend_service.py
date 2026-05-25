@@ -1354,6 +1354,123 @@ class TestExtendService(unittest.TestCase):
 
             self.assertFalse(publish.artifacts.staging_dir.exists())
 
+    def test_execute_staged_extension_publish_rejects_extensions_dir_swap(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
+            resolved = _resolved_state(
+                diff_summary={
+                    "new_paths": ["new.txt"],
+                    "changed_paths": ["updated.txt"],
+                    "unchanged_paths": [],
+                    "missing_paths": [],
+                },
+            )
+            with mock.patch(
+                "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                return_value=resolved,
+            ):
+                prepared = prepare_extend_run(
+                    ExtendArgs(root_dir=str(root_dir), input=["/tmp/root/example.txt"])
+                )
+                with mock.patch(
+                    "ethernity.cli.features.extend.prepare.encrypt_bytes_with_passphrase",
+                    side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
+                ):
+                    publish = prepare_staged_extension_publish(
+                        prepared,
+                        chunker=lambda data, _profile: (data,),
+                        nonce="abc123",
+                        publish_policy=ExtensionPublishPolicy(),
+                    )
+
+            moved_extensions_dir = root_dir / "extensions-old"
+
+            def _renderer(plan) -> None:
+                plan.artifacts.qr_document_path.write_bytes(b"qr")
+                plan.artifacts.recovery_document_path.write_bytes(b"recovery")
+
+            def _post_validate(plan, _render_result) -> None:
+                extensions_dir = root_dir / "extensions"
+                extensions_dir.rename(moved_extensions_dir)
+                replacement_staging_dir = extensions_dir / plan.artifacts.staging_dir.name
+                replacement_staging_dir.mkdir(parents=True)
+                (replacement_staging_dir / plan.artifacts.qr_document_path.name).write_bytes(b"qr")
+                (replacement_staging_dir / plan.artifacts.recovery_document_path.name).write_bytes(
+                    b"recovery"
+                )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "extensions directory changed before promotion",
+            ):
+                execute_staged_extension_publish(
+                    publish,
+                    renderer=_renderer,
+                    post_validate=_post_validate,
+                )
+
+            self.assertTrue((moved_extensions_dir / publish.artifacts.staging_dir.name).is_dir())
+
+    def test_execute_staged_extension_publish_rejects_root_dir_swap(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
+            resolved = _resolved_state(
+                diff_summary={
+                    "new_paths": ["new.txt"],
+                    "changed_paths": ["updated.txt"],
+                    "unchanged_paths": [],
+                    "missing_paths": [],
+                },
+            )
+            with mock.patch(
+                "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                return_value=resolved,
+            ):
+                prepared = prepare_extend_run(
+                    ExtendArgs(root_dir=str(root_dir), input=["/tmp/root/example.txt"])
+                )
+                with mock.patch(
+                    "ethernity.cli.features.extend.prepare.encrypt_bytes_with_passphrase",
+                    side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
+                ):
+                    publish = prepare_staged_extension_publish(
+                        prepared,
+                        chunker=lambda data, _profile: (data,),
+                        nonce="abc123",
+                        publish_policy=ExtensionPublishPolicy(),
+                    )
+
+            moved_root_dir = Path(tmpdir) / "root-old"
+
+            def _renderer(plan) -> None:
+                plan.artifacts.qr_document_path.write_bytes(b"qr")
+                plan.artifacts.recovery_document_path.write_bytes(b"recovery")
+
+            def _post_validate(plan, _render_result) -> None:
+                root_dir.rename(moved_root_dir)
+                replacement_staging_dir = root_dir / "extensions" / plan.artifacts.staging_dir.name
+                replacement_staging_dir.mkdir(parents=True)
+                (replacement_staging_dir / plan.artifacts.qr_document_path.name).write_bytes(b"qr")
+                (replacement_staging_dir / plan.artifacts.recovery_document_path.name).write_bytes(
+                    b"recovery"
+                )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "root backup directory changed before promotion",
+            ):
+                execute_staged_extension_publish(
+                    publish,
+                    renderer=_renderer,
+                    post_validate=_post_validate,
+                )
+
+            self.assertTrue(
+                (moved_root_dir / "extensions" / publish.artifacts.staging_dir.name).is_dir()
+            )
+
     def test_execute_prepared_extend_discards_layout_debug_sidecars_on_render_failure(
         self,
     ) -> None:

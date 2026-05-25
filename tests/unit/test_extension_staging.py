@@ -190,6 +190,8 @@ class TestExtensionStaging(unittest.TestCase):
                 doc_id_hex=validated.doc_id_hex,
                 expected_index=validated.expected_index,
                 publish_policy=validated.publish_policy,
+                root_dir_identity=validated.root_dir_identity,
+                extensions_dir_identity=validated.extensions_dir_identity,
             )
 
             final_dir = promote_staged_extension_dir(forged)
@@ -239,6 +241,61 @@ class TestExtensionStaging(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "validated staging_dir must not be a symlink"):
                 promote_staged_extension_dir(validated)
+
+    def test_promote_rejects_extensions_dir_swap_after_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            staging_dir = create_extension_staging_dir(root_dir, index=1, nonce="abc123")
+            self._write(staging_dir / "qr_document-01-deadbeefcafebabe.pdf")
+            self._write(staging_dir / "recovery_document-01-deadbeefcafebabe.pdf")
+
+            validated = validate_staged_extension_dir(
+                staging_dir,
+                expected_index=1,
+                publish_policy=ExtensionPublishPolicy(),
+            )
+            extensions_dir = root_dir / "extensions"
+            moved_extensions_dir = root_dir / "extensions-old"
+            extensions_dir.rename(moved_extensions_dir)
+            extensions_dir.mkdir()
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "extensions directory changed before promotion",
+            ):
+                promote_staged_extension_dir(validated)
+
+            self.assertTrue((moved_extensions_dir / staging_dir.name).is_dir())
+
+    def test_promote_rejects_root_dir_swap_after_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_root_dir = Path(tmpdir) / "root"
+            original_root_dir.mkdir()
+            staging_dir = create_extension_staging_dir(
+                original_root_dir,
+                index=1,
+                nonce="abc123",
+            )
+            self._write(staging_dir / "qr_document-01-deadbeefcafebabe.pdf")
+            self._write(staging_dir / "recovery_document-01-deadbeefcafebabe.pdf")
+
+            validated = validate_staged_extension_dir(
+                staging_dir,
+                expected_index=1,
+                publish_policy=ExtensionPublishPolicy(),
+            )
+            moved_root_dir = Path(tmpdir) / "root-old"
+            original_root_dir.rename(moved_root_dir)
+            original_root_dir.mkdir()
+            (original_root_dir / "extensions").mkdir()
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "root backup directory changed before promotion",
+            ):
+                promote_staged_extension_dir(validated)
+
+            self.assertTrue((moved_root_dir / "extensions" / staging_dir.name).is_dir())
 
     def test_promote_rejects_artifact_swapped_for_symlink_after_validation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
