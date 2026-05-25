@@ -204,6 +204,22 @@ class TestQrScanMore(unittest.TestCase):
                     ):
                         _iter_scan_files(root)
 
+    def test_iter_scan_files_rejects_nested_extension_like_top_level_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            nested_backup = root / "nested-backup"
+            nested_backup.mkdir()
+            (nested_backup / "qr_document.pdf").write_bytes(b"%PDF-1.7\n")
+            extensions = nested_backup / "extensions"
+            extensions.mkdir()
+            (extensions / "extension-01").mkdir()
+
+            with self.assertRaisesRegex(
+                QrScanError,
+                "unexpected extension-like top-level entry",
+            ):
+                _iter_scan_files(root)
+
     def test_iter_scan_files_can_exclude_published_extension_carriers(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

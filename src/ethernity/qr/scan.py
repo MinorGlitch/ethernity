@@ -236,11 +236,10 @@ def _iter_scan_files(directory: Path, *, include_extension_carriers: bool = True
         raise QrScanError(f"scan directory must not be a symlink: {directory}")
     if _is_under_unpublished_extension_workspace(directory):
         return []
-    _validate_backup_export_scan_layout(directory)
-
     files: list[Path] = []
     for root, dirnames, filenames in os.walk(directory):
         root_path = Path(root)
+        _validate_backup_export_scan_layout(root_path)
         dirnames[:] = sorted(
             name
             for name in dirnames
