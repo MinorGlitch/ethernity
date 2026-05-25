@@ -97,7 +97,7 @@ def publish_staged_artifacts(
             validate_promotion=validate_promotion,
             lock_dir=lock_dir,
         )
-    except Exception:
+    except BaseException:
         if cleanup_on_error:
             discard_staged_artifact_dir(staging_path)
         raise

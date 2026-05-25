@@ -924,7 +924,7 @@ def run_backup(
             lineage=lineage,
         )
         _commit_prepared_output_dir(staging_output_dir, output_dir)
-    except Exception:
+    except BaseException:
         _discard_prepared_output_dir(staging_output_dir)
         raise
 

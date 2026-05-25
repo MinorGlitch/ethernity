@@ -91,3 +91,22 @@ class TestArtifactPublish(unittest.TestCase):
 
             self.assertFalse(staging_dir.exists())
             self.assertTrue(final_dir.exists())
+
+    def test_publish_staged_artifacts_cleans_up_on_keyboard_interrupt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            final_dir = Path(tmpdir) / "backup-deadbeef"
+            staging_dir = create_sibling_staging_dir(final_dir)
+
+            def _populate() -> None:
+                (staging_dir / "qr_document.pdf").write_bytes(b"qr")
+                raise KeyboardInterrupt
+
+            with self.assertRaises(KeyboardInterrupt):
+                publish_staged_artifacts(
+                    staging_dir=staging_dir,
+                    final_dir=final_dir,
+                    populate=_populate,
+                )
+
+            self.assertFalse(staging_dir.exists())
+            self.assertFalse(final_dir.exists())

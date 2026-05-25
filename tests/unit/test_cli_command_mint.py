@@ -26,6 +26,8 @@ from unittest import mock
 import typer
 
 from ethernity.cli.features.mint import command as mint_command, workflow as mint_flow
+from ethernity.cli.shared import api_codes
+from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import CliContextState, MintArgs, MintResult
 from ethernity.crypto.sharding import KEY_TYPE_SIGNING_SEED
 
@@ -607,6 +609,18 @@ class TestMintFlow(unittest.TestCase):
         self.assertEqual(seed, b"s" * 32)
         self.assertEqual(source, "signing authority shards")
         signing_seed_from_frames.assert_called_once()
+
+    def test_resolve_signing_authority_requires_shards_with_stable_api_code(self) -> None:
+        with self.assertRaises(ApiCommandError) as caught:
+            mint_flow._resolve_signing_authority(
+                manifest_signing_seed=None,
+                signing_key_frames=[],
+                doc_id=b"d" * 16,
+                doc_hash=b"h" * 32,
+                expected_sign_pub=b"p" * 32,
+            )
+
+        self.assertEqual(caught.exception.code, api_codes.SIGNING_KEY_SHARDS_REQUIRED)
 
     @mock.patch("ethernity.cli.features.mint.workflow._print_completion_actions")
     @mock.patch("ethernity.cli.features.mint.workflow.print_mint_summary")

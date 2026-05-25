@@ -31,6 +31,7 @@ from ethernity.cli.features.recover.planning import (
     RecoveryUnlockStatus,
 )
 from ethernity.cli.shared import api_codes
+from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import MintArgs
 from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE
 from ethernity.crypto.signing import (
@@ -620,6 +621,38 @@ class TestMintInspection(unittest.TestCase):
         self.assertIsNone(captured["root_dir"])
         self.assertEqual(captured["extension_index"], 0)
         self.assertIsNone(captured["extension_doc_hash"])
+
+    def test_execute_mint_missing_auth_raises_stable_api_code(self) -> None:
+        args = MintArgs(payloads_file="main.txt", quiet=True)
+        state = SimpleNamespace(
+            config=SimpleNamespace(),
+            frames=(),
+            extra_auth_frames=(),
+            shard_frames=(),
+            shard_fallback_files=(),
+            shard_payloads_file=(),
+            shard_scan=(),
+            signing_key_frames=(),
+            input_label="QR payloads",
+            input_detail="main.txt",
+            root_dir=None,
+        )
+        plan = SimpleNamespace(auth_payload=None)
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._load_mint_input_state",
+                return_value=state,
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._build_recovery_plan_for_mint",
+                return_value=plan,
+            ),
+            self.assertRaises(ApiCommandError) as caught,
+        ):
+            execute_mint(args)
+
+        self.assertEqual(caught.exception.code, api_codes.AUTH_REQUIRED)
 
     def test_resolve_mint_chain_target_uses_latest_extension(self) -> None:
         root_auth = AuthPayload(

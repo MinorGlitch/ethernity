@@ -641,9 +641,9 @@ can still produce a blocking issue such as `EXTENSION_LAYOUT_INVALID` or
 `RECOVERY_HEAD_UNTRUSTED`.
 
 `available_extensions` entries always include the numeric `index` alongside `dir_name`, `doc_id`,
-and `doc_hash`; `doc_hash` can be `null` for partially discovered extension directories whose
-payloads could not be fully decoded. When chain authentication has been evaluated, entries may also
-include:
+and non-null `doc_hash`. Directories whose payloads cannot be fully decoded are reported through
+blocking issues instead of partial `available_extensions` entries. When chain authentication has
+been evaluated, entries may also include:
 
 - `auth_status`
 - `root_authority_verified`

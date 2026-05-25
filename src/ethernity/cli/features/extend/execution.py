@@ -264,7 +264,7 @@ def execute_prepared_extend(
             runtime,
             nonce=nonce_value,
         )
-    except Exception:
+    except BaseException:
         discard_staged_artifact_dir(publish.artifacts.staging_dir)
         raise
 
@@ -295,7 +295,7 @@ def execute_prepared_extend(
                 else 0
             ),
         )
-    except Exception:
+    except BaseException:
         _discard_staged_layout_debug(layout_debug_staging_dir)
         raise
     _publish_staged_layout_debug(

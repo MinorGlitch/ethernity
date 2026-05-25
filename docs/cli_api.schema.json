@@ -1479,7 +1479,7 @@
                 "$ref": "#/$defs/docIdHex"
               },
               "doc_hash": {
-                "$ref": "#/$defs/nullableDocHashHex"
+                "$ref": "#/$defs/docHashHex"
               },
               "auth_status": {
                 "type": [

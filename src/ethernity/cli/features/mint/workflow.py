@@ -63,6 +63,7 @@ from ethernity.cli.shared.io.outputs import (
     _discard_prepared_output_dir,
     _ensure_directory,
 )
+from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.recovery_prompts import _prompt_shard_inputs
 from ethernity.cli.shared.types import MintArgs, MintResult, RecoverArgs
 from ethernity.cli.shared.ui.summary import print_mint_summary
@@ -204,7 +205,10 @@ def execute_mint(
         shard_frames = list(state.shard_frames)
         plan = _build_recovery_plan_for_mint(args, state, passphrase_shard_frames=shard_frames)
         if plan.auth_payload is None:
-            raise ValueError("minting requires an authenticated backup input with an AUTH payload")
+            raise ApiCommandError(
+                code=api_codes.AUTH_REQUIRED,
+                message="minting requires an authenticated backup input with an AUTH payload",
+            )
 
         emit_progress(
             phase="plan",
@@ -2147,8 +2151,12 @@ def _resolve_signing_authority(
     if manifest_signing_seed is not None:
         return manifest_signing_seed, "embedded signing seed"
     if not signing_key_frames:
-        raise ValueError(
-            "backup is sealed; provide signing authority shard inputs to mint new shard documents"
+        raise ApiCommandError(
+            code=api_codes.SIGNING_KEY_SHARDS_REQUIRED,
+            message=(
+                "backup is sealed; provide signing authority shard inputs to mint "
+                "new shard documents"
+            ),
         )
     signing_seed = signing_seed_from_shard_frames(
         signing_key_frames,
