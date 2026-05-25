@@ -43,6 +43,8 @@ from ethernity.config import apply_template_design, load_app_config
 from ethernity.crypto import sharding as sharding_module
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import Frame, FrameType
+from ethernity.extensions.discovery import EXTENSIONS_DIR_NAME
+from ethernity.extensions.staging import EXTENSION_CHAIN_LOCK_DIR_NAME
 from ethernity.render.types import RenderLineage
 
 
@@ -52,6 +54,14 @@ class _RootPublishPolicy:
     passphrase_shard_count: int
     signing_key_shard_threshold: int | None
     signing_key_shard_count: int
+
+
+@dataclass(frozen=True)
+class _CompactSourceHead:
+    root_doc_id: bytes
+    root_doc_hash: bytes
+    selected_extension_index: int | None
+    selected_extension_doc_hash: str | None
 
 
 def _validated_compact_root_dir(root_dir_value: str | None) -> Path:
@@ -92,6 +102,104 @@ def _translate_compact_head_untrusted(exc: ApiCommandError) -> ApiCommandError:
     details = dict(exc.details)
     details["checkpoint_created"] = False
     return ApiCommandError(code=exc.code, message=message, details=details)
+
+
+def _compact_recover_args(args: CompactArgs, root_dir: Path) -> RecoverArgs:
+    return RecoverArgs(
+        scan=[str(root_dir)],
+        passphrase=args.passphrase,
+        shard_fallback_file=args.shard_fallback_file,
+        shard_payloads_file=args.shard_payloads_file,
+        shard_scan=args.shard_scan,
+        shard_frames=args.shard_frames,
+        auth_fallback_file=args.auth_fallback_file,
+        auth_payloads_file=args.auth_payloads_file,
+        auth_frames=args.auth_frames,
+        allow_unsigned=False,
+        quiet=args.quiet,
+    )
+
+
+def _recover_compact_chain(recover_plan, *, quiet: bool):
+    try:
+        return recover_chain_entries(recover_plan, quiet=quiet, debug=False)
+    except ApiCommandError as exc:
+        if exc.code != api_codes.RECOVERY_HEAD_UNTRUSTED:
+            raise
+        raise _translate_compact_head_untrusted(exc) from exc
+
+
+def _compact_source_head(recover_plan, chain) -> _CompactSourceHead:
+    return _CompactSourceHead(
+        root_doc_id=recover_plan.doc_id,
+        root_doc_hash=recover_plan.doc_hash,
+        selected_extension_index=getattr(chain, "selected_extension_index", None),
+        selected_extension_doc_hash=getattr(chain, "selected_extension_doc_hash", None),
+    )
+
+
+def _compact_chain_lock_dir(root_dir: Path) -> Path:
+    extensions_dir = root_dir / EXTENSIONS_DIR_NAME
+    return extensions_dir / EXTENSION_CHAIN_LOCK_DIR_NAME
+
+
+def _prepare_compact_chain_lock(root_dir: Path) -> None:
+    extensions_dir = root_dir / EXTENSIONS_DIR_NAME
+    if extensions_dir.is_symlink():
+        raise ApiCommandError(
+            code=api_codes.CHAIN_INVALID,
+            message="extensions path must not be a symlink",
+            details={"stage": "publish_head"},
+        )
+    extensions_dir.mkdir(mode=0o700, exist_ok=True)
+    if not extensions_dir.is_dir():
+        raise ApiCommandError(
+            code=api_codes.CHAIN_INVALID,
+            message="extensions path must be a directory",
+            details={"stage": "publish_head"},
+        )
+
+
+def _validate_compact_source_head_for_promotion(
+    *,
+    args: CompactArgs,
+    root_dir: Path,
+    expected: _CompactSourceHead,
+) -> None:
+    current_plan = plan_recover_from_args(_compact_recover_args(args, root_dir))
+    current_chain = _recover_compact_chain(current_plan, quiet=args.quiet)
+    current = _compact_source_head(current_plan, current_chain)
+    mismatches: dict[str, object] = {}
+    for field in (
+        "root_doc_id",
+        "root_doc_hash",
+        "selected_extension_index",
+        "selected_extension_doc_hash",
+    ):
+        expected_value = getattr(expected, field)
+        current_value = getattr(current, field)
+        if expected_value != current_value:
+            mismatches[field] = {
+                "expected": _compact_head_value(expected_value),
+                "actual": _compact_head_value(current_value),
+            }
+    if mismatches:
+        raise ApiCommandError(
+            code=api_codes.CHAIN_INVALID,
+            message=(
+                "source extension chain changed before compact checkpoint promotion; "
+                "no checkpoint was created"
+            ),
+            details={
+                "stage": "publish_head",
+                "checkpoint_created": False,
+                "mismatches": mismatches,
+            },
+        )
+
+
+def _compact_head_value(value: object) -> object:
+    return value.hex() if isinstance(value, bytes) else value
 
 
 def _infer_root_publish_policy(
@@ -236,27 +344,9 @@ def run_compact(args: CompactArgs) -> BackupResult:
         raise ValueError("compact requires output_dir")
     _reject_compact_output_inside_root(root_dir, args.output_dir)
 
-    recover_plan = plan_recover_from_args(
-        RecoverArgs(
-            scan=[str(root_dir)],
-            passphrase=args.passphrase,
-            shard_fallback_file=args.shard_fallback_file,
-            shard_payloads_file=args.shard_payloads_file,
-            shard_scan=args.shard_scan,
-            shard_frames=args.shard_frames,
-            auth_fallback_file=args.auth_fallback_file,
-            auth_payloads_file=args.auth_payloads_file,
-            auth_frames=args.auth_frames,
-            allow_unsigned=False,
-            quiet=args.quiet,
-        )
-    )
-    try:
-        chain = recover_chain_entries(recover_plan, quiet=args.quiet, debug=False)
-    except ApiCommandError as exc:
-        if exc.code != api_codes.RECOVERY_HEAD_UNTRUSTED:
-            raise
-        raise _translate_compact_head_untrusted(exc) from exc
+    recover_plan = plan_recover_from_args(_compact_recover_args(args, root_dir))
+    chain = _recover_compact_chain(recover_plan, quiet=args.quiet)
+    source_head = _compact_source_head(recover_plan, chain)
     manifest = chain.manifest
 
     sign_pub = (
@@ -352,6 +442,13 @@ def run_compact(args: CompactArgs) -> BackupResult:
         config=config,
         signing_seed_override=None if manifest.sealed else manifest.signing_seed,
         render_lineage=RenderLineage(kind="compaction_checkpoint"),
+        promote_lock_dir=_compact_chain_lock_dir(root_dir),
+        prepare_promotion=lambda: _prepare_compact_chain_lock(root_dir),
+        validate_promotion=lambda: _validate_compact_source_head_for_promotion(
+            args=args,
+            root_dir=root_dir,
+            expected=source_head,
+        ),
         quiet=args.quiet,
     )
 

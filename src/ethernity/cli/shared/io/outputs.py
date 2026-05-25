@@ -120,10 +120,23 @@ def _prepare_output_dir(
     return str(normalized), str(staging_dir)
 
 
-def _commit_prepared_output_dir(staging_dir: str | Path, final_dir: str | Path) -> str:
+def _commit_prepared_output_dir(
+    staging_dir: str | Path,
+    final_dir: str | Path,
+    *,
+    validate_promotion: Callable[[], None] | None = None,
+    lock_dir: str | Path | None = None,
+) -> str:
     """Promote a staged output directory into place."""
 
-    return str(promote_staged_artifact_dir(staging_dir, final_dir))
+    return str(
+        promote_staged_artifact_dir(
+            staging_dir,
+            final_dir,
+            validate_promotion=validate_promotion,
+            lock_dir=lock_dir,
+        )
+    )
 
 
 def _discard_prepared_output_dir(staging_dir: str | Path | None) -> None:

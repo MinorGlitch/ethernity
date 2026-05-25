@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
@@ -666,6 +667,9 @@ def run_backup(
     debug: bool = False,
     debug_max_bytes: int | None = None,
     debug_reveal_secrets: bool = False,
+    promote_lock_dir: str | Path | None = None,
+    prepare_promotion: Callable[[], None] | None = None,
+    validate_promotion: Callable[[], None] | None = None,
     quiet: bool = False,
 ) -> BackupResult:
     """Run the backup process and generate PDF documents."""
@@ -923,7 +927,14 @@ def run_backup(
             qr_payload_codec=qr_payload_codec_mode,
             lineage=lineage,
         )
-        _commit_prepared_output_dir(staging_output_dir, output_dir)
+        if prepare_promotion is not None:
+            prepare_promotion()
+        _commit_prepared_output_dir(
+            staging_output_dir,
+            output_dir,
+            validate_promotion=validate_promotion,
+            lock_dir=promote_lock_dir,
+        )
     except BaseException:
         _discard_prepared_output_dir(staging_output_dir)
         raise

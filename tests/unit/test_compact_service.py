@@ -842,6 +842,123 @@ class TestCompactService(unittest.TestCase):
             run_backup_mock.call_args.kwargs["render_lineage"].kind,
             "compaction_checkpoint",
         )
+        self.assertEqual(
+            run_backup_mock.call_args.kwargs["promote_lock_dir"],
+            Path("/tmp/root") / "extensions" / ".chain.lock",
+        )
+        self.assertTrue(callable(run_backup_mock.call_args.kwargs["prepare_promotion"]))
+        self.assertTrue(callable(run_backup_mock.call_args.kwargs["validate_promotion"]))
+
+    def test_run_compact_revalidates_source_head_before_checkpoint_promotion(self) -> None:
+        doc_id = b"\x22" * 16
+        root_hash = b"\x44" * 32
+        initial_chain = SimpleNamespace(
+            manifest=EnvelopeManifest(
+                format_version=1,
+                created_at=1,
+                sealed=True,
+                signing_seed=None,
+                files=(ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1),),
+                input_origin="file",
+                input_roots=(),
+            ),
+            extracted=(
+                (ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1), b"data"),
+            ),
+            selected_extension_index=1,
+            selected_extension_doc_hash="aa" * 32,
+        )
+        changed_chain = SimpleNamespace(
+            manifest=initial_chain.manifest,
+            extracted=initial_chain.extracted,
+            selected_extension_index=2,
+            selected_extension_doc_hash="bb" * 32,
+        )
+        initial_plan = SimpleNamespace(
+            passphrase="secret",
+            doc_id=doc_id,
+            doc_hash=root_hash,
+            auth_payload=SimpleNamespace(sign_pub=b"\x55" * 32),
+            shard_frames=(),
+        )
+        changed_plan = SimpleNamespace(
+            passphrase="secret",
+            doc_id=doc_id,
+            doc_hash=root_hash,
+            auth_payload=SimpleNamespace(sign_pub=b"\x55" * 32),
+            shard_frames=(),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir()
+            output_dir = Path(tmpdir) / "out"
+
+            def _run_backup_with_promotion_validation(**kwargs):
+                self.assertEqual(
+                    kwargs["promote_lock_dir"],
+                    root_dir / "extensions" / ".chain.lock",
+                )
+                kwargs["prepare_promotion"]()
+                self.assertTrue((root_dir / "extensions").is_dir())
+                kwargs["validate_promotion"]()
+                return "backup-result"
+
+            with (
+                mock.patch(
+                    "ethernity.cli.features.compact.service.plan_recover_from_args",
+                    side_effect=(initial_plan, changed_plan),
+                ) as plan_recover_from_args,
+                mock.patch(
+                    "ethernity.cli.features.compact.service.recover_chain_entries",
+                    side_effect=(initial_chain, changed_chain),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.compact.service.load_app_config",
+                    return_value=SimpleNamespace(),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.compact.service.apply_template_design",
+                    side_effect=lambda config, _design: config,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.compact.service.apply_qr_chunk_size_override",
+                    side_effect=lambda config, _size: config,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.compact.service.plan_backup_from_args",
+                    return_value=SimpleNamespace(
+                        sealed=True,
+                        sharding=None,
+                        signing_seed_mode="embedded",
+                        signing_seed_sharding=None,
+                    ),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.compact.service.run_backup",
+                    side_effect=_run_backup_with_promotion_validation,
+                ),
+                self.assertRaises(ApiCommandError) as caught,
+            ):
+                run_compact(
+                    CompactArgs(
+                        root_dir=str(root_dir),
+                        output_dir=str(output_dir),
+                        passphrase="secret",
+                        quiet=True,
+                    )
+                )
+
+        self.assertEqual(plan_recover_from_args.call_count, 2)
+        self.assertEqual(caught.exception.code, api_codes.CHAIN_INVALID)
+        self.assertEqual(caught.exception.details["stage"], "publish_head")
+        self.assertFalse(caught.exception.details["checkpoint_created"])
+        mismatches = caught.exception.details["mismatches"]
+        self.assertEqual(mismatches["selected_extension_index"], {"expected": 1, "actual": 2})
+        self.assertEqual(
+            mismatches["selected_extension_doc_hash"],
+            {"expected": "aa" * 32, "actual": "bb" * 32},
+        )
 
     @mock.patch("ethernity.cli.features.compact.service.run_backup", return_value="backup-result")
     @mock.patch(

@@ -19,7 +19,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ethernity.artifacts.publish import create_sibling_staging_dir, publish_staged_artifacts
+from ethernity.artifacts.publish import (
+    create_sibling_staging_dir,
+    promote_staged_artifact_dir,
+    publish_staged_artifacts,
+)
 
 
 class TestArtifactPublish(unittest.TestCase):
@@ -91,6 +95,32 @@ class TestArtifactPublish(unittest.TestCase):
 
             self.assertFalse(staging_dir.exists())
             self.assertTrue(final_dir.exists())
+
+    def test_promote_runs_promotion_validator_under_custom_lock_before_rename(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            final_dir = Path(tmpdir) / "backup-deadbeef"
+            staging_dir = create_sibling_staging_dir(final_dir)
+            lock_parent = Path(tmpdir) / "extensions"
+            lock_parent.mkdir()
+            lock_dir = lock_parent / ".chain.lock"
+            (staging_dir / "qr_document.pdf").write_bytes(b"qr")
+            observed: list[tuple[bool, bool, bool]] = []
+
+            def _validate_promotion() -> None:
+                observed.append((lock_dir.is_dir(), final_dir.exists(), staging_dir.exists()))
+
+            promoted = promote_staged_artifact_dir(
+                staging_dir,
+                final_dir,
+                validate_promotion=_validate_promotion,
+                lock_dir=lock_dir,
+            )
+
+            self.assertEqual(promoted, final_dir)
+            self.assertEqual(observed, [(True, False, True)])
+            self.assertFalse(lock_dir.exists())
+            self.assertFalse(staging_dir.exists())
+            self.assertTrue((final_dir / "qr_document.pdf").is_file())
 
     def test_publish_staged_artifacts_cleans_up_on_keyboard_interrupt(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
