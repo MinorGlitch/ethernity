@@ -309,6 +309,45 @@ class TestQrScanMore(unittest.TestCase):
         self.assertEqual(payloads, [published_pdf.name.encode("utf-8")])
         self.assertEqual(scanned, ["extensions/01/qr_document-01-deadbeefcafebabe.pdf"])
 
+    def test_scan_qr_payloads_rejects_blank_published_extension_carrier(self) -> None:
+        decoder = QrDecoder(
+            name="dummy", decode_image_path=lambda _: [], decode_image_bytes=lambda _: []
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            root_pdf = root / "qr_document.pdf"
+            root_pdf.write_bytes(b"%PDF-1.7\n")
+            extension_dir = root / "extensions" / "01"
+            extension_dir.mkdir(parents=True)
+            extension_pdf = extension_dir / "qr_document-01-deadbeefcafebabe.pdf"
+            extension_pdf.write_bytes(b"%PDF-1.7\n")
+
+            def fake_scan_pdf(path: Path, _decoder: QrDecoder) -> list[bytes]:
+                if path == extension_pdf:
+                    return []
+                return [b"root"]
+
+            with (
+                mock.patch.object(qr_scan, "_load_decoder", return_value=decoder),
+                mock.patch.object(qr_scan, "_scan_pdf", side_effect=fake_scan_pdf),
+                self.assertRaisesRegex(
+                    QrScanError,
+                    "published extension carrier contains no QR codes",
+                ),
+            ):
+                qr_scan.scan_qr_payloads([root])
+
+            with (
+                mock.patch.object(qr_scan, "_load_decoder", return_value=decoder),
+                mock.patch.object(qr_scan, "_scan_pdf", side_effect=fake_scan_pdf),
+            ):
+                payloads = qr_scan.scan_qr_payloads(
+                    [root],
+                    include_extension_carriers=False,
+                )
+
+        self.assertEqual(payloads, [b"root"])
+
     def test_explicit_staging_carrier_file_remains_a_scan_input(self) -> None:
         decoder = QrDecoder(
             name="dummy", decode_image_path=lambda _: [], decode_image_bytes=lambda _: []

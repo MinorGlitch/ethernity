@@ -36,9 +36,14 @@ from ethernity.cli.shared.log import _warn
 from ethernity.cli.shared.paths import expanduser_cli_path, expanduser_cli_paths
 from ethernity.cli.shared.text import format_qr_input_error
 from ethernity.core.bounds import MAX_QR_PAYLOAD_CHARS, MAX_RECOVERY_TEXT_BYTES
+from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import Frame, FrameType, decode_frame
 from ethernity.encoding.qr_payloads import decode_qr_payload
-from ethernity.qr.scan import QrScanError, scan_qr_payloads
+from ethernity.qr.scan import (
+    QrScanError,
+    published_extension_payload_doc_id,
+    scan_qr_payloads_with_sources,
+)
 
 __all__ = [
     "format_recovery_input_error",
@@ -442,7 +447,7 @@ def frames_from_scan(paths: list[str], *, include_extension_carriers: bool = Tru
     """Scan PDFs/images for QR payloads and decode valid frames."""
 
     try:
-        payloads = scan_qr_payloads(
+        payloads = scan_qr_payloads_with_sources(
             expanduser_cli_paths(paths),
             include_extension_carriers=include_extension_carriers,
         )
@@ -452,18 +457,85 @@ def frames_from_scan(paths: list[str], *, include_extension_carriers: bool = Tru
         raise ValueError("no QR payloads found; check the scan path and image quality")
     frames: list[Frame] = []
     errors: list[str] = []
+    extension_doc_ids_by_source: dict[Path, bytes] = {}
+    extension_frames_by_source: dict[Path, list[Frame]] = {}
+    extension_errors_by_source: dict[Path, list[str]] = {}
     for idx, payload in enumerate(payloads, start=1):
+        source_path = payload.source_path
+        extension_doc_id = (
+            published_extension_payload_doc_id(source_path) if include_extension_carriers else None
+        )
+        if extension_doc_id is not None:
+            extension_doc_ids_by_source[source_path] = extension_doc_id
         try:
-            frames.append(_frame_from_scanned_payload(payload))
+            frame = _frame_from_scanned_payload(payload.data)
         except ValueError as exc:
             errors.append(f"#{idx}: {exc}")
+            if extension_doc_id is not None:
+                extension_errors_by_source.setdefault(source_path, []).append(str(exc))
             continue
+        frames.append(frame)
+        if extension_doc_id is not None:
+            extension_frames_by_source.setdefault(source_path, []).append(frame)
+    _require_valid_published_extension_carriers(
+        expected_doc_ids=extension_doc_ids_by_source,
+        frames_by_source=extension_frames_by_source,
+        errors_by_source=extension_errors_by_source,
+    )
     if not frames:
         if errors:
             detail = "; ".join(errors[:3])
             raise ValueError(f"invalid QR payloads ({len(errors)}): {detail}")
         raise ValueError("no QR payloads found; check the scan path and image quality")
     return frames
+
+
+def _require_valid_published_extension_carriers(
+    *,
+    expected_doc_ids: dict[Path, bytes],
+    frames_by_source: dict[Path, list[Frame]],
+    errors_by_source: dict[Path, list[str]],
+) -> None:
+    """Fail closed when a published extension QR carrier does not produce its document."""
+
+    for source_path, expected_doc_id in sorted(
+        expected_doc_ids.items(),
+        key=lambda item: str(item[0]),
+    ):
+        frames = frames_by_source.get(source_path, [])
+        matching_main_frames = [
+            frame
+            for frame in frames
+            if frame.frame_type == FrameType.MAIN_DOCUMENT and frame.doc_id == expected_doc_id
+        ]
+        matching_auth_frames = [
+            frame
+            for frame in frames
+            if frame.frame_type == FrameType.AUTH and frame.doc_id == expected_doc_id
+        ]
+        if not matching_main_frames or not matching_auth_frames:
+            details = _extension_carrier_error_details(errors_by_source.get(source_path, []))
+            raise ValueError(
+                "published extension carrier did not yield a valid extension MAIN/AUTH "
+                f"document: {source_path}{details}"
+            )
+        try:
+            reassemble_payload(
+                matching_main_frames,
+                expected_frame_type=FrameType.MAIN_DOCUMENT,
+            )
+        except ValueError as exc:
+            raise ValueError(
+                "published extension carrier did not yield a complete extension MAIN "
+                f"document: {source_path}: {exc}"
+            ) from exc
+
+
+def _extension_carrier_error_details(errors: list[str]) -> str:
+    if not errors:
+        return ""
+    preview = "; ".join(errors[:3])
+    return f" ({len(errors)} invalid payload(s): {preview})"
 
 
 def recovery_frames_from_scan(

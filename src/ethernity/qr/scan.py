@@ -32,6 +32,7 @@ from ethernity.extensions.discovery import (
     is_extension_like_top_level_entry,
 )
 from ethernity.extensions.layout import (
+    ExtensionMainArtifactName,
     is_canonical_extension_dir_name,
     parse_extension_main_filename,
 )
@@ -64,17 +65,27 @@ class QrDecoder:
     decode_image_bytes: Callable[[bytes], list[bytes]]
 
 
+@dataclass(frozen=True)
+class ScannedQrPayload:
+    """Decoded QR payload bytes with the file they came from."""
+
+    data: bytes
+    source_path: Path
+
+
 __all__ = [
     "QrDecoder",
     "QrScanError",
+    "ScannedQrPayload",
+    "published_extension_payload_doc_id",
     "looks_like_image",
     "looks_like_pdf",
     "scan_qr_payloads",
+    "scan_qr_payloads_with_sources",
 ]
 
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff", ".webp"}
-_NON_PAYLOAD_EXTENSION_MAIN_PREFIXES = ("recovery_document-", "recovery_kit_index-")
 _PDF_MAGIC = b"%PDF-"
 _IMAGE_MAGICS = (
     b"\x89PNG\r\n\x1a\n",
@@ -129,10 +140,35 @@ def scan_qr_payloads(
 ) -> list[bytes]:
     """Scan one or more paths and return decoded QR payload bytes."""
 
+    return [
+        payload.data
+        for payload in scan_qr_payloads_with_sources(
+            paths,
+            include_extension_carriers=include_extension_carriers,
+        )
+    ]
+
+
+def scan_qr_payloads_with_sources(
+    paths: Sequence[str | Path],
+    *,
+    include_extension_carriers: bool = True,
+) -> list[ScannedQrPayload]:
+    """Scan one or more paths and return decoded QR payload bytes with source paths."""
+
     decoder = _load_decoder()
-    payloads: list[bytes] = []
+    payloads: list[ScannedQrPayload] = []
     for path in _expand_paths(paths, include_extension_carriers=include_extension_carriers):
-        payloads.extend(_scan_one_path(path, decoder))
+        source_payloads = _scan_one_path(path, decoder)
+        if (
+            include_extension_carriers
+            and published_extension_payload_doc_id(path) is not None
+            and not source_payloads
+        ):
+            raise QrScanError(f"published extension carrier contains no QR codes: {path}")
+        payloads.extend(
+            ScannedQrPayload(data=bytes(payload), source_path=path) for payload in source_payloads
+        )
 
     if not payloads:
         raise QrScanError("no QR codes found in scan inputs")
@@ -317,18 +353,31 @@ def _is_unpublished_extension_workspace_name(name: str) -> bool:
 
 
 def _is_non_payload_published_extension_main(path: Path) -> bool:
+    parsed = _published_extension_main_name(path)
+    if parsed is None:
+        return False
+    return parsed.doc_type != "qr_document"
+
+
+def published_extension_payload_doc_id(path: str | Path) -> bytes | None:
+    """Return the expected doc_id for a published extension QR carrier path."""
+
+    parsed = _published_extension_main_name(Path(path))
+    if parsed is None or parsed.doc_type != "qr_document":
+        return None
+    return bytes.fromhex(parsed.doc_id_hex)
+
+
+def _published_extension_main_name(path: Path) -> ExtensionMainArtifactName | None:
     parent = path.parent
     if parent.parent.name != EXTENSIONS_DIR_NAME or not is_canonical_extension_dir_name(
         parent.name
     ):
-        return False
-    if path.name.startswith(_NON_PAYLOAD_EXTENSION_MAIN_PREFIXES):
-        return True
+        return None
     try:
-        parsed = parse_extension_main_filename(path.name)
+        return parse_extension_main_filename(path.name)
     except ValueError:
-        return False
-    return parsed.doc_type != "qr_document"
+        return None
 
 
 def _looks_like_scan_file(path: Path) -> bool:

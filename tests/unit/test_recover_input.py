@@ -38,6 +38,7 @@ from ethernity.cli.shared.io.frames import (
 from ethernity.core.bounds import MAX_QR_PAYLOAD_CHARS
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
+from ethernity.qr.scan import ScannedQrPayload
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _FIXTURE_PATH = _PROJECT_ROOT / "tests" / "fixtures" / "recovery_parse_vectors.json"
@@ -259,8 +260,13 @@ class TestRecoverInput(unittest.TestCase):
     def test_frames_from_scan_rejects_qr_payload_char_limit_overflow(self) -> None:
         oversized_payload = "A" * (MAX_QR_PAYLOAD_CHARS + 1)
         with mock.patch(
-            "ethernity.cli.shared.io.frames.scan_qr_payloads",
-            return_value=[oversized_payload],
+            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            return_value=[
+                ScannedQrPayload(
+                    data=oversized_payload.encode("utf-8"),
+                    source_path=Path("scan.png"),
+                )
+            ],
         ):
             with self.assertRaisesRegex(ValueError, "MAX_QR_PAYLOAD_CHARS"):
                 frames_from_scan(["scan.png"])

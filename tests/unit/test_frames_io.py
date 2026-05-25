@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import io
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -46,7 +47,7 @@ from ethernity.cli.shared.io.frames import (
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import encode_qr_payload
 from ethernity.encoding.zbase32 import encode_zbase32
-from ethernity.qr.scan import QrScanError
+from ethernity.qr.scan import QrScanError, ScannedQrPayload
 
 
 class TestFramesIo(unittest.TestCase):
@@ -83,7 +84,7 @@ class TestFramesIo(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "input.txt"
             path.write_text("ok", encoding="utf-8")
-            with mock.patch("pathlib.Path.open", side_effect=OSError("blocked")):
+            with mock.patch("os.open", side_effect=OSError("blocked")):
                 with self.assertRaisesRegex(OSError, "unable to read file"):
                     _read_text_lines(str(path))
 
@@ -91,8 +92,26 @@ class TestFramesIo(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "input.txt"
             path.write_text("x" * 12, encoding="utf-8")
+            real_stat = path.lstat()
+            small_stat = os.stat_result(
+                (
+                    real_stat.st_mode,
+                    real_stat.st_ino,
+                    real_stat.st_dev,
+                    real_stat.st_nlink,
+                    real_stat.st_uid,
+                    real_stat.st_gid,
+                    1,
+                    real_stat.st_atime,
+                    real_stat.st_mtime,
+                    real_stat.st_ctime,
+                )
+            )
             with mock.patch("ethernity.cli.shared.io.frames.MAX_RECOVERY_TEXT_BYTES", 10):
-                with mock.patch("pathlib.Path.stat", return_value=mock.Mock(st_size=1)):
+                with (
+                    mock.patch("pathlib.Path.lstat", return_value=small_stat),
+                    mock.patch("os.fstat", return_value=small_stat),
+                ):
                     with self.assertRaisesRegex(ValueError, "MAX_RECOVERY_TEXT_BYTES"):
                         _read_text_lines(str(path))
 
@@ -358,21 +377,27 @@ class TestFramesIo(unittest.TestCase):
 
     def test_frames_from_scan_reports_scan_failures(self) -> None:
         with mock.patch(
-            "ethernity.cli.shared.io.frames.scan_qr_payloads",
+            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
             side_effect=QrScanError("boom"),
         ):
             with self.assertRaisesRegex(ValueError, "scan failed"):
                 frames_from_scan(["scan.png"])
 
     def test_frames_from_scan_reports_no_payloads(self) -> None:
-        with mock.patch("ethernity.cli.shared.io.frames.scan_qr_payloads", return_value=[]):
+        with mock.patch(
+            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            return_value=[],
+        ):
             with self.assertRaisesRegex(ValueError, "no QR payloads found"):
                 frames_from_scan(["scan.png"])
 
     def test_frames_from_scan_reports_all_invalid_payloads(self) -> None:
         with mock.patch(
-            "ethernity.cli.shared.io.frames.scan_qr_payloads",
-            return_value=["bad-1", "bad-2"],
+            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            return_value=[
+                ScannedQrPayload(data=b"bad-1", source_path=Path("scan.png")),
+                ScannedQrPayload(data=b"bad-2", source_path=Path("scan.png")),
+            ],
         ):
             with mock.patch(
                 "ethernity.cli.shared.io.frames._frame_from_scanned_payload",
@@ -384,13 +409,65 @@ class TestFramesIo(unittest.TestCase):
     def test_frames_from_scan_accepts_raw_frame_bytes(self) -> None:
         frame = self._frame(frame_type=FrameType.AUTH, doc_id=b"\x31" * DOC_ID_LEN, data=b"auth")
         with mock.patch(
-            "ethernity.cli.shared.io.frames.scan_qr_payloads",
-            return_value=[encode_frame(frame)],
+            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            return_value=[ScannedQrPayload(data=encode_frame(frame), source_path=Path("scan.png"))],
         ):
             parsed = frames_from_scan(["scan.png"])
         self.assertEqual(len(parsed), 1)
         self.assertEqual(parsed[0].frame_type, FrameType.AUTH)
         self.assertEqual(parsed[0].doc_id, frame.doc_id)
+
+    def test_frames_from_scan_rejects_bad_published_extension_carrier(self) -> None:
+        root_frame = self._frame(doc_id=b"\x31" * DOC_ID_LEN)
+        extension_path = Path("root/extensions/01/qr_document-01-deadbeefcafebabe.pdf")
+        with mock.patch(
+            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            return_value=[
+                ScannedQrPayload(data=encode_frame(root_frame), source_path=Path("root/qr.pdf")),
+                ScannedQrPayload(data=b"bad-extension", source_path=extension_path),
+            ],
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                "published extension carrier did not yield a valid extension MAIN/AUTH document",
+            ):
+                frames_from_scan(["root"])
+
+    def test_frames_from_scan_rejects_extension_carrier_without_auth(self) -> None:
+        extension_doc_id = bytes.fromhex("deadbeefcafebabe")
+        extension_path = Path("root/extensions/01/qr_document-01-deadbeefcafebabe.pdf")
+        extension_main = self._frame(doc_id=extension_doc_id)
+        with mock.patch(
+            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            return_value=[
+                ScannedQrPayload(data=encode_frame(extension_main), source_path=extension_path),
+            ],
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                "published extension carrier did not yield a valid extension MAIN/AUTH document",
+            ):
+                frames_from_scan(["root"])
+
+    def test_frames_from_scan_accepts_valid_published_extension_carrier(self) -> None:
+        extension_doc_id = bytes.fromhex("deadbeefcafebabe")
+        extension_path = Path("root/extensions/01/qr_document-01-deadbeefcafebabe.pdf")
+        extension_main = self._frame(doc_id=extension_doc_id)
+        extension_auth = self._frame(
+            frame_type=FrameType.AUTH,
+            doc_id=extension_doc_id,
+            data=b"auth",
+        )
+        with mock.patch(
+            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            return_value=[
+                ScannedQrPayload(data=encode_frame(extension_main), source_path=extension_path),
+                ScannedQrPayload(data=encode_frame(extension_auth), source_path=extension_path),
+            ],
+        ):
+            parsed = frames_from_scan(["root"])
+
+        self.assertEqual(parsed, [extension_main, extension_auth])
 
     def test_recovery_frames_from_scan_filters_out_shards(self) -> None:
         main = self._frame(frame_type=FrameType.MAIN_DOCUMENT, doc_id=b"\x40" * DOC_ID_LEN)

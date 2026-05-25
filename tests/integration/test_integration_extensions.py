@@ -19,7 +19,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pypdf import PdfReader
+from pypdf import PdfReader, PdfWriter
 
 from ethernity.cli import run_compact, run_extend
 from ethernity.cli.features.backup.orchestrator import run_backup_command
@@ -750,6 +750,55 @@ class TestIntegrationExtensions(unittest.TestCase):
                 self.assertEqual(ctx.exception.code, "EXTENSION_LAYOUT_INVALID")
                 self.assertFalse(blocked_extension_dir.exists())
 
+    def test_blank_present_extension_carrier_fails_closed_across_flows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup-root"
+            source_dir.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(source_dir=source_dir, root_dir=root_dir)
+
+                (source_dir / "alpha.txt").write_text("extension-alpha", encoding="utf-8")
+                extension = self._run_extend(source_dir=source_dir, root_dir=root_dir)
+
+                blank_carrier = (
+                    root_dir / "extensions" / "01" / f"qr_document-01-{extension.doc_id.hex()}.pdf"
+                )
+                self.assertTrue(blank_carrier.exists())
+                self._write_blank_pdf(blank_carrier)
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "published extension carrier contains no QR codes",
+                ):
+                    self._run_recover(
+                        root_dir=root_dir,
+                        output_dir=tmp_path / "blank-recovered",
+                    )
+
+                root_only_dir = tmp_path / "blank-root-only-recovered"
+                self._run_recover(
+                    root_dir=root_dir,
+                    output_dir=root_only_dir,
+                    extension_index=0,
+                )
+                self.assertEqual(
+                    self._snapshot_tree(root_only_dir),
+                    {"alpha.txt": b"root-alpha"},
+                )
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "published extension carrier contains no QR codes",
+                ):
+                    self._run_compact(
+                        root_dir=root_dir,
+                        output_dir=tmp_path / "blank-compacted",
+                    )
+
     def test_compact_sealed_root_without_auth_inputs_round_trips_through_recover(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
@@ -1207,6 +1256,13 @@ class TestIntegrationExtensions(unittest.TestCase):
         else:
             self.assertEqual(exc.details["checkpoint_created"], checkpoint_created)
         self.assertFalse(output_dir.exists())
+
+    @staticmethod
+    def _write_blank_pdf(path: Path) -> None:
+        writer = PdfWriter()
+        writer.add_blank_page(width=72, height=72)
+        with path.open("wb") as handle:
+            writer.write(handle)
 
     @staticmethod
     def _snapshot_tree(root: Path) -> dict[str, bytes]:
