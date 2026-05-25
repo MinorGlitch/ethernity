@@ -40,11 +40,7 @@ from ethernity.cli.shared.recovery_kit_index import (
     resolve_recovery_kit_index_template_path,
 )
 from ethernity.cli.shared.types import BackupResult, InputFile
-from ethernity.cli.shared.ui.debug import (
-    _append_signing_key_lines,
-    _normalize_debug_max_bytes,
-    print_backup_debug,
-)
+from ethernity.cli.shared.ui.debug import _normalize_debug_max_bytes, print_backup_debug
 from ethernity.cli.shared.ui_api import progress, status
 from ethernity.config import AppConfig
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
@@ -78,6 +74,7 @@ from ethernity.render.proofs import (
     validate_render_artifact_proof,
     validate_text_in_pdf,
 )
+from ethernity.render.recovery_lines import append_signing_key_lines
 from ethernity.render.recovery_meta import build_recovery_meta
 from ethernity.render.service import RenderService
 from ethernity.render.types import RenderInputs, RenderLineage, RenderResult
@@ -796,7 +793,7 @@ def run_backup(
         },
     )
 
-    _append_signing_key_lines(
+    append_signing_key_lines(
         key_lines,
         sign_pub=sign_pub,
         sealed=plan.sealed,

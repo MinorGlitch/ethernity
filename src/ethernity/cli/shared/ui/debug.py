@@ -37,6 +37,10 @@ from ethernity.core.models import DocumentPlan
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.formats.envelope_codec import encode_manifest
 from ethernity.formats.envelope_types import EnvelopeManifest
+from ethernity.render.recovery_lines import (
+    format_grouped_lines as _format_grouped_lines,
+    format_hex_lines as _format_hex_lines,
+)
 
 if TYPE_CHECKING:
     from ethernity.formats.envelope_types import ManifestFile
@@ -74,29 +78,6 @@ def _resolve_render_mode(*, stderr: bool = False) -> RenderMode:
     return "plain"
 
 
-def _format_grouped_lines(
-    encoded: str,
-    *,
-    group_size: int,
-    line_length: int,
-) -> list[str]:
-    if not encoded:
-        return []
-    groups = [encoded[i : i + group_size] for i in range(0, len(encoded), group_size)]
-    lines: list[str] = []
-    current = ""
-    for group in groups:
-        candidate = group if not current else f"{current} {group}"
-        if len(candidate) > line_length:
-            lines.append(current)
-            current = group
-        else:
-            current = candidate
-    if current:
-        lines.append(current)
-    return lines
-
-
 def _format_zbase32_lines(
     data: bytes,
     *,
@@ -115,39 +96,6 @@ def _format_zbase32_lines(
     if truncated:
         lines.append(f"... truncated {truncated} bytes; use --debug-max-bytes 0 to disable")
     return lines
-
-
-def _format_hex_lines(
-    data: bytes,
-    *,
-    group_size: int = 4,
-    line_length: int = 80,
-) -> list[str]:
-    encoded = data.hex()
-    return _format_grouped_lines(encoded, group_size=group_size, line_length=line_length)
-
-
-def _append_signing_key_lines(
-    key_lines: list[str],
-    *,
-    sign_pub: bytes,
-    sealed: bool,
-    stored_in_main: bool,
-    stored_as_shards: bool = False,
-    not_stored_message: str = "Signing private key not stored.",
-) -> None:
-    key_lines.append("Signing public key (hex):")
-    key_lines.extend(_format_hex_lines(sign_pub))
-    if sealed:
-        key_lines.append("Signing private key not stored (sealed backup).")
-        return
-
-    if stored_in_main:
-        key_lines.append("Signing private key stored in main document.")
-    if stored_as_shards:
-        key_lines.append("Signing private key stored in separate shard documents.")
-    if not stored_in_main and not stored_as_shards:
-        key_lines.append(not_stored_message)
 
 
 def _hexdump(data: bytes, *, max_bytes: int | None) -> str:

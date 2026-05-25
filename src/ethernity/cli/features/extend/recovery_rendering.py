@@ -23,8 +23,8 @@ from typing import Callable
 from ethernity import render as render_module
 from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
 from ethernity.cli.shared.ndjson import ApiCommandError
-from ethernity.cli.shared.ui.debug import _append_signing_key_lines
 from ethernity.encoding.framing import VERSION, Frame, FrameType
+from ethernity.render.recovery_lines import append_signing_key_lines
 from ethernity.render.recovery_meta import build_recovery_meta
 from ethernity.render.service import RenderService
 from ethernity.render.types import RenderInputs, RenderLineage
@@ -138,7 +138,7 @@ def build_recovery_key_lines(
             code="RUNTIME_ERROR",
             message="unknown extension passphrase storage policy",
         )
-    _append_signing_key_lines(
+    append_signing_key_lines(
         key_lines,
         sign_pub=runtime.sign_pub,
         sealed=False,
