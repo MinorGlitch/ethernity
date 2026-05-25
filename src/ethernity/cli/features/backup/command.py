@@ -97,7 +97,7 @@ def backup(
         bool,
         typer.Option(
             "--sealed",
-            help="Seal backup (no new shards later).",
+            help="Seal backup (no future extensions or new shards).",
             rich_help_panel="Unlock",
         ),
     ] = False,

@@ -1854,7 +1854,7 @@ def backup(
     ] = None,
     sealed: Annotated[
         bool,
-        typer.Option("--sealed", help="Seal backup (no new shards later)."),
+        typer.Option("--sealed", help="Seal backup (no future extensions or new shards)."),
     ] = False,
     shard_threshold: Annotated[
         str | None,

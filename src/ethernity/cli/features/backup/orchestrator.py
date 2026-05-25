@@ -202,9 +202,11 @@ def _prompt_recovery_options(
     else:
         with wizard_substep("Backup policy"):
             sealed = prompt_yes_no(
-                "Seal backup (disallow new shards)",
+                "Seal backup (disallow extensions and new shards)",
                 default=False,
-                help_text="Sealed backups prevent creating new shard docs later.",
+                help_text=(
+                    "Sealed backups cannot be extended or used to create new shard docs later."
+                ),
             )
 
     if debug_override is None:
