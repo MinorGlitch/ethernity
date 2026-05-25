@@ -43,8 +43,6 @@ from ethernity.config import apply_template_design, load_app_config
 from ethernity.crypto import sharding as sharding_module
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import Frame, FrameType
-from ethernity.extensions.discovery import EXTENSIONS_DIR_NAME
-from ethernity.extensions.staging import EXTENSION_CHAIN_LOCK_DIR_NAME
 from ethernity.render.types import RenderLineage
 
 
@@ -136,28 +134,6 @@ def _compact_source_head(recover_plan, chain) -> _CompactSourceHead:
         selected_extension_index=getattr(chain, "selected_extension_index", None),
         selected_extension_doc_hash=getattr(chain, "selected_extension_doc_hash", None),
     )
-
-
-def _compact_chain_lock_dir(root_dir: Path) -> Path:
-    extensions_dir = root_dir / EXTENSIONS_DIR_NAME
-    return extensions_dir / EXTENSION_CHAIN_LOCK_DIR_NAME
-
-
-def _prepare_compact_chain_lock(root_dir: Path) -> None:
-    extensions_dir = root_dir / EXTENSIONS_DIR_NAME
-    if extensions_dir.is_symlink():
-        raise ApiCommandError(
-            code=api_codes.CHAIN_INVALID,
-            message="extensions path must not be a symlink",
-            details={"stage": "publish_head"},
-        )
-    extensions_dir.mkdir(mode=0o700, exist_ok=True)
-    if not extensions_dir.is_dir():
-        raise ApiCommandError(
-            code=api_codes.CHAIN_INVALID,
-            message="extensions path must be a directory",
-            details={"stage": "publish_head"},
-        )
 
 
 def _validate_compact_source_head_for_promotion(
@@ -442,8 +418,6 @@ def run_compact(args: CompactArgs) -> BackupResult:
         config=config,
         signing_seed_override=None if manifest.sealed else manifest.signing_seed,
         render_lineage=RenderLineage(kind="compaction_checkpoint"),
-        promote_lock_dir=_compact_chain_lock_dir(root_dir),
-        prepare_promotion=lambda: _prepare_compact_chain_lock(root_dir),
         validate_promotion=lambda: _validate_compact_source_head_for_promotion(
             args=args,
             root_dir=root_dir,

@@ -842,11 +842,8 @@ class TestCompactService(unittest.TestCase):
             run_backup_mock.call_args.kwargs["render_lineage"].kind,
             "compaction_checkpoint",
         )
-        self.assertEqual(
-            run_backup_mock.call_args.kwargs["promote_lock_dir"],
-            Path("/tmp/root") / "extensions" / ".chain.lock",
-        )
-        self.assertTrue(callable(run_backup_mock.call_args.kwargs["prepare_promotion"]))
+        self.assertIsNone(run_backup_mock.call_args.kwargs.get("promote_lock_dir"))
+        self.assertIsNone(run_backup_mock.call_args.kwargs.get("prepare_promotion"))
         self.assertTrue(callable(run_backup_mock.call_args.kwargs["validate_promotion"]))
 
     def test_run_compact_revalidates_source_head_before_checkpoint_promotion(self) -> None:
@@ -895,12 +892,9 @@ class TestCompactService(unittest.TestCase):
             output_dir = Path(tmpdir) / "out"
 
             def _run_backup_with_promotion_validation(**kwargs):
-                self.assertEqual(
-                    kwargs["promote_lock_dir"],
-                    root_dir / "extensions" / ".chain.lock",
-                )
-                kwargs["prepare_promotion"]()
-                self.assertTrue((root_dir / "extensions").is_dir())
+                self.assertIsNone(kwargs.get("promote_lock_dir"))
+                self.assertIsNone(kwargs.get("prepare_promotion"))
+                self.assertFalse((root_dir / "extensions").exists())
                 kwargs["validate_promotion"]()
                 return "backup-result"
 

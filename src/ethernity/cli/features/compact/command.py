@@ -258,6 +258,7 @@ def compact(
         console_err.print("[error]Use --output-dir PATH or configure backup.output_dir.[/error]")
         raise typer.Exit(code=2)
 
+    quiet_value = quiet or (state.quiet if state is not None else False)
     args = CompactArgs(
         config=config_value,
         paper=paper_value,
@@ -272,7 +273,7 @@ def compact(
         layout_debug_dir=layout_debug_dir,
         qr_chunk_size=qr_chunk_size,
         passphrase=passphrase,
-        quiet=quiet,
+        quiet=quiet_value,
     )
     debug_value = debug or bool(state and state.debug)
     runner = functools.partial(run_compact_command, args, debug=debug_value)

@@ -90,6 +90,7 @@ class TestCompactCommand(unittest.TestCase):
         self.assertEqual(args.layout_debug_dir, "/tmp/layout")
         self.assertEqual(args.qr_chunk_size, 640)
         self.assertEqual(args.passphrase, "secret")
+        self.assertFalse(args.quiet)
         self.assertTrue(run_compact_command.call_args.kwargs["debug"])
 
     @mock.patch("ethernity.cli.features.compact.command.console_err")
@@ -162,13 +163,14 @@ class TestCompactCliApp(unittest.TestCase):
         def _capture_args(args: compact_command.CompactArgs, *, debug: bool = False) -> int:
             captured["root_dir"] = args.root_dir
             captured["output_dir"] = args.output_dir
+            captured["quiet"] = args.quiet
             captured["debug"] = debug
             return 0
 
         defaults = CliDefaults(
             backup=BackupDefaults(output_dir="./compacted"),
             recover=RecoverDefaults(),
-            ui=UiDefaults(),
+            ui=UiDefaults(quiet=True),
             debug=DebugDefaults(),
             runtime=RuntimeDefaults(),
         )
@@ -187,3 +189,4 @@ class TestCompactCliApp(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(captured["root_dir"], "/tmp/root")
         self.assertEqual(captured["output_dir"], "./compacted")
+        self.assertTrue(captured["quiet"])
