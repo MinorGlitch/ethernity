@@ -615,9 +615,65 @@ class TestRecoverChain(unittest.TestCase):
                 "ethernity.cli.features.recover.chain.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
-            self.assertRaisesRegex(ValueError, "extension index 2 was not found"),
+            self.assertRaises(ApiCommandError) as caught,
         ):
             recover_chain_entries(plan, quiet=True)
+
+        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertIn("extension index 2 was not found", caught.exception.message)
+        self.assertEqual(caught.exception.details["stage"], "selection")
+        self.assertEqual(caught.exception.details["latest_head_index"], 1)
+        self.assertEqual(caught.exception.details["latest_head_doc_hash"], extension_doc_hash.hex())
+        self.assertEqual(caught.exception.details["requested_head_index"], 2)
+        self.assertIsNone(caught.exception.details["requested_head_doc_hash"])
+        self.assertEqual(caught.exception.details["validated_head_index"], 0)
+        self.assertEqual(caught.exception.details["validated_head_doc_hash"], root_doc_hash.hex())
+        self.assertTrue(caught.exception.details["explicit_selection"])
+
+    def test_recover_chain_entries_rejects_missing_selected_extension_doc_hash_as_untrusted(
+        self,
+    ) -> None:
+        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+        extension_ciphertext = _extension_ciphertext(root_doc_hash)
+        extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
+        requested_doc_hash = "aa" * 32
+        plan = dataclasses.replace(
+            _recovery_plan(
+                root_ciphertext,
+                root_doc_id,
+                root_doc_hash,
+                extension_doc_hash=requested_doc_hash,
+            ),
+            import_documents=(
+                _imported_document(root_ciphertext),
+                _imported_document(
+                    extension_ciphertext,
+                    auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+                ),
+            ),
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.chain.decrypt_bytes",
+                side_effect=lambda data, *, passphrase, debug=False: data,
+            ),
+            self.assertRaises(ApiCommandError) as caught,
+        ):
+            recover_chain_entries(plan, quiet=True)
+
+        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertIn(
+            f"extension doc_hash {requested_doc_hash} was not found", caught.exception.message
+        )
+        self.assertEqual(caught.exception.details["stage"], "selection")
+        self.assertEqual(caught.exception.details["latest_head_index"], 1)
+        self.assertEqual(caught.exception.details["latest_head_doc_hash"], extension_doc_hash.hex())
+        self.assertIsNone(caught.exception.details["requested_head_index"])
+        self.assertEqual(caught.exception.details["requested_head_doc_hash"], requested_doc_hash)
+        self.assertEqual(caught.exception.details["validated_head_index"], 0)
+        self.assertEqual(caught.exception.details["validated_head_doc_hash"], root_doc_hash.hex())
+        self.assertTrue(caught.exception.details["explicit_selection"])
 
     def test_recover_chain_entries_rejects_bad_selected_extension_doc_hash_as_untrusted(
         self,
@@ -671,9 +727,20 @@ class TestRecoverChain(unittest.TestCase):
                 "ethernity.cli.features.recover.chain.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
-            self.assertRaisesRegex(ValueError, "extension index 1 was not found"),
+            self.assertRaises(ApiCommandError) as caught,
         ):
             recover_chain_entries(plan, quiet=True)
+
+        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertIn("extension index 1 was not found", caught.exception.message)
+        self.assertEqual(caught.exception.details["stage"], "selection")
+        self.assertIsNone(caught.exception.details["latest_head_index"])
+        self.assertIsNone(caught.exception.details["latest_head_doc_hash"])
+        self.assertEqual(caught.exception.details["requested_head_index"], 1)
+        self.assertIsNone(caught.exception.details["requested_head_doc_hash"])
+        self.assertEqual(caught.exception.details["validated_head_index"], 0)
+        self.assertEqual(caught.exception.details["validated_head_doc_hash"], root_doc_hash.hex())
+        self.assertTrue(caught.exception.details["explicit_selection"])
 
     def test_recover_chain_entries_rejects_content_import_with_bad_extension_auth(
         self,

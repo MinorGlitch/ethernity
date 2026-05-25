@@ -289,6 +289,7 @@ def recover_imported_chain_entries(
     )
     if len(plan.import_documents) <= 1:
         _ensure_root_selector_satisfied(
+            root_doc_hash=plan.doc_hash,
             requested_index=plan.extension_index,
             requested_doc_hash=plan.extension_doc_hash,
         )
@@ -361,6 +362,7 @@ def recover_imported_chain_entries(
     )
     selected_links = _select_imported_chain_links(
         decoded_links,
+        root_doc_hash=plan.doc_hash,
         requested_index=plan.extension_index,
         requested_doc_hash=plan.extension_doc_hash,
     )
@@ -501,6 +503,42 @@ def _latest_head_details(
     return latest.link.document.header.index, latest.link.doc_hash.hex()
 
 
+def _latest_candidate_head_details(
+    candidates: tuple[_DecodedExtensionCandidate, ...],
+) -> tuple[int | None, str | None]:
+    if not candidates:
+        return None, None
+    latest = max(candidates, key=lambda candidate: candidate.decoded.header.index)
+    return latest.decoded.header.index, latest.document.doc_hash.hex()
+
+
+def _missing_requested_extension_error(
+    message: str,
+    *,
+    root_doc_hash: bytes,
+    latest_head_index: int | None,
+    latest_head_doc_hash: str | None,
+    requested_index: int | None,
+    requested_doc_hash: str | None,
+) -> ApiCommandError:
+    return ApiCommandError(
+        code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+        message=message,
+        details={
+            "stage": "selection",
+            "failure_stage": "selection",
+            "failure_message": message,
+            "latest_head_index": latest_head_index,
+            "latest_head_doc_hash": latest_head_doc_hash,
+            "requested_head_index": requested_index,
+            "requested_head_doc_hash": requested_doc_hash,
+            "validated_head_index": 0,
+            "validated_head_doc_hash": root_doc_hash.hex(),
+            "explicit_selection": True,
+        },
+    )
+
+
 def _decode_imported_extension_links(
     documents: tuple[ImportedRecoveryDocument, ...],
     *,
@@ -529,6 +567,7 @@ def _decode_imported_extension_links(
     )
     candidates = _select_extension_candidates_for_auth(
         candidates,
+        root_doc_hash=root_doc_hash,
         requested_index=requested_index,
         requested_doc_hash=requested_doc_hash,
     )
@@ -644,6 +683,7 @@ def _requested_extension_doc_hash_bytes(requested_doc_hash: str | None) -> bytes
 def _select_extension_candidates_for_auth(
     candidates: tuple[_DecodedExtensionCandidate, ...],
     *,
+    root_doc_hash: bytes,
     requested_index: int | None,
     requested_doc_hash: str | None,
 ) -> tuple[_DecodedExtensionCandidate, ...]:
@@ -653,7 +693,15 @@ def _select_extension_candidates_for_auth(
         if requested_index == 0:
             return ()
         if not any(candidate.decoded.header.index == requested_index for candidate in candidates):
-            raise ValueError(f"extension index {requested_index} was not found")
+            latest_head_index, latest_head_doc_hash = _latest_candidate_head_details(candidates)
+            raise _missing_requested_extension_error(
+                f"extension index {requested_index} was not found",
+                root_doc_hash=root_doc_hash,
+                latest_head_index=latest_head_index,
+                latest_head_doc_hash=latest_head_doc_hash,
+                requested_index=requested_index,
+                requested_doc_hash=None,
+            )
         return tuple(
             candidate
             for candidate in candidates
@@ -670,8 +718,15 @@ def _select_extension_candidates_for_auth(
             None,
         )
         if target_index is None:
-            raise ValueError(
-                f"extension doc_hash {requested_doc_hash.strip().lower()} was not found"
+            latest_head_index, latest_head_doc_hash = _latest_candidate_head_details(candidates)
+            requested_doc_hash_value = requested_doc_hash.strip().lower()
+            raise _missing_requested_extension_error(
+                f"extension doc_hash {requested_doc_hash_value} was not found",
+                root_doc_hash=root_doc_hash,
+                latest_head_index=latest_head_index,
+                latest_head_doc_hash=latest_head_doc_hash,
+                requested_index=None,
+                requested_doc_hash=requested_doc_hash_value,
             )
         return tuple(
             candidate for candidate in candidates if candidate.decoded.header.index <= target_index
@@ -855,6 +910,7 @@ def decode_imported_extension_link(
 def _select_imported_chain_links(
     links: tuple[DecodedExtensionLink, ...],
     *,
+    root_doc_hash: bytes,
     requested_index: int | None,
     requested_doc_hash: str | None,
 ) -> tuple[DecodedExtensionLink, ...]:
@@ -866,7 +922,15 @@ def _select_imported_chain_links(
         if requested_index == 0:
             return ()
         if not any(link.link.document.header.index == requested_index for link in links):
-            raise ValueError(f"extension index {requested_index} was not found")
+            latest_head_index, latest_head_doc_hash = _latest_head_details(links)
+            raise _missing_requested_extension_error(
+                f"extension index {requested_index} was not found",
+                root_doc_hash=root_doc_hash,
+                latest_head_index=latest_head_index,
+                latest_head_doc_hash=latest_head_doc_hash,
+                requested_index=requested_index,
+                requested_doc_hash=None,
+            )
         return tuple(link for link in links if link.link.document.header.index <= requested_index)
     if requested_doc_hash is not None:
         requested = _parse_extension_doc_hash(requested_doc_hash)
@@ -878,8 +942,15 @@ def _select_imported_chain_links(
                 matched = True
                 break
         if not matched:
-            raise ValueError(
-                f"extension doc_hash {requested_doc_hash.strip().lower()} was not found"
+            latest_head_index, latest_head_doc_hash = _latest_head_details(links)
+            requested_doc_hash_value = requested_doc_hash.strip().lower()
+            raise _missing_requested_extension_error(
+                f"extension doc_hash {requested_doc_hash_value} was not found",
+                root_doc_hash=root_doc_hash,
+                latest_head_index=latest_head_index,
+                latest_head_doc_hash=latest_head_doc_hash,
+                requested_index=None,
+                requested_doc_hash=requested_doc_hash_value,
             )
         return tuple(selected)
     return links
@@ -887,6 +958,7 @@ def _select_imported_chain_links(
 
 def _ensure_root_selector_satisfied(
     *,
+    root_doc_hash: bytes,
     requested_index: int | None,
     requested_doc_hash: str | None,
 ) -> None:
@@ -894,10 +966,25 @@ def _ensure_root_selector_satisfied(
         if requested_index < 0:
             raise ValueError("--extension-index must be >= 0")
         if requested_index > 0:
-            raise ValueError(f"extension index {requested_index} was not found")
+            raise _missing_requested_extension_error(
+                f"extension index {requested_index} was not found",
+                root_doc_hash=root_doc_hash,
+                latest_head_index=None,
+                latest_head_doc_hash=None,
+                requested_index=requested_index,
+                requested_doc_hash=None,
+            )
     if requested_doc_hash is not None:
         _parse_extension_doc_hash(requested_doc_hash)
-        raise ValueError(f"extension doc_hash {requested_doc_hash.strip().lower()} was not found")
+        requested_doc_hash_value = requested_doc_hash.strip().lower()
+        raise _missing_requested_extension_error(
+            f"extension doc_hash {requested_doc_hash_value} was not found",
+            root_doc_hash=root_doc_hash,
+            latest_head_index=None,
+            latest_head_doc_hash=None,
+            requested_index=None,
+            requested_doc_hash=requested_doc_hash_value,
+        )
 
 
 def decode_root_manifest(
