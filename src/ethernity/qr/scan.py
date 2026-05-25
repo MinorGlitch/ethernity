@@ -31,7 +31,10 @@ from ethernity.extensions.discovery import (
     EXTENSIONS_DIR_NAME,
     is_extension_like_top_level_entry,
 )
-from ethernity.extensions.layout import is_canonical_extension_dir_name, is_staging_dir_name
+from ethernity.extensions.layout import (
+    is_canonical_extension_dir_name,
+    parse_extension_main_filename,
+)
 
 
 def _optional_import(name: str) -> Any | None:
@@ -71,6 +74,7 @@ __all__ = [
 
 
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff", ".webp"}
+_NON_PAYLOAD_EXTENSION_MAIN_PREFIXES = ("recovery_document-", "recovery_kit_index-")
 _PDF_MAGIC = b"%PDF-"
 _IMAGE_MAGICS = (
     b"\x89PNG\r\n\x1a\n",
@@ -253,6 +257,8 @@ def _iter_scan_files(directory: Path, *, include_extension_carriers: bool = True
             path = root_path / filename
             if path.is_symlink():
                 raise QrScanError(f"scan file must not be a symlink: {path}")
+            if _is_non_payload_published_extension_main(path):
+                continue
             suffix = path.suffix.lower()
             if _looks_like_scan_file(path) or suffix == ".pdf" or suffix in _IMAGE_SUFFIXES:
                 files.append(path)
@@ -268,11 +274,7 @@ def _keep_scan_dir(
 ) -> bool:
     if path.is_symlink():
         raise QrScanError(f"scan directory must not contain symlinked directories: {path}")
-    if (
-        not include_extension_carriers
-        and path.parent == scan_root
-        and path.name == EXTENSIONS_DIR_NAME
-    ):
+    if not include_extension_carriers and path.name == EXTENSIONS_DIR_NAME:
         return False
     return not _is_under_unpublished_extension_workspace(path)
 
@@ -286,7 +288,7 @@ def _validate_backup_export_scan_layout(directory: Path) -> None:
     if not extensions_dir.is_dir():
         raise QrScanError(f"extensions path must be a directory: {extensions_dir}")
     for entry in extensions_dir.iterdir():
-        if is_staging_dir_name(entry.name):
+        if _is_unpublished_extension_workspace_name(entry.name):
             continue
         if entry.name.isdecimal() and not is_canonical_extension_dir_name(entry.name):
             raise QrScanError(
@@ -303,9 +305,30 @@ def _validate_backup_export_scan_layout(directory: Path) -> None:
 def _is_under_unpublished_extension_workspace(path: Path) -> bool:
     parts = path.parts
     for index, part in enumerate(parts[:-1]):
-        if part == EXTENSIONS_DIR_NAME and is_staging_dir_name(parts[index + 1]):
+        if part == EXTENSIONS_DIR_NAME and _is_unpublished_extension_workspace_name(
+            parts[index + 1]
+        ):
             return True
     return False
+
+
+def _is_unpublished_extension_workspace_name(name: str) -> bool:
+    return name.startswith(".staging-")
+
+
+def _is_non_payload_published_extension_main(path: Path) -> bool:
+    parent = path.parent
+    if parent.parent.name != EXTENSIONS_DIR_NAME or not is_canonical_extension_dir_name(
+        parent.name
+    ):
+        return False
+    if path.name.startswith(_NON_PAYLOAD_EXTENSION_MAIN_PREFIXES):
+        return True
+    try:
+        parsed = parse_extension_main_filename(path.name)
+    except ValueError:
+        return False
+    return parsed.doc_type != "qr_document"
 
 
 def _looks_like_scan_file(path: Path) -> bool:

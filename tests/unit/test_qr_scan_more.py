@@ -164,6 +164,9 @@ class TestQrScanMore(unittest.TestCase):
             nested_staging = staging / "nested"
             nested_staging.mkdir()
             (nested_staging / "recovery_document-02-cafebabedeadbeef.pdf").write_bytes(b"")
+            crash_staging = root / "extensions" / ".staging-crash"
+            crash_staging.mkdir()
+            (crash_staging / "qr_document-99-feedfacecafebeef.pdf").write_bytes(b"")
             ordinary_staging = root / "loose" / ".staging-2-aborted"
             ordinary_staging.mkdir(parents=True)
             (ordinary_staging / "loose-carrier.pdf").write_bytes(b"")
@@ -232,6 +235,51 @@ class TestQrScanMore(unittest.TestCase):
 
         self.assertEqual([path.relative_to(root).as_posix() for path in files], ["qr_document.pdf"])
 
+    def test_iter_scan_files_excludes_nested_published_extension_carriers_for_root_only(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            nested_backup = root / "nested-backup"
+            nested_backup.mkdir()
+            (nested_backup / "qr_document.pdf").write_bytes(b"%PDF-1.7\n")
+            extension_dir = nested_backup / "extensions" / "01"
+            extension_dir.mkdir(parents=True)
+            (extension_dir / "qr_document-01-deadbeefcafebabe.pdf").write_bytes(b"%PDF-1.7\n")
+
+            files = _iter_scan_files(root, include_extension_carriers=False)
+
+        self.assertEqual(
+            [path.relative_to(root).as_posix() for path in files],
+            ["nested-backup/qr_document.pdf"],
+        )
+
+    def test_iter_scan_files_uses_only_payload_main_carriers_in_published_extensions(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            extension_dir = root / "extensions" / "01"
+            extension_dir.mkdir(parents=True)
+            (extension_dir / "qr_document-01-deadbeefcafebabe.pdf").write_bytes(b"%PDF-1.7\n")
+            (extension_dir / "recovery_document-01-deadbeefcafebabe.pdf").write_bytes(b"%PDF-1.7\n")
+            (extension_dir / "recovery_kit_index-01-deadbeefcafebabe.pdf").write_bytes(
+                b"%PDF-1.7\n"
+            )
+            loose = root / "loose"
+            loose.mkdir()
+            (loose / "recovery_document-01-deadbeefcafebabe.pdf").write_bytes(b"%PDF-1.7\n")
+
+            files = _iter_scan_files(root)
+
+        self.assertEqual(
+            [path.relative_to(root).as_posix() for path in files],
+            [
+                "extensions/01/qr_document-01-deadbeefcafebabe.pdf",
+                "loose/recovery_document-01-deadbeefcafebabe.pdf",
+            ],
+        )
+
     def test_scan_qr_payloads_directory_does_not_decode_unpublished_staging(self) -> None:
         decoder = QrDecoder(
             name="dummy", decode_image_path=lambda _: [], decode_image_bytes=lambda _: []
@@ -283,6 +331,11 @@ class TestQrScanMore(unittest.TestCase):
         self.assertTrue(
             _is_under_unpublished_extension_workspace(
                 Path("root/extensions/.staging-2-aborted/qr_document.pdf")
+            )
+        )
+        self.assertTrue(
+            _is_under_unpublished_extension_workspace(
+                Path("root/extensions/.staging-crash/qr_document.pdf")
             )
         )
         self.assertFalse(
