@@ -129,7 +129,8 @@ test("parseAutoPayload handles frame state transitions and hash caching", () => 
 
   assert.equal(state.duplicates, 1);
   assert.equal(state.conflicts, 1);
-  assert.equal(state.ignored, 2);
+  assert.equal(state.ignored, 1);
+  assert.equal(state.documents.size, 2);
   assert.deepEqual(listMissing(state.total, state.mainFrames), [1]);
 
   const main1 = toUnpaddedBase64(

@@ -235,6 +235,49 @@ class TestQrScanMore(unittest.TestCase):
 
         self.assertEqual([path.relative_to(root).as_posix() for path in files], ["qr_document.pdf"])
 
+    def test_iter_scan_files_can_bound_published_extension_carriers_by_index(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "qr_document.pdf").write_bytes(b"%PDF-1.7\n")
+            extension_01 = root / "extensions" / "01"
+            extension_02 = root / "extensions" / "02"
+            extension_01.mkdir(parents=True)
+            extension_02.mkdir()
+            (extension_01 / "qr_document-01-deadbeefcafebabe.pdf").write_bytes(b"%PDF-1.7\n")
+            (extension_02 / "qr_document-02-cafebabedeadbeef.pdf").write_bytes(b"%PDF-1.7\n")
+            (extension_02 / "recovery_document-02-cafebabedeadbeef.pdf").write_bytes(b"%PDF-1.7\n")
+
+            files = _iter_scan_files(root, extension_carrier_max_index=1)
+
+        self.assertEqual(
+            [path.relative_to(root).as_posix() for path in files],
+            [
+                "extensions/01/qr_document-01-deadbeefcafebabe.pdf",
+                "qr_document.pdf",
+            ],
+        )
+
+    def test_iter_scan_files_tolerates_future_malformed_extension_entries_when_bounded(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "qr_document.pdf").write_bytes(b"%PDF-1.7\n")
+            extension_01 = root / "extensions" / "01"
+            extension_01.mkdir(parents=True)
+            (extension_01 / "qr_document-01-deadbeefcafebabe.pdf").write_bytes(b"%PDF-1.7\n")
+            (root / "extensions" / "02").write_bytes(b"not a directory")
+
+            files = _iter_scan_files(root, extension_carrier_max_index=1)
+
+        self.assertEqual(
+            [path.relative_to(root).as_posix() for path in files],
+            [
+                "extensions/01/qr_document-01-deadbeefcafebabe.pdf",
+                "qr_document.pdf",
+            ],
+        )
+
     def test_iter_scan_files_excludes_nested_published_extension_carriers_for_root_only(
         self,
     ) -> None:
@@ -279,6 +322,22 @@ class TestQrScanMore(unittest.TestCase):
                 "loose/recovery_document-01-deadbeefcafebabe.pdf",
             ],
         )
+
+    def test_iter_scan_files_rejects_canonical_extension_entry_that_is_not_directory(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "qr_document.pdf").write_bytes(b"%PDF-1.7\n")
+            extensions_dir = root / "extensions"
+            extensions_dir.mkdir()
+            (extensions_dir / "01").write_bytes(b"not a directory")
+
+            with self.assertRaisesRegex(
+                QrScanError,
+                "canonical extension entry must be a directory",
+            ):
+                _iter_scan_files(root)
 
     def test_scan_qr_payloads_directory_does_not_decode_unpublished_staging(self) -> None:
         decoder = QrDecoder(

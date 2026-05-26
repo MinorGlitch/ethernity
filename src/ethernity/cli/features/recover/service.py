@@ -63,6 +63,7 @@ class RecoverExecutionResult:
     single_entry_output_is_directory: bool
     requested_extension_index: int | None = None
     requested_extension_doc_hash: str | None = None
+    expected_head_doc_hash: str | None = None
     selected_extension_index: int | None = None
     selected_extension_doc_hash: str | None = None
 
@@ -221,6 +222,7 @@ def execute_recover_plan(
             single_entry_output_is_directory=single_entry_output_is_directory,
             requested_extension_index=getattr(plan, "extension_index", None),
             requested_extension_doc_hash=getattr(plan, "extension_doc_hash", None),
+            expected_head_doc_hash=getattr(plan, "expected_head_doc_hash", None),
             selected_extension_index=decrypted.selected_extension_index,
             selected_extension_doc_hash=decrypted.selected_extension_doc_hash,
             on_file_written=_on_file_written,
@@ -246,6 +248,7 @@ def execute_recover_plan(
             single_entry_output_is_directory=single_entry_output_is_directory,
             requested_extension_index=getattr(plan, "extension_index", None),
             requested_extension_doc_hash=getattr(plan, "extension_doc_hash", None),
+            expected_head_doc_hash=getattr(plan, "expected_head_doc_hash", None),
             selected_extension_index=decrypted.selected_extension_index,
             selected_extension_doc_hash=decrypted.selected_extension_doc_hash,
         )

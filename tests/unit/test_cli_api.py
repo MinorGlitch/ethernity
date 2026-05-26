@@ -392,6 +392,10 @@ class TestCliApi(unittest.TestCase):
             "root_doc_id": "33" * 8,
             "root_doc_hash": "44" * 32,
             "chain_id": "55" * 32,
+            "parent_head_index": 0,
+            "parent_head_doc_hash": "44" * 32,
+            "expected_head_doc_hash": None,
+            "freshness_scope": "supplied_carriers_only",
             "extension_dir": "/tmp/root/extensions/01",
             "artifacts": {
                 "qr_document": "/tmp/root/extensions/01/qr.pdf",
@@ -583,6 +587,7 @@ class TestCliApi(unittest.TestCase):
             "signing_key_mode": None,
             "signing_key_shard_threshold": 0,
             "signing_key_shard_count": 0,
+            "expected_head_doc_hash": None,
             "quiet": True,
             "debug": False,
         }

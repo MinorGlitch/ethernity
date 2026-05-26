@@ -48,7 +48,7 @@ test("updateAuthStatus clears pending guard after ciphertext errors", async () =
   assert.notEqual(state.authStatus, "ciphertext error");
 });
 
-test("updateAuthStatus degrades cleanly when crypto is unavailable", async () => {
+test("updateAuthStatus uses portable verification when WebCrypto is unavailable", async () => {
   const original = globalThis.crypto;
   const state = createInitialState();
   state.authPayload = {
@@ -68,7 +68,7 @@ test("updateAuthStatus degrades cleanly when crypto is unavailable", async () =>
     }
   }
 
-  assert.equal(state.authStatus, "doc_hash matches; signature not verified");
+  assert.equal(state.authStatus, "invalid signature");
 });
 
 test("async main followups do not overwrite reset state", async () => {

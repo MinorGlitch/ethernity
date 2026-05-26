@@ -49,12 +49,17 @@ from ethernity.formats import EnvelopeManifest
 from ethernity.formats.extension_envelope import ExtensionChunkingProfile
 
 PublishedCarrierReader = Callable[[DiscoveredExtensionMainCarrier], ImportedRecoveryDocument]
+PublishedRecoveryDocumentValidator = Callable[
+    [DiscoveredExtensionMainCarrier, ImportedRecoveryDocument, bytes],
+    None,
+]
 
 
 def inspect_published_extension_inventory(
     root_dir: Path,
     *,
     read_carrier_document: PublishedCarrierReader,
+    validate_recovery_document_carrier: PublishedRecoveryDocumentValidator | None = None,
 ) -> RecoveryExtensionInventory:
     discovery = discover_validated_extension_directories(root_dir)
     extensions: list[ImportedRecoveryDocument] = []
@@ -65,6 +70,7 @@ def inspect_published_extension_inventory(
                 item_dir_name=item.dir_name,
                 main_carriers=tuple(item.main_carriers),
                 read_carrier_document=read_carrier_document,
+                validate_recovery_document_carrier=validate_recovery_document_carrier,
             )
         except ValueError as exc:
             failure = RecoveryReplayFailure(
@@ -108,6 +114,7 @@ def _scan_published_extension_payload_carriers(
     item_dir_name: str,
     main_carriers: tuple[DiscoveredExtensionMainCarrier, ...],
     read_carrier_document: PublishedCarrierReader,
+    validate_recovery_document_carrier: PublishedRecoveryDocumentValidator | None,
 ) -> tuple[ImportedRecoveryDocument, bytes]:
     document: ImportedRecoveryDocument | None = None
     auth_sign_pub: bytes | None = None
@@ -133,11 +140,22 @@ def _scan_published_extension_payload_carriers(
             )
     if document is None or auth_sign_pub is None:
         raise ValueError(f"extension {item_dir_name} MAIN carriers could not be reconstructed")
-    _required_published_extension_main_carrier(
+    recovery_document_carrier = _required_published_extension_main_carrier(
         item_dir_name=item_dir_name,
         main_carriers=main_carriers,
         doc_type="recovery_document",
     )
+    if validate_recovery_document_carrier is not None:
+        try:
+            validate_recovery_document_carrier(
+                recovery_document_carrier,
+                document,
+                auth_sign_pub,
+            )
+        except Exception as exc:
+            raise ValueError(
+                f"extension {item_dir_name} recovery_document carrier could not be validated: {exc}"
+            ) from exc
     return document, auth_sign_pub
 
 

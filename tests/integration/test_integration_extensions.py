@@ -13,7 +13,6 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-import re
 import shutil
 import tempfile
 import unittest
@@ -23,14 +22,13 @@ from pypdf import PdfReader, PdfWriter
 
 from ethernity.cli import run_compact, run_extend
 from ethernity.cli.features.backup.orchestrator import run_backup_command
+from ethernity.cli.features.extend.published_recovery_validation import (
+    extract_published_recovery_document_fallback_lines,
+)
 from ethernity.cli.features.mint.workflow import execute_mint
 from ethernity.cli.features.recover.orchestrator import run_recover_command
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
-from ethernity.cli.shared.io.fallback_parser import (
-    detect_fallback_section,
-    filter_fallback_lines,
-)
 from ethernity.cli.shared.io.frames import _frames_from_fallback_lines, recovery_frames_from_scan
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import BackupArgs, CompactArgs, ExtendArgs, MintArgs, RecoverArgs
@@ -49,7 +47,6 @@ _V1_0_FILE_NO_SHARD_ROOT = (
 )
 _V1_0_SOURCE_ROOT = _REPO_ROOT / "tests" / "fixtures" / "v1_0" / "source"
 _V1_0_PASSPHRASE = "stable-v1-baseline-passphrase"
-_PDF_FALLBACK_LINE_COUNTER_RE = re.compile(r"^\s*(?P<counter>\d+)[.)]?\s+")
 
 
 class TestIntegrationExtensions(unittest.TestCase):
@@ -1048,81 +1045,10 @@ class TestIntegrationExtensions(unittest.TestCase):
 
     def _fallback_lines_from_recovery_document(self, recovery_document: Path) -> list[str]:
         reader = PdfReader(recovery_document)
-        lines: list[str] = []
-        current_section: str | None = None
-        accept_payload_continuation = False
-        expected_row = 1
-        for page in reader.pages:
-            for raw_line in (page.extract_text() or "").splitlines():
-                section = detect_fallback_section(raw_line)
-                if section in {"auth", "main"}:
-                    current_section = section
-                    accept_payload_continuation = False
-                    expected_row = 1
-                    lines.append(AUTH_FALLBACK_LABEL if section == "auth" else MAIN_FALLBACK_LABEL)
-                    continue
-                if current_section not in {"auth", "main"}:
-                    continue
-                payload_line = self._extract_pdf_fallback_payload_line(
-                    raw_line,
-                    require_counter=True,
-                    expected_counter=expected_row,
-                )
-                if payload_line is None and accept_payload_continuation:
-                    payload_line = self._extract_pdf_fallback_payload_line(
-                        raw_line,
-                        require_counter=False,
-                        expected_counter=None,
-                    )
-                if payload_line is None:
-                    accept_payload_continuation = False
-                    continue
-                lines.append(payload_line)
-                if _PDF_FALLBACK_LINE_COUNTER_RE.match(raw_line) is not None:
-                    expected_row += 1
-                accept_payload_continuation = True
-
+        lines = extract_published_recovery_document_fallback_lines(reader)
         self.assertIn(AUTH_FALLBACK_LABEL, lines)
         self.assertIn(MAIN_FALLBACK_LABEL, lines)
         return lines
-
-    def _extract_pdf_fallback_payload_line(
-        self,
-        line: str,
-        *,
-        require_counter: bool,
-        expected_counter: int | None,
-    ) -> str | None:
-        counter_match = _PDF_FALLBACK_LINE_COUNTER_RE.match(line)
-        has_counter = counter_match is not None
-        if require_counter and counter_match is None:
-            return None
-        if (
-            expected_counter is not None
-            and counter_match is not None
-            and int(counter_match.group("counter")) != expected_counter
-        ):
-            return None
-        candidate = (
-            _PDF_FALLBACK_LINE_COUNTER_RE.sub("", line.strip()) if has_counter else line.strip()
-        )
-        tokens: list[str] = []
-        for token in candidate.split():
-            if len(token) > 4:
-                break
-            try:
-                filter_fallback_lines([token])
-            except ValueError:
-                break
-            tokens.append(token)
-        if not tokens:
-            return None
-        candidate = " ".join(tokens)
-        try:
-            filter_fallback_lines([candidate])
-        except ValueError:
-            return None
-        return candidate
 
     def _write_split_payload_files(
         self,

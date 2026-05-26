@@ -162,6 +162,9 @@ def execute_staged_extension_publish(
             if plan.prepared.args.unlock_policy == "reuse-root"
             else 0
         ),
+        parent_head_index=plan.prepared.inspection.validated_head_index,
+        parent_head_doc_hash=plan.prepared.inspection.validated_head_doc_hash,
+        expected_head_doc_hash=plan.prepared.args.expected_head_doc_hash,
     )
 
 

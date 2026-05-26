@@ -34,7 +34,9 @@ from ethernity.extensions.discovery import (
 from ethernity.extensions.layout import (
     ExtensionMainArtifactName,
     is_canonical_extension_dir_name,
+    parse_extension_dir_name,
     parse_extension_main_filename,
+    parse_extension_shard_filename,
 )
 
 
@@ -137,6 +139,7 @@ def scan_qr_payloads(
     paths: Sequence[str | Path],
     *,
     include_extension_carriers: bool = True,
+    extension_carrier_max_index: int | None = None,
 ) -> list[bytes]:
     """Scan one or more paths and return decoded QR payload bytes."""
 
@@ -145,6 +148,7 @@ def scan_qr_payloads(
         for payload in scan_qr_payloads_with_sources(
             paths,
             include_extension_carriers=include_extension_carriers,
+            extension_carrier_max_index=extension_carrier_max_index,
         )
     ]
 
@@ -153,12 +157,17 @@ def scan_qr_payloads_with_sources(
     paths: Sequence[str | Path],
     *,
     include_extension_carriers: bool = True,
+    extension_carrier_max_index: int | None = None,
 ) -> list[ScannedQrPayload]:
     """Scan one or more paths and return decoded QR payload bytes with source paths."""
 
     decoder = _load_decoder()
     payloads: list[ScannedQrPayload] = []
-    for path in _expand_paths(paths, include_extension_carriers=include_extension_carriers):
+    for path in _expand_paths(
+        paths,
+        include_extension_carriers=include_extension_carriers,
+        extension_carrier_max_index=extension_carrier_max_index,
+    ):
         source_payloads = _scan_one_path(path, decoder)
         if (
             include_extension_carriers
@@ -248,6 +257,7 @@ def _expand_paths(
     paths: Sequence[str | Path],
     *,
     include_extension_carriers: bool = True,
+    extension_carrier_max_index: int | None = None,
 ) -> Iterable[Path]:
     """Expand path inputs, recursing into directories for supported scan files."""
 
@@ -261,15 +271,23 @@ def _expand_paths(
             scan_files = _iter_scan_files(
                 path,
                 include_extension_carriers=include_extension_carriers,
+                extension_carrier_max_index=extension_carrier_max_index,
             )
             if not scan_files:
                 raise QrScanError(f"no scan files found in directory: {path}")
             yield from scan_files
         else:
+            if _is_published_extension_after_max_index(path, extension_carrier_max_index):
+                continue
             yield path
 
 
-def _iter_scan_files(directory: Path, *, include_extension_carriers: bool = True) -> list[Path]:
+def _iter_scan_files(
+    directory: Path,
+    *,
+    include_extension_carriers: bool = True,
+    extension_carrier_max_index: int | None = None,
+) -> list[Path]:
     """Collect supported scan files from a directory tree."""
 
     if directory.is_symlink():
@@ -279,7 +297,10 @@ def _iter_scan_files(directory: Path, *, include_extension_carriers: bool = True
     files: list[Path] = []
     for root, dirnames, filenames in os.walk(directory):
         root_path = Path(root)
-        _validate_backup_export_scan_layout(root_path)
+        _validate_backup_export_scan_layout(
+            root_path,
+            extension_carrier_max_index=extension_carrier_max_index,
+        )
         dirnames[:] = sorted(
             name
             for name in dirnames
@@ -287,12 +308,15 @@ def _iter_scan_files(directory: Path, *, include_extension_carriers: bool = True
                 root_path / name,
                 scan_root=directory,
                 include_extension_carriers=include_extension_carriers,
+                extension_carrier_max_index=extension_carrier_max_index,
             )
         )
         for filename in filenames:
             path = root_path / filename
             if path.is_symlink():
                 raise QrScanError(f"scan file must not be a symlink: {path}")
+            if _is_published_extension_after_max_index(path, extension_carrier_max_index):
+                continue
             if _is_non_payload_published_extension_main(path):
                 continue
             suffix = path.suffix.lower()
@@ -307,15 +331,22 @@ def _keep_scan_dir(
     *,
     scan_root: Path,
     include_extension_carriers: bool,
+    extension_carrier_max_index: int | None,
 ) -> bool:
     if path.is_symlink():
         raise QrScanError(f"scan directory must not contain symlinked directories: {path}")
     if not include_extension_carriers and path.name == EXTENSIONS_DIR_NAME:
         return False
+    if _is_published_extension_dir_after_max_index(path, extension_carrier_max_index):
+        return False
     return not _is_under_unpublished_extension_workspace(path)
 
 
-def _validate_backup_export_scan_layout(directory: Path) -> None:
+def _validate_backup_export_scan_layout(
+    directory: Path,
+    *,
+    extension_carrier_max_index: int | None = None,
+) -> None:
     extensions_dir = directory / EXTENSIONS_DIR_NAME
     if not extensions_dir.exists():
         return
@@ -326,6 +357,10 @@ def _validate_backup_export_scan_layout(directory: Path) -> None:
     for entry in extensions_dir.iterdir():
         if _is_unpublished_extension_workspace_name(entry.name):
             continue
+        if _entry_after_extension_max_index(entry.name, extension_carrier_max_index):
+            continue
+        if is_canonical_extension_dir_name(entry.name) and not entry.is_dir():
+            raise QrScanError(f"canonical extension entry must be a directory: {entry.name}")
         if entry.name.isdecimal() and not is_canonical_extension_dir_name(entry.name):
             raise QrScanError(
                 "extensions directory contains unexpected extension-like top-level entry: "
@@ -357,6 +392,53 @@ def _is_non_payload_published_extension_main(path: Path) -> bool:
     if parsed is None:
         return False
     return parsed.doc_type != "qr_document"
+
+
+def _is_published_extension_dir_after_max_index(
+    path: Path,
+    extension_carrier_max_index: int | None,
+) -> bool:
+    if extension_carrier_max_index is None:
+        return False
+    if path.parent.name != EXTENSIONS_DIR_NAME or not is_canonical_extension_dir_name(path.name):
+        return False
+    return parse_extension_dir_name(path.name) > extension_carrier_max_index
+
+
+def _is_published_extension_after_max_index(
+    path: Path,
+    extension_carrier_max_index: int | None,
+) -> bool:
+    if extension_carrier_max_index is None:
+        return False
+    parsed = _published_extension_main_name(path)
+    return parsed is not None and parsed.index > extension_carrier_max_index
+
+
+def _entry_after_extension_max_index(
+    name: str,
+    extension_carrier_max_index: int | None,
+) -> bool:
+    if extension_carrier_max_index is None:
+        return False
+    index = _extension_like_entry_index(name)
+    return index is not None and index > extension_carrier_max_index
+
+
+def _extension_like_entry_index(name: str) -> int | None:
+    if name.isdecimal():
+        return int(name, 10)
+    if name.startswith(("extension-", "extension_")):
+        suffix = name.removeprefix("extension-").removeprefix("extension_")
+        return int(suffix, 10) if suffix.isdecimal() else None
+    try:
+        return parse_extension_main_filename(name).index
+    except ValueError:
+        pass
+    try:
+        return parse_extension_shard_filename(name).index
+    except ValueError:
+        return None
 
 
 def is_published_extension_payload_carrier(path: str | Path) -> bool:

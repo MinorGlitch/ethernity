@@ -474,13 +474,20 @@ class TestExtendInspection(unittest.TestCase):
                     "ethernity.cli.features.extend.planning.doc_id_and_hash_from_ciphertext",
                     return_value=(b"\x11" * 8, b"\x22" * 32),
                 ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "validate_published_recovery_document_carrier",
+                    return_value=None,
+                ),
             ):
                 inspection = inspect_from_args(ExtendArgs(root_dir=str(root_dir)))
 
         self.assertEqual(scan_mock.call_args_list, [mock.call([str(qr_path)], quiet=False)])
         self.assertEqual(inspection.discovered_extension_dirs, (1,))
 
-    def test_inspect_from_args_does_not_parse_recovery_document_pdf_text(self) -> None:
+    def test_inspect_from_args_rejects_invalid_recovery_document_without_machine_scan(
+        self,
+    ) -> None:
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             mock.patch(
@@ -525,9 +532,13 @@ class TestExtendInspection(unittest.TestCase):
                 inspection = inspect_from_args(ExtendArgs(root_dir=str(root_dir)))
 
         self.assertEqual(scan_mock.call_args_list, [mock.call([str(qr_path)], quiet=False)])
-        self.assertEqual(inspection.discovered_extension_dirs, (1,))
-        self.assertEqual(inspection.available_extensions[0]["index"], 1)
-        self.assertFalse(inspection.blocking_issues)
+        self.assertEqual(inspection.discovered_extension_dirs, ())
+        self.assertEqual(inspection.available_extensions, ())
+        self.assertEqual(inspection.blocking_issues[0]["code"], "EXTENSION_LAYOUT_INVALID")
+        self.assertIn(
+            "recovery_document carrier could not be validated",
+            inspection.blocking_issues[0]["message"],
+        )
 
     def test_inspect_from_args_rejects_valid_prefix_when_suffix_is_invalid(self) -> None:
         with (

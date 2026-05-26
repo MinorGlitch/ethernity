@@ -135,6 +135,7 @@ def _recovery_plan(
     *,
     extension_index: int | None = None,
     extension_doc_hash: str | None = None,
+    expected_head_doc_hash: str | None = None,
 ) -> RecoveryPlan:
     root_sign_pub = derive_public_key(b"\x33" * 32)
     return RecoveryPlan(
@@ -162,6 +163,7 @@ def _recovery_plan(
         root_dir=None,
         extension_index=extension_index,
         extension_doc_hash=extension_doc_hash,
+        expected_head_doc_hash=expected_head_doc_hash,
     )
 
 
@@ -196,6 +198,44 @@ class TestRecoverChain(unittest.TestCase):
         )
         self.assertEqual(result.manifest.input_origin, "directory")
         self.assertEqual(result.manifest.input_roots, ("reconstructed-state",))
+
+    def test_recover_chain_entries_rejects_unexpected_default_head_doc_hash(self) -> None:
+        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+        extension_ciphertext = _extension_ciphertext(root_doc_hash)
+        extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
+        plan = dataclasses.replace(
+            _recovery_plan(
+                root_ciphertext,
+                root_doc_id,
+                root_doc_hash,
+                expected_head_doc_hash="aa" * 32,
+            ),
+            import_documents=(
+                _imported_document(root_ciphertext, source_label="scan0001.pdf"),
+                _imported_document(
+                    extension_ciphertext,
+                    auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+                    source_label="renamed-extension.pdf",
+                ),
+            ),
+        )
+
+        with (
+            mock.patch(
+                "ethernity.extensions.recovery.decrypt_bytes",
+                side_effect=lambda data, *, passphrase, debug=False: data,
+            ),
+            self.assertRaises(ApiCommandError) as caught,
+        ):
+            recover_chain_entries(plan, quiet=True)
+
+        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertIn("does not match expected head", caught.exception.message)
+        self.assertEqual(caught.exception.details["expected_head_doc_hash"], "aa" * 32)
+        self.assertEqual(
+            caught.exception.details["validated_head_doc_hash"], extension_doc_hash.hex()
+        )
+        self.assertEqual(caught.exception.details["freshness_scope"], "supplied_carriers_only")
 
     def test_recover_chain_entries_rejects_imported_doc_id_collision(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()

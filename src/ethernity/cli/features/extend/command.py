@@ -107,6 +107,25 @@ def _print_extend_summary(result: PublishedExtensionResult, *, quiet: bool) -> N
                     ("Extension dir", str(result.final_dir)),
                     ("Index", f"{result.index:02d}"),
                     ("Doc ID", result.doc_id.hex()),
+                    (
+                        "Extending from",
+                        (
+                            f"supplied head {result.parent_head_index}"
+                            if result.parent_head_index is not None
+                            else "supplied head"
+                        ),
+                    ),
+                    ("Freshness scope", "supplied carriers only"),
+                    *(
+                        [("Head doc hash", result.parent_head_doc_hash)]
+                        if result.parent_head_doc_hash is not None
+                        else []
+                    ),
+                    *(
+                        [("Expected head", result.expected_head_doc_hash)]
+                        if result.expected_head_doc_hash is not None
+                        else []
+                    ),
                 ]
             ),
         )
@@ -354,6 +373,14 @@ def extend(
             rich_help_panel="Outputs",
         ),
     ] = None,
+    expected_head_doc_hash: Annotated[
+        str | None,
+        typer.Option(
+            "--expected-head-doc-hash",
+            help="Require the validated current head to match this 32-byte doc hash.",
+            rich_help_panel="Behavior",
+        ),
+    ] = None,
     quiet: Annotated[
         bool,
         typer.Option(
@@ -462,6 +489,7 @@ def extend(
         signing_key_mode=signing_key_mode,
         signing_key_shard_threshold=signing_key_shard_threshold,
         signing_key_shard_count=signing_key_shard_count,
+        expected_head_doc_hash=expected_head_doc_hash,
         quiet=quiet_value,
     )
     if not args.input and not args.input_dir:

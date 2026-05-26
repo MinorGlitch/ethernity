@@ -18,14 +18,20 @@
 import { blake2b256 } from "../lib/blake2b.js";
 import { bytesToHex, hexToBytes } from "../lib/encoding.js";
 import { MAX_CIPHERTEXT_BYTES } from "./constants.js";
+import {
+  completeDocumentRecords,
+  incompleteDocumentRecords,
+  primaryDocumentRecord,
+  syncLegacyDocumentFields,
+} from "./document_store.js";
 
-export function reassembleCiphertext(state) {
-  if (state.total === null || state.mainFrames.size !== state.total) {
+export function reassembleCiphertext(source) {
+  if (source.total === null || source.mainFrames.size !== source.total) {
     throw new Error("missing frames");
   }
   const chunks = [];
-  for (let i = 0; i < state.total; i += 1) {
-    const frame = state.mainFrames.get(i);
+  for (let i = 0; i < source.total; i += 1) {
+    const frame = source.mainFrames.get(i);
     if (!frame) throw new Error(`missing frame ${i}`);
     chunks.push(frame.data);
   }
@@ -45,26 +51,67 @@ export function reassembleCiphertext(state) {
 }
 
 export function ensureCiphertextAndHash(state) {
-  if (!state.total || state.mainFrames.size !== state.total) {
+  const primary = primaryDocumentRecord(state);
+  if (!primary) {
+    return ensureDocumentCiphertextAndHash(state);
+  }
+  const docHash = ensureDocumentCiphertextAndHash(primary);
+  syncLegacyDocumentFields(state);
+  return docHash;
+}
+
+export function ensureDocumentCiphertextAndHash(record) {
+  if (!record.total || record.mainFrames.size !== record.total) {
     return null;
   }
-  if (!state.ciphertext) {
-    state.ciphertext = reassembleCiphertext(state);
+  if (!record.ciphertext) {
+    record.ciphertext = reassembleCiphertext(record);
   }
-  if (!state.cipherDocHashHex) {
-    const hash = blake2b256(state.ciphertext);
-    state.cipherDocHashHex = bytesToHex(hash);
+  if (!record.cipherDocHashHex) {
+    const hash = blake2b256(record.ciphertext);
+    record.cipherDocHashHex = bytesToHex(hash);
     return hash;
   }
-  return hexToBytes(state.cipherDocHashHex);
+  return hexToBytes(record.cipherDocHashHex);
 }
 
 export function syncCollectedCiphertext(state) {
-  if (state.total && state.mainFrames.size === state.total) {
+  if (!state.documents.size) {
     try {
-      state.ciphertext = reassembleCiphertext(state);
+      ensureDocumentCiphertextAndHash(state);
+    } catch {
+      // leave ciphertext unset if reassembly fails
+    }
+    return;
+  }
+  for (const record of state.documents.values()) {
+    try {
+      ensureDocumentCiphertextAndHash(record);
     } catch {
       // leave ciphertext unset if reassembly fails
     }
   }
+  syncLegacyDocumentFields(state);
+}
+
+export function collectedRecoveryDocuments(state) {
+  const incomplete = incompleteDocumentRecords(state);
+  if (incomplete.length) {
+    const docIds = incomplete.map((record) => record.docIdHex).join(", ");
+    throw new Error(`incomplete backup document(s): ${docIds}`);
+  }
+  const documents = [];
+  for (const record of completeDocumentRecords(state)) {
+    const docHash = ensureDocumentCiphertextAndHash(record);
+    documents.push({
+      docId: record.docId.slice(),
+      docIdHex: record.docIdHex,
+      docHash,
+      docHashHex: bytesToHex(docHash),
+      ciphertext: record.ciphertext,
+      authPayload: record.authPayload,
+    });
+  }
+  syncLegacyDocumentFields(state);
+  return documents;
 }

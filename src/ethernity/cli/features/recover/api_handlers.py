@@ -103,6 +103,9 @@ def _recover_started_args(
     normalized_extension_doc_hash = (
         None if args.extension_doc_hash is None else args.extension_doc_hash.strip().lower()
     )
+    normalized_expected_head_doc_hash = (
+        None if args.expected_head_doc_hash is None else args.expected_head_doc_hash.strip().lower()
+    )
     payload: dict[str, object] = {
         "config": args.config,
         "paper": args.paper,
@@ -117,6 +120,7 @@ def _recover_started_args(
         "auth_payloads_file": args.auth_payloads_file,
         "extension_index": args.extension_index,
         "extension_doc_hash": normalized_extension_doc_hash,
+        "expected_head_doc_hash": normalized_expected_head_doc_hash,
         "quiet": args.quiet,
         "debug": debug,
     }
@@ -162,6 +166,21 @@ def run_recover_api_command(args: RecoverArgs, *, debug: bool = False) -> int:
     )
 
     _emit_recovered_file_artifacts(execution.file_payloads)
+    expected_head_doc_hash = getattr(
+        execution,
+        "expected_head_doc_hash",
+        getattr(execution.plan, "expected_head_doc_hash", None),
+    )
+    requested_extension_index = getattr(execution, "requested_extension_index", None)
+    requested_extension_doc_hash = getattr(execution, "requested_extension_doc_hash", None)
+    validated_head_doc_hash = (
+        execution.selected_extension_doc_hash
+        or getattr(
+            execution.plan,
+            "doc_hash",
+            b"",
+        ).hex()
+    )
     emit_result(
         command="recover",
         output_path=execution.output_path,
@@ -169,6 +188,21 @@ def run_recover_api_command(args: RecoverArgs, *, debug: bool = False) -> int:
         doc_id=execution.plan.doc_id.hex(),
         selected_extension_index=execution.selected_extension_index,
         selected_extension_doc_hash=execution.selected_extension_doc_hash,
+        expected_head_doc_hash=expected_head_doc_hash,
+        validated_head_index=(
+            execution.selected_extension_index
+            if execution.selected_extension_index is not None
+            else 0
+        ),
+        validated_head_doc_hash=validated_head_doc_hash,
+        freshness_scope=(
+            "supplied_carriers_only"
+            if execution.selected_extension_index is not None
+            or requested_extension_index is not None
+            or requested_extension_doc_hash is not None
+            or expected_head_doc_hash is not None
+            else None
+        ),
         auth_status=execution.plan.auth_status,
         input_label=execution.plan.input_label,
         input_detail=execution.plan.input_detail,
@@ -262,6 +296,19 @@ def run_recover_inspect_api_command(args: RecoverArgs, *, debug: bool = False) -
                 doc_id=inspection.doc_id.hex(),
                 selected_extension_index=selected_extension_index,
                 selected_extension_doc_hash=selected_extension_doc_hash,
+                expected_head_doc_hash=args.expected_head_doc_hash,
+                validated_head_index=(
+                    selected_extension_index if selected_extension_index is not None else 0
+                ),
+                validated_head_doc_hash=selected_extension_doc_hash or inspection.doc_hash.hex(),
+                freshness_scope=(
+                    "supplied_carriers_only"
+                    if selected_extension_index is not None
+                    or args.extension_index is not None
+                    or args.extension_doc_hash is not None
+                    or args.expected_head_doc_hash is not None
+                    else None
+                ),
                 auth_status=inspection.auth_status,
                 input_label=inspection.input_label,
                 input_detail=inspection.input_detail,

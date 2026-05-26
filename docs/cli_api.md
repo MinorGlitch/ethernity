@@ -153,9 +153,9 @@ Mint results include `doc_hash`, `selected_extension_index`, `selected_extension
 `signing_key_source`, and a stable `artifacts` object for minted shard paths.
 
 Extend results include `index`, `doc_id`, `doc_hash`, `root_doc_id`, `root_doc_hash`, `chain_id`,
-the promoted `extension_dir`, a stable `artifacts` object for generated PDFs, and execution
-summaries for `selected_scope`, `diff_summary`, `resolved_policy`, `chunk_reuse`, and
-`extension_bytes`.
+`parent_head_index`, `parent_head_doc_hash`, `expected_head_doc_hash`, `freshness_scope`, the
+promoted `extension_dir`, a stable `artifacts` object for generated PDFs, and execution summaries
+for `selected_scope`, `diff_summary`, `resolved_policy`, `chunk_reuse`, and `extension_bytes`.
 
 Successful extend results always include non-null root lineage (`root_doc_id`, `root_doc_hash`,
 `chain_id`), selected-scope metadata, diff metadata, and chunk-reuse statistics. Missing readiness
@@ -343,8 +343,9 @@ Stable recover `result.auth_status` values:
 
 `ethernity api inspect recover` reports:
 
-- `doc_id`, `selected_extension_index`, `selected_extension_doc_hash`, `input_label`,
-  `input_detail`, `auth_status`
+- `doc_id`, `selected_extension_index`, `selected_extension_doc_hash`,
+  `expected_head_doc_hash`, `validated_head_index`, `validated_head_doc_hash`,
+  `freshness_scope`, `input_label`, `input_detail`, `auth_status`
 - `source_summary` when decryption is possible, otherwise `null`
 - `frame_counts.main|auth|shard`
 - `unlock.mode|passphrase_provided|validated_shard_count|required_shard_threshold|shard_share_count|satisfied`
@@ -374,7 +375,8 @@ machine-readable extension carriers.
 
 - `doc_id`, `input_label`, `input_detail`, `input_kind`
 - `source_summary`, `frame_counts`, `root_doc_id`, `root_doc_hash`, `chain_id`
-- `auth_status`, `discovered_extension_dirs`, `validated_head_index`, `validated_head_doc_hash`
+- `auth_status`, `discovered_extension_dirs`, `validated_head_index`, `validated_head_doc_hash`,
+  `expected_head_doc_hash`, `freshness_scope`
 - `unlock.mode|passphrase_provided|validated_shard_count|required_shard_threshold|shard_share_count|satisfied`
 - `validated_head_auth_status`, `validated_head_root_authority_verified`
 - `available_extensions`, `ancestry_valid`, `signing_authority`
@@ -529,21 +531,21 @@ Example onboarding patch:
 ## Example
 
 ```json
-{"type":"started","schema_version":1,"command":"recover","args":{"config":null,"paper":null,"fallback_file":null,"payloads_file":"main_payloads.txt","scan":[],"has_passphrase":true,"shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"extension_index":null,"extension_doc_hash":null,"output":"/tmp/out/secret.txt","quiet":true,"debug":false}}
+{"type":"started","schema_version":1,"command":"recover","args":{"config":null,"paper":null,"fallback_file":null,"payloads_file":"main_payloads.txt","scan":[],"has_passphrase":true,"shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"extension_index":null,"extension_doc_hash":null,"expected_head_doc_hash":null,"output":"/tmp/out/secret.txt","quiet":true,"debug":false}}
 {"type":"phase","id":"plan","label":"Resolving recovery inputs"}
 {"type":"progress","phase":"plan","current":1,"total":1,"unit":"step","details":{"main_frame_count":2,"auth_frame_count":1,"shard_frame_count":0}}
 {"type":"phase","id":"decrypt","label":"Decrypting and inspecting payload"}
 {"type":"artifact","kind":"recovered_file","path":"/tmp/out/secret.txt","details":{"manifest_path":"secret.txt","size":42}}
-{"type":"result","ok":true,"command":"recover","output_path":"/tmp/out/secret.txt","output_path_kind":"file","doc_id":"0123456789abcdef","selected_extension_index":null,"selected_extension_doc_hash":null,"auth_status":"verified","input_label":"QR payloads","input_detail":"main_payloads.txt","manifest":{"format_version":1,"input_origin":"file","input_roots":[],"sealed":true,"file_count":1,"payload_codec":"raw","payload_raw_len":null},"files":[{"manifest_path":"secret.txt","output_path":"/tmp/out/secret.txt","size":42,"sha256":"0123","mtime":0}]}
+{"type":"result","ok":true,"command":"recover","output_path":"/tmp/out/secret.txt","output_path_kind":"file","doc_id":"0123456789abcdef","selected_extension_index":null,"selected_extension_doc_hash":null,"expected_head_doc_hash":null,"validated_head_index":0,"validated_head_doc_hash":"89abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567","freshness_scope":null,"auth_status":"verified","input_label":"QR payloads","input_detail":"main_payloads.txt","manifest":{"format_version":1,"input_origin":"file","input_roots":[],"sealed":true,"file_count":1,"payload_codec":"raw","payload_raw_len":null},"files":[{"manifest_path":"secret.txt","output_path":"/tmp/out/secret.txt","size":42,"sha256":"0123","mtime":0}]}
 ```
 
 ```json
-{"type":"started","schema_version":1,"command":"recover","args":{"operation":"inspect","config":null,"paper":null,"fallback_file":null,"payloads_file":"main_payloads.txt","scan":[],"has_passphrase":true,"shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"extension_index":null,"extension_doc_hash":null,"quiet":true,"debug":false}}
+{"type":"started","schema_version":1,"command":"recover","args":{"operation":"inspect","config":null,"paper":null,"fallback_file":null,"payloads_file":"main_payloads.txt","scan":[],"has_passphrase":true,"shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"extension_index":null,"extension_doc_hash":null,"expected_head_doc_hash":null,"quiet":true,"debug":false}}
 {"type":"phase","id":"plan","label":"Resolving recovery inputs"}
 {"type":"progress","phase":"plan","current":1,"total":1,"unit":"step","details":{"main_frame_count":2,"auth_frame_count":1,"shard_frame_count":0}}
 {"type":"phase","id":"decrypt","label":"Decrypting and inspecting payload"}
 {"type":"progress","phase":"decrypt","current":1,"total":1,"unit":"step","details":{"file_count":1,"manifest_file_count":1}}
-{"type":"result","ok":true,"command":"recover","operation":"inspect","doc_id":"0123456789abcdef","selected_extension_index":null,"selected_extension_doc_hash":null,"auth_status":"verified","input_label":"QR payloads","input_detail":"main_payloads.txt","source_summary":{"format_version":1,"input_origin":"file","input_roots":[],"sealed":true,"file_count":1,"payload_codec":"raw","payload_raw_len":null},"frame_counts":{"main":2,"auth":1,"shard":0},"unlock":{"mode":"passphrase","passphrase_provided":true,"validated_shard_count":0,"required_shard_threshold":null,"shard_share_count":null,"satisfied":true},"blocking_issues":[],"warnings":[]}
+{"type":"result","ok":true,"command":"recover","operation":"inspect","doc_id":"0123456789abcdef","selected_extension_index":null,"selected_extension_doc_hash":null,"expected_head_doc_hash":null,"validated_head_index":0,"validated_head_doc_hash":"89abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567","freshness_scope":null,"auth_status":"verified","input_label":"QR payloads","input_detail":"main_payloads.txt","source_summary":{"format_version":1,"input_origin":"file","input_roots":[],"sealed":true,"file_count":1,"payload_codec":"raw","payload_raw_len":null},"frame_counts":{"main":2,"auth":1,"shard":0},"unlock":{"mode":"passphrase","passphrase_provided":true,"validated_shard_count":0,"required_shard_threshold":null,"shard_share_count":null,"satisfied":true},"blocking_issues":[],"warnings":[]}
 ```
 
 ```json
@@ -580,7 +582,14 @@ ethernity api recover --scan "/path/to/qr_document.pdf" --shard-scan "/path/to/s
 
 For extended backup roots, `--extension-index <n>` selects a specific authenticated replay target.
 Use `--extension-index 0` for intentional root-only recovery when the supplied extension head is not
-trusted or the UI needs the original backup state.
+trusted or the UI needs the original backup state. Recursive backup-root scans ignore published
+extension carriers after an explicitly selected numeric index, so rollback to an earlier index is not
+blocked by later carrier damage.
+Use `--expected-head-doc-hash <hash>` with `recover`, `inspect recover`, `extend`, or
+`inspect extend` when the client already knows the trusted head. Commands fail closed if the
+validated supplied head does not match. `freshness_scope: "supplied_carriers_only"` means the
+validated head is the freshest authenticated head among the supplied carriers, not proof that no
+later carrier exists elsewhere.
 
 ## Client Guidance
 
@@ -646,7 +655,9 @@ the available authenticated machine-readable carriers, including a degraded exte
 whose redundant `recovery_document-*` PDF is missing. `api extend` and `api inspect extend` require
 the published head to remain append-valid before creating another extension, so a degraded directory
 can still produce a blocking issue such as `EXTENSION_LAYOUT_INVALID` or
-`RECOVERY_HEAD_UNTRUSTED`.
+`RECOVERY_HEAD_UNTRUSTED`. Append-valid inspection validates the required `recovery_document-*` PDF
+as a human fallback artifact by checking that its visible AUTH and MAIN fallback sections bind to
+the QR-derived extension identity; the PDF is still not used as a machine replay source.
 
 `available_extensions` entries always include the numeric `index` alongside `dir_name`, `doc_id`,
 and non-null `doc_hash`. Directories whose payloads cannot be fully decoded are reported through

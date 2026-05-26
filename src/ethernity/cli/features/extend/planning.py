@@ -22,6 +22,9 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
 
+from ethernity.cli.features.extend.published_recovery_validation import (
+    validate_published_recovery_document_carrier,
+)
 from ethernity.cli.features.extend.scope import (
     SelectedExtendScope,
     empty_scope_inspection_payload,
@@ -34,7 +37,7 @@ from ethernity.cli.features.recover.planning import (
     select_root_import_document_from_passphrase_shards,
 )
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
+from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext, normalize_doc_hash_hex
 from ethernity.cli.shared.io.fallback_parser import format_fallback_error
 from ethernity.cli.shared.io.frames import (
     _frame_from_fallback,
@@ -466,6 +469,7 @@ def _resolve_extend_state_after_root_inspection(
         diff_summary=diff_summary,
         blocking_issues=tuple(blocking_issues),
     )
+    inspection = _apply_expected_head_guard(args, inspection)
     return ResolvedExtendState(
         inspection=inspection,
         loaded_scope=loaded_scope,
@@ -482,6 +486,36 @@ def _resolve_extend_state_after_root_inspection(
         unlock_passphrase_shard_threshold=unlock_passphrase_shard_threshold,
         unlock_passphrase_shard_count=unlock_passphrase_shard_count,
     )
+
+
+def _apply_expected_head_guard(args: ExtendArgs, inspection: ExtendInspection) -> ExtendInspection:
+    if args.expected_head_doc_hash is None:
+        return inspection
+    expected_head_doc_hash = normalize_doc_hash_hex(
+        args.expected_head_doc_hash,
+        option="--expected-head-doc-hash",
+    )
+    if inspection.validated_head_doc_hash is None:
+        return inspection
+    if inspection.validated_head_doc_hash == expected_head_doc_hash:
+        args.expected_head_doc_hash = expected_head_doc_hash
+        return inspection
+    issue = _blocking_issue(
+        api_codes.RECOVERY_HEAD_UNTRUSTED,
+        (
+            "validated extension head doc_hash does not match expected head "
+            f"{expected_head_doc_hash}; latest supplied head is "
+            f"{inspection.validated_head_doc_hash}"
+        ),
+        details={
+            "stage": "selection",
+            "expected_head_doc_hash": expected_head_doc_hash,
+            "validated_head_index": inspection.validated_head_index,
+            "validated_head_doc_hash": inspection.validated_head_doc_hash,
+            "freshness_scope": "supplied_carriers_only",
+        },
+    )
+    return replace(inspection, blocking_issues=(issue, *inspection.blocking_issues))
 
 
 def _inspect_root_recovery(
@@ -719,12 +753,26 @@ def _inspect_published_extension_inventory(
     *,
     quiet: bool,
 ) -> RecoveryExtensionInventory:
+    def validate_recovery_document(
+        carrier: DiscoveredExtensionMainCarrier,
+        document: ImportedRecoveryDocument,
+        sign_pub: bytes,
+    ) -> None:
+        validate_published_recovery_document_carrier(
+            path=carrier.path,
+            expected_doc_id=document.doc_id,
+            expected_doc_hash=document.doc_hash,
+            expected_sign_pub=sign_pub,
+            quiet=quiet,
+        )
+
     return inspect_published_extension_inventory(
         root_dir,
         read_carrier_document=lambda carrier: _read_published_extension_carrier_document(
             carrier,
             quiet=quiet,
         ),
+        validate_recovery_document_carrier=validate_recovery_document,
     )
 
 

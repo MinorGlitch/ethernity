@@ -114,6 +114,9 @@ class PublishedExtensionResult:
     signing_key_shard_paths: tuple[Path, ...]
     root_passphrase_shard_threshold: int | None = None
     root_passphrase_shard_count: int = 0
+    parent_head_index: int | None = None
+    parent_head_doc_hash: str | None = None
+    expected_head_doc_hash: str | None = None
 
 
 @dataclass(frozen=True)

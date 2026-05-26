@@ -689,6 +689,10 @@
         "root_doc_id",
         "root_doc_hash",
         "chain_id",
+        "parent_head_index",
+        "parent_head_doc_hash",
+        "expected_head_doc_hash",
+        "freshness_scope",
         "extension_dir",
         "artifacts",
         "selected_scope",
@@ -725,6 +729,25 @@
         },
         "chain_id": {
           "$ref": "#/$defs/docHashHex"
+        },
+        "parent_head_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "parent_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "freshness_scope": {
+          "type": "string",
+          "enum": [
+            "supplied_carriers_only"
+          ]
         },
         "extension_dir": {
           "$ref": "#/$defs/pathString"
@@ -1099,6 +1122,10 @@
         "doc_id",
         "selected_extension_index",
         "selected_extension_doc_hash",
+        "expected_head_doc_hash",
+        "validated_head_index",
+        "validated_head_doc_hash",
+        "freshness_scope",
         "auth_status",
         "input_label",
         "input_detail",
@@ -1142,6 +1169,26 @@
           ],
           "pattern": "^[0-9a-f]{64}$"
         },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "validated_head_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "validated_head_doc_hash": {
+          "$ref": "#/$defs/docHashHex"
+        },
+        "freshness_scope": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "supplied_carriers_only",
+            null
+          ]
+        },
         "auth_status": {
           "$ref": "#/$defs/authStatus"
         },
@@ -1175,6 +1222,10 @@
         "doc_id",
         "selected_extension_index",
         "selected_extension_doc_hash",
+        "expected_head_doc_hash",
+        "validated_head_index",
+        "validated_head_doc_hash",
+        "freshness_scope",
         "auth_status",
         "input_label",
         "input_detail",
@@ -1213,6 +1264,26 @@
             "null"
           ],
           "pattern": "^[0-9a-f]{64}$"
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "validated_head_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "validated_head_doc_hash": {
+          "$ref": "#/$defs/docHashHex"
+        },
+        "freshness_scope": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "supplied_carriers_only",
+            null
+          ]
         },
         "auth_status": {
           "$ref": "#/$defs/authStatus"
@@ -1297,6 +1368,8 @@
         "discovered_extension_dirs",
         "validated_head_index",
         "validated_head_doc_hash",
+        "expected_head_doc_hash",
+        "freshness_scope",
         "validated_head_auth_status",
         "validated_head_root_authority_verified",
         "available_extensions",
@@ -1443,6 +1516,19 @@
         },
         "validated_head_doc_hash": {
           "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "freshness_scope": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "supplied_carriers_only",
+            null
+          ]
         },
         "validated_head_auth_status": {
           "type": [
@@ -2048,6 +2134,7 @@
         "auth_payloads_file",
         "extension_index",
         "extension_doc_hash",
+        "expected_head_doc_hash",
         "output",
         "quiet",
         "debug"
@@ -2134,6 +2221,9 @@
           ],
           "pattern": "^[0-9a-f]{64}$"
         },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
         "output": {
           "type": [
             "string",
@@ -2173,6 +2263,7 @@
         "auth_payloads_file",
         "extension_index",
         "extension_doc_hash",
+        "expected_head_doc_hash",
         "quiet",
         "debug"
       ],
@@ -2266,6 +2357,9 @@
             "null"
           ],
           "pattern": "^[0-9a-f]{64}$"
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
         },
         "quiet": {
           "type": "boolean"
@@ -2443,6 +2537,9 @@
           "minimum": 0,
           "maximum": 255
         },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
         "quiet": {
           "type": "boolean"
         },
@@ -2501,6 +2598,7 @@
         "signing_key_mode",
         "signing_key_shard_threshold",
         "signing_key_shard_count",
+        "expected_head_doc_hash",
         "quiet",
         "debug"
       ],
@@ -2644,6 +2742,9 @@
           ],
           "minimum": 0,
           "maximum": 255
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
         },
         "quiet": {
           "type": "boolean"

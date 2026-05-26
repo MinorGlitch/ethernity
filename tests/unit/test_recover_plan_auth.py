@@ -22,6 +22,7 @@ from unittest import mock
 
 from ethernity.cli.features.mint.workflow import _signing_key_shard_frames_from_args
 from ethernity.cli.features.recover.planning import (
+    _frames_from_args,
     _inspect_auth_payload,
     _shard_frames_from_args,
     build_recovery_plan,
@@ -148,6 +149,26 @@ def _passphrase_shard_frames(
 
 
 class TestInspectAuthPayload(unittest.TestCase):
+    def test_frames_from_args_bounds_scan_for_selected_extension_index(self) -> None:
+        main = _main_frame(b"root")
+        with mock.patch(
+            "ethernity.cli.features.recover.planning.recovery_frames_from_scan",
+            return_value=[main],
+        ) as scan_mock:
+            frames, label, detail, _stdin_path = _frames_from_args(
+                RecoverArgs(scan=["backup-root"], extension_index=1),
+                allow_unsigned=False,
+                quiet=True,
+            )
+
+        self.assertEqual(frames, [main])
+        self.assertEqual((label, detail), ("Backup PDF or images", "backup-root"))
+        scan_mock.assert_called_once_with(
+            ["backup-root"],
+            quiet=True,
+            extension_carrier_max_index=1,
+        )
+
     @staticmethod
     def _auth_frame(*, doc_id: bytes) -> Frame:
         return Frame(
@@ -292,6 +313,7 @@ class TestInspectAuthPayload(unittest.TestCase):
                 root_dir=None,
                 extension_index=None,
                 extension_doc_hash=None,
+                expected_head_doc_hash=None,
                 args=None,
                 quiet=True,
             )
@@ -421,6 +443,7 @@ class TestInspectAuthPayload(unittest.TestCase):
                     root_dir=None,
                     extension_index=None,
                     extension_doc_hash=None,
+                    expected_head_doc_hash=None,
                     args=None,
                     quiet=True,
                 )

@@ -34,14 +34,18 @@ import {
 const PAYLOAD_CODEC_RAW = "raw";
 const PAYLOAD_CODEC_GZIP = "gzip";
 
-function decodeEnvelope(bytes) {
+export function readEnvelopeVersion(bytes) {
   if (bytes.length < 2) throw new Error("envelope too short");
   if (bytes[0] !== ENVELOPE_MAGIC[0] || bytes[1] !== ENVELOPE_MAGIC[1]) {
     throw new Error("invalid envelope magic");
   }
+  return readUvarint(bytes, 2).value;
+}
+
+function decodeEnvelope(bytes) {
+  const version = readEnvelopeVersion(bytes);
   let idx = 2;
   const versionRes = readUvarint(bytes, idx);
-  const version = versionRes.value;
   idx = versionRes.offset;
   if (version !== ENVELOPE_VERSION) throw new Error(`unsupported envelope version: ${version}`);
 

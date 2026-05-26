@@ -150,6 +150,7 @@ def _extend_started_args(
         "signing_key_mode": args.signing_key_mode,
         "signing_key_shard_threshold": args.signing_key_shard_threshold,
         "signing_key_shard_count": args.signing_key_shard_count,
+        "expected_head_doc_hash": args.expected_head_doc_hash,
         "quiet": args.quiet,
         "debug": debug,
     }
@@ -264,6 +265,11 @@ def _emit_layout_debug_artifacts(
 
 
 def run_extend_api_command(args: ExtendArgs, *, debug: bool = False) -> int:
+    emit_started(
+        command="extend",
+        schema_version=SCHEMA_VERSION,
+        args=_extend_started_args(args, debug=debug),
+    )
     require_extend_root_dir(args, command_name="ethernity api extend")
     if not args.input and not args.input_dir:
         raise ApiCommandError(
@@ -271,11 +277,6 @@ def run_extend_api_command(args: ExtendArgs, *, debug: bool = False) -> int:
             message="extend requires at least one explicit --input or --input-dir selection",
         )
 
-    emit_started(
-        command="extend",
-        schema_version=SCHEMA_VERSION,
-        args=_extend_started_args(args, debug=debug),
-    )
     emit_phase(phase="plan", label="Preparing extension publish plan")
     prepared = prepare_extend_run(args)
     try:
@@ -311,6 +312,10 @@ def run_extend_api_command(args: ExtendArgs, *, debug: bool = False) -> int:
         root_doc_id=prepared.inspection.root_doc_id,
         root_doc_hash=prepared.inspection.root_doc_hash,
         chain_id=prepared.inspection.chain_id,
+        parent_head_index=getattr(prepared.inspection, "validated_head_index", None),
+        parent_head_doc_hash=getattr(prepared.inspection, "validated_head_doc_hash", None),
+        expected_head_doc_hash=args.expected_head_doc_hash,
+        freshness_scope="supplied_carriers_only",
         extension_dir=str(result.final_dir),
         artifacts={
             "qr_document": str(result.qr_document_path),
@@ -471,6 +476,13 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
                 discovered_extension_dirs=list(inspection.discovered_extension_dirs),
                 validated_head_index=inspection.validated_head_index,
                 validated_head_doc_hash=inspection.validated_head_doc_hash,
+                expected_head_doc_hash=args.expected_head_doc_hash,
+                freshness_scope=(
+                    "supplied_carriers_only"
+                    if inspection.validated_head_doc_hash is not None
+                    or args.expected_head_doc_hash is not None
+                    else None
+                ),
                 available_extensions=list(inspection.available_extensions),
                 ancestry_valid=inspection.ancestry_valid,
                 validated_head_auth_status=inspection.validated_head_auth_status,

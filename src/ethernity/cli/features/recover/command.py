@@ -108,6 +108,14 @@ def recover(
             rich_help_panel="Inputs",
         ),
     ] = None,
+    expected_head_doc_hash: Annotated[
+        str | None,
+        typer.Option(
+            "--expected-head-doc-hash",
+            help="Require the validated recovery head to match this 32-byte doc hash.",
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
     passphrase: Annotated[
         str | None,
         typer.Option(
@@ -226,7 +234,11 @@ def recover(
         fallback_file,
         payloads_file,
         list(scan or []),
-        extension_selector_present=(extension_index is not None or extension_doc_hash is not None),
+        extension_selector_present=(
+            extension_index is not None
+            or extension_doc_hash is not None
+            or expected_head_doc_hash is not None
+        ),
         stdin_is_tty=sys.stdin.isatty(),
     )
 
@@ -248,6 +260,7 @@ def recover(
         auth_payloads_file=auth_payloads_file,
         extension_index=extension_index,
         extension_doc_hash=extension_doc_hash,
+        expected_head_doc_hash=expected_head_doc_hash,
         output=output_value,
         allow_unsigned=False,
         assume_yes=assume_yes,

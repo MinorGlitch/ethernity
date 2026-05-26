@@ -16,8 +16,8 @@
  */
 
 import { decryptAgePassphrase } from "../lib/age_scrypt.js";
-import { extractFiles } from "./envelope.js";
-import { reassembleCiphertext } from "./frames_cipher.js";
+import { recoverLatestFromEncryptedDocuments } from "./extension_recovery.js";
+import { collectedRecoveryDocuments, reassembleCiphertext } from "./frames_cipher.js";
 import { formatBytes } from "./format.js";
 import { cloneState } from "./state/initial.js";
 import {
@@ -31,7 +31,8 @@ import {
   setLineStatus,
 } from "./actions_common.js";
 
-export async function decryptCiphertext(dispatch, getState) {
+export async function decryptCiphertext(dispatch, getState, options = {}) {
+  const { decrypt = decryptAgePassphrase, verifySignature } = options;
   const base = cloneState(getState());
   if (!base.agePassphrase.trim()) {
     setLineStatus(base, "decryptStatus", "Passphrase required.", "warn");
@@ -47,11 +48,14 @@ export async function decryptCiphertext(dispatch, getState) {
     if (prep.conflicts > 0) {
       throw new Error("conflicting duplicate frames detected");
     }
+    if (prep.authConflicts > 0) {
+      throw new Error("conflicting AUTH frames detected");
+    }
     if (!prep.ciphertext && prep.total && prep.mainFrames.size === prep.total) {
       prep.ciphertext = reassembleCiphertext(prep);
     }
-    const bytes = prep.ciphertext;
-    if (!bytes) {
+    const documents = collectedRecoveryDocuments(prep);
+    if (!documents.length) {
       throw new Error("Collected ciphertext not available yet.");
     }
     prep.isDecrypting = true;
@@ -59,10 +63,15 @@ export async function decryptCiphertext(dispatch, getState) {
     dispatchState(dispatch, prep);
     didStartDecrypt = true;
 
-    const plaintext = await decryptAgePassphrase(bytes, prep.agePassphrase);
-    const result = await extractFiles(plaintext);
+    const result = await recoverLatestFromEncryptedDocuments(
+      documents,
+      prep.agePassphrase,
+      decrypt,
+      { verifySignature },
+    );
     const next = cloneLatest(getState);
-    next.decryptedEnvelope = plaintext;
+    next.decryptedEnvelope =
+      result.selectedExtensionIndex === null ? result.decryptedEnvelope : null;
     next.decryptedEnvelopeSource = "Collected ciphertext";
     applyExtractResult(next, result);
     next.isDecrypting = false;
@@ -70,7 +79,8 @@ export async function decryptCiphertext(dispatch, getState) {
     next.decryptStatus = {
       lines: [
         "Recovery complete.",
-        `${result.files.length} file(s) recovered (${formatBytes(plaintext.length)}).`,
+        `${result.files.length} file(s) recovered (${formatBytes(totalRecoveredBytes(result.files))}).`,
+        ...extensionRecoveryLines(result),
       ],
       type: "ok",
     };
@@ -91,6 +101,20 @@ export async function decryptCiphertext(dispatch, getState) {
     finalState = next;
   }
   dispatchState(dispatch, finalState);
+}
+
+function totalRecoveredBytes(files) {
+  return files.reduce((sum, file) => sum + file.data.length, 0);
+}
+
+function extensionRecoveryLines(result) {
+  if (result.selectedExtensionIndex === null) {
+    return [];
+  }
+  return [
+    `Replay target: latest supplied authenticated extension ${result.selectedExtensionIndex}.`,
+    "Freshness scope: supplied carriers only.",
+  ];
 }
 
 export async function extractEnvelope(dispatch, getState) {

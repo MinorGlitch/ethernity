@@ -20,10 +20,10 @@ from __future__ import annotations
 
 import sys
 from dataclasses import replace
-from typing import Any, cast
 
 from ethernity.cli.features.recover.execution import (
-    decrypt_manifest_and_extract,
+    RecoverDecryptResult,
+    decrypt_manifest_extract_selection,
     write_recovered_outputs,
 )
 from ethernity.cli.features.recover.input_collection import (
@@ -34,6 +34,7 @@ from ethernity.cli.features.recover.input_collection import (
     prompt_recovery_input_interactive,
 )
 from ethernity.cli.features.recover.planning import (
+    RecoveryPlan,
     build_recovery_plan,
     plan_from_args,
     resolve_recover_config,
@@ -72,6 +73,7 @@ from ethernity.cli.shared.ui_api import (
     wizard_substep,
 )
 from ethernity.encoding.framing import Frame
+from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
 
 
 def _prompt_recovery_input(
@@ -129,6 +131,12 @@ def _prompt_recovery_input(
                     quiet=quiet,
                     include_extension_carriers=False,
                 )
+            elif args.extension_index is not None:
+                frames = recovery_frames_from_scan(
+                    args.scan,
+                    quiet=quiet,
+                    extension_carrier_max_index=args.extension_index,
+                )
             else:
                 frames = recovery_frames_from_scan(args.scan, quiet=quiet)
     else:
@@ -164,7 +172,7 @@ def _prompt_key_material(
 
 
 def _build_recovery_review_rows(
-    plan,
+    plan: RecoveryPlan,
     args: RecoverArgs,
 ) -> list[tuple[str, str | None]]:
     """Build the recovery review table rows."""
@@ -184,6 +192,7 @@ def _build_recovery_review_rows(
     review_rows.append(("Keys", None))
     review_rows.append(("Auth verification", auth_label))
     review_rows.append(("Unlock method", key_method))
+    review_rows.extend(_recovery_replay_target_review_rows(plan))
 
     if plan.shard_frames:
         shard_sources = []
@@ -206,6 +215,38 @@ def _build_recovery_review_rows(
     review_rows.append(("Output target", output_label))
 
     return review_rows
+
+
+def _recovery_replay_target_review_rows(
+    plan: RecoveryPlan,
+) -> list[tuple[str, str]]:
+    expected_head_doc_hash = plan.expected_head_doc_hash
+    rows: list[tuple[str, str]] = []
+    extension_index = plan.extension_index
+    extension_doc_hash = plan.extension_doc_hash
+    import_documents = plan.import_documents
+
+    if extension_index == 0:
+        rows.append(("Replay target", "root backup only (extension 0)"))
+    elif extension_index is not None:
+        rows.append(("Replay target", f"extension {extension_index} (explicit selection)"))
+        rows.append(("Freshness scope", "supplied carriers only"))
+    elif extension_doc_hash is not None:
+        rows.append(("Replay target", "extension doc hash (explicit selection)"))
+        rows.append(("Target doc hash", str(extension_doc_hash)))
+        rows.append(("Freshness scope", "supplied carriers only"))
+    elif len(import_documents) > 1:
+        rows.append(
+            (
+                "Replay target",
+                "latest supplied authenticated extension (default; verified after decrypt)",
+            )
+        )
+        rows.append(("Freshness scope", "supplied carriers only"))
+
+    if expected_head_doc_hash:
+        rows.append(("Expected head", str(expected_head_doc_hash)))
+    return rows
 
 
 def _recommended_retry_stage(exc: Exception) -> str:
@@ -273,9 +314,10 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
             shard_payloads_file = list(working_args.shard_payloads_file or [])
             shard_scan = list(working_args.shard_scan or [])
             collected_shard_frames: list[Frame] = []
-            plan: Any = None
-            manifest: Any = None
-            extracted: list[Any] = []
+            plan: RecoveryPlan | None = None
+            manifest: EnvelopeManifest | None = None
+            decrypted: RecoverDecryptResult | None = None
+            extracted: list[tuple[ManifestFile, bytes]] = []
             output_path = working_args.output
             stage_index = 0
 
@@ -328,6 +370,7 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                         root_dir=None,
                         extension_index=working_args.extension_index,
                         extension_doc_hash=working_args.extension_doc_hash,
+                        expected_head_doc_hash=working_args.expected_head_doc_hash,
                         args=working_args,
                         quiet=quiet,
                     )
@@ -359,9 +402,11 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                             console.print("Recovery cancelled.")
                             return 1
                     try:
-                        manifest, extracted = decrypt_manifest_and_extract(
+                        decrypted = decrypt_manifest_extract_selection(
                             plan, quiet=quiet, debug=debug
                         )
+                        manifest = decrypted.manifest
+                        extracted = decrypted.extracted
                     except ValueError as exc:
                         if quiet:
                             raise
@@ -387,8 +432,8 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                     continue
 
                 with wizard_stage("Output", step_number=4, density="dense"):
-                    plan = cast(Any, plan)
-                    manifest = cast(Any, manifest)
+                    assert plan is not None
+                    assert manifest is not None
                     with wizard_substep("Choose output"):
                         output_path = _resolve_recover_output(
                             extracted,
@@ -410,8 +455,9 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                         return 1
                 break
 
-            plan = cast(Any, plan)
-            manifest = cast(Any, manifest)
+            assert plan is not None
+            assert manifest is not None
+            assert decrypted is not None
 
             single_entry_output_is_directory = (
                 output_path is not None
@@ -429,6 +475,11 @@ def run_recover_wizard(args: RecoverArgs, *, debug: bool = False, show_header: b
                 allow_unsigned=plan.allow_unsigned,
                 quiet=quiet,
                 single_entry_output_is_directory=single_entry_output_is_directory,
+                requested_extension_index=plan.extension_index,
+                requested_extension_doc_hash=plan.extension_doc_hash,
+                expected_head_doc_hash=plan.expected_head_doc_hash,
+                selected_extension_index=decrypted.selected_extension_index,
+                selected_extension_doc_hash=decrypted.selected_extension_doc_hash,
             )
             return 0
 
@@ -505,7 +556,9 @@ def write_plan_outputs(
 ) -> int:
     """Decrypt and write outputs for an already reviewed recovery plan."""
 
-    manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
+    decrypted = decrypt_manifest_extract_selection(plan, quiet=quiet, debug=debug)
+    manifest = decrypted.manifest
+    extracted = decrypted.extracted
     if debug:
         print_recover_debug(
             manifest=manifest,
@@ -534,5 +587,10 @@ def write_plan_outputs(
         allow_unsigned=plan.allow_unsigned,
         quiet=quiet,
         single_entry_output_is_directory=single_entry_output_is_directory,
+        requested_extension_index=getattr(plan, "extension_index", None),
+        requested_extension_doc_hash=getattr(plan, "extension_doc_hash", None),
+        expected_head_doc_hash=getattr(plan, "expected_head_doc_hash", None),
+        selected_extension_index=decrypted.selected_extension_index,
+        selected_extension_doc_hash=decrypted.selected_extension_doc_hash,
     )
     return 0

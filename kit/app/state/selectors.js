@@ -69,8 +69,14 @@ function sumFrameBytes(frames) {
 
 export function selectFrameDiagnostics(state) {
   const missingInfo = describeMissingFrames(state);
+  const documentCount = state.documents?.size ?? 0;
   return [
     diagItem("Missing", missingInfo.value, missingInfo.tone, missingInfo.detail),
+    diagItem(
+      "Documents",
+      documentCount ? `${documentCount}` : "Waiting",
+      documentCount ? TONE_OK : TONE_IDLE,
+    ),
     diagItem("Conflicts", `${state.conflicts}`, countTone(state.conflicts, TONE_ERR)),
     diagItem("Errors", `${state.errors}`, countTone(state.errors, TONE_ERR)),
     diagItem("Duplicates", `${state.duplicates}`, countTone(state.duplicates)),
@@ -132,9 +138,14 @@ export function selectShardDiagnostics(state) {
 
 export function selectCiphertextSource(state) {
   const hasConflicts = state.conflicts > 0;
+  const documentCount = state.documents?.size ?? 0;
   const available =
     !hasConflicts &&
-    (Boolean(state.ciphertext) || (state.total && state.mainFrames.size === state.total));
+    (Boolean(state.ciphertext) ||
+      (state.total && state.mainFrames.size === state.total) ||
+      Array.from(state.documents?.values?.() ?? []).some(
+        (record) => record.total && record.mainFrames.size === record.total,
+      ));
   const size = available
     ? state.ciphertext
       ? state.ciphertext.length
@@ -144,7 +155,8 @@ export function selectCiphertextSource(state) {
   if (hasConflicts) {
     detail = "Conflicts found. Reset and re-add data.";
   } else if (available) {
-    detail = `${formatBytes(size)} | ${state.mainFrames.size}/${state.total ?? "?"} frames`;
+    const docs = documentCount > 1 ? ` | ${documentCount} documents` : "";
+    detail = `${formatBytes(size)} | ${state.mainFrames.size}/${state.total ?? "?"} frames${docs}`;
   }
   return {
     label: "Ciphertext",

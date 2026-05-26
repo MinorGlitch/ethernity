@@ -74,8 +74,9 @@ Use this template for each change entry:
   - Old decoders reading new artifacts: yes (artifact wire format is unchanged)
   - New decoders reading old artifacts: partial (backup-export scans now reject extension-like
     top-level clutter under `extensions/`; explicit root-only recovery no longer requires published
-    extension carrier files to be readable; content-based scan/import remains filename-independent
-    for PDFs and images that contain valid QR payloads)
+    extension carrier files to be readable; explicit selected-index recovery can ignore later
+    published extension carriers; content-based scan/import remains filename-independent for PDFs
+    and images that contain valid QR payloads)
 - Version/profile bump required: no (this changes scan selection and export-tree validation only;
   serialized recovery carriers and extension envelopes are unchanged, and canonical export filename
   roles do not constrain user-supplied scan filenames)
@@ -83,14 +84,17 @@ Use this template for each change entry:
   - `src/ethernity/qr/scan.py`
   - `src/ethernity/cli/shared/io/frames.py`
   - `src/ethernity/cli/features/recover/planning.py`
+  - `src/ethernity/cli/features/recover/wizard.py`
 - Test refs:
   - `tests/unit/test_qr_scan_more.py`
   - `tests/unit/test_frames_io.py`
   - `tests/unit/test_recover_plan_paths.py`
+  - `tests/unit/test_recover_plan_auth.py`
+  - `tests/unit/test_recover_wizard.py`
 - Security impact:
-  - Preserves root-only recovery as an emergency escape hatch while still rejecting malformed
-    extension-like export-tree entries and avoiding filename-based rejection of valid scanned paper
-    backups.
+  - Preserves root-only and selected-index recovery as emergency escape hatches while still
+    rejecting malformed extension-like export-tree entries in the selected prefix and avoiding
+    filename-based rejection of valid scanned paper backups.
 
 ## 2026-05-23 - Distinguish recovery-valid and append-valid extension heads
 
@@ -221,22 +225,28 @@ Use this template for each change entry:
 - Sections changed: 20
 - Compatibility:
   - Old decoders reading new artifacts: unchanged
-  - New decoders reading old artifacts: unchanged for machine-readable QR carriers; extension
-    recovery-document PDF text is no longer treated as a content-import carrier
+  - New decoders reading old artifacts: unchanged for recovery from machine-readable QR carriers;
+    extension recovery-document PDF text is no longer treated as a content-import carrier, while
+    append/discovery validation now requires the published recovery document to visibly decode and
+    bind to the QR-derived extension identity
 - Version/profile bump required: no (wire bytes and authenticated QR carrier semantics are
-  unchanged; this removes an implementation-level PDF text scraping dependency)
+  unchanged; this removes an implementation-level PDF text scraping dependency and tightens
+  append-validity checks for redundant human-readable artifacts)
 - Implementation refs:
   - `src/ethernity/extensions/discovery.py`
+  - `src/ethernity/extensions/published.py`
   - `src/ethernity/cli/features/extend/planning.py`
+  - `src/ethernity/cli/features/extend/published_recovery_validation.py`
   - `src/ethernity/cli/features/extend/main_carrier_validation.py`
 - Test refs:
+  - `tests/unit/test_extension_published.py`
   - `tests/unit/test_extend_service.py`
   - `tests/unit/test_extend_inspection.py`
   - `tests/integration/test_integration_extensions.py`
 - Security impact:
   - Keeps extension chain replay tied to authenticated machine-readable carriers and prevents PDF
-    display text extraction from becoming a recovery trust boundary while preserving explicit typed
-    fallback text inputs.
+    display text extraction from becoming a recovery trust boundary while rejecting stale or spoofed
+    published human fallback PDFs before append.
 
 ## 2026-05-09 - Validate extension carrier copies and mint replay targets
 

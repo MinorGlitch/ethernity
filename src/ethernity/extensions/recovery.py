@@ -193,6 +193,9 @@ class RecoveryPlanLike(Protocol):
     def extension_doc_hash(self) -> str | None: ...
 
     @property
+    def expected_head_doc_hash(self) -> str | None: ...
+
+    @property
     def import_documents(self) -> tuple[ImportedRecoveryDocument, ...]: ...
 
 
@@ -351,6 +354,11 @@ def recover_chain_entries(
         debug=debug,
     )
     validate_root_manifest_authority(root_manifest, plan.auth_payload)
+    _ensure_expected_head_satisfied(
+        plan,
+        selected_extension_index=None,
+        selected_extension_doc_hash=None,
+    )
     return ChainRecoveryResult(
         manifest=root_manifest,
         extracted=tuple(extract_payloads(root_manifest, payload)),
@@ -374,6 +382,11 @@ def recover_imported_chain_entries(
             requested_doc_hash=plan.extension_doc_hash,
         )
         validate_root_manifest_authority(root_manifest, plan.auth_payload)
+        _ensure_expected_head_satisfied(
+            plan,
+            selected_extension_index=None,
+            selected_extension_doc_hash=None,
+        )
         return ChainRecoveryResult(
             manifest=root_manifest,
             extracted=tuple(extract_payloads(root_manifest, payload)),
@@ -383,6 +396,11 @@ def recover_imported_chain_entries(
 
     if plan.extension_index == 0:
         validate_root_manifest_authority(root_manifest, plan.auth_payload)
+        _ensure_expected_head_satisfied(
+            plan,
+            selected_extension_index=None,
+            selected_extension_doc_hash=None,
+        )
         return ChainRecoveryResult(
             manifest=root_manifest,
             extracted=tuple(extract_payloads(root_manifest, payload)),
@@ -447,6 +465,11 @@ def recover_imported_chain_entries(
         requested_doc_hash=plan.extension_doc_hash,
     )
     if not selected_links:
+        _ensure_expected_head_satisfied(
+            plan,
+            selected_extension_index=None,
+            selected_extension_doc_hash=None,
+        )
         return ChainRecoveryResult(
             manifest=root_manifest,
             extracted=tuple(extract_payloads(root_manifest, payload)),
@@ -478,11 +501,48 @@ def recover_imported_chain_entries(
     )
     state_by_path = {item.path: item.data for item in latest_state}
     extracted = tuple((entry, state_by_path[entry.path]) for entry in latest_manifest.files)
+    selected_extension_index = selected_links[-1].link.document.header.index
+    selected_extension_doc_hash = selected_links[-1].link.doc_hash.hex()
+    _ensure_expected_head_satisfied(
+        plan,
+        selected_extension_index=selected_extension_index,
+        selected_extension_doc_hash=selected_extension_doc_hash,
+    )
     return ChainRecoveryResult(
         manifest=latest_manifest,
         extracted=extracted,
-        selected_extension_index=selected_links[-1].link.document.header.index,
-        selected_extension_doc_hash=selected_links[-1].link.doc_hash.hex(),
+        selected_extension_index=selected_extension_index,
+        selected_extension_doc_hash=selected_extension_doc_hash,
+    )
+
+
+def _ensure_expected_head_satisfied(
+    plan: RecoveryPlanLike,
+    *,
+    selected_extension_index: int | None,
+    selected_extension_doc_hash: str | None,
+) -> None:
+    expected_head_doc_hash = getattr(plan, "expected_head_doc_hash", None)
+    if expected_head_doc_hash is None:
+        return
+    expected = _parse_extension_doc_hash(expected_head_doc_hash).hex()
+    validated_head_index = selected_extension_index if selected_extension_index is not None else 0
+    validated_head_doc_hash = selected_extension_doc_hash or plan.doc_hash.hex()
+    if hmac.compare_digest(expected, validated_head_doc_hash):
+        return
+    raise ApiCommandError(
+        code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+        message=(
+            "recovery head doc_hash does not match expected head "
+            f"{expected}; validated supplied head is {validated_head_doc_hash}"
+        ),
+        details={
+            "stage": "selection",
+            "expected_head_doc_hash": expected,
+            "validated_head_index": validated_head_index,
+            "validated_head_doc_hash": validated_head_doc_hash,
+            "freshness_scope": "supplied_carriers_only",
+        },
     )
 
 

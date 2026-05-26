@@ -92,6 +92,7 @@ class RecoverArgs:
     auth_frames: list[Frame] | None = None
     extension_index: int | None = None
     extension_doc_hash: str | None = None
+    expected_head_doc_hash: str | None = None
     output: str | None = None
     allow_unsigned: bool = False
     assume_yes: bool = False
@@ -172,6 +173,7 @@ class ExtendArgs:
     signing_key_mode: Literal["not-stored", "sharded"] | None = None
     signing_key_shard_threshold: int | None = None
     signing_key_shard_count: int | None = None
+    expected_head_doc_hash: str | None = None
     quiet: bool = False
 
 

@@ -15,87 +15,21 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { bytesEqual, bytesToHex } from "../lib/encoding.js";
 import { FRAME_TYPE_AUTH, FRAME_TYPE_KEY, FRAME_TYPE_MAIN } from "./constants.js";
-import { decodeAuthPayload, decodeShardPayload } from "./frames_protocol.js";
+import { bytesEqual, bytesToHex } from "../lib/encoding.js";
+import { addAuthDocumentFrame, addMainDocumentFrame } from "./document_store.js";
+import { decodeShardPayload } from "./frames_protocol.js";
 
 export function addFrame(state, frame) {
   if (frame.frameType === FRAME_TYPE_AUTH) {
-    addAuthFrame(state, frame);
+    addAuthDocumentFrame(state, frame);
     return;
   }
   if (frame.frameType !== FRAME_TYPE_MAIN) {
     state.ignored += 1;
     return;
   }
-  const docIdHex = bytesToHex(frame.docId);
-  if (!state.docIdHex) {
-    state.docIdHex = docIdHex;
-  } else if (state.docIdHex !== docIdHex) {
-    state.ignored += 1;
-    return;
-  }
-  if (state.total === null) {
-    state.total = frame.total;
-  } else if (state.total !== frame.total) {
-    state.conflicts += 1;
-    return;
-  }
-  if (state.mainFrames.has(frame.index)) {
-    const existing = state.mainFrames.get(frame.index);
-    if (!bytesEqual(existing.data, frame.data) || existing.total !== frame.total) {
-      state.conflicts += 1;
-    } else {
-      state.duplicates += 1;
-    }
-    return;
-  }
-  state.mainFrames.set(frame.index, frame);
-  state.ciphertext = null;
-  state.cipherDocHashHex = null;
-}
-
-export function addAuthFrame(state, frame) {
-  if (frame.frameType !== FRAME_TYPE_AUTH) {
-    state.authErrors += 1;
-    return;
-  }
-  if (frame.total !== 1 || frame.index !== 0) {
-    state.authErrors += 1;
-    return;
-  }
-  const docIdHex = bytesToHex(frame.docId);
-  if (state.authDocIdHex && state.authDocIdHex !== docIdHex) {
-    state.authConflicts += 1;
-    return;
-  }
-  if (state.docIdHex && state.docIdHex !== docIdHex) {
-    state.authConflicts += 1;
-    return;
-  }
-  let payload;
-  try {
-    payload = decodeAuthPayload(frame.data);
-  } catch {
-    state.authErrors += 1;
-    state.authStatus = "invalid payload";
-    return;
-  }
-  if (state.authPayload) {
-    if (!bytesEqual(state.authPayload.signature, payload.signature)) {
-      state.authConflicts += 1;
-      state.authStatus = "conflicting auth payloads";
-      return;
-    }
-    state.authDuplicates += 1;
-    return;
-  }
-  state.authPayload = payload;
-  state.authDocIdHex = docIdHex;
-  state.authDocHashHex = bytesToHex(payload.docHash);
-  state.authSignPubHex = bytesToHex(payload.signPub);
-  state.authSignatureHex = bytesToHex(payload.signature);
-  state.authStatus = "pending";
+  addMainDocumentFrame(state, frame);
 }
 
 export function addShardFrame(state, frame) {

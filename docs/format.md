@@ -1286,9 +1286,12 @@ payloads. Extension `recovery_document-*` artifacts are human-readable fallback 
 transcription when QR scanning is unavailable or damaged. Manually typed or transcribed fallback text
 MAY be accepted through explicit text inputs, but implementations MUST NOT extract or parse fallback
 text from PDF or image files as a content-import or chain-replay carrier. Publish implementations
-MUST validate every machine-readable payload-bearing carrier before promotion. They MAY also perform
-PDF integrity and visible fallback-text checks on recovery documents, but MUST NOT derive recovery
-semantics by scraping human-display text from the PDF.
+MUST validate every machine-readable payload-bearing carrier before promotion. Append/discovery
+validation for a published chain head MUST also load the required `recovery_document-*` PDF,
+validate that visible AUTH and MAIN fallback sections decode, and bind those sections to the
+QR-derived extension `doc_id`, `doc_hash`, and signing authority. This recovery-document check is an
+append-validity rule only; implementations MUST NOT derive recovery replay semantics by scraping
+human-display text from the PDF.
 
 The authoritative extension identity comes from recovered ciphertext, AUTH, and decrypted
 extension-header metadata.
@@ -1301,6 +1304,8 @@ Selected recovery rules:
 - when all imported extensions for the selected root are valid, default recovery MUST replay through
   the latest supplied authenticated extension
 - recovery MAY select an earlier target by extension `index`
+- when recovery selects a numeric extension `index`, recursive backup-export scans MAY ignore
+  published extension carriers after that index while still enforcing selected-prefix layout rules
 - recovery MAY select an earlier target by authenticated extension `doc_hash`
 - selecting index `0` means root-only recovery without replaying any extension
 

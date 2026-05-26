@@ -18,6 +18,8 @@
 export function createBaseState() {
   return {
     revision: 0,
+    documents: new Map(),
+    primaryDocIdHex: null,
     mainFrames: new Map(),
     docIdHex: null,
     total: null,
@@ -93,6 +95,16 @@ export function bumpError(state, key) {
 export function cloneState(state) {
   return {
     ...state,
+    documents: new Map(
+      Array.from(state.documents.entries(), ([docIdHex, record]) => [
+        docIdHex,
+        {
+          ...record,
+          docId: record.docId.slice(),
+          mainFrames: new Map(record.mainFrames),
+        },
+      ]),
+    ),
     mainFrames: new Map(state.mainFrames),
     shardFrames: new Map(state.shardFrames),
     extractedFiles: state.extractedFiles.slice(),

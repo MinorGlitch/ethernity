@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@noble/ciphers": "^2.1.1",
+    "@noble/curves": "^2.2.0",
     "@noble/hashes": "^2.0.1",
     "jsqr": "^1.4.0"
   }

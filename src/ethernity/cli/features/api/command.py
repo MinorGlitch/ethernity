@@ -302,17 +302,25 @@ def _parse_api_int_option(
     return parsed
 
 
-def _parse_api_extension_doc_hash_option(value: str | None) -> str | None:
+def _parse_api_doc_hash_option(value: str | None, *, option: str) -> str | None:
     if value is None:
         return None
     normalized = value.strip().lower()
     if len(normalized) != 64 or any(char not in "0123456789abcdef" for char in normalized):
         raise ApiCommandError(
             code=api_codes.INVALID_INPUT,
-            message="--extension-doc-hash must be a 32-byte lowercase hex value",
-            details={"option": "--extension-doc-hash", "value": value},
+            message=f"{option} must be a 32-byte lowercase hex value",
+            details={"option": option, "value": value},
         )
     return normalized
+
+
+def _parse_api_extension_doc_hash_option(value: str | None) -> str | None:
+    return _parse_api_doc_hash_option(value, option="--extension-doc-hash")
+
+
+def _parse_api_expected_head_doc_hash_option(value: str | None) -> str | None:
+    return _parse_api_doc_hash_option(value, option="--expected-head-doc-hash")
 
 
 def _parse_backup_signing_key_mode(value: str | None) -> str | None:
@@ -423,6 +431,10 @@ def _normalized_extension_doc_hash_for_started(value: str | None) -> str | None:
     return normalized
 
 
+def _normalized_doc_hash_for_started(value: str | None) -> str | None:
+    return _normalized_extension_doc_hash_for_started(value)
+
+
 def _config_started_args(
     ctx: typer.Context,
     *,
@@ -454,6 +466,7 @@ def _recover_started_args_for_error(
     auth_payloads_file: str | None,
     extension_index: str | None,
     extension_doc_hash: str | None,
+    expected_head_doc_hash: str | None,
     output: str | None,
     operation: str | None = None,
 ) -> dict[str, Any]:
@@ -471,6 +484,7 @@ def _recover_started_args_for_error(
         "auth_payloads_file": auth_payloads_file,
         "extension_index": _optional_int_for_started(extension_index),
         "extension_doc_hash": _normalized_extension_doc_hash_for_started(extension_doc_hash),
+        "expected_head_doc_hash": _normalized_doc_hash_for_started(expected_head_doc_hash),
         "quiet": True,
         "debug": _state_debug_enabled(state),
     }
@@ -589,6 +603,7 @@ def _extend_started_args_for_error(
     signing_key_mode: str | None,
     signing_key_shard_threshold: str | None,
     signing_key_shard_count: str | None,
+    expected_head_doc_hash: str | None,
     operation: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
@@ -617,6 +632,7 @@ def _extend_started_args_for_error(
             signing_key_shard_count,
             max_value=MAX_SHARES,
         ),
+        "expected_head_doc_hash": _normalized_doc_hash_for_started(expected_head_doc_hash),
         "quiet": True,
         "debug": _state_debug_enabled(state),
     }
@@ -747,6 +763,7 @@ def _build_recover_api_args(
     auth_payloads_file: str | None,
     extension_index: int | None,
     extension_doc_hash: str | None,
+    expected_head_doc_hash: str | None,
     output: str | None,
     allow_unsigned: bool,
 ) -> RecoverArgs:
@@ -770,6 +787,7 @@ def _build_recover_api_args(
         auth_payloads_file=auth_payloads_file,
         extension_index=extension_index,
         extension_doc_hash=extension_doc_hash,
+        expected_head_doc_hash=expected_head_doc_hash,
         output=output,
         allow_unsigned=allow_unsigned,
         assume_yes=True,
@@ -797,12 +815,14 @@ def _run_recover_operation(
     auth_payloads_file: str | None,
     extension_index: int | None,
     extension_doc_hash: str | None,
+    expected_head_doc_hash: str | None,
     output: str | None,
     allow_unsigned: bool,
     handler: Callable[..., int],
 ) -> int:
     config_value, paper_value = _resolve_api_config_and_paper(ctx, config, paper)
     extension_doc_hash_value = _parse_api_extension_doc_hash_option(extension_doc_hash)
+    expected_head_doc_hash_value = _parse_api_expected_head_doc_hash_option(expected_head_doc_hash)
     args = _build_recover_api_args(
         state=state,
         config_value=config_value,
@@ -819,6 +839,7 @@ def _run_recover_operation(
         auth_payloads_file=auth_payloads_file,
         extension_index=extension_index,
         extension_doc_hash=extension_doc_hash_value,
+        expected_head_doc_hash=expected_head_doc_hash_value,
         output=output,
         allow_unsigned=allow_unsigned,
     )
@@ -1099,6 +1120,7 @@ def _build_extend_api_args(
     signing_key_mode: str | None,
     signing_key_shard_threshold: str | None,
     signing_key_shard_count: str | None,
+    expected_head_doc_hash: str | None = None,
 ) -> ExtendArgs:
     defaults = _state_backup_defaults(state)
     qr_chunk_size_cli = _parse_api_int_option(
@@ -1132,6 +1154,7 @@ def _build_extend_api_args(
         min_value=0,
         max_value=MAX_SHARES,
     )
+    expected_head_doc_hash_value = _parse_api_expected_head_doc_hash_option(expected_head_doc_hash)
     return ExtendArgs(
         config=config_value,
         paper=paper_value,
@@ -1158,6 +1181,7 @@ def _build_extend_api_args(
         ),
         signing_key_shard_threshold=signing_key_shard_threshold_cli,
         signing_key_shard_count=signing_key_shard_count_cli,
+        expected_head_doc_hash=expected_head_doc_hash_value,
         quiet=True,
     )
 
@@ -1424,6 +1448,13 @@ def extend(
             click_type=_INTEGER_HELP_TYPE,
         ),
     ] = None,
+    expected_head_doc_hash: Annotated[
+        str | None,
+        typer.Option(
+            "--expected-head-doc-hash",
+            help="Require the validated current head to match this 32-byte doc hash.",
+        ),
+    ] = None,
     layout_debug_dir: Annotated[
         str | None,
         typer.Option(
@@ -1468,6 +1499,7 @@ def extend(
             signing_key_mode=signing_key_mode,
             signing_key_shard_threshold=signing_key_shard_threshold,
             signing_key_shard_count=signing_key_shard_count,
+            expected_head_doc_hash=expected_head_doc_hash,
         )
         return run_extend_api_command(args, debug=_state_debug_enabled(state))
 
@@ -1497,6 +1529,7 @@ def extend(
                 signing_key_mode=signing_key_mode,
                 signing_key_shard_threshold=signing_key_shard_threshold,
                 signing_key_shard_count=signing_key_shard_count,
+                expected_head_doc_hash=expected_head_doc_hash,
             ),
         ),
     )
@@ -1611,6 +1644,13 @@ def recover(
             help="Recover through the extension with this authenticated doc hash.",
         ),
     ] = None,
+    expected_head_doc_hash: Annotated[
+        str | None,
+        typer.Option(
+            "--expected-head-doc-hash",
+            help="Require the validated recovery head to match this 32-byte doc hash.",
+        ),
+    ] = None,
     output: Annotated[
         str | None,
         typer.Option("--output", "-o", help="Output file or directory path. Required in API mode."),
@@ -1648,6 +1688,7 @@ def recover(
                 min_value=0,
             ),
             extension_doc_hash=extension_doc_hash,
+            expected_head_doc_hash=expected_head_doc_hash,
             output=output,
             allow_unsigned=False,
             handler=run_recover_api_command,
@@ -1673,6 +1714,7 @@ def recover(
                 auth_payloads_file=auth_payloads_file,
                 extension_index=extension_index,
                 extension_doc_hash=extension_doc_hash,
+                expected_head_doc_hash=expected_head_doc_hash,
                 output=output,
             ),
         ),
@@ -1736,6 +1778,13 @@ def inspect_recover(
             help="Inspect through the extension with this authenticated doc hash.",
         ),
     ] = None,
+    expected_head_doc_hash: Annotated[
+        str | None,
+        typer.Option(
+            "--expected-head-doc-hash",
+            help="Require the validated inspected head to match this 32-byte doc hash.",
+        ),
+    ] = None,
     config: Annotated[
         str | None,
         typer.Option("--config", help="Use this config file."),
@@ -1769,6 +1818,7 @@ def inspect_recover(
                 min_value=0,
             ),
             extension_doc_hash=extension_doc_hash,
+            expected_head_doc_hash=expected_head_doc_hash,
             output=None,
             allow_unsigned=False,
             handler=run_recover_inspect_api_command,
@@ -1794,6 +1844,7 @@ def inspect_recover(
                 auth_payloads_file=auth_payloads_file,
                 extension_index=extension_index,
                 extension_doc_hash=extension_doc_hash,
+                expected_head_doc_hash=expected_head_doc_hash,
                 output=None,
                 operation="inspect",
             ),
@@ -2093,6 +2144,13 @@ def inspect_extend(
             click_type=_INTEGER_HELP_TYPE,
         ),
     ] = None,
+    expected_head_doc_hash: Annotated[
+        str | None,
+        typer.Option(
+            "--expected-head-doc-hash",
+            help="Require the validated inspected head to match this 32-byte doc hash.",
+        ),
+    ] = None,
     config: Annotated[
         str | None,
         typer.Option("--config", help="Use this config file."),
@@ -2131,6 +2189,7 @@ def inspect_extend(
             signing_key_mode=signing_key_mode,
             signing_key_shard_threshold=signing_key_shard_threshold,
             signing_key_shard_count=signing_key_shard_count,
+            expected_head_doc_hash=expected_head_doc_hash,
         )
         return run_extend_inspect_api_command(args, debug=_state_debug_enabled(state))
 
@@ -2160,6 +2219,7 @@ def inspect_extend(
                 signing_key_mode=signing_key_mode,
                 signing_key_shard_threshold=signing_key_shard_threshold,
                 signing_key_shard_count=signing_key_shard_count,
+                expected_head_doc_hash=expected_head_doc_hash,
                 operation="inspect",
             ),
         ),

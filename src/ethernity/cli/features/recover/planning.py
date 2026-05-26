@@ -34,7 +34,7 @@ from ethernity.cli.features.recover.key_recovery import (
     validated_shard_payloads_from_frames,
 )
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
+from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext, normalize_doc_hash_hex
 from ethernity.cli.shared.io.fallback_parser import format_fallback_error
 from ethernity.cli.shared.io.frames import (
     _auth_frames_from_fallback,
@@ -94,6 +94,7 @@ class RecoveryPlan:
     root_dir: str | None = None
     extension_index: int | None = None
     extension_doc_hash: str | None = None
+    expected_head_doc_hash: str | None = None
     import_documents: tuple[ImportedRecoveryDocument, ...] = ()
 
 
@@ -159,6 +160,16 @@ def validate_recover_args(args: RecoverArgs) -> None:
         raise ValueError("use either --auth-fallback-file or --auth-payloads-file, not both")
     if args.extension_index is not None and args.extension_doc_hash is not None:
         raise ValueError("use either --extension-index or --extension-doc-hash, not both")
+    if args.extension_doc_hash is not None:
+        args.extension_doc_hash = normalize_doc_hash_hex(
+            args.extension_doc_hash,
+            option="--extension-doc-hash",
+        )
+    if args.expected_head_doc_hash is not None:
+        args.expected_head_doc_hash = normalize_doc_hash_hex(
+            args.expected_head_doc_hash,
+            option="--expected-head-doc-hash",
+        )
 
 
 def inspect_from_args(args: RecoverArgs) -> RecoveryInspection:
@@ -345,6 +356,7 @@ def plan_from_args(args: RecoverArgs) -> RecoveryPlan:
         root_dir=None,
         extension_index=args.extension_index,
         extension_doc_hash=args.extension_doc_hash,
+        expected_head_doc_hash=args.expected_head_doc_hash,
         args=args,
         quiet=quiet,
     )
@@ -372,6 +384,7 @@ def plan_from_inspection(args: RecoverArgs, inspection: RecoveryInspection) -> R
         root_dir=None,
         extension_index=args.extension_index,
         extension_doc_hash=args.extension_doc_hash,
+        expected_head_doc_hash=args.expected_head_doc_hash,
         args=args,
         quiet=args.quiet,
     )
@@ -461,6 +474,7 @@ def build_recovery_plan(
     root_dir: str | None,
     extension_index: int | None,
     extension_doc_hash: str | None,
+    expected_head_doc_hash: str | None,
     args: RecoverArgs | None,
     quiet: bool,
 ) -> RecoveryPlan:
@@ -522,6 +536,7 @@ def build_recovery_plan(
             root_dir=root_dir,
             extension_index=extension_index,
             extension_doc_hash=extension_doc_hash,
+            expected_head_doc_hash=expected_head_doc_hash,
             args=args,
             quiet=quiet,
         )
@@ -583,6 +598,7 @@ def build_recovery_plan(
         root_dir=root_dir,
         extension_index=extension_index,
         extension_doc_hash=extension_doc_hash,
+        expected_head_doc_hash=expected_head_doc_hash,
         import_documents=import_documents,
     )
 
@@ -1262,6 +1278,12 @@ def _frames_from_args(
                     scan,
                     quiet=quiet,
                     include_extension_carriers=False,
+                )
+            elif args.extension_index is not None:
+                scan_frames = recovery_frames_from_scan(
+                    scan,
+                    quiet=quiet,
+                    extension_carrier_max_index=args.extension_index,
                 )
             else:
                 scan_frames = recovery_frames_from_scan(scan, quiet=quiet)

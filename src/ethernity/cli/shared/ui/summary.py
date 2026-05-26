@@ -35,25 +35,31 @@ def _recover_target_rows(
     *,
     requested_extension_index: int | None,
     requested_extension_doc_hash: str | None,
+    expected_head_doc_hash: str | None,
     selected_extension_index: int | None,
     selected_extension_doc_hash: str | None,
 ) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
     if requested_extension_index is None and requested_extension_doc_hash is None:
         if selected_extension_index is not None:
-            latest_rows = [
+            rows.append(
                 (
                     "Replay target",
                     f"latest supplied authenticated extension {selected_extension_index}",
                 )
-            ]
+            )
             if selected_extension_doc_hash is not None:
-                latest_rows.append(("Target doc hash", selected_extension_doc_hash))
-            return latest_rows
-        return []
+                rows.append(("Target doc hash", selected_extension_doc_hash))
+            rows.append(("Freshness scope", "supplied carriers only"))
+        if expected_head_doc_hash is not None:
+            rows.append(("Expected head", expected_head_doc_hash))
+        return rows
     if requested_extension_index == 0:
-        return [("Replay target", "explicit selection: root backup (extension 0)")]
+        rows.append(("Replay target", "explicit selection: root backup (extension 0)"))
+        if expected_head_doc_hash is not None:
+            rows.append(("Expected head", expected_head_doc_hash))
+        return rows
 
-    rows: list[tuple[str, str]] = []
     if selected_extension_index is not None:
         rows.append(("Replay target", f"explicit selection: extension {selected_extension_index}"))
     else:
@@ -62,6 +68,9 @@ def _recover_target_rows(
     target_doc_hash = selected_extension_doc_hash or requested_extension_doc_hash
     if target_doc_hash is not None:
         rows.append(("Target doc hash", target_doc_hash))
+    if expected_head_doc_hash is not None:
+        rows.append(("Expected head", expected_head_doc_hash))
+    rows.append(("Freshness scope", "supplied carriers only"))
     return rows
 
 
@@ -108,6 +117,7 @@ def print_recover_summary(
     single_entry_output_is_directory: bool = False,
     requested_extension_index: int | None = None,
     requested_extension_doc_hash: str | None = None,
+    expected_head_doc_hash: str | None = None,
     selected_extension_index: int | None = None,
     selected_extension_doc_hash: str | None = None,
 ) -> None:
@@ -126,6 +136,7 @@ def print_recover_summary(
         _recover_target_rows(
             requested_extension_index=requested_extension_index,
             requested_extension_doc_hash=requested_extension_doc_hash,
+            expected_head_doc_hash=expected_head_doc_hash,
             selected_extension_index=selected_extension_index,
             selected_extension_doc_hash=selected_extension_doc_hash,
         )

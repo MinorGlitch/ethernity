@@ -435,6 +435,7 @@ def _build_recovery_plan_for_mint(
         root_dir=None,
         extension_index=args.extension_index,
         extension_doc_hash=args.extension_doc_hash,
+        expected_head_doc_hash=None,
         args=state.recover_args,
         quiet=args.quiet,
     )
@@ -667,6 +668,7 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                     root_dir=None,
                     extension_index=working_args.extension_index,
                     extension_doc_hash=working_args.extension_doc_hash,
+                    expected_head_doc_hash=None,
                     args=recover_args,
                     quiet=quiet,
                 )
