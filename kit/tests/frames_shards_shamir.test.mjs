@@ -4,10 +4,12 @@ import test from "node:test";
 import {
   FRAME_TYPE_KEY,
   FRAME_TYPE_MAIN,
+  LEGACY_SHARD_VERSION,
   MAX_CIPHERTEXT_BYTES,
   MAX_QR_PAYLOAD_CHARS,
   SHARD_KEY_PASSPHRASE,
   SHARD_KEY_SIGNING_SEED,
+  SHARD_VERSION,
 } from "../app/constants.js";
 import {
   detectMarker,
@@ -16,6 +18,8 @@ import {
   parseAutoShard,
   parseScannedShard,
 } from "../app/frames_parse.js";
+import { decodeShardPayload } from "../app/frames_protocol.js";
+import { verifyCollectedShardSignatures } from "../app/shard_auth.js";
 import { listMissing } from "../app/frame_list.js";
 import {
   ensureCiphertextAndHash,
@@ -45,8 +49,12 @@ const FIXTURE_SHARES = {
   share2: "5a67deac6678005323ba45d1d1757dc1ca5bc36a016ebc24581b4735de627622",
   share3: "ceee014b637696c1aaf1de8d097977dbb9c0906fb6ed5505c72c52af31534d33",
 };
+const PYTHON_V2_SHARD_PAYLOAD_B64 =
+  "q2NwdWJYINBKsjJ0K7SrOhNovUYV5ObQIkq3GgFrr4UgozLJd4c3Y3NpZ1hAWEsoTiqBNQb1DQfDrPstJfpOx3jJSN6LP/6YcgXY7OgAqttX4s1XA7c/DNsSsZbcuOzWEzdcZtLDYK22blOXAmRoYXNoWCBh7fSa0XckEjDu2bnOknmko8L07PQlig3lPwQaE0885GR0eXBlanBhc3NwaHJhc2Vlc2hhcmVYIOf9voVpa7vkuGboNLlhY2he9jZk2eqHRvlCeZrvMTsRZmxlbmd0aBgbZnNldF9pZFAAESIzRFVmd4iZqrvM3e7/Z3ZlcnNpb24CaXRocmVzaG9sZAJrc2hhcmVfY291bnQDa3NoYXJlX2luZGV4AQ==";
+const PYTHON_V2_SHARD_SET_ID_HEX = "00112233445566778899aabbccddeeff";
 
 function shardPayload({
+  version = LEGACY_SHARD_VERSION,
   keyType = SHARD_KEY_PASSPHRASE,
   threshold = 2,
   shareCount = 3,
@@ -56,9 +64,10 @@ function shardPayload({
   docHash = hexToBytes(FIXTURE_SHARES.docHashHex),
   signPub = new Uint8Array(32),
   signature = new Uint8Array(64),
+  shardSetId = null,
 }) {
-  return {
-    version: 1,
+  const payload = {
+    version,
     type: keyType,
     threshold,
     share_count: shareCount,
@@ -69,6 +78,14 @@ function shardPayload({
     pub: signPub,
     sig: signature,
   };
+  if (shardSetId) {
+    payload.set_id = shardSetId;
+  }
+  return payload;
+}
+
+function bytesFromBase64(value) {
+  return Uint8Array.from(Buffer.from(value, "base64"));
 }
 
 test("parseAutoPayload handles frame state transitions and hash caching", () => {
@@ -318,6 +335,58 @@ test("parseAutoShard handles duplicates, conflicts, and fallback", () => {
   );
 });
 
+test("decodeShardPayload supports legacy v1 shards and ignores legacy set_id", () => {
+  const payload = decodeShardPayload(
+    encodeCbor(
+      shardPayload({
+        version: LEGACY_SHARD_VERSION,
+        shardSetId: hexToBytes(PYTHON_V2_SHARD_SET_ID_HEX),
+      }),
+    ),
+  );
+
+  assert.equal(payload.version, LEGACY_SHARD_VERSION);
+  assert.equal(payload.shardSetId, null);
+});
+
+test("decodeShardPayload accepts Python v2 shard payload and requires set_id", () => {
+  const payload = decodeShardPayload(bytesFromBase64(PYTHON_V2_SHARD_PAYLOAD_B64));
+
+  assert.equal(payload.version, SHARD_VERSION);
+  assert.equal(payload.keyType, SHARD_KEY_PASSPHRASE);
+  assert.equal(payload.threshold, 2);
+  assert.equal(payload.shareCount, 3);
+  assert.equal(payload.shareIndex, 1);
+  assert.equal(bytesToHex(payload.shardSetId), PYTHON_V2_SHARD_SET_ID_HEX);
+
+  assert.throws(
+    () => decodeShardPayload(encodeCbor(shardPayload({ version: SHARD_VERSION }))),
+    /shard set_id must be 16 bytes/,
+  );
+});
+
+test("verifyCollectedShardSignatures binds Python v2 signatures to set_id", async () => {
+  const payload = decodeShardPayload(bytesFromBase64(PYTHON_V2_SHARD_PAYLOAD_B64));
+  const state = createInitialState();
+  state.shardFrames.set(payload.shareIndex, payload);
+
+  const result = await verifyCollectedShardSignatures(state);
+  assert.equal(result.unavailable, false);
+  assert.equal(result.verified, 1);
+  assert.equal(result.invalid, 0);
+
+  const tamperedSetId = payload.shardSetId.slice();
+  tamperedSetId[0] ^= 0xff;
+  const tamperedState = createInitialState();
+  tamperedState.shardFrames.set(payload.shareIndex, { ...payload, shardSetId: tamperedSetId });
+
+  const tamperedResult = await verifyCollectedShardSignatures(tamperedState);
+  assert.equal(tamperedResult.unavailable, false);
+  assert.equal(tamperedResult.verified, 0);
+  assert.equal(tamperedResult.invalid, 1);
+  assert.equal(tamperedState.shardFrames.size, 0);
+});
+
 test("parseScannedShard replaces same-share shards when signature differs", () => {
   const state = createInitialState();
   const docId = Uint8Array.of(4, 4, 4, 4, 4, 4, 4, 4);
@@ -407,6 +476,22 @@ test("recoverSecretFromShards reconstructs known passphrase and rejects mismatch
         { ...makeShare(2, FIXTURE_SHARES.share2), share: hexToBytes("aa".repeat(15)) },
       ]),
     /multiple of block size/,
+  );
+  assert.throws(
+    () =>
+      recoverSecretFromShards([
+        {
+          ...makeShare(1, FIXTURE_SHARES.share1),
+          version: SHARD_VERSION,
+          shardSetId: hexToBytes("00".repeat(16)),
+        },
+        {
+          ...makeShare(2, FIXTURE_SHARES.share2),
+          version: SHARD_VERSION,
+          shardSetId: hexToBytes("11".repeat(16)),
+        },
+      ]),
+    /different shard sets/,
   );
 });
 

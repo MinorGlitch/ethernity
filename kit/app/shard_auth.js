@@ -33,7 +33,7 @@ async function verifyShardSignature(payload) {
       ["verify"],
     );
     const signedPayload = {
-      version: SHARD_VERSION,
+      version: payload.version,
       type: payload.keyType,
       threshold: payload.threshold,
       share_count: payload.shareCount,
@@ -43,6 +43,9 @@ async function verifyShardSignature(payload) {
       hash: payload.docHash,
       pub: payload.signPub,
     };
+    if (payload.version === SHARD_VERSION) {
+      signedPayload.set_id = payload.shardSetId;
+    }
     const signedBytes = encodeCbor(signedPayload);
     const message = concatBytes(textEncoder.encode(SHARD_DOMAIN), signedBytes);
     return await cryptoApi.subtle.verify("Ed25519", key, payload.signature, message);

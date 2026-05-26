@@ -19,6 +19,19 @@ const SHARD_BLOCK_SIZE = 16;
 const GF128_POLY = (1n << 128n) | 0x87n;
 const GF128_MASK = (1n << 128n) - 1n;
 
+function bytesEqual(left, right) {
+  if (left.length !== right.length) return false;
+  for (let idx = 0; idx < left.length; idx += 1) {
+    if (left[idx] !== right[idx]) return false;
+  }
+  return true;
+}
+
+function shardSetIdsEqual(left, right) {
+  if (!left || !right) return left === right;
+  return bytesEqual(left, right);
+}
+
 function bigIntFromBytes(bytes) {
   let value = 0n;
   for (const byte of bytes) {
@@ -151,9 +164,14 @@ export function recoverSecretFromShards(shares) {
   const shareTotal = shares[0].shareCount;
   const keyType = shares[0].keyType;
   const secretLen = shares[0].secretLen;
+  const version = shares[0].version ?? 1;
+  const shardSetId = shares[0].shardSetId ?? null;
   const seen = new Set();
 
   for (const share of shares) {
+    if ((share.version ?? 1) !== version) {
+      throw new Error("shard versions do not match");
+    }
     if (share.keyType !== keyType) {
       throw new Error("shard key types do not match");
     }
@@ -172,6 +190,11 @@ export function recoverSecretFromShards(shares) {
     }
     if (share.secretLen !== secretLen) {
       throw new Error("shard secret lengths do not match");
+    }
+    if (!shardSetIdsEqual(share.shardSetId ?? null, shardSetId)) {
+      throw new Error(
+        "shards are not mutually compatible; they may come from different shard sets",
+      );
     }
     if (share.share.length % SHARD_BLOCK_SIZE !== 0) {
       throw new Error("shard share length must be a multiple of block size");

@@ -60,13 +60,19 @@ export function addShardFrame(state, frame) {
     return;
   }
   if (state.shardThreshold === null) {
+    state.shardVersion = payload.version;
     state.shardThreshold = payload.threshold;
     state.shardShares = payload.shareCount;
     state.shardKeyType = payload.keyType;
     state.shardSecretLen = payload.secretLen;
     state.shardDocHashHex = bytesToHex(payload.docHash);
     state.shardSignPubHex = bytesToHex(payload.signPub);
+    state.shardSetIdHex = payload.shardSetId ? bytesToHex(payload.shardSetId) : null;
   } else {
+    if (state.shardVersion !== payload.version) {
+      state.shardConflicts += 1;
+      return;
+    }
     if (state.shardThreshold !== payload.threshold || state.shardShares !== payload.shareCount) {
       state.shardConflicts += 1;
       return;
@@ -80,6 +86,11 @@ export function addShardFrame(state, frame) {
       return;
     }
     if (state.shardSignPubHex !== bytesToHex(payload.signPub)) {
+      state.shardConflicts += 1;
+      return;
+    }
+    const shardSetIdHex = payload.shardSetId ? bytesToHex(payload.shardSetId) : null;
+    if (state.shardSetIdHex !== shardSetIdHex) {
       state.shardConflicts += 1;
       return;
     }
