@@ -15,42 +15,56 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { concatBytes } from "../lib/encoding.js";
+import { ed25519 } from "@noble/curves/ed25519.js";
+
 import { encodeCbor } from "../lib/cbor.js";
+import { concatBytes } from "../lib/encoding.js";
 import { SHARD_DOMAIN, SHARD_VERSION, textEncoder } from "./constants.js";
 
 async function verifyShardSignature(payload) {
+  const message = shardSignatureMessage(payload);
   const cryptoApi = globalThis.crypto;
-  if (!cryptoApi || !cryptoApi.subtle || !cryptoApi.subtle.importKey) {
-    return null;
-  }
-  try {
-    const key = await cryptoApi.subtle.importKey(
-      "raw",
-      payload.signPub,
-      { name: "Ed25519" },
-      false,
-      ["verify"],
-    );
-    const signedPayload = {
-      version: payload.version,
-      type: payload.keyType,
-      threshold: payload.threshold,
-      share_count: payload.shareCount,
-      share_index: payload.shareIndex,
-      length: payload.secretLen,
-      share: payload.share,
-      hash: payload.docHash,
-      pub: payload.signPub,
-    };
-    if (payload.version === SHARD_VERSION) {
-      signedPayload.set_id = payload.shardSetId;
+  if (cryptoApi?.subtle?.importKey) {
+    try {
+      const key = await cryptoApi.subtle.importKey(
+        "raw",
+        payload.signPub,
+        { name: "Ed25519" },
+        false,
+        ["verify"],
+      );
+      return await cryptoApi.subtle.verify("Ed25519", key, payload.signature, message);
+    } catch {
+      return verifyShardSignaturePortable(payload.signature, message, payload.signPub);
     }
-    const signedBytes = encodeCbor(signedPayload);
-    const message = concatBytes(textEncoder.encode(SHARD_DOMAIN), signedBytes);
-    return await cryptoApi.subtle.verify("Ed25519", key, payload.signature, message);
+  }
+  return verifyShardSignaturePortable(payload.signature, message, payload.signPub);
+}
+
+function shardSignatureMessage(payload) {
+  const signedPayload = {
+    version: payload.version,
+    type: payload.keyType,
+    threshold: payload.threshold,
+    share_count: payload.shareCount,
+    share_index: payload.shareIndex,
+    length: payload.secretLen,
+    share: payload.share,
+    hash: payload.docHash,
+    pub: payload.signPub,
+  };
+  if (payload.version === SHARD_VERSION) {
+    signedPayload.set_id = payload.shardSetId;
+  }
+  const signedBytes = encodeCbor(signedPayload);
+  return concatBytes(textEncoder.encode(SHARD_DOMAIN), signedBytes);
+}
+
+function verifyShardSignaturePortable(signature, message, signPub) {
+  try {
+    return ed25519.verify(signature, message, signPub, { zip215: false });
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -58,24 +72,20 @@ export async function verifyCollectedShardSignatures(state) {
   if (!state.shardFrames || state.shardFrames.size === 0) {
     return { unavailable: false, verified: 0, invalid: 0 };
   }
-  const cryptoApi = globalThis.crypto;
-  if (!cryptoApi || !cryptoApi.subtle || !cryptoApi.subtle.importKey) {
-    return { unavailable: true, verified: 0, invalid: 0 };
-  }
 
   let verified = 0;
   let invalid = 0;
 
   for (const [shareIndex, payload] of state.shardFrames.entries()) {
+    payload.signatureVerified = false;
     const ok = await verifyShardSignature(payload);
     if (ok === true) {
+      payload.signatureVerified = true;
       verified += 1;
       continue;
     }
-    if (ok === false) {
-      state.shardFrames.delete(shareIndex);
-      invalid += 1;
-    }
+    state.shardFrames.delete(shareIndex);
+    invalid += 1;
   }
 
   return { unavailable: false, verified, invalid };

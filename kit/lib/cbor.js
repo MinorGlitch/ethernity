@@ -38,6 +38,9 @@ export function decodeCanonicalCbor(bytes, label, options = {}) {
       `${label} must use canonical CBOR encoding (indefinite-length items are not allowed)`,
     );
   }
+  if (options.preserveFloatType) {
+    return typed;
+  }
   return stripCborFloatBoxes(typed);
 }
 

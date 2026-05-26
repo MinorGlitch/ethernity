@@ -67,6 +67,27 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     );
     return false;
   }
+  if (state.shardDocIdHex && state.shardDocIdHex !== state.shardDocHashHex.slice(0, 16)) {
+    setShardStatus(
+      state,
+      statusPrefix,
+      "Shard recovery blocked: shard frame doc_id does not match shard hash.",
+      "error",
+    );
+    return false;
+  }
+  const unverified = Array.from(state.shardFrames.values()).filter(
+    (payload) => payload.signatureVerified !== true,
+  );
+  if (unverified.length) {
+    setShardStatus(
+      state,
+      statusPrefix,
+      "Shard recovery blocked: verify shard signatures first.",
+      "warn",
+    );
+    return false;
+  }
 
   try {
     const shares = Array.from(state.shardFrames.values());

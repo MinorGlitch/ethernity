@@ -69,6 +69,7 @@ export async function decodeExtensionEnvelope(bytes) {
   }
   const header = parseExtensionHeader(
     decodeCanonicalCbor(bytes.slice(idx, headerEnd), "extension header", {
+      preserveFloatType: true,
       preserveMapType: true,
     }),
   );
@@ -86,6 +87,7 @@ export async function decodeExtensionEnvelope(bytes) {
   }
   const body = await parseExtensionBody(
     decodeCanonicalCbor(bytes.slice(idx, bodyEnd), "extension body", {
+      preserveFloatType: true,
       preserveMapType: true,
     }),
     header,
@@ -193,6 +195,8 @@ async function parseExtensionBody(value, header) {
     if (!referenced.has(chunk.chunkIdHex)) {
       throw new Error("extension inline chunks must be referenced by files in the same envelope");
     }
+  }
+  for (const chunk of chunks) {
     chunk.decoded = await decodeChunkData(chunk);
   }
   for (const file of files) {

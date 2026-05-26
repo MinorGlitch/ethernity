@@ -413,6 +413,28 @@ def _resolve_extend_state_after_root_inspection(
                 if current_state is not None and loaded_scope is not None:
                     diff = summarize_scope_diff(current_state, loaded_scope)
                     diff_summary = diff.to_payload()
+                    if diff.ambiguous_path_aliases:
+                        blocking_issues.append(
+                            _blocking_issue(
+                                api_codes.INVALID_INPUT,
+                                (
+                                    "selected input paths would create new logical paths that "
+                                    "look like existing backed paths; provide --base-dir to "
+                                    "disambiguate"
+                                ),
+                                details={
+                                    "path_aliases": [
+                                        {
+                                            "selected_path": selected_path,
+                                            "existing_path": existing_path,
+                                        }
+                                        for selected_path, existing_path in (
+                                            diff.ambiguous_path_aliases
+                                        )
+                                    ]
+                                },
+                            )
+                        )
                     if diff.missing_paths:
                         blocking_issues.append(
                             _blocking_issue(

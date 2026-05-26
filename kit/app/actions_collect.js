@@ -52,7 +52,7 @@ async function runMainAsyncFollowups(dispatch, base) {
   await updateAuthStatus(work);
   syncCollectedCiphertext(work);
   if (!work.recoveredShardSecret) {
-    autoRecoverShardSecret(work);
+    await verifyAndRecoverShardSecret(work);
   }
   dispatch({
     type: "MUTATE_STATE",
@@ -197,6 +197,17 @@ function shardTextStatus(parsed, added, failed) {
 async function runShardAsyncFollowups(dispatch, parsed, baseStatusLines, baseStatusType = "") {
   const work = cloneState(parsed);
   const targetRevision = parsed.revision + 1;
+  await verifyAndRecoverShardSecret(work, baseStatusLines, baseStatusType);
+  dispatch({
+    type: "MUTATE_STATE",
+    baseRevision: targetRevision,
+    mutate(next) {
+      copyShardAsyncFields(next, work);
+    },
+  });
+}
+
+async function verifyAndRecoverShardSecret(work, baseStatusLines = [], baseStatusType = "") {
   const signatureLines = [];
   let signatureType = "";
   try {
@@ -226,16 +237,10 @@ async function runShardAsyncFollowups(dispatch, parsed, baseStatusLines, baseSta
     (work.shardStatus.lines.length !== previousShardStatus.lines.length ||
       work.shardStatus.lines.some((line, index) => line !== previousShardStatus.lines[index]) ||
       work.shardStatus.type !== previousShardStatus.type);
-  if (!recovered && !shardStatusOverridden) {
+  if (!recovered && !shardStatusOverridden && combinedLines.length) {
     setStatus(work, "shardStatus", combinedLines, signatureType || baseStatusType);
   }
-  dispatch({
-    type: "MUTATE_STATE",
-    baseRevision: targetRevision,
-    mutate(next) {
-      copyShardAsyncFields(next, work);
-    },
-  });
+  return recovered;
 }
 
 export function updateField(dispatch, getState, key, value) {

@@ -812,6 +812,83 @@ class TestExtendInspection(unittest.TestCase):
             inspection.blocking_issues,
         )
 
+    def test_inspect_from_args_blocks_exact_file_path_alias_without_base_dir(self) -> None:
+        manifest, payload = build_manifest_and_payload(
+            (PayloadPart(path="docs/a.txt", data=b"old", mtime=1),),
+            sealed=False,
+            signing_seed=b"\x33" * 32,
+            created_at=1.0,
+            input_origin="directory",
+            input_roots=("scope",),
+        )
+        unlocked_root = RecoveryInspection(
+            **{
+                **_root_inspection(passphrase="secret").__dict__,
+                "unlock": RecoveryUnlockStatus(
+                    mode="passphrase",
+                    passphrase_provided=True,
+                    validated_shard_count=0,
+                    required_shard_threshold=None,
+                    satisfied=True,
+                    resolved_passphrase="secret",
+                    blocking_issues=(),
+                ),
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "backup-root"
+            local_docs = Path(tmpdir) / "scope" / "docs"
+            root_dir.mkdir()
+            local_docs.mkdir(parents=True)
+            (local_docs / "a.txt").write_text("new", encoding="utf-8")
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    return_value=_RootRecoveryInspection(unlocked_root, "none"),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    return_value=(manifest, payload),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                    return_value=(
+                        LogicalFileState(
+                            path="docs/a.txt",
+                            size=3,
+                            sha256=manifest.files[0].sha256,
+                            mtime=1,
+                            data=b"old",
+                        ),
+                    ),
+                ),
+            ):
+                inspection = inspect_from_args(
+                    ExtendArgs(
+                        root_dir=str(root_dir),
+                        input=[str(local_docs / "a.txt")],
+                        passphrase="secret",
+                    )
+                )
+
+        self.assertEqual(inspection.diff_summary["new_paths"], ["a.txt"])
+        self.assertIn(
+            {
+                "code": api_codes.INVALID_INPUT,
+                "message": (
+                    "selected input paths would create new logical paths that look like existing "
+                    "backed paths; provide --base-dir to disambiguate"
+                ),
+                "details": {
+                    "path_aliases": [
+                        {"selected_path": "a.txt", "existing_path": "docs/a.txt"},
+                    ]
+                },
+            },
+            inspection.blocking_issues,
+        )
+
     def test_resolve_extend_state_carries_validated_root_shard_policy(self) -> None:
         manifest, payload = build_manifest_and_payload(
             (PayloadPart(path="alpha.txt", data=b"alpha", mtime=1),),

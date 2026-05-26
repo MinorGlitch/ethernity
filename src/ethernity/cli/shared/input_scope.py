@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from ethernity.cli.shared.io.inputs import _load_input_files
@@ -73,6 +73,7 @@ class InputScopeDiff:
     changed_paths: tuple[str, ...]
     unchanged_paths: tuple[str, ...]
     missing_paths: tuple[str, ...]
+    ambiguous_path_aliases: tuple[tuple[str, str], ...] = ()
 
     def to_payload(self) -> dict[str, object]:
         return {
@@ -164,12 +165,18 @@ def summarize_input_scope_diff(
     missing_paths = sorted(
         path for path in current_files if path not in desired_by_path and scope.contains_path(path)
     )
+    ambiguous_path_aliases = _ambiguous_new_path_aliases(
+        current_paths=tuple(current_files),
+        scope=scope,
+        new_paths=tuple(new_paths),
+    )
 
     return InputScopeDiff(
         new_paths=tuple(new_paths),
         changed_paths=tuple(changed_paths),
         unchanged_paths=tuple(unchanged_paths),
         missing_paths=tuple(missing_paths),
+        ambiguous_path_aliases=ambiguous_path_aliases,
     )
 
 
@@ -219,6 +226,43 @@ def _path_matches_directory_prefix(path: str, prefix: str) -> bool:
     if prefix == "":
         return True
     return path == prefix or path.startswith(f"{prefix}/")
+
+
+def _ambiguous_new_path_aliases(
+    *,
+    current_paths: tuple[str, ...],
+    scope: SelectedInputScope,
+    new_paths: tuple[str, ...],
+) -> tuple[tuple[str, str], ...]:
+    if scope.base_dir_arg is not None or not new_paths:
+        return ()
+
+    new_path_set = set(new_paths)
+    exact_path_set = set(scope.exact_paths)
+    aliases: list[tuple[str, str]] = []
+    for item in scope.input_files:
+        if (
+            item.source_path is None
+            or item.relative_path not in new_path_set
+            or item.relative_path not in exact_path_set
+        ):
+            continue
+        for current_path in current_paths:
+            if current_path == item.relative_path:
+                continue
+            if _logical_path_matches_source_tail(current_path, item.source_path):
+                aliases.append((item.relative_path, current_path))
+                break
+    return tuple(sorted(set(aliases)))
+
+
+def _logical_path_matches_source_tail(logical_path: str, source_path: Path) -> bool:
+    logical_parts = PurePosixPath(logical_path).parts
+    source_parts = source_path.resolve().parts
+    return (
+        len(logical_parts) <= len(source_parts)
+        and tuple(source_parts[-len(logical_parts) :]) == logical_parts
+    )
 
 
 __all__ = [

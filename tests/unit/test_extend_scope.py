@@ -104,6 +104,7 @@ class TestExtendScope(unittest.TestCase):
         self.assertEqual(diff.changed_paths, ("docs/beta.txt",))
         self.assertEqual(diff.unchanged_paths, ("alpha.txt",))
         self.assertEqual(diff.missing_paths, ("docs/missing.txt",))
+        self.assertEqual(diff.ambiguous_path_aliases, ())
         self.assertEqual(
             diff.to_payload(),
             {
@@ -117,6 +118,29 @@ class TestExtendScope(unittest.TestCase):
                 "missing_count": 1,
             },
         )
+
+    def test_summarize_scope_diff_flags_exact_file_path_alias_without_base_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir) / "workspace"
+            docs = workspace / "docs"
+            docs.mkdir(parents=True)
+            (docs / "a.txt").write_text("new", encoding="utf-8")
+
+            scope = load_selected_scope(
+                ExtendArgs(
+                    input=[str(docs / "a.txt")],
+                )
+            )
+
+        assert scope is not None
+        diff = summarize_scope_diff(
+            (_logical_file("docs/a.txt", b"old", mtime=1),),
+            scope,
+        )
+
+        self.assertEqual(diff.new_paths, ("a.txt",))
+        self.assertEqual(diff.missing_paths, ())
+        self.assertEqual(diff.ambiguous_path_aliases, (("a.txt", "docs/a.txt"),))
 
     def test_load_selected_scope_accepts_stdin_as_documented_input(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

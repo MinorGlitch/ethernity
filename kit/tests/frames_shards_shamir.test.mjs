@@ -90,7 +90,7 @@ function bytesFromBase64(value) {
 
 test("parseAutoPayload handles frame state transitions and hash caching", () => {
   const state = createInitialState();
-  const docId = Uint8Array.of(9, 9, 9, 9, 9, 9, 9, 9);
+  const docId = blake2b256(Uint8Array.of(1, 2, 6)).slice(0, 8);
 
   const main0 = toUnpaddedBase64(
     buildFrame({
@@ -387,6 +387,26 @@ test("verifyCollectedShardSignatures binds Python v2 signatures to set_id", asyn
   assert.equal(tamperedState.shardFrames.size, 0);
 });
 
+test("verifyCollectedShardSignatures uses portable verification when WebCrypto is unavailable", async () => {
+  const original = globalThis.crypto;
+  const payload = decodeShardPayload(bytesFromBase64(PYTHON_V2_SHARD_PAYLOAD_B64));
+  const state = createInitialState();
+  state.shardFrames.set(payload.shareIndex, payload);
+
+  try {
+    delete globalThis.crypto;
+    const result = await verifyCollectedShardSignatures(state);
+    assert.equal(result.unavailable, false);
+    assert.equal(result.verified, 1);
+    assert.equal(result.invalid, 0);
+    assert.equal(state.shardFrames.get(payload.shareIndex).signatureVerified, true);
+  } finally {
+    if (original) {
+      globalThis.crypto = original;
+    }
+  }
+});
+
 test("parseScannedShard replaces same-share shards when signature differs", () => {
   const state = createInitialState();
   const docId = Uint8Array.of(4, 4, 4, 4, 4, 4, 4, 4);
@@ -548,6 +568,12 @@ test("autoRecoverShardSecret enforces gating and supports both secret types", ()
     secretLen: FIXTURE_PASSPHRASE.length,
     share: hexToBytes(FIXTURE_SHARES.share2),
   });
+  assert.equal(autoRecoverShardSecret(passphraseState), false);
+  assert.equal(passphraseState.shardStatus.type, "warn");
+  assert.match(passphraseState.shardStatus.lines.join("\n"), /verify shard signatures first/);
+  for (const payload of passphraseState.shardFrames.values()) {
+    payload.signatureVerified = true;
+  }
   assert.equal(autoRecoverShardSecret(passphraseState), true);
   assert.equal(passphraseState.recoveredShardSecret, FIXTURE_PASSPHRASE);
   assert.equal(passphraseState.agePassphrase, FIXTURE_PASSPHRASE);
@@ -566,6 +592,7 @@ test("autoRecoverShardSecret enforces gating and supports both secret types", ()
     shareIndex: 1,
     secretLen: 32,
     share: seed,
+    signatureVerified: true,
   });
   assert.equal(autoRecoverShardSecret(signingState), true);
   assert.equal(signingState.recoveredShardSecret, bytesToHex(seed));

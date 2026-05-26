@@ -7,21 +7,24 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import {
   AUTH_DOMAIN,
   AUTH_VERSION,
+  DOC_ID_LEN,
   ENVELOPE_MAGIC,
   ENVELOPE_VERSION,
   EXTENSION_ENVELOPE_VERSION,
   FRAME_TYPE_AUTH,
   FRAME_TYPE_MAIN,
+  MAX_DECOMPRESSED_PAYLOAD_BYTES,
   textEncoder,
 } from "../app/constants.js";
 import { deriveSigningPublicKey, verifyAuthSignature } from "../app/auth.js";
 import { decryptCiphertext } from "../app/actions_recover.js";
-import { defaultExtensionChunker } from "../app/extension_envelope.js";
+import { decodeExtensionEnvelope, defaultExtensionChunker } from "../app/extension_envelope.js";
 import {
   recoverLatestFromEncryptedDocuments,
   recoverLatestFromPlaintextDocuments,
 } from "../app/extension_recovery.js";
 import { addFrame } from "../app/frames_apply.js";
+import { collectedRecoveryDocuments } from "../app/frames_cipher.js";
 import { decodeFrame } from "../app/frames_protocol.js";
 import { createInitialState } from "../app/state/initial.js";
 import { reducer } from "../app/state/reducer.js";
@@ -84,6 +87,81 @@ function buildExtensionPlaintext({ index, parentDocHash, rootDocHash, files }) {
   return buildEnvelope(EXTENSION_ENVELOPE_VERSION, encodeCbor(header), encodeCbor(body));
 }
 
+function buildExtensionEnvelopeBytes({ headerBytes = validExtensionHeaderBytes(), bodyBytes }) {
+  return buildEnvelope(EXTENSION_ENVELOPE_VERSION, headerBytes, bodyBytes);
+}
+
+function validExtensionHeaderBytes() {
+  return encodeCbor(
+    new Map([
+      [1, 1],
+      [2, 1],
+      [4, new Uint8Array(32).fill(1)],
+      [5, new Uint8Array(32).fill(2)],
+      [7, 1_700_000_100],
+      [10, [1, CHUNKING.targetSize, CHUNKING.minSize, CHUNKING.maxSize]],
+      [11, "file"],
+      [12, []],
+    ]),
+  );
+}
+
+function validExtensionBodyBytes() {
+  const data = new TextEncoder().encode("x");
+  const chunkId = sha256(data);
+  return encodeCbor(
+    new Map([
+      [1, [["a.txt", data.length, sha256(data), null, [[chunkId, data.length]]]]],
+      [2, [[chunkId, 0, data.length, data]]],
+    ]),
+  );
+}
+
+function extensionHeaderWithVersionBytes(versionBytes) {
+  const pairs = [
+    [encodeCbor(1), versionBytes],
+    [encodeCbor(2), encodeCbor(1)],
+    [encodeCbor(4), encodeCbor(new Uint8Array(32).fill(1))],
+    [encodeCbor(5), encodeCbor(new Uint8Array(32).fill(2))],
+    [encodeCbor(7), encodeCbor(1_700_000_100)],
+    [encodeCbor(10), encodeCbor([1, CHUNKING.targetSize, CHUNKING.minSize, CHUNKING.maxSize])],
+    [encodeCbor(11), encodeCbor("file")],
+    [encodeCbor(12), encodeCbor([])],
+  ];
+  return concatBytes([Uint8Array.of(0xa8), ...pairs.flat()]);
+}
+
+function aggregateOverflowExtensionBodyBytes() {
+  const firstChunkId = new Uint8Array(32).fill(1);
+  const secondChunkId = new Uint8Array(32).fill(2);
+  return encodeCbor(
+    new Map([
+      [
+        1,
+        [
+          [
+            "huge.bin",
+            MAX_DECOMPRESSED_PAYLOAD_BYTES + 1,
+            new Uint8Array(32),
+            null,
+            [
+              [firstChunkId, MAX_DECOMPRESSED_PAYLOAD_BYTES],
+              [secondChunkId, 1],
+            ],
+          ],
+        ],
+      ],
+      [
+        2,
+        [
+          [firstChunkId, 1, MAX_DECOMPRESSED_PAYLOAD_BYTES, Uint8Array.of(0x1f)],
+          [secondChunkId, 1, 1, Uint8Array.of(0x1f)],
+        ],
+      ],
+    ]),
+  );
+}
+
 function buildExtensionFileRecipe(file, chunksById) {
   const refs = [];
   for (const chunk of defaultExtensionChunker(file.data, CHUNKING)) {
@@ -122,9 +200,10 @@ function createStore() {
 
 function documentFromPlaintext({ docId, ciphertextSeed, plaintext, signPub = ROOT_SIGN_PUB }) {
   const docHash = blake2b256(ciphertextSeed);
+  const resolvedDocId = docId ?? docHash.slice(0, DOC_ID_LEN);
   return {
-    docId,
-    docIdHex: bytesToHex(docId),
+    docId: resolvedDocId,
+    docIdHex: bytesToHex(resolvedDocId),
     docHash,
     docHashHex: bytesToHex(docHash),
     ciphertext: ciphertextSeed,
@@ -137,13 +216,17 @@ function addSingleFrameDocument(
   state,
   { docId, ciphertext, signPub = ROOT_SIGN_PUB, signature = SIGNATURE },
 ) {
-  addFrame(state, decodeFrame(buildFrame({ frameType: FRAME_TYPE_MAIN, docId, data: ciphertext })));
+  const resolvedDocId = docId ?? docIdForCiphertext(ciphertext);
+  addFrame(
+    state,
+    decodeFrame(buildFrame({ frameType: FRAME_TYPE_MAIN, docId: resolvedDocId, data: ciphertext })),
+  );
   addFrame(
     state,
     decodeFrame(
       buildFrame({
         frameType: FRAME_TYPE_AUTH,
-        docId,
+        docId: resolvedDocId,
         data: encodeCbor({
           version: 1,
           hash: blake2b256(ciphertext),
@@ -153,6 +236,10 @@ function addSingleFrameDocument(
       }),
     ),
   );
+}
+
+function docIdForCiphertext(ciphertext) {
+  return blake2b256(ciphertext).slice(0, DOC_ID_LEN);
 }
 
 function verifiedSignature(docHash, signPub, signature) {
@@ -254,6 +341,29 @@ test("auth verification accepts signatures from the embedded root signing seed",
   const signature = signAuthPayload(docHash);
 
   assert.equal(await verifyAuthSignature(docHash, ROOT_SIGN_PUB, signature), true);
+});
+
+test("extension envelope rejects float-typed integer fields", async () => {
+  const envelope = buildExtensionEnvelopeBytes({
+    headerBytes: extensionHeaderWithVersionBytes(Uint8Array.of(0xf9, 0x3c, 0x00)),
+    bodyBytes: validExtensionBodyBytes(),
+  });
+
+  await assert.rejects(
+    () => decodeExtensionEnvelope(envelope),
+    /extension header version must be an int/,
+  );
+});
+
+test("extension envelope preflights aggregate inline raw_len before gzip decode", async () => {
+  const envelope = buildExtensionEnvelopeBytes({
+    bodyBytes: aggregateOverflowExtensionBodyBytes(),
+  });
+
+  await assert.rejects(
+    () => decodeExtensionEnvelope(envelope),
+    /extension inline chunk bytes exceed MAX_DECOMPRESSED_PAYLOAD_BYTES/,
+  );
 });
 
 test("browser recovery replays the latest supplied authenticated extension chain", async () => {
@@ -413,8 +523,8 @@ test("browser decrypt action recovers latest supplied extension status", async (
     rootDocHash,
     files: [{ path: "a.txt", data: new TextEncoder().encode("extension") }],
   });
-  addSingleFrameDocument(state, { docId: ROOT_DOC_ID, ciphertext: rootCiphertext });
-  addSingleFrameDocument(state, { docId: EXT1_DOC_ID, ciphertext: extCiphertext });
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  addSingleFrameDocument(state, { ciphertext: extCiphertext });
 
   await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
     async decrypt(ciphertext, passphrase) {
@@ -450,13 +560,13 @@ test("browser decrypt action rejects conflicting AUTH payloads", async () => {
   const state = store.getState();
   state.agePassphrase = "pw";
   const rootCiphertext = Uint8Array.of(0x18);
-  addSingleFrameDocument(state, { docId: ROOT_DOC_ID, ciphertext: rootCiphertext });
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
   addFrame(
     state,
     decodeFrame(
       buildFrame({
         frameType: FRAME_TYPE_AUTH,
-        docId: ROOT_DOC_ID,
+        docId: docIdForCiphertext(rootCiphertext),
         data: encodeCbor({
           version: 1,
           hash: blake2b256(rootCiphertext),
@@ -606,6 +716,8 @@ test("frame collection accepts multiple MAIN documents without doc_id conflicts"
   const state = createInitialState();
   const rootCiphertext = Uint8Array.of(0xaa);
   const extensionCiphertext = Uint8Array.of(0xbb);
+  const rootDocId = docIdForCiphertext(rootCiphertext);
+  const extensionDocId = docIdForCiphertext(extensionCiphertext);
   const rootAuthPayload = encodeCbor({
     version: 1,
     hash: blake2b256(rootCiphertext),
@@ -621,26 +733,24 @@ test("frame collection accepts multiple MAIN documents without doc_id conflicts"
 
   addFrame(
     state,
+    decodeFrame(buildFrame({ frameType: FRAME_TYPE_MAIN, docId: rootDocId, data: rootCiphertext })),
+  );
+  addFrame(
+    state,
     decodeFrame(
-      buildFrame({ frameType: FRAME_TYPE_MAIN, docId: ROOT_DOC_ID, data: rootCiphertext }),
+      buildFrame({ frameType: FRAME_TYPE_AUTH, docId: rootDocId, data: rootAuthPayload }),
     ),
   );
   addFrame(
     state,
     decodeFrame(
-      buildFrame({ frameType: FRAME_TYPE_AUTH, docId: ROOT_DOC_ID, data: rootAuthPayload }),
+      buildFrame({ frameType: FRAME_TYPE_MAIN, docId: extensionDocId, data: extensionCiphertext }),
     ),
   );
   addFrame(
     state,
     decodeFrame(
-      buildFrame({ frameType: FRAME_TYPE_MAIN, docId: EXT1_DOC_ID, data: extensionCiphertext }),
-    ),
-  );
-  addFrame(
-    state,
-    decodeFrame(
-      buildFrame({ frameType: FRAME_TYPE_AUTH, docId: EXT1_DOC_ID, data: extensionAuthPayload }),
+      buildFrame({ frameType: FRAME_TYPE_AUTH, docId: extensionDocId, data: extensionAuthPayload }),
     ),
   );
 
@@ -649,4 +759,17 @@ test("frame collection accepts multiple MAIN documents without doc_id conflicts"
   assert.equal(state.authConflicts, 0);
   assert.equal(state.mainFrames.size, 1);
   assert.equal(bytesToHex(state.authPayload.docHash), bytesToHex(blake2b256(rootCiphertext)));
+});
+
+test("collected recovery documents reject frame doc_id not derived from ciphertext", () => {
+  const state = createInitialState();
+  const ciphertext = Uint8Array.of(0x99);
+  const fakeDocId = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]);
+
+  addFrame(
+    state,
+    decodeFrame(buildFrame({ frameType: FRAME_TYPE_MAIN, docId: fakeDocId, data: ciphertext })),
+  );
+
+  assert.throws(() => collectedRecoveryDocuments(state), /doc_id/);
 });

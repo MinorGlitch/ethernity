@@ -17,7 +17,7 @@
 
 import { blake2b256 } from "../lib/blake2b.js";
 import { bytesToHex, hexToBytes } from "../lib/encoding.js";
-import { MAX_CIPHERTEXT_BYTES } from "./constants.js";
+import { DOC_ID_LEN, MAX_CIPHERTEXT_BYTES } from "./constants.js";
 import {
   completeDocumentRecords,
   incompleteDocumentRecords,
@@ -69,10 +69,13 @@ export function ensureDocumentCiphertextAndHash(record) {
   }
   if (!record.cipherDocHashHex) {
     const hash = blake2b256(record.ciphertext);
+    enforceDerivedDocId(record, hash);
     record.cipherDocHashHex = bytesToHex(hash);
     return hash;
   }
-  return hexToBytes(record.cipherDocHashHex);
+  const hash = hexToBytes(record.cipherDocHashHex);
+  enforceDerivedDocId(record, hash);
+  return hash;
 }
 
 export function syncCollectedCiphertext(state) {
@@ -103,9 +106,10 @@ export function collectedRecoveryDocuments(state) {
   const documents = [];
   for (const record of completeDocumentRecords(state)) {
     const docHash = ensureDocumentCiphertextAndHash(record);
+    const docId = docHash.slice(0, DOC_ID_LEN);
     documents.push({
-      docId: record.docId.slice(),
-      docIdHex: record.docIdHex,
+      docId,
+      docIdHex: bytesToHex(docId),
       docHash,
       docHashHex: bytesToHex(docHash),
       ciphertext: record.ciphertext,
@@ -114,4 +118,14 @@ export function collectedRecoveryDocuments(state) {
   }
   syncLegacyDocumentFields(state);
   return documents;
+}
+
+function enforceDerivedDocId(record, docHash) {
+  if (!record.docIdHex) {
+    return;
+  }
+  const derivedDocId = docHash.slice(0, DOC_ID_LEN);
+  if (bytesToHex(derivedDocId) !== record.docIdHex) {
+    throw new Error("document doc_id does not match derived ciphertext hash");
+  }
 }

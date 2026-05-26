@@ -1163,8 +1163,9 @@ Requirements:
 
 ### 19.4) Extension Chain Rules
 
-A valid extension chain is a standalone root Version 1 backup plus zero or more extension
-envelopes discovered from disk (Section 20).
+A valid extension chain is a standalone root Version 1 backup plus zero or more authenticated
+extension envelopes selected by content-import recovery and ordered by decrypted chain metadata
+(Section 20).
 
 `chain_id` is deterministic chain metadata derived from the authenticated root backup identity:
 
