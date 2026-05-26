@@ -17,6 +17,7 @@
 
 import { decryptAgePassphrase } from "../lib/age_scrypt.js";
 import { recoverLatestFromEncryptedDocuments } from "./extension_recovery.js";
+import { extractFiles } from "./envelope.js";
 import { collectedRecoveryDocuments, reassembleCiphertext } from "./frames_cipher.js";
 import { formatBytes } from "./format.js";
 import { cloneState } from "./state/initial.js";

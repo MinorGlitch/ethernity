@@ -321,9 +321,10 @@ test("parseAutoShard handles duplicates, conflicts, and fallback", () => {
   assert.equal(parseAutoShard(state, toUnpaddedBase64(duplicate)), 1);
   assert.equal(parseAutoShard(state, toUnpaddedBase64(conflictSameIndex)), 1);
   assert.equal(parseAutoShard(state, toUnpaddedBase64(conflictDoc)), 1);
+  assert.equal(state.shardSets.size, 2);
   assert.equal(state.shardFrames.size, 1);
   assert.equal(state.shardDuplicates, 1);
-  assert.equal(state.shardConflicts, 2);
+  assert.equal(state.shardConflicts, 1);
 
   const fallbackState = createInitialState();
   const fallbackText = ["Shard Frame:", encodeZBase32(first)].join("\n");
@@ -438,6 +439,93 @@ test("parseScannedShard replaces same-share shards when signature differs", () =
   assert.equal(parseScannedShard(state, { bytes: second }), 1);
   assert.equal(state.shardConflicts, 1);
   assert.deepEqual(state.shardFrames.get(1).signature, secondSignature);
+});
+
+test("shard recovery matches extension-bound shards after root-first scans", () => {
+  const state = createInitialState();
+  const rootCipher = Uint8Array.of(1, 2, 3);
+  const extensionCipher = Uint8Array.of(4, 5, 6);
+  const rootHash = blake2b256(rootCipher);
+  const extensionHash = blake2b256(extensionCipher);
+  parseScannedPayload(state, {
+    bytes: buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      docId: rootHash.slice(0, 8),
+      data: rootCipher,
+    }),
+  });
+  parseScannedPayload(state, {
+    bytes: buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      docId: extensionHash.slice(0, 8),
+      data: extensionCipher,
+    }),
+  });
+  for (const [shareIndex, shareHex] of [
+    [1, FIXTURE_SHARES.share1],
+    [2, FIXTURE_SHARES.share2],
+  ]) {
+    parseScannedShard(state, {
+      bytes: buildFrame({
+        frameType: FRAME_TYPE_KEY,
+        docId: extensionHash.slice(0, 8),
+        data: encodeCbor(shardPayload({ shareIndex, shareHex, docHash: extensionHash })),
+      }),
+    });
+  }
+  for (const record of state.shardSets.values()) {
+    for (const payload of record.shardFrames.values()) {
+      payload.signatureVerified = true;
+    }
+  }
+
+  assert.equal(state.shardConflicts, 0);
+  assert.equal(autoRecoverShardSecret(state), true);
+  assert.equal(state.recoveredShardSecret, FIXTURE_PASSPHRASE);
+  assert.equal(state.agePassphrase, FIXTURE_PASSPHRASE);
+});
+
+test("shard recovery matches reused root shards after extension-first scans", () => {
+  const state = createInitialState();
+  const rootCipher = Uint8Array.of(7, 8, 9);
+  const extensionCipher = Uint8Array.of(10, 11, 12);
+  const rootHash = blake2b256(rootCipher);
+  const extensionHash = blake2b256(extensionCipher);
+  parseScannedPayload(state, {
+    bytes: buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      docId: extensionHash.slice(0, 8),
+      data: extensionCipher,
+    }),
+  });
+  parseScannedPayload(state, {
+    bytes: buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      docId: rootHash.slice(0, 8),
+      data: rootCipher,
+    }),
+  });
+  for (const [shareIndex, shareHex] of [
+    [1, FIXTURE_SHARES.share1],
+    [2, FIXTURE_SHARES.share2],
+  ]) {
+    parseScannedShard(state, {
+      bytes: buildFrame({
+        frameType: FRAME_TYPE_KEY,
+        docId: rootHash.slice(0, 8),
+        data: encodeCbor(shardPayload({ shareIndex, shareHex, docHash: rootHash })),
+      }),
+    });
+  }
+  for (const record of state.shardSets.values()) {
+    for (const payload of record.shardFrames.values()) {
+      payload.signatureVerified = true;
+    }
+  }
+
+  assert.equal(state.shardConflicts, 0);
+  assert.equal(autoRecoverShardSecret(state), true);
+  assert.equal(state.recoveredShardSecret, FIXTURE_PASSPHRASE);
 });
 
 test("ciphertext helpers enforce limits and missing frames", () => {

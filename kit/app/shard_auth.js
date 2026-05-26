@@ -20,6 +20,7 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { encodeCbor } from "../lib/cbor.js";
 import { concatBytes } from "../lib/encoding.js";
 import { SHARD_DOMAIN, SHARD_VERSION, textEncoder } from "./constants.js";
+import { shardSetRecords, syncLegacyShardFields } from "./shard_store.js";
 
 async function verifyShardSignature(payload) {
   const message = shardSignatureMessage(payload);
@@ -69,24 +70,28 @@ function verifyShardSignaturePortable(signature, message, signPub) {
 }
 
 export async function verifyCollectedShardSignatures(state) {
-  if (!state.shardFrames || state.shardFrames.size === 0) {
+  const records = shardSetRecords(state);
+  if (!records.length) {
     return { unavailable: false, verified: 0, invalid: 0 };
   }
 
   let verified = 0;
   let invalid = 0;
 
-  for (const [shareIndex, payload] of state.shardFrames.entries()) {
-    payload.signatureVerified = false;
-    const ok = await verifyShardSignature(payload);
-    if (ok === true) {
-      payload.signatureVerified = true;
-      verified += 1;
-      continue;
+  for (const { record } of records) {
+    for (const [shareIndex, payload] of record.shardFrames.entries()) {
+      payload.signatureVerified = false;
+      const ok = await verifyShardSignature(payload);
+      if (ok === true) {
+        payload.signatureVerified = true;
+        verified += 1;
+        continue;
+      }
+      record.shardFrames.delete(shareIndex);
+      invalid += 1;
     }
-    state.shardFrames.delete(shareIndex);
-    invalid += 1;
   }
+  syncLegacyShardFields(state);
 
   return { unavailable: false, verified, invalid };
 }

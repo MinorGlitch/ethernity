@@ -18,6 +18,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import { decodeCanonicalCbor } from "../lib/cbor.js";
+import { crc32 } from "../lib/crc32.js";
 import { bytesEqual, bytesToHex, readUvarint } from "../lib/encoding.js";
 import {
   CHUNK_ALGORITHM_FASTCDC,
@@ -37,7 +38,14 @@ const BODY_KEYS = new Set([1, 2]);
 const ROLLING_HASH_MASK = (1n << 64n) - 1n;
 const ROLLING_WINDOW_SIZE = 64;
 const MIN_MASK_BITS = 4;
+const MIN_EXTENSION_CHUNK_SIZE = 4 * 1024;
 const GEAR_TABLE = buildGearTable();
+const LENGTH_EXTRA_BITS = [
+  0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0,
+];
+const DISTANCE_EXTRA_BITS = [
+  0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13,
+];
 
 export async function decodeExtensionEnvelope(bytes) {
   let idx = 0;
@@ -158,6 +166,11 @@ function parseChunking(value) {
     ["min_size", profile.minSize],
     ["max_size", profile.maxSize],
   ]) {
+    if (value < MIN_EXTENSION_CHUNK_SIZE) {
+      throw new Error(
+        `extension chunking ${label} must be >= MIN_EXTENSION_CHUNK_SIZE (${MIN_EXTENSION_CHUNK_SIZE})`,
+      );
+    }
     if (value > MAX_DECOMPRESSED_PAYLOAD_BYTES) {
       throw new Error(`extension chunking ${label} exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES`);
     }
@@ -474,6 +487,7 @@ async function gunzipBytesBounded(bytes, expectedLen) {
   if (typeof DecompressionStream !== "function") {
     throw new Error("gzip extension chunks require DecompressionStream support");
   }
+  const gzipTrailer = validateSingleGzipMember(bytes, expectedLen);
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
   const reader = stream.getReader();
   const chunks = [];
@@ -506,7 +520,299 @@ async function gunzipBytesBounded(bytes, expectedLen) {
   if (decoded.length !== expectedLen) {
     throw new Error("decoded chunk length does not match raw_len");
   }
+  if (crc32(decoded) !== gzipTrailer.crc32) {
+    throw new Error("invalid gzip chunk");
+  }
   return decoded;
+}
+
+function validateSingleGzipMember(bytes, expectedLen) {
+  const dataStart = gzipDeflateDataStart(bytes);
+  const trailerStart = deflateStreamEndOffset(bytes, dataStart);
+  if (trailerStart + 8 !== bytes.length) {
+    throw new Error("gzip chunk contains trailing data");
+  }
+  const expectedSize = readLittleUint32(bytes, trailerStart + 4);
+  if (expectedSize !== expectedLen) {
+    throw new Error("decoded chunk length does not match raw_len");
+  }
+  return { crc32: readLittleUint32(bytes, trailerStart) };
+}
+
+function gzipDeflateDataStart(bytes) {
+  if (bytes.length < 18) {
+    throw new Error("invalid gzip chunk");
+  }
+  if (bytes[0] !== 0x1f || bytes[1] !== 0x8b || bytes[2] !== 8) {
+    throw new Error("invalid gzip chunk");
+  }
+  const flags = bytes[3];
+  if (flags & 0xe0) {
+    throw new Error("invalid gzip chunk");
+  }
+  let offset = 10;
+  if (flags & 0x04) {
+    if (offset + 2 > bytes.length) throw new Error("invalid gzip chunk");
+    const extraLen = bytes[offset] | (bytes[offset + 1] << 8);
+    offset += 2 + extraLen;
+    if (offset > bytes.length) throw new Error("invalid gzip chunk");
+  }
+  if (flags & 0x08) {
+    offset = skipNulTerminatedGzipField(bytes, offset);
+  }
+  if (flags & 0x10) {
+    offset = skipNulTerminatedGzipField(bytes, offset);
+  }
+  if (flags & 0x02) {
+    offset += 2;
+    if (offset > bytes.length) throw new Error("invalid gzip chunk");
+  }
+  if (offset + 8 > bytes.length) {
+    throw new Error("invalid gzip chunk");
+  }
+  return offset;
+}
+
+function skipNulTerminatedGzipField(bytes, offset) {
+  while (offset < bytes.length) {
+    if (bytes[offset] === 0) {
+      return offset + 1;
+    }
+    offset += 1;
+  }
+  throw new Error("invalid gzip chunk");
+}
+
+function deflateStreamEndOffset(bytes, startOffset) {
+  const reader = new BitReader(bytes, startOffset);
+  let finalBlock = false;
+  while (!finalBlock) {
+    finalBlock = reader.readBits(1) === 1;
+    const blockType = reader.readBits(2);
+    if (blockType === 0) {
+      reader.alignToByte();
+      const len = reader.readUint16();
+      const nlen = reader.readUint16();
+      if (((len ^ 0xffff) & 0xffff) !== nlen) {
+        throw new Error("invalid gzip chunk");
+      }
+      reader.skipBytes(len);
+    } else if (blockType === 1) {
+      skipCompressedDeflateBlock(reader, fixedLiteralLengthTree(), fixedDistanceTree());
+    } else if (blockType === 2) {
+      const trees = dynamicDeflateTrees(reader);
+      skipCompressedDeflateBlock(reader, trees.literalLengthTree, trees.distanceTree);
+    } else {
+      throw new Error("invalid gzip chunk");
+    }
+  }
+  return reader.byteOffset();
+}
+
+function skipCompressedDeflateBlock(reader, literalLengthTree, distanceTree) {
+  while (true) {
+    const symbol = literalLengthTree.readSymbol(reader);
+    if (symbol < 256) {
+      continue;
+    }
+    if (symbol === 256) {
+      return;
+    }
+    if (symbol < 257 || symbol > 285) {
+      throw new Error("invalid gzip chunk");
+    }
+    const lengthIndex = symbol - 257;
+    reader.readBits(LENGTH_EXTRA_BITS[lengthIndex]);
+    const distanceSymbol = distanceTree.readSymbol(reader);
+    if (distanceSymbol < 0 || distanceSymbol >= DISTANCE_EXTRA_BITS.length) {
+      throw new Error("invalid gzip chunk");
+    }
+    reader.readBits(DISTANCE_EXTRA_BITS[distanceSymbol]);
+  }
+}
+
+function dynamicDeflateTrees(reader) {
+  const literalLengthCount = reader.readBits(5) + 257;
+  const distanceCount = reader.readBits(5) + 1;
+  const codeLengthCount = reader.readBits(4) + 4;
+  const codeLengthOrder = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+  const codeLengthLengths = new Array(19).fill(0);
+  for (let index = 0; index < codeLengthCount; index += 1) {
+    codeLengthLengths[codeLengthOrder[index]] = reader.readBits(3);
+  }
+  const codeLengthTree = HuffmanTree.fromCodeLengths(codeLengthLengths);
+  const lengths = [];
+  const totalLengths = literalLengthCount + distanceCount;
+  while (lengths.length < totalLengths) {
+    const symbol = codeLengthTree.readSymbol(reader);
+    if (symbol <= 15) {
+      lengths.push(symbol);
+    } else if (symbol === 16) {
+      if (!lengths.length) throw new Error("invalid gzip chunk");
+      const repeat = reader.readBits(2) + 3;
+      appendRepeatedLength(lengths, lengths.at(-1), repeat, totalLengths);
+    } else if (symbol === 17) {
+      appendRepeatedLength(lengths, 0, reader.readBits(3) + 3, totalLengths);
+    } else if (symbol === 18) {
+      appendRepeatedLength(lengths, 0, reader.readBits(7) + 11, totalLengths);
+    } else {
+      throw new Error("invalid gzip chunk");
+    }
+  }
+  const literalLengthLengths = lengths.slice(0, literalLengthCount);
+  const distanceLengths = lengths.slice(literalLengthCount);
+  return {
+    literalLengthTree: HuffmanTree.fromCodeLengths(literalLengthLengths),
+    distanceTree: HuffmanTree.fromCodeLengths(distanceLengths),
+  };
+}
+
+function appendRepeatedLength(lengths, value, repeat, maxLength) {
+  if (lengths.length + repeat > maxLength) {
+    throw new Error("invalid gzip chunk");
+  }
+  for (let index = 0; index < repeat; index += 1) {
+    lengths.push(value);
+  }
+}
+
+let cachedFixedLiteralLengthTree = null;
+let cachedFixedDistanceTree = null;
+
+function fixedLiteralLengthTree() {
+  if (!cachedFixedLiteralLengthTree) {
+    const lengths = new Array(288);
+    lengths.fill(8, 0, 144);
+    lengths.fill(9, 144, 256);
+    lengths.fill(7, 256, 280);
+    lengths.fill(8, 280, 288);
+    cachedFixedLiteralLengthTree = HuffmanTree.fromCodeLengths(lengths);
+  }
+  return cachedFixedLiteralLengthTree;
+}
+
+function fixedDistanceTree() {
+  if (!cachedFixedDistanceTree) {
+    cachedFixedDistanceTree = HuffmanTree.fromCodeLengths(new Array(32).fill(5));
+  }
+  return cachedFixedDistanceTree;
+}
+
+class BitReader {
+  constructor(bytes, byteOffset) {
+    this.bytes = bytes;
+    this.bitOffset = byteOffset * 8;
+  }
+
+  readBits(count) {
+    let value = 0;
+    for (let index = 0; index < count; index += 1) {
+      if (this.bitOffset >= this.bytes.length * 8) {
+        throw new Error("invalid gzip chunk");
+      }
+      const byte = this.bytes[this.bitOffset >> 3];
+      const bit = (byte >> (this.bitOffset & 7)) & 1;
+      value |= bit << index;
+      this.bitOffset += 1;
+    }
+    return value;
+  }
+
+  alignToByte() {
+    this.bitOffset = Math.ceil(this.bitOffset / 8) * 8;
+  }
+
+  readUint16() {
+    this.alignToByte();
+    const offset = this.bitOffset >> 3;
+    if (offset + 2 > this.bytes.length) {
+      throw new Error("invalid gzip chunk");
+    }
+    this.bitOffset += 16;
+    return this.bytes[offset] | (this.bytes[offset + 1] << 8);
+  }
+
+  skipBytes(count) {
+    this.alignToByte();
+    const offset = this.bitOffset >> 3;
+    if (offset + count > this.bytes.length) {
+      throw new Error("invalid gzip chunk");
+    }
+    this.bitOffset += count * 8;
+  }
+
+  byteOffset() {
+    return Math.ceil(this.bitOffset / 8);
+  }
+}
+
+class HuffmanTree {
+  constructor(root) {
+    this.root = root;
+  }
+
+  static fromCodeLengths(lengths) {
+    const maxBits = Math.max(...lengths, 0);
+    const blCount = new Array(maxBits + 1).fill(0);
+    for (const length of lengths) {
+      if (length < 0 || length > 15) throw new Error("invalid gzip chunk");
+      if (length > 0) blCount[length] += 1;
+    }
+    const nextCode = new Array(maxBits + 1).fill(0);
+    let code = 0;
+    for (let bits = 1; bits <= maxBits; bits += 1) {
+      code = (code + (blCount[bits - 1] ?? 0)) << 1;
+      nextCode[bits] = code;
+    }
+    const root = {};
+    for (let symbol = 0; symbol < lengths.length; symbol += 1) {
+      const length = lengths[symbol];
+      if (!length) continue;
+      insertHuffmanCode(root, reverseBits(nextCode[length], length), length, symbol);
+      nextCode[length] += 1;
+    }
+    return new HuffmanTree(root);
+  }
+
+  readSymbol(reader) {
+    let node = this.root;
+    while (node.symbol === undefined) {
+      node = node[reader.readBits(1)];
+      if (!node) throw new Error("invalid gzip chunk");
+    }
+    return node.symbol;
+  }
+}
+
+function insertHuffmanCode(root, code, length, symbol) {
+  let node = root;
+  for (let index = 0; index < length; index += 1) {
+    const bit = (code >> index) & 1;
+    node[bit] ??= {};
+    node = node[bit];
+  }
+  node.symbol = symbol;
+}
+
+function reverseBits(value, length) {
+  let reversed = 0;
+  for (let index = 0; index < length; index += 1) {
+    reversed = (reversed << 1) | ((value >> index) & 1);
+  }
+  return reversed;
+}
+
+function readLittleUint32(bytes, offset) {
+  if (offset + 4 > bytes.length) {
+    throw new Error("invalid gzip chunk");
+  }
+  return (
+    (bytes[offset] |
+      (bytes[offset + 1] << 8) |
+      (bytes[offset + 2] << 16) |
+      (bytes[offset + 3] << 24)) >>>
+    0
+  );
 }
 
 export function canonicalChunkRefsForBytes(data, chunking) {

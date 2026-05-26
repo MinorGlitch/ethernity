@@ -26,6 +26,12 @@ export function validateManifestPath(path, label = "manifest file path") {
     throw new Error(`${label} must be a non-empty string`);
   }
   const normalized = path.normalize("NFC");
+  for (const char of normalized) {
+    const code = char.charCodeAt(0);
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) {
+      throw new Error(`${label} must not contain control characters`);
+    }
+  }
   if (normalized.startsWith("/") || normalized.startsWith("\\")) {
     throw new Error(`${label} must be relative`);
   }

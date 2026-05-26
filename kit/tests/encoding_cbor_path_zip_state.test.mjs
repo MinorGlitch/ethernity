@@ -101,6 +101,8 @@ test("path validation and zip creation enforce safe relative paths", async () =>
   assert.throws(() => validateManifestPath("a\\b.txt"), /POSIX separators/);
   assert.throws(() => validateManifestPath("a//b.txt"), /empty path segments/);
   assert.throws(() => validateManifestPath("a/../b.txt"), /must not contain '\.' or '\.\.'/);
+  assert.throws(() => validateManifestPath("docs/\u0001.txt"), /control characters/);
+  assert.throws(() => validateManifestPath("docs/\u0085.txt"), /control characters/);
 
   const zipBlob = makeZip([{ path: "docs/file.txt", data: Uint8Array.of(1, 2, 3, 4) }]);
   const zipBytes = new Uint8Array(await zipBlob.arrayBuffer());

@@ -16,9 +16,9 @@
  */
 
 import { FRAME_TYPE_AUTH, FRAME_TYPE_KEY, FRAME_TYPE_MAIN } from "./constants.js";
-import { bytesEqual, bytesToHex } from "../lib/encoding.js";
 import { addAuthDocumentFrame, addMainDocumentFrame } from "./document_store.js";
 import { decodeShardPayload } from "./frames_protocol.js";
+import { addShardPayloadFrame } from "./shard_store.js";
 
 export function addFrame(state, frame) {
   if (frame.frameType === FRAME_TYPE_AUTH) {
@@ -41,17 +41,6 @@ export function addShardFrame(state, frame) {
     state.shardErrors += 1;
     return;
   }
-  const docIdHex = bytesToHex(frame.docId);
-  if (state.docIdHex && state.docIdHex !== docIdHex) {
-    state.shardConflicts += 1;
-    return;
-  }
-  if (!state.shardDocIdHex) {
-    state.shardDocIdHex = docIdHex;
-  } else if (state.shardDocIdHex !== docIdHex) {
-    state.shardConflicts += 1;
-    return;
-  }
   let payload;
   try {
     payload = decodeShardPayload(frame.data);
@@ -59,54 +48,5 @@ export function addShardFrame(state, frame) {
     state.shardErrors += 1;
     return;
   }
-  if (state.shardThreshold === null) {
-    state.shardVersion = payload.version;
-    state.shardThreshold = payload.threshold;
-    state.shardShares = payload.shareCount;
-    state.shardKeyType = payload.keyType;
-    state.shardSecretLen = payload.secretLen;
-    state.shardDocHashHex = bytesToHex(payload.docHash);
-    state.shardSignPubHex = bytesToHex(payload.signPub);
-    state.shardSetIdHex = payload.shardSetId ? bytesToHex(payload.shardSetId) : null;
-  } else {
-    if (state.shardVersion !== payload.version) {
-      state.shardConflicts += 1;
-      return;
-    }
-    if (state.shardThreshold !== payload.threshold || state.shardShares !== payload.shareCount) {
-      state.shardConflicts += 1;
-      return;
-    }
-    if (state.shardKeyType !== payload.keyType || state.shardSecretLen !== payload.secretLen) {
-      state.shardConflicts += 1;
-      return;
-    }
-    if (state.shardDocHashHex !== bytesToHex(payload.docHash)) {
-      state.shardConflicts += 1;
-      return;
-    }
-    if (state.shardSignPubHex !== bytesToHex(payload.signPub)) {
-      state.shardConflicts += 1;
-      return;
-    }
-    const shardSetIdHex = payload.shardSetId ? bytesToHex(payload.shardSetId) : null;
-    if (state.shardSetIdHex !== shardSetIdHex) {
-      state.shardConflicts += 1;
-      return;
-    }
-  }
-
-  const existing = state.shardFrames.get(payload.shareIndex);
-  if (existing) {
-    if (!bytesEqual(existing.share, payload.share)) {
-      state.shardConflicts += 1;
-    } else if (!bytesEqual(existing.signature, payload.signature)) {
-      state.shardConflicts += 1;
-      state.shardFrames.set(payload.shareIndex, payload);
-    } else {
-      state.shardDuplicates += 1;
-    }
-    return;
-  }
-  state.shardFrames.set(payload.shareIndex, payload);
+  addShardPayloadFrame(state, frame, payload);
 }

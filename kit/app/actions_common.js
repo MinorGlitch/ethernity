@@ -17,6 +17,7 @@
 
 import { bumpError, cloneState, setStatus } from "./state/initial.js";
 import { cloneDocuments } from "./document_store.js";
+import { cloneShardSets } from "./shard_store.js";
 
 export function dispatchState(dispatch, state) {
   dispatch({
@@ -30,6 +31,8 @@ export function dispatchState(dispatch, state) {
         next[key] = state[key];
       }
       next.documents = cloneDocuments(state.documents);
+      next.shardSets = cloneShardSets(state.shardSets);
+      next.activeShardSetKey = state.activeShardSetKey;
       next.mainFrames = new Map(state.mainFrames);
       next.shardFrames = new Map(state.shardFrames);
       next.extractedFiles = state.extractedFiles.slice();
@@ -76,7 +79,21 @@ export function copyAuthAndCipherFields(target, source) {
 }
 
 export function copyShardAsyncFields(target, source) {
+  target.shardSets = cloneShardSets(source.shardSets);
+  target.activeShardSetKey = source.activeShardSetKey;
   target.shardFrames = new Map(source.shardFrames);
+  target.shardDocIdHex = source.shardDocIdHex;
+  target.shardVersion = source.shardVersion;
+  target.shardDocHashHex = source.shardDocHashHex;
+  target.shardSignPubHex = source.shardSignPubHex;
+  target.shardSetIdHex = source.shardSetIdHex;
+  target.shardThreshold = source.shardThreshold;
+  target.shardShares = source.shardShares;
+  target.shardKeyType = source.shardKeyType;
+  target.shardSecretLen = source.shardSecretLen;
+  target.shardDuplicates = source.shardDuplicates;
+  target.shardConflicts = source.shardConflicts;
+  target.shardErrors = source.shardErrors;
   target.recoveredShardSecret = source.recoveredShardSecret;
   target.agePassphrase = source.agePassphrase;
   target.shardStatus = { ...source.shardStatus };

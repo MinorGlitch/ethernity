@@ -27,6 +27,8 @@ export function createBaseState() {
     conflicts: 0,
     ignored: 0,
     errors: 0,
+    shardSets: new Map(),
+    activeShardSetKey: null,
     shardFrames: new Map(),
     shardDocIdHex: null,
     shardVersion: null,
@@ -104,6 +106,16 @@ export function cloneState(state) {
           ...record,
           docId: record.docId.slice(),
           mainFrames: new Map(record.mainFrames),
+        },
+      ]),
+    ),
+    shardSets: new Map(
+      Array.from(state.shardSets.entries(), ([key, record]) => [
+        key,
+        {
+          ...record,
+          docId: record.docId.slice(),
+          shardFrames: new Map(record.shardFrames),
         },
       ]),
     ),

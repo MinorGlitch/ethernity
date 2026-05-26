@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { gzipSync } from "node:zlib";
 
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { sha256 } from "@noble/hashes/sha2.js";
@@ -17,7 +18,7 @@ import {
   textEncoder,
 } from "../app/constants.js";
 import { deriveSigningPublicKey, verifyAuthSignature } from "../app/auth.js";
-import { decryptCiphertext } from "../app/actions_recover.js";
+import { decryptCiphertext, extractEnvelope } from "../app/actions_recover.js";
 import { decodeExtensionEnvelope, defaultExtensionChunker } from "../app/extension_envelope.js";
 import {
   recoverLatestFromEncryptedDocuments,
@@ -33,7 +34,12 @@ import { blake2b256 } from "../lib/blake2b.js";
 import { bytesToHex } from "../lib/encoding.js";
 import { buildFrame, concatBytes, encodeUvarint } from "./test_helpers.mjs";
 
-const CHUNKING = { algorithmId: 1, targetSize: 64, minSize: 16, maxSize: 128 };
+const CHUNKING = {
+  algorithmId: 1,
+  targetSize: 16 * 1024,
+  minSize: 4 * 1024,
+  maxSize: 64 * 1024,
+};
 const CONFORMANCE_CHUNKING = {
   algorithmId: 1,
   targetSize: 16 * 1024,
@@ -113,6 +119,17 @@ function validExtensionBodyBytes() {
     new Map([
       [1, [["a.txt", data.length, sha256(data), null, [[chunkId, data.length]]]]],
       [2, [[chunkId, 0, data.length, data]]],
+    ]),
+  );
+}
+
+function extensionBodyWithGzipChunkBytes(gzipData) {
+  const data = new TextEncoder().encode("x");
+  const chunkId = sha256(data);
+  return encodeCbor(
+    new Map([
+      [1, [["a.txt", data.length, sha256(data), null, [[chunkId, data.length]]]]],
+      [2, [[chunkId, 1, data.length, gzipData]]],
     ]),
   );
 }
@@ -366,6 +383,30 @@ test("extension envelope preflights aggregate inline raw_len before gzip decode"
   );
 });
 
+test("extension envelope accepts single-member gzip chunks", async () => {
+  const data = new TextEncoder().encode("x");
+  const envelope = buildExtensionEnvelopeBytes({
+    bodyBytes: extensionBodyWithGzipChunkBytes(gzipSync(data)),
+  });
+
+  const decoded = await decodeExtensionEnvelope(envelope);
+  assert.equal(decoded.files[0].path, "a.txt");
+});
+
+test("extension envelope rejects trailing gzip members", async () => {
+  const data = new TextEncoder().encode("x");
+  const envelope = buildExtensionEnvelopeBytes({
+    bodyBytes: extensionBodyWithGzipChunkBytes(
+      new Uint8Array([...gzipSync(data), ...gzipSync(new Uint8Array())]),
+    ),
+  });
+
+  await assert.rejects(
+    () => decodeExtensionEnvelope(envelope),
+    /gzip chunk contains trailing data/,
+  );
+});
+
 test("browser recovery replays the latest supplied authenticated extension chain", async () => {
   const rootPlaintext = buildRootPlaintext([
     { path: "a.txt", data: new TextEncoder().encode("root") },
@@ -552,6 +593,23 @@ test("browser decrypt action recovers latest supplied extension status", async (
   assert.equal(
     finalState.decryptStatus.lines.includes("Freshness scope: supplied carriers only."),
     true,
+  );
+});
+
+test("browser extract action extracts an already decrypted root envelope", async () => {
+  const store = createStore();
+  const state = store.getState();
+  state.decryptedEnvelope = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+
+  await extractEnvelope(store.dispatch.bind(store), store.getState.bind(store));
+
+  const finalState = store.getState();
+  assert.equal(finalState.extractStatus.type, "ok");
+  assert.deepEqual(
+    finalState.extractedFiles.map((file) => [file.path, new TextDecoder().decode(file.data)]),
+    [["a.txt", "root"]],
   );
 });
 
