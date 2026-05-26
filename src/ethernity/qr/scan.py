@@ -77,7 +77,7 @@ __all__ = [
     "QrDecoder",
     "QrScanError",
     "ScannedQrPayload",
-    "published_extension_payload_doc_id",
+    "is_published_extension_payload_carrier",
     "looks_like_image",
     "looks_like_pdf",
     "scan_qr_payloads",
@@ -162,7 +162,7 @@ def scan_qr_payloads_with_sources(
         source_payloads = _scan_one_path(path, decoder)
         if (
             include_extension_carriers
-            and published_extension_payload_doc_id(path) is not None
+            and is_published_extension_payload_carrier(path)
             and not source_payloads
         ):
             raise QrScanError(f"published extension carrier contains no QR codes: {path}")
@@ -359,13 +359,11 @@ def _is_non_payload_published_extension_main(path: Path) -> bool:
     return parsed.doc_type != "qr_document"
 
 
-def published_extension_payload_doc_id(path: str | Path) -> bytes | None:
-    """Return the expected doc_id for a published extension QR carrier path."""
+def is_published_extension_payload_carrier(path: str | Path) -> bool:
+    """Return whether a path is a canonical published extension QR carrier."""
 
     parsed = _published_extension_main_name(Path(path))
-    if parsed is None or parsed.doc_type != "qr_document":
-        return None
-    return bytes.fromhex(parsed.doc_id_hex)
+    return parsed is not None and parsed.doc_type == "qr_document"
 
 
 def _published_extension_main_name(path: Path) -> ExtensionMainArtifactName | None:

@@ -41,7 +41,7 @@ from ethernity.encoding.framing import Frame, FrameType, decode_frame
 from ethernity.encoding.qr_payloads import decode_qr_payload
 from ethernity.qr.scan import (
     QrScanError,
-    published_extension_payload_doc_id,
+    is_published_extension_payload_carrier,
     scan_qr_payloads_with_sources,
 )
 
@@ -457,28 +457,28 @@ def frames_from_scan(paths: list[str], *, include_extension_carriers: bool = Tru
         raise ValueError("no QR payloads found; check the scan path and image quality")
     frames: list[Frame] = []
     errors: list[str] = []
-    extension_doc_ids_by_source: dict[Path, bytes] = {}
+    extension_carrier_sources: set[Path] = set()
     extension_frames_by_source: dict[Path, list[Frame]] = {}
     extension_errors_by_source: dict[Path, list[str]] = {}
     for idx, payload in enumerate(payloads, start=1):
         source_path = payload.source_path
-        extension_doc_id = (
-            published_extension_payload_doc_id(source_path) if include_extension_carriers else None
+        is_extension_carrier = (
+            include_extension_carriers and is_published_extension_payload_carrier(source_path)
         )
-        if extension_doc_id is not None:
-            extension_doc_ids_by_source[source_path] = extension_doc_id
+        if is_extension_carrier:
+            extension_carrier_sources.add(source_path)
         try:
             frame = _frame_from_scanned_payload(payload.data)
         except ValueError as exc:
             errors.append(f"#{idx}: {exc}")
-            if extension_doc_id is not None:
+            if is_extension_carrier:
                 extension_errors_by_source.setdefault(source_path, []).append(str(exc))
             continue
         frames.append(frame)
-        if extension_doc_id is not None:
+        if is_extension_carrier:
             extension_frames_by_source.setdefault(source_path, []).append(frame)
     _require_valid_published_extension_carriers(
-        expected_doc_ids=extension_doc_ids_by_source,
+        carrier_sources=extension_carrier_sources,
         frames_by_source=extension_frames_by_source,
         errors_by_source=extension_errors_by_source,
     )
@@ -492,26 +492,33 @@ def frames_from_scan(paths: list[str], *, include_extension_carriers: bool = Tru
 
 def _require_valid_published_extension_carriers(
     *,
-    expected_doc_ids: dict[Path, bytes],
+    carrier_sources: set[Path],
     frames_by_source: dict[Path, list[Frame]],
     errors_by_source: dict[Path, list[str]],
 ) -> None:
     """Fail closed when a published extension QR carrier does not produce its document."""
 
-    for source_path, expected_doc_id in sorted(
-        expected_doc_ids.items(),
-        key=lambda item: str(item[0]),
-    ):
+    for source_path in sorted(carrier_sources, key=str):
         frames = frames_by_source.get(source_path, [])
+        main_doc_ids = {
+            frame.doc_id for frame in frames if frame.frame_type == FrameType.MAIN_DOCUMENT
+        }
+        if len(main_doc_ids) != 1:
+            details = _extension_carrier_error_details(errors_by_source.get(source_path, []))
+            raise ValueError(
+                "published extension carrier did not yield a valid extension MAIN/AUTH "
+                f"document: {source_path}{details}"
+            )
+        doc_id = next(iter(main_doc_ids))
         matching_main_frames = [
             frame
             for frame in frames
-            if frame.frame_type == FrameType.MAIN_DOCUMENT and frame.doc_id == expected_doc_id
+            if frame.frame_type == FrameType.MAIN_DOCUMENT and frame.doc_id == doc_id
         ]
         matching_auth_frames = [
             frame
             for frame in frames
-            if frame.frame_type == FrameType.AUTH and frame.doc_id == expected_doc_id
+            if frame.frame_type == FrameType.AUTH and frame.doc_id == doc_id
         ]
         if not matching_main_frames or not matching_auth_frames:
             details = _extension_carrier_error_details(errors_by_source.get(source_path, []))

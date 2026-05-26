@@ -469,6 +469,26 @@ class TestFramesIo(unittest.TestCase):
 
         self.assertEqual(parsed, [extension_main, extension_auth])
 
+    def test_frames_from_scan_accepts_published_extension_carrier_with_stale_filename(self) -> None:
+        extension_doc_id = bytes.fromhex("cafebabedeadbeef")
+        extension_path = Path("root/extensions/01/qr_document-01-deadbeefcafebabe.pdf")
+        extension_main = self._frame(doc_id=extension_doc_id)
+        extension_auth = self._frame(
+            frame_type=FrameType.AUTH,
+            doc_id=extension_doc_id,
+            data=b"auth",
+        )
+        with mock.patch(
+            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            return_value=[
+                ScannedQrPayload(data=encode_frame(extension_main), source_path=extension_path),
+                ScannedQrPayload(data=encode_frame(extension_auth), source_path=extension_path),
+            ],
+        ):
+            parsed = frames_from_scan(["root"])
+
+        self.assertEqual(parsed, [extension_main, extension_auth])
+
     def test_recovery_frames_from_scan_filters_out_shards(self) -> None:
         main = self._frame(frame_type=FrameType.MAIN_DOCUMENT, doc_id=b"\x40" * DOC_ID_LEN)
         auth = self._frame(frame_type=FrameType.AUTH, doc_id=b"\x40" * DOC_ID_LEN, data=b"auth")

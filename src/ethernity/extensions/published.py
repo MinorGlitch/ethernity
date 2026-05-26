@@ -63,14 +63,9 @@ def inspect_published_extension_inventory(
         try:
             document, auth_sign_pub = _scan_published_extension_payload_carriers(
                 item_dir_name=item.dir_name,
-                item_doc_id_hex=item.doc_id_hex,
                 main_carriers=tuple(item.main_carriers),
                 read_carrier_document=read_carrier_document,
             )
-            if document.doc_id_hex != item.doc_id_hex:
-                raise ValueError(
-                    f"extension {item.dir_name} MAIN carriers do not match the filename doc_id"
-                )
         except ValueError as exc:
             failure = RecoveryReplayFailure(
                 stage="scan",
@@ -111,7 +106,6 @@ def inspect_published_extension_inventory(
 def _scan_published_extension_payload_carriers(
     *,
     item_dir_name: str,
-    item_doc_id_hex: str,
     main_carriers: tuple[DiscoveredExtensionMainCarrier, ...],
     read_carrier_document: PublishedCarrierReader,
 ) -> tuple[ImportedRecoveryDocument, bytes]:
@@ -120,7 +114,6 @@ def _scan_published_extension_payload_carriers(
     for carrier in payload_main_carriers(main_carriers):
         candidate_document, candidate_auth_sign_pub = _scan_published_extension_payload_carrier(
             item_dir_name=item_dir_name,
-            item_doc_id_hex=item_doc_id_hex,
             carrier=carrier,
             read_carrier_document=read_carrier_document,
         )
@@ -163,7 +156,6 @@ def _required_published_extension_main_carrier(
 def _scan_published_extension_payload_carrier(
     *,
     item_dir_name: str,
-    item_doc_id_hex: str,
     carrier: DiscoveredExtensionMainCarrier,
     read_carrier_document: PublishedCarrierReader,
 ) -> tuple[ImportedRecoveryDocument, bytes]:
@@ -171,11 +163,6 @@ def _scan_published_extension_payload_carrier(
         if carrier.doc_type != "qr_document":
             raise ValueError(f"{carrier.doc_type} is not a machine-readable extension carrier")
         document = read_carrier_document(carrier)
-        if document.doc_id_hex != item_doc_id_hex:
-            raise ValueError(
-                f"extension {item_dir_name} {carrier.doc_type} carrier does not match "
-                "the filename doc_id"
-            )
         auth_payload, _auth_status = resolve_required_auth_payload(
             document.auth_frames,
             doc_id=document.doc_id,
