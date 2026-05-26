@@ -324,6 +324,15 @@ class TestExtensionEnvelope(unittest.TestCase):
                 }
             )
 
+    def test_decode_rejects_header_without_required_input_keys(self) -> None:
+        envelope = _make_test_envelope()
+        header, body = envelope.to_cbor_sections()
+        del header[11]
+        del header[12]
+
+        with self.assertRaisesRegex(ValueError, "extension header 11 is required"):
+            ExtensionEnvelope.decode(_encode_sections(header, body))
+
     def test_rejects_non_integer_header_keys(self) -> None:
         chunk_bytes = b"hello extension"
         chunk_id = hashlib.sha256(chunk_bytes).digest()

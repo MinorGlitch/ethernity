@@ -602,18 +602,19 @@ Use this template for each change entry:
   - Makes extension acceptance depend on AUTH signed by the root-derived authority instead of
     ciphertext integrity and lineage alone
 
-## 2026-04-09 - Finalize the Version 2 extension schema in place
+## 2026-04-09 - Define the initial Version 2 extension profile
 
 - Type: wire-format
 - Normative spec updated: yes
 - Sections changed: 19
 - Compatibility:
-  - Old decoders reading new artifacts: no (the Version 2 extension header now uses the finalized
-    field set and older extension decoders expect a different header shape)
-  - New decoders reading old artifacts: partial (Version 1 root backups remain readable; Version 2
-    extension compatibility follows the finalized schema defined in Section 19)
-- Version/profile bump required: no (standalone Version 1 root compatibility is preserved and the
-  extension envelope remains outer Version 2)
+  - Old decoders reading new artifacts: not applicable (this entry defines the initial shipped
+    extension profile)
+  - New decoders reading old artifacts: partial (Version 1 root backups remain readable; there are
+    no previous shipped Version 2 extension artifacts)
+- Version/profile bump required: no (this entry defines the initial shipped extension profile,
+  standalone Version 1 root compatibility is preserved, and the extension envelope remains outer
+  Version 2)
 - Implementation refs:
   - `src/ethernity/formats/extension_envelope.py`
   - `src/ethernity/extensions/chain.py`
