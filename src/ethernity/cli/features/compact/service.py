@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ethernity.cli.features.backup.execution import run_backup
@@ -114,6 +114,7 @@ def _compact_recover_args(args: CompactArgs, root_dir: Path) -> RecoverArgs:
         auth_fallback_file=args.auth_fallback_file,
         auth_payloads_file=args.auth_payloads_file,
         auth_frames=args.auth_frames,
+        expected_head_doc_hash=args.expected_head_doc_hash,
         allow_unsigned=False,
         quiet=args.quiet,
     )
@@ -419,7 +420,7 @@ def run_compact(args: CompactArgs) -> BackupResult:
         )
         for entry, data in chain.extracted
     ]
-    return run_backup(
+    result = run_backup(
         input_files=input_files,
         base_dir=None,
         output_dir=backup_args.output_dir,
@@ -438,6 +439,18 @@ def run_compact(args: CompactArgs) -> BackupResult:
             expected=source_head,
         ),
         quiet=args.quiet,
+    )
+    return replace(
+        result,
+        source_head_index=source_head.selected_extension_index or 0,
+        source_head_doc_hash=source_head.selected_extension_doc_hash or recover_plan.doc_hash.hex(),
+        expected_head_doc_hash=args.expected_head_doc_hash,
+        freshness_scope=(
+            "supplied_carriers_only"
+            if source_head.selected_extension_index is not None
+            or args.expected_head_doc_hash is not None
+            else None
+        ),
     )
 
 

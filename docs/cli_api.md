@@ -150,7 +150,12 @@ directory and Ethernity creates `mint-<doc_id>` inside it. If the path does not 
 creates that exact directory.
 
 Mint results include `doc_hash`, `selected_extension_index`, `selected_extension_doc_hash`,
+`expected_head_doc_hash`, `validated_head_index`, `validated_head_doc_hash`, `freshness_scope`,
 `signing_key_source`, and a stable `artifacts` object for minted shard paths.
+
+Compact results include `expected_head_doc_hash`, `validated_head_index`,
+`validated_head_doc_hash`, and `freshness_scope` for the source head that was flattened into the
+new standalone backup.
 
 Extend results include `index`, `doc_id`, `doc_hash`, `root_doc_id`, `root_doc_hash`, `chain_id`,
 `parent_head_index`, `parent_head_doc_hash`, `expected_head_doc_hash`, `freshness_scope`, the
@@ -362,8 +367,9 @@ machine-readable extension carriers.
 
 `ethernity api inspect mint` reports:
 
-- `doc_id`, `selected_extension_index`, `selected_extension_doc_hash`, `input_label`,
-  `input_detail`, `auth_status`
+- `doc_id`, `selected_extension_index`, `selected_extension_doc_hash`,
+  `expected_head_doc_hash`, `validated_head_index`, `validated_head_doc_hash`,
+  `freshness_scope`, `input_label`, `input_detail`, `auth_status`
 - `source_summary` when decryption is possible, otherwise `null`
 - `frame_counts.main|auth|shard|signing_key_shard`
 - `unlock.validated_passphrase_shard_count|required_passphrase_threshold|satisfied`
@@ -549,13 +555,13 @@ Example onboarding patch:
 ```
 
 ```json
-{"type":"started","schema_version":1,"command":"compact","args":{"config":null,"paper":null,"design":null,"root_dir":"backup-aa11","output_dir":"compacted","shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"layout_debug_dir":null,"qr_chunk_size":null,"has_passphrase":true,"quiet":true,"debug":false}}
+{"type":"started","schema_version":1,"command":"compact","args":{"config":null,"paper":null,"design":null,"root_dir":"backup-aa11","output_dir":"compacted","shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"expected_head_doc_hash":null,"layout_debug_dir":null,"qr_chunk_size":null,"has_passphrase":true,"quiet":true,"debug":false}}
 {"type":"phase","id":"compact","label":"Replaying source chain and preparing checkpoint"}
 {"type":"progress","phase":"compact","current":0,"total":1,"unit":"step","details":{"root_dir":"backup-aa11","output_dir":"compacted"}}
 {"type":"progress","phase":"compact","current":1,"total":1,"unit":"step","details":{"root_dir":"backup-aa11","output_dir":"compacted"}}
 {"type":"artifact","kind":"qr_document","path":"compacted/qr_document.pdf","details":{"filename":"qr_document.pdf","size":1234}}
 {"type":"artifact","kind":"recovery_document","path":"compacted/recovery_document.pdf","details":{"filename":"recovery_document.pdf","size":2345}}
-{"type":"result","ok":true,"command":"compact","doc_id":"0123456789abcdef","root_dir":"backup-aa11","output_dir":"compacted","artifacts":{"qr_document":"compacted/qr_document.pdf","recovery_document":"compacted/recovery_document.pdf","recovery_kit_index":null,"shard_documents":[],"signing_key_shard_documents":[]}}
+{"type":"result","ok":true,"command":"compact","doc_id":"0123456789abcdef","root_dir":"backup-aa11","output_dir":"compacted","artifacts":{"qr_document":"compacted/qr_document.pdf","recovery_document":"compacted/recovery_document.pdf","recovery_kit_index":null,"shard_documents":[],"signing_key_shard_documents":[]},"expected_head_doc_hash":null,"validated_head_index":0,"validated_head_doc_hash":"89abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567","freshness_scope":null}
 ```
 
 ```json

@@ -41,6 +41,10 @@ class BackupResult:
     signing_key_shard_paths: tuple[str, ...]
     passphrase_used: str | None
     kit_index_path: str | None = None
+    source_head_index: int | None = None
+    source_head_doc_hash: str | None = None
+    expected_head_doc_hash: str | None = None
+    freshness_scope: str | None = None
 
 
 @dataclass
@@ -119,6 +123,7 @@ class MintArgs:
     auth_payloads_file: str | None = None
     extension_index: int | None = None
     extension_doc_hash: str | None = None
+    expected_head_doc_hash: str | None = None
     signing_key_shard_fallback_file: list[str] | None = None
     signing_key_shard_payloads_file: list[str] | None = None
     signing_key_shard_scan: list[str] | None = None
@@ -196,6 +201,7 @@ class CompactArgs:
     layout_debug_dir: str | None = None
     qr_chunk_size: int | None = None
     passphrase: str | None = None
+    expected_head_doc_hash: str | None = None
     quiet: bool = False
 
 

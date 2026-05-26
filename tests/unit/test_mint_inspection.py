@@ -46,6 +46,15 @@ ROOT_SIGNING_SEED = b"\x33" * 32
 ROOT_SIGN_PUB = derive_public_key(ROOT_SIGNING_SEED)
 
 
+def _root_auth(doc_hash: bytes = b"\x77" * 32) -> AuthPayload:
+    return AuthPayload(
+        version=1,
+        doc_hash=doc_hash,
+        sign_pub=ROOT_SIGN_PUB,
+        signature=sign_auth(doc_hash, sign_pub=ROOT_SIGN_PUB, sign_priv=ROOT_SIGNING_SEED),
+    )
+
+
 def _mint_candidate(document: ImportedRecoveryDocument, *, index: int) -> SimpleNamespace:
     return SimpleNamespace(
         document=document,
@@ -73,14 +82,10 @@ def _mint_recovery_plan(
     *,
     extension_index: int | None = None,
     extension_doc_hash: str | None = None,
+    expected_head_doc_hash: str | None = None,
     import_documents: tuple[ImportedRecoveryDocument, ...] = (),
 ) -> RecoveryPlan:
-    root_auth = AuthPayload(
-        version=1,
-        doc_hash=b"\x11" * 32,
-        sign_pub=ROOT_SIGN_PUB,
-        signature=b"\x33" * 64,
-    )
+    root_auth = _root_auth()
     return RecoveryPlan(
         ciphertext=b"root-ciphertext",
         doc_id=b"\x66" * 8,
@@ -101,6 +106,7 @@ def _mint_recovery_plan(
         root_dir=None,
         extension_index=extension_index,
         extension_doc_hash=extension_doc_hash,
+        expected_head_doc_hash=expected_head_doc_hash,
         import_documents=import_documents,
     )
 
@@ -171,12 +177,7 @@ class TestMintInspection(unittest.TestCase):
 
     def test_inspect_mint_inputs_resolves_extension_chain_target_for_readiness(self) -> None:
         args = MintArgs(scan=["/tmp/root"], passphrase="passphrase", quiet=True)
-        root_auth = AuthPayload(
-            version=1,
-            doc_hash=b"\x77" * 32,
-            sign_pub=ROOT_SIGN_PUB,
-            signature=b"\x33" * 64,
-        )
+        root_auth = _root_auth()
         extension_auth = AuthPayload(
             version=1,
             doc_hash=b"\x44" * 32,
@@ -334,12 +335,7 @@ class TestMintInspection(unittest.TestCase):
         self,
     ) -> None:
         args = MintArgs(scan=["/tmp/root"], passphrase="passphrase", quiet=True)
-        root_auth = AuthPayload(
-            version=1,
-            doc_hash=b"\x77" * 32,
-            sign_pub=ROOT_SIGN_PUB,
-            signature=b"\x33" * 64,
-        )
+        root_auth = _root_auth()
         state = SimpleNamespace(
             frames=(),
             extra_auth_frames=(),
@@ -449,12 +445,7 @@ class TestMintInspection(unittest.TestCase):
 
     def test_inspect_mint_inputs_uses_plan_passphrase_for_extension_shard_unlock(self) -> None:
         args = MintArgs(scan=["/tmp/root"], quiet=True)
-        root_auth = AuthPayload(
-            version=1,
-            doc_hash=b"\x77" * 32,
-            sign_pub=ROOT_SIGN_PUB,
-            signature=b"\x33" * 64,
-        )
+        root_auth = _root_auth()
         shard_frame = Frame(
             version=VERSION,
             frame_type=FrameType.KEY_DOCUMENT,
@@ -580,7 +571,12 @@ class TestMintInspection(unittest.TestCase):
         self.assertEqual(inspection.recovery.shard_frames, (shard_frame,))
 
     def test_execute_mint_passes_target_selection_without_root_dir_to_recovery_plan(self) -> None:
-        args = MintArgs(scan=["/tmp/root"], extension_index=0, quiet=True)
+        args = MintArgs(
+            scan=["/tmp/root"],
+            extension_index=0,
+            expected_head_doc_hash="ab" * 32,
+            quiet=True,
+        )
         state = SimpleNamespace(
             config=SimpleNamespace(),
             recover_args=SimpleNamespace(),
@@ -621,6 +617,7 @@ class TestMintInspection(unittest.TestCase):
         self.assertIsNone(captured["root_dir"])
         self.assertEqual(captured["extension_index"], 0)
         self.assertIsNone(captured["extension_doc_hash"])
+        self.assertEqual(captured["expected_head_doc_hash"], "ab" * 32)
 
     def test_execute_mint_missing_auth_raises_stable_api_code(self) -> None:
         args = MintArgs(payloads_file="main.txt", quiet=True)
@@ -655,12 +652,7 @@ class TestMintInspection(unittest.TestCase):
         self.assertEqual(caught.exception.code, api_codes.AUTH_REQUIRED)
 
     def test_resolve_mint_chain_target_uses_latest_extension(self) -> None:
-        root_auth = AuthPayload(
-            version=1,
-            doc_hash=b"\x11" * 32,
-            sign_pub=ROOT_SIGN_PUB,
-            signature=b"\x33" * 64,
-        )
+        root_auth = _root_auth()
         extension_auth = AuthPayload(
             version=1,
             doc_hash=b"\x44" * 32,
@@ -751,6 +743,71 @@ class TestMintInspection(unittest.TestCase):
         self.assertNotEqual(resolved.doc_id, plan.doc_id)
         reconstruct_authenticated_latest_logical_state.assert_called_once()
 
+    def test_resolve_mint_chain_target_rejects_unexpected_latest_head(self) -> None:
+        plan = _mint_recovery_plan(
+            expected_head_doc_hash="aa" * 32,
+            import_documents=(
+                _imported_document(
+                    doc_id=b"\x66" * 8,
+                    doc_hash=b"\x77" * 32,
+                    ciphertext=b"root-ciphertext",
+                    source_label="root",
+                ),
+                _imported_document(
+                    doc_id=b"\x88" * 8,
+                    doc_hash=b"\x44" * 32,
+                    ciphertext=b"extension-ciphertext",
+                    source_label="extension",
+                ),
+            ),
+        )
+        decoded = SimpleNamespace(
+            auth_payload=_root_auth(b"\x44" * 32),
+            auth_status="verified",
+            link=SimpleNamespace(
+                doc_hash=b"\x44" * 32,
+                document=SimpleNamespace(
+                    header=SimpleNamespace(
+                        index=1,
+                        parent_doc_hash=plan.doc_hash,
+                        root_doc_hash=plan.doc_hash,
+                        chunking=object(),
+                    )
+                ),
+            ),
+        )
+        candidate = _mint_candidate(plan.import_documents[1], index=1)
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._decode_mint_extension_candidates",
+                return_value=(candidate,),
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decode_imported_extension_link",
+                return_value=decoded,
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decode_root_manifest",
+                return_value=(SimpleNamespace(signing_seed=ROOT_SIGNING_SEED), b"payload"),
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.validate_authenticated_extension_chain",
+                return_value=None,
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow."
+                "reconstruct_authenticated_latest_logical_state",
+                return_value=(),
+            ),
+            self.assertRaises(ApiCommandError) as caught,
+        ):
+            _resolve_mint_chain_target(plan, quiet=True, debug=False)
+
+        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.details["validated_head_index"], 1)
+        self.assertEqual(caught.exception.details["validated_head_doc_hash"], "44" * 32)
+
     def test_resolve_mint_chain_target_can_select_root(self) -> None:
         plan = _mint_recovery_plan(
             extension_index=0,
@@ -780,6 +837,27 @@ class TestMintInspection(unittest.TestCase):
         self.assertEqual(resolved.import_documents, ())
         self.assertIsNone(resolved.extension_index)
         self.assertIsNone(resolved.extension_doc_hash)
+
+    def test_resolve_mint_chain_target_rejects_unexpected_root_head(self) -> None:
+        plan = _mint_recovery_plan(
+            extension_index=0,
+            expected_head_doc_hash="aa" * 32,
+            import_documents=(
+                _imported_document(
+                    doc_id=b"\x66" * 8,
+                    doc_hash=b"\x77" * 32,
+                    ciphertext=b"root-ciphertext",
+                    source_label="root",
+                ),
+            ),
+        )
+
+        with self.assertRaises(ApiCommandError) as caught:
+            _resolve_mint_chain_target(plan, quiet=True, debug=False)
+
+        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.details["validated_head_index"], 0)
+        self.assertEqual(caught.exception.details["validated_head_doc_hash"], "77" * 32)
 
     def test_resolve_mint_chain_target_can_select_prior_extension_by_doc_hash(self) -> None:
         root_document = _imported_document(
@@ -867,12 +945,7 @@ class TestMintInspection(unittest.TestCase):
     def test_resolve_mint_chain_target_rejects_root_authority_extension_for_wrong_root(
         self,
     ) -> None:
-        root_auth = AuthPayload(
-            version=1,
-            doc_hash=b"\x11" * 32,
-            sign_pub=ROOT_SIGN_PUB,
-            signature=b"\x33" * 64,
-        )
+        root_auth = _root_auth()
         extension_auth = AuthPayload(
             version=1,
             doc_hash=b"\x44" * 32,
@@ -932,12 +1005,7 @@ class TestMintInspection(unittest.TestCase):
                 _resolve_mint_chain_target(plan, quiet=True, debug=False)
 
     def test_resolve_mint_chain_target_rejects_imported_doc_id_collision(self) -> None:
-        root_auth = AuthPayload(
-            version=1,
-            doc_hash=b"\x11" * 32,
-            sign_pub=ROOT_SIGN_PUB,
-            signature=b"\x33" * 64,
-        )
+        root_auth = _root_auth()
         plan = RecoveryPlan(
             ciphertext=b"root-ciphertext",
             doc_id=b"\x66" * 8,
@@ -984,12 +1052,7 @@ class TestMintInspection(unittest.TestCase):
             _resolve_mint_chain_target(plan, quiet=True, debug=False)
 
     def test_resolve_mint_chain_target_rejects_orphan_extension_head(self) -> None:
-        root_auth = AuthPayload(
-            version=1,
-            doc_hash=b"\x11" * 32,
-            sign_pub=ROOT_SIGN_PUB,
-            signature=b"\x33" * 64,
-        )
+        root_auth = _root_auth()
         plan = RecoveryPlan(
             ciphertext=b"root-ciphertext",
             doc_id=b"\x66" * 8,
@@ -1064,12 +1127,7 @@ class TestMintInspection(unittest.TestCase):
                 _resolve_mint_chain_target(plan, quiet=True, debug=False)
 
     def test_resolve_mint_chain_target_rejects_degraded_latest_head(self) -> None:
-        root_auth = AuthPayload(
-            version=1,
-            doc_hash=b"\x11" * 32,
-            sign_pub=ROOT_SIGN_PUB,
-            signature=b"\x33" * 64,
-        )
+        root_auth = _root_auth()
         plan = RecoveryPlan(
             ciphertext=b"root-ciphertext",
             doc_id=b"\x66" * 8,
@@ -1129,12 +1187,7 @@ class TestMintInspection(unittest.TestCase):
                 _resolve_mint_chain_target(plan, quiet=True, debug=False)
 
     def test_resolve_mint_chain_target_rejects_extension_head_that_cannot_replay(self) -> None:
-        root_auth = AuthPayload(
-            version=1,
-            doc_hash=b"\x11" * 32,
-            sign_pub=ROOT_SIGN_PUB,
-            signature=b"\x33" * 64,
-        )
+        root_auth = _root_auth()
         extension_auth = AuthPayload(
             version=1,
             doc_hash=b"\x44" * 32,
@@ -1225,12 +1278,7 @@ class TestMintInspection(unittest.TestCase):
     def test_resolve_mint_chain_target_rejects_malformed_root_authority_document(
         self,
     ) -> None:
-        root_auth = AuthPayload(
-            version=1,
-            doc_hash=b"\x11" * 32,
-            sign_pub=ROOT_SIGN_PUB,
-            signature=b"\x33" * 64,
-        )
+        root_auth = _root_auth()
         bad_doc_id = b"\x88" * 8
         bad_doc_hash = b"\x44" * 32
         bad_auth_frame = Frame(
@@ -1301,12 +1349,7 @@ class TestMintInspection(unittest.TestCase):
     def test_resolve_mint_chain_target_rejects_extension_without_unsealed_root_authority(
         self,
     ) -> None:
-        root_auth = AuthPayload(
-            version=1,
-            doc_hash=b"\x11" * 32,
-            sign_pub=ROOT_SIGN_PUB,
-            signature=b"\x33" * 64,
-        )
+        root_auth = _root_auth()
         plan = RecoveryPlan(
             ciphertext=b"root-ciphertext",
             doc_id=b"\x66" * 8,

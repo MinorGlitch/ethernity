@@ -489,6 +489,15 @@ class TestExtensionEnvelope(unittest.TestCase):
                 max_size=MAX_DECOMPRESSED_PAYLOAD_BYTES + 1,
             )
 
+    def test_rejects_pathologically_small_chunking_profile_sizes(self) -> None:
+        with self.assertRaisesRegex(ValueError, "target_size must be >= MIN_EXTENSION_CHUNK_SIZE"):
+            ExtensionChunkingProfile(
+                algorithm_id=CHUNK_ALGORITHM_FASTCDC,
+                target_size=1024,
+                min_size=1024,
+                max_size=4 * 1024,
+            )
+
     def test_rejects_unknown_body_keys(self) -> None:
         chunk_bytes = b"body"
         chunk_id = hashlib.sha256(chunk_bytes).digest()

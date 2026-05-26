@@ -253,6 +253,11 @@ def _write_recovered_directory_outputs(
     destination_exists = base_dir.exists()
     if destination_exists and not base_dir.is_dir():
         raise ValueError(f"output path is not a directory: {base_dir}")
+    if destination_exists and any(base_dir.iterdir()):
+        raise ValueError(
+            f"output directory already exists and is not empty: {base_dir}; "
+            "use a new or empty --output directory"
+        )
     _ensure_directory(base_dir.parent, exist_ok=True)
     staging_dir = Path(
         tempfile.mkdtemp(prefix=f".{base_dir.name or 'recover'}.tmp-", dir=str(base_dir.parent))
@@ -269,25 +274,16 @@ def _write_recovered_directory_outputs(
             staged_path = _safe_join(staging_dir, relative_path)
             _write_atomic_file(staged_path, data)
             staged_records.append((entry, data, relative_path, staged_path))
-        if not destination_exists:
-            staging_dir.replace(base_dir)
-            written_paths = [
-                str(base_dir / relative_path)
-                for _entry, _data, relative_path, _path in staged_records
-            ]
-            if on_entry_written is not None:
-                for index, (entry, data, _relative_path, _path) in enumerate(
-                    staged_records, start=1
-                ):
-                    on_entry_written(entry, data, written_paths[index - 1], index, total)
-            return written_paths
-        return _commit_recovered_directory_outputs(
-            base_dir=base_dir,
-            staging_dir=staging_dir,
-            staged_records=staged_records,
-            total=total,
-            on_entry_written=on_entry_written,
-        )
+        if destination_exists:
+            base_dir.rmdir()
+        staging_dir.replace(base_dir)
+        written_paths = [
+            str(base_dir / relative_path) for _entry, _data, relative_path, _path in staged_records
+        ]
+        if on_entry_written is not None:
+            for index, (entry, data, _relative_path, _path) in enumerate(staged_records, start=1):
+                on_entry_written(entry, data, written_paths[index - 1], index, total)
+        return written_paths
     finally:
         shutil.rmtree(staging_dir, ignore_errors=True)
 

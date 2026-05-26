@@ -177,6 +177,14 @@ def compact(
             rich_help_panel="Unlock",
         ),
     ] = None,
+    expected_head_doc_hash: Annotated[
+        str | None,
+        typer.Option(
+            "--expected-head-doc-hash",
+            help="Require the validated compact source head to match this 32-byte doc hash.",
+            rich_help_panel="Unlock",
+        ),
+    ] = None,
     output_dir: Annotated[
         str | None,
         typer.Option(
@@ -273,6 +281,7 @@ def compact(
         layout_debug_dir=layout_debug_dir,
         qr_chunk_size=qr_chunk_size,
         passphrase=passphrase,
+        expected_head_doc_hash=expected_head_doc_hash,
         quiet=quiet_value,
     )
     debug_value = debug or bool(state and state.debug)

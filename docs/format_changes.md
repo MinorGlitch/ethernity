@@ -169,15 +169,18 @@ Use this template for each change entry:
 - Compatibility:
   - Old decoders reading new artifacts: unchanged
   - New decoders reading old artifacts: partial (hand-authored extension envelopes whose chunking
-    profile sizes exceed `MAX_DECOMPRESSED_PAYLOAD_BYTES` are now rejected)
+    profile sizes are below 4096 bytes or exceed `MAX_DECOMPRESSED_PAYLOAD_BYTES` are now rejected)
 - Version/profile bump required: no (wire bytes are unchanged; this tightens fail-closed profile
-  validation before FastCDC mask arithmetic)
+  validation before FastCDC mask arithmetic and prevents pathological chunk-count profiles)
 - Implementation refs:
   - `src/ethernity/formats/extension_envelope.py`
+  - `kit/app/extension_envelope.js`
 - Test refs:
   - `tests/unit/test_extension_envelope.py`
+  - `kit/tests/extension_recovery.test.mjs`
 - Security impact:
-  - Prevents absurd authenticated chunking profiles from reaching replay arithmetic.
+  - Prevents absurd authenticated chunking profiles from reaching replay arithmetic and rejects
+    tiny profiles that could force excessive extension chunk counts.
 
 ## 2026-05-14 - Reject dormant extension inline chunks
 

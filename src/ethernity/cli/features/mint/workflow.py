@@ -52,6 +52,7 @@ from ethernity.cli.features.recover.planning import (
 from ethernity.cli.features.recover.wizard import _load_shard_frames, _prompt_key_material
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.events import EventSink, emit_phase, emit_progress, event_session
+from ethernity.cli.shared.inspection import blocking_issue_from_exception
 from ethernity.cli.shared.io.outputs import (
     _commit_prepared_output_dir,
     _discard_prepared_output_dir,
@@ -97,6 +98,7 @@ from ethernity.extensions.recovery import (
     decode_imported_extension_link,
     decode_root_manifest,
     recover_chain_entries,
+    validate_expected_recovery_head,
     validate_root_manifest_authority,
 )
 from ethernity.formats.envelope_codec import decode_any_envelope, decode_envelope
@@ -311,10 +313,12 @@ def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectio
             chain_target_trusted = False
             _append_unique_blocking_issue(
                 blocking_issues,
-                _mint_blocking_issue(
-                    api_codes.RECOVERY_HEAD_UNTRUSTED,
-                    str(exc),
-                    details={"stage": "replay"},
+                dict(
+                    blocking_issue_from_exception(
+                        exc,
+                        fallback_code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+                        fallback_details={"stage": "replay"},
+                    )
                 ),
             )
 
@@ -335,10 +339,12 @@ def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectio
             except Exception as exc:
                 _append_unique_blocking_issue(
                     blocking_issues,
-                    _mint_blocking_issue(
-                        api_codes.RECOVERY_HEAD_UNTRUSTED,
-                        str(exc),
-                        details={"stage": "replay"},
+                    dict(
+                        blocking_issue_from_exception(
+                            exc,
+                            fallback_code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+                            fallback_details={"stage": "replay"},
+                        )
                     ),
                 )
         else:
@@ -435,7 +441,7 @@ def _build_recovery_plan_for_mint(
         root_dir=None,
         extension_index=args.extension_index,
         extension_doc_hash=args.extension_doc_hash,
-        expected_head_doc_hash=None,
+        expected_head_doc_hash=args.expected_head_doc_hash,
         args=state.recover_args,
         quiet=args.quiet,
     )
@@ -668,7 +674,7 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                     root_dir=None,
                     extension_index=working_args.extension_index,
                     extension_doc_hash=working_args.extension_doc_hash,
-                    expected_head_doc_hash=None,
+                    expected_head_doc_hash=working_args.expected_head_doc_hash,
                     args=recover_args,
                     quiet=quiet,
                 )
@@ -1366,12 +1372,22 @@ def _resolve_mint_chain_target(
     requested_doc_hash = getattr(plan, "extension_doc_hash", None)
     _validate_mint_extension_selector(requested_index, requested_doc_hash)
     if requested_index == 0:
+        validate_expected_recovery_head(
+            plan,
+            selected_extension_index=None,
+            selected_extension_doc_hash=None,
+        )
         return replace(plan, extension_index=None, extension_doc_hash=None, import_documents=())
 
     explicit_extension_selection = requested_index is not None or requested_doc_hash is not None
     if len(import_documents) <= 1 or auth_payload is None or passphrase is None:
         if explicit_extension_selection:
             _raise_missing_mint_extension_target(requested_index, requested_doc_hash)
+        validate_expected_recovery_head(
+            plan,
+            selected_extension_index=None,
+            selected_extension_doc_hash=None,
+        )
         return plan
 
     documents_by_doc_hash = {document.doc_hash: document for document in import_documents}
@@ -1384,7 +1400,13 @@ def _resolve_mint_chain_target(
             )
         else:
             root_manifest, root_payload = root_decoded
-        root_sign_pub = validate_root_manifest_authority(root_manifest, auth_payload)
+        root_sign_pub = validate_root_manifest_authority(
+            root_manifest,
+            auth_payload,
+            doc_hash=plan.doc_hash,
+        )
+    except ApiCommandError:
+        raise
     except ValueError as exc:
         raise ValueError(f"imported extension chain could not be trusted: {exc}") from exc
 
@@ -1401,6 +1423,11 @@ def _resolve_mint_chain_target(
             )
         if explicit_extension_selection:
             _raise_missing_mint_extension_target(requested_index, requested_doc_hash)
+        validate_expected_recovery_head(
+            plan,
+            selected_extension_index=None,
+            selected_extension_doc_hash=None,
+        )
         return plan
 
     candidates = _decode_mint_extension_candidates(
@@ -1432,6 +1459,11 @@ def _resolve_mint_chain_target(
         except ValueError as exc:
             raise ValueError(f"imported extension chain could not be trusted: {exc}") from exc
     if not decoded_links:
+        validate_expected_recovery_head(
+            plan,
+            selected_extension_index=None,
+            selected_extension_doc_hash=None,
+        )
         return replace(plan, extension_index=None, extension_doc_hash=None, import_documents=())
     decoded_links.sort(key=lambda item: item.link.document.header.index)
     try:
@@ -1451,6 +1483,11 @@ def _resolve_mint_chain_target(
         raise ValueError(f"imported extension chain could not be trusted: {exc}") from exc
     latest_decoded = decoded_links[-1]
     latest = documents_by_doc_hash[latest_decoded.link.doc_hash]
+    validate_expected_recovery_head(
+        plan,
+        selected_extension_index=latest_decoded.link.document.header.index,
+        selected_extension_doc_hash=latest.doc_hash.hex(),
+    )
 
     return replace(
         plan,

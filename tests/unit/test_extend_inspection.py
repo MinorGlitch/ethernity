@@ -50,9 +50,9 @@ from ethernity.formats.extension_envelope_constants import CHUNK_ALGORITHM_FASTC
 
 TEST_CHUNKING = ExtensionChunkingProfile(
     algorithm_id=CHUNK_ALGORITHM_FASTCDC,
-    target_size=16,
-    min_size=4,
-    max_size=64,
+    target_size=16 * 1024,
+    min_size=4 * 1024,
+    max_size=64 * 1024,
 )
 
 

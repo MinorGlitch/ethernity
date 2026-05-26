@@ -119,6 +119,7 @@ def run_compact_api_command(args: CompactArgs, *, debug: bool = False) -> int:
             "shard_scan": list(args.shard_scan or []),
             "auth_fallback_file": args.auth_fallback_file,
             "auth_payloads_file": args.auth_payloads_file,
+            "expected_head_doc_hash": args.expected_head_doc_hash,
             "layout_debug_dir": args.layout_debug_dir,
             "qr_chunk_size": args.qr_chunk_size,
             "has_passphrase": args.passphrase is not None,
@@ -158,6 +159,10 @@ def run_compact_api_command(args: CompactArgs, *, debug: bool = False) -> int:
             "shard_documents": list(result.shard_paths),
             "signing_key_shard_documents": list(result.signing_key_shard_paths),
         },
+        expected_head_doc_hash=result.expected_head_doc_hash,
+        validated_head_index=result.source_head_index,
+        validated_head_doc_hash=result.source_head_doc_hash,
+        freshness_scope=result.freshness_scope,
     )
     return 0
 

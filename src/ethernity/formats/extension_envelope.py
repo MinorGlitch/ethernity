@@ -77,6 +77,7 @@ _ALLOWED_HEADER_KEYS = frozenset(
 
 _BODY_FILES = 1
 _BODY_CHUNKS = 2
+MIN_EXTENSION_CHUNK_SIZE = 4 * 1024
 
 
 def _require_exact_int_keys(
@@ -124,6 +125,11 @@ class ExtensionChunkingProfile:
             ("min_size", min_size),
             ("max_size", max_size),
         ):
+            if value < MIN_EXTENSION_CHUNK_SIZE:
+                raise ValueError(
+                    f"extension chunking {label} must be >= MIN_EXTENSION_CHUNK_SIZE "
+                    f"({MIN_EXTENSION_CHUNK_SIZE})"
+                )
             if value > MAX_DECOMPRESSED_PAYLOAD_BYTES:
                 raise ValueError(
                     f"extension chunking {label} exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES"
@@ -689,6 +695,7 @@ __all__ = [
     "ExtensionChunkRecord",
     "ExtensionChunkRef",
     "ExtensionFile",
+    "MIN_EXTENSION_CHUNK_SIZE",
     "build_extension_header",
     "derive_chain_id",
 ]

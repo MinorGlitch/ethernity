@@ -560,6 +560,7 @@ def _compact_started_args_for_error(
     layout_debug_dir: str | None,
     qr_chunk_size: str | None,
     passphrase: str | None,
+    expected_head_doc_hash: str | None,
 ) -> dict[str, Any]:
     return {
         "config": _explicit_api_config_value(ctx, config),
@@ -572,6 +573,7 @@ def _compact_started_args_for_error(
         "shard_scan": list(shard_scan or []),
         "auth_fallback_file": auth_fallback_file,
         "auth_payloads_file": auth_payloads_file,
+        "expected_head_doc_hash": _normalized_doc_hash_for_started(expected_head_doc_hash),
         "layout_debug_dir": layout_debug_dir,
         "qr_chunk_size": _optional_int_for_started(qr_chunk_size, min_value=1),
         "has_passphrase": passphrase is not None,
@@ -659,6 +661,7 @@ def _mint_started_args_for_error(
     auth_payloads_file: str | None,
     extension_index: str | None,
     extension_doc_hash: str | None,
+    expected_head_doc_hash: str | None,
     signing_key_shard_fallback_file: list[str] | None,
     signing_key_shard_payloads_file: list[str] | None,
     signing_key_shard_scan: list[str] | None,
@@ -689,6 +692,7 @@ def _mint_started_args_for_error(
         "auth_payloads_file": auth_payloads_file,
         "extension_index": _optional_int_for_started(extension_index),
         "extension_doc_hash": _normalized_extension_doc_hash_for_started(extension_doc_hash),
+        "expected_head_doc_hash": _normalized_doc_hash_for_started(expected_head_doc_hash),
         "signing_key_shard_fallback_file": list(signing_key_shard_fallback_file or []),
         "signing_key_shard_payloads_file": list(signing_key_shard_payloads_file or []),
         "signing_key_shard_scan": list(signing_key_shard_scan or []),
@@ -864,6 +868,7 @@ def _build_mint_api_args(
     auth_payloads_file: str | None,
     extension_index: int | None,
     extension_doc_hash: str | None,
+    expected_head_doc_hash: str | None,
     signing_key_shard_fallback_file: list[str] | None,
     signing_key_shard_dir: str | None,
     signing_key_shard_payloads_file: list[str] | None,
@@ -900,6 +905,7 @@ def _build_mint_api_args(
         )
     )
     extension_doc_hash_value = _parse_api_extension_doc_hash_option(extension_doc_hash)
+    expected_head_doc_hash_value = _parse_api_expected_head_doc_hash_option(expected_head_doc_hash)
     return MintArgs(
         config=config_value,
         paper=paper_value,
@@ -915,6 +921,7 @@ def _build_mint_api_args(
         auth_payloads_file=auth_payloads_file,
         extension_index=extension_index,
         extension_doc_hash=extension_doc_hash_value,
+        expected_head_doc_hash=expected_head_doc_hash_value,
         signing_key_shard_fallback_file=signing_key_shard_files,
         signing_key_shard_payloads_file=list(signing_key_shard_payloads_file or []),
         signing_key_shard_scan=list(signing_key_shard_scan or []),
@@ -968,6 +975,7 @@ def _run_mint_operation(
     auth_payloads_file: str | None,
     extension_index: int | None,
     extension_doc_hash: str | None,
+    expected_head_doc_hash: str | None,
     signing_key_shard_fallback_file: list[str] | None,
     signing_key_shard_dir: str | None,
     signing_key_shard_payloads_file: list[str] | None,
@@ -1002,6 +1010,7 @@ def _run_mint_operation(
         auth_payloads_file=auth_payloads_file,
         extension_index=extension_index,
         extension_doc_hash=extension_doc_hash,
+        expected_head_doc_hash=expected_head_doc_hash,
         signing_key_shard_fallback_file=list(signing_key_shard_fallback_file or []),
         signing_key_shard_dir=signing_key_shard_dir,
         signing_key_shard_payloads_file=list(signing_key_shard_payloads_file or []),
@@ -1202,8 +1211,10 @@ def _build_compact_api_args(
     layout_debug_dir: str | None,
     qr_chunk_size: str | None,
     passphrase: str | None,
+    expected_head_doc_hash: str | None = None,
 ) -> CompactArgs:
     qr_chunk_size_cli = _parse_api_int_option("--qr-chunk-size", qr_chunk_size, min_value=1)
+    expected_head_doc_hash_value = _parse_api_expected_head_doc_hash_option(expected_head_doc_hash)
     return CompactArgs(
         config=config_value,
         paper=paper_value,
@@ -1218,6 +1229,7 @@ def _build_compact_api_args(
         layout_debug_dir=layout_debug_dir,
         qr_chunk_size=qr_chunk_size_cli,
         passphrase=passphrase,
+        expected_head_doc_hash=expected_head_doc_hash_value,
         quiet=True,
     )
 
@@ -1273,6 +1285,13 @@ def compact(
         str | None,
         typer.Option("--passphrase", help="Passphrase to decrypt and compact with."),
     ] = None,
+    expected_head_doc_hash: Annotated[
+        str | None,
+        typer.Option(
+            "--expected-head-doc-hash",
+            help="Require the validated compact source head to match this 32-byte doc hash.",
+        ),
+    ] = None,
     config: Annotated[
         str | None,
         typer.Option("--config", help="Use this config file."),
@@ -1305,6 +1324,7 @@ def compact(
             layout_debug_dir=layout_debug_dir,
             qr_chunk_size=qr_chunk_size,
             passphrase=passphrase,
+            expected_head_doc_hash=expected_head_doc_hash,
         )
         return run_compact_api_command(args, debug=_state_debug_enabled(state))
 
@@ -1328,6 +1348,7 @@ def compact(
                 layout_debug_dir=layout_debug_dir,
                 qr_chunk_size=qr_chunk_size,
                 passphrase=passphrase,
+                expected_head_doc_hash=expected_head_doc_hash,
             ),
         ),
     )
@@ -2287,6 +2308,13 @@ def mint(
             help="Mint against the extension with this authenticated doc hash.",
         ),
     ] = None,
+    expected_head_doc_hash: Annotated[
+        str | None,
+        typer.Option(
+            "--expected-head-doc-hash",
+            help="Require the validated mint source head to match this 32-byte doc hash.",
+        ),
+    ] = None,
     signing_key_shard_fallback_file: Annotated[
         list[str] | None,
         typer.Option(
@@ -2423,6 +2451,7 @@ def mint(
                 min_value=0,
             ),
             extension_doc_hash=extension_doc_hash,
+            expected_head_doc_hash=expected_head_doc_hash,
             signing_key_shard_fallback_file=signing_key_shard_fallback_file,
             signing_key_shard_dir=signing_key_shard_dir,
             signing_key_shard_payloads_file=signing_key_shard_payloads_file,
@@ -2461,6 +2490,7 @@ def mint(
                 auth_payloads_file=auth_payloads_file,
                 extension_index=extension_index,
                 extension_doc_hash=extension_doc_hash,
+                expected_head_doc_hash=expected_head_doc_hash,
                 signing_key_shard_fallback_file=signing_key_shard_fallback_file,
                 signing_key_shard_payloads_file=signing_key_shard_payloads_file,
                 signing_key_shard_scan=signing_key_shard_scan,
@@ -2538,6 +2568,13 @@ def inspect_mint(
         typer.Option(
             "--extension-doc-hash",
             help="Inspect minting against the extension with this authenticated doc hash.",
+        ),
+    ] = None,
+    expected_head_doc_hash: Annotated[
+        str | None,
+        typer.Option(
+            "--expected-head-doc-hash",
+            help="Require the validated mint source head to match this 32-byte doc hash.",
         ),
     ] = None,
     signing_key_shard_fallback_file: Annotated[
@@ -2668,6 +2705,7 @@ def inspect_mint(
                 min_value=0,
             ),
             extension_doc_hash=extension_doc_hash,
+            expected_head_doc_hash=expected_head_doc_hash,
             signing_key_shard_fallback_file=signing_key_shard_fallback_file,
             signing_key_shard_dir=signing_key_shard_dir,
             signing_key_shard_payloads_file=signing_key_shard_payloads_file,
@@ -2706,6 +2744,7 @@ def inspect_mint(
                 auth_payloads_file=auth_payloads_file,
                 extension_index=extension_index,
                 extension_doc_hash=extension_doc_hash,
+                expected_head_doc_hash=expected_head_doc_hash,
                 signing_key_shard_fallback_file=signing_key_shard_fallback_file,
                 signing_key_shard_payloads_file=signing_key_shard_payloads_file,
                 signing_key_shard_scan=signing_key_shard_scan,

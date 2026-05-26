@@ -234,11 +234,7 @@ def recover(
         fallback_file,
         payloads_file,
         list(scan or []),
-        extension_selector_present=(
-            extension_index is not None
-            or extension_doc_hash is not None
-            or expected_head_doc_hash is not None
-        ),
+        extension_selector_present=(extension_index is not None or extension_doc_hash is not None),
         stdin_is_tty=sys.stdin.isatty(),
     )
 

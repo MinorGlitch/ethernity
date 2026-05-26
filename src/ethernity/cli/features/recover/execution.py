@@ -32,6 +32,7 @@ from ethernity.cli.shared.ui_api import print_completion_panel, status
 from ethernity.crypto import decrypt_bytes
 from ethernity.extensions.recovery import (
     recover_chain_entries,
+    validate_expected_recovery_head,
     validate_root_manifest_authority,
 )
 from ethernity.formats.envelope_codec import decode_envelope, extract_payloads
@@ -67,7 +68,12 @@ def decrypt_manifest_extract_selection(
         plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
         manifest, payload = decode_envelope(plaintext)
         extracted = extract_payloads(manifest, payload)
-    validate_root_manifest_authority(manifest, plan.auth_payload)
+    validate_root_manifest_authority(manifest, plan.auth_payload, doc_hash=plan.doc_hash)
+    validate_expected_recovery_head(
+        plan,
+        selected_extension_index=None,
+        selected_extension_doc_hash=None,
+    )
     return RecoverDecryptResult(manifest=manifest, extracted=extracted)
 
 

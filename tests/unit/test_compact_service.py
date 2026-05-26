@@ -27,7 +27,7 @@ from ethernity.cli.features.compact.service import (
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.crypto import doc_id_from_doc_hash
 from ethernity.cli.shared.ndjson import ApiCommandError
-from ethernity.cli.shared.types import CompactArgs, RecoverArgs
+from ethernity.cli.shared.types import BackupResult, CompactArgs, RecoverArgs
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase, split_signing_seed
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import VERSION, Frame, FrameType
@@ -93,6 +93,17 @@ def _signing_seed_shard_frames(
             data=encode_shard_payload(shard),
         )
         for shard in shards
+    )
+
+
+def _backup_result() -> BackupResult:
+    return BackupResult(
+        doc_id=b"\xaa" * 8,
+        qr_path="/tmp/out/qr.pdf",
+        recovery_path="/tmp/out/recovery.pdf",
+        shard_paths=(),
+        signing_key_shard_paths=(),
+        passphrase_used="secret",
     )
 
 
@@ -391,7 +402,7 @@ class TestCompactService(unittest.TestCase):
                 ) as plan_backup_from_args,
                 mock.patch(
                     "ethernity.cli.features.compact.service.run_backup",
-                    return_value="backup-result",
+                    return_value=_backup_result(),
                 ),
             ):
                 result = run_compact(
@@ -403,7 +414,7 @@ class TestCompactService(unittest.TestCase):
                     )
                 )
 
-        self.assertEqual(result, "backup-result")
+        self.assertEqual(result.doc_id, b"\xaa" * 8)
         backup_args = plan_backup_from_args.call_args.args[0]
         self.assertEqual(backup_args.shard_threshold, 2)
         self.assertEqual(backup_args.shard_count, 3)
@@ -483,7 +494,7 @@ class TestCompactService(unittest.TestCase):
                 ) as plan_backup_from_args,
                 mock.patch(
                     "ethernity.cli.features.compact.service.run_backup",
-                    return_value="backup-result",
+                    return_value=_backup_result(),
                 ),
             ):
                 result = run_compact(
@@ -495,7 +506,7 @@ class TestCompactService(unittest.TestCase):
                     )
                 )
 
-        self.assertEqual(result, "backup-result")
+        self.assertEqual(result.doc_id, b"\xaa" * 8)
         backup_args = plan_backup_from_args.call_args.args[0]
         self.assertEqual(backup_args.shard_threshold, 2)
         self.assertEqual(backup_args.shard_count, 3)
@@ -649,7 +660,7 @@ class TestCompactService(unittest.TestCase):
                 ) as plan_backup_from_args,
                 mock.patch(
                     "ethernity.cli.features.compact.service.run_backup",
-                    return_value="backup-result",
+                    return_value=_backup_result(),
                 ),
             ):
                 result = run_compact(
@@ -661,7 +672,7 @@ class TestCompactService(unittest.TestCase):
                     )
                 )
 
-        self.assertEqual(result, "backup-result")
+        self.assertEqual(result.doc_id, b"\xaa" * 8)
         backup_args = plan_backup_from_args.call_args.args[0]
         self.assertEqual(backup_args.shard_threshold, 2)
         self.assertEqual(backup_args.shard_count, 3)
@@ -796,7 +807,7 @@ class TestCompactService(unittest.TestCase):
         self.assertEqual(exc.details, {"stage": "replay"})
         run_backup_mock.assert_not_called()
 
-    @mock.patch("ethernity.cli.features.compact.service.run_backup", return_value="backup-result")
+    @mock.patch("ethernity.cli.features.compact.service.run_backup", return_value=_backup_result())
     @mock.patch(
         "ethernity.cli.features.compact.service.plan_backup_from_args",
         return_value=SimpleNamespace(
@@ -880,11 +891,13 @@ class TestCompactService(unittest.TestCase):
                 shard_scan=["shard-a.pdf"],
                 auth_fallback_file="auth.txt",
                 auth_payloads_file="auth.payloads",
+                expected_head_doc_hash="ab" * 32,
                 quiet=True,
             )
         )
 
-        self.assertEqual(result, "backup-result")
+        self.assertEqual(result.doc_id, b"\xaa" * 8)
+        self.assertEqual(result.expected_head_doc_hash, "ab" * 32)
         recover_args = plan_recover_from_args.call_args.args[0]
         self.assertIsInstance(recover_args, RecoverArgs)
         self.assertEqual(recover_args.scan, ["/tmp/root"])
@@ -893,6 +906,7 @@ class TestCompactService(unittest.TestCase):
         self.assertEqual(recover_args.shard_scan, ["shard-a.pdf"])
         self.assertEqual(recover_args.auth_fallback_file, "auth.txt")
         self.assertEqual(recover_args.auth_payloads_file, "auth.payloads")
+        self.assertEqual(recover_args.expected_head_doc_hash, "ab" * 32)
         self.assertFalse(recover_args.allow_unsigned)
         backup_args = plan_backup_from_args.call_args.args[0]
         self.assertEqual(backup_args.output_dir, "/tmp/out")
@@ -1021,7 +1035,7 @@ class TestCompactService(unittest.TestCase):
             {"expected": "aa" * 32, "actual": "bb" * 32},
         )
 
-    @mock.patch("ethernity.cli.features.compact.service.run_backup", return_value="backup-result")
+    @mock.patch("ethernity.cli.features.compact.service.run_backup", return_value=_backup_result())
     @mock.patch(
         "ethernity.cli.features.compact.service.plan_backup_from_args",
         return_value=SimpleNamespace(
@@ -1104,14 +1118,14 @@ class TestCompactService(unittest.TestCase):
             )
         )
 
-        self.assertEqual(result, "backup-result")
+        self.assertEqual(result.doc_id, b"\xaa" * 8)
         self.assertEqual(
             infer_root_publish_policy.call_args.kwargs["sign_pub"],
             derive_public_key(b"\x33" * 32),
         )
         self.assertNotIn("allow_unsigned", infer_root_publish_policy.call_args.kwargs)
 
-    @mock.patch("ethernity.cli.features.compact.service.run_backup", return_value="backup-result")
+    @mock.patch("ethernity.cli.features.compact.service.run_backup", return_value=_backup_result())
     @mock.patch(
         "ethernity.cli.features.compact.service.plan_backup_from_args",
         return_value=SimpleNamespace(
@@ -1194,7 +1208,7 @@ class TestCompactService(unittest.TestCase):
             )
         )
 
-        self.assertEqual(result, "backup-result")
+        self.assertEqual(result.doc_id, b"\xaa" * 8)
         self.assertIsNone(infer_root_publish_policy.call_args.kwargs["sign_pub"])
         self.assertNotIn("allow_unsigned", infer_root_publish_policy.call_args.kwargs)
         backup_args = _plan_backup_from_args.call_args.args[0]

@@ -42,6 +42,7 @@ from ethernity.cli.shared.types import RecoverArgs
 from ethernity.crypto import decrypt_bytes
 from ethernity.extensions.recovery import (
     recover_chain_entries,
+    validate_expected_recovery_head,
     validate_root_manifest_authority,
 )
 from ethernity.formats.envelope_codec import decode_envelope
@@ -92,6 +93,25 @@ def _inspect_decrypt_blocking_issue(exc: Exception) -> dict[str, object]:
         fallback_code="UNLOCK_FAILED",
         fallback_details={"stage": "decrypt"},
     )
+
+
+def _validated_head_from_blocking_issues(
+    blocking_issues: list[dict[str, object]],
+    *,
+    default_index: int,
+    default_doc_hash: str,
+) -> tuple[int, str]:
+    for issue in reversed(blocking_issues):
+        if issue.get("code") != api_codes.RECOVERY_HEAD_UNTRUSTED:
+            continue
+        details = issue.get("details")
+        if not isinstance(details, dict):
+            continue
+        index = details.get("validated_head_index")
+        doc_hash = details.get("validated_head_doc_hash")
+        if isinstance(index, int) and isinstance(doc_hash, str):
+            return index, doc_hash
+    return default_index, default_doc_hash
 
 
 def _recover_started_args(
@@ -256,7 +276,16 @@ def run_recover_inspect_api_command(args: RecoverArgs, *, debug: bool = False) -
                         debug=debug,
                     )
                     manifest, _payload = decode_envelope(plaintext)
-                    validate_root_manifest_authority(manifest, inspection.auth_payload)
+                    validate_root_manifest_authority(
+                        manifest,
+                        inspection.auth_payload,
+                        doc_hash=inspection.doc_hash,
+                    )
+                    validate_expected_recovery_head(
+                        plan,
+                        selected_extension_index=None,
+                        selected_extension_doc_hash=None,
+                    )
                 source_summary = _manifest_summary_payload(manifest)
                 emit_progress(
                     phase="decrypt",
@@ -273,6 +302,12 @@ def run_recover_inspect_api_command(args: RecoverArgs, *, debug: bool = False) -
                     blocking_issues.append(_inspect_replay_blocking_issue(exc))
                 else:
                     blocking_issues.append(_inspect_decrypt_blocking_issue(exc))
+
+        validated_head_index, validated_head_doc_hash = _validated_head_from_blocking_issues(
+            blocking_issues,
+            default_index=selected_extension_index if selected_extension_index is not None else 0,
+            default_doc_hash=selected_extension_doc_hash or inspection.doc_hash.hex(),
+        )
 
         emit_result(
             **inspect_result_payload(
@@ -297,10 +332,8 @@ def run_recover_inspect_api_command(args: RecoverArgs, *, debug: bool = False) -
                 selected_extension_index=selected_extension_index,
                 selected_extension_doc_hash=selected_extension_doc_hash,
                 expected_head_doc_hash=args.expected_head_doc_hash,
-                validated_head_index=(
-                    selected_extension_index if selected_extension_index is not None else 0
-                ),
-                validated_head_doc_hash=selected_extension_doc_hash or inspection.doc_hash.hex(),
+                validated_head_index=validated_head_index,
+                validated_head_doc_hash=validated_head_doc_hash,
                 freshness_scope=(
                     "supplied_carriers_only"
                     if selected_extension_index is not None

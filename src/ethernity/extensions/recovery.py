@@ -353,7 +353,7 @@ def recover_chain_entries(
         passphrase=plan.passphrase,
         debug=debug,
     )
-    validate_root_manifest_authority(root_manifest, plan.auth_payload)
+    validate_root_manifest_authority(root_manifest, plan.auth_payload, doc_hash=plan.doc_hash)
     _ensure_expected_head_satisfied(
         plan,
         selected_extension_index=None,
@@ -381,7 +381,7 @@ def recover_imported_chain_entries(
             requested_index=plan.extension_index,
             requested_doc_hash=plan.extension_doc_hash,
         )
-        validate_root_manifest_authority(root_manifest, plan.auth_payload)
+        validate_root_manifest_authority(root_manifest, plan.auth_payload, doc_hash=plan.doc_hash)
         _ensure_expected_head_satisfied(
             plan,
             selected_extension_index=None,
@@ -395,7 +395,7 @@ def recover_imported_chain_entries(
         )
 
     if plan.extension_index == 0:
-        validate_root_manifest_authority(root_manifest, plan.auth_payload)
+        validate_root_manifest_authority(root_manifest, plan.auth_payload, doc_hash=plan.doc_hash)
         _ensure_expected_head_satisfied(
             plan,
             selected_extension_index=None,
@@ -435,7 +435,11 @@ def recover_imported_chain_entries(
             },
         )
 
-    root_sign_pub = validate_root_manifest_authority(root_manifest, plan.auth_payload)
+    root_sign_pub = validate_root_manifest_authority(
+        root_manifest,
+        plan.auth_payload,
+        doc_hash=plan.doc_hash,
+    )
     if root_sign_pub is None:
         raise ApiCommandError(
             code=api_codes.RECOVERY_HEAD_UNTRUSTED,
@@ -543,6 +547,19 @@ def _ensure_expected_head_satisfied(
             "validated_head_doc_hash": validated_head_doc_hash,
             "freshness_scope": "supplied_carriers_only",
         },
+    )
+
+
+def validate_expected_recovery_head(
+    plan: RecoveryPlanLike,
+    *,
+    selected_extension_index: int | None,
+    selected_extension_doc_hash: str | None,
+) -> None:
+    _ensure_expected_head_satisfied(
+        plan,
+        selected_extension_index=selected_extension_index,
+        selected_extension_doc_hash=selected_extension_doc_hash,
     )
 
 
@@ -1203,14 +1220,33 @@ def resolve_root_manifest_authority(
 def validate_root_manifest_authority(
     manifest: EnvelopeManifest,
     auth_payload: AuthPayload | None,
+    *,
+    doc_hash: bytes,
 ) -> bytes | None:
-    """Validate that any verified root AUTH matches the embedded signing seed."""
+    """Cryptographically validate root AUTH and its embedded signing authority."""
+
+    if auth_payload is not None:
+        if not hmac.compare_digest(auth_payload.doc_hash, doc_hash):
+            raise ApiCommandError(
+                code=api_codes.AUTH_DOC_HASH_MISMATCH,
+                message="root AUTH doc_hash does not match the recovered root ciphertext",
+                details={"stage": "auth"},
+            )
+        if not verify_auth(
+            doc_hash, sign_pub=auth_payload.sign_pub, signature=auth_payload.signature
+        ):
+            raise ApiCommandError(
+                code=api_codes.AUTH_SIGNATURE_INVALID,
+                message="root AUTH signature verification failed",
+                details={"stage": "auth"},
+            )
 
     authority = resolve_root_manifest_authority(manifest, auth_payload)
     if authority.mismatch:
         raise ApiCommandError(
             code=api_codes.ROOT_AUTHORITY_MISMATCH,
             message="embedded signing seed does not match the verified root AUTH authority",
+            details={"stage": "auth"},
         )
     return authority.embedded_sign_pub
 
@@ -1290,5 +1326,6 @@ __all__ = [
     "resolve_required_auth_payload",
     "resolve_root_manifest_authority",
     "select_root_import_document",
+    "validate_expected_recovery_head",
     "validate_root_manifest_authority",
 ]

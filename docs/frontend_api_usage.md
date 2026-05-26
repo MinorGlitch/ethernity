@@ -148,7 +148,8 @@ last validated head. Do not treat filenames or `available_extensions` alone as a
 the supplied chain state; use the validated-head fields for that. These fields do not prove that no
 later extension exists outside the supplied recovery set. When the UI knows the trusted head from a
 prior session or user confirmation, pass `--expected-head-doc-hash <hash>` so recover/extend fails
-closed if the supplied media validates to a different head.
+closed if the supplied media validates to a different head. Use the same guard for mint and compact
+when those actions are launched from a previously displayed head.
 
 ### Compaction Flow
 
@@ -161,6 +162,8 @@ The command:
 - reuses saved backup/config defaults for render policy when the UI does not override them, but
   never infers the output directory from saved backup defaults
 - performs authenticated recovery semantics
+- emits `expected_head_doc_hash`, `validated_head_index`, `validated_head_doc_hash`, and
+  `freshness_scope` for the source head it flattened
 
 ### Recovery Flow
 

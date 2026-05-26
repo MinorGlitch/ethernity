@@ -236,6 +236,7 @@ def _extension_envelope(root_doc_hash: bytes) -> bytes:
         input_origin="file",
         input_roots=(),
         chunker=lambda data, _profile: (data,),
+        existing_file_sizes={},
     )
     return encode_extension_envelope(built.document)
 
@@ -2255,7 +2256,11 @@ class TestCliApi(unittest.TestCase):
             exit_code = run_recover_inspect_api_command(args)
 
         self.assertEqual(exit_code, 0)
-        validate_root_manifest_authority.assert_called_once_with(manifest, inspection.auth_payload)
+        validate_root_manifest_authority.assert_called_once_with(
+            manifest,
+            inspection.auth_payload,
+            doc_hash=inspection.doc_hash,
+        )
         events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
         self._assert_valid_events(events)
         self.assertEqual(events[-1]["source_summary"], None)
@@ -2270,6 +2275,64 @@ class TestCliApi(unittest.TestCase):
                     "details": {},
                 }
             ],
+        )
+
+    def test_run_recover_inspect_api_command_reports_expected_head_mismatch_for_direct_scan(
+        self,
+    ) -> None:
+        args = RecoverArgs(
+            scan=["/tmp/qr_document.pdf"],
+            passphrase="secret",
+            expected_head_doc_hash="aa" * 32,
+            quiet=True,
+        )
+        inspection = _extend_root_inspection(passphrase="secret", satisfied=True)
+        manifest = EnvelopeManifest(
+            format_version=1,
+            created_at=0.0,
+            input_origin="file",
+            input_roots=(),
+            sealed=False,
+            signing_seed=b"\x33" * 32,
+            payload_codec="raw",
+            payload_raw_len=None,
+            files=(),
+        )
+        buffer = io.StringIO()
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.api_handlers.inspect_from_args",
+                return_value=inspection,
+            ),
+            mock.patch(
+                "ethernity.cli.features.recover.api_handlers.plan_from_inspection",
+                return_value=SimpleNamespace(
+                    import_documents=(),
+                    doc_hash=inspection.doc_hash,
+                    expected_head_doc_hash="aa" * 32,
+                ),
+            ),
+            mock.patch(
+                "ethernity.cli.features.recover.api_handlers.decrypt_bytes",
+                return_value=b"plaintext",
+            ),
+            mock.patch(
+                "ethernity.cli.features.recover.api_handlers.decode_envelope",
+                return_value=(manifest, b"payload"),
+            ),
+            ndjson_session(stream=buffer),
+        ):
+            exit_code = run_recover_inspect_api_command(args)
+
+        self.assertEqual(exit_code, 0)
+        events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertIsNone(events[-1]["source_summary"])
+        self.assertEqual(events[-1]["validated_head_index"], 0)
+        self.assertEqual(events[-1]["validated_head_doc_hash"], inspection.doc_hash.hex())
+        self.assertEqual(
+            events[-1]["blocking_issues"][0]["code"],
+            api_codes.RECOVERY_HEAD_UNTRUSTED,
         )
 
     def test_run_recover_inspect_api_command_preserves_plan_stage_trust_code(self) -> None:
@@ -4567,6 +4630,10 @@ class TestCliApi(unittest.TestCase):
             shard_paths=("/tmp/out/shard-deadbeef-1-of-2.pdf",),
             signing_key_shard_paths=("/tmp/out/signing-key-shard-deadbeef-1-of-2.pdf",),
             passphrase_used=None,
+            source_head_index=0,
+            source_head_doc_hash="55" * 32,
+            expected_head_doc_hash=None,
+            freshness_scope=None,
         )
         buffer = io.StringIO()
         with (
@@ -4964,6 +5031,7 @@ class TestCliApi(unittest.TestCase):
         inspection = SimpleNamespace(
             recovery=SimpleNamespace(
                 doc_id=b"\x02" * 8,
+                doc_hash=b"\x22" * 32,
                 auth_status="missing",
                 input_label="QR payloads",
                 input_detail="main.txt",
@@ -5027,6 +5095,7 @@ class TestCliApi(unittest.TestCase):
         inspection = SimpleNamespace(
             recovery=SimpleNamespace(
                 doc_id=b"\x03" * 8,
+                doc_hash=b"\x33" * 32,
                 auth_status="verified",
                 input_label="QR payloads",
                 input_detail="main.txt",

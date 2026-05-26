@@ -77,9 +77,9 @@ def build_extension_document(
     input_origin: str,
     input_roots: Sequence[str],
     chunker: Chunker,
+    existing_file_sizes: Mapping[str, int],
     existing_chunks: Mapping[bytes, bytes] | None = None,
     existing_logical_bytes: int = 0,
-    existing_file_sizes: Mapping[str, int] | None = None,
 ) -> BuiltExtensionDocument:
     """Build a validated extension envelope from changed/new input files."""
 
@@ -107,10 +107,8 @@ def build_extension_document(
     reused_chunks = 0
     if total_logical_bytes > MAX_DECOMPRESSED_PAYLOAD_BYTES:
         raise ValueError("root logical bytes exceed MAX_DECOMPRESSED_PAYLOAD_BYTES")
-    if total_logical_bytes > 0 and existing_file_sizes is None:
-        raise ValueError("existing file sizes are required when existing logical bytes are set")
     known_file_sizes = _normalize_existing_file_sizes(existing_file_sizes)
-    if existing_file_sizes is not None and sum(known_file_sizes.values()) != total_logical_bytes:
+    if sum(known_file_sizes.values()) != total_logical_bytes:
         raise ValueError("existing logical bytes must match existing file size total")
     if len(known_file_sizes) > MAX_MANIFEST_FILES:
         raise ValueError(
@@ -292,10 +290,10 @@ def _normalize_chunk_map(chunk_map: Mapping[bytes, bytes] | None) -> dict[bytes,
 
 
 def _normalize_existing_file_sizes(
-    file_sizes: Mapping[str, int] | None,
+    file_sizes: Mapping[str, int],
 ) -> dict[str, int]:
     if file_sizes is None:
-        return {}
+        raise ValueError("existing file sizes are required")
 
     return {
         normalize_manifest_path(path, label="extension file path"): require_non_negative_int(

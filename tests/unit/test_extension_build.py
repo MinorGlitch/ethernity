@@ -150,6 +150,7 @@ class TestExtensionBuild(unittest.TestCase):
             input_origin="file",
             input_roots=(),
             chunker=default_extension_chunker,
+            existing_file_sizes={},
             existing_chunks=existing_chunks,
         )
 
@@ -181,6 +182,7 @@ class TestExtensionBuild(unittest.TestCase):
             input_origin="file",
             input_roots=(),
             chunker=lambda data, _profile: (data,),
+            existing_file_sizes={},
         )
 
         self.assertEqual(built.stats.changed_file_count, 2)
@@ -222,6 +224,7 @@ class TestExtensionBuild(unittest.TestCase):
             input_origin="directory",
             input_roots=("root",),
             chunker=lambda data, _profile: (data,) if data else (),
+            existing_file_sizes={},
         )
 
         self.assertEqual([item.path for item in built.document.files], ["\u00f1.txt", "\u00f6.txt"])
@@ -243,6 +246,7 @@ class TestExtensionBuild(unittest.TestCase):
             input_origin="file",
             input_roots=(),
             chunker=lambda data, _profile: (),
+            existing_file_sizes={},
         )
 
         self.assertEqual(len(built.document.files), 1)
@@ -271,6 +275,7 @@ class TestExtensionBuild(unittest.TestCase):
             input_origin="file",
             input_roots=(),
             chunker=lambda data, _profile: (data,),
+            existing_file_sizes={},
             existing_chunks={shared_chunk_id: shared},
         )
 
@@ -300,6 +305,7 @@ class TestExtensionBuild(unittest.TestCase):
                 input_origin="file",
                 input_roots=(),
                 chunker=lambda data, _profile: (b"abcd", b"WXYZ"),
+                existing_file_sizes={},
             )
 
     def test_build_extension_document_rejects_noncanonical_chunking_recipe(self) -> None:
@@ -323,6 +329,7 @@ class TestExtensionBuild(unittest.TestCase):
                 input_origin="file",
                 input_roots=(),
                 chunker=lambda data, _profile: (data[:4], data[4:]),
+                existing_file_sizes={},
             )
 
     def test_build_extension_document_prefers_gzip_when_chunk_is_smaller(self) -> None:
@@ -344,6 +351,7 @@ class TestExtensionBuild(unittest.TestCase):
             input_origin="file",
             input_roots=(),
             chunker=lambda data, _profile: (data,),
+            existing_file_sizes={},
         )
 
         self.assertEqual(len(built.document.chunks), 1)
@@ -371,6 +379,7 @@ class TestExtensionBuild(unittest.TestCase):
             input_origin="file",
             input_roots=(),
             chunker=lambda data, _profile: (data,),
+            existing_file_sizes={},
         )
 
         self.assertEqual(len(built.document.chunks), 1)
@@ -395,6 +404,7 @@ class TestExtensionBuild(unittest.TestCase):
                 input_origin="file",
                 input_roots=(),
                 chunker=lambda data, _profile: (data[:3],),
+                existing_file_sizes={},
             )
 
     def test_build_extension_document_rejects_latest_state_size_overflow(self) -> None:
@@ -442,15 +452,16 @@ class TestExtensionBuild(unittest.TestCase):
                 input_origin="file",
                 input_roots=(),
                 chunker=lambda data, _profile: (data,),
+                existing_file_sizes={},
                 existing_logical_bytes=-1,
             )
 
-    def test_build_extension_document_requires_existing_file_sizes_with_existing_bytes(
+    def test_build_extension_document_requires_existing_file_sizes(
         self,
     ) -> None:
         with self.assertRaisesRegex(
             ValueError,
-            "existing file sizes are required when existing logical bytes are set",
+            "existing file sizes are required",
         ):
             build_extension_document(
                 index=2,
@@ -469,6 +480,7 @@ class TestExtensionBuild(unittest.TestCase):
                 input_roots=(),
                 chunker=lambda data, _profile: (data,),
                 existing_logical_bytes=7,
+                existing_file_sizes=None,
             )
 
     def test_build_extension_document_rejects_negative_existing_file_size(self) -> None:
@@ -573,6 +585,34 @@ class TestExtensionBuild(unittest.TestCase):
                 existing_logical_bytes=MAX_MANIFEST_FILES,
                 existing_file_sizes={
                     f"existing-{index:04d}.txt": 1 for index in range(MAX_MANIFEST_FILES)
+                },
+            )
+
+    def test_build_extension_document_counts_existing_zero_byte_files_for_overflow(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            f"logical latest state exceeds MAX_MANIFEST_FILES \\({MAX_MANIFEST_FILES}\\): "
+            f"{MAX_MANIFEST_FILES + 1} entries",
+        ):
+            build_extension_document(
+                index=2,
+                parent_doc_hash=b"\x10" * 32,
+                root_doc_hash=b"\x20" * 32,
+                chunking=_profile(),
+                input_files=(
+                    InputFile(
+                        source_path=None,
+                        relative_path="new-file.txt",
+                        data=b"new",
+                        mtime=1,
+                    ),
+                ),
+                input_origin="file",
+                input_roots=(),
+                chunker=lambda data, _profile: (data,),
+                existing_logical_bytes=0,
+                existing_file_sizes={
+                    f"existing-{index:04d}.txt": 0 for index in range(MAX_MANIFEST_FILES)
                 },
             )
 

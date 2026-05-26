@@ -225,6 +225,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
             input_origin="directory",
             input_roots=("demo",),
             chunker=lambda data, _profile: (data,),
+            existing_file_sizes={},
         )
         extension_signing_seed = b"\x41" * 32
         extension_frames = _extension_frames_with_auth(
@@ -340,6 +341,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
             input_origin="directory",
             input_roots=("demo",),
             chunker=lambda data, _profile: (data,),
+            existing_file_sizes={},
         )
         extension_frames = _extension_frames_with_auth(
             extension.document.encode(),
@@ -416,6 +418,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
             input_origin="directory",
             input_roots=("demo",),
             chunker=lambda data, _profile: (data,),
+            existing_file_sizes={},
         )
         extension_frames = _extension_frames_with_auth(
             extension.document.encode(),
@@ -464,6 +467,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
             input_origin="directory",
             input_roots=("demo",),
             chunker=lambda data, _profile: (data,),
+            existing_file_sizes={},
             existing_chunks={hashlib.sha256(root_chunk).digest(): root_chunk},
         )
         extension_frames = _extension_frames_with_auth(
@@ -542,6 +546,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
             input_origin="directory",
             input_roots=("demo",),
             chunker=lambda data, _profile: (data,),
+            existing_file_sizes={},
         )
         extension_frames = _extension_frames_with_auth(
             extension.document.encode(),
@@ -629,6 +634,7 @@ class TestDocumentInspectorTool(unittest.TestCase):
             input_origin="directory",
             input_roots=("demo",),
             chunker=lambda data, _profile: (data,),
+            existing_file_sizes={},
         )
         extension_frames = _extension_frames_with_auth(
             extension.document.encode(),

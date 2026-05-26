@@ -116,6 +116,7 @@ def _extension_envelope(root_doc_hash: bytes) -> bytes:
         input_origin="file",
         input_roots=(),
         chunker=lambda data, _profile: (data,),
+        existing_file_sizes={},
     )
     return encode_extension_envelope(built.document)
 

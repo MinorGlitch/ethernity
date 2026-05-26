@@ -927,6 +927,7 @@ Requirements:
 - `chunking`: list `[algorithm_id, target_size, min_size, max_size]`
   - all values MUST be positive ints
   - `target_size`, `min_size`, and `max_size` MUST each be
+    `>= 4096` and
     `<= MAX_DECOMPRESSED_PAYLOAD_BYTES`
   - `min_size <= target_size <= max_size`
   - `algorithm_id == 1` identifies the extension-envelope FastCDC-style content-defined chunking

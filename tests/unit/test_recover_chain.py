@@ -83,6 +83,7 @@ def _extension_ciphertext(
         input_origin="file",
         input_roots=(),
         chunker=lambda data, _profile: (data,),
+        existing_file_sizes={},
     )
     return encode_extension_envelope(built.document)
 
@@ -137,7 +138,8 @@ def _recovery_plan(
     extension_doc_hash: str | None = None,
     expected_head_doc_hash: str | None = None,
 ) -> RecoveryPlan:
-    root_sign_pub = derive_public_key(b"\x33" * 32)
+    root_signing_seed = b"\x33" * 32
+    root_sign_pub = derive_public_key(root_signing_seed)
     return RecoveryPlan(
         ciphertext=root_ciphertext,
         doc_id=root_doc_id,
@@ -147,7 +149,7 @@ def _recovery_plan(
             version=1,
             doc_hash=root_doc_hash,
             sign_pub=root_sign_pub,
-            signature=b"\x99" * 64,
+            signature=sign_auth(root_doc_hash, sign_pub=root_sign_pub, sign_priv=root_signing_seed),
         ),
         auth_status="verified",
         allow_unsigned=False,
@@ -198,6 +200,37 @@ class TestRecoverChain(unittest.TestCase):
         )
         self.assertEqual(result.manifest.input_origin, "directory")
         self.assertEqual(result.manifest.input_roots, ("reconstructed-state",))
+
+    def test_recover_chain_entries_reverifies_root_auth_signature_at_replay_boundary(self) -> None:
+        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+        extension_ciphertext = _extension_ciphertext(root_doc_hash)
+        extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
+        base_plan = _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash)
+        assert base_plan.auth_payload is not None
+        forged_auth = dataclasses.replace(base_plan.auth_payload, signature=b"\x99" * 64)
+        plan = dataclasses.replace(
+            base_plan,
+            auth_payload=forged_auth,
+            import_documents=(
+                _imported_document(root_ciphertext, source_label="scan0001.pdf"),
+                _imported_document(
+                    extension_ciphertext,
+                    auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+                    source_label="renamed-extension.pdf",
+                ),
+            ),
+        )
+
+        with (
+            mock.patch(
+                "ethernity.extensions.recovery.decrypt_bytes",
+                side_effect=lambda data, *, passphrase, debug=False: data,
+            ),
+            self.assertRaises(ApiCommandError) as caught,
+        ):
+            recover_chain_entries(plan, quiet=True)
+
+        self.assertEqual(caught.exception.code, api_codes.AUTH_SIGNATURE_INVALID)
 
     def test_recover_chain_entries_rejects_unexpected_default_head_doc_hash(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
