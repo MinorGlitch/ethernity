@@ -1278,14 +1278,19 @@ but such audit rules are outside the recovery format.
 
 Recovery-valid and append-valid are distinct states. A recovery implementation MAY restore content
 from a complete authenticated machine-readable carrier set even when a published export tree is
-missing redundant human-readable artifacts. An implementation that appends a new published
-extension, however, MUST require the existing published chain head to satisfy the canonical export
-layout before publishing the next extension. For this release profile, a published extension
-directory is append-valid only when the required `qr_document-*` and `recovery_document-*` MAIN
-artifacts are present and pass publish/discovery validation. If shard artifacts are present in the
-published extension directory, each shard document type MUST form a complete set with one declared
-`share_count` and share indexes `1..share_count`; passphrase shards and signing-key shards are
-validated as independent sets.
+missing redundant human-readable artifacts. An implementation that appends from printed/scanned
+backup documents MUST treat the complete authenticated chain carried by those documents as the
+append source and MUST NOT require the original generated export tree. Such an append MUST publish
+into a writable output root whose extension namespace is not already populated by stale digital
+extension artifacts.
+
+An implementation that appends from an existing published export tree MUST require the existing
+published chain head to satisfy the canonical export layout before publishing the next extension.
+For this release profile, a published extension directory is append-valid only when the required
+`qr_document-*` and `recovery_document-*` MAIN artifacts are present and pass publish/discovery
+validation. If shard artifacts are present in the published extension directory, each shard document
+type MUST form a complete set with one declared `share_count` and share indexes `1..share_count`;
+passphrase shards and signing-key shards are validated as independent sets.
 
 For this release profile, `qr_document-*` artifacts are the only machine-readable
 payload-bearing MAIN carriers in a canonical published extension directory. This filename role is an
@@ -1335,7 +1340,7 @@ Compaction rules:
 - when compaction unlocks the source with passphrase shard carriers validated against the trusted
   root signing authority, the compacted checkpoint MUST emit fresh passphrase shard documents with
   the same threshold and share count; implementations MUST NOT downgrade to a plaintext-passphrase
-  checkpoint because source shard documents are stored outside the scanned backup root
+  checkpoint because source shard documents are stored outside the scanned backup documents
 - compaction shard policy inheritance MUST be content-first and authenticated: filename prefixes are
   not policy signals, and unsigned or self-authority shard metadata MUST NOT select the compacted
   checkpoint shard policy

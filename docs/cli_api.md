@@ -178,8 +178,8 @@ and the selected scope contains changes. Inspect also render-validates the pendi
 temporary no-publish workspace before reporting the extension as ready. `resolved_policy` is `null`
 when runtime policy cannot be evaluated yet.
 
-Compact results include the source `root_dir`, the emitted standalone `output_dir`, a fresh
-standalone `doc_id`, and a stable `artifacts` object for generated PDFs.
+Compact results include the source `root_dir` or `source_scan`, the emitted standalone `output_dir`,
+a fresh standalone `doc_id`, and a stable `artifacts` object for generated PDFs.
 
 Inspect results include `operation: "inspect"`, never include artifacts, and report readiness as a
 success-shaped payload: `ok: true` plus any `blocking_issues`.
@@ -208,8 +208,8 @@ Fields:
 Current command-specific error codes:
 
 - `INPUT_REQUIRED`: `ethernity api backup` was invoked without `--input`, `--input-dir`, or
-  `--input -`; `ethernity api compact`, `ethernity api extend`, or `ethernity api inspect extend`
-  was invoked without `--root-dir`
+  `--input -`; `ethernity api compact` was invoked without `--root-dir` or `--scan`;
+  `ethernity api extend` or `ethernity api inspect extend` was invoked without `--root-dir`
 - `OUTPUT_REQUIRED`: `ethernity api recover` was invoked without `--output`, or
   `ethernity api compact` was invoked without `--output-dir`
 - `CONFIG_INPUT_REQUIRED`: `ethernity api config set` was invoked without `--input-json`
@@ -556,13 +556,13 @@ Example onboarding patch:
 ```
 
 ```json
-{"type":"started","schema_version":1,"command":"compact","args":{"config":null,"paper":null,"design":null,"root_dir":"backup-aa11","output_dir":"compacted","shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"expected_head_doc_hash":null,"layout_debug_dir":null,"qr_chunk_size":null,"has_passphrase":true,"quiet":true,"debug":false}}
+{"type":"started","schema_version":1,"command":"compact","args":{"config":null,"paper":null,"design":null,"root_dir":null,"scan":["root.pdf","extension-01.pdf"],"output_dir":"compacted","shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"expected_head_doc_hash":null,"layout_debug_dir":null,"qr_chunk_size":null,"has_passphrase":true,"quiet":true,"debug":false}}
 {"type":"phase","id":"compact","label":"Replaying source chain and preparing checkpoint"}
-{"type":"progress","phase":"compact","current":0,"total":1,"unit":"step","details":{"root_dir":"backup-aa11","output_dir":"compacted"}}
-{"type":"progress","phase":"compact","current":1,"total":1,"unit":"step","details":{"root_dir":"backup-aa11","output_dir":"compacted"}}
+{"type":"progress","phase":"compact","current":0,"total":1,"unit":"step","details":{"root_dir":null,"scan":["root.pdf","extension-01.pdf"],"output_dir":"compacted"}}
+{"type":"progress","phase":"compact","current":1,"total":1,"unit":"step","details":{"root_dir":null,"scan":["root.pdf","extension-01.pdf"],"output_dir":"compacted"}}
 {"type":"artifact","kind":"qr_document","path":"compacted/qr_document.pdf","details":{"filename":"qr_document.pdf","size":1234}}
 {"type":"artifact","kind":"recovery_document","path":"compacted/recovery_document.pdf","details":{"filename":"recovery_document.pdf","size":2345}}
-{"type":"result","ok":true,"command":"compact","doc_id":"0123456789abcdef","root_dir":"backup-aa11","output_dir":"compacted","artifacts":{"qr_document":"compacted/qr_document.pdf","recovery_document":"compacted/recovery_document.pdf","recovery_kit_index":null,"shard_documents":[],"signing_key_shard_documents":[]},"expected_head_doc_hash":null,"validated_head_index":0,"validated_head_doc_hash":"89abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567","freshness_scope":null}
+{"type":"result","ok":true,"command":"compact","doc_id":"0123456789abcdef","root_dir":null,"source_scan":["root.pdf","extension-01.pdf"],"output_dir":"compacted","artifacts":{"qr_document":"compacted/qr_document.pdf","recovery_document":"compacted/recovery_document.pdf","recovery_kit_index":null,"shard_documents":[],"signing_key_shard_documents":[]},"expected_head_doc_hash":null,"validated_head_index":1,"validated_head_doc_hash":"89abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567","freshness_scope":"supplied_carriers_only"}
 ```
 
 ```json
@@ -629,13 +629,21 @@ If no root or extension shard policy is available, `api extend` fails closed ins
 plaintext passphrase recovery document by default; pass `--shard-count 0` only when plaintext
 passphrase output is intentional.
 
-`api extend` and `api inspect extend` can also unlock the selected backup with passphrase shard
-inputs by using `--shard-fallback-file`, `--shard-payloads-file`, or `--shard-scan`.
+`api extend` and `api inspect extend` can also take repeatable `--scan` inputs containing the
+root backup and extension QR-document PDFs/images. In scan mode, `--root-dir` is the writable
+publish target for the next extension, not the source of truth for the existing chain; it may be a
+fresh missing directory when its parent is writable. To avoid mixing scanned source material with a
+stale digital layout, scan-mode publishing requires the target `extensions/` namespace to be empty.
+Inspect/result payloads can report `input_kind: "scanned_chain"`, and started events include the
+`scan` array in schema version 1.
+
+`api extend` and `api inspect extend` can unlock the selected backup with passphrase shard inputs
+by using `--shard-fallback-file`, `--shard-payloads-file`, or `--shard-scan`.
 When those shard inputs appear to target published extension state but cannot be matched to the
 current root chain, inspect reports `PASSPHRASE_SHARDS_INVALID` with
 `details.stage: "extension_shard_unlock"` instead of treating the shard inputs as absent.
-Both commands require `--root-dir`; the inspect form stays read-only and targets an existing
-non-symlink backup root directory.
+Both commands require `--root-dir`; without `--scan`, the inspect form stays read-only and targets
+an existing non-symlink backup root directory.
 Both commands also accept `--input -` for stdin-backed file content when selecting an explicit
 scope.
 `api inspect extend` accepts the same extension-policy preview knobs as `api extend`:
@@ -643,7 +651,7 @@ scope.
 `--shard-count`, `--signing-key-mode not-stored|sharded`, `--signing-key-shard-threshold`, and
 `--signing-key-shard-count`. The inspect form validates `--layout-debug-dir`, preflights the
 extension publish target, and render-validates pending artifacts in a temporary no-publish
-workspace without creating persistent files under the backup root.
+workspace without creating persistent files under the publish target.
 When the active design provides a compatible `recovery_kit_index` template, `api extend` emits an
 extension-local recovery kit index. The index records the required root backup documents as external
 dependencies because extension recovery is not self-contained. `api inspect extend` does not emit

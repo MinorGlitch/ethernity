@@ -23,9 +23,11 @@ This document gives the frontend team a practical plan for integrating the machi
 - Settings + onboarding state: `ethernity api config get`
 - Save settings + onboarding completion: `ethernity api config set`
 - Create backup artifacts: `ethernity api backup`
-- Inspect extension readiness from a backup root: `ethernity api inspect extend`
-- Create extension artifacts inside a backup root: `ethernity api extend`
-- Compact a backup root into a fresh standalone backup: `ethernity api compact`
+- Inspect extension readiness from backup document scans or a generated backup folder:
+  `ethernity api inspect extend`
+- Create extension artifacts from an authenticated backup chain: `ethernity api extend`
+- Compact a scanned chain or generated backup folder into a fresh standalone backup:
+  `ethernity api compact`
 - Inspect recovery readiness from PDFs/images/text inputs: `ethernity api inspect recover`
 - Recover files from PDFs/images/text inputs: `ethernity api recover`
 - Inspect mint readiness from an existing backup: `ethernity api inspect mint`
@@ -105,6 +107,8 @@ scope and output policy.
 Both commands:
 
 - require `--root-dir`
+- accept repeatable `--scan` root/extension QR-document PDFs/images as the preferred source for
+  the current chain when the user is extending from paper or scans
 - can unlock with `--passphrase`, `--shard-fallback-file`, `--shard-payloads-file`, or `--shard-scan`
 - accept explicit scope selection through `--input`, `--input-dir`, and `--base-dir`
 - accept preview/render knobs through `--qr-chunk-size` and `--layout-debug-dir`
@@ -113,6 +117,12 @@ Both commands:
 - use `--signing-key-mode not-stored|sharded`, `--signing-key-shard-threshold`, and
   `--signing-key-shard-count` for extension-local signing-key recovery
 - reuse saved backup/config defaults when the UI does not override them explicitly
+
+With `--scan`, treat `--root-dir` as a writable publish target for the new extension, not as the
+current-chain source. The target may be a fresh missing directory if its parent is writable, and its
+`extensions/` namespace must be empty. Inspect results can report `input_kind: "scanned_chain"`;
+schema-version-1 started events now include the `scan` array, so exhaustive clients should handle
+that field and enum value.
 
 With `--unlock-policy reuse-root`, extension passphrase recovery depends on the root shard quorum;
 do not send extension `--shard-threshold` or `--shard-count` overrides. Signing-key recovery remains
@@ -165,7 +175,9 @@ into a fresh standalone backup.
 
 The command:
 
-- requires `--root-dir` and `--output-dir`
+- accepts repeatable `--scan` root/extension QR-document PDFs/images as the preferred source, or
+  `--root-dir` for a generated backup folder
+- requires `--output-dir`
 - reuses saved backup/config defaults for render policy when the UI does not override them, but
   never infers the output directory from saved backup defaults
 - performs authenticated recovery semantics
