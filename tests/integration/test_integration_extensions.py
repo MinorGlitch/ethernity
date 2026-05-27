@@ -462,9 +462,8 @@ class TestIntegrationExtensions(unittest.TestCase):
                 _V1_0_SOURCE_ROOT / "standalone_secret.txt",
                 source_dir / "standalone_secret.txt",
             )
-            (source_dir / "extension_note.txt").write_text(
-                "added after frozen v1.0 root\n",
-                encoding="utf-8",
+            (source_dir / "extension_note.txt").write_bytes(
+                b"added after frozen v1.0 root\n",
             )
 
             with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
@@ -1353,7 +1352,7 @@ class TestIntegrationExtensions(unittest.TestCase):
     @staticmethod
     def _snapshot_tree(root: Path) -> dict[str, bytes]:
         return {
-            str(path.relative_to(root)): path.read_bytes()
+            path.relative_to(root).as_posix(): path.read_bytes()
             for path in sorted(root.rglob("*"))
             if path.is_file()
         }
