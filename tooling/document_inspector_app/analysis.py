@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hmac
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import cast
 
@@ -673,10 +673,10 @@ def _projection_diagnostic_lines(trust_diagnostic: TrustDiagnostic | None) -> li
                 ),
                 (
                     "Extension AUTH: verified against root authority for "
-                    f"{int(details.get('extension_count', 0))} extension(s)"
+                    f"{_details_int(details, 'extension_count')} extension(s)"
                 ),
-                f"Chain extensions: {int(details.get('extension_count', 0))}",
-                (f"Latest logical files: {int(details.get('latest_logical_file_count', 0))}"),
+                f"Chain extensions: {_details_int(details, 'extension_count')}",
+                f"Latest logical files: {_details_int(details, 'latest_logical_file_count')}",
             ]
         )
     else:
@@ -720,6 +720,18 @@ def _projection_diagnostic_lines(trust_diagnostic: TrustDiagnostic | None) -> li
     return lines
 
 
+def _details_int(details: Mapping[str, object], key: str, default: int = 0) -> int:
+    value = details.get(key, default)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
+
+
 def _diagnostics_trust_lines(
     trust_diagnostic: TrustDiagnostic,
     *,
@@ -749,7 +761,7 @@ def _diagnostics_trust_lines(
 def _inspect_chain_documents(
     root_document: _DecodedMainDocument,
     extension_documents: Sequence[_DecodedMainDocument],
-) -> tuple[dict[str, object], list[FileRecord], TrustDiagnostic]:
+) -> tuple[dict[str, object] | None, list[FileRecord], TrustDiagnostic]:
     if root_document.doc_hash is None or not isinstance(root_document.decoded, tuple):
         raise ValueError("root document is not fully decoded")
 

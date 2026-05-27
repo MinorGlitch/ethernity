@@ -618,6 +618,27 @@ test("browser root-only encrypted recovery ignores a supplied extension decrypt 
   );
 });
 
+test("browser root-only recovery validates supplied root AUTH", async () => {
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x1d),
+    plaintext: rootPlaintext,
+    signPub: OTHER_SIGN_PUB,
+  });
+
+  await assert.rejects(
+    () =>
+      recoverLatestFromPlaintextDocuments([root], {
+        verifySignature: verifiedSignature,
+        extensionTarget: "root",
+      }),
+    /AUTH signing key does not match root authority/,
+  );
+});
+
 test("browser recovery fails closed when a supplied document cannot decode", async () => {
   const rootPlaintext = buildRootPlaintext([
     { path: "a.txt", data: new TextEncoder().encode("root") },
@@ -818,6 +839,31 @@ test("browser decrypt action rejects conflicting AUTH payloads", async () => {
   const finalState = store.getState();
   assert.equal(finalState.decryptStatus.type, "error");
   assert.equal(finalState.decryptStatus.lines[0], "Error: conflicting AUTH frames detected");
+});
+
+test("browser frame collection rejects AUTH duplicates with changed signed fields", () => {
+  const state = createInitialState();
+  const rootCiphertext = Uint8Array.of(0x19);
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  addFrame(
+    state,
+    decodeFrame(
+      buildFrame({
+        frameType: FRAME_TYPE_AUTH,
+        docId: docIdForCiphertext(rootCiphertext),
+        data: encodeCbor({
+          version: 1,
+          hash: blake2b256(rootCiphertext),
+          pub: OTHER_SIGN_PUB,
+          sig: SIGNATURE,
+        }),
+      }),
+    ),
+  );
+
+  assert.equal(state.authDuplicates, 0);
+  assert.equal(state.authConflicts, 1);
+  assert.equal(state.authStatus, "conflicting auth payloads");
 });
 
 test("browser recovery rejects extensions outside the root signing authority", async () => {

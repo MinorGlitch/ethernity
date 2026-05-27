@@ -68,6 +68,7 @@ export async function recoverLatestFromPlaintextDocuments(
   if (decodeErrors.length && documents.length > 1 && !rootOnly) {
     throw new Error("one or more supplied backup documents could not be decoded");
   }
+  const suppliedRootAuthPayload = await verifySuppliedRootAuth(root, verifySignature);
   if (rootOnly || !rawExtensions.length) {
     return {
       files: root.extracted.files,
@@ -82,7 +83,9 @@ export async function recoverLatestFromPlaintextDocuments(
   }
 
   const rootAuthoritySignPub = deriveRootSigningAuthority(root.extracted.manifest);
-  await requireVerifiedDocumentAuth(root.document, rootAuthoritySignPub, verifySignature);
+  if (!suppliedRootAuthPayload) {
+    await requireVerifiedDocumentAuth(root.document, rootAuthoritySignPub, verifySignature);
+  }
   const extensions = [];
   for (const item of rawExtensions) {
     const authPayload = await requireVerifiedDocumentAuth(
@@ -177,6 +180,16 @@ function deriveRootSigningAuthority(manifest) {
     throw new Error("extension replay requires an unsealed root signing authority");
   }
   return deriveSigningPublicKey(manifest.signingSeed);
+}
+
+async function verifySuppliedRootAuth(root, verifySignature) {
+  if (!root.document.authPayload) {
+    return null;
+  }
+  const expectedSignPub = root.extracted.manifest?.signingSeed
+    ? deriveSigningPublicKey(root.extracted.manifest.signingSeed)
+    : null;
+  return requireVerifiedDocumentAuth(root.document, expectedSignPub, verifySignature);
 }
 
 function selectLatestSuppliedChain(extensions) {

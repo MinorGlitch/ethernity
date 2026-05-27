@@ -1171,7 +1171,9 @@ class TestExtendService(unittest.TestCase):
                 ),
             ):
                 prepared = prepare_extend_run(
-                    ExtendArgs(root_dir=str(root_dir), input=["/tmp/root/example.txt"])
+                    ExtendArgs(
+                        root_dir=str(root_dir), input=["/tmp/root/example.txt"], shard_count=0
+                    )
                 )
                 runtime = resolve_extend_runtime(prepared, create_layout_debug_dir=False)
                 encrypted = encrypt_prepared_extension_document(
@@ -1245,6 +1247,7 @@ class TestExtendService(unittest.TestCase):
                         root_dir=str(root_dir),
                         scan=["/tmp/root.pdf"],
                         input=["/tmp/root/example.txt"],
+                        shard_count=0,
                     )
                 )
                 runtime = resolve_extend_runtime(prepared, create_layout_debug_dir=False)
@@ -2363,6 +2366,7 @@ class TestExtendService(unittest.TestCase):
                         ExtendArgs(
                             root_dir=str(root_dir),
                             input=["/tmp/root/example.txt"],
+                            shard_count=0,
                         ),
                         chunker=lambda data, _profile: (data,),
                         nonce="abc123",
@@ -2588,6 +2592,8 @@ class TestExtendService(unittest.TestCase):
                         ExtendArgs(
                             root_dir=str(root_dir),
                             input=["/tmp/root/example.txt"],
+                            shard_threshold=1,
+                            shard_count=1,
                         ),
                         chunker=lambda data, _profile: (data,),
                         nonce="abc123",
@@ -2966,6 +2972,7 @@ class TestExtendService(unittest.TestCase):
                     root_dir="/tmp/root",
                     input=["/tmp/root/example.txt"],
                     qr_chunk_size=0,
+                    shard_count=0,
                 )
             )
 
@@ -2989,7 +2996,7 @@ class TestExtendService(unittest.TestCase):
             return_value=resolved,
         ):
             prepared = prepare_extend_run(
-                ExtendArgs(root_dir="/tmp/root", input=["/tmp/root/example.txt"])
+                ExtendArgs(root_dir="/tmp/root", input=["/tmp/root/example.txt"], shard_count=0)
             )
 
         kit_index_template_path = Path("/tmp/kit_index_document.html.j2")
@@ -3018,7 +3025,7 @@ class TestExtendService(unittest.TestCase):
             return_value=resolved,
         ):
             prepared = prepare_extend_run(
-                ExtendArgs(root_dir="/tmp/root", input=["/tmp/root/example.txt"])
+                ExtendArgs(root_dir="/tmp/root", input=["/tmp/root/example.txt"], shard_count=0)
             )
 
         with (
@@ -3142,6 +3149,7 @@ class TestExtendService(unittest.TestCase):
                         ExtendArgs(
                             root_dir=str(root_dir),
                             input=["/tmp/root/example.txt"],
+                            shard_count=0,
                         ),
                         chunker=lambda data, _profile: (data,),
                         nonce="abc123",

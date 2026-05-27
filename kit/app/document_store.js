@@ -112,7 +112,7 @@ export function addAuthDocumentFrame(state, frame) {
     return false;
   }
   if (record.authPayload) {
-    if (!bytesEqual(record.authPayload.signature, payload.signature)) {
+    if (!authPayloadsEqual(record.authPayload, payload)) {
       record.authConflicts += 1;
       record.authStatus = "conflicting auth payloads";
       syncLegacyDocumentFields(state);
@@ -196,4 +196,13 @@ function sumDocumentField(documents, key) {
     total += record[key] ?? 0;
   }
   return total;
+}
+
+function authPayloadsEqual(left, right) {
+  return (
+    left.version === right.version &&
+    bytesEqual(left.docHash, right.docHash) &&
+    bytesEqual(left.signPub, right.signPub) &&
+    bytesEqual(left.signature, right.signature)
+  );
 }
