@@ -176,7 +176,7 @@ function normalizeExtensionTarget(extensionTarget) {
 }
 
 function deriveRootSigningAuthority(manifest) {
-  if (!manifest || !manifest.signingSeed) {
+  if (!manifest?.signingSeed) {
     throw new Error("extension replay requires an unsealed root signing authority");
   }
   return deriveSigningPublicKey(manifest.signingSeed);

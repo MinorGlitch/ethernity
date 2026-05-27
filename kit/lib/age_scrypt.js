@@ -119,7 +119,7 @@ function parseHeaderScrypt(fileBytes) {
   }
   const body = flatten(bodyLines);
   const macLine = readAsciiLine(fileBytes, offset);
-  if (!macLine || !macLine.text.startsWith("--- ")) {
+  if (!macLine?.text.startsWith("--- ")) {
     throw new Error("invalid header");
   }
   const mac = decodeBase64NoPad(macLine.text.slice(4));

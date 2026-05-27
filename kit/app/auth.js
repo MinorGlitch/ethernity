@@ -32,7 +32,7 @@ export function deriveSigningPublicKey(signingSeed) {
 export async function verifyAuthSignature(docHash, signPub, signature) {
   const message = authSignatureMessage(docHash, signPub);
   const cryptoApi = globalThis.crypto;
-  if (!cryptoApi || !cryptoApi.subtle || !cryptoApi.subtle.importKey) {
+  if (!cryptoApi?.subtle?.importKey) {
     return verifyAuthSignaturePortable(signature, message, signPub);
   }
   try {
