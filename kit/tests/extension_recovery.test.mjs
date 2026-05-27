@@ -639,6 +639,52 @@ test("browser root-only recovery validates supplied root AUTH", async () => {
   );
 });
 
+test("browser root-only recovery rejects supplied root AUTH doc hash mismatch", async () => {
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x1e),
+    plaintext: rootPlaintext,
+  });
+  root.authPayload = {
+    ...root.authPayload,
+    docHash: new Uint8Array(32).fill(0xaa),
+  };
+
+  await assert.rejects(
+    () =>
+      recoverLatestFromPlaintextDocuments([root], {
+        verifySignature: verifiedSignature,
+        extensionTarget: "root",
+      }),
+    /AUTH doc_hash does not match ciphertext/,
+  );
+});
+
+test("browser root-only recovery rejects supplied root AUTH invalid signature", async () => {
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x1f),
+    plaintext: rootPlaintext,
+  });
+
+  await assert.rejects(
+    () =>
+      recoverLatestFromPlaintextDocuments([root], {
+        verifySignature() {
+          return false;
+        },
+        extensionTarget: "root",
+      }),
+    /AUTH signature is invalid/,
+  );
+});
+
 test("browser recovery fails closed when a supplied document cannot decode", async () => {
   const rootPlaintext = buildRootPlaintext([
     { path: "a.txt", data: new TextEncoder().encode("root") },
@@ -855,6 +901,31 @@ test("browser frame collection rejects AUTH duplicates with changed signed field
           version: 1,
           hash: blake2b256(rootCiphertext),
           pub: OTHER_SIGN_PUB,
+          sig: SIGNATURE,
+        }),
+      }),
+    ),
+  );
+
+  assert.equal(state.authDuplicates, 0);
+  assert.equal(state.authConflicts, 1);
+  assert.equal(state.authStatus, "conflicting auth payloads");
+});
+
+test("browser frame collection rejects AUTH duplicates with changed doc hash", () => {
+  const state = createInitialState();
+  const rootCiphertext = Uint8Array.of(0x1e);
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  addFrame(
+    state,
+    decodeFrame(
+      buildFrame({
+        frameType: FRAME_TYPE_AUTH,
+        docId: docIdForCiphertext(rootCiphertext),
+        data: encodeCbor({
+          version: 1,
+          hash: new Uint8Array(32).fill(0xaa),
+          pub: ROOT_SIGN_PUB,
           sig: SIGNATURE,
         }),
       }),
