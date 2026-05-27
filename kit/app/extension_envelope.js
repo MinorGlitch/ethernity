@@ -190,7 +190,12 @@ async function parseExtensionBody(value, header) {
   if (files.length > MAX_MANIFEST_FILES) {
     throw new Error(`extension files exceed MAX_MANIFEST_FILES (${MAX_MANIFEST_FILES})`);
   }
-  validateSortedUnique(files, "path", "extension files must be ordered by normalized path");
+  validateSortedUnique(
+    files,
+    "path",
+    "extension files must be ordered by normalized path",
+    compareUnicodeCodePointStrings,
+  );
   const chunks = requireArray(body.get(2), "extension body chunks").map(parseExtensionChunk);
   validateSortedUnique(chunks, "chunkIdHex", "extension chunks must be ordered by raw chunk_id");
   const referenced = new Set();
@@ -980,7 +985,7 @@ function normalizeRootLabel(value) {
   return root;
 }
 
-function validateSortedUnique(items, key, message) {
+function validateSortedUnique(items, key, message, compare = compareStrings) {
   let previous = "";
   const seen = new Set();
   for (const item of items) {
@@ -988,12 +993,31 @@ function validateSortedUnique(items, key, message) {
     if (seen.has(value)) {
       throw new Error(`duplicate extension ${key}`);
     }
-    if (previous && value < previous) {
+    if (previous && compare(value, previous) < 0) {
       throw new Error(message);
     }
     seen.add(value);
     previous = value;
   }
+}
+
+function compareStrings(left, right) {
+  if (left === right) {
+    return 0;
+  }
+  return left < right ? -1 : 1;
+}
+
+function compareUnicodeCodePointStrings(left, right) {
+  const leftPoints = Array.from(left, (char) => char.codePointAt(0));
+  const rightPoints = Array.from(right, (char) => char.codePointAt(0));
+  const sharedLength = Math.min(leftPoints.length, rightPoints.length);
+  for (let index = 0; index < sharedLength; index += 1) {
+    if (leftPoints[index] !== rightPoints[index]) {
+      return leftPoints[index] - rightPoints[index];
+    }
+  }
+  return leftPoints.length - rightPoints.length;
 }
 
 function chunkingEqual(left, right) {

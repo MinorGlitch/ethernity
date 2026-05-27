@@ -398,6 +398,33 @@ test("extension envelope rejects path-like input root labels", async () => {
   }
 });
 
+test("extension envelope accepts file order by Unicode code point", async () => {
+  const codePointSortedBeforeSupplementary = "\ue000.txt";
+  const supplementaryPath = "\u{10000}.txt";
+  const envelope = buildExtensionPlaintext({
+    index: 1,
+    parentDocHash: new Uint8Array(32).fill(1),
+    rootDocHash: new Uint8Array(32).fill(2),
+    files: [
+      {
+        path: codePointSortedBeforeSupplementary,
+        data: textEncoder.encode("first"),
+      },
+      {
+        path: supplementaryPath,
+        data: textEncoder.encode("second"),
+      },
+    ],
+  });
+
+  const decoded = await decodeExtensionEnvelope(envelope);
+
+  assert.deepEqual(
+    decoded.files.map((file) => file.path),
+    [codePointSortedBeforeSupplementary, supplementaryPath],
+  );
+});
+
 test("extension envelope preflights aggregate inline raw_len before gzip decode", async () => {
   const envelope = buildExtensionEnvelopeBytes({
     bodyBytes: aggregateOverflowExtensionBodyBytes(),
