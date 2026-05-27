@@ -903,6 +903,55 @@ class TestIntegrationExtensions(unittest.TestCase):
                         output_dir=tmp_path / "blank-compacted",
                     )
 
+    def test_missing_present_extension_carrier_fails_closed_across_flows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup-root"
+            source_dir.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(source_dir=source_dir, root_dir=root_dir)
+
+                (source_dir / "alpha.txt").write_text("extension-alpha", encoding="utf-8")
+                extension = self._run_extend(source_dir=source_dir, root_dir=root_dir)
+
+                missing_carrier = (
+                    root_dir / "extensions" / "01" / f"qr_document-01-{extension.doc_id.hex()}.pdf"
+                )
+                self.assertTrue(missing_carrier.exists())
+                missing_carrier.unlink()
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "canonical extension directory is missing its QR document carrier",
+                ):
+                    self._run_recover(
+                        root_dir=root_dir,
+                        output_dir=tmp_path / "missing-recovered",
+                    )
+
+                root_only_dir = tmp_path / "missing-root-only-recovered"
+                self._run_recover(
+                    root_dir=root_dir,
+                    output_dir=root_only_dir,
+                    extension_index=0,
+                )
+                self.assertEqual(
+                    self._snapshot_tree(root_only_dir),
+                    {"alpha.txt": b"root-alpha"},
+                )
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "canonical extension directory is missing its QR document carrier",
+                ):
+                    self._run_compact(
+                        root_dir=root_dir,
+                        output_dir=tmp_path / "missing-compacted",
+                    )
+
     def test_compact_sealed_root_without_auth_inputs_round_trips_through_recover(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)

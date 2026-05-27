@@ -299,6 +299,7 @@ def _iter_scan_files(
         root_path = Path(root)
         _validate_backup_export_scan_layout(
             root_path,
+            include_extension_carriers=include_extension_carriers,
             extension_carrier_max_index=extension_carrier_max_index,
         )
         dirnames[:] = sorted(
@@ -345,6 +346,7 @@ def _keep_scan_dir(
 def _validate_backup_export_scan_layout(
     directory: Path,
     *,
+    include_extension_carriers: bool = True,
     extension_carrier_max_index: int | None = None,
 ) -> None:
     extensions_dir = directory / EXTENSIONS_DIR_NAME
@@ -359,8 +361,12 @@ def _validate_backup_export_scan_layout(
             continue
         if _entry_after_extension_max_index(entry.name, extension_carrier_max_index):
             continue
-        if is_canonical_extension_dir_name(entry.name) and not entry.is_dir():
-            raise QrScanError(f"canonical extension entry must be a directory: {entry.name}")
+        if is_canonical_extension_dir_name(entry.name):
+            if not entry.is_dir():
+                raise QrScanError(f"canonical extension entry must be a directory: {entry.name}")
+            if include_extension_carriers:
+                _require_published_extension_qr_carrier(entry)
+            continue
         if entry.name.isdecimal() and not is_canonical_extension_dir_name(entry.name):
             raise QrScanError(
                 "extensions directory contains unexpected extension-like top-level entry: "
@@ -371,6 +377,20 @@ def _validate_backup_export_scan_layout(
                 "extensions directory contains unexpected extension-like top-level entry: "
                 f"{entry.name}"
             )
+
+
+def _require_published_extension_qr_carrier(extension_dir: Path) -> None:
+    expected_index = parse_extension_dir_name(extension_dir.name)
+    for entry in extension_dir.iterdir():
+        try:
+            parsed = parse_extension_main_filename(entry.name)
+        except ValueError:
+            continue
+        if parsed.doc_type == "qr_document" and parsed.index == expected_index and entry.is_file():
+            return
+    raise QrScanError(
+        f"canonical extension directory is missing its QR document carrier: {extension_dir}"
+    )
 
 
 def _is_under_unpublished_extension_workspace(path: Path) -> bool:

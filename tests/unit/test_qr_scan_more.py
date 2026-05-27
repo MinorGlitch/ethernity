@@ -339,6 +339,67 @@ class TestQrScanMore(unittest.TestCase):
             ):
                 _iter_scan_files(root)
 
+    def test_iter_scan_files_rejects_canonical_extension_dir_without_qr_carrier(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "qr_document.pdf").write_bytes(b"%PDF-1.7\n")
+            extension_dir = root / "extensions" / "01"
+            extension_dir.mkdir(parents=True)
+            (extension_dir / "recovery_document-01-deadbeefcafebabe.pdf").write_bytes(b"%PDF-1.7\n")
+
+            with self.assertRaisesRegex(
+                QrScanError,
+                "canonical extension directory is missing its QR document carrier",
+            ):
+                _iter_scan_files(root)
+
+    def test_iter_scan_files_rejects_extension_dir_with_mismatched_qr_index(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "qr_document.pdf").write_bytes(b"%PDF-1.7\n")
+            extension_dir = root / "extensions" / "01"
+            extension_dir.mkdir(parents=True)
+            (extension_dir / "qr_document-02-deadbeefcafebabe.pdf").write_bytes(b"%PDF-1.7\n")
+
+            with self.assertRaisesRegex(
+                QrScanError,
+                "canonical extension directory is missing its QR document carrier",
+            ):
+                _iter_scan_files(root)
+
+    def test_iter_scan_files_root_only_can_ignore_extension_dir_without_qr_carrier(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "qr_document.pdf").write_bytes(b"%PDF-1.7\n")
+            extension_dir = root / "extensions" / "01"
+            extension_dir.mkdir(parents=True)
+            (extension_dir / "recovery_document-01-deadbeefcafebabe.pdf").write_bytes(b"%PDF-1.7\n")
+
+            files = _iter_scan_files(root, include_extension_carriers=False)
+
+        self.assertEqual([path.relative_to(root).as_posix() for path in files], ["qr_document.pdf"])
+
+    def test_iter_scan_files_bounds_missing_qr_carrier_validation_by_index(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "qr_document.pdf").write_bytes(b"%PDF-1.7\n")
+            extension_01 = root / "extensions" / "01"
+            extension_02 = root / "extensions" / "02"
+            extension_01.mkdir(parents=True)
+            extension_02.mkdir()
+            (extension_01 / "qr_document-01-deadbeefcafebabe.pdf").write_bytes(b"%PDF-1.7\n")
+            (extension_02 / "recovery_document-02-cafebabedeadbeef.pdf").write_bytes(b"%PDF-1.7\n")
+
+            files = _iter_scan_files(root, extension_carrier_max_index=1)
+
+        self.assertEqual(
+            [path.relative_to(root).as_posix() for path in files],
+            [
+                "extensions/01/qr_document-01-deadbeefcafebabe.pdf",
+                "qr_document.pdf",
+            ],
+        )
+
     def test_scan_qr_payloads_directory_does_not_decode_unpublished_staging(self) -> None:
         decoder = QrDecoder(
             name="dummy", decode_image_path=lambda _: [], decode_image_bytes=lambda _: []
