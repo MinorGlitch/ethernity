@@ -174,8 +174,9 @@ def run_extend_dry_run_command(args: ExtendArgs, *, debug: bool = False) -> int:
         preflight_extension_publish_target(
             prepared.inspection.root_dir,
             index=prepared.next_index,
+            publish_layout="loose" if prepared.args.scan else "canonical",
             allow_missing_root=bool(prepared.args.scan),
-            require_empty_extensions=bool(prepared.args.scan),
+            require_empty_root=bool(prepared.args.scan),
         )
     except ValueError as exc:
         raise ApiCommandError(

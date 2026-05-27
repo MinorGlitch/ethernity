@@ -286,8 +286,9 @@ class TestExtendCommand(unittest.TestCase):
         preflight.assert_called_once_with(
             "/tmp/prepared-root",
             index=1,
+            publish_layout="canonical",
             allow_missing_root=False,
-            require_empty_extensions=False,
+            require_empty_root=False,
         )
         resolve_runtime.assert_called_once_with(prepared, create_layout_debug_dir=False)
         validate_render.assert_called_once_with(prepared, runtime=runtime, encrypted=encrypted)

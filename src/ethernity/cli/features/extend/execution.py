@@ -91,8 +91,9 @@ def execute_staged_extension_publish(
             path,
             expected_index=plan.prepared.next_index,
             publish_policy=plan.publish_policy,
-            expected_root_dir_identity=plan.artifacts.root_dir_identity,
-            expected_extensions_dir_identity=plan.artifacts.extensions_dir_identity,
+            publish_layout=plan.artifacts.publish_layout,
+            expected_publish_root_identity=plan.artifacts.publish_root_identity,
+            expected_artifact_parent_identity=plan.artifacts.artifact_parent_identity,
         )
 
     def _populate() -> RenderedExtensionArtifacts:
@@ -124,7 +125,7 @@ def execute_staged_extension_publish(
         populate=_populate,
         validate_staging=_validate_staging,
         validate_artifacts=_validate_artifacts,
-        validate_promotion=lambda: _validate_published_chain_head_for_promotion(plan),
+        validate_promotion=lambda: _validate_publish_target_for_promotion(plan),
         lock_dir=staging_dir.parent / EXTENSION_CHAIN_LOCK_DIR_NAME,
     )
     final_dir = publish_result.final_dir
@@ -236,6 +237,29 @@ def _validate_published_chain_head_for_promotion(plan: PreparedExtensionPublishP
         )
 
 
+def _validate_publish_target_for_promotion(plan: PreparedExtensionPublishPlan) -> None:
+    if plan.artifacts.publish_layout == "loose":
+        _validate_loose_publish_root_for_promotion(plan)
+    _validate_published_chain_head_for_promotion(plan)
+
+
+def _validate_loose_publish_root_for_promotion(plan: PreparedExtensionPublishPlan) -> None:
+    artifact_parent = plan.artifacts.staging_dir.parent
+    allowed = {
+        plan.artifacts.staging_dir.name,
+        EXTENSION_CHAIN_LOCK_DIR_NAME,
+    }
+    try:
+        entries = {entry.name for entry in artifact_parent.iterdir()}
+    except FileNotFoundError as exc:
+        raise ValueError("extension publish root changed before promotion") from exc
+    unexpected = sorted(entries.difference(allowed))
+    if unexpected:
+        raise ValueError(
+            f"scan-mode extension publish target changed before promotion; found {unexpected[0]}"
+        )
+
+
 def _hex_or_none(value: bytes | None) -> str | None:
     return None if value is None else value.hex()
 
@@ -263,8 +287,15 @@ def execute_prepared_extend(
 ) -> ExecutedExtendRun:
     """Build, render, validate, and publish one extension entry."""
 
-    runtime = _runtime_impl.resolve_extend_runtime(prepared)
+    runtime = _runtime_impl.resolve_extend_runtime(prepared, include_layout_debug_dir=False)
     _preflight_prepared_extension_publish_target(prepared)
+    runtime = replace(
+        runtime,
+        layout_debug_dir=_runtime_impl.resolve_extend_layout_debug_dir(
+            prepared.args.layout_debug_dir,
+            root_dir=prepared.args.root_dir,
+        ),
+    )
     nonce_value = nonce or secrets.token_hex(4)
     publish = prepare_staged_extension_publish(
         prepared,
@@ -364,8 +395,9 @@ def validate_prepared_extend_render(
             artifacts.staging_dir,
             expected_index=prepared.next_index,
             publish_policy=publish_policy,
-            expected_root_dir_identity=artifacts.root_dir_identity,
-            expected_extensions_dir_identity=artifacts.extensions_dir_identity,
+            publish_layout=artifacts.publish_layout,
+            expected_publish_root_identity=artifacts.publish_root_identity,
+            expected_artifact_parent_identity=artifacts.artifact_parent_identity,
         )
         validate_staged_main_carrier(plan, rendered)
         validate_staged_shard_carriers(plan, rendered)
@@ -380,8 +412,9 @@ def _preflight_prepared_extension_publish_target(prepared: PreparedExtendRun) ->
         preflight_extension_publish_target(
             prepared.args.root_dir or prepared.inspection.root_dir,
             index=prepared.next_index,
+            publish_layout="loose" if prepared.args.scan else "canonical",
             allow_missing_root=bool(prepared.args.scan),
-            require_empty_extensions=bool(prepared.args.scan),
+            require_empty_root=bool(prepared.args.scan),
         )
     except ValueError as exc:
         raise ApiCommandError(

@@ -260,8 +260,9 @@ def prepare_staged_extension_publish(
         doc_id_hex=encrypted.doc_id.hex(),
         nonce=nonce,
         publish_policy=publish_policy,
+        publish_layout="loose" if prepared.args.scan else "canonical",
         allow_missing_root=bool(prepared.args.scan),
-        require_empty_extensions=bool(prepared.args.scan),
+        require_empty_root=bool(prepared.args.scan),
     )
     return PreparedExtensionPublishPlan(
         prepared=prepared,

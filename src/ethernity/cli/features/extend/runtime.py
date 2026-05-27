@@ -250,6 +250,7 @@ def resolve_extend_runtime(
     prepared: PreparedExtendRun,
     *,
     create_layout_debug_dir: bool = True,
+    include_layout_debug_dir: bool = True,
 ) -> ResolvedExtendRuntime:
     """Resolve config, validated unlock shard policy, and render settings."""
 
@@ -289,10 +290,14 @@ def resolve_extend_runtime(
         config=config,
         qr_chunk_size=qr_chunk_size,
         qr_payload_codec=config.cli_defaults.backup.qr_payload_codec,
-        layout_debug_dir=resolve_extend_layout_debug_dir(
-            prepared.args.layout_debug_dir,
-            root_dir=prepared.args.root_dir,
-            create=create_layout_debug_dir,
+        layout_debug_dir=(
+            resolve_extend_layout_debug_dir(
+                prepared.args.layout_debug_dir,
+                root_dir=prepared.args.root_dir,
+                create=create_layout_debug_dir,
+            )
+            if include_layout_debug_dir
+            else None
         ),
         passphrase=policy.passphrase,
         signing_key=policy.signing_key,

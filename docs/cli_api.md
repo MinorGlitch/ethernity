@@ -632,10 +632,11 @@ passphrase output is intentional.
 `api extend` and `api inspect extend` can also take repeatable `--scan` inputs containing the
 root backup and extension QR-document PDFs/images. In scan mode, `--root-dir` is the writable
 publish target for the next extension, not the source of truth for the existing chain; it may be a
-fresh missing directory when its parent is writable. To avoid mixing scanned source material with a
-stale digital layout, scan-mode publishing requires the target `extensions/` namespace to be empty.
-Inspect/result payloads can report `input_kind: "scanned_chain"`, and started events include the
-`scan` array in schema version 1.
+fresh missing directory when its parent is writable, or an existing empty directory. To avoid mixing
+scanned source material with a stale digital layout, scan-mode publishing writes a loose
+`extension-<index>-<doc_id>` bundle directly under that target and does not create canonical
+`extensions/<index>` output. Inspect/result payloads can report `input_kind: "scanned_chain"`, and
+started events include the `scan` array in schema version 1.
 
 `api extend` and `api inspect extend` can unlock the selected backup with passphrase shard inputs
 by using `--shard-fallback-file`, `--shard-payloads-file`, or `--shard-scan`.

@@ -58,6 +58,12 @@ def canonical_extension_dir_name(index: int) -> str:
     return f"{index_value:02d}" if index_value < 100 else str(index_value)
 
 
+def loose_extension_dir_name(index: int, doc_id_hex: str) -> str:
+    index_value = canonical_extension_dir_name(index)
+    doc_id_value = _require_doc_id_hex(doc_id_hex)
+    return f"extension-{index_value}-{doc_id_value}"
+
+
 def parse_extension_dir_name(name: str) -> int:
     if not is_canonical_extension_dir_name(name):
         raise ValueError(f"invalid extension directory name: {name}")

@@ -105,19 +105,25 @@ Use this template for each change entry:
   - Old decoders reading new artifacts: yes (artifact wire format is unchanged)
   - New decoders reading old artifacts: yes for recovery, including arbitrary-named scanned PDF/image
     carriers with valid QR payloads; append operations can still reject degraded published export
-    trees that are missing required redundant artifacts or complete shard carrier sets
+    trees that are missing required redundant artifacts or complete shard carrier sets; appending
+    from scanned carriers now emits a loose extension artifact bundle unless the full canonical
+    export prefix is materialized
 - Version/profile bump required: no (this clarifies product validation boundaries without changing
   serialized bytes)
 - Implementation refs:
+  - `src/ethernity/cli/features/extend/execution.py`
+  - `src/ethernity/cli/features/extend/prepare.py`
   - `src/ethernity/extensions/discovery.py`
   - `src/ethernity/extensions/staging.py`
 - Test refs:
   - `tests/unit/test_extension_discovery.py`
+  - `tests/unit/test_extension_staging.py`
   - `tests/integration/test_integration_extensions.py`
 - Security impact:
   - Keeps content recovery permissive for damaged, renamed, or partial redundant carriers while
     requiring complete canonical published state, including internally consistent shard carrier
-    sets, before appending a new extension.
+    sets, before appending a new extension from a published tree. Scan-mode append cannot create a
+    gapful canonical-looking export tree from loose recovery carriers.
 
 ## 2026-05-22 - Authenticate compact shard policy inheritance
 

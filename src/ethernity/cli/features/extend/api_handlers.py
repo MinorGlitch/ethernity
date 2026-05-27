@@ -284,8 +284,9 @@ def run_extend_api_command(args: ExtendArgs, *, debug: bool = False) -> int:
         preflight_extension_publish_target(
             prepared.inspection.root_dir,
             index=prepared.next_index,
+            publish_layout="loose" if args.scan else "canonical",
             allow_missing_root=bool(args.scan),
-            require_empty_extensions=bool(args.scan),
+            require_empty_root=bool(args.scan),
         )
     except ValueError as exc:
         raise ApiCommandError(
@@ -408,8 +409,9 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
                     preflight_extension_publish_target(
                         inspection.root_dir,
                         index=prepared.next_index,
+                        publish_layout="loose" if args.scan else "canonical",
                         allow_missing_root=bool(args.scan),
-                        require_empty_extensions=bool(args.scan),
+                        require_empty_root=bool(args.scan),
                     )
                 except ValueError as exc:
                     blocking_issues.append(

@@ -120,9 +120,10 @@ Both commands:
 
 With `--scan`, treat `--root-dir` as a writable publish target for the new extension, not as the
 current-chain source. The target may be a fresh missing directory if its parent is writable, and its
-`extensions/` namespace must be empty. Inspect results can report `input_kind: "scanned_chain"`;
-schema-version-1 started events now include the `scan` array, so exhaustive clients should handle
-that field and enum value.
+directory must be empty when it already exists. The new documents are written as a loose
+`extension-<index>-<doc_id>` bundle under that target, not under canonical `extensions/`. Inspect
+results can report `input_kind: "scanned_chain"`; schema-version-1 started events now include the
+`scan` array, so exhaustive clients should handle that field and enum value.
 
 With `--unlock-policy reuse-root`, extension passphrase recovery depends on the root shard quorum;
 do not send extension `--shard-threshold` or `--shard-count` overrides. Signing-key recovery remains

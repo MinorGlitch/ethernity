@@ -1280,9 +1280,11 @@ Recovery-valid and append-valid are distinct states. A recovery implementation M
 from a complete authenticated machine-readable carrier set even when a published export tree is
 missing redundant human-readable artifacts. An implementation that appends from printed/scanned
 backup documents MUST treat the complete authenticated chain carried by those documents as the
-append source and MUST NOT require the original generated export tree. Such an append MUST publish
-into a writable output root whose extension namespace is not already populated by stale digital
-extension artifacts.
+append source and MUST NOT require the original generated export tree. Unless such an implementation
+rehydrates the full canonical export prefix, it MUST publish the new extension documents as a loose
+artifact bundle outside the canonical `extensions/` namespace. It MUST NOT create a canonical-looking
+`extensions/<index>` directory when the earlier canonical prefix is not present. The writable output
+root for a loose scan-mode append MUST be missing or empty before publishing.
 
 An implementation that appends from an existing published export tree MUST require the existing
 published chain head to satisfy the canonical export layout before publishing the next extension.

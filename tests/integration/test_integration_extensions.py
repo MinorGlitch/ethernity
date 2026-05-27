@@ -204,8 +204,13 @@ class TestIntegrationExtensions(unittest.TestCase):
 
                 self.assertEqual(second_extension.index, 2)
                 self.assertTrue(second_extension.qr_document_path.exists())
+                self.assertEqual(second_extension.final_dir.parent, rehydrated_root)
+                self.assertTrue(second_extension.final_dir.name.startswith("extension-02-"))
+                self.assertEqual(
+                    second_extension.qr_document_path.parent, second_extension.final_dir
+                )
                 self.assertFalse((rehydrated_root / "qr_document.pdf").exists())
-                self.assertFalse((rehydrated_root / "extensions" / "01").exists())
+                self.assertFalse((rehydrated_root / "extensions").exists())
 
                 recovered_dir = tmp_path / "recovered-latest"
                 self._run_recover(

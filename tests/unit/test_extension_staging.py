@@ -46,6 +46,7 @@ class TestExtensionStaging(unittest.TestCase):
             )
 
             self.assertTrue(planned.staging_dir.is_dir())
+            self.assertEqual(planned.publish_layout, "canonical")
             self.assertEqual(planned.staging_dir.name, ".staging-6-abc123")
             self.assertEqual(planned.final_dir.name, "06")
             self.assertEqual(
@@ -86,6 +87,28 @@ class TestExtensionStaging(unittest.TestCase):
             self.assertEqual(planned.shard_paths, ())
             self.assertEqual(planned.signing_key_shard_paths, ())
 
+    def test_create_staged_extension_artifact_plan_returns_loose_scan_targets(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_root = Path(tmpdir) / "scan-output"
+            planned = create_staged_extension_artifact_plan(
+                output_root,
+                index=2,
+                doc_id_hex="cafebabedeadbeef",
+                nonce="abc123",
+                publish_policy=ExtensionPublishPolicy(),
+                publish_layout="loose",
+                allow_missing_root=True,
+                require_empty_root=True,
+            )
+
+            self.assertTrue(output_root.is_dir())
+            self.assertEqual(output_root.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(planned.publish_layout, "loose")
+            self.assertEqual(planned.staging_dir.parent, output_root)
+            self.assertEqual(planned.staging_dir.name, ".staging-2-abc123")
+            self.assertEqual(planned.final_dir, output_root / "extension-02-cafebabedeadbeef")
+            self.assertFalse((output_root / "extensions").exists())
+
     def test_create_staging_dir_rejects_missing_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             missing_root = Path(tmpdir) / "missing-root"
@@ -93,7 +116,7 @@ class TestExtensionStaging(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "extension publish root not found"):
                 create_extension_staging_dir(missing_root, index=1, nonce="abc123")
 
-    def test_create_staging_dir_can_create_missing_scan_publish_root(self) -> None:
+    def test_create_staging_dir_can_create_missing_canonical_publish_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             missing_root = Path(tmpdir) / "scan-output-root"
 
@@ -116,26 +139,27 @@ class TestExtensionStaging(unittest.TestCase):
             preflight_extension_publish_target(
                 missing_root,
                 index=1,
+                publish_layout="loose",
                 allow_missing_root=True,
-                require_empty_extensions=True,
+                require_empty_root=True,
             )
 
             self.assertFalse(missing_root.exists())
 
-    def test_preflight_extension_publish_target_rejects_nonempty_scan_namespace(self) -> None:
+    def test_preflight_extension_publish_target_rejects_nonempty_scan_output_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            existing = Path(tmpdir) / "extensions" / "01"
-            existing.mkdir(parents=True)
+            (Path(tmpdir) / "notes.txt").write_text("not empty", encoding="utf-8")
 
             with self.assertRaisesRegex(
                 ValueError,
-                "empty extensions directory",
+                "empty directory or missing path",
             ):
                 preflight_extension_publish_target(
                     tmpdir,
                     index=2,
+                    publish_layout="loose",
                     allow_missing_root=True,
-                    require_empty_extensions=True,
+                    require_empty_root=True,
                 )
 
     def test_preflight_extension_publish_target_rejects_non_directory_extensions_path(
@@ -231,13 +255,14 @@ class TestExtensionStaging(unittest.TestCase):
             forged = ValidatedStagedExtension(
                 staging_dir=validated.staging_dir,
                 final_dir_name="02",
+                publish_layout=validated.publish_layout,
                 doc_id_hex=validated.doc_id_hex,
                 expected_index=validated.expected_index,
                 publish_policy=validated.publish_policy,
                 staging_dir_identity=validated.staging_dir_identity,
                 staging_snapshot=validated.staging_snapshot,
-                root_dir_identity=validated.root_dir_identity,
-                extensions_dir_identity=validated.extensions_dir_identity,
+                publish_root_identity=validated.publish_root_identity,
+                artifact_parent_identity=validated.artifact_parent_identity,
             )
 
             final_dir = promote_staged_extension_dir(forged)
@@ -245,6 +270,44 @@ class TestExtensionStaging(unittest.TestCase):
             self.assertEqual(final_dir.name, "01")
             self.assertTrue((Path(tmpdir) / "extensions" / "01").is_dir())
             self.assertFalse((Path(tmpdir) / "extensions" / "02").exists())
+
+    def test_promote_recomputes_loose_final_dir_from_validated_doc_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            staging_dir = create_staged_extension_artifact_plan(
+                tmpdir,
+                index=2,
+                doc_id_hex="deadbeefcafebabe",
+                nonce="abc123",
+                publish_policy=ExtensionPublishPolicy(),
+                publish_layout="loose",
+                require_empty_root=True,
+            ).staging_dir
+            self._write(staging_dir / "qr_document-02-deadbeefcafebabe.pdf")
+            self._write(staging_dir / "recovery_document-02-deadbeefcafebabe.pdf")
+            validated = validate_staged_extension_dir(
+                staging_dir,
+                expected_index=2,
+                publish_policy=ExtensionPublishPolicy(),
+                publish_layout="loose",
+            )
+            forged = ValidatedStagedExtension(
+                staging_dir=validated.staging_dir,
+                final_dir_name="extension-02-cafebabedeadbeef",
+                publish_layout=validated.publish_layout,
+                doc_id_hex=validated.doc_id_hex,
+                expected_index=validated.expected_index,
+                publish_policy=validated.publish_policy,
+                staging_dir_identity=validated.staging_dir_identity,
+                staging_snapshot=validated.staging_snapshot,
+                publish_root_identity=validated.publish_root_identity,
+                artifact_parent_identity=validated.artifact_parent_identity,
+            )
+
+            final_dir = promote_staged_extension_dir(forged)
+
+            self.assertEqual(final_dir.name, "extension-02-deadbeefcafebabe")
+            self.assertTrue((Path(tmpdir) / "extension-02-deadbeefcafebabe").is_dir())
+            self.assertFalse((Path(tmpdir) / "extension-02-cafebabedeadbeef").exists())
 
     def test_promote_rejects_regular_file_swap_after_validation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

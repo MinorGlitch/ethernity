@@ -3140,8 +3140,9 @@ class TestCliApi(unittest.TestCase):
         preflight.assert_called_once_with(
             "/tmp/inspection-root",
             index=1,
+            publish_layout="canonical",
             allow_missing_root=False,
-            require_empty_extensions=False,
+            require_empty_root=False,
         )
 
     def test_api_inspect_extend_emits_unlocked_diff_summary(self) -> None:
@@ -4457,8 +4458,9 @@ class TestCliApi(unittest.TestCase):
         preflight.assert_called_once_with(
             "/tmp/prepared-root",
             index=2,
+            publish_layout="loose",
             allow_missing_root=True,
-            require_empty_extensions=True,
+            require_empty_root=True,
         )
         events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
         self._assert_valid_events(events)
@@ -4547,8 +4549,9 @@ class TestCliApi(unittest.TestCase):
         preflight.assert_called_once_with(
             "/tmp/prepared-root",
             index=2,
+            publish_layout="canonical",
             allow_missing_root=False,
-            require_empty_extensions=False,
+            require_empty_root=False,
         )
         ensure_playwright_browsers.assert_not_called()
         execute_prepared_extend.assert_not_called()
@@ -4630,8 +4633,9 @@ class TestCliApi(unittest.TestCase):
         preflight.assert_called_once_with(
             "/tmp/root",
             index=1,
+            publish_layout="canonical",
             allow_missing_root=False,
-            require_empty_extensions=False,
+            require_empty_root=False,
         )
         events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
         self._assert_valid_events(events)

@@ -1761,8 +1761,47 @@ class TestExtendService(unittest.TestCase):
 
         self.assertEqual(ctx.exception.code, api_codes.EXTENSION_PUBLISH_TARGET_INVALID)
         self.assertEqual(ctx.exception.details, {"stage": "publish_target"})
-        resolve_runtime.assert_called_once_with(prepared)
+        resolve_runtime.assert_called_once_with(prepared, include_layout_debug_dir=False)
         encrypt.assert_not_called()
+
+    def test_execute_prepared_extend_preflights_publish_target_before_layout_debug_creation(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            root_dir = tmp_path / "root"
+            debug_dir = tmp_path / "layout-debug"
+            (root_dir / "extensions" / "02").mkdir(parents=True)
+            resolved = _resolved_state(
+                diff_summary={
+                    "new_paths": ["new.txt"],
+                    "changed_paths": ["updated.txt"],
+                    "unchanged_paths": [],
+                    "missing_paths": [],
+                },
+            )
+            resolved = replace(
+                resolved,
+                inspection=replace(resolved.inspection, root_dir=str(root_dir)),
+            )
+            with mock.patch(
+                "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                return_value=resolved,
+            ):
+                prepared = prepare_extend_run(
+                    ExtendArgs(
+                        root_dir=str(root_dir),
+                        input=["/tmp/root/example.txt"],
+                        layout_debug_dir=str(debug_dir),
+                        shard_count=0,
+                    )
+                )
+
+            with self.assertRaises(ApiCommandError) as ctx:
+                execute_prepared_extend(prepared, chunker=lambda data, _profile: (data,))
+
+            self.assertEqual(ctx.exception.code, api_codes.EXTENSION_PUBLISH_TARGET_INVALID)
+            self.assertFalse(debug_dir.exists())
 
     def test_execute_prepared_extend_discards_extension_staging_on_layout_debug_setup_failure(
         self,
