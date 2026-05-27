@@ -37,6 +37,7 @@ from ethernity.cli.features.backup.wizard import (
     resolve_signing_seed_sharding,
 )
 from ethernity.cli.shared.io.inputs import _load_input_files
+from ethernity.cli.shared.paths import display_parent_path
 from ethernity.cli.shared.plan import _validate_backup_args, _validate_passphrase_words
 from ethernity.cli.shared.recovery_kit_index import (
     resolve_recovery_kit_index_template_path,
@@ -590,7 +591,7 @@ def _print_completion_actions(result: BackupResult, quiet: bool) -> None:
     """Print the completion panel with next actions."""
     if quiet:
         return
-    output_dir = str(Path(result.qr_path).parent)
+    output_dir = display_parent_path(result.qr_path)
     actions = [
         f"Saved to {output_dir}",
         "Print the main document and store it securely.",

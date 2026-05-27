@@ -35,7 +35,7 @@ from ethernity.cli.shared.events import (
     event_session,
 )
 from ethernity.cli.shared.io.outputs import _single_entry_uses_directory_output
-from ethernity.cli.shared.paths import expanduser_cli_path
+from ethernity.cli.shared.paths import display_parent_path, expanduser_cli_path
 from ethernity.cli.shared.types import RecoverArgs
 from ethernity.cli.shared.ui.debug import print_recover_debug
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
@@ -232,7 +232,7 @@ def execute_recover_plan(
                 emitted_output_path = written_paths[0]
                 output_path_kind: Literal["file", "directory", "stdout"] = "file"
             else:
-                emitted_output_path = plan.output_path or str(Path(written_paths[0]).parent)
+                emitted_output_path = plan.output_path or display_parent_path(written_paths[0])
                 output_path_kind = "directory"
         else:
             emitted_output_path = plan.output_path or "-"

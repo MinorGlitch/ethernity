@@ -18,6 +18,8 @@
 
 from __future__ import annotations
 
+import ntpath
+import posixpath
 from pathlib import Path
 
 
@@ -38,3 +40,22 @@ def expanduser_cli_paths(paths: list[str] | tuple[str, ...] | None) -> list[str]
     if not paths:
         return []
     return [expanduser_cli_path(path) or str(path) for path in paths]
+
+
+def display_parent_path(path: str | Path) -> str:
+    """Return a parent path without changing the caller's slash style."""
+
+    if isinstance(path, Path):
+        return str(path.parent)
+    text = str(path)
+    if "\\" in text or _has_windows_drive(text):
+        parent = ntpath.dirname(text)
+    elif "/" in text:
+        parent = posixpath.dirname(text)
+    else:
+        parent = str(Path(text).parent)
+    return parent or "."
+
+
+def _has_windows_drive(path: str) -> bool:
+    return len(path) >= 2 and path[1] == ":" and path[0].isalpha()

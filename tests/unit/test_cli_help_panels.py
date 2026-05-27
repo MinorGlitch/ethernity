@@ -24,10 +24,22 @@ from typer.testing import CliRunner
 from ethernity import cli
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+_PANEL_PREFIX_RE = r"[╭┌]─"
 
 
 def _strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
+
+
+def _panel_index(output: str, title: str) -> int:
+    match = re.search(rf"{_PANEL_PREFIX_RE} {re.escape(title)}(?:\s|─)", output)
+    if match is None:
+        raise AssertionError(f"panel not found: {title!r}\n{output}")
+    return match.start()
+
+
+def _has_panel(output: str, title: str) -> bool:
+    return re.search(rf"{_PANEL_PREFIX_RE} {re.escape(title)}(?:\s|─)", output) is not None
 
 
 class TestCliHelpPanels(unittest.TestCase):
@@ -37,46 +49,46 @@ class TestCliHelpPanels(unittest.TestCase):
     def test_human_command_help_uses_normalized_panel_order(self) -> None:
         cases = {
             "backup": [
-                "╭─ Inputs",
-                "╭─ Unlock",
-                "╭─ Outputs",
-                "╭─ Behavior",
-                "╭─ Config",
-                "╭─ Advanced",
-                "╭─ Debug",
+                "Inputs",
+                "Unlock",
+                "Outputs",
+                "Behavior",
+                "Config",
+                "Advanced",
+                "Debug",
             ],
             "recover": [
-                "╭─ Inputs",
-                "╭─ Unlock",
-                "╭─ Outputs",
-                "╭─ Behavior",
-                "╭─ Config",
+                "Inputs",
+                "Unlock",
+                "Outputs",
+                "Behavior",
+                "Config",
             ],
             "extend": [
-                "╭─ Inputs",
-                "╭─ Unlock",
-                "╭─ Outputs",
-                "╭─ Behavior",
-                "╭─ Config",
-                "╭─ Advanced",
-                "╭─ Debug",
+                "Inputs",
+                "Unlock",
+                "Outputs",
+                "Behavior",
+                "Config",
+                "Advanced",
+                "Debug",
             ],
             "compact": [
-                "╭─ Inputs",
-                "╭─ Unlock",
-                "╭─ Outputs",
-                "╭─ Behavior",
-                "╭─ Config",
-                "╭─ Advanced",
-                "╭─ Debug",
+                "Inputs",
+                "Unlock",
+                "Outputs",
+                "Behavior",
+                "Config",
+                "Advanced",
+                "Debug",
             ],
             "mint": [
-                "╭─ Inputs",
-                "╭─ Unlock",
-                "╭─ Outputs",
-                "╭─ Behavior",
-                "╭─ Config",
-                "╭─ Advanced",
+                "Inputs",
+                "Unlock",
+                "Outputs",
+                "Behavior",
+                "Config",
+                "Advanced",
             ],
         }
 
@@ -86,7 +98,7 @@ class TestCliHelpPanels(unittest.TestCase):
                     result = self.runner.invoke(cli.app, [command, "--help"])
                     self.assertEqual(result.exit_code, 0, result.output)
                     output = _strip_ansi(result.output)
-                    indexes = [output.index(panel) for panel in panels]
+                    indexes = [_panel_index(output, panel) for panel in panels]
                     self.assertEqual(indexes, sorted(indexes))
 
     def test_recover_help_drops_legacy_panel_names(self) -> None:
@@ -95,9 +107,9 @@ class TestCliHelpPanels(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 0, result.output)
         output = _strip_ansi(result.output)
-        self.assertNotIn("╭─ Extensions", output)
-        self.assertNotIn("╭─ Verification", output)
-        self.assertNotIn("╭─ Output ─", output)
+        self.assertFalse(_has_panel(output, "Extensions"))
+        self.assertFalse(_has_panel(output, "Verification"))
+        self.assertFalse(_has_panel(output, "Output"))
 
     def test_extend_help_uses_outputs_instead_of_sharding_panel(self) -> None:
         with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
@@ -105,8 +117,8 @@ class TestCliHelpPanels(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 0, result.output)
         output = _strip_ansi(result.output)
-        self.assertIn("╭─ Outputs", output)
-        self.assertNotIn("╭─ Sharding", output)
+        self.assertTrue(_has_panel(output, "Outputs"))
+        self.assertFalse(_has_panel(output, "Sharding"))
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+import os
 import shutil
 import tempfile
 import unittest
@@ -34,6 +35,11 @@ from ethernity.extensions.staging import (
 
 
 class TestExtensionStaging(unittest.TestCase):
+    def _assert_private_mode_when_supported(self, path: Path) -> None:
+        if os.name == "nt":
+            return
+        self.assertEqual(path.stat().st_mode & 0o777, 0o700)
+
     def test_layout_only_promotion_helpers_are_not_package_facade_exports(self) -> None:
         self.assertFalse(hasattr(extension_facade, "validate_staged_extension_dir"))
         self.assertFalse(hasattr(extension_facade, "promote_staged_extension_dir"))
@@ -110,7 +116,7 @@ class TestExtensionStaging(unittest.TestCase):
             )
 
             self.assertTrue(output_root.is_dir())
-            self.assertEqual(output_root.stat().st_mode & 0o777, 0o700)
+            self._assert_private_mode_when_supported(output_root)
             self.assertEqual(planned.publish_layout, "loose")
             self.assertEqual(planned.staging_dir.parent, output_root)
             self.assertEqual(planned.staging_dir.name, ".staging-2-abc123")
@@ -137,7 +143,7 @@ class TestExtensionStaging(unittest.TestCase):
             )
 
             self.assertTrue(missing_root.is_dir())
-            self.assertEqual(missing_root.stat().st_mode & 0o777, 0o700)
+            self._assert_private_mode_when_supported(missing_root)
             self.assertEqual(staging_dir.parent, missing_root / "extensions")
 
     def test_preflight_extension_publish_target_accepts_missing_scan_publish_root(self) -> None:
@@ -210,7 +216,7 @@ class TestExtensionStaging(unittest.TestCase):
     def test_validate_and_promote_staged_extension_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             staging_dir = create_extension_staging_dir(tmpdir, index=1, nonce="abc123")
-            self.assertEqual(staging_dir.stat().st_mode & 0o777, 0o700)
+            self._assert_private_mode_when_supported(staging_dir)
             self._write(staging_dir / "qr_document-01-deadbeefcafebabe.pdf")
             self._write(staging_dir / "recovery_document-01-deadbeefcafebabe.pdf")
             self._write(staging_dir / "recovery_kit_index-01-deadbeefcafebabe.pdf")

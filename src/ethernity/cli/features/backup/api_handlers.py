@@ -24,6 +24,7 @@ from ethernity.cli.features.backup.service import execute_prepared_backup, prepa
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.events import active_event_sink, emit_artifact, emit_result
 from ethernity.cli.shared.ndjson import SCHEMA_VERSION, ApiCommandError, emit_started
+from ethernity.cli.shared.paths import display_parent_path
 from ethernity.cli.shared.types import BackupArgs, BackupResult
 from ethernity.core.models import SigningSeedMode
 
@@ -153,7 +154,7 @@ def run_backup_api_command(args: BackupArgs) -> int:
     emit_result(
         command="backup",
         doc_id=result.doc_id.hex(),
-        output_dir=str(Path(result.qr_path).parent),
+        output_dir=display_parent_path(result.qr_path),
         input_origin=prepared.input_origin,
         input_roots=list(prepared.input_roots),
         input_count=len(prepared.input_files),

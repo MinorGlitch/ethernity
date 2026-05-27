@@ -37,3 +37,9 @@ class TestLayoutDebug(unittest.TestCase):
             layout_debug_json_path("/tmp/debug", "qr_document"),
             "/tmp/debug/qr_document.layout.json",
         )
+
+    def test_layout_debug_json_path_preserves_windows_string_style(self) -> None:
+        self.assertEqual(
+            layout_debug_json_path(r"C:\tmp\debug", "qr_document"),
+            r"C:\tmp\debug\qr_document.layout.json",
+        )

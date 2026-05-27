@@ -97,7 +97,7 @@ class TestExtendCommand(unittest.TestCase):
         self.assertEqual(args.config, "ctx.toml")
         self.assertEqual(args.paper, "LETTER")
         self.assertEqual(args.design, "forge")
-        self.assertEqual(args.root_dir, "/tmp/root")
+        self.assertEqual(args.root_dir, str(Path("/tmp/root")))
         self.assertEqual(args.scan, [])
         self.assertEqual(args.input, ["updated.txt"])
         self.assertEqual(args.base_dir, "./vault")
@@ -502,5 +502,5 @@ class TestExtendCliApp(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(captured["base_dir"], "./vault")
-        self.assertEqual(captured["root_dir"], "/tmp/root")
+        self.assertEqual(captured["root_dir"], str(Path("/tmp/root")))
         self.assertEqual(captured["input"], ["-"])

@@ -29,6 +29,7 @@ from ethernity.cli.shared.common import (
     _resolve_config_and_paper,
     _run_cli,
 )
+from ethernity.cli.shared.paths import display_parent_path
 from ethernity.cli.shared.types import BackupResult, CompactArgs
 from ethernity.cli.shared.ui_api import (
     build_kv_table,
@@ -62,7 +63,7 @@ def _print_compact_summary(
 ) -> None:
     if quiet:
         return
-    output_dir = str(Path(result.qr_path).parent)
+    output_dir = display_parent_path(result.qr_path)
     console.print()
     console.print(
         panel(
@@ -115,7 +116,7 @@ def _print_completion_actions(
 def run_compact_command(args: CompactArgs, *, debug: bool = False) -> int:
     _ = debug
     result = run_compact(args)
-    output_dir = str(Path(result.qr_path).parent)
+    output_dir = display_parent_path(result.qr_path)
     source = ", ".join(args.scan or []) if args.scan else args.root_dir or ""
     _print_compact_summary(result, source=source, quiet=args.quiet)
     _print_completion_actions(result, output_dir=output_dir, quiet=args.quiet)

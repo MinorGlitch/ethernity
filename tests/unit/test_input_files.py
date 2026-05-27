@@ -80,7 +80,8 @@ class TestInputFiles(unittest.TestCase):
 
     def test_directory_input_roots_preserve_leaf_whitespace(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir) / " demo "
+            root_label = " demo" if os.name == "nt" else " demo "
+            root = Path(tmpdir) / root_label
             root.mkdir()
             (root / "a.txt").write_bytes(b"A")
 
@@ -88,7 +89,7 @@ class TestInputFiles(unittest.TestCase):
                 [], [str(root)], None, allow_stdin=False
             )
 
-        self.assertEqual(input_roots, [" demo "])
+        self.assertEqual(input_roots, [root_label])
 
     def test_duplicate_relative_paths_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

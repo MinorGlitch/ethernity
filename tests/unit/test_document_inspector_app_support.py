@@ -167,15 +167,16 @@ class TestDocumentInspectorAppSupport(unittest.TestCase):
         self.assertEqual(exit_code, 0)
 
     def test_gui_session_state_defaults_result_to_none(self) -> None:
+        source_path = str(Path("/tmp/input.txt"))
         session = gui.SessionState(
             key="session-1",
             title="Session 1",
             source_label="Clipboard",
-            source_paths=(str(Path("/tmp/input.txt")),),
+            source_paths=(source_path,),
             container=mock.Mock(),
             info_var=mock.Mock(),
             text_widget=mock.Mock(),
         )
 
         self.assertIsNone(session.result)
-        self.assertEqual(session.source_paths, ("/tmp/input.txt",))
+        self.assertEqual(session.source_paths, (source_path,))

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 
 def resolve_layout_debug_dir(
@@ -80,7 +80,19 @@ def layout_debug_json_path(layout_debug_dir: str | Path | None, stem: str) -> st
 
     if layout_debug_dir is None or not str(layout_debug_dir).strip():
         return None
-    return str(Path(layout_debug_dir) / f"{stem}.layout.json")
+    filename = f"{stem}.layout.json"
+    if isinstance(layout_debug_dir, Path):
+        return str(layout_debug_dir / filename)
+    text = str(layout_debug_dir)
+    if "\\" in text or _has_windows_drive(text):
+        return str(PureWindowsPath(text) / filename)
+    if "/" in text:
+        return str(PurePosixPath(text) / filename)
+    return str(Path(text) / filename)
+
+
+def _has_windows_drive(path: str) -> bool:
+    return len(path) >= 2 and path[1] == ":" and path[0].isalpha()
 
 
 __all__ = [

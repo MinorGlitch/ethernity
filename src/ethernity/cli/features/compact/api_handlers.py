@@ -24,6 +24,7 @@ from ethernity.cli.features.compact.service import run_compact
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.events import emit_artifact, emit_phase, emit_progress, emit_result
 from ethernity.cli.shared.ndjson import SCHEMA_VERSION, ApiCommandError, emit_started
+from ethernity.cli.shared.paths import display_parent_path
 from ethernity.cli.shared.types import BackupResult, CompactArgs
 
 _SHARD_LAYOUT_PATTERN = re.compile(
@@ -151,7 +152,7 @@ def run_compact_api_command(args: CompactArgs, *, debug: bool = False) -> int:
         details={
             "root_dir": args.root_dir,
             "scan": list(args.scan or []),
-            "output_dir": str(Path(result.qr_path).parent),
+            "output_dir": display_parent_path(result.qr_path),
         },
     )
     _emit_compact_artifacts(result)
@@ -161,7 +162,7 @@ def run_compact_api_command(args: CompactArgs, *, debug: bool = False) -> int:
         doc_id=result.doc_id.hex(),
         root_dir=args.root_dir,
         source_scan=list(args.scan or []),
-        output_dir=str(Path(result.qr_path).parent),
+        output_dir=display_parent_path(result.qr_path),
         artifacts={
             "qr_document": result.qr_path,
             "recovery_document": result.recovery_path,

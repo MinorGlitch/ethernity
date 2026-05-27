@@ -992,7 +992,7 @@ class TestCompactService(unittest.TestCase):
         self.assertEqual(result.expected_head_doc_hash, "ab" * 32)
         recover_args = plan_recover_from_args.call_args.args[0]
         self.assertIsInstance(recover_args, RecoverArgs)
-        self.assertEqual(recover_args.scan, ["/tmp/root"])
+        self.assertEqual(recover_args.scan, [str(Path("/tmp/root"))])
         self.assertEqual(recover_args.shard_fallback_file, ["shard-a.txt"])
         self.assertEqual(recover_args.shard_payloads_file, ["shard-a.payloads"])
         self.assertEqual(recover_args.shard_scan, ["shard-a.pdf"])
