@@ -64,6 +64,7 @@ from ethernity.cli.features.extend.service import (
     prepare_staged_extension_publish,
     resolve_extend_runtime,
     run_extend,
+    validate_prepared_extend_render,
 )
 from ethernity.cli.features.extend.shard_validation import (
     validate_rendered_shard_carrier as _validate_rendered_shard_carrier,
@@ -736,6 +737,7 @@ class TestExtendService(unittest.TestCase):
             policy.passphrase,
             ReuseRootPassphraseShards(threshold=2, share_count=2),
         )
+        self.assertEqual(policy.signing_key, SigningKeyNotStored())
         self.assertEqual(policy.to_publish_policy().passphrase_shard_count, 0)
         self.assertEqual(policy.to_publish_policy().signing_key_shard_count, 0)
         self.assertTrue(policy.require_recovery_kit_index)
@@ -762,24 +764,53 @@ class TestExtendService(unittest.TestCase):
         self.assertEqual(policy.signing_key, SigningKeyNotStored())
         self.assertEqual(policy.to_publish_policy().signing_key_shard_count, 0)
 
-    def test_resolve_extend_policy_rejects_sharded_signing_key_mode_for_reuse_root(self) -> None:
-        with self.assertRaises(ApiCommandError) as ctx:
-            resolve_extend_policy(
-                args=ExtendArgs(unlock_policy="reuse-root", signing_key_mode="sharded"),
-                defaults=BackupDefaults(
-                    shard_threshold=2,
-                    shard_count=3,
-                    signing_key_mode="sharded",
-                    signing_key_shard_threshold=2,
-                    signing_key_shard_count=3,
-                ),
-                root_passphrase_shard_threshold=2,
-                root_passphrase_shard_count=2,
-                require_recovery_kit_index=True,
-            )
+    def test_resolve_extend_policy_allows_sharded_signing_key_mode_for_reuse_root(self) -> None:
+        policy = resolve_extend_policy(
+            args=ExtendArgs(unlock_policy="reuse-root", signing_key_mode="sharded"),
+            defaults=BackupDefaults(
+                shard_threshold=2,
+                shard_count=3,
+                signing_key_mode="sharded",
+                signing_key_shard_threshold=2,
+                signing_key_shard_count=3,
+            ),
+            root_passphrase_shard_threshold=2,
+            root_passphrase_shard_count=2,
+            require_recovery_kit_index=True,
+        )
 
-        self.assertEqual(ctx.exception.code, EXTENSION_INVALID_POLICY)
-        self.assertIn("--signing-key-mode", str(ctx.exception))
+        self.assertEqual(
+            policy.passphrase,
+            ReuseRootPassphraseShards(threshold=2, share_count=2),
+        )
+        self.assertEqual(
+            policy.signing_key,
+            ExtensionSigningKeyShards(threshold=2, share_count=3),
+        )
+        self.assertEqual(policy.to_publish_policy().passphrase_shard_count, 0)
+        self.assertEqual(policy.to_publish_policy().signing_key_shard_count, 3)
+
+    def test_resolve_extend_policy_infers_signing_key_shards_for_reuse_root(self) -> None:
+        policy = resolve_extend_policy(
+            args=ExtendArgs(
+                unlock_policy="reuse-root",
+                signing_key_shard_threshold=2,
+                signing_key_shard_count=3,
+            ),
+            defaults=BackupDefaults(
+                shard_threshold=2,
+                shard_count=3,
+                signing_key_mode="embedded",
+            ),
+            root_passphrase_shard_threshold=2,
+            root_passphrase_shard_count=2,
+            require_recovery_kit_index=True,
+        )
+
+        self.assertEqual(
+            policy.signing_key,
+            ExtensionSigningKeyShards(threshold=2, share_count=3),
+        )
 
     def test_run_extend_fails_closed_before_artifact_creation_on_untrusted_latest_head(
         self,
@@ -1113,6 +1144,76 @@ class TestExtendService(unittest.TestCase):
                 ],
             )
             self.assertFalse((root_dir / "extensions" / ".staging-2-abc123").exists())
+
+    def test_validate_prepared_extend_render_uses_temporary_no_publish_workspace(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
+            resolved = _resolved_state(
+                diff_summary={
+                    "new_paths": ["new.txt"],
+                    "changed_paths": ["updated.txt"],
+                    "unchanged_paths": [],
+                    "missing_paths": [],
+                },
+            )
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                    return_value=resolved,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.prepare.encrypt_bytes_with_passphrase",
+                    side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
+                ),
+            ):
+                prepared = prepare_extend_run(
+                    ExtendArgs(root_dir=str(root_dir), input=["/tmp/root/example.txt"])
+                )
+                runtime = resolve_extend_runtime(prepared, create_layout_debug_dir=False)
+                encrypted = encrypt_prepared_extension_document(
+                    prepared,
+                    chunker=lambda data, _profile: (data,),
+                )
+
+            rendered_paths: list[Path] = []
+
+            def _fake_render(inputs: RenderInputs) -> RenderResult:
+                output_path = Path(inputs.output_path)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_bytes(output_path.name.encode("utf-8"))
+                rendered_paths.append(output_path)
+                return _render_result_for_inputs(inputs)
+
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.execution.render_module.render_frames_to_pdf",
+                    side_effect=_fake_render,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.execution.validate_staged_main_carrier"
+                ) as validate_main,
+                mock.patch(
+                    "ethernity.cli.features.extend.execution.validate_staged_shard_carriers"
+                ) as validate_shards,
+                mock.patch(
+                    "ethernity.cli.features.extend.execution."
+                    "validate_staged_recovery_kit_index_document"
+                ) as validate_index,
+            ):
+                validate_prepared_extend_render(
+                    prepared,
+                    runtime=runtime,
+                    encrypted=encrypted,
+                    nonce="preview",
+                )
+
+            self.assertGreaterEqual(len(rendered_paths), 2)
+            self.assertFalse(any(path.exists() for path in rendered_paths))
+            self.assertEqual(list((root_dir / "extensions").glob("*")), [])
+            validate_main.assert_called_once()
+            validate_shards.assert_called_once()
+            validate_index.assert_called_once()
 
     def test_execute_staged_extension_publish_rejects_changed_published_head(self) -> None:
         with TemporaryDirectory() as tmpdir:

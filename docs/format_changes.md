@@ -219,7 +219,8 @@ Use this template for each change entry:
   - `tests/unit/test_extend_inspection.py`
   - `tests/unit/test_cli_api.py`
 - Security impact:
-  - Documents that chain grouping metadata does not replace authenticated per-link ancestry checks.
+  - Clarifies that `chain_id` is derived informational metadata only; validators must derive it from
+    authenticated root state and cannot trust caller-supplied or serialized chain identifiers.
 
 ## 2026-05-11 - Clarify extension recovery documents as human fallback only
 
@@ -380,7 +381,7 @@ Use this template for each change entry:
   - Moves recovery identity to ciphertext `doc_hash`, AUTH, and decrypted extension headers instead
     of directory names or filenames
 
-## 2026-05-08 - Preserve extension input root label whitespace
+## 2026-05-08 - Validate and preserve extension input root labels
 
 - Type: validation
 - Normative spec updated: yes
@@ -388,7 +389,9 @@ Use this template for each change entry:
 - Compatibility:
   - Old decoders reading new artifacts: partial (older builds may trim extension `input_roots`
     labels with leading or trailing whitespace when displaying provenance metadata)
-  - New decoders reading old artifacts: yes (already-trimmed labels remain valid)
+  - New decoders reading old artifacts: partial (valid existing labels remain valid; hand-authored
+    labels that are empty, path-like, control-character-bearing, `.`/`..`, or drive-prefix-like are
+    now rejected)
 - Version/profile bump required: no (this clarifies and preserves authenticated provenance
   metadata without changing extension envelope structure or replay security)
 - Implementation refs:
@@ -396,7 +399,7 @@ Use this template for each change entry:
 - Test refs:
   - `tests/unit/test_extension_envelope.py`
 - Security impact:
-  - none
+  - Keeps Python and browser-kit extension decoders aligned on path/provenance label rejection.
 
 ## 2026-05-08 - Enforce canonical extension chunk recipes at build and replay boundaries
 

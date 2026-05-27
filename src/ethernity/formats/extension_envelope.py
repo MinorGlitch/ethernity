@@ -27,7 +27,6 @@ from dataclasses import dataclass
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_CBOR_BYTES
 from ethernity.core.validation import (
     normalize_manifest_path,
-    normalize_path,
     require_bytes,
     require_dict,
     require_int,
@@ -391,9 +390,7 @@ class ExtensionEnvelopeHeader:
             input_origin=require_str(
                 header[_HEADER_INPUT_ORIGIN], label="extension header input_origin"
             ),
-            input_roots=tuple(
-                normalize_path(root, label="extension header input_root") for root in roots
-            ),
+            input_roots=tuple(_normalize_root_label(root) for root in roots),
         )
 
 
@@ -669,9 +666,7 @@ def _require_inline_chunk_raw_len_bounds(chunks_raw: Sequence[object]) -> None:
 
 
 def _normalize_root_label(value: object) -> str:
-    root = normalize_path(value, label="extension header input_root")
-    if not root:
-        raise ValueError("extension header input_root must be a non-empty string")
+    root = normalize_manifest_path(value, label="extension header input_root")
     if "/" in root or "\\" in root:
         raise ValueError("extension header input_root must be a leaf label without path separators")
     return root

@@ -174,8 +174,9 @@ previewed. Extension shard thresholds and share counts are bounded to `1..255` w
 
 For `api inspect extend`, `resolved_policy`, `chunk_reuse`, and `estimated_extension_bytes` are
 execution-grade preview values for the pending extension when unlock/auth requirements are satisfied
-and the selected scope contains changes. `resolved_policy` is `null` when runtime policy cannot be
-evaluated yet.
+and the selected scope contains changes. Inspect also render-validates the pending artifacts in a
+temporary no-publish workspace before reporting the extension as ready. `resolved_policy` is `null`
+when runtime policy cannot be evaluated yet.
 
 Compact results include the source `root_dir`, the emitted standalone `output_dir`, a fresh
 standalone `doc_id`, and a stable `artifacts` object for generated PDFs.
@@ -608,16 +609,22 @@ later carrier exists elsewhere.
 - Treat inspect `blocking_issues` as readiness guidance, not command failure
 - Use `api config get/set` for GUI settings management and onboarding state
 - Expect `api backup` / `api compact` / `api extend` / `api mint` / `api recover` to use the existing user config when present
-- Expect `api inspect extend` / `api inspect recover` / `api inspect mint` to avoid file writes and artifact events
+- Expect `api inspect recover` / `api inspect mint` to avoid file writes and artifact events
+- Expect `api inspect extend` to avoid persistent user-output writes and artifact events; successful
+  extension readiness previews render into a temporary workspace that is cleaned up before the
+  command returns
 - Prefer `code` values for logic and `message` values for display
 - Treat stdin as opt-in for `api recover`; pass `--fallback-file -` for typed fallback text or `--payloads-file -` for QR payload lines
 - Do not extract fallback text from PDF or image files; PDF/image recovery inputs are QR scan inputs only
 `extend` also accepts `--unlock-policy self-contained|reuse-root`.
-`reuse-root` disables extension-local passphrase shard emission and rejects explicit shard-policy
-overrides for the new extension. It requires a recoverable root passphrase shard quorum, either
-from the shard set supplied to unlock the root backup or from authenticated root-level shard
-documents discovered in the backup root. Operators then unlock the extension through that root
-shard set.
+`reuse-root` disables extension-local passphrase shard emission and rejects explicit extension
+passphrase shard overrides for the new extension. It requires a recoverable root passphrase shard
+quorum, either from the shard set supplied to unlock the root backup or from authenticated
+root-level shard documents discovered in the backup root. Operators then unlock the extension
+through that root shard set. Signing authority recovery remains independent: `reuse-root` emits no
+extension-local signing-key shards by default, but explicit `--signing-key-mode sharded` or
+signing-key shard-count options request root/chain signing authority shard documents for future
+extension minting.
 If no root or extension shard policy is available, `api extend` fails closed instead of emitting a
 plaintext passphrase recovery document by default; pass `--shard-count 0` only when plaintext
 passphrase output is intentional.
@@ -634,8 +641,9 @@ scope.
 `api inspect extend` accepts the same extension-policy preview knobs as `api extend`:
 `--qr-chunk-size`, `--layout-debug-dir`, `--unlock-policy`, `--shard-threshold`,
 `--shard-count`, `--signing-key-mode not-stored|sharded`, `--signing-key-shard-threshold`, and
-`--signing-key-shard-count`. The inspect form validates `--layout-debug-dir` and the extension
-publish target without creating files or directories.
+`--signing-key-shard-count`. The inspect form validates `--layout-debug-dir`, preflights the
+extension publish target, and render-validates pending artifacts in a temporary no-publish
+workspace without creating persistent files under the backup root.
 When the active design provides a compatible `recovery_kit_index` template, `api extend` emits an
 extension-local recovery kit index. The index records the required root backup documents as external
 dependencies because extension recovery is not self-contained. `api inspect extend` does not emit

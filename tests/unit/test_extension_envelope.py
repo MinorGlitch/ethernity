@@ -308,6 +308,20 @@ class TestExtensionEnvelope(unittest.TestCase):
 
         self.assertEqual(header.input_roots, (" demo ",))
 
+    def test_directory_input_roots_use_manifest_path_validation(self) -> None:
+        for root in (".", "..", "docs/\u0001", "C:notes", "docs/root"):
+            with self.subTest(root=root):
+                with self.assertRaises(ValueError):
+                    build_extension_header(
+                        index=1,
+                        parent_doc_hash=TEST_DOC_HASH,
+                        root_doc_hash=TEST_ROOT_DOC_HASH,
+                        chunking=_make_profile(),
+                        input_origin="directory",
+                        input_roots=(root,),
+                        created_at=123,
+                    )
+
     def test_rejects_unknown_header_keys(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown keys"):
             ExtensionEnvelopeHeader.from_cbor(

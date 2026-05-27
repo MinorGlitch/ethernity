@@ -273,12 +273,16 @@ class TestExtendCommand(unittest.TestCase):
                 "ethernity.cli.features.extend.command.encrypt_prepared_extension_document",
                 return_value=encrypted,
             ),
+            mock.patch(
+                "ethernity.cli.features.extend.command.validate_prepared_extend_render"
+            ) as validate_render,
         ):
             result = extend_command.run_extend_dry_run_command(args)
 
         self.assertEqual(result, 0)
         preflight.assert_called_once_with("/tmp/prepared-root", index=1)
         resolve_runtime.assert_called_once_with(prepared, create_layout_debug_dir=False)
+        validate_render.assert_called_once_with(prepared, runtime=runtime, encrypted=encrypted)
 
     def test_extend_dry_run_reports_invalid_publish_target(self) -> None:
         args = extend_command.ExtendArgs(root_dir="/tmp/root", input=["updated.txt"], quiet=True)

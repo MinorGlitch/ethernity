@@ -26,7 +26,6 @@ from ethernity.extensions import (
     create_staged_extension_artifact_plan,
     preflight_extension_publish_target,
     promote_staged_extension_dir,
-    snapshot_staged_extension_dir,
     validate_staged_extension_dir,
 )
 
@@ -190,6 +189,8 @@ class TestExtensionStaging(unittest.TestCase):
                 doc_id_hex=validated.doc_id_hex,
                 expected_index=validated.expected_index,
                 publish_policy=validated.publish_policy,
+                staging_dir_identity=validated.staging_dir_identity,
+                staging_snapshot=validated.staging_snapshot,
                 root_dir_identity=validated.root_dir_identity,
                 extensions_dir_identity=validated.extensions_dir_identity,
             )
@@ -200,7 +201,7 @@ class TestExtensionStaging(unittest.TestCase):
             self.assertTrue((Path(tmpdir) / "extensions" / "01").is_dir())
             self.assertFalse((Path(tmpdir) / "extensions" / "02").exists())
 
-    def test_promote_rejects_regular_file_swap_after_snapshot(self) -> None:
+    def test_promote_rejects_regular_file_swap_after_validation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             staging_dir = create_extension_staging_dir(tmpdir, index=1, nonce="abc123")
             qr_path = staging_dir / "qr_document-01-deadbeefcafebabe.pdf"
@@ -212,11 +213,10 @@ class TestExtensionStaging(unittest.TestCase):
                 expected_index=1,
                 publish_policy=ExtensionPublishPolicy(),
             )
-            snapshot = snapshot_staged_extension_dir(staging_dir)
             qr_path.write_bytes(b"different regular file")
 
             with self.assertRaisesRegex(ValueError, "artifacts changed before promotion"):
-                promote_staged_extension_dir(validated, expected_snapshot=snapshot)
+                promote_staged_extension_dir(validated)
 
             self.assertTrue(staging_dir.exists())
 
@@ -241,6 +241,28 @@ class TestExtensionStaging(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "validated staging_dir must not be a symlink"):
                 promote_staged_extension_dir(validated)
+
+    def test_promote_rejects_staging_dir_recreated_after_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            staging_dir = create_extension_staging_dir(tmpdir, index=1, nonce="abc123")
+            self._write(staging_dir / "qr_document-01-deadbeefcafebabe.pdf")
+            self._write(staging_dir / "recovery_document-01-deadbeefcafebabe.pdf")
+
+            validated = validate_staged_extension_dir(
+                staging_dir,
+                expected_index=1,
+                publish_policy=ExtensionPublishPolicy(),
+            )
+            moved_staging_dir = Path(tmpdir) / "extensions" / ".staging-old"
+            staging_dir.rename(moved_staging_dir)
+            staging_dir.mkdir(mode=0o700)
+            self._write(staging_dir / "qr_document-01-deadbeefcafebabe.pdf")
+            self._write(staging_dir / "recovery_document-01-deadbeefcafebabe.pdf")
+
+            with self.assertRaisesRegex(ValueError, "staging directory changed before promotion"):
+                promote_staged_extension_dir(validated)
+
+            self.assertTrue(moved_staging_dir.exists())
 
     def test_promote_rejects_extensions_dir_swap_after_validation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

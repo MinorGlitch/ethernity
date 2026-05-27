@@ -3244,6 +3244,12 @@ class TestCliApi(unittest.TestCase):
                     ),
                 ),
                 mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False),
+                mock.patch(
+                    "ethernity.cli.features.extend.api_handlers.ensure_playwright_browsers"
+                ) as ensure_playwright_browsers,
+                mock.patch(
+                    "ethernity.cli.features.extend.api_handlers.validate_prepared_extend_render"
+                ) as validate_render,
             ):
                 expected_prepared = prepare_extend_run(
                     ExtendArgs(
@@ -3282,6 +3288,8 @@ class TestCliApi(unittest.TestCase):
                 )
 
         self.assertEqual(result.exit_code, 0, result.output)
+        ensure_playwright_browsers.assert_called_once_with(quiet=True)
+        validate_render.assert_called_once()
         events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
         self._assert_valid_events(events)
         self.assertEqual(
@@ -3351,6 +3359,10 @@ class TestCliApi(unittest.TestCase):
                 ),
             ),
             mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False),
+            mock.patch("ethernity.cli.features.extend.api_handlers.ensure_playwright_browsers"),
+            mock.patch(
+                "ethernity.cli.features.extend.api_handlers.validate_prepared_extend_render"
+            ),
         ):
             root_dir = Path(tmpdir) / "backup-root"
             root_dir.mkdir()

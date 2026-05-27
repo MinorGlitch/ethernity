@@ -41,6 +41,7 @@ from ethernity.extensions.layout import (
 
 EXTENSION_CHAIN_LOCK_DIR_NAME = ".chain.lock"
 DirectoryIdentity = tuple[int, int]
+StagedExtensionSnapshot = ArtifactSnapshot
 
 
 @dataclass(frozen=True)
@@ -65,11 +66,10 @@ class ValidatedStagedExtension:
     doc_id_hex: str
     expected_index: int
     publish_policy: ExtensionPublishPolicy
+    staging_dir_identity: DirectoryIdentity
+    staging_snapshot: StagedExtensionSnapshot
     root_dir_identity: DirectoryIdentity
     extensions_dir_identity: DirectoryIdentity
-
-
-StagedExtensionSnapshot = ArtifactSnapshot
 
 
 @dataclass(frozen=True)
@@ -157,6 +157,14 @@ def _require_publish_directory_identities(validated: ValidatedStagedExtension) -
         extensions_dir,
         expected=validated.extensions_dir_identity,
         label="extensions directory",
+    )
+
+
+def _require_staging_directory_identity(validated: ValidatedStagedExtension) -> None:
+    _require_directory_identity(
+        validated.staging_dir,
+        expected=validated.staging_dir_identity,
+        label="staging directory",
     )
 
 
@@ -270,6 +278,7 @@ def validate_staged_extension_dir(
     if not is_staging_dir_name(path.name):
         raise ValueError("staging_dir must use a non-canonical .staging-* name")
     root_dir_identity, extensions_dir_identity = _publish_directory_identities(path)
+    staging_dir_identity = _directory_identity(path, label="staging directory")
     if expected_root_dir_identity is not None and root_dir_identity != expected_root_dir_identity:
         raise ValueError("root backup directory changed before promotion")
     if (
@@ -338,6 +347,7 @@ def validate_staged_extension_dir(
         shares=signing_key_shares,
         expected_count=publish_policy.signing_key_shard_count,
     )
+    staging_snapshot = snapshot_artifact_dir(path)
 
     return ValidatedStagedExtension(
         staging_dir=path,
@@ -345,29 +355,29 @@ def validate_staged_extension_dir(
         doc_id_hex=doc_id_hex,
         expected_index=expected_index,
         publish_policy=publish_policy,
+        staging_dir_identity=staging_dir_identity,
+        staging_snapshot=staging_snapshot,
         root_dir_identity=root_dir_identity,
         extensions_dir_identity=extensions_dir_identity,
     )
 
 
-def promote_staged_extension_dir(
-    validated: ValidatedStagedExtension,
-    *,
-    expected_snapshot: StagedExtensionSnapshot | None = None,
-) -> Path:
+def promote_staged_extension_dir(validated: ValidatedStagedExtension) -> Path:
     """Atomically promote a validated staged extension into its canonical directory."""
 
     staging_dir = validated.staging_dir
-    _require_publish_directory_identities(validated)
     if staging_dir.is_symlink():
         raise ValueError("validated staging_dir must not be a symlink")
+    _require_publish_directory_identities(validated)
     if not staging_dir.exists() or not staging_dir.is_dir():
         raise ValueError("validated staging_dir no longer exists")
+    _require_staging_directory_identity(validated)
     expected_final_dir_name = canonical_extension_dir_name(validated.expected_index)
     final_dir = staging_dir.parent / expected_final_dir_name
 
     def _validate_for_promotion(path: Path) -> None:
         _require_publish_directory_identities(validated)
+        _require_staging_directory_identity(validated)
         revalidated = validate_staged_extension_dir(
             path,
             expected_index=validated.expected_index,
@@ -380,7 +390,7 @@ def promote_staged_extension_dir(
         return promote_staged_artifact_dir(
             staging_dir,
             final_dir,
-            expected_snapshot=expected_snapshot,
+            expected_snapshot=validated.staging_snapshot,
             validate_staging=_validate_for_promotion,
             lock_dir=staging_dir.parent / f".{expected_final_dir_name}.lock",
         )

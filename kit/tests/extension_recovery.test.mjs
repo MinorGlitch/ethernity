@@ -148,6 +148,21 @@ function extensionHeaderWithVersionBytes(versionBytes) {
   return concatBytes([Uint8Array.of(0xa8), ...pairs.flat()]);
 }
 
+function extensionHeaderWithInputRootsBytes(inputRoots) {
+  return encodeCbor(
+    new Map([
+      [1, 1],
+      [2, 1],
+      [4, new Uint8Array(32).fill(1)],
+      [5, new Uint8Array(32).fill(2)],
+      [7, 1_700_000_100],
+      [10, [1, CHUNKING.targetSize, CHUNKING.minSize, CHUNKING.maxSize]],
+      [11, "directory"],
+      [12, inputRoots],
+    ]),
+  );
+}
+
 function aggregateOverflowExtensionBodyBytes() {
   const firstChunkId = new Uint8Array(32).fill(1);
   const secondChunkId = new Uint8Array(32).fill(2);
@@ -370,6 +385,17 @@ test("extension envelope rejects float-typed integer fields", async () => {
     () => decodeExtensionEnvelope(envelope),
     /extension header version must be an int/,
   );
+});
+
+test("extension envelope rejects path-like input root labels", async () => {
+  for (const inputRoot of [".", "..", "docs/\u0001", "C:notes", "docs/root"]) {
+    const envelope = buildExtensionEnvelopeBytes({
+      headerBytes: extensionHeaderWithInputRootsBytes([inputRoot]),
+      bodyBytes: validExtensionBodyBytes(),
+    });
+
+    await assert.rejects(() => decodeExtensionEnvelope(envelope));
+  }
 });
 
 test("extension envelope preflights aggregate inline raw_len before gzip decode", async () => {

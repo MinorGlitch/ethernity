@@ -370,6 +370,9 @@ def recover_chain_entries(
 def recover_imported_chain_entries(
     plan: RecoveryPlanLike, *, quiet: bool, debug: bool = False
 ) -> ChainRecoveryResult:
+    if plan.extension_index is not None and plan.extension_doc_hash is not None:
+        raise ValueError("use either --extension-index or --extension-doc-hash, not both")
+
     root_manifest, payload = decode_root_manifest(
         ciphertext=plan.ciphertext,
         passphrase=plan.passphrase,

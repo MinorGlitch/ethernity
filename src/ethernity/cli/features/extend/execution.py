@@ -35,6 +35,7 @@ from ethernity.cli.features.extend.main_carrier_validation import (
     validate_staged_recovery_kit_index_document,
 )
 from ethernity.cli.features.extend.models import (
+    EncryptedPreparedExtension,
     ExecutedExtendRun,
     ExtensionArtifactPostValidator,
     ExtensionArtifactRenderer,
@@ -59,6 +60,7 @@ from ethernity.cli.shared.types import ExtendArgs
 from ethernity.extensions.build import Chunker, default_extension_chunker
 from ethernity.extensions.staging import (
     EXTENSION_CHAIN_LOCK_DIR_NAME,
+    create_staged_extension_artifact_plan,
     preflight_extension_publish_target,
     validate_staged_extension_dir,
 )
@@ -327,6 +329,52 @@ def execute_prepared_extend(
     )
 
 
+def validate_prepared_extend_render(
+    prepared: PreparedExtendRun,
+    *,
+    runtime,
+    encrypted: EncryptedPreparedExtension,
+    nonce: str | None = None,
+) -> RenderedExtensionArtifacts:
+    """Render and validate extension artifacts in a temporary no-publish workspace."""
+
+    preview_root = Path(tempfile.mkdtemp(prefix=".extension-render-preview-"))
+    try:
+        publish_policy = runtime.to_publish_policy()
+        artifacts = create_staged_extension_artifact_plan(
+            preview_root,
+            index=prepared.next_index,
+            doc_id_hex=encrypted.doc_id.hex(),
+            nonce=nonce or secrets.token_hex(4),
+            publish_policy=publish_policy,
+        )
+        render_runtime = runtime
+        if runtime.layout_debug_dir is not None:
+            layout_debug_dir = preview_root / "layout-debug"
+            layout_debug_dir.mkdir(mode=0o700)
+            render_runtime = replace(runtime, layout_debug_dir=str(layout_debug_dir))
+        plan = PreparedExtensionPublishPlan(
+            prepared=prepared,
+            encrypted=encrypted,
+            publish_policy=publish_policy,
+            artifacts=artifacts,
+        )
+        rendered = _render_extension_artifacts(plan, runtime=render_runtime)
+        validate_staged_extension_dir(
+            artifacts.staging_dir,
+            expected_index=prepared.next_index,
+            publish_policy=publish_policy,
+            expected_root_dir_identity=artifacts.root_dir_identity,
+            expected_extensions_dir_identity=artifacts.extensions_dir_identity,
+        )
+        validate_staged_main_carrier(plan, rendered)
+        validate_staged_shard_carriers(plan, rendered)
+        validate_staged_recovery_kit_index_document(plan)
+        return rendered
+    finally:
+        discard_staged_artifact_dir(preview_root)
+
+
 def _preflight_prepared_extension_publish_target(prepared: PreparedExtendRun) -> None:
     try:
         preflight_extension_publish_target(
@@ -499,4 +547,5 @@ __all__ = [
     "execute_prepared_extend",
     "execute_staged_extension_publish",
     "run_extend",
+    "validate_prepared_extend_render",
 ]

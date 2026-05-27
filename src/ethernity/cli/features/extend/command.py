@@ -38,6 +38,7 @@ from ethernity.cli.features.extend.service import (
     prepare_extend_run,
     resolve_extend_runtime,
     run_extend,
+    validate_prepared_extend_render,
 )
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.common import (
@@ -74,7 +75,7 @@ _EXTEND_HELP = (
     "  reuse-root requires a recoverable root passphrase shard quorum and emits no "
     "extension-local passphrase shards.\n"
     "  pass --shard-count 0 to explicitly choose plaintext passphrase output.\n"
-    "  sharded writes root/chain signing authority shard documents.\n"
+    "  pass --signing-key-mode sharded to write root/chain signing authority shard documents.\n"
 )
 
 
@@ -190,6 +191,7 @@ def run_extend_dry_run_command(args: ExtendArgs, *, debug: bool = False) -> int:
                 f"({MAX_CIPHERTEXT_BYTES}): {estimated_extension_bytes} bytes"
             ),
         )
+    validate_prepared_extend_render(prepared, runtime=runtime, encrypted=encrypted)
     _print_extend_dry_run_summary(
         args,
         prepared=prepared,
@@ -325,7 +327,8 @@ def extend(
             "--unlock-policy",
             help=(
                 "Extension unlock artifact policy. reuse-root requires a recoverable root "
-                "passphrase shard quorum and emits no extension-local passphrase shards."
+                "passphrase shard quorum and emits no extension-local passphrase shards; "
+                "explicit signing-key shard options remain independent."
             ),
             rich_help_panel="Outputs",
         ),
@@ -393,7 +396,7 @@ def extend(
         bool,
         typer.Option(
             "--dry-run",
-            help="Validate and preview the next extension without writing artifacts.",
+            help="Render-validate and preview the next extension without publishing artifacts.",
             rich_help_panel="Behavior",
         ),
     ] = False,

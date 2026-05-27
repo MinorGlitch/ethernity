@@ -96,7 +96,8 @@ Mint preflight rule for the GUI:
 ### Extension Flow
 
 Use `ethernity api inspect extend` first when the UI needs readiness, unlock status, diff
-summary, or extension policy preview without writing files.
+summary, extension policy preview, and no-publish render validation without creating persistent
+backup artifacts.
 
 Use `ethernity api extend` for the write-producing step after the user confirms the selected
 scope and output policy.
@@ -112,6 +113,12 @@ Both commands:
 - use `--signing-key-mode not-stored|sharded`, `--signing-key-shard-threshold`, and
   `--signing-key-shard-count` for extension-local signing-key recovery
 - reuse saved backup/config defaults when the UI does not override them explicitly
+
+With `--unlock-policy reuse-root`, extension passphrase recovery depends on the root shard quorum;
+do not send extension `--shard-threshold` or `--shard-count` overrides. Signing-key recovery remains
+independent: omit signing-key options to emit no extension-local signing authority shards, or pass
+`--signing-key-mode sharded`/signing-key shard counts when the user explicitly wants future minting
+authority recoverable from extension-local shard documents.
 
 If the UI runs `api inspect extend` before a scope is selected, treat
 `EXTENSION_INPUT_REQUIRED` in `blocking_issues` as the normal not-ready state.

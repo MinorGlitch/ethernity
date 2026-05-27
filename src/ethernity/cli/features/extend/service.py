@@ -22,6 +22,7 @@ from ethernity.cli.features.extend.execution import (
     execute_prepared_extend,
     execute_staged_extension_publish,
     run_extend,
+    validate_prepared_extend_render,
 )
 from ethernity.cli.features.extend.models import (
     EXTENSION_INPUT_REQUIRED,
@@ -70,4 +71,5 @@ __all__ = [
     "prepare_staged_extension_publish",
     "resolve_extend_runtime",
     "run_extend",
+    "validate_prepared_extend_render",
 ]

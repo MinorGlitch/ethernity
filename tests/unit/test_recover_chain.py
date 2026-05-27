@@ -520,6 +520,25 @@ class TestRecoverChain(unittest.TestCase):
             [("a.txt", b"root")],
         )
 
+    def test_recover_chain_entries_rejects_root_index_with_extension_doc_hash(self) -> None:
+        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+        plan = dataclasses.replace(
+            _recovery_plan(
+                root_ciphertext,
+                root_doc_id,
+                root_doc_hash,
+                extension_index=0,
+                extension_doc_hash="11" * 32,
+            ),
+            import_documents=(_imported_document(root_ciphertext),),
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "use either --extension-index or --extension-doc-hash",
+        ):
+            recover_chain_entries(plan, quiet=True)
+
     def test_recover_chain_entries_allows_internal_unsigned_root_only_selection(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
         extension_ciphertext = _extension_ciphertext(root_doc_hash)

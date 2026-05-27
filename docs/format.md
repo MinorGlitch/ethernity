@@ -125,7 +125,9 @@ Manifest requirements (map keys):
   - if `sealed` is false, `seed` MUST be 32 bytes
 - `input_origin`: string in `{"file", "directory", "mixed"}`; `"mixed"` indicates payloads
   sourced from more than one logical root label
-- `input_roots`: list of non-empty UTF-8 strings, each a leaf label (no `/` or `\`)
+- `input_roots`: list of non-empty UTF-8 strings, each a manifest-valid leaf label (no `/` or
+  `\`, no control characters, no `.` or `..` label, no drive-prefix form, and no absolute path
+  form)
 - cross-field consistency:
   - if `input_origin` is `"file"`, `input_roots` MUST be empty
   - if `input_origin` is `"directory"` or `"mixed"`, `input_roots` MUST be non-empty
@@ -936,10 +938,13 @@ Requirements:
     fixed-size slicing width
 - `input_origin`: `"file"`, `"directory"`, or `"mixed"`
 - `input_roots`:
-  - each root MUST be a non-empty UTF-8 leaf label
+  - each root MUST be a non-empty UTF-8 leaf label that passes manifest path validation as a single
+    segment
   - roots are NFC-normalized but otherwise preserved exactly; decoders MUST NOT trim leading or
     trailing whitespace
   - roots MUST NOT contain `/` or `\\`
+  - roots MUST NOT contain control characters, MUST NOT be `.` or `..`, MUST NOT use absolute path
+    syntax, and MUST NOT use drive-prefix syntax
   - MUST be empty when `input_origin == "file"`
   - MUST be non-empty when `input_origin` is `"directory"` or `"mixed"`
 
@@ -1174,8 +1179,10 @@ extension envelopes selected by content-import recovery and ordered by decrypted
 chain_id = BLAKE2b-256(CHAIN_ID_PERSONALIZATION || root_doc_hash)
 ```
 
-`chain_id` is not an extension header field and does not replace per-link `parent_doc_hash` or
-`root_doc_hash` validation.
+`chain_id` is not an extension header field, is not stored in extension artifacts, and does not
+replace per-link `parent_doc_hash` or `root_doc_hash` validation. Tooling MAY expose `chain_id` as
+informational derived metadata, but validators MUST derive it from authenticated root state and MUST
+NOT trust a caller-supplied or serialized `chain_id` value as evidence of chain membership.
 
 Requirements:
 - every extension ciphertext in one chain MUST decrypt with the same passphrase as the root backup

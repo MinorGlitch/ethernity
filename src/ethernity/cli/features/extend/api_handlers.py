@@ -36,6 +36,7 @@ from ethernity.cli.features.extend.service import (
     prepare_extend_run,
     prepare_extend_run_from_state,
     resolve_extend_runtime,
+    validate_prepared_extend_render,
 )
 from ethernity.cli.features.recover.api_handlers import _ForwardingWarningCollector
 from ethernity.cli.shared import api_codes
@@ -84,9 +85,7 @@ def _artifact_details(path: str) -> dict[str, object]:
     return details
 
 
-def _preview_chunk_reuse(
-    prepared,
-) -> tuple[dict[str, int] | None, int | None]:
+def _preview_chunk_reuse(prepared):
     encrypted = encrypt_prepared_extension_document(
         prepared,
         chunker=default_extension_chunker,
@@ -97,6 +96,7 @@ def _preview_chunk_reuse(
             "new_chunks": encrypted.built.stats.new_chunks,
         },
         len(encrypted.ciphertext),
+        encrypted,
     )
 
 
@@ -413,7 +413,9 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
                     )
                 else:
                     runtime = resolve_extend_runtime(prepared, create_layout_debug_dir=False)
-                    chunk_reuse, estimated_extension_bytes = _preview_chunk_reuse(prepared)
+                    chunk_reuse, estimated_extension_bytes, encrypted = _preview_chunk_reuse(
+                        prepared
+                    )
                     if (
                         estimated_extension_bytes is not None
                         and estimated_extension_bytes > MAX_CIPHERTEXT_BYTES
@@ -430,6 +432,13 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
                         )
                         chunk_reuse = None
                         estimated_extension_bytes = None
+                    else:
+                        ensure_playwright_browsers(quiet=True)
+                        validate_prepared_extend_render(
+                            prepared,
+                            runtime=runtime,
+                            encrypted=encrypted,
+                        )
             except ApiCommandError as exc:
                 code, details = _inspect_blocking_issue_payload(exc.code, exc.details)
                 blocking_issues.append(blocking_issue(code=code, message=str(exc), details=details))

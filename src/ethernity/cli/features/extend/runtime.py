@@ -60,24 +60,18 @@ def resolve_unlock_policy(policy: str | None) -> str:
     return policy
 
 
-def reject_reuse_root_shard_overrides(args: ExtendArgs) -> None:
+def reject_reuse_root_passphrase_shard_overrides(args: ExtendArgs) -> None:
     conflicting_options: list[str] = []
     if args.shard_threshold is not None:
         conflicting_options.append("--shard-threshold")
     if args.shard_count is not None:
         conflicting_options.append("--shard-count")
-    if args.signing_key_mode not in {None, "not-stored"}:
-        conflicting_options.append("--signing-key-mode")
-    if args.signing_key_shard_threshold is not None:
-        conflicting_options.append("--signing-key-shard-threshold")
-    if args.signing_key_shard_count is not None:
-        conflicting_options.append("--signing-key-shard-count")
     if conflicting_options:
         raise ApiCommandError(
             code=EXTENSION_INVALID_POLICY,
             message=(
-                "unlock_policy=reuse-root cannot be combined with explicit shard settings: "
-                + ", ".join(conflicting_options)
+                "unlock_policy=reuse-root cannot be combined with extension passphrase "
+                "shard settings: " + ", ".join(conflicting_options)
             ),
         )
 
@@ -94,7 +88,7 @@ def resolve_extend_policy(
 ) -> ResolvedExtendPolicy:
     unlock_policy = resolve_unlock_policy(args.unlock_policy)
     if unlock_policy == "reuse-root":
-        reject_reuse_root_shard_overrides(args)
+        reject_reuse_root_passphrase_shard_overrides(args)
         if root_passphrase_shard_threshold is None or root_passphrase_shard_count <= 0:
             raise ApiCommandError(
                 code=EXTENSION_INVALID_POLICY,
@@ -109,7 +103,12 @@ def resolve_extend_policy(
                 threshold=root_passphrase_shard_threshold,
                 share_count=root_passphrase_shard_count,
             ),
-            signing_key=SigningKeyNotStored(),
+            signing_key=resolve_extension_signing_key_policy(
+                args=args,
+                defaults=defaults,
+                passphrase_recovery_available=True,
+                inherit_default_mode=False,
+            ),
         )
 
     if inherited_passphrase_shard_count <= 0 and root_passphrase_shard_count > 0:
@@ -132,44 +131,12 @@ def resolve_extend_policy(
         inherited_count=inherited_passphrase_shard_count,
     )
 
-    signing_key_mode = _resolve_extension_signing_key_mode(args, defaults)
-    signing_key_policy: SigningKeyStoragePolicy
-    if signing_key_mode == "not-stored":
-        signing_key_policy = SigningKeyNotStored()
-    else:
-        if passphrase_shard_count <= 0:
-            raise ApiCommandError(
-                code=EXTENSION_INVALID_POLICY,
-                message="root/chain signing authority shard PDFs require passphrase shard PDFs",
-            )
-        signing_key_shard_threshold, signing_key_shard_count = resolve_quorum_override(
-            label="root/chain signing authority shards",
-            requested_threshold=(
-                args.signing_key_shard_threshold
-                if args.signing_key_shard_threshold is not None
-                else defaults.signing_key_shard_threshold
-            ),
-            requested_count=(
-                args.signing_key_shard_count
-                if args.signing_key_shard_count is not None
-                else defaults.signing_key_shard_count
-            ),
-            inherited_threshold=None,
-            inherited_count=0,
-        )
-        if signing_key_shard_count <= 0:
-            raise ApiCommandError(
-                code=EXTENSION_INVALID_POLICY,
-                message=(
-                    "signing-key-mode=sharded requires at least one root/chain signing "
-                    "authority shard PDF"
-                ),
-            )
-        assert signing_key_shard_threshold is not None
-        signing_key_policy = ExtensionSigningKeyShards(
-            threshold=signing_key_shard_threshold,
-            share_count=signing_key_shard_count,
-        )
+    signing_key_policy = resolve_extension_signing_key_policy(
+        args=args,
+        defaults=defaults,
+        passphrase_recovery_available=passphrase_shard_count > 0,
+        inherit_default_mode=True,
+    )
 
     passphrase_policy: PassphraseStoragePolicy
     if passphrase_shard_count > 0:
@@ -198,7 +165,61 @@ def resolve_extend_policy(
     )
 
 
-def _resolve_extension_signing_key_mode(args: ExtendArgs, defaults: BackupDefaults) -> str:
+def resolve_extension_signing_key_policy(
+    *,
+    args: ExtendArgs,
+    defaults: BackupDefaults,
+    passphrase_recovery_available: bool,
+    inherit_default_mode: bool,
+) -> SigningKeyStoragePolicy:
+    signing_key_mode = _resolve_extension_signing_key_mode(
+        args,
+        defaults,
+        inherit_default_mode=inherit_default_mode,
+    )
+    if signing_key_mode == "not-stored":
+        return SigningKeyNotStored()
+    if not passphrase_recovery_available:
+        raise ApiCommandError(
+            code=EXTENSION_INVALID_POLICY,
+            message="root/chain signing authority shard PDFs require passphrase shard recovery",
+        )
+    signing_key_shard_threshold, signing_key_shard_count = resolve_quorum_override(
+        label="root/chain signing authority shards",
+        requested_threshold=(
+            args.signing_key_shard_threshold
+            if args.signing_key_shard_threshold is not None
+            else defaults.signing_key_shard_threshold
+        ),
+        requested_count=(
+            args.signing_key_shard_count
+            if args.signing_key_shard_count is not None
+            else defaults.signing_key_shard_count
+        ),
+        inherited_threshold=None,
+        inherited_count=0,
+    )
+    if signing_key_shard_count <= 0:
+        raise ApiCommandError(
+            code=EXTENSION_INVALID_POLICY,
+            message=(
+                "signing-key-mode=sharded requires at least one root/chain signing "
+                "authority shard PDF"
+            ),
+        )
+    assert signing_key_shard_threshold is not None
+    return ExtensionSigningKeyShards(
+        threshold=signing_key_shard_threshold,
+        share_count=signing_key_shard_count,
+    )
+
+
+def _resolve_extension_signing_key_mode(
+    args: ExtendArgs,
+    defaults: BackupDefaults,
+    *,
+    inherit_default_mode: bool,
+) -> str:
     explicit_shard_policy = (
         args.signing_key_shard_threshold is not None or args.signing_key_shard_count is not None
     )
@@ -220,7 +241,7 @@ def _resolve_extension_signing_key_mode(args: ExtendArgs, defaults: BackupDefaul
         return args.signing_key_mode
     if explicit_shard_policy:
         return "sharded"
-    if defaults.signing_key_mode == "sharded":
+    if inherit_default_mode and defaults.signing_key_mode == "sharded":
         return "sharded"
     return "not-stored"
 
