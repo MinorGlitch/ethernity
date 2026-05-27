@@ -63,14 +63,11 @@ from ethernity.extensions.staging import (
     ExtensionPublishLayout,
     ExtensionPublishPolicy,
     PlannedStagedExtensionArtifacts,
-    ValidatedStagedExtension,
     create_extension_staging_dir,
     create_loose_extension_staging_dir,
     create_staged_extension_artifact_plan,
     preflight_extension_publish_target,
-    promote_staged_extension_dir,
     snapshot_staged_extension_dir,
-    validate_staged_extension_dir,
 )
 
 __all__ = [
@@ -88,7 +85,6 @@ __all__ = [
     "ExtensionShardArtifactName",
     "LogicalFileState",
     "PlannedStagedExtensionArtifacts",
-    "ValidatedStagedExtension",
     "build_extension_document",
     "build_extension_main_filename",
     "build_extension_shard_filename",
@@ -112,9 +108,7 @@ __all__ = [
     "parse_extension_shard_filename",
     "payload_main_carriers",
     "preflight_extension_publish_target",
-    "promote_staged_extension_dir",
     "reconstruct_authenticated_latest_logical_state",
     "snapshot_staged_extension_dir",
-    "validate_staged_extension_dir",
     "validate_authenticated_extension_chain",
 ]

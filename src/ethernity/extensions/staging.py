@@ -427,7 +427,11 @@ def validate_staged_extension_dir(
     expected_publish_root_identity: DirectoryIdentity | None = None,
     expected_artifact_parent_identity: DirectoryIdentity | None = None,
 ) -> ValidatedStagedExtension:
-    """Validate a staged extension artifact set before atomic promotion."""
+    """Validate staged extension layout before a low-level artifact directory promotion.
+
+    This helper does not validate QR/AUTH/recovery document contents or the published chain head.
+    Chain publishing callers must add those checks around the promotion lock.
+    """
 
     path = Path(staging_dir).expanduser()
     layout = _require_publish_layout(publish_layout)
@@ -534,7 +538,7 @@ def validate_staged_extension_dir(
 
 
 def promote_staged_extension_dir(validated: ValidatedStagedExtension) -> Path:
-    """Atomically promote a validated staged extension into its final directory."""
+    """Atomically promote a layout-validated staged extension into its final directory."""
 
     staging_dir = validated.staging_dir
     if staging_dir.is_symlink():

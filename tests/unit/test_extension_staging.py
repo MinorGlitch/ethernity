@@ -19,18 +19,26 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import ethernity.extensions as extension_facade
 from ethernity.extensions import (
     ExtensionPublishPolicy,
-    ValidatedStagedExtension,
     create_extension_staging_dir,
     create_staged_extension_artifact_plan,
     preflight_extension_publish_target,
+)
+from ethernity.extensions.staging import (
+    ValidatedStagedExtension,
     promote_staged_extension_dir,
     validate_staged_extension_dir,
 )
 
 
 class TestExtensionStaging(unittest.TestCase):
+    def test_layout_only_promotion_helpers_are_not_package_facade_exports(self) -> None:
+        self.assertFalse(hasattr(extension_facade, "validate_staged_extension_dir"))
+        self.assertFalse(hasattr(extension_facade, "promote_staged_extension_dir"))
+        self.assertFalse(hasattr(extension_facade, "ValidatedStagedExtension"))
+
     def test_create_staged_extension_artifact_plan_returns_canonical_targets(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             planned = create_staged_extension_artifact_plan(

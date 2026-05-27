@@ -80,7 +80,10 @@ from ethernity.crypto.signing import AuthPayload, derive_public_key, encode_auth
 from ethernity.encoding.framing import VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.extensions.chain import LogicalFileState
-from ethernity.extensions.staging import ExtensionPublishPolicy
+from ethernity.extensions.staging import (
+    ExtensionPublishPolicy,
+    create_staged_extension_artifact_plan as _create_staged_extension_artifact_plan,
+)
 from ethernity.formats.extension_envelope import ExtensionChunkingProfile
 from ethernity.formats.extension_envelope_constants import CHUNK_ALGORITHM_FASTCDC
 from ethernity.render.fallback_text import format_zbase32_lines
@@ -1214,6 +1217,77 @@ class TestExtendService(unittest.TestCase):
             validate_main.assert_called_once()
             validate_shards.assert_called_once()
             validate_index.assert_called_once()
+
+    def test_validate_prepared_extend_render_uses_scan_mode_loose_preview_layout(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "publish-target"
+            root_dir.mkdir(exist_ok=True)
+            resolved = _resolved_state(
+                diff_summary={
+                    "new_paths": ["new.txt"],
+                    "changed_paths": ["updated.txt"],
+                    "unchanged_paths": [],
+                    "missing_paths": [],
+                },
+            )
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                    return_value=resolved,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.prepare.encrypt_bytes_with_passphrase",
+                    side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
+                ),
+            ):
+                prepared = prepare_extend_run(
+                    ExtendArgs(
+                        root_dir=str(root_dir),
+                        scan=["/tmp/root.pdf"],
+                        input=["/tmp/root/example.txt"],
+                    )
+                )
+                runtime = resolve_extend_runtime(prepared, create_layout_debug_dir=False)
+                encrypted = encrypt_prepared_extension_document(
+                    prepared,
+                    chunker=lambda data, _profile: (data,),
+                )
+
+            def _fake_render(inputs: RenderInputs) -> RenderResult:
+                output_path = Path(inputs.output_path)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_bytes(output_path.name.encode("utf-8"))
+                return _render_result_for_inputs(inputs)
+
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.execution.create_staged_extension_artifact_plan",
+                    wraps=_create_staged_extension_artifact_plan,
+                ) as create_plan,
+                mock.patch(
+                    "ethernity.cli.features.extend.execution.render_module.render_frames_to_pdf",
+                    side_effect=_fake_render,
+                ),
+                mock.patch("ethernity.cli.features.extend.execution.validate_staged_main_carrier"),
+                mock.patch(
+                    "ethernity.cli.features.extend.execution.validate_staged_shard_carriers"
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.execution."
+                    "validate_staged_recovery_kit_index_document"
+                ),
+            ):
+                validate_prepared_extend_render(
+                    prepared,
+                    runtime=runtime,
+                    encrypted=encrypted,
+                    nonce="preview",
+                )
+
+            create_plan.assert_called_once()
+            self.assertEqual(create_plan.call_args.kwargs["publish_layout"], "loose")
+            self.assertTrue(create_plan.call_args.kwargs["allow_missing_root"])
+            self.assertTrue(create_plan.call_args.kwargs["require_empty_root"])
 
     def test_execute_staged_extension_publish_rejects_changed_published_head(self) -> None:
         with TemporaryDirectory() as tmpdir:

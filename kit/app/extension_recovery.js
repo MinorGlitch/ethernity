@@ -45,7 +45,6 @@ export async function recoverLatestFromPlaintextDocuments(
         decoded.push({
           kind: "extension",
           document,
-          extension: await decodeExtensionEnvelope(document.plaintext),
         });
       } else {
         decodeErrors.push({ document, message: `unsupported envelope version: ${version}` });
@@ -91,11 +90,17 @@ export async function recoverLatestFromPlaintextDocuments(
       rootAuthoritySignPub,
       verifySignature,
     );
-    if (!bytesEqual(item.extension.header.rootDocHash, root.document.docHash)) {
+    let extension;
+    try {
+      extension = await decodeExtensionEnvelope(item.document.plaintext);
+    } catch (err) {
+      throw new Error(`root-authority extension could not be decoded: ${String(err)}`);
+    }
+    if (!bytesEqual(extension.header.rootDocHash, root.document.docHash)) {
       throw new Error("extension root_doc_hash does not match root backup");
     }
     extensions.push({
-      ...item.extension,
+      ...extension,
       docHash: item.document.docHash,
       docHashHex: item.document.docHashHex,
       authPayload,

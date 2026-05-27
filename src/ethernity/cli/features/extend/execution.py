@@ -378,6 +378,9 @@ def validate_prepared_extend_render(
             doc_id_hex=encrypted.doc_id.hex(),
             nonce=nonce or secrets.token_hex(4),
             publish_policy=publish_policy,
+            publish_layout="loose" if prepared.args.scan else "canonical",
+            allow_missing_root=bool(prepared.args.scan),
+            require_empty_root=bool(prepared.args.scan),
         )
         render_runtime = runtime
         if runtime.layout_debug_dir is not None:

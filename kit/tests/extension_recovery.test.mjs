@@ -630,7 +630,7 @@ test("browser recovery fails closed when a supplied document cannot decode", asy
   const malformedDocument = documentFromPlaintext({
     docId: EXT1_DOC_ID,
     ciphertextSeed: Uint8Array.of(0x29),
-    plaintext: Uint8Array.from([0x45, 0x54, EXTENSION_ENVELOPE_VERSION, 0x00]),
+    plaintext: buildExtensionEnvelopeBytes({ bodyBytes: Uint8Array.of(0xff) }),
   });
 
   await assert.rejects(
@@ -638,7 +638,7 @@ test("browser recovery fails closed when a supplied document cannot decode", asy
       recoverLatestFromPlaintextDocuments([root, malformedDocument], {
         verifySignature: verifiedSignature,
       }),
-    /one or more supplied backup documents could not be decoded/,
+    /root-authority extension could not be decoded/,
   );
 });
 
@@ -839,6 +839,31 @@ test("browser recovery rejects extensions outside the root signing authority", a
     docId: EXT1_DOC_ID,
     ciphertextSeed: Uint8Array.of(0x22),
     plaintext: extPlaintext,
+    signPub: OTHER_SIGN_PUB,
+  });
+
+  await assert.rejects(
+    () =>
+      recoverLatestFromPlaintextDocuments([root, extension], {
+        verifySignature: verifiedSignature,
+      }),
+    /AUTH signing key does not match root authority/,
+  );
+});
+
+test("browser recovery authenticates extension documents before decoding their bodies", async () => {
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x18),
+    plaintext: rootPlaintext,
+  });
+  const extension = documentFromPlaintext({
+    docId: EXT1_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x28),
+    plaintext: buildExtensionEnvelopeBytes({ bodyBytes: Uint8Array.of(0xff) }),
     signPub: OTHER_SIGN_PUB,
   });
 
