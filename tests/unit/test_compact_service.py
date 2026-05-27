@@ -111,7 +111,7 @@ class TestCompactService(unittest.TestCase):
     def test_run_compact_rejects_missing_root_dir_with_compact_specific_message(self) -> None:
         with self.assertRaisesRegex(
             ValueError,
-            "backup root folder \\(backup root directory\\) not found: /tmp/missing-root",
+            "generated backup folder not found: /tmp/missing-root",
         ):
             run_compact(
                 CompactArgs(
@@ -138,12 +138,104 @@ class TestCompactService(unittest.TestCase):
                     )
                 )
 
+    def test_run_compact_accepts_scan_source_without_root_dir(self) -> None:
+        chain = SimpleNamespace(
+            manifest=EnvelopeManifest(
+                format_version=1,
+                created_at=1,
+                sealed=True,
+                signing_seed=None,
+                files=(ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1),),
+                input_origin="file",
+                input_roots=(),
+            ),
+            extracted=(
+                (ManifestFile(path="a.txt", size=4, sha256=b"\x11" * 32, mtime=1), b"data"),
+            ),
+            selected_extension_index=1,
+            selected_extension_doc_hash="55" * 32,
+        )
+        recover_plan = SimpleNamespace(
+            passphrase="secret passphrase",
+            doc_id=b"\x22" * 8,
+            doc_hash=b"\x44" * 32,
+            auth_payload=None,
+            shard_frames=(),
+        )
+        inherited = SimpleNamespace(
+            passphrase_shard_threshold=None,
+            passphrase_shard_count=0,
+            signing_key_shard_threshold=None,
+            signing_key_shard_count=0,
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.compact.service._validated_compact_root_dir"
+            ) as validated_compact_root_dir,
+            mock.patch(
+                "ethernity.cli.features.compact.service.plan_recover_from_args",
+                return_value=recover_plan,
+            ) as plan_recover_from_args,
+            mock.patch(
+                "ethernity.cli.features.compact.service.recover_chain_entries",
+                return_value=chain,
+            ),
+            mock.patch(
+                "ethernity.cli.features.compact.service._infer_root_publish_policy",
+                return_value=inherited,
+            ) as infer_root_publish_policy,
+            mock.patch(
+                "ethernity.cli.features.compact.service.load_app_config",
+                return_value=SimpleNamespace(),
+            ),
+            mock.patch(
+                "ethernity.cli.features.compact.service.apply_template_design",
+                side_effect=lambda config, _design: config,
+            ),
+            mock.patch(
+                "ethernity.cli.features.compact.service.apply_qr_chunk_size_override",
+                side_effect=lambda config, _size: config,
+            ),
+            mock.patch(
+                "ethernity.cli.features.compact.service.plan_backup_from_args",
+                return_value=SimpleNamespace(
+                    sealed=True,
+                    sharding=None,
+                    signing_seed_mode="embedded",
+                    signing_seed_sharding=None,
+                ),
+            ),
+            mock.patch(
+                "ethernity.cli.features.compact.service.run_backup",
+                return_value=_backup_result(),
+            ),
+        ):
+            result = run_compact(
+                CompactArgs(
+                    scan=["root.pdf", "extension-01.pdf"],
+                    output_dir="/tmp/out",
+                    passphrase="secret",
+                    quiet=True,
+                )
+            )
+
+        self.assertEqual(result.doc_id, b"\xaa" * 8)
+        validated_compact_root_dir.assert_not_called()
+        recover_args = plan_recover_from_args.call_args.args[0]
+        self.assertEqual(recover_args.scan, ["root.pdf", "extension-01.pdf"])
+        self.assertIsNone(infer_root_publish_policy.call_args.kwargs["root_dir"])
+        self.assertEqual(
+            infer_root_publish_policy.call_args.kwargs["source_scan"],
+            ("root.pdf", "extension-01.pdf"),
+        )
+
     def test_run_compact_rejects_output_dir_equal_to_root_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir)
             with self.assertRaisesRegex(
                 ValueError,
-                "compact output directory must not be the source backup root or inside it",
+                "compact output directory must not be the source generated folder or inside it",
             ):
                 run_compact(
                     CompactArgs(
@@ -159,7 +251,7 @@ class TestCompactService(unittest.TestCase):
             root_dir = Path(tmpdir)
             with self.assertRaisesRegex(
                 ValueError,
-                "compact output directory must not be the source backup root or inside it",
+                "compact output directory must not be the source generated folder or inside it",
             ):
                 run_compact(
                     CompactArgs(

@@ -1652,7 +1652,7 @@ class TestExtendService(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 ValueError,
-                "root backup directory changed before promotion",
+                "extension publish root changed before promotion",
             ):
                 execute_staged_extension_publish(
                     publish,

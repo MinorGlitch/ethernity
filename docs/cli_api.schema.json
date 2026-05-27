@@ -648,6 +648,7 @@
         "command",
         "doc_id",
         "root_dir",
+        "source_scan",
         "output_dir",
         "artifacts",
         "expected_head_doc_hash",
@@ -669,8 +670,17 @@
           "$ref": "#/$defs/docIdHex"
         },
         "root_dir": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "minLength": 1
+        },
+        "source_scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
         },
         "output_dir": {
           "$ref": "#/$defs/pathString"
@@ -1435,7 +1445,8 @@
           "type": "string",
           "enum": [
             "standalone_root",
-            "extended_root"
+            "extended_root",
+            "scanned_chain"
           ]
         },
         "source_summary": {
@@ -2032,6 +2043,7 @@
         "paper",
         "design",
         "root_dir",
+        "scan",
         "output_dir",
         "shard_fallback_file",
         "shard_payloads_file",
@@ -2077,6 +2089,12 @@
             "null"
           ],
           "minLength": 1
+        },
+        "scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
         },
         "output_dir": {
           "type": [
@@ -2405,6 +2423,7 @@
         "paper",
         "design",
         "root_dir",
+        "scan",
         "input",
         "input_dir",
         "base_dir",
@@ -2456,6 +2475,12 @@
             "null"
           ],
           "minLength": 1
+        },
+        "scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
         },
         "input": {
           "type": "array",
@@ -2611,6 +2636,7 @@
         "paper",
         "design",
         "root_dir",
+        "scan",
         "input",
         "input_dir",
         "base_dir",
@@ -2662,6 +2688,12 @@
             "null"
           ],
           "minLength": 1
+        },
+        "scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
         },
         "input": {
           "type": "array",

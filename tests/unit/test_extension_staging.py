@@ -90,8 +90,53 @@ class TestExtensionStaging(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             missing_root = Path(tmpdir) / "missing-root"
 
-            with self.assertRaisesRegex(ValueError, "root backup directory not found"):
+            with self.assertRaisesRegex(ValueError, "extension publish root not found"):
                 create_extension_staging_dir(missing_root, index=1, nonce="abc123")
+
+    def test_create_staging_dir_can_create_missing_scan_publish_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing_root = Path(tmpdir) / "scan-output-root"
+
+            staging_dir = create_extension_staging_dir(
+                missing_root,
+                index=1,
+                nonce="abc123",
+                allow_missing_root=True,
+                require_empty_extensions=True,
+            )
+
+            self.assertTrue(missing_root.is_dir())
+            self.assertEqual(missing_root.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(staging_dir.parent, missing_root / "extensions")
+
+    def test_preflight_extension_publish_target_accepts_missing_scan_publish_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing_root = Path(tmpdir) / "scan-output-root"
+
+            preflight_extension_publish_target(
+                missing_root,
+                index=1,
+                allow_missing_root=True,
+                require_empty_extensions=True,
+            )
+
+            self.assertFalse(missing_root.exists())
+
+    def test_preflight_extension_publish_target_rejects_nonempty_scan_namespace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            existing = Path(tmpdir) / "extensions" / "01"
+            existing.mkdir(parents=True)
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "empty extensions directory",
+            ):
+                preflight_extension_publish_target(
+                    tmpdir,
+                    index=2,
+                    allow_missing_root=True,
+                    require_empty_extensions=True,
+                )
 
     def test_preflight_extension_publish_target_rejects_non_directory_extensions_path(
         self,
@@ -313,7 +358,7 @@ class TestExtensionStaging(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 ValueError,
-                "root backup directory changed before promotion",
+                "extension publish root changed before promotion",
             ):
                 promote_staged_extension_dir(validated)
 

@@ -63,10 +63,11 @@ from ethernity.extensions.build import default_extension_chunker
 from ethernity.extensions.staging import preflight_extension_publish_target
 
 _EXTEND_HELP = (
-    "Create a new extension update inside a backup root folder "
-    "(writable backup root).\n\n"
+    "Create a new extension update from an authenticated backup chain "
+    "and publish it into a writable output root.\n\n"
     "Examples:\n"
     "  ethernity extend --root-dir root --input in.txt\n"
+    "  ethernity extend --root-dir out --scan root.pdf --scan extension-01.pdf --input in.txt\n"
     "  ethernity extend --root-dir root --input in.txt --dry-run\n"
     "  ethernity extend --root-dir root --input in.txt --unlock-policy reuse-root\n"
     "  ethernity extend --root-dir root --input in.txt --signing-key-mode sharded\n"
@@ -138,7 +139,7 @@ def _print_completion_actions(result: PublishedExtensionResult, *, quiet: bool) 
         return
     actions = [
         f"Saved extension {result.index:02d} to {result.final_dir}",
-        "Keep the root backup PDFs and all extension directories together.",
+        "Keep the root backup media and every extension document together.",
     ]
     if result.root_passphrase_shard_threshold is not None and result.root_passphrase_shard_count:
         actions.append(
@@ -170,7 +171,12 @@ def run_extend_dry_run_command(args: ExtendArgs, *, debug: bool = False) -> int:
     _ = debug
     prepared = prepare_extend_run(args)
     try:
-        preflight_extension_publish_target(prepared.inspection.root_dir, index=prepared.next_index)
+        preflight_extension_publish_target(
+            prepared.inspection.root_dir,
+            index=prepared.next_index,
+            allow_missing_root=bool(prepared.args.scan),
+            require_empty_extensions=bool(prepared.args.scan),
+        )
     except ValueError as exc:
         raise ApiCommandError(
             code=api_codes.EXTENSION_PUBLISH_TARGET_INVALID,
@@ -268,10 +274,21 @@ def extend(
         Path,
         typer.Option(
             "--root-dir",
-            help="Backup root folder (writable backup root) to extend.",
+            help="Writable folder where the next extension artifacts will be published.",
             rich_help_panel="Inputs",
         ),
     ],
+    scan: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--scan",
+            help=(
+                "Printed/scanned root or extension backup image/PDF to use as the current chain "
+                "source (repeatable)."
+            ),
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
     input: Annotated[
         list[Path] | None,
         typer.Option(
@@ -477,6 +494,7 @@ def extend(
         paper=paper_value,
         design=design_value,
         root_dir=str(root_dir),
+        scan=list(scan or []),
         input=[str(path) for path in (input or [])],
         input_dir=[str(path) for path in (input_dir or [])],
         base_dir=base_dir_value,

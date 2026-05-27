@@ -32,6 +32,7 @@ from ethernity.cli.features.recover.key_recovery import (
 from ethernity.cli.features.recover.planning import plan_from_args as plan_recover_from_args
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.crypto import doc_id_from_doc_hash
+from ethernity.cli.shared.io.frames import frames_from_scan
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.root_shard_policy import (
     has_potential_root_shard_frames,
@@ -65,16 +66,13 @@ class _CompactSourceHead:
 
 def _validated_compact_root_dir(root_dir_value: str | None) -> Path:
     if not root_dir_value:
-        raise ValueError("compact requires root_dir")
+        raise ValueError("compact requires --scan or root_dir")
     root_dir = Path(root_dir_value).expanduser()
     if root_dir.is_symlink():
-        raise ValueError(
-            f"backup root folder (backup root directory) must not be a symlink: {root_dir_value}"
-        )
+        raise ValueError(f"generated backup folder must not be a symlink: {root_dir_value}")
     if not root_dir.exists():
         raise ValueError(
-            "backup root folder (backup root directory) not found: "
-            f"{root_dir_value}. Check --root-dir and try again."
+            f"generated backup folder not found: {root_dir_value}. Check --root-dir or use --scan."
         )
     if not root_dir.is_dir():
         raise ValueError(f"--root-dir must be a directory: {root_dir_value}")
@@ -87,7 +85,7 @@ def _reject_compact_output_inside_root(root_dir: Path, output_dir_value: str) ->
     output_resolved = output_dir.resolve(strict=False)
     if output_resolved == root_resolved or output_resolved.is_relative_to(root_resolved):
         raise ValueError(
-            "compact output directory must not be the source backup root or inside it: "
+            "compact output directory must not be the source generated folder or inside it: "
             f"{output_dir_value}"
         )
 
@@ -103,9 +101,12 @@ def _translate_compact_head_untrusted(exc: ApiCommandError) -> ApiCommandError:
     return ApiCommandError(code=exc.code, message=message, details=details)
 
 
-def _compact_recover_args(args: CompactArgs, root_dir: Path) -> RecoverArgs:
+def _compact_recover_args(args: CompactArgs, root_dir: Path | None) -> RecoverArgs:
+    scan = list(args.scan or [])
+    if not scan and root_dir is not None:
+        scan = [str(root_dir)]
     return RecoverArgs(
-        scan=[str(root_dir)],
+        scan=scan,
         passphrase=args.passphrase,
         shard_fallback_file=args.shard_fallback_file,
         shard_payloads_file=args.shard_payloads_file,
@@ -141,7 +142,7 @@ def _compact_source_head(recover_plan, chain) -> _CompactSourceHead:
 def _validate_compact_source_head_for_promotion(
     *,
     args: CompactArgs,
-    root_dir: Path,
+    root_dir: Path | None,
     expected: _CompactSourceHead,
 ) -> None:
     current_plan = plan_recover_from_args(_compact_recover_args(args, root_dir))
@@ -183,6 +184,7 @@ def _compact_head_value(value: object) -> object:
 def _infer_root_publish_policy(
     *,
     root_dir: str | None,
+    source_scan: Sequence[str] = (),
     root_doc_id_hex: str | None,
     root_doc_hash: bytes,
     sign_pub: bytes | None,
@@ -191,25 +193,26 @@ def _infer_root_publish_policy(
     require_quorum: bool = True,
     quiet: bool,
 ) -> _RootPublishPolicy:
-    if not root_dir:
-        raise ApiCommandError(
-            code="RUNTIME_ERROR",
-            message="compact execution requires a root_dir for publish-policy inheritance",
-        )
-
-    root_path = Path(root_dir).expanduser()
-    if root_path.is_symlink():
-        raise ApiCommandError(
-            code="RUNTIME_ERROR",
-            message="root backup directory must not be a symlink",
-        )
-    if root_path.exists() and not root_path.is_dir():
-        raise ApiCommandError(
-            code="RUNTIME_ERROR",
-            message=f"root backup directory must be a directory: {root_dir}",
+    root_level_frames: tuple[Frame, ...] = ()
+    if root_dir:
+        root_path = Path(root_dir).expanduser()
+        if root_path.is_symlink():
+            raise ApiCommandError(
+                code="RUNTIME_ERROR",
+                message="root backup directory must not be a symlink",
+            )
+        if root_path.exists() and not root_path.is_dir():
+            raise ApiCommandError(
+                code="RUNTIME_ERROR",
+                message=f"root backup directory must be a directory: {root_dir}",
+            )
+        root_level_frames = _root_level_key_frames_for_policy(root_path, quiet=quiet)
+    if source_scan:
+        root_level_frames = (
+            *root_level_frames,
+            *_root_level_key_frames_from_source_scan(source_scan, quiet=quiet),
         )
     root_doc_id = bytes.fromhex(root_doc_id_hex) if root_doc_id_hex else None
-    root_level_frames = _root_level_key_frames_for_policy(root_path, quiet=quiet)
     policy_frames = (
         *root_level_frames,
         *tuple(passphrase_shard_frames),
@@ -316,11 +319,31 @@ def _root_level_key_frames_for_policy(root_path: Path, *, quiet: bool) -> tuple[
         ) from exc
 
 
+def _root_level_key_frames_from_source_scan(
+    source_scan: Sequence[str],
+    *,
+    quiet: bool,
+) -> tuple[Frame, ...]:
+    _ = quiet
+    try:
+        frames = frames_from_scan(list(source_scan))
+    except ValueError as exc:
+        raise ApiCommandError(
+            code=api_codes.COMPACT_INVALID_POLICY,
+            message=f"root shard policy scan failed: {exc}",
+            details={"stage": "root_shard_policy"},
+        ) from exc
+    return tuple(frame for frame in frames if frame.frame_type == FrameType.KEY_DOCUMENT)
+
+
 def run_compact(args: CompactArgs) -> BackupResult:
-    root_dir = _validated_compact_root_dir(args.root_dir)
+    root_dir = None if args.scan else _validated_compact_root_dir(args.root_dir)
     if not args.output_dir:
         raise ValueError("compact requires output_dir")
-    _reject_compact_output_inside_root(root_dir, args.output_dir)
+    if root_dir is None and not args.scan:
+        raise ValueError("compact requires --scan or root_dir")
+    if root_dir is not None:
+        _reject_compact_output_inside_root(root_dir, args.output_dir)
 
     recover_plan = plan_recover_from_args(_compact_recover_args(args, root_dir))
     chain = _recover_compact_chain(recover_plan, quiet=args.quiet)
@@ -357,7 +380,8 @@ def run_compact(args: CompactArgs) -> BackupResult:
     )
 
     inherited = _infer_root_publish_policy(
-        root_dir=str(root_dir),
+        root_dir=str(root_dir) if root_dir is not None else None,
+        source_scan=tuple(args.scan or ()),
         root_doc_id_hex=recover_plan.doc_id.hex(),
         root_doc_hash=recover_plan.doc_hash,
         sign_pub=sign_pub,

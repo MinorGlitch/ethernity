@@ -85,13 +85,12 @@ _MINT_HELP = (
 )
 
 _EXTEND_HELP = (
-    "Create a new extension update inside a backup root folder "
-    "(writable backup root) and stream NDJSON events.\n\n"
+    "Create extension artifacts from an authenticated backup chain and stream NDJSON events.\n\n"
     "For GUI clients and automation."
 )
 
 _COMPACT_HELP = (
-    "Compact a backup root folder (writable backup root) into a fresh standalone backup "
+    "Compact scanned backup documents or a generated backup folder into a fresh standalone backup "
     "and stream NDJSON events.\n\n"
     "For GUI clients and automation."
 )
@@ -551,6 +550,7 @@ def _compact_started_args_for_error(
     paper: str | None,
     design: str | None,
     root_dir: str | None,
+    scan: list[str] | None,
     output_dir: str | None,
     shard_fallback_file: list[str] | None,
     shard_payloads_file: list[str] | None,
@@ -567,6 +567,7 @@ def _compact_started_args_for_error(
         "paper": _normalized_paper_for_started(paper),
         "design": design or _state_design(state),
         "root_dir": root_dir,
+        "scan": list(scan or []),
         "output_dir": output_dir,
         "shard_fallback_file": list(shard_fallback_file or []),
         "shard_payloads_file": list(shard_payloads_file or []),
@@ -590,6 +591,7 @@ def _extend_started_args_for_error(
     paper: str | None,
     design: str | None,
     root_dir: str | None,
+    scan: list[str] | None,
     input: list[Path] | None,
     input_dir: list[Path] | None,
     base_dir: str | None,
@@ -613,6 +615,7 @@ def _extend_started_args_for_error(
         "paper": _normalized_paper_for_started(paper),
         "design": design or _state_design(state),
         "root_dir": root_dir,
+        "scan": list(scan or []),
         "input": _stringify_paths(input),
         "input_dir": _stringify_paths(input_dir),
         "base_dir": base_dir,
@@ -1114,6 +1117,7 @@ def _build_extend_api_args(
     paper_value: str | None,
     design: str | None,
     root_dir: str | None,
+    scan: list[str] | None,
     input: list[Path] | None,
     input_dir: list[Path] | None,
     base_dir: str | None,
@@ -1169,6 +1173,7 @@ def _build_extend_api_args(
         paper=paper_value,
         design=design or _state_design(state),
         root_dir=root_dir,
+        scan=list(scan or []),
         input=[str(path) for path in (input or [])],
         input_dir=[str(path) for path in (input_dir or [])],
         base_dir=base_dir if base_dir is not None else defaults.base_dir,
@@ -1202,6 +1207,7 @@ def _build_compact_api_args(
     paper_value: str | None,
     design: str | None,
     root_dir: str | None,
+    scan: list[str] | None,
     output_dir: str | None,
     shard_fallback_file: list[str] | None,
     shard_payloads_file: list[str] | None,
@@ -1220,6 +1226,7 @@ def _build_compact_api_args(
         paper=paper_value,
         design=design or _state_design(state),
         root_dir=root_dir,
+        scan=list(scan or []),
         output_dir=output_dir,
         shard_fallback_file=shard_fallback_file,
         shard_payloads_file=shard_payloads_file,
@@ -1240,7 +1247,16 @@ def compact(
         str | None,
         typer.Option(
             "--root-dir",
-            help="Backup root folder (writable backup root) to compact. Required in API mode.",
+            help="Generated backup folder to compact. Use --scan for paper/scanned sources.",
+        ),
+    ] = None,
+    scan: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--scan",
+            help=(
+                "Printed/scanned root or extension backup image/PDF to use as the compact source."
+            ),
         ),
     ] = None,
     output_dir: Annotated[
@@ -1315,6 +1331,7 @@ def compact(
             paper_value=paper_value,
             design=design,
             root_dir=root_dir,
+            scan=scan,
             output_dir=output_dir,
             shard_fallback_file=shard_fallback_file,
             shard_payloads_file=shard_payloads_file,
@@ -1339,6 +1356,7 @@ def compact(
                 paper=paper,
                 design=design,
                 root_dir=root_dir,
+                scan=scan,
                 output_dir=output_dir,
                 shard_fallback_file=shard_fallback_file,
                 shard_payloads_file=shard_payloads_file,
@@ -1360,7 +1378,20 @@ def extend(
         str | None,
         typer.Option(
             "--root-dir",
-            help="Backup root folder (writable backup root) to extend. Required in API mode.",
+            help=(
+                "Writable extension publish root. With --scan, this is not the current-chain "
+                "source. Required in API mode."
+            ),
+        ),
+    ] = None,
+    scan: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--scan",
+            help=(
+                "Printed/scanned root or extension backup image/PDF to use as the current chain "
+                "source."
+            ),
         ),
     ] = None,
     input: Annotated[
@@ -1505,6 +1536,7 @@ def extend(
             paper_value=paper_value,
             design=design,
             root_dir=root_dir,
+            scan=scan,
             input=input,
             input_dir=input_dir,
             base_dir=base_dir,
@@ -1535,6 +1567,7 @@ def extend(
                 paper=paper,
                 design=design,
                 root_dir=root_dir,
+                scan=scan,
                 input=input,
                 input_dir=input_dir,
                 base_dir=base_dir,
@@ -2050,7 +2083,20 @@ def inspect_extend(
         str | None,
         typer.Option(
             "--root-dir",
-            help="Backup root folder (writable backup root) to inspect. Required in API mode.",
+            help=(
+                "Writable extension publish root to inspect/preflight. With --scan, this is not "
+                "the current-chain source. Required in API mode."
+            ),
+        ),
+    ] = None,
+    scan: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--scan",
+            help=(
+                "Printed/scanned root or extension backup image/PDF to use as the current chain "
+                "source."
+            ),
         ),
     ] = None,
     input: Annotated[
@@ -2195,6 +2241,7 @@ def inspect_extend(
             paper_value=paper_value,
             design=design,
             root_dir=root_dir,
+            scan=scan,
             input=input,
             input_dir=input_dir,
             base_dir=base_dir,
@@ -2225,6 +2272,7 @@ def inspect_extend(
                 paper=paper,
                 design=design,
                 root_dir=root_dir,
+                scan=scan,
                 input=input,
                 input_dir=input_dir,
                 base_dir=base_dir,

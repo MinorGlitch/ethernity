@@ -162,6 +162,7 @@ class ExtendArgs:
     paper: str | None = None
     design: str | None = None
     root_dir: str | None = None
+    scan: list[str] | None = None
     input: list[str] | None = None
     input_dir: list[str] | None = None
     base_dir: str | None = None
@@ -190,6 +191,7 @@ class CompactArgs:
     paper: str | None = None
     design: str | None = None
     root_dir: str | None = None
+    scan: list[str] | None = None
     output_dir: str | None = None
     shard_fallback_file: list[str] | None = None
     shard_payloads_file: list[str] | None = None

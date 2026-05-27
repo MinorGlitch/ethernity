@@ -168,6 +168,108 @@ class TestIntegrationExtensions(unittest.TestCase):
                 )
                 self.assertEqual(self._snapshot_tree(first_hash_dir), expected_first)
 
+    def test_extend_from_scanned_chain_without_original_publish_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            original_root = tmp_path / "original-root"
+            loose_scans = tmp_path / "loose-scans"
+            rehydrated_root = tmp_path / "rehydrated-root"
+            source_dir.mkdir()
+            loose_scans.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(source_dir=source_dir, root_dir=original_root)
+
+                (source_dir / "alpha.txt").write_text("first-alpha", encoding="utf-8")
+                first_extension = self._run_extend(
+                    source_dir=source_dir,
+                    root_dir=original_root,
+                )
+
+                root_scan = loose_scans / "paper-root.pdf"
+                first_scan = loose_scans / "paper-extension-one.pdf"
+                shutil.copy2(original_root / "qr_document.pdf", root_scan)
+                shutil.copy2(first_extension.qr_document_path, first_scan)
+                shutil.rmtree(original_root)
+
+                (source_dir / "alpha.txt").write_text("second-alpha", encoding="utf-8")
+                (source_dir / "beta.txt").write_text("second-beta", encoding="utf-8")
+                second_extension = self._run_extend(
+                    source_dir=source_dir,
+                    root_dir=rehydrated_root,
+                    scan=[str(root_scan), str(first_scan)],
+                )
+
+                self.assertEqual(second_extension.index, 2)
+                self.assertTrue(second_extension.qr_document_path.exists())
+                self.assertFalse((rehydrated_root / "qr_document.pdf").exists())
+                self.assertFalse((rehydrated_root / "extensions" / "01").exists())
+
+                recovered_dir = tmp_path / "recovered-latest"
+                self._run_recover(
+                    root_dir=rehydrated_root,
+                    output_dir=recovered_dir,
+                    scan=[
+                        str(root_scan),
+                        str(first_scan),
+                        str(second_extension.qr_document_path),
+                    ],
+                )
+                self.assertEqual(
+                    self._snapshot_tree(recovered_dir),
+                    {
+                        "alpha.txt": b"second-alpha",
+                        "beta.txt": b"second-beta",
+                    },
+                )
+
+    def test_compact_from_scanned_chain_without_original_publish_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            original_root = tmp_path / "original-root"
+            loose_scans = tmp_path / "loose-scans"
+            compacted_dir = tmp_path / "compacted-from-scans"
+            recovered_dir = tmp_path / "recovered-compacted-from-scans"
+            source_dir.mkdir()
+            loose_scans.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(source_dir=source_dir, root_dir=original_root)
+
+                (source_dir / "alpha.txt").write_text("extension-alpha", encoding="utf-8")
+                (source_dir / "beta.txt").write_text("extension-beta", encoding="utf-8")
+                extension = self._run_extend(source_dir=source_dir, root_dir=original_root)
+
+                root_scan = loose_scans / "paper-root.pdf"
+                extension_scan = loose_scans / "paper-extension-one.pdf"
+                shutil.copy2(original_root / "qr_document.pdf", root_scan)
+                shutil.copy2(extension.qr_document_path, extension_scan)
+                shutil.rmtree(original_root)
+
+                compact_result = self._run_compact(
+                    root_dir=None,
+                    output_dir=compacted_dir,
+                    scan=[str(root_scan), str(extension_scan)],
+                )
+                self._run_recover(
+                    root_dir=compacted_dir,
+                    output_dir=recovered_dir,
+                    passphrase=TEST_PASSPHRASE,
+                    shard_scan=list(compact_result.shard_paths[:2]) or None,
+                )
+
+            self.assertEqual(
+                self._snapshot_tree(recovered_dir),
+                {
+                    "alpha.txt": b"extension-alpha",
+                    "beta.txt": b"extension-beta",
+                },
+            )
+
     def test_recover_with_extension_local_shards_unlocks_root_plus_extension(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
@@ -906,16 +1008,18 @@ class TestIntegrationExtensions(unittest.TestCase):
     def _run_compact(
         self,
         *,
-        root_dir: Path,
+        root_dir: Path | None,
         output_dir: Path,
         passphrase: str | None = TEST_PASSPHRASE,
+        scan: list[str] | None = None,
         shard_scan: list[str] | None = None,
     ):
         with suppress_output():
             return run_compact(
                 CompactArgs(
                     config=str(DEFAULT_CONFIG_PATH),
-                    root_dir=str(root_dir),
+                    root_dir=str(root_dir) if root_dir is not None else None,
+                    scan=scan,
                     output_dir=str(output_dir),
                     passphrase=passphrase,
                     shard_scan=shard_scan,
@@ -936,6 +1040,7 @@ class TestIntegrationExtensions(unittest.TestCase):
         signing_key_mode: str | None = None,
         signing_key_shard_threshold: int | None = None,
         signing_key_shard_count: int | None = None,
+        scan: list[str] | None = None,
         shard_scan: list[str] | None = None,
     ):
         with suppress_output():
@@ -943,6 +1048,7 @@ class TestIntegrationExtensions(unittest.TestCase):
                 ExtendArgs(
                     config=str(DEFAULT_CONFIG_PATH),
                     root_dir=str(root_dir),
+                    scan=scan,
                     input_dir=[str(source_dir)],
                     base_dir=str(source_dir),
                     passphrase=passphrase,

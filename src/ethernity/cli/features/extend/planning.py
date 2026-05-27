@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
@@ -50,6 +51,10 @@ from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.paths import expanduser_cli_paths
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.config.load import load_app_config
+from ethernity.crypto.passphrases import (
+    normalize_bip39_mnemonic,
+    validate_mnemonic_checksum_if_bip39,
+)
 from ethernity.encoding.framing import Frame
 from ethernity.extensions.chain import (
     LogicalFileState,
@@ -74,9 +79,13 @@ from ethernity.extensions.recovery import (
     ImportedRecoveryDocument,
     RecoveryChainInspection,
     RecoveryExtensionInventory,
+    RecoveryReplayFailure,
+    decode_imported_extension_link,
     decode_root_manifest as _decode_root_manifest_shared,
     imported_document_from_recovery_frames,
+    imported_documents_from_recovery_frames,
     resolve_root_manifest_authority,
+    select_root_import_document,
 )
 from ethernity.formats import EnvelopeManifest
 from ethernity.formats.extension_envelope import (
@@ -135,6 +144,7 @@ class ResolvedExtendState:
 class _RootRecoveryInspection:
     inspection: RecoveryInspection
     shard_unlock_target: Literal["none", "root", "extension"]
+    import_documents: tuple[ImportedRecoveryDocument, ...] = ()
 
 
 def inspect_from_args(args: ExtendArgs) -> ExtendInspection:
@@ -154,12 +164,37 @@ def require_extend_root_dir(
     return args.root_dir
 
 
+def _resolve_scanned_publish_root_dir(root_dir: str | Path) -> Path:
+    path = Path(root_dir).expanduser()
+    if path.is_symlink():
+        raise ValueError("extension publish root must not be a symlink")
+    if path.exists():
+        if not path.is_dir():
+            raise ValueError(f"extension publish root must be a directory: {root_dir}")
+        return path
+
+    parent = path.parent
+    if parent.is_symlink():
+        raise ValueError("extension publish root parent must not be a symlink")
+    if not parent.exists():
+        raise ValueError(f"extension publish root parent not found: {parent}")
+    if not parent.is_dir():
+        raise ValueError(f"extension publish root parent must be a directory: {parent}")
+    if not os.access(parent, os.W_OK | os.X_OK):
+        raise ValueError(f"extension publish root parent is not writable: {parent}")
+    return path
+
+
 def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
-    """Inspect extension layout from a writable backup root directory."""
+    """Inspect extension state from supplied carriers and a writable publish root."""
 
     root_dir_arg = require_extend_root_dir(args, command_name="ethernity api inspect extend")
     try:
-        root_dir = require_backup_root_dir(root_dir_arg)
+        root_dir = (
+            _resolve_scanned_publish_root_dir(root_dir_arg)
+            if _uses_scanned_chain_source(args)
+            else require_backup_root_dir(root_dir_arg)
+        )
     except ValueError as exc:
         message = str(exc)
         if message.startswith("root backup directory not found:"):
@@ -180,31 +215,34 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
     new_chain_chunking = _default_chunking_profile(args)
     input_kind = "standalone_root"
     extension_inventory: RecoveryExtensionInventory | None = None
-    try:
-        extension_inventory = _inspect_published_extension_inventory(
-            root_dir,
-            quiet=args.quiet,
-        )
-        discovered_extension_dirs = _discovered_extension_indices(extension_inventory)
-        available_extensions = _available_extensions_from_inventory(extension_inventory)
-        if discovered_extension_dirs:
-            input_kind = "extended_root"
-        if extension_inventory.failure is not None:
+    if _uses_scanned_chain_source(args):
+        input_kind = "scanned_chain"
+    else:
+        try:
+            extension_inventory = _inspect_published_extension_inventory(
+                root_dir,
+                quiet=args.quiet,
+            )
+            discovered_extension_dirs = _discovered_extension_indices(extension_inventory)
+            available_extensions = _available_extensions_from_inventory(extension_inventory)
+            if discovered_extension_dirs:
+                input_kind = "extended_root"
+            if extension_inventory.failure is not None:
+                blocking_issues.append(
+                    {
+                        "code": "EXTENSION_LAYOUT_INVALID",
+                        "message": extension_inventory.failure.message,
+                        "details": {"root_dir": str(root_dir)},
+                    }
+                )
+        except ValueError as exc:
             blocking_issues.append(
                 {
                     "code": "EXTENSION_LAYOUT_INVALID",
-                    "message": extension_inventory.failure.message,
+                    "message": str(exc),
                     "details": {"root_dir": str(root_dir)},
                 }
             )
-    except ValueError as exc:
-        blocking_issues.append(
-            {
-                "code": "EXTENSION_LAYOUT_INVALID",
-                "message": str(exc),
-                "details": {"root_dir": str(root_dir)},
-            }
-        )
 
     loaded_scope = None
     selected_scope = None
@@ -360,9 +398,47 @@ def _resolve_extend_state_after_root_inspection(
                             "satisfied": True,
                             "source": "embedded_seed",
                         }
+                        chain_inventory = extension_inventory
+                        if root_recovery.import_documents:
+                            chain_inventory = _scan_extension_inventory_from_imported_documents(
+                                root_recovery.import_documents,
+                                root_doc_hash=root_inspection.doc_hash,
+                                root_doc_id=root_inspection.doc_id,
+                                passphrase=root_inspection.unlock.resolved_passphrase,
+                                expected_sign_pub=authority.embedded_sign_pub,
+                                quiet=args.quiet,
+                            )
+                            discovered_extension_dirs = _discovered_extension_indices(
+                                chain_inventory
+                            )
+                            available_extensions = _available_extensions_from_inventory(
+                                chain_inventory
+                            )
+                            if chain_inventory.failure is not None:
+                                blocking_issues.append(
+                                    _blocking_issue(
+                                        api_codes.RECOVERY_HEAD_UNTRUSTED,
+                                        (
+                                            "scanned extension chain could not be trusted: "
+                                            f"{chain_inventory.failure.message}"
+                                        ),
+                                        details={
+                                            "stage": chain_inventory.failure.stage,
+                                            "failure_head_index": (
+                                                chain_inventory.failure.head_index
+                                            ),
+                                            "failure_head_doc_hash": (
+                                                chain_inventory.failure.head_doc_hash
+                                            ),
+                                            "failure_head_source": (
+                                                chain_inventory.failure.head_dir_name
+                                            ),
+                                        },
+                                    )
+                                )
                         if (
-                            extension_inventory is not None
-                            and extension_chain_present(extension_inventory)
+                            chain_inventory is not None
+                            and extension_chain_present(chain_inventory)
                             and not manifest.sealed
                         ):
                             (
@@ -388,8 +464,9 @@ def _resolve_extend_state_after_root_inspection(
                                 expected_sign_pub=authority.embedded_sign_pub,
                                 root_auth_status=root_inspection.auth_status,
                                 blocking_issues=blocking_issues,
-                                inventory=extension_inventory,
+                                inventory=chain_inventory,
                                 new_chain_chunking=new_chain_chunking,
+                                source_input_kind=input_kind,
                                 quiet=args.quiet,
                             )
                         else:
@@ -458,8 +535,8 @@ def _resolve_extend_state_after_root_inspection(
     inspection = ExtendInspection(
         doc_id=doc_id_hex,
         root_dir=str(root_dir),
-        input_label="Backup root directory",
-        input_detail=str(root_dir.resolve()),
+        input_label=root_inspection.input_label or "Backup root directory",
+        input_detail=root_inspection.input_detail or str(root_dir.resolve()),
         input_kind=input_kind,
         source_summary=source_summary,
         frame_counts={
@@ -546,6 +623,9 @@ def _inspect_root_recovery(
     *,
     extension_inventory: RecoveryExtensionInventory | None,
 ) -> _RootRecoveryInspection:
+    if _uses_scanned_chain_source(args):
+        return _inspect_scanned_chain_recovery(args)
+
     scan_paths = _published_root_scan_paths(root_dir)
     if not scan_paths:
         raise ApiCommandError(
@@ -593,6 +673,243 @@ def _inspect_root_recovery(
         quiet=args.quiet,
     )
     return _RootRecoveryInspection(extension_inspection, "extension")
+
+
+def _uses_scanned_chain_source(args: ExtendArgs) -> bool:
+    return bool(args.scan)
+
+
+def _inspect_scanned_chain_recovery(args: ExtendArgs) -> _RootRecoveryInspection:
+    scan_paths = expanduser_cli_paths(list(args.scan or []))
+    if not scan_paths:
+        raise ApiCommandError(
+            code=api_codes.INPUT_REQUIRED,
+            message="--scan is required when extending from scanned backup documents",
+        )
+    frames = recovery_frames_from_scan(scan_paths, quiet=args.quiet)
+    shard_frames, shard_fallback_files, shard_payloads_file, shard_scan = (
+        _shard_frames_from_extend_args(args, quiet=args.quiet)
+    )
+    import_documents = imported_documents_from_recovery_frames(
+        frames,
+        source_label="extend scan",
+    )
+    if len(import_documents) <= 1:
+        root_inspection = inspect_recovery_inputs(
+            frames=frames,
+            extra_auth_frames=[],
+            shard_frames=shard_frames,
+            passphrase=args.passphrase,
+            allow_unsigned=False,
+            input_label="Scanned backup documents",
+            input_detail=", ".join(scan_paths),
+            shard_fallback_files=shard_fallback_files,
+            shard_payloads_file=shard_payloads_file,
+            shard_scan=shard_scan,
+            quiet=args.quiet,
+        )
+        shard_target: Literal["none", "root"] = (
+            "root" if root_inspection.unlock.mode == "shards" else "none"
+        )
+        return _RootRecoveryInspection(root_inspection, shard_target, import_documents)
+
+    if args.passphrase:
+        try:
+            normalized_passphrase = _normalize_scan_selection_passphrase(args.passphrase)
+        except ValueError as exc:
+            raise ApiCommandError(
+                code=api_codes.INVALID_INPUT,
+                message=str(exc),
+                details={"stage": "scan_root_selection"},
+            ) from exc
+        try:
+            root_document = select_root_import_document(
+                import_documents,
+                passphrase=normalized_passphrase,
+                debug=False,
+            )
+        except ValueError as exc:
+            raise ApiCommandError(
+                code=api_codes.INVALID_INPUT,
+                message=str(exc),
+                details={"stage": "scan_root_selection"},
+            ) from exc
+        root_inspection = _inspect_selected_scan_root_document(
+            frames,
+            root_document=root_document,
+            passphrase=normalized_passphrase,
+            shard_frames=shard_frames,
+            shard_fallback_files=shard_fallback_files,
+            shard_payloads_file=shard_payloads_file,
+            shard_scan=shard_scan,
+            input_detail=", ".join(scan_paths),
+            quiet=args.quiet,
+        )
+        return _RootRecoveryInspection(root_inspection, "none", import_documents)
+
+    if shard_frames:
+        try:
+            selection = select_root_import_document_from_passphrase_shards(
+                import_documents,
+                shard_frames=shard_frames,
+                allow_unsigned=False,
+                quiet=args.quiet,
+            )
+        except ValueError as exc:
+            raise ApiCommandError(
+                code=api_codes.PASSPHRASE_SHARDS_INVALID,
+                message=str(exc),
+                details={"stage": "scan_root_selection"},
+            ) from exc
+        if selection.unlock.resolved_passphrase is None:
+            raise ApiCommandError(
+                code=api_codes.PASSPHRASE_SHARDS_INVALID,
+                message="scanned shard inputs did not recover a passphrase",
+                details={"stage": "scan_root_selection"},
+            )
+        root_inspection = _inspect_selected_scan_root_document(
+            frames,
+            root_document=selection.root_document,
+            passphrase=selection.unlock.resolved_passphrase,
+            shard_frames=[],
+            shard_fallback_files=[],
+            shard_payloads_file=[],
+            shard_scan=[],
+            input_detail=", ".join(scan_paths),
+            quiet=args.quiet,
+        )
+        root_inspection = replace(
+            root_inspection,
+            unlock=selection.unlock,
+            shard_frames=tuple(shard_frames),
+            shard_fallback_files=tuple(shard_fallback_files),
+            shard_payloads_file=tuple(shard_payloads_file),
+            shard_scan=tuple(shard_scan),
+        )
+        selected_shard_target: Literal["root", "extension"] = (
+            "root"
+            if selection.target_document.doc_hash == selection.root_document.doc_hash
+            else "extension"
+        )
+        return _RootRecoveryInspection(root_inspection, selected_shard_target, import_documents)
+
+    raise ApiCommandError(
+        code=api_codes.PASSPHRASE_REQUIRED,
+        message=(
+            "passphrase or passphrase shards are required when --scan contains multiple "
+            "MAIN documents"
+        ),
+        details={"stage": "scan_root_selection", "main_document_count": len(import_documents)},
+    )
+
+
+def _normalize_scan_selection_passphrase(passphrase: str) -> str:
+    normalized = normalize_bip39_mnemonic(passphrase)
+    validate_mnemonic_checksum_if_bip39(normalized)
+    return normalized
+
+
+def _inspect_selected_scan_root_document(
+    frames: list[Frame],
+    *,
+    root_document: ImportedRecoveryDocument,
+    passphrase: str,
+    shard_frames: list[Frame],
+    shard_fallback_files: list[str],
+    shard_payloads_file: list[str],
+    shard_scan: list[str],
+    input_detail: str,
+    quiet: bool,
+) -> RecoveryInspection:
+    root_frames = [frame for frame in frames if frame.doc_id == root_document.doc_id]
+    return inspect_recovery_inputs(
+        frames=root_frames,
+        extra_auth_frames=[],
+        shard_frames=shard_frames,
+        passphrase=passphrase,
+        allow_unsigned=False,
+        input_label="Scanned backup documents",
+        input_detail=input_detail,
+        shard_fallback_files=shard_fallback_files,
+        shard_payloads_file=shard_payloads_file,
+        shard_scan=shard_scan,
+        quiet=quiet,
+    )
+
+
+def _scan_extension_inventory_from_imported_documents(
+    documents: tuple[ImportedRecoveryDocument, ...],
+    *,
+    root_doc_hash: bytes,
+    root_doc_id: bytes,
+    passphrase: str | None,
+    expected_sign_pub: bytes | None,
+    quiet: bool,
+) -> RecoveryExtensionInventory:
+    if passphrase is None:
+        raise ValueError("scanned extension replay requires a resolved passphrase")
+    if expected_sign_pub is None:
+        raise ValueError("scanned extension replay requires an unsealed root signing authority")
+
+    extensions: list[ImportedRecoveryDocument] = []
+    seen_indexes: set[int] = set()
+    for document in documents:
+        if document.doc_hash == root_doc_hash:
+            continue
+        if document.doc_id == root_doc_id:
+            failure = RecoveryReplayFailure(
+                stage="selection",
+                message=(
+                    "scanned content contains a document whose doc_id collides with the "
+                    "selected root backup"
+                ),
+                head_doc_hash=document.doc_hash.hex(),
+                head_dir_name=document.source_label,
+            )
+            return RecoveryExtensionInventory(extensions=tuple(extensions), failure=failure)
+        try:
+            decoded = decode_imported_extension_link(
+                document,
+                passphrase=passphrase,
+                expected_sign_pub=expected_sign_pub,
+                quiet=quiet,
+                debug=False,
+            )
+        except (ApiCommandError, ValueError) as exc:
+            failure = RecoveryReplayFailure(
+                stage="scan",
+                message=str(exc),
+                head_doc_hash=document.doc_hash.hex(),
+                head_dir_name=document.source_label,
+            )
+            return RecoveryExtensionInventory(extensions=tuple(extensions), failure=failure)
+        index = decoded.link.document.header.index
+        if index in seen_indexes:
+            failure = RecoveryReplayFailure(
+                stage="selection",
+                message=f"scanned content contains multiple extensions for index {index}",
+                head_index=index,
+                head_doc_hash=document.doc_hash.hex(),
+                head_dir_name=document.source_label,
+            )
+            return RecoveryExtensionInventory(extensions=tuple(extensions), failure=failure)
+        seen_indexes.add(index)
+        extensions.append(
+            replace(
+                document,
+                extension_index=index,
+                extension_dir_name=f"scan-{index:02d}",
+            )
+        )
+
+    extensions = sorted(extensions, key=lambda item: item.index)
+    latest = extensions[-1] if extensions else None
+    return RecoveryExtensionInventory(
+        extensions=tuple(extensions),
+        latest_head_index=None if latest is None else latest.index,
+        latest_head_doc_hash=None if latest is None else latest.doc_hash.hex(),
+        latest_head_dir_name=None if latest is None else latest.dir_name,
+    )
 
 
 def _inspect_root_recovery_with_extension_shards(
@@ -872,6 +1189,7 @@ def _reconstruct_extension_state(
     blocking_issues: list[dict[str, object]],
     inventory: RecoveryExtensionInventory,
     new_chain_chunking: ExtensionChunkingProfile,
+    source_input_kind: str,
     quiet: bool,
 ) -> tuple[
     tuple[LogicalFileState, ...] | None,
@@ -904,7 +1222,10 @@ def _reconstruct_extension_state(
         inventory=inventory,
     )
     discovered_extension_dirs = tuple(item.index for item in chain_inspection.inventory.extensions)
-    input_kind = "extended_root" if discovered_extension_dirs else "standalone_root"
+    if source_input_kind == "scanned_chain":
+        input_kind = "scanned_chain"
+    else:
+        input_kind = "extended_root" if discovered_extension_dirs else "standalone_root"
     available_extensions = _available_extensions_from_recovery_chain(chain_inspection)
 
     if chain_inspection.refusal is not None:

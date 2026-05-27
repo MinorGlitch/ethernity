@@ -70,6 +70,7 @@ class TestExtendCommand(unittest.TestCase):
         extend_command.extend(
             ctx,
             root_dir=Path("/tmp/root"),
+            scan=None,
             input=[Path("updated.txt")],
             input_dir=None,
             base_dir=None,
@@ -97,6 +98,7 @@ class TestExtendCommand(unittest.TestCase):
         self.assertEqual(args.paper, "LETTER")
         self.assertEqual(args.design, "forge")
         self.assertEqual(args.root_dir, "/tmp/root")
+        self.assertEqual(args.scan, [])
         self.assertEqual(args.input, ["updated.txt"])
         self.assertEqual(args.base_dir, "./vault")
         self.assertEqual(args.layout_debug_dir, "/tmp/layout")
@@ -119,6 +121,7 @@ class TestExtendCommand(unittest.TestCase):
             extend_command.extend(
                 ctx,
                 root_dir=Path("/tmp/root"),
+                scan=None,
                 input=None,
                 input_dir=None,
                 base_dir=None,
@@ -280,7 +283,12 @@ class TestExtendCommand(unittest.TestCase):
             result = extend_command.run_extend_dry_run_command(args)
 
         self.assertEqual(result, 0)
-        preflight.assert_called_once_with("/tmp/prepared-root", index=1)
+        preflight.assert_called_once_with(
+            "/tmp/prepared-root",
+            index=1,
+            allow_missing_root=False,
+            require_empty_extensions=False,
+        )
         resolve_runtime.assert_called_once_with(prepared, create_layout_debug_dir=False)
         validate_render.assert_called_once_with(prepared, runtime=runtime, encrypted=encrypted)
 
@@ -334,6 +342,7 @@ class TestExtendCommand(unittest.TestCase):
                 ),
             ),
             root_dir=Path("/tmp/root"),
+            scan=None,
             input=[Path("updated.txt")],
             input_dir=None,
             base_dir=None,
@@ -381,6 +390,7 @@ class TestExtendCommand(unittest.TestCase):
         extend_command.extend(
             self._ctx(quiet=False, debug=False, backup_defaults=BackupDefaults()),
             root_dir=Path("/tmp/root"),
+            scan=["root.pdf", "extension-01.pdf"],
             input=[Path("updated.txt")],
             input_dir=None,
             base_dir=None,
@@ -404,6 +414,7 @@ class TestExtendCommand(unittest.TestCase):
         )
 
         args = run_extend_command.call_args.args[0]
+        self.assertEqual(args.scan, ["root.pdf", "extension-01.pdf"])
         self.assertEqual(args.shard_fallback_file, ["manual.txt"])
         self.assertEqual(args.shard_payloads_file, ["payloads.txt"])
         self.assertEqual(args.shard_scan, ["scan.pdf"])
@@ -427,6 +438,7 @@ class TestExtendCommand(unittest.TestCase):
         extend_command.extend(
             self._ctx(quiet=False, debug=False, backup_defaults=BackupDefaults()),
             root_dir=Path("/tmp/root"),
+            scan=None,
             input=[Path("updated.txt")],
             input_dir=None,
             base_dir=None,

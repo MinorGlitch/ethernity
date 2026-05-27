@@ -41,8 +41,10 @@ from ethernity.cli.shared.ui_api import (
 from ethernity.config import BackupDefaults
 
 _COMPACT_HELP = (
-    "Compact a backup root folder (writable backup root) into a fresh standalone backup.\n\n"
+    "Compact scanned backup documents or a generated backup folder into a fresh "
+    "standalone backup.\n\n"
     "Examples:\n"
+    "  ethernity compact --scan root.pdf --scan extension-01.pdf --output-dir compacted\n"
     "  ethernity compact --root-dir backup-aa11 --output-dir compacted\n"
     "  ethernity compact --root-dir backup-aa11 --output-dir compacted --design forge\n"
 )
@@ -55,7 +57,7 @@ def register(app: typer.Typer) -> None:
 def _print_compact_summary(
     result: BackupResult,
     *,
-    root_dir: str,
+    source: str,
     quiet: bool,
 ) -> None:
     if quiet:
@@ -79,7 +81,7 @@ def _print_compact_summary(
             "Compact summary",
             build_kv_table(
                 [
-                    ("Source root", root_dir),
+                    ("Source", source),
                     ("Output dir", output_dir),
                     ("Doc ID", result.doc_id.hex()),
                 ]
@@ -114,7 +116,8 @@ def run_compact_command(args: CompactArgs, *, debug: bool = False) -> int:
     _ = debug
     result = run_compact(args)
     output_dir = str(Path(result.qr_path).parent)
-    _print_compact_summary(result, root_dir=args.root_dir or "", quiet=args.quiet)
+    source = ", ".join(args.scan or []) if args.scan else args.root_dir or ""
+    _print_compact_summary(result, source=source, quiet=args.quiet)
     _print_completion_actions(result, output_dir=output_dir, quiet=args.quiet)
     return 0
 
@@ -122,13 +125,24 @@ def run_compact_command(args: CompactArgs, *, debug: bool = False) -> int:
 def compact(
     ctx: typer.Context,
     root_dir: Annotated[
-        Path,
+        Path | None,
         typer.Option(
             "--root-dir",
-            help="Backup root folder (writable backup root) to compact.",
+            help="Generated backup folder to compact. Use --scan for paper/scanned sources.",
             rich_help_panel="Inputs",
         ),
-    ],
+    ] = None,
+    scan: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--scan",
+            help=(
+                "Printed/scanned root or extension backup image/PDF to use as the compact source "
+                "(repeatable)."
+            ),
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
     shard_fallback_file: Annotated[
         list[str] | None,
         typer.Option(
@@ -271,7 +285,8 @@ def compact(
         config=config_value,
         paper=paper_value,
         design=design or (state.design if state is not None else None),
-        root_dir=str(root_dir),
+        root_dir=str(root_dir) if root_dir is not None else None,
+        scan=list(scan or []),
         output_dir=output_dir_value,
         shard_fallback_file=shard_fallback_file,
         shard_payloads_file=shard_payloads_file,

@@ -135,6 +135,7 @@ def _extend_started_args(
         "paper": args.paper,
         "design": args.design,
         "root_dir": args.root_dir,
+        "scan": list(args.scan or []),
         "input": list(args.input or []),
         "input_dir": list(args.input_dir or []),
         "base_dir": args.base_dir,
@@ -280,7 +281,12 @@ def run_extend_api_command(args: ExtendArgs, *, debug: bool = False) -> int:
     emit_phase(phase="plan", label="Preparing extension publish plan")
     prepared = prepare_extend_run(args)
     try:
-        preflight_extension_publish_target(prepared.inspection.root_dir, index=prepared.next_index)
+        preflight_extension_publish_target(
+            prepared.inspection.root_dir,
+            index=prepared.next_index,
+            allow_missing_root=bool(args.scan),
+            require_empty_extensions=bool(args.scan),
+        )
     except ValueError as exc:
         raise ApiCommandError(
             code=api_codes.EXTENSION_PUBLISH_TARGET_INVALID,
@@ -402,6 +408,8 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
                     preflight_extension_publish_target(
                         inspection.root_dir,
                         index=prepared.next_index,
+                        allow_missing_root=bool(args.scan),
+                        require_empty_extensions=bool(args.scan),
                     )
                 except ValueError as exc:
                     blocking_issues.append(

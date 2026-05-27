@@ -334,17 +334,42 @@ def _prompt_home_extend_args(
     quiet: bool,
     backup_defaults: BackupDefaults | None = None,
 ) -> ExtendArgs:
-    root_dir = prompt_path_with_picker(
-        "Backup folder to update",
-        kind="dir",
+    source_kind = prompt_choice(
+        "What are you extending from",
+        {
+            "scan": "Printed or scanned backup documents",
+            "folder": "Existing generated backup folder",
+        },
+        default="scan",
         help_text=(
-            "Choose the backup folder you want to update. It should contain the backup PDFs "
-            "and, if present, the extensions folder. Existing extensions in that folder "
-            "will be discovered automatically."
+            "Choose scans when the printed backup is the source of truth. Use a generated "
+            "folder only when you intentionally kept the original export tree."
         ),
-        picker_prompt="Select backup folder",
-        picker_help_text="Choose the existing backup folder to update.",
     )
+    scan_paths: list[str] | None = None
+    if source_kind == "scan":
+        root_dir = _prompt_home_extend_scan_output_root()
+        scan_paths = prompt_paths_with_picker(
+            "Backup document scans",
+            kind="path",
+            manual_help_text=(
+                "Enter root and extension PDF/image scan paths, one per line. Blank line to finish."
+            ),
+            empty_message="Choose at least the root backup scan.",
+            picker_prompt="Select backup document scans",
+            picker_help_text="Choose the scanned root and extension backup documents.",
+        )
+    else:
+        root_dir = prompt_path_with_picker(
+            "Generated backup folder to append from",
+            kind="dir",
+            help_text=(
+                "Choose this only if you kept the generated backup export tree. "
+                "If you only have paper documents or fresh scans, go back and choose scans."
+            ),
+            picker_prompt="Select generated backup folder",
+            picker_help_text="Choose the existing generated backup folder to append from.",
+        )
     (
         passphrase,
         shard_fallback_files,
@@ -377,6 +402,7 @@ def _prompt_home_extend_args(
         paper=paper,
         design=design,
         root_dir=root_dir,
+        scan=scan_paths,
         input=input_files or None,
         input_dir=input_dirs or None,
         passphrase=passphrase,
@@ -392,6 +418,24 @@ def _prompt_home_extend_args(
         signing_key_shard_count=output_policy.signing_key_shard_count,
         quiet=quiet,
     )
+
+
+def _prompt_home_extend_scan_output_root() -> str:
+    while True:
+        root_dir = prompt_optional_path_with_picker(
+            "Output folder for new extension artifacts",
+            kind="dir",
+            allow_new=True,
+            help_text=(
+                "Choose a new or empty folder where extension artifacts will be published. "
+                "The scanned documents remain the source used to authenticate the existing chain."
+            ),
+            picker_prompt="Select output folder",
+            picker_help_text="Choose the folder where the extension artifacts will be written.",
+        )
+        if root_dir:
+            return root_dir
+        console_err.print("[error]Choose an output folder for the extension artifacts.[/error]")
 
 
 def _prompt_home_extend_output_policy(
@@ -502,16 +546,42 @@ def _prompt_home_compact_args(
     design: str | None,
     quiet: bool,
 ) -> CompactArgs:
-    root_dir = prompt_path_with_picker(
-        "Backup folder to rebuild",
-        kind="dir",
+    source_kind = prompt_choice(
+        "What are you rebuilding from",
+        {
+            "scan": "Printed or scanned backup documents",
+            "folder": "Existing generated backup folder",
+        },
+        default="scan",
         help_text=(
-            "Choose the backup folder you want to compact. It should contain the backup PDFs "
-            "and any extensions you want folded into the new backup."
+            "Choose scans when the printed backup is the source of truth. Use a generated "
+            "folder only when you intentionally kept the original export tree."
         ),
-        picker_prompt="Select backup folder",
-        picker_help_text="Choose the existing backup folder to compact.",
     )
+    root_dir: str | None = None
+    scan_paths: list[str] | None = None
+    if source_kind == "scan":
+        scan_paths = prompt_paths_with_picker(
+            "Backup document scans",
+            kind="path",
+            manual_help_text=(
+                "Enter root and extension PDF/image scan paths, one per line. Blank line to finish."
+            ),
+            empty_message="Choose at least the root backup scan.",
+            picker_prompt="Select backup document scans",
+            picker_help_text="Choose the scanned root and extension backup documents.",
+        )
+    else:
+        root_dir = prompt_path_with_picker(
+            "Generated backup folder to rebuild",
+            kind="dir",
+            help_text=(
+                "Choose this only if you kept the generated backup export tree. "
+                "If you only have paper documents or fresh scans, go back and choose scans."
+            ),
+            picker_prompt="Select generated backup folder",
+            picker_help_text="Choose the existing generated backup folder to compact.",
+        )
     output_dir: str | None = None
     while output_dir is None:
         output_dir = prompt_optional_path_with_picker(
@@ -544,6 +614,7 @@ def _prompt_home_compact_args(
         paper=paper,
         design=design,
         root_dir=root_dir,
+        scan=scan_paths,
         output_dir=output_dir,
         passphrase=passphrase,
         shard_fallback_file=shard_fallback_files or None,

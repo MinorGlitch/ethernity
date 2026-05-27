@@ -380,6 +380,8 @@ def _preflight_prepared_extension_publish_target(prepared: PreparedExtendRun) ->
         preflight_extension_publish_target(
             prepared.args.root_dir or prepared.inspection.root_dir,
             index=prepared.next_index,
+            allow_missing_root=bool(prepared.args.scan),
+            require_empty_extensions=bool(prepared.args.scan),
         )
     except ValueError as exc:
         raise ApiCommandError(

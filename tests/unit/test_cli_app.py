@@ -41,11 +41,12 @@ class TestCliApp(unittest.TestCase):
     )
     @mock.patch("ethernity.cli.bootstrap.app.prompt_int", side_effect=[3, 2])
     @mock.patch(
-        "ethernity.cli.bootstrap.app.prompt_choice", side_effect=["extension-shards", "not-stored"]
+        "ethernity.cli.bootstrap.app.prompt_choice",
+        side_effect=["folder", "extension-shards", "not-stored"],
     )
     @mock.patch("ethernity.cli.bootstrap.app.prompt_paths_with_picker", return_value=["/tmp/input"])
     @mock.patch("ethernity.cli.bootstrap.app.prompt_path_with_picker", return_value="/tmp/root")
-    def test_prompt_home_extend_args_prompts_root_then_passphrase_then_files(
+    def test_prompt_home_extend_args_prompts_folder_then_passphrase_then_files(
         self,
         prompt_path_with_picker: mock.MagicMock,
         prompt_paths_with_picker: mock.MagicMock,
@@ -80,6 +81,7 @@ class TestCliApp(unittest.TestCase):
 
         self.assertEqual(calls, ["root", "passphrase", "paths"])
         self.assertEqual(args.root_dir, "/tmp/root")
+        self.assertIsNone(args.scan)
         self.assertEqual(args.input, ["/tmp/input"])
         self.assertIsNone(args.input_dir)
         self.assertEqual(args.passphrase, "secret")
@@ -94,7 +96,7 @@ class TestCliApp(unittest.TestCase):
         "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",
         return_value=(None, ["shards.txt"], ["payloads.txt"], ["scan.pdf"], [object()]),
     )
-    @mock.patch("ethernity.cli.bootstrap.app.prompt_choice", return_value="reuse-root")
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_choice", side_effect=["folder", "reuse-root"])
     @mock.patch("ethernity.cli.bootstrap.app.prompt_paths_with_picker", return_value=["/tmp/input"])
     @mock.patch("ethernity.cli.bootstrap.app.prompt_path_with_picker", return_value="/tmp/root")
     def test_prompt_home_extend_args_preserves_shard_unlock_inputs(
@@ -122,7 +124,7 @@ class TestCliApp(unittest.TestCase):
         "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",
         return_value=("secret", [], [], [], []),
     )
-    @mock.patch("ethernity.cli.bootstrap.app.prompt_choice", return_value="plaintext")
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_choice", side_effect=["folder", "plaintext"])
     @mock.patch("ethernity.cli.bootstrap.app.prompt_paths_with_picker", return_value=["/tmp/input"])
     @mock.patch("ethernity.cli.bootstrap.app.prompt_path_with_picker", return_value="/tmp/root")
     def test_prompt_home_extend_args_allows_explicit_plaintext_output(
@@ -152,7 +154,8 @@ class TestCliApp(unittest.TestCase):
         side_effect=[5, 3, 4, 2],
     )
     @mock.patch(
-        "ethernity.cli.bootstrap.app.prompt_choice", side_effect=["extension-shards", "sharded"]
+        "ethernity.cli.bootstrap.app.prompt_choice",
+        side_effect=["folder", "extension-shards", "sharded"],
     )
     @mock.patch("ethernity.cli.bootstrap.app.prompt_paths_with_picker", return_value=["/tmp/input"])
     @mock.patch("ethernity.cli.bootstrap.app.prompt_path_with_picker", return_value="/tmp/root")
@@ -179,6 +182,44 @@ class TestCliApp(unittest.TestCase):
         self.assertEqual(_prompt_int.call_args_list[0].kwargs["maximum"], 255)
         self.assertEqual(_prompt_int.call_args_list[2].kwargs["maximum"], 255)
 
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",
+        return_value=("secret", [], [], [], []),
+    )
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_choice", side_effect=["scan", "plaintext"])
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_paths_with_picker",
+        side_effect=[["/tmp/root.pdf", "/tmp/ext1.pdf"], ["/tmp/input"]],
+    )
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_optional_path_with_picker",
+        return_value="/tmp/output",
+    )
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_path_with_picker")
+    def test_prompt_home_extend_args_defaults_to_scanned_chain_source(
+        self,
+        prompt_path_with_picker: mock.MagicMock,
+        prompt_optional_path_with_picker: mock.MagicMock,
+        prompt_paths_with_picker: mock.MagicMock,
+        _prompt_choice: mock.MagicMock,
+        _prompt_passphrase_unlock_material: mock.MagicMock,
+    ) -> None:
+        args = app_module._prompt_home_extend_args(
+            config="cfg",
+            paper="A4",
+            design="forge",
+            quiet=False,
+        )
+
+        self.assertEqual(args.root_dir, "/tmp/output")
+        self.assertEqual(args.scan, ["/tmp/root.pdf", "/tmp/ext1.pdf"])
+        self.assertEqual(args.input, ["/tmp/input"])
+        self.assertEqual(args.unlock_policy, "self-contained")
+        self.assertEqual(args.shard_count, 0)
+        prompt_path_with_picker.assert_not_called()
+        prompt_optional_path_with_picker.assert_called_once()
+        self.assertEqual(prompt_paths_with_picker.call_count, 2)
+
     @mock.patch("ethernity.cli.bootstrap.app._prompt_home_auth_inputs")
     @mock.patch(
         "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",
@@ -188,10 +229,12 @@ class TestCliApp(unittest.TestCase):
         "ethernity.cli.bootstrap.app.prompt_optional_path_with_picker",
         return_value="/tmp/output",
     )
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_choice", return_value="folder")
     @mock.patch("ethernity.cli.bootstrap.app.prompt_path_with_picker", return_value="/tmp/root")
     def test_prompt_home_compact_args_preserves_shard_inputs_without_extra_auth_prompt(
         self,
         _prompt_path_with_picker: mock.MagicMock,
+        _prompt_choice: mock.MagicMock,
         _prompt_optional_path_with_picker: mock.MagicMock,
         _prompt_passphrase_unlock_material: mock.MagicMock,
         prompt_home_auth_inputs: mock.MagicMock,
@@ -211,6 +254,44 @@ class TestCliApp(unittest.TestCase):
         prompt_home_auth_inputs.assert_not_called()
         self.assertIsNone(args.auth_fallback_file)
         self.assertIsNone(args.auth_payloads_file)
+
+    @mock.patch("ethernity.cli.bootstrap.app._prompt_home_auth_inputs")
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",
+        return_value=("secret", [], [], [], []),
+    )
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_optional_path_with_picker",
+        return_value="/tmp/output",
+    )
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_paths_with_picker",
+        return_value=["/tmp/root.pdf", "/tmp/ext1.pdf"],
+    )
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_choice", return_value="scan")
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_path_with_picker")
+    def test_prompt_home_compact_args_defaults_to_scanned_source(
+        self,
+        prompt_path_with_picker: mock.MagicMock,
+        _prompt_choice: mock.MagicMock,
+        _prompt_paths_with_picker: mock.MagicMock,
+        _prompt_optional_path_with_picker: mock.MagicMock,
+        _prompt_passphrase_unlock_material: mock.MagicMock,
+        prompt_home_auth_inputs: mock.MagicMock,
+    ) -> None:
+        args = app_module._prompt_home_compact_args(
+            config="cfg",
+            paper="A4",
+            design="forge",
+            quiet=False,
+        )
+
+        self.assertIsNone(args.root_dir)
+        self.assertEqual(args.scan, ["/tmp/root.pdf", "/tmp/ext1.pdf"])
+        self.assertEqual(args.output_dir, "/tmp/output")
+        self.assertEqual(args.passphrase, "secret")
+        prompt_path_with_picker.assert_not_called()
+        prompt_home_auth_inputs.assert_not_called()
 
     def test_argv_invokes_api_detects_top_level_api_surface(self) -> None:
         self.assertTrue(app_module._argv_invokes_api(["ethernity", "api"]))

@@ -573,6 +573,7 @@ class TestCliApi(unittest.TestCase):
             "paper": None,
             "design": None,
             "root_dir": "/tmp/root",
+            "scan": [],
             "input": ["input.txt"],
             "input_dir": [],
             "base_dir": None,
@@ -620,6 +621,7 @@ class TestCliApi(unittest.TestCase):
             "paper": None,
             "design": None,
             "root_dir": "/tmp/root",
+            "scan": [],
             "input": ["input.txt"],
             "input_dir": [],
             "base_dir": None,
@@ -716,7 +718,8 @@ class TestCliApi(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 0, result.output)
         output = " ".join(_strip_ansi(result.output).split())
-        self.assertIn("Required in API mode", output)
+        self.assertIn("Writable extension publish", output)
+        self.assertIn("Printed/scanned", output)
         self.assertIn("Accepted values:", output)
         self.assertIn("self-contained, reuse-root", output)
         self.assertIn("not-stored, sharded", output)
@@ -734,8 +737,10 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, result.output)
         output = " ".join(_strip_ansi(result.output).split())
         self.assertIn("Passphrase to validate", output)
-        self.assertIn("Backup root folder", output)
+        self.assertIn("Writable extension publish", output)
+        self.assertIn("current-chain source", output)
         self.assertIn("extension unlock", output)
+        self.assertNotIn("Backup root folder", output)
         self.assertNotIn("when validation lands", output)
 
     def test_api_backup_help_surfaces_typed_contract_labels(self) -> None:
@@ -1206,6 +1211,7 @@ class TestCliApi(unittest.TestCase):
 
         def _capture_args(args: ExtendArgs, *, debug: bool = False) -> int:
             captured["root_dir"] = args.root_dir
+            captured["scan"] = list(args.scan or [])
             captured["input"] = list(args.input or [])
             captured["qr_chunk_size"] = args.qr_chunk_size
             captured["shard_scan"] = list(args.shard_scan or [])
@@ -1229,6 +1235,10 @@ class TestCliApi(unittest.TestCase):
                         "extend",
                         "--root-dir",
                         "/tmp/root",
+                        "--scan",
+                        "root.pdf",
+                        "--scan",
+                        "extension-01.pdf",
                         "--input",
                         "-",
                         "--qr-chunk-size",
@@ -1247,6 +1257,7 @@ class TestCliApi(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(captured["root_dir"], "/tmp/root")
+        self.assertEqual(captured["scan"], ["root.pdf", "extension-01.pdf"])
         self.assertEqual(captured["input"], ["-"])
         self.assertEqual(captured["qr_chunk_size"], 32)
         self.assertEqual(captured["shard_scan"], ["scan-a.pdf"])
@@ -1260,6 +1271,7 @@ class TestCliApi(unittest.TestCase):
 
         def _capture_args(args: ExtendArgs, *, debug: bool = False) -> int:
             captured["root_dir"] = args.root_dir
+            captured["scan"] = list(args.scan or [])
             captured["input"] = list(args.input or [])
             captured["shard_scan"] = list(args.shard_scan or [])
             captured["layout_debug_dir"] = args.layout_debug_dir
@@ -1288,6 +1300,10 @@ class TestCliApi(unittest.TestCase):
                         "extend",
                         "--root-dir",
                         "/tmp/root",
+                        "--scan",
+                        "root.pdf",
+                        "--scan",
+                        "extension-01.pdf",
                         "--input",
                         "-",
                         "--shard-scan",
@@ -1314,6 +1330,7 @@ class TestCliApi(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(captured["root_dir"], "/tmp/root")
+        self.assertEqual(captured["scan"], ["root.pdf", "extension-01.pdf"])
         self.assertEqual(captured["input"], ["-"])
         self.assertEqual(captured["shard_scan"], ["scan-a.pdf"])
         self.assertEqual(captured["layout_debug_dir"], "/tmp/layout")
@@ -1345,6 +1362,7 @@ class TestCliApi(unittest.TestCase):
                 paper_value=None,
                 design=None,
                 root_dir="/tmp/root",
+                scan=None,
                 input=["input.txt"],
                 input_dir=None,
                 base_dir=None,
@@ -1387,6 +1405,7 @@ class TestCliApi(unittest.TestCase):
             paper_value=None,
             design=None,
             root_dir="/tmp/root",
+            scan=None,
             input=["input.txt"],
             input_dir=None,
             base_dir=None,
@@ -1417,6 +1436,7 @@ class TestCliApi(unittest.TestCase):
             paper_value=None,
             design=None,
             root_dir="/tmp/root",
+            scan=None,
             input=["input.txt"],
             input_dir=None,
             base_dir=None,
@@ -1443,6 +1463,7 @@ class TestCliApi(unittest.TestCase):
             "paper_value": None,
             "design": None,
             "root_dir": "/tmp/root",
+            "scan": None,
             "input": ["input.txt"],
             "input_dir": None,
             "base_dir": None,
@@ -1624,6 +1645,7 @@ class TestCliApi(unittest.TestCase):
 
         def _capture_args(args: CompactArgs, *, debug: bool = False) -> int:
             captured["root_dir"] = args.root_dir
+            captured["scan"] = args.scan
             captured["output_dir"] = args.output_dir
             captured["qr_chunk_size"] = args.qr_chunk_size
             captured["design"] = args.design
@@ -1661,6 +1683,7 @@ class TestCliApi(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 0, result.output)
         self.assertEqual(captured["root_dir"], "/tmp/root")
+        self.assertEqual(captured["scan"], [])
         self.assertEqual(captured["output_dir"], "/tmp/out")
         self.assertEqual(captured["qr_chunk_size"], 32)
         self.assertEqual(captured["design"], "forge")
@@ -1675,6 +1698,7 @@ class TestCliApi(unittest.TestCase):
             paper_value=None,
             design=None,
             root_dir="/tmp/root",
+            scan=None,
             output_dir=None,
             shard_fallback_file=None,
             shard_payloads_file=None,
@@ -3113,7 +3137,12 @@ class TestCliApi(unittest.TestCase):
         )
         self.assertIsNone(events[-1]["chunk_reuse"])
         self.assertIsNone(events[-1]["estimated_extension_bytes"])
-        preflight.assert_called_once_with("/tmp/inspection-root", index=1)
+        preflight.assert_called_once_with(
+            "/tmp/inspection-root",
+            index=1,
+            allow_missing_root=False,
+            require_empty_extensions=False,
+        )
 
     def test_api_inspect_extend_emits_unlocked_diff_summary(self) -> None:
         manifest, payload = build_manifest_and_payload(
@@ -4343,6 +4372,7 @@ class TestCliApi(unittest.TestCase):
             paper="A4",
             design="forge",
             root_dir="/tmp/request-root",
+            scan=["root.pdf", "extension-01.pdf"],
             input=["input.txt"],
             layout_debug_dir="/tmp/layout",
             passphrase="secret words",
@@ -4424,13 +4454,19 @@ class TestCliApi(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         ensure_playwright_browsers.assert_called_once_with(quiet=True)
-        preflight.assert_called_once_with("/tmp/prepared-root", index=2)
+        preflight.assert_called_once_with(
+            "/tmp/prepared-root",
+            index=2,
+            allow_missing_root=True,
+            require_empty_extensions=True,
+        )
         events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
         self._assert_valid_events(events)
         self.assertEqual(
             [event["type"] for event in events], _contracts()["extend_mocked_event_types"]
         )
         self.assertEqual(events[0]["args"]["root_dir"], "/tmp/request-root")
+        self.assertEqual(events[0]["args"]["scan"], ["root.pdf", "extension-01.pdf"])
         self.assertEqual(events[0]["args"]["shard_scan"], ["shard-a.pdf"])
         progress_events = [event for event in events if event["type"] == "progress"]
         self.assertEqual(
@@ -4508,7 +4544,12 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(ctx.exception.code, api_codes.EXTENSION_PUBLISH_TARGET_INVALID)
         self.assertEqual(ctx.exception.details, {"stage": "publish_target"})
         self.assertIn("canonical extension directory already exists", str(ctx.exception))
-        preflight.assert_called_once_with("/tmp/prepared-root", index=2)
+        preflight.assert_called_once_with(
+            "/tmp/prepared-root",
+            index=2,
+            allow_missing_root=False,
+            require_empty_extensions=False,
+        )
         ensure_playwright_browsers.assert_not_called()
         execute_prepared_extend.assert_not_called()
         events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
@@ -4586,7 +4627,12 @@ class TestCliApi(unittest.TestCase):
             exit_code = run_extend_api_command(args)
 
         self.assertEqual(exit_code, 0)
-        preflight.assert_called_once_with("/tmp/root", index=1)
+        preflight.assert_called_once_with(
+            "/tmp/root",
+            index=1,
+            allow_missing_root=False,
+            require_empty_extensions=False,
+        )
         events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
         self._assert_valid_events(events)
         self.assertEqual(
@@ -4670,6 +4716,7 @@ class TestCliApi(unittest.TestCase):
         )
         self.assertEqual(events[0]["command"], "compact")
         self.assertEqual(events[0]["args"]["root_dir"], "/tmp/root")
+        self.assertEqual(events[0]["args"]["scan"], [])
         self.assertEqual(events[0]["args"]["shard_scan"], ["shard-a.pdf"])
         self.assertEqual(events[0]["args"]["auth_payloads_file"], "auth.payloads")
         phase_events = [event for event in events if event["type"] == "phase"]
@@ -4677,6 +4724,7 @@ class TestCliApi(unittest.TestCase):
         progress_events = [event for event in events if event["type"] == "progress"]
         self.assertEqual([event["current"] for event in progress_events], [0, 1])
         self.assertEqual(progress_events[0]["details"]["root_dir"], "/tmp/root")
+        self.assertEqual(progress_events[0]["details"]["scan"], [])
         self.assertEqual(progress_events[1]["details"]["output_dir"], "/tmp/out")
         artifact_events = [event for event in events if event["type"] == "artifact"]
         self.assertEqual(
@@ -4690,7 +4738,46 @@ class TestCliApi(unittest.TestCase):
             ],
         )
         self.assertEqual(events[-1]["root_dir"], "/tmp/root")
+        self.assertEqual(events[-1]["source_scan"], [])
         self.assertEqual(events[-1]["output_dir"], "/tmp/out")
+
+    def test_run_compact_api_command_accepts_scan_source_without_root_dir(self) -> None:
+        args = CompactArgs(
+            scan=["root.pdf", "extension-01.pdf"],
+            output_dir="/tmp/out",
+            passphrase="secret words",
+            quiet=True,
+        )
+        result = BackupResult(
+            doc_id=b"\x44" * 8,
+            qr_path="/tmp/out/qr_document.pdf",
+            recovery_path="/tmp/out/recovery_document.pdf",
+            shard_paths=(),
+            signing_key_shard_paths=(),
+            passphrase_used=None,
+            source_head_index=1,
+            source_head_doc_hash="55" * 32,
+            expected_head_doc_hash=None,
+            freshness_scope="supplied_carriers_only",
+        )
+        buffer = io.StringIO()
+        with (
+            mock.patch("ethernity.cli.features.compact.api_handlers.ensure_playwright_browsers"),
+            mock.patch(
+                "ethernity.cli.features.compact.api_handlers.run_compact",
+                return_value=result,
+            ),
+            ndjson_session(stream=buffer),
+        ):
+            exit_code = run_compact_api_command(args)
+
+        self.assertEqual(exit_code, 0)
+        events = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
+        self._assert_valid_events(events)
+        self.assertIsNone(events[0]["args"]["root_dir"])
+        self.assertEqual(events[0]["args"]["scan"], ["root.pdf", "extension-01.pdf"])
+        self.assertIsNone(events[-1]["root_dir"])
+        self.assertEqual(events[-1]["source_scan"], ["root.pdf", "extension-01.pdf"])
 
     def test_api_compact_head_untrusted_emits_started_then_error_without_artifacts(self) -> None:
         trust_details = {
@@ -4753,6 +4840,7 @@ class TestCliApi(unittest.TestCase):
         )
         self.assertEqual(events[0]["command"], "compact")
         self.assertEqual(events[0]["args"]["root_dir"], "/tmp/root")
+        self.assertEqual(events[0]["args"]["scan"], [])
         self.assertEqual(events[1]["id"], "compact")
         self.assertEqual(events[2]["phase"], "compact")
         self.assertEqual(events[2]["current"], 0)
@@ -4771,14 +4859,17 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual([event for event in events if event["type"] == "artifact"], [])
         self.assertEqual([event for event in events if event["type"] == "result"], [])
 
-    def test_run_compact_api_command_requires_root_dir_with_stable_code(self) -> None:
+    def test_run_compact_api_command_requires_source_with_stable_code(self) -> None:
         buffer = io.StringIO()
         with ndjson_session(stream=buffer):
             with self.assertRaises(ApiCommandError) as ctx:
                 run_compact_api_command(CompactArgs(output_dir="/tmp/out"))
 
         self.assertEqual(ctx.exception.code, api_codes.INPUT_REQUIRED)
-        self.assertEqual(str(ctx.exception), "--root-dir is required for `ethernity api compact`")
+        self.assertEqual(
+            str(ctx.exception),
+            "--root-dir or --scan is required for `ethernity api compact`",
+        )
 
     def test_api_inspect_mint_accepts_input_flags_without_output_dir(self) -> None:
         captured: dict[str, object] = {}

@@ -94,10 +94,10 @@ def _emit_layout_debug_artifacts(*, layout_debug_dir: str | None, result: Backup
 
 
 def run_compact_api_command(args: CompactArgs, *, debug: bool = False) -> int:
-    if not args.root_dir:
+    if not args.root_dir and not args.scan:
         raise ApiCommandError(
             code=api_codes.INPUT_REQUIRED,
-            message="--root-dir is required for `ethernity api compact`",
+            message="--root-dir or --scan is required for `ethernity api compact`",
         )
     if not args.output_dir:
         raise ApiCommandError(
@@ -113,6 +113,7 @@ def run_compact_api_command(args: CompactArgs, *, debug: bool = False) -> int:
             "paper": args.paper,
             "design": args.design,
             "root_dir": args.root_dir,
+            "scan": list(args.scan or []),
             "output_dir": args.output_dir,
             "shard_fallback_file": list(args.shard_fallback_file or []),
             "shard_payloads_file": list(args.shard_payloads_file or []),
@@ -134,7 +135,11 @@ def run_compact_api_command(args: CompactArgs, *, debug: bool = False) -> int:
         current=0,
         total=1,
         unit="step",
-        details={"root_dir": args.root_dir, "output_dir": args.output_dir},
+        details={
+            "root_dir": args.root_dir,
+            "scan": list(args.scan or []),
+            "output_dir": args.output_dir,
+        },
     )
     ensure_playwright_browsers(quiet=True)
     result = run_compact(args)
@@ -143,7 +148,11 @@ def run_compact_api_command(args: CompactArgs, *, debug: bool = False) -> int:
         current=1,
         total=1,
         unit="step",
-        details={"root_dir": args.root_dir, "output_dir": str(Path(result.qr_path).parent)},
+        details={
+            "root_dir": args.root_dir,
+            "scan": list(args.scan or []),
+            "output_dir": str(Path(result.qr_path).parent),
+        },
     )
     _emit_compact_artifacts(result)
     _emit_layout_debug_artifacts(layout_debug_dir=args.layout_debug_dir, result=result)
@@ -151,6 +160,7 @@ def run_compact_api_command(args: CompactArgs, *, debug: bool = False) -> int:
         command="compact",
         doc_id=result.doc_id.hex(),
         root_dir=args.root_dir,
+        source_scan=list(args.scan or []),
         output_dir=str(Path(result.qr_path).parent),
         artifacts={
             "qr_document": result.qr_path,

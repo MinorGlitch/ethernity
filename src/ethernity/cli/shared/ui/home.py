@@ -43,7 +43,7 @@ HOME_ACTIONS: list[tuple[str, str] | questionary.Separator | questionary.Choice]
     questionary.Choice(
         "Add files to a backup",
         value="extend",
-        description="Append a new extension to an existing backup root.",
+        description="Append a new extension to a paper or scanned backup set.",
     ),
     questionary.Choice(
         "Rebuild a backup set",

@@ -85,20 +85,41 @@ class PlannedStagedExtensionArtifacts:
     signing_key_shard_paths: tuple[Path, ...]
 
 
-def create_extension_staging_dir(root_dir: str | Path, *, index: int, nonce: str) -> Path:
+def create_extension_staging_dir(
+    root_dir: str | Path,
+    *,
+    index: int,
+    nonce: str,
+    allow_missing_root: bool = False,
+    require_empty_extensions: bool = False,
+) -> Path:
     """Create and return a non-canonical staging directory under the extensions root."""
 
     root_path = Path(root_dir).expanduser()
-    _require_existing_directory_no_symlink(
-        root_path,
-        label="root backup directory",
-        display_path=root_dir,
-    )
+    if not root_path.exists() and allow_missing_root:
+        _require_creatable_root_parent(root_path)
+        root_path.mkdir(mode=0o700)
+        root_path.chmod(0o700)
+        _require_existing_directory_no_symlink(
+            root_path,
+            label="extension publish root",
+            display_path=root_dir,
+        )
+    else:
+        _require_existing_directory_no_symlink(
+            root_path,
+            label="extension publish root",
+            display_path=root_dir,
+        )
     extensions_dir = root_path / EXTENSIONS_DIR_NAME
     if extensions_dir.is_symlink():
         raise ValueError("extensions path must not be a symlink")
+    if require_empty_extensions:
+        _require_empty_extension_namespace(extensions_dir)
     extensions_dir.mkdir(mode=0o700, parents=False, exist_ok=True)
     _require_existing_directory_no_symlink(extensions_dir, label="extensions path")
+    if require_empty_extensions:
+        _require_empty_extension_namespace(extensions_dir)
     staging_dir = extensions_dir / build_staging_dir_name(index, nonce)
     staging_dir.mkdir(mode=0o700, parents=False, exist_ok=False)
     _require_existing_directory_no_symlink(staging_dir, label="staging directory")
@@ -151,7 +172,7 @@ def _require_publish_directory_identities(validated: ValidatedStagedExtension) -
     _require_directory_identity(
         root_dir,
         expected=validated.root_dir_identity,
-        label="root backup directory",
+        label="extension publish root",
     )
     _require_directory_identity(
         extensions_dir,
@@ -168,23 +189,34 @@ def _require_staging_directory_identity(validated: ValidatedStagedExtension) -> 
     )
 
 
-def preflight_extension_publish_target(root_dir: str | Path, *, index: int) -> None:
+def preflight_extension_publish_target(
+    root_dir: str | Path,
+    *,
+    index: int,
+    allow_missing_root: bool = False,
+    require_empty_extensions: bool = False,
+) -> None:
     """Validate extension publish target paths without creating files or directories."""
 
     if isinstance(index, bool) or not isinstance(index, int) or index <= 0:
         raise ValueError("extension index must be a positive integer")
     root_path = Path(root_dir).expanduser()
     if root_path.is_symlink():
-        raise ValueError("root backup directory must not be a symlink")
+        raise ValueError("extension publish root must not be a symlink")
     if not root_path.exists():
-        raise ValueError(f"root backup directory not found: {root_dir}")
+        if allow_missing_root:
+            _require_creatable_root_parent(root_path)
+            return
+        raise ValueError(f"extension publish root not found: {root_dir}")
     if not root_path.is_dir():
-        raise ValueError(f"root backup directory must be a directory: {root_dir}")
+        raise ValueError(f"extension publish root must be a directory: {root_dir}")
     extensions_dir = root_path / EXTENSIONS_DIR_NAME
     if extensions_dir.is_symlink():
         raise ValueError("extensions path must not be a symlink")
     if extensions_dir.exists() and not extensions_dir.is_dir():
         raise ValueError("extensions path must be a directory")
+    if require_empty_extensions:
+        _require_empty_extension_namespace(extensions_dir)
     writable_dir = extensions_dir if extensions_dir.exists() else root_path
     if not os.access(writable_dir, os.W_OK | os.X_OK):
         raise ValueError(f"extension publish target is not writable: {writable_dir}")
@@ -201,6 +233,31 @@ def preflight_extension_publish_target(root_dir: str | Path, *, index: int) -> N
         raise ValueError("extension chain is already being promoted")
 
 
+def _require_creatable_root_parent(root_path: Path) -> None:
+    parent = root_path.parent
+    if parent.is_symlink():
+        raise ValueError("extension publish root parent must not be a symlink")
+    if not parent.exists():
+        raise ValueError(f"extension publish root parent not found: {parent}")
+    if not parent.is_dir():
+        raise ValueError(f"extension publish root parent must be a directory: {parent}")
+    if not os.access(parent, os.W_OK | os.X_OK):
+        raise ValueError(f"extension publish root parent is not writable: {parent}")
+
+
+def _require_empty_extension_namespace(extensions_dir: Path) -> None:
+    if not extensions_dir.exists():
+        return
+    try:
+        first_entry = next(extensions_dir.iterdir())
+    except StopIteration:
+        return
+    raise ValueError(
+        "extension publish target must have an empty extensions directory when "
+        f"publishing from scanned backup documents; found {first_entry.name}"
+    )
+
+
 def create_staged_extension_artifact_plan(
     root_dir: str | Path,
     *,
@@ -208,10 +265,18 @@ def create_staged_extension_artifact_plan(
     doc_id_hex: str,
     nonce: str,
     publish_policy: ExtensionPublishPolicy,
+    allow_missing_root: bool = False,
+    require_empty_extensions: bool = False,
 ) -> PlannedStagedExtensionArtifacts:
     """Create a staging directory and return the exact artifact paths to populate."""
 
-    staging_dir = create_extension_staging_dir(root_dir, index=index, nonce=nonce)
+    staging_dir = create_extension_staging_dir(
+        root_dir,
+        index=index,
+        nonce=nonce,
+        allow_missing_root=allow_missing_root,
+        require_empty_extensions=require_empty_extensions,
+    )
     final_dir = staging_dir.parent / canonical_extension_dir_name(index)
     root_dir_identity, extensions_dir_identity = _publish_directory_identities(staging_dir)
     qr_document_path = staging_dir / build_extension_main_filename("qr_document", index, doc_id_hex)
@@ -280,7 +345,7 @@ def validate_staged_extension_dir(
     root_dir_identity, extensions_dir_identity = _publish_directory_identities(path)
     staging_dir_identity = _directory_identity(path, label="staging directory")
     if expected_root_dir_identity is not None and root_dir_identity != expected_root_dir_identity:
-        raise ValueError("root backup directory changed before promotion")
+        raise ValueError("extension publish root changed before promotion")
     if (
         expected_extensions_dir_identity is not None
         and extensions_dir_identity != expected_extensions_dir_identity
@@ -416,7 +481,7 @@ def snapshot_staged_extension_dir(staging_dir: str | Path) -> StagedExtensionSna
 def _publish_directory_identities(staging_dir: Path) -> tuple[DirectoryIdentity, DirectoryIdentity]:
     extensions_dir = staging_dir.parent
     root_dir = extensions_dir.parent
-    root_dir_identity = _directory_identity(root_dir, label="root backup directory")
+    root_dir_identity = _directory_identity(root_dir, label="extension publish root")
     extensions_dir_identity = _directory_identity(extensions_dir, label="extensions directory")
     return root_dir_identity, extensions_dir_identity
 
