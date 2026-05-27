@@ -11,13 +11,11 @@
   <img src="images/readme_logo.png" alt="Ethernity logo" width="320">
   <h1 align="center">Ethernity</h1>
   <p align="center">
-    Encrypted backups you can recover offline from printed documents.
+    Encrypted paper backups for small, high-value files.
     <br />
     <a href="https://github.com/MinorGlitch/ethernity/wiki/Getting-Started"><strong>Getting Started</strong></a>
     &middot;
     <a href="https://github.com/MinorGlitch/ethernity/wiki/Backup-Workflow"><strong>Backup Workflow</strong></a>
-    &middot;
-    <a href="https://github.com/MinorGlitch/ethernity/wiki/Extension-Workflow"><strong>Extension Workflow</strong></a>
     &middot;
     <a href="https://github.com/MinorGlitch/ethernity/wiki/Recovery-Workflow"><strong>Recovery Workflow</strong></a>
     &middot;
@@ -27,75 +25,26 @@
   </p>
 </div>
 
-## What Ethernity Is
+## What It Does
 
-Ethernity is a Python CLI for turning a small file or directory into encrypted recovery artifacts:
+Ethernity turns a small file or directory into encrypted recovery documents you can print, store,
+scan, and recover without network access.
 
-- `qr_document.pdf` for scanning
-- `recovery_document.pdf` for fallback text recovery
-- optional passphrase shard PDFs
-- optional signing-key shard PDFs
-- an optional browser recovery kit
+A backup can include:
 
-It is built for situations where you care more about recoverability, custody, and offline handling
-than convenience.
+- `qr_document.pdf`: QR codes for machine recovery
+- `recovery_document.pdf`: fallback text for manual recovery
+- passphrase shard PDFs for quorum recovery
+- signing-key shard PDFs for extension and mint workflows
+- a browser recovery kit QR document
 
-This is a good tool for small, high-value data. It is not a replacement for bulk backup systems or
-continuous sync tools.
+Use Ethernity for seed phrases, small key bundles, critical config files, and recovery packets that
+need a paper path. Use a normal backup system for large archives, sync, and frequent background
+snapshots.
 
-## Main Workflows
+## Install
 
-- `backup`: create a new standalone root
-- `extend`: append changes to an existing unsealed root
-- `compact`: flatten a root plus its extensions into a fresh standalone backup
-- `recover`: restore the latest validated state or a selected earlier generation
-- `mint`: issue new shard PDFs for an existing backup
-- `kit`: generate a printable QR document for the browser recovery kit
-
-If your source data changes over time, the intended lifecycle is:
-
-1. Create a standalone root with `backup`.
-2. Append changes with `extend`.
-3. Use `compact` when you want a fresh standalone root again.
-
-That lifecycle is not an advanced edge case. It is the normal way to use Ethernity when the source
-data changes over time.
-
-## Primary Lifecycle
-
-Think of the primary feature set like this:
-
-| Job | Command | Result |
-| --- | --- | --- |
-| Create an initial backup set | `backup` | a standalone root |
-| Record later changes | `extend` | a new generation under `extensions/` |
-| Re-root the latest state | `compact` | a fresh standalone backup |
-| Restore data | `recover` | latest validated state by default, or a selected earlier state |
-
-If you only present `backup` and `recover` to users, they will assume the product is snapshot-only.
-It is not. The current product model is root-plus-extensions with explicit compaction.
-
-## When To Use It
-
-Ethernity is a good fit when you want:
-
-- offline-capable recovery
-- printable artifacts that can live in separate custody paths
-- threshold-based recovery instead of one person holding everything
-- a documented format and explicit operator workflows
-
-It is a poor fit when you want:
-
-- continuous background backup
-- large archival datasets
-- hands-off sync between machines
-- a system that works well without recovery drills
-
-## Quick Start
-
-### macOS and Linux
-
-Homebrew is the shortest path:
+macOS and Linux:
 
 ```sh
 brew tap minorglitch/tap
@@ -103,16 +52,14 @@ brew install ethernity
 ethernity --help
 ```
 
-If you prefer Python-managed installs:
+Python-managed install:
 
 ```sh
 pipx install ethernity-paper
 ethernity --help
 ```
 
-### Windows
-
-Use the PowerShell installer:
+Windows PowerShell:
 
 ```powershell
 $ProgressPreference = 'SilentlyContinue'
@@ -121,20 +68,12 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 ethernity --help
 ```
 
-For manual archive verification, use [Wiki: Release Artifacts](https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts).
-
-### Install From Source
-
-```sh
-git clone https://github.com/MinorGlitch/ethernity.git
-cd ethernity
-uv sync --extra dev --extra build
-uv run ethernity --help
-```
+Verify release archives with [Release Artifacts](https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts)
+before you run a downloaded binary.
 
 ## First Drill
 
-Run this once with test data before you trust the workflow with anything important.
+Run this with test data before you protect anything real:
 
 ```sh
 printf "ethernity test payload\n" > payload.txt
@@ -152,19 +91,36 @@ ethernity recover \
 cmp ./payload.txt ./restored.txt
 ```
 
-If `cmp` prints nothing and exits successfully, the drill passed.
-
-On Windows PowerShell:
+`cmp` prints nothing when the restored file matches. On Windows, use:
 
 ```powershell
 fc.exe /b .\payload.txt .\restored.txt
 ```
 
-## Working With Changes
+## Pick A Workflow
 
-When the source data changes, do not rewrite the old backup set by hand.
+| Need | Command | Result |
+| --- | --- | --- |
+| Create a backup set | `backup` | writes QR, fallback, and optional shard PDFs |
+| Restore data | `recover` | restores from scans, payload text, or fallback text |
+| Add changes to an unsealed backup | `extend` | writes a new generation under `extensions/` |
+| Flatten root plus extensions | `compact` | writes a fresh standalone backup |
+| Issue new shard PDFs | `mint` | writes replacement or fresh shard documents |
+| Print the browser recovery kit | `kit` | writes a QR PDF for the offline kit |
 
-Create an initial root:
+Other useful commands:
+
+```sh
+ethernity config --onboard
+ethernity render envelope-c6 --format pdf --output ./envelope_c6.pdf
+ethernity api inspect recover --scan ./backup-demo --passphrase "ethernity test passphrase"
+```
+
+Use `ethernity <command> --help` for flags.
+
+## When Files Change
+
+Create the root backup once:
 
 ```sh
 ethernity backup \
@@ -173,7 +129,7 @@ ethernity backup \
   --passphrase "example passphrase"
 ```
 
-Append changes to that root:
+Preview an extension:
 
 ```sh
 ethernity extend \
@@ -184,8 +140,7 @@ ethernity extend \
   --dry-run
 ```
 
-Publish the extension, explicitly choosing the same plaintext-passphrase recovery model as the
-example root:
+Publish the extension:
 
 ```sh
 ethernity extend \
@@ -196,7 +151,11 @@ ethernity extend \
   --shard-count 0
 ```
 
-Recover the latest logical state:
+`extend` needs an explicit recovery policy. Choose extension shards with
+`--shard-threshold N --shard-count K`, reuse root shards with `--unlock-policy reuse-root`, or use
+`--shard-count 0` when your policy allows plaintext passphrase fallback text.
+
+Recover the latest state:
 
 ```sh
 ethernity recover \
@@ -205,7 +164,7 @@ ethernity recover \
   --output ./restored-docs
 ```
 
-Flatten the chain into a fresh standalone backup:
+Compact the chain when you want a new standalone set:
 
 ```sh
 ethernity compact \
@@ -214,17 +173,31 @@ ethernity compact \
   --passphrase "example passphrase"
 ```
 
-Notes:
+For the full operator flow, read
+[Extension Workflow](https://github.com/MinorGlitch/ethernity/wiki/Extension-Workflow).
 
-- `extend` only works on unsealed roots
-- `extend` requires an explicit passphrase recovery policy; use extension shards, `reuse-root`, or
-  `--shard-count 0` for plaintext recovery output
-- recovery defaults to the latest validated state
-- recovery scans machine-readable extension carriers content-addressed and does not require
-  canonical filenames or redundant carrier copies
-- `compact` gives you a new standalone root without modifying the old one in place
+## Custody Basics
 
-For the operator model behind that flow, use [Wiki: Extension Workflow](https://github.com/MinorGlitch/ethernity/wiki/Extension-Workflow).
+- Start with test data.
+- Store QR documents, recovery documents, and shards in separate places.
+- Keep one independent backup path outside Ethernity.
+- Test the minimum shard quorum during recovery drills.
+- Run a recovery drill before you trust a procedure.
+
+Ethernity gives you recoverable artifacts. Your custody plan protects the passphrase, printed
+pages, shard holders, and recovery environment.
+
+## Recovery Kit
+
+The browser recovery kit gives you an offline HTML recovery surface.
+
+```sh
+ethernity kit --output ./recovery_kit_qr.pdf
+ethernity kit --variant scanner --output ./recovery_kit_scanner_qr.pdf
+```
+
+Use the default kit for file and paste workflows. Use the scanner variant when the browser should
+handle camera input.
 
 ## Document Preview
 
@@ -237,89 +210,65 @@ Sentinel preview pages from the generated PDF set:
   <img src="images/readme/sentinel_fallback_preview.png" alt="Sentinel fallback document preview" width="24%">
 </p>
 
-For the other supported designs, use [Wiki: Template Gallery](https://github.com/MinorGlitch/ethernity/wiki/Template-Gallery).
+Supported designs: `archive`, `forge`, `ledger`, `maritime`, `sentinel`.
 
-## Safety Rules
+Use [Template Gallery](https://github.com/MinorGlitch/ethernity/wiki/Template-Gallery) to compare
+them.
 
-- Start with test data, not production secrets.
-- Keep main docs, fallback docs, and shards in separate custody paths.
-- Keep one independent backup path outside Ethernity.
-- Run a real recovery drill before you trust any procedure.
-- Prefer offline recovery environments when practical.
+## Docs
 
-Ethernity can give you a recoverable artifact set. It cannot compensate for weak passphrases,
-sloppy custody, or untested procedures.
-
-## Documentation Map
-
-Use the wiki for operator guidance:
+Operator guides:
 
 - [Getting Started](https://github.com/MinorGlitch/ethernity/wiki/Getting-Started)
 - [Backup Workflow](https://github.com/MinorGlitch/ethernity/wiki/Backup-Workflow)
 - [Extension Workflow](https://github.com/MinorGlitch/ethernity/wiki/Extension-Workflow)
-- [Backup Playbooks](https://github.com/MinorGlitch/ethernity/wiki/Backup-Playbooks)
 - [Recovery Workflow](https://github.com/MinorGlitch/ethernity/wiki/Recovery-Workflow)
-- [Recovery Kit](https://github.com/MinorGlitch/ethernity/wiki/Recovery-Kit)
-- [Troubleshooting](https://github.com/MinorGlitch/ethernity/wiki/Troubleshooting)
 - [Command Cheatsheet](https://github.com/MinorGlitch/ethernity/wiki/Command-Cheatsheet)
+- [Troubleshooting](https://github.com/MinorGlitch/ethernity/wiki/Troubleshooting)
 - [Release Artifacts](https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts)
 
-Use the in-repo docs for contracts and reference material:
+Reference docs:
 
-- [docs/format.md](docs/format.md): normative format specification
-- [docs/format_notes.md](docs/format_notes.md): rationale and operational notes
-- [docs/format_changes.md](docs/format_changes.md): compatibility change log
-- [docs/cli_api.md](docs/cli_api.md): NDJSON API contract for GUI and automation clients
-- [docs/release_artifacts.md](docs/release_artifacts.md): in-repo release verification anchor
+- [docs/format.md](docs/format.md): backup format specification
+- [docs/format_notes.md](docs/format_notes.md): rationale and operations notes
+- [docs/format_changes.md](docs/format_changes.md): compatibility ledger
+- [docs/cli_api.md](docs/cli_api.md): NDJSON API contract
+- [SECURITY.md](SECURITY.md): security policy
 
-## Development Quickstart
+## Development
 
 ```sh
 git clone https://github.com/MinorGlitch/ethernity.git
 cd ethernity
 uv sync --extra dev --extra build
 uv run playwright install chromium
+uv run ethernity --help
 ```
 
 Core checks:
 
 ```sh
-uv run pre-commit run --all-files
 uv run ruff check src tests
 uv run ruff format --check src tests
 uv run mypy src
-uv run pyright
-uv run check-jsonschema --check-metaschema docs/cli_api.schema.json
-uv run typos .
 uv run pytest tests/unit tests/integration -q
 cd kit
 npm ci
-npm run lint
-npm run format:check
 npm test
 node build_kit.mjs
-cd ..
 ```
 
-Use [CONTRIBUTING.md](CONTRIBUTING.md) for contribution workflow and quality gates.
-
-## Contributing
-
-Focused pull requests with tests and docs updates are preferred.
-
-Before opening a PR, read:
-
-- [CONTRIBUTING.md](CONTRIBUTING.md)
-- [SECURITY.md](SECURITY.md)
-- [AGENTS.md](AGENTS.md)
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## Credits
 
-Ethernity was heavily inspired by [Paperback](https://github.com/cyphar/paperback) by cyphar.
+Ethernity was inspired by [Paperback](https://github.com/cyphar/paperback) by cyphar.
 
-It also builds on work from:
+Mention: [Rememory](https://github.com/eljojo/rememory). Ethernity does not use Rememory code or
+assets.
 
-- [Rememory](https://github.com/eljojo/rememory)
+Ethernity uses these libraries:
+
 - [age](https://github.com/FiloSottile/age) via [pyrage](https://github.com/str4d/rage)
 - [PyCryptodome](https://github.com/Legrandin/pycryptodome)
 - [Typer](https://github.com/fastapi/typer)
