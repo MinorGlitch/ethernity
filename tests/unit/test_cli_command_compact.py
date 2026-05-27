@@ -145,7 +145,7 @@ class TestCompactCommand(unittest.TestCase):
         )
 
         self.assertEqual(exit_code, 0)
-        print_compact_summary.assert_called_once_with(result, root_dir="/tmp/root", quiet=False)
+        print_compact_summary.assert_called_once_with(result, source="/tmp/root", quiet=False)
         print_completion_actions.assert_called_once_with(result, output_dir="/tmp/out", quiet=False)
 
     def test_register(self) -> None:
