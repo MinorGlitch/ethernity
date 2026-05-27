@@ -74,6 +74,32 @@ class TestArtifactPublish(unittest.TestCase):
             self.assertFalse(staging_dir.exists())
             self.assertFalse(final_dir.exists())
 
+    def test_publish_staged_artifacts_preserves_replacement_staging_dir_on_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            final_dir = Path(tmpdir) / "backup-deadbeef"
+            staging_dir = create_sibling_staging_dir(final_dir)
+            moved_staging_dir = Path(tmpdir) / "moved-staging"
+
+            def _populate() -> None:
+                (staging_dir / "qr_document.pdf").write_bytes(b"qr")
+
+            def _swap_staging_dir(_payload: None) -> None:
+                staging_dir.rename(moved_staging_dir)
+                staging_dir.mkdir()
+                (staging_dir / "qr_document.pdf").write_bytes(b"qr")
+
+            with self.assertRaisesRegex(ValueError, "staging_dir changed before promotion"):
+                publish_staged_artifacts(
+                    staging_dir=staging_dir,
+                    final_dir=final_dir,
+                    populate=_populate,
+                    validate_artifacts=_swap_staging_dir,
+                )
+
+            self.assertTrue((moved_staging_dir / "qr_document.pdf").is_file())
+            self.assertTrue((staging_dir / "qr_document.pdf").is_file())
+            self.assertFalse(final_dir.exists())
+
     def test_publish_staged_artifacts_rechecks_final_dir_under_lock(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             final_dir = Path(tmpdir) / "backup-deadbeef"

@@ -681,6 +681,23 @@ class TestExtendService(unittest.TestCase):
             self.assertIn("must not be inside", str(ctx.exception))
             self.assertFalse(debug_dir.exists())
 
+    def test_extend_layout_debug_dir_rejects_scan_publish_root_paths(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            debug_dir = root_dir / "layout-debug"
+
+            with self.assertRaises(ApiCommandError) as ctx:
+                ensure_extend_layout_debug_dir_allowed(
+                    debug_dir,
+                    root_dir=str(root_dir),
+                    scan=True,
+                )
+
+            self.assertEqual(ctx.exception.code, EXTENSION_INVALID_POLICY)
+            self.assertIn("managed extension publish paths", str(ctx.exception))
+            self.assertEqual(ctx.exception.details["scan"], True)
+            self.assertFalse(debug_dir.exists())
+
     def test_extend_layout_debug_dir_resolves_outside_extension_inventory(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
@@ -1681,6 +1698,7 @@ class TestExtendService(unittest.TestCase):
                 )
 
             self.assertTrue((moved_extensions_dir / publish.artifacts.staging_dir.name).is_dir())
+            self.assertTrue((root_dir / "extensions" / publish.artifacts.staging_dir.name).is_dir())
 
     def test_execute_staged_extension_publish_rejects_root_dir_swap(self) -> None:
         with TemporaryDirectory() as tmpdir:
@@ -1740,6 +1758,7 @@ class TestExtendService(unittest.TestCase):
             self.assertTrue(
                 (moved_root_dir / "extensions" / publish.artifacts.staging_dir.name).is_dir()
             )
+            self.assertTrue((root_dir / "extensions" / publish.artifacts.staging_dir.name).is_dir())
 
     def test_execute_prepared_extend_discards_layout_debug_sidecars_on_render_failure(
         self,
@@ -1879,6 +1898,55 @@ class TestExtendService(unittest.TestCase):
 
             self.assertEqual(ctx.exception.code, api_codes.EXTENSION_PUBLISH_TARGET_INVALID)
             self.assertFalse(debug_dir.exists())
+
+    def test_execute_prepared_extend_rejects_scan_layout_debug_inside_publish_root(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            root_dir = tmp_path / "scan-output"
+            debug_dir = root_dir / "layout-debug"
+            config_path = _config_with_no_shard_defaults(tmp_path / "config.toml")
+            resolved = _resolved_state(
+                diff_summary={
+                    "new_paths": ["new.txt"],
+                    "changed_paths": ["updated.txt"],
+                    "unchanged_paths": [],
+                    "missing_paths": [],
+                },
+            )
+            resolved = replace(
+                resolved,
+                inspection=replace(resolved.inspection, root_dir=str(root_dir)),
+            )
+            with mock.patch(
+                "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                return_value=resolved,
+            ):
+                prepared = prepare_extend_run(
+                    ExtendArgs(
+                        config=str(config_path),
+                        root_dir=str(root_dir),
+                        scan=["/tmp/root.pdf"],
+                        input=["/tmp/root/example.txt"],
+                        layout_debug_dir=str(debug_dir),
+                        shard_count=0,
+                    )
+                )
+
+            with mock.patch(
+                "ethernity.cli.features.extend.prepare.encrypt_prepared_extension_document"
+            ) as encrypt:
+                with self.assertRaises(ApiCommandError) as ctx:
+                    execute_prepared_extend(
+                        prepared,
+                        chunker=lambda data, _profile: (data,),
+                        nonce="abc123",
+                    )
+
+            self.assertEqual(ctx.exception.code, EXTENSION_INVALID_POLICY)
+            self.assertFalse(root_dir.exists())
+            encrypt.assert_not_called()
 
     def test_execute_prepared_extend_discards_extension_staging_on_layout_debug_setup_failure(
         self,

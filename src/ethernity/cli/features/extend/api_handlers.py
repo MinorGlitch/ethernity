@@ -398,6 +398,7 @@ def run_extend_inspect_api_command(args: ExtendArgs, *, debug: bool = False) -> 
                     args.layout_debug_dir,
                     root_dir=args.root_dir,
                     create=False,
+                    scan=bool(args.scan),
                 )
             except ApiCommandError as exc:
                 code, details = _inspect_blocking_issue_payload(exc.code, exc.details)

@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Generic, TypeVar
 
 ArtifactSnapshot = tuple[tuple[str, int, str], ...]
+DirectoryIdentity = tuple[int, int]
 
 _T = TypeVar("_T")
 
@@ -82,6 +83,7 @@ def publish_staged_artifacts(
 
     staging_path = Path(staging_dir).expanduser()
     final_path = Path(final_dir).expanduser()
+    staging_identity = _directory_identity_or_none(staging_path)
     try:
         payload = populate()
         if validate_staging is not None:
@@ -93,13 +95,14 @@ def publish_staged_artifacts(
             staging_path,
             final_path,
             expected_snapshot=snapshot,
+            expected_staging_identity=staging_identity,
             validate_staging=validate_staging,
             validate_promotion=validate_promotion,
             lock_dir=lock_dir,
         )
     except BaseException:
         if cleanup_on_error:
-            discard_staged_artifact_dir(staging_path)
+            discard_staged_artifact_dir(staging_path, expected_identity=staging_identity)
         raise
     return ArtifactPublishResult(final_dir=promoted, snapshot=snapshot, payload=payload)
 
@@ -109,6 +112,7 @@ def promote_staged_artifact_dir(
     final_dir: str | Path,
     *,
     expected_snapshot: ArtifactSnapshot | None = None,
+    expected_staging_identity: DirectoryIdentity | None = None,
     validate_staging: Callable[[Path], None] | None = None,
     validate_promotion: Callable[[], None] | None = None,
     lock_dir: str | Path | None = None,
@@ -141,6 +145,11 @@ def promote_staged_artifact_dir(
             raise ValueError(f"final artifact directory already exists: {final_path.name}")
         if validate_staging is not None:
             validate_staging(staging_path)
+        if (
+            expected_staging_identity is not None
+            and _directory_identity_or_none(staging_path) != expected_staging_identity
+        ):
+            raise ValueError("validated staging_dir changed before promotion")
         if (
             expected_snapshot is not None
             and snapshot_artifact_dir(staging_path) != expected_snapshot
@@ -180,12 +189,30 @@ def snapshot_artifact_dir(staging_dir: str | Path) -> ArtifactSnapshot:
     return tuple(snapshot)
 
 
-def discard_staged_artifact_dir(staging_dir: str | Path | None) -> None:
+def discard_staged_artifact_dir(
+    staging_dir: str | Path | None,
+    *,
+    expected_identity: DirectoryIdentity | None = None,
+) -> None:
     """Remove a staging artifact directory after a failed publish attempt."""
 
     if staging_dir is None:
         return
-    shutil.rmtree(staging_dir, ignore_errors=True)
+    staging_path = Path(staging_dir).expanduser()
+    if (
+        expected_identity is not None
+        and _directory_identity_or_none(staging_path) != expected_identity
+    ):
+        return
+    shutil.rmtree(staging_path, ignore_errors=True)
+
+
+def _directory_identity_or_none(path: Path) -> DirectoryIdentity | None:
+    try:
+        stat_result = os.stat(path, follow_symlinks=False)
+    except OSError:
+        return None
+    return (stat_result.st_dev, stat_result.st_ino)
 
 
 def _harden_dir_permissions(path: Path) -> None:

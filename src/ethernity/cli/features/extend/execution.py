@@ -294,6 +294,7 @@ def execute_prepared_extend(
         layout_debug_dir=_runtime_impl.resolve_extend_layout_debug_dir(
             prepared.args.layout_debug_dir,
             root_dir=prepared.args.root_dir,
+            scan=bool(prepared.args.scan),
         ),
     )
     nonce_value = nonce or secrets.token_hex(4)

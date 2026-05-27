@@ -295,6 +295,7 @@ def resolve_extend_runtime(
                 prepared.args.layout_debug_dir,
                 root_dir=prepared.args.root_dir,
                 create=create_layout_debug_dir,
+                scan=bool(prepared.args.scan),
             )
             if include_layout_debug_dir
             else None
@@ -373,11 +374,12 @@ def resolve_extend_layout_debug_dir(
     *,
     root_dir: str | None,
     create: bool = True,
+    scan: bool = False,
 ) -> str | None:
     if path is None or not path.strip():
         return None
     debug_dir = Path(path).expanduser().resolve()
-    ensure_extend_layout_debug_dir_allowed(debug_dir, root_dir=root_dir)
+    ensure_extend_layout_debug_dir_allowed(debug_dir, root_dir=root_dir, scan=scan)
     if not create:
         try:
             ensure_layout_debug_dir_ready(debug_dir)
@@ -391,23 +393,37 @@ def resolve_extend_layout_debug_dir(
     return resolve_layout_debug_dir(str(debug_dir))
 
 
-def ensure_extend_layout_debug_dir_allowed(path: str | Path, *, root_dir: str | None) -> None:
+def ensure_extend_layout_debug_dir_allowed(
+    path: str | Path,
+    *,
+    root_dir: str | None,
+    scan: bool = False,
+) -> None:
     debug_dir = Path(path).expanduser().resolve()
     if root_dir:
-        extensions_dir = Path(root_dir).expanduser().resolve() / "extensions"
+        root_path = Path(root_dir).expanduser().resolve()
+        extensions_dir = root_path / "extensions"
+        forbidden_dirs: dict[str, Path] = {"extensions directory": extensions_dir}
+        if scan:
+            forbidden_dirs["scan-mode extension publish root"] = root_path
         try:
             ensure_layout_debug_dir_allowed(
                 debug_dir,
-                forbidden_dirs={"extensions directory": extensions_dir},
+                forbidden_dirs=forbidden_dirs,
             )
         except ValueError as exc:
             raise ApiCommandError(
                 code=EXTENSION_INVALID_POLICY,
                 message=(
-                    "--layout-debug-dir must not be inside the backup root extensions "
-                    "directory; choose a separate diagnostics directory"
+                    "--layout-debug-dir must not be inside managed extension publish paths; "
+                    "choose a separate diagnostics directory"
                 ),
-                details={"layout_debug_dir": str(debug_dir), "extensions_dir": str(extensions_dir)},
+                details={
+                    "layout_debug_dir": str(debug_dir),
+                    "extensions_dir": str(extensions_dir),
+                    "root_dir": str(root_path),
+                    "scan": scan,
+                },
             ) from exc
 
 
