@@ -39,6 +39,7 @@ from ethernity.cli.features.kit.command import _run_kit_render
 from ethernity.cli.features.mint.workflow import run_mint_wizard
 from ethernity.cli.features.recover.orchestrator import run_recover_wizard
 from ethernity.cli.shared import common as cli_common, ndjson as cli_ndjson, ui_api as ui
+from ethernity.cli.shared.crypto import normalize_doc_hash_hex
 from ethernity.cli.shared.recovery_prompts import prompt_passphrase_unlock_material
 from ethernity.cli.shared.types import BackupArgs, CliContextState, CompactArgs, ExtendArgs
 from ethernity.config import BackupDefaults, CliDefaults, load_cli_defaults
@@ -87,6 +88,7 @@ empty_recover_args = ui.empty_recover_args
 prompt_choice = ui.prompt_choice
 prompt_home_action = ui.prompt_home_action
 prompt_int = ui.prompt_int
+prompt_optional = ui.prompt_optional
 prompt_optional_path_with_picker = ui.prompt_optional_path_with_picker
 prompt_path_with_picker = ui.prompt_path_with_picker
 prompt_paths_with_picker = ui.prompt_paths_with_picker
@@ -347,6 +349,7 @@ def _prompt_home_extend_args(
         ),
     )
     scan_paths: list[str] | None = None
+    expected_head_doc_hash: str | None = None
     if source_kind == "scan":
         root_dir = _prompt_home_extend_scan_output_root()
         scan_paths = prompt_paths_with_picker(
@@ -359,6 +362,7 @@ def _prompt_home_extend_args(
             picker_prompt="Select backup document scans",
             picker_help_text="Choose the scanned root and extension backup documents.",
         )
+        expected_head_doc_hash = _prompt_home_extend_expected_head_doc_hash()
     else:
         root_dir = prompt_path_with_picker(
             "Generated backup folder to append from",
@@ -416,8 +420,26 @@ def _prompt_home_extend_args(
         signing_key_mode=output_policy.signing_key_mode,
         signing_key_shard_threshold=output_policy.signing_key_shard_threshold,
         signing_key_shard_count=output_policy.signing_key_shard_count,
+        expected_head_doc_hash=expected_head_doc_hash,
         quiet=quiet,
     )
+
+
+def _prompt_home_extend_expected_head_doc_hash() -> str | None:
+    while True:
+        value = prompt_optional(
+            "Trusted latest extension head doc_hash",
+            help_text=(
+                "Paste the latest trusted extension head doc_hash to reject stale scan sets. "
+                "Leave blank only when no trusted head marker is available."
+            ),
+        )
+        if value is None:
+            return None
+        try:
+            return normalize_doc_hash_hex(value, option="expected head doc_hash")
+        except ValueError as exc:
+            console_err.print(f"[error]{exc}[/error]")
 
 
 def _prompt_home_extend_scan_output_root() -> str:

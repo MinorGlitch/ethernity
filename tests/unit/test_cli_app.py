@@ -186,6 +186,7 @@ class TestCliApp(unittest.TestCase):
         "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",
         return_value=("secret", [], [], [], []),
     )
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_optional", return_value=None)
     @mock.patch("ethernity.cli.bootstrap.app.prompt_choice", side_effect=["scan", "plaintext"])
     @mock.patch(
         "ethernity.cli.bootstrap.app.prompt_paths_with_picker",
@@ -202,6 +203,7 @@ class TestCliApp(unittest.TestCase):
         prompt_optional_path_with_picker: mock.MagicMock,
         prompt_paths_with_picker: mock.MagicMock,
         _prompt_choice: mock.MagicMock,
+        prompt_optional: mock.MagicMock,
         _prompt_passphrase_unlock_material: mock.MagicMock,
     ) -> None:
         args = app_module._prompt_home_extend_args(
@@ -218,7 +220,41 @@ class TestCliApp(unittest.TestCase):
         self.assertEqual(args.shard_count, 0)
         prompt_path_with_picker.assert_not_called()
         prompt_optional_path_with_picker.assert_called_once()
+        prompt_optional.assert_called_once()
         self.assertEqual(prompt_paths_with_picker.call_count, 2)
+
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",
+        return_value=("secret", [], [], [], []),
+    )
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_optional", return_value="AB" * 32)
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_choice", side_effect=["scan", "plaintext"])
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_paths_with_picker",
+        side_effect=[["/tmp/root.pdf", "/tmp/ext1.pdf"], ["/tmp/input"]],
+    )
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_optional_path_with_picker",
+        return_value="/tmp/output",
+    )
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_path_with_picker")
+    def test_prompt_home_extend_args_preserves_scan_expected_head(
+        self,
+        _prompt_path_with_picker: mock.MagicMock,
+        _prompt_optional_path_with_picker: mock.MagicMock,
+        _prompt_paths_with_picker: mock.MagicMock,
+        _prompt_choice: mock.MagicMock,
+        _prompt_optional: mock.MagicMock,
+        _prompt_passphrase_unlock_material: mock.MagicMock,
+    ) -> None:
+        args = app_module._prompt_home_extend_args(
+            config="cfg",
+            paper="A4",
+            design="forge",
+            quiet=False,
+        )
+
+        self.assertEqual(args.expected_head_doc_hash, "ab" * 32)
 
     @mock.patch("ethernity.cli.bootstrap.app._prompt_home_auth_inputs")
     @mock.patch(

@@ -373,6 +373,12 @@ class TestCliApi(unittest.TestCase):
     def test_cli_api_schema_is_valid(self) -> None:
         self.assertIsNotNone(_schema_validator())
 
+    def test_inspect_extend_started_schema_requires_expected_head_doc_hash(self) -> None:
+        schema = json.loads(CLI_API_SCHEMA_PATH.read_text(encoding="utf-8"))
+        required = schema["$defs"]["inspectExtendStartedArgs"]["required"]
+
+        self.assertIn("expected_head_doc_hash", required)
+
     def test_extend_result_schema_requires_complete_success_shape(self) -> None:
         schema = json.loads(CLI_API_SCHEMA_PATH.read_text(encoding="utf-8"))
         extend_result_schema = {
