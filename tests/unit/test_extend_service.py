@@ -24,6 +24,7 @@ from unittest import mock
 
 from fpdf import FPDF
 
+from ethernity.cli.features.extend import execution as extend_execution
 from ethernity.cli.features.extend.main_carrier_validation import (
     validate_single_main_carrier as _validate_single_main_carrier,
     validate_single_recovery_document_carrier as _validate_single_recovery_document_carrier,
@@ -1622,6 +1623,46 @@ class TestExtendService(unittest.TestCase):
             self.assertFalse((debug_dir / "qr_document.layout.json").exists())
             self.assertEqual(list(debug_dir.iterdir()), [])
 
+    def test_execute_prepared_extend_preflights_publish_target_before_encryption(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            (root_dir / "extensions" / "02").mkdir(parents=True)
+            resolved = _resolved_state(
+                diff_summary={
+                    "new_paths": ["new.txt"],
+                    "changed_paths": ["updated.txt"],
+                    "unchanged_paths": [],
+                    "missing_paths": [],
+                },
+            )
+            resolved = replace(
+                resolved,
+                inspection=replace(resolved.inspection, root_dir=str(root_dir)),
+            )
+            with mock.patch(
+                "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                return_value=resolved,
+            ):
+                prepared = prepare_extend_run(
+                    ExtendArgs(root_dir=str(root_dir), input=["/tmp/root/example.txt"])
+                )
+
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.execution._runtime_impl.resolve_extend_runtime"
+                ) as resolve_runtime,
+                mock.patch(
+                    "ethernity.cli.features.extend.prepare.encrypt_prepared_extension_document"
+                ) as encrypt,
+            ):
+                with self.assertRaises(ApiCommandError) as ctx:
+                    execute_prepared_extend(prepared, chunker=lambda data, _profile: (data,))
+
+        self.assertEqual(ctx.exception.code, api_codes.EXTENSION_PUBLISH_TARGET_INVALID)
+        self.assertEqual(ctx.exception.details, {"stage": "publish_target"})
+        resolve_runtime.assert_called_once_with(prepared)
+        encrypt.assert_not_called()
+
     def test_execute_prepared_extend_discards_extension_staging_on_layout_debug_setup_failure(
         self,
     ) -> None:
@@ -1840,7 +1881,10 @@ class TestExtendService(unittest.TestCase):
                     "ethernity.cli.features.extend.execution.execute_staged_extension_publish",
                     side_effect=_fake_publish,
                 ),
-                mock.patch("pathlib.Path.replace", side_effect=OSError("debug move failed")),
+                mock.patch(
+                    "ethernity.cli.features.extend.execution._replace_layout_debug_sidecars",
+                    side_effect=OSError("debug move failed"),
+                ),
                 mock.patch("ethernity.cli.features.extend.execution._warn") as warn,
             ):
                 executed = execute_prepared_extend(
@@ -1858,6 +1902,38 @@ class TestExtendService(unittest.TestCase):
             self.assertEqual(
                 Path(warn.call_args.kwargs["details"]["layout_debug_dir"]),
                 debug_dir.resolve(),
+            )
+
+    def test_publish_staged_layout_debug_warns_when_final_dir_identity_changes(self) -> None:
+        with TemporaryDirectory() as tmpdir:
+            final_dir = Path(tmpdir) / "layout-debug"
+            final_dir.mkdir()
+            expected_identity = extend_execution._layout_debug_dir_identity(final_dir)
+            staging_dir = Path(tmpdir) / "layout-staging"
+            staging_dir.mkdir()
+            (staging_dir / "qr_document.layout.json").write_text(
+                "debug",
+                encoding="utf-8",
+            )
+            moved_dir = Path(tmpdir) / "layout-debug-old"
+            final_dir.rename(moved_dir)
+            final_dir.mkdir()
+
+            with mock.patch("ethernity.cli.features.extend.execution._warn") as warn:
+                extend_execution._publish_staged_layout_debug(
+                    staging_dir,
+                    str(final_dir),
+                    expected_final_dir_identity=expected_identity,
+                    quiet=False,
+                )
+
+            self.assertFalse(staging_dir.exists())
+            self.assertFalse((final_dir / "qr_document.layout.json").exists())
+            warn.assert_called_once()
+            self.assertIn("layout debug sidecar promotion failed", warn.call_args.args[0])
+            self.assertIn(
+                "changed before sidecar promotion",
+                warn.call_args.kwargs["details"]["error"],
             )
 
     def test_run_extend_promotes_rendered_extension_with_validated_unlock_shards(self) -> None:

@@ -17,10 +17,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from ethernity.cli.shared import api_codes
 from ethernity.crypto.signing import derive_public_key, encode_auth_payload, sign_auth
 from ethernity.encoding.framing import Frame, FrameType
-from ethernity.extensions.published import inspect_published_extension_inventory
-from ethernity.extensions.recovery import ImportedRecoveryDocument
+from ethernity.extensions.published import (
+    inspect_published_extension_chain,
+    inspect_published_extension_inventory,
+)
+from ethernity.extensions.recovery import ImportedRecoveryDocument, RecoveryExtensionInventory
+from ethernity.formats.envelope_codec import build_manifest_and_payload
+from ethernity.formats.envelope_types import PayloadPart
 
 
 def _auth_frame(
@@ -82,6 +88,7 @@ class TestPublishedExtensionInventory(unittest.TestCase):
                     doc_hash=content_doc_hash,
                     signing_seed=signing_seed,
                 ),
+                validate_recovery_document_carrier=lambda _carrier, _document, _sign_pub: None,
             )
 
         self.assertIsNone(inventory.failure)
@@ -162,6 +169,50 @@ class TestPublishedExtensionInventory(unittest.TestCase):
         self.assertIsNotNone(inventory.failure)
         self.assertEqual(inventory.failure.head_index, 1)
         self.assertIn("stale recovery document", inventory.failure.message)
+
+    def test_published_chain_refuses_extensions_when_root_auth_is_not_verified(self) -> None:
+        manifest, payload = build_manifest_and_payload(
+            (PayloadPart(path="a.txt", data=b"root", mtime=1),),
+            sealed=False,
+            signing_seed=b"\x33" * 32,
+            input_origin="file",
+            input_roots=(),
+        )
+        extension = ImportedRecoveryDocument(
+            doc_id=b"\x77" * 8,
+            doc_hash=b"\x88" * 32,
+            ciphertext=b"not decoded when root auth is missing",
+            auth_frames=(),
+            source_label="01",
+            extension_index=1,
+            extension_dir_name="01",
+        )
+        inventory = RecoveryExtensionInventory(
+            extensions=(extension,),
+            latest_head_index=1,
+            latest_head_doc_hash=extension.doc_hash.hex(),
+            latest_head_dir_name="01",
+        )
+
+        inspection = inspect_published_extension_chain(
+            manifest=manifest,
+            payload=payload,
+            root_doc_hash=b"\x44" * 32,
+            passphrase="secret",
+            expected_sign_pub=derive_public_key(b"\x33" * 32),
+            root_auth_status="missing",
+            quiet=True,
+            debug=False,
+            inventory=inventory,
+        )
+
+        self.assertIsNotNone(inspection.refusal)
+        assert inspection.refusal is not None
+        self.assertEqual(inspection.refusal.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(inspection.refusal.details["root_auth_status"], "missing")
+        self.assertEqual(inspection.links, ())
+        self.assertEqual(inspection.validated_head_index, 0)
+        self.assertFalse(inspection.validated_head_root_authority_verified)
 
 
 if __name__ == "__main__":

@@ -18,8 +18,10 @@
 
 from __future__ import annotations
 
+import os
 import secrets
 import shutil
+import stat
 import tempfile
 from contextlib import suppress
 from dataclasses import replace
@@ -57,9 +59,12 @@ from ethernity.cli.shared.types import ExtendArgs
 from ethernity.extensions.build import Chunker, default_extension_chunker
 from ethernity.extensions.staging import (
     EXTENSION_CHAIN_LOCK_DIR_NAME,
+    preflight_extension_publish_target,
     validate_staged_extension_dir,
 )
 from ethernity.render.layout_debug import layout_debug_json_path
+
+DirectoryIdentity = tuple[int, int]
 
 
 def execute_staged_extension_publish(
@@ -257,6 +262,7 @@ def execute_prepared_extend(
     """Build, render, validate, and publish one extension entry."""
 
     runtime = _runtime_impl.resolve_extend_runtime(prepared)
+    _preflight_prepared_extension_publish_target(prepared)
     nonce_value = nonce or secrets.token_hex(4)
     publish = prepare_staged_extension_publish(
         prepared,
@@ -265,7 +271,11 @@ def execute_prepared_extend(
         publish_policy=runtime.to_publish_policy(),
     )
     try:
-        render_runtime, layout_debug_staging_dir = _runtime_with_staged_layout_debug(
+        (
+            render_runtime,
+            layout_debug_staging_dir,
+            layout_debug_dir_identity,
+        ) = _runtime_with_staged_layout_debug(
             runtime,
             nonce=nonce_value,
         )
@@ -306,6 +316,7 @@ def execute_prepared_extend(
     _publish_staged_layout_debug(
         layout_debug_staging_dir,
         runtime.layout_debug_dir,
+        expected_final_dir_identity=layout_debug_dir_identity,
         quiet=prepared.args.quiet,
     )
     return ExecutedExtendRun(
@@ -316,27 +327,47 @@ def execute_prepared_extend(
     )
 
 
+def _preflight_prepared_extension_publish_target(prepared: PreparedExtendRun) -> None:
+    try:
+        preflight_extension_publish_target(
+            prepared.args.root_dir or prepared.inspection.root_dir,
+            index=prepared.next_index,
+        )
+    except ValueError as exc:
+        raise ApiCommandError(
+            code=api_codes.EXTENSION_PUBLISH_TARGET_INVALID,
+            message=str(exc),
+            details={"stage": "publish_target"},
+        ) from exc
+
+
 def _runtime_with_staged_layout_debug(
     runtime,
     *,
     nonce: str,
 ):
     if runtime.layout_debug_dir is None:
-        return runtime, None
+        return runtime, None, None
     layout_debug_dir = Path(runtime.layout_debug_dir)
+    layout_debug_dir_identity = _layout_debug_dir_identity(layout_debug_dir)
     staging_dir = Path(
         tempfile.mkdtemp(
             prefix=f".extension-layout-{nonce}-",
             dir=str(layout_debug_dir),
         )
     )
-    return replace(runtime, layout_debug_dir=str(staging_dir)), staging_dir
+    return (
+        replace(runtime, layout_debug_dir=str(staging_dir)),
+        staging_dir,
+        layout_debug_dir_identity,
+    )
 
 
 def _publish_staged_layout_debug(
     staging_dir: Path | None,
     final_dir: str | None,
     *,
+    expected_final_dir_identity: DirectoryIdentity | None,
     quiet: bool,
 ) -> None:
     if staging_dir is None or final_dir is None:
@@ -344,9 +375,12 @@ def _publish_staged_layout_debug(
     final_path = Path(final_dir)
     try:
         try:
-            for path in sorted(staging_dir.glob("*.layout.json")):
-                path.replace(final_path / path.name)
-        except OSError as exc:
+            _replace_layout_debug_sidecars(
+                staging_dir,
+                final_path,
+                expected_final_dir_identity=expected_final_dir_identity,
+            )
+        except (OSError, ValueError) as exc:
             _warn(
                 "Extension published, but layout debug sidecar promotion failed.",
                 quiet=quiet,
@@ -365,6 +399,65 @@ def _discard_staged_layout_debug(staging_dir: Path | None) -> None:
         return
     with suppress(OSError):
         shutil.rmtree(staging_dir, ignore_errors=True)
+
+
+def _replace_layout_debug_sidecars(
+    staging_dir: Path,
+    final_path: Path,
+    *,
+    expected_final_dir_identity: DirectoryIdentity | None,
+) -> None:
+    sidecars = sorted(staging_dir.glob("*.layout.json"))
+    if expected_final_dir_identity is None:
+        for path in sidecars:
+            path.replace(final_path / path.name)
+        return
+    if os.replace in os.supports_dir_fd:
+        final_fd = _open_verified_layout_debug_dir(final_path, expected_final_dir_identity)
+        try:
+            for path in sidecars:
+                os.replace(path, path.name, dst_dir_fd=final_fd)
+        finally:
+            os.close(final_fd)
+        return
+    for path in sidecars:
+        _require_layout_debug_dir_identity(final_path, expected_final_dir_identity)
+        path.replace(final_path / path.name)
+
+
+def _layout_debug_dir_identity(path: Path) -> DirectoryIdentity:
+    stat_result = path.lstat()
+    if stat.S_ISLNK(stat_result.st_mode):
+        raise ValueError("layout debug directory must not be a symlink")
+    if not stat.S_ISDIR(stat_result.st_mode):
+        raise ValueError("layout debug path must be a directory")
+    return stat_result.st_dev, stat_result.st_ino
+
+
+def _require_layout_debug_dir_identity(path: Path, expected: DirectoryIdentity) -> None:
+    actual = _layout_debug_dir_identity(path)
+    if actual != expected:
+        raise ValueError("layout debug directory changed before sidecar promotion")
+
+
+def _open_verified_layout_debug_dir(path: Path, expected: DirectoryIdentity) -> int:
+    _require_layout_debug_dir_identity(path, expected)
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags)
+    try:
+        stat_result = os.fstat(fd)
+        if not stat.S_ISDIR(stat_result.st_mode):
+            raise ValueError("layout debug path must be a directory")
+        if (stat_result.st_dev, stat_result.st_ino) != expected:
+            raise ValueError("layout debug directory changed before sidecar promotion")
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
 
 
 def _render_extension_artifacts(

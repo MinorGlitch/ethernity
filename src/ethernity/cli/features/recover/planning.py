@@ -493,10 +493,13 @@ def build_recovery_plan(
     )
     if len(import_documents) > 1:
         import_shard_unlock: RecoveryUnlockStatus | None = None
+        import_passphrase: str | None = None
         if passphrase:
+            import_passphrase = normalize_bip39_mnemonic(passphrase)
+            validate_mnemonic_checksum_if_bip39(import_passphrase)
             root_document = select_root_import_document(
                 import_documents,
-                passphrase=normalize_bip39_mnemonic(passphrase),
+                passphrase=import_passphrase,
                 debug=False,
             )
         elif shard_frames:
@@ -508,12 +511,19 @@ def build_recovery_plan(
             )
             root_document = selection.root_document
             import_shard_unlock = selection.unlock
+        elif args is not None:
+            import_passphrase = _resolve_recovery_passphrase_from_args(args)
+            root_document = select_root_import_document(
+                import_documents,
+                passphrase=import_passphrase,
+                debug=False,
+            )
         else:
             raise ValueError(
                 "passphrase is required when recovery input contains multiple MAIN documents"
             )
         if import_shard_unlock is None:
-            recursive_passphrase = passphrase
+            recursive_passphrase = import_passphrase or passphrase
         else:
             recursive_passphrase = import_shard_unlock.resolved_passphrase
         recursive_shard_frames = [] if import_shard_unlock is not None else shard_frames
@@ -1218,11 +1228,15 @@ def _resolve_passphrase(
         validate_mnemonic_checksum_if_bip39(normalized_passphrase)
         return normalized_passphrase
     if args is not None:
-        recovered = _resolve_recovery_keys(args)
-        normalized_recovered = normalize_bip39_mnemonic(recovered)
-        validate_mnemonic_checksum_if_bip39(normalized_recovered)
-        return normalized_recovered
+        return _resolve_recovery_passphrase_from_args(args)
     raise ValueError("passphrase is required for recovery")
+
+
+def _resolve_recovery_passphrase_from_args(args: RecoverArgs) -> str:
+    recovered = _resolve_recovery_keys(args)
+    normalized_recovered = normalize_bip39_mnemonic(recovered)
+    validate_mnemonic_checksum_if_bip39(normalized_recovered)
+    return normalized_recovered
 
 
 def _frames_from_args(

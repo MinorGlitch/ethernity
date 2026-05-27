@@ -59,7 +59,7 @@ def inspect_published_extension_inventory(
     root_dir: Path,
     *,
     read_carrier_document: PublishedCarrierReader,
-    validate_recovery_document_carrier: PublishedRecoveryDocumentValidator | None = None,
+    validate_recovery_document_carrier: PublishedRecoveryDocumentValidator,
 ) -> RecoveryExtensionInventory:
     discovery = discover_validated_extension_directories(root_dir)
     extensions: list[ImportedRecoveryDocument] = []
@@ -114,7 +114,7 @@ def _scan_published_extension_payload_carriers(
     item_dir_name: str,
     main_carriers: tuple[DiscoveredExtensionMainCarrier, ...],
     read_carrier_document: PublishedCarrierReader,
-    validate_recovery_document_carrier: PublishedRecoveryDocumentValidator | None,
+    validate_recovery_document_carrier: PublishedRecoveryDocumentValidator,
 ) -> tuple[ImportedRecoveryDocument, bytes]:
     document: ImportedRecoveryDocument | None = None
     auth_sign_pub: bytes | None = None
@@ -145,17 +145,16 @@ def _scan_published_extension_payload_carriers(
         main_carriers=main_carriers,
         doc_type="recovery_document",
     )
-    if validate_recovery_document_carrier is not None:
-        try:
-            validate_recovery_document_carrier(
-                recovery_document_carrier,
-                document,
-                auth_sign_pub,
-            )
-        except Exception as exc:
-            raise ValueError(
-                f"extension {item_dir_name} recovery_document carrier could not be validated: {exc}"
-            ) from exc
+    try:
+        validate_recovery_document_carrier(
+            recovery_document_carrier,
+            document,
+            auth_sign_pub,
+        )
+    except Exception as exc:
+        raise ValueError(
+            f"extension {item_dir_name} recovery_document carrier could not be validated: {exc}"
+        ) from exc
     return document, auth_sign_pub
 
 
@@ -263,6 +262,28 @@ def inspect_published_extension_chain(
             validated_head_index=0,
             validated_head_doc_hash=root_doc_hash.hex(),
             validated_head_auth_status=None,
+            validated_head_root_authority_verified=False,
+        )
+    if inventory.extensions and root_auth_status != "verified":
+        return RecoveryChainInspection(
+            inventory=inventory,
+            links=(),
+            latest_state=root_state,
+            locked_chunking=None,
+            refusal=RecoveryHeadTrustRefusal(
+                code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+                message="extension replay requires verified root AUTH",
+                details={
+                    "stage": "auth",
+                    "root_auth_status": root_auth_status,
+                    "failed_extension_index": inventory.extensions[0].index,
+                    "validated_head_index": 0,
+                    "validated_head_doc_hash": root_doc_hash.hex(),
+                },
+            ),
+            validated_head_index=0,
+            validated_head_doc_hash=root_doc_hash.hex(),
+            validated_head_auth_status=root_auth_status,
             validated_head_root_authority_verified=False,
         )
 

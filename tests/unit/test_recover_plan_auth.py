@@ -332,6 +332,54 @@ class TestInspectAuthPayload(unittest.TestCase):
             [("a.txt", b"root!")],
         )
 
+    def test_arg_resolved_passphrase_selects_root_from_multiple_imported_docs(self) -> None:
+        root_ciphertext = _root_envelope()
+        root_doc_id, root_doc_hash = doc_id_and_hash_from_ciphertext(root_ciphertext)
+        extension_ciphertext = _extension_envelope(root_doc_hash)
+        frames = [
+            _main_frame(root_ciphertext),
+            _auth_frame(root_ciphertext),
+            _main_frame(extension_ciphertext),
+            _auth_frame(extension_ciphertext),
+        ]
+        args = RecoverArgs(quiet=True)
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.recover.planning._resolve_recovery_keys",
+                return_value="secret",
+            ) as resolve_keys,
+            mock.patch(
+                "ethernity.extensions.recovery.decrypt_bytes",
+                side_effect=lambda data, *, passphrase, debug=False: data,
+            ),
+        ):
+            plan = build_recovery_plan(
+                frames=frames,
+                extra_auth_frames=[],
+                shard_frames=[],
+                passphrase=None,
+                allow_unsigned=False,
+                input_label="Recovery input",
+                input_detail="inline",
+                shard_fallback_files=[],
+                shard_payloads_file=[],
+                shard_scan=[],
+                output_path=None,
+                root_dir=None,
+                extension_index=None,
+                extension_doc_hash=None,
+                expected_head_doc_hash=None,
+                args=args,
+                quiet=True,
+            )
+
+        resolve_keys.assert_called_once_with(args)
+        self.assertEqual(plan.doc_id, root_doc_id)
+        self.assertEqual(plan.doc_hash, root_doc_hash)
+        self.assertEqual(plan.passphrase, "secret")
+        self.assertEqual(len(plan.import_documents), 2)
+
     def test_inspect_reports_extension_local_shards_as_root_unlock(self) -> None:
         root_ciphertext = _root_envelope()
         root_doc_id, root_doc_hash = doc_id_and_hash_from_ciphertext(root_ciphertext)

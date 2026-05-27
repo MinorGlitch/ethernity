@@ -17,10 +17,12 @@
 from __future__ import annotations
 
 import hmac
+import sys
 
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.log import _warn
 from ethernity.cli.shared.types import RecoverArgs
+from ethernity.cli.shared.ui_api import prompt_required_secret
 from ethernity.crypto.sharding import (
     KEY_TYPE_PASSPHRASE,
     KEY_TYPE_SIGNING_SEED,
@@ -65,6 +67,11 @@ class InsufficientShardError(ValueError):
 def _resolve_recovery_keys(args: RecoverArgs) -> str:
     if args.passphrase:
         return args.passphrase
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        return prompt_required_secret(
+            "Enter passphrase",
+            help_text="Enter the recovery passphrase for this backup.",
+        )
     raise ValueError("passphrase is required for recovery")
 
 
