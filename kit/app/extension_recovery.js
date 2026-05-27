@@ -23,11 +23,13 @@ import { deriveSigningPublicKey, verifyAuthSignature } from "./auth.js";
 
 export async function recoverLatestFromPlaintextDocuments(
   documents,
-  { verifySignature = verifyAuthSignature } = {},
+  { verifySignature = verifyAuthSignature, extensionTarget = "latest" } = {},
 ) {
   if (!documents.length) {
     throw new Error("Collected ciphertext not available yet.");
   }
+  const target = normalizeExtensionTarget(extensionTarget);
+  const rootOnly = target === "root";
   const decoded = [];
   const decodeErrors = [];
   for (const document of documents) {
@@ -64,10 +66,10 @@ export async function recoverLatestFromPlaintextDocuments(
   }
   const root = roots[0];
   const rawExtensions = decoded.filter((item) => item.kind === "extension");
-  if (decodeErrors.length && documents.length > 1) {
+  if (decodeErrors.length && documents.length > 1 && !rootOnly) {
     throw new Error("one or more supplied backup documents could not be decoded");
   }
-  if (!rawExtensions.length) {
+  if (rootOnly || !rawExtensions.length) {
     return {
       files: root.extracted.files,
       manifest: root.extracted.manifest,
@@ -75,6 +77,8 @@ export async function recoverLatestFromPlaintextDocuments(
       selectedExtensionDocHash: null,
       freshnessScope: null,
       decryptedEnvelope: root.document.plaintext,
+      replayTarget: rootOnly ? "root" : "latest",
+      suppliedDocumentCount: documents.length,
     };
   }
 
@@ -119,6 +123,8 @@ export async function recoverLatestFromPlaintextDocuments(
     selectedExtensionDocHash: latest?.docHashHex ?? null,
     freshnessScope: selected.length ? "supplied_carriers_only" : null,
     decryptedEnvelope: root.document.plaintext,
+    replayTarget: "latest",
+    suppliedDocumentCount: documents.length,
   };
 }
 
@@ -126,8 +132,9 @@ export async function recoverLatestFromEncryptedDocuments(
   documents,
   passphrase,
   decrypt,
-  { verifySignature = verifyAuthSignature } = {},
+  { verifySignature = verifyAuthSignature, extensionTarget = "latest" } = {},
 ) {
+  const target = normalizeExtensionTarget(extensionTarget);
   const plaintextDocuments = [];
   const decryptErrors = [];
   for (const document of documents) {
@@ -143,11 +150,21 @@ export async function recoverLatestFromEncryptedDocuments(
   if (!plaintextDocuments.length) {
     throw new Error(decryptErrors[0]?.message ?? "Could not unlock backup. Check passphrase.");
   }
-  if (decryptErrors.length && documents.length > 1) {
+  if (decryptErrors.length && documents.length > 1 && target !== "root") {
     throw new Error("one or more supplied backup documents could not be decrypted");
   }
-  const result = await recoverLatestFromPlaintextDocuments(plaintextDocuments, { verifySignature });
+  const result = await recoverLatestFromPlaintextDocuments(plaintextDocuments, {
+    verifySignature,
+    extensionTarget: target,
+  });
   return result;
+}
+
+function normalizeExtensionTarget(extensionTarget) {
+  if (extensionTarget === "latest" || extensionTarget === "root") {
+    return extensionTarget;
+  }
+  throw new Error("unknown extension recovery target");
 }
 
 function deriveRootSigningAuthority(manifest) {

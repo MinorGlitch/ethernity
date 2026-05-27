@@ -22,7 +22,9 @@ export function DecryptSection({
   decryptStatus,
   onPassphraseChange,
   onDecrypt,
+  onDecryptRootOnly,
   canDecrypt,
+  canDecryptRootOnly,
   isComplete,
   isDecrypting,
   onExtract,
@@ -41,6 +43,17 @@ export function DecryptSection({
         : "Enter your passphrase to unlock.",
     },
   ];
+  if (onDecryptRootOnly) {
+    decryptActions.push({
+      label: isDecrypting ? "Unlocking..." : "Unlock root only",
+      className: "secondary",
+      onClick: onDecryptRootOnly,
+      disabled: !canDecryptRootOnly || isDecrypting,
+      disabledReason: passphrase.trim()
+        ? "Add backup data first (Step 1)."
+        : "Enter your passphrase to unlock.",
+    });
+  }
   const envelopeActions = [
     {
       label: "Extract files",

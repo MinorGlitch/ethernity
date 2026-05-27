@@ -175,6 +175,7 @@ export function selectOutputSummary(state) {
 export function selectActionState(state) {
   const ciphertextSource = selectCiphertextSource(state);
   const hasEnvelope = Boolean(state.decryptedEnvelope);
+  const documentCount = state.documents?.size ?? 0;
   return {
     canDownloadCipher:
       state.total && state.mainFrames.size === state.total && state.conflicts === 0,
@@ -182,6 +183,7 @@ export function selectActionState(state) {
     canExtractEnvelope: hasEnvelope,
     canDownloadEnvelope: hasEnvelope,
     canCopyResult: Boolean(state.recoveredShardSecret),
+    hasMultipleDocuments: documentCount > 1,
     hasOutput: state.extractedFiles.length > 0,
   };
 }

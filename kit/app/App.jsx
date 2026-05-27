@@ -103,6 +103,8 @@ export function App() {
   const handleDownloadCipher = () => downloadCipher(dispatch, getState);
   const handleCopyResult = () => copyRecoveredSecret(dispatch, getState);
   const handleDecrypt = () => decryptCiphertext(dispatch, getState);
+  const handleDecryptRootOnly = () =>
+    decryptCiphertext(dispatch, getState, { extensionTarget: "root" });
   const handleExtract = () => extractEnvelope(dispatch, getState);
   const handleDownloadEnvelope = () => downloadEnvelope(dispatch, getState);
   const handleClearOutput = () => clearOutput(dispatch, getState);
@@ -247,7 +249,11 @@ export function App() {
             decryptStatus={state.decryptStatus}
             onPassphraseChange={handlePassphraseChange}
             onDecrypt={handleDecrypt}
+            onDecryptRootOnly={actionState.hasMultipleDocuments ? handleDecryptRootOnly : null}
             canDecrypt={actionState.canDecryptCiphertext}
+            canDecryptRootOnly={
+              actionState.canDecryptCiphertext && actionState.hasMultipleDocuments
+            }
             isComplete={actionState.hasOutput || Boolean(state.decryptedEnvelope)}
             isDecrypting={state.isDecrypting}
             onExtract={handleExtract}

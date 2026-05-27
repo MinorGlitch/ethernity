@@ -33,7 +33,7 @@ import {
 } from "./actions_common.js";
 
 export async function decryptCiphertext(dispatch, getState, options = {}) {
-  const { decrypt = decryptAgePassphrase, verifySignature } = options;
+  const { decrypt = decryptAgePassphrase, verifySignature, extensionTarget = "latest" } = options;
   const base = cloneState(getState());
   if (!base.agePassphrase.trim()) {
     setLineStatus(base, "decryptStatus", "Passphrase required.", "warn");
@@ -68,7 +68,7 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
       documents,
       prep.agePassphrase,
       decrypt,
-      { verifySignature },
+      { verifySignature, extensionTarget },
     );
     const next = cloneLatest(getState);
     next.decryptedEnvelope =
@@ -109,6 +109,9 @@ function totalRecoveredBytes(files) {
 }
 
 function extensionRecoveryLines(result) {
+  if (result.replayTarget === "root" && result.suppliedDocumentCount > 1) {
+    return ["Replay target: root backup only."];
+  }
   if (result.selectedExtensionIndex === null) {
     return [];
   }

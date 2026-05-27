@@ -524,6 +524,47 @@ test("browser encrypted recovery fails closed when a supplied document cannot de
   );
 });
 
+test("browser root-only encrypted recovery ignores a supplied extension decrypt failure", async () => {
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x1a),
+    plaintext: rootPlaintext,
+  });
+  const extension = {
+    docId: EXT1_DOC_ID,
+    docIdHex: bytesToHex(EXT1_DOC_ID),
+    docHash: blake2b256(Uint8Array.of(0x2a)),
+    docHashHex: bytesToHex(blake2b256(Uint8Array.of(0x2a))),
+    ciphertext: Uint8Array.of(0x2a),
+    authPayload: {
+      version: 1,
+      docHash: blake2b256(Uint8Array.of(0x2a)),
+      signPub: ROOT_SIGN_PUB,
+      signature: SIGNATURE,
+    },
+  };
+
+  const result = await recoverLatestFromEncryptedDocuments(
+    [root, extension],
+    "pw",
+    async (ciphertext) => {
+      if (bytesToHex(ciphertext) === bytesToHex(root.ciphertext)) return rootPlaintext;
+      throw new Error("damaged age payload");
+    },
+    { verifySignature: verifiedSignature, extensionTarget: "root" },
+  );
+
+  assert.equal(result.replayTarget, "root");
+  assert.equal(result.selectedExtensionIndex, null);
+  assert.deepEqual(
+    result.files.map((file) => [file.path, new TextDecoder().decode(file.data)]),
+    [["a.txt", "root"]],
+  );
+});
+
 test("browser recovery fails closed when a supplied document cannot decode", async () => {
   const rootPlaintext = buildRootPlaintext([
     { path: "a.txt", data: new TextEncoder().encode("root") },
@@ -545,6 +586,40 @@ test("browser recovery fails closed when a supplied document cannot decode", asy
         verifySignature: verifiedSignature,
       }),
     /one or more supplied backup documents could not be decoded/,
+  );
+});
+
+test("browser root-only recovery bypasses broken authenticated extension ancestry", async () => {
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x1b),
+    plaintext: rootPlaintext,
+  });
+  const extPlaintext = buildExtensionPlaintext({
+    index: 2,
+    parentDocHash: root.docHash,
+    rootDocHash: root.docHash,
+    files: [{ path: "a.txt", data: new TextEncoder().encode("two") }],
+  });
+  const extension = documentFromPlaintext({
+    docId: EXT1_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x2b),
+    plaintext: extPlaintext,
+  });
+
+  const result = await recoverLatestFromPlaintextDocuments([root, extension], {
+    verifySignature: verifiedSignature,
+    extensionTarget: "root",
+  });
+
+  assert.equal(result.replayTarget, "root");
+  assert.equal(result.selectedExtensionIndex, null);
+  assert.deepEqual(
+    result.files.map((file) => [file.path, new TextDecoder().decode(file.data)]),
+    [["a.txt", "root"]],
   );
 });
 
@@ -593,6 +668,51 @@ test("browser decrypt action recovers latest supplied extension status", async (
   assert.equal(
     finalState.decryptStatus.lines.includes("Freshness scope: supplied carriers only."),
     true,
+  );
+});
+
+test("browser decrypt action can recover root only from multiple supplied documents", async () => {
+  const store = createStore();
+  const state = store.getState();
+  state.agePassphrase = "pw";
+  const rootCiphertext = Uint8Array.of(0x1c);
+  const extCiphertext = Uint8Array.of(0x2c);
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const rootDocHash = blake2b256(rootCiphertext);
+  const extPlaintext = buildExtensionPlaintext({
+    index: 1,
+    parentDocHash: rootDocHash,
+    rootDocHash,
+    files: [{ path: "a.txt", data: new TextEncoder().encode("extension") }],
+  });
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  addSingleFrameDocument(state, { ciphertext: extCiphertext });
+
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    extensionTarget: "root",
+    async decrypt(ciphertext, passphrase) {
+      assert.equal(passphrase, "pw");
+      if (bytesToHex(ciphertext) === bytesToHex(rootCiphertext)) return rootPlaintext;
+      if (bytesToHex(ciphertext) === bytesToHex(extCiphertext)) return extPlaintext;
+      throw new Error("unexpected ciphertext");
+    },
+    verifySignature: verifiedSignature,
+  });
+
+  const finalState = store.getState();
+  assert.equal(finalState.recoveryComplete, true);
+  assert.equal(finalState.decryptStatus.type, "ok");
+  assert.notEqual(finalState.decryptedEnvelope, null);
+  assert.deepEqual(
+    finalState.extractedFiles.map((file) => [file.path, new TextDecoder().decode(file.data)]),
+    [["a.txt", "root"]],
+  );
+  assert.equal(finalState.decryptStatus.lines.includes("Replay target: root backup only."), true);
+  assert.equal(
+    finalState.decryptStatus.lines.includes("Freshness scope: supplied carriers only."),
+    false,
   );
 });
 
