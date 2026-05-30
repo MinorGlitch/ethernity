@@ -1,0 +1,28 @@
+{
+  "passphrase": "stable-v1_2-extension-passphrase",
+  "profile": "raw",
+  "qr_payload_codec": "raw",
+  "scenarios": [
+    {
+      "id": "large_raw_two_extension_chain",
+      "path": "large_raw_two_extension_chain/snapshot.json"
+    },
+    {
+      "id": "gzip_replacement_chain",
+      "path": "gzip_replacement_chain/snapshot.json"
+    },
+    {
+      "id": "extension_local_sharded_chain",
+      "path": "extension_local_sharded_chain/snapshot.json"
+    },
+    {
+      "id": "reuse_root_shards_chain",
+      "path": "reuse_root_shards_chain/snapshot.json"
+    },
+    {
+      "id": "loose_scan_append_chain",
+      "path": "loose_scan_append_chain/snapshot.json"
+    }
+  ],
+  "version": "1.2.0"
+}

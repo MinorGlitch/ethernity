@@ -36,7 +36,6 @@ from ethernity.encoding.framing import Frame, FrameType
 from ethernity.render.proofs import (
     RenderProofError,
     validate_fallback_render_proof,
-    validate_fallback_text_in_pdf,
     validate_pdf_has_pages,
     validate_text_in_pdf,
 )
@@ -115,7 +114,7 @@ def validate_single_recovery_document_carrier(
     quiet: bool,
 ) -> None:
     try:
-        reader = _validate_recovery_document_pdf(path)
+        _validate_recovery_document_pdf(path)
         _validate_recovery_document_fallback_proof(path, frames, fallback_proof)
         _validate_main_carrier_frames(
             path=path,
@@ -126,7 +125,6 @@ def validate_single_recovery_document_carrier(
             require_auth=require_auth,
             quiet=quiet,
         )
-        _validate_recovery_document_fallback_text(path, reader, fallback_proof)
     except ApiCommandError:
         raise
     except RenderProofError as exc:
@@ -154,21 +152,6 @@ def _validate_recovery_document_fallback_proof(
         validate_fallback_render_proof(
             artifact_label=f"rendered recovery document {path.name}",
             frames=frames,
-            fallback_proof=fallback_proof,
-        )
-    except RenderProofError as exc:
-        raise _render_proof_api_error(exc) from exc
-
-
-def _validate_recovery_document_fallback_text(
-    path: Path,
-    reader: PdfReader,
-    fallback_proof: RenderFallbackProof | None,
-) -> None:
-    try:
-        validate_fallback_text_in_pdf(
-            artifact_label=f"rendered recovery document {path.name}",
-            reader=reader,
             fallback_proof=fallback_proof,
         )
     except RenderProofError as exc:

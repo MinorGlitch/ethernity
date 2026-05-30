@@ -76,9 +76,8 @@ from ethernity.cli.shared.ndjson import ApiCommandError, ndjson_session
 from ethernity.cli.shared.types import ExtendArgs, InputFile
 from ethernity.config import BackupDefaults
 from ethernity.crypto.sharding import ShardPayload, encode_shard_payload
-from ethernity.crypto.signing import AuthPayload, derive_public_key, encode_auth_payload, sign_auth
+from ethernity.crypto.signing import AuthPayload, derive_public_key
 from ethernity.encoding.framing import VERSION, Frame, FrameType, encode_frame
-from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.extensions.chain import LogicalFileState
 from ethernity.extensions.staging import (
     ExtensionPublishPolicy,
@@ -86,8 +85,7 @@ from ethernity.extensions.staging import (
 )
 from ethernity.formats.extension_envelope import ExtensionChunkingProfile
 from ethernity.formats.extension_envelope_constants import CHUNK_ALGORITHM_FASTCDC
-from ethernity.render.fallback_text import format_zbase32_lines
-from ethernity.render.proofs import build_render_artifact_proof
+from ethernity.render.proofs import RenderProofError, build_render_artifact_proof
 from ethernity.render.types import RenderFallbackProof, RenderInputs, RenderResult
 
 
@@ -246,76 +244,6 @@ def _render_result_for_inputs(inputs: RenderInputs) -> RenderResult:
         ),
         fallback_proof=fallback_proof,
     )
-
-
-class _PdfTextPage:
-    def __init__(self, text: str) -> None:
-        self._text = text
-
-    def extract_text(self) -> str:
-        return self._text
-
-
-class _PdfTextReader:
-    def __init__(self, text: str) -> None:
-        self.pages = [_PdfTextPage(text)]
-
-
-def _fallback_lines_for_frame(frame: Frame) -> list[str]:
-    return format_zbase32_lines(
-        encode_zbase32(encode_frame(frame)),
-        group_size=4,
-        line_length=80,
-        line_count=None,
-    )
-
-
-def _published_recovery_pdf_text(*, auth_frame: Frame, main_frame: Frame) -> str:
-    auth_lines = _fallback_lines_for_frame(auth_frame)
-    main_lines = _fallback_lines_for_frame(main_frame)
-    numbered_auth = [f"{index:02d}. {line}" for index, line in enumerate(auth_lines, start=1)]
-    numbered_main = [f"{index:02d}. {line}" for index, line in enumerate(main_lines, start=1)]
-    return "\n".join(
-        [
-            "Recovery Document",
-            AUTH_FALLBACK_LABEL,
-            *numbered_auth,
-            "Operator guidance after auth.",
-            "Main Frame",
-            *numbered_main,
-            "Footer",
-        ]
-    )
-
-
-def _extension_main_and_auth_frames(
-    ciphertext: bytes,
-    *,
-    signing_seed: bytes,
-) -> tuple[bytes, bytes, bytes, Frame, Frame]:
-    doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
-    sign_pub = derive_public_key(signing_seed)
-    auth_frame = Frame(
-        version=VERSION,
-        frame_type=FrameType.AUTH,
-        doc_id=doc_id,
-        index=0,
-        total=1,
-        data=encode_auth_payload(
-            doc_hash,
-            sign_pub=sign_pub,
-            signature=sign_auth(doc_hash, sign_pub=sign_pub, sign_priv=signing_seed),
-        ),
-    )
-    main_frame = Frame(
-        version=VERSION,
-        frame_type=FrameType.MAIN_DOCUMENT,
-        doc_id=doc_id,
-        index=0,
-        total=1,
-        data=ciphertext,
-    )
-    return doc_id, doc_hash, sign_pub, auth_frame, main_frame
 
 
 def _kit_index_pdf_lines(inputs: RenderInputs) -> list[str]:
@@ -2310,11 +2238,6 @@ class TestExtendService(unittest.TestCase):
                     "_validate_recovery_document_pdf",
                     return_value=None,
                 ),
-                mock.patch(
-                    "ethernity.cli.features.extend.main_carrier_validation."
-                    "_validate_recovery_document_fallback_text",
-                    return_value=None,
-                ),
             ):
                 result = run_extend(
                     ExtendArgs(
@@ -2532,11 +2455,6 @@ class TestExtendService(unittest.TestCase):
                     return_value=None,
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.main_carrier_validation."
-                    "_validate_recovery_document_fallback_text",
-                    return_value=None,
-                ),
-                mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation.resolve_auth_payload",
                     return_value=(
                         AuthPayload(
@@ -2635,11 +2553,6 @@ class TestExtendService(unittest.TestCase):
                 mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation."
                     "_validate_recovery_document_pdf",
-                    return_value=None,
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.main_carrier_validation."
-                    "_validate_recovery_document_fallback_text",
                     return_value=None,
                 ),
                 mock.patch(
@@ -2776,11 +2689,6 @@ class TestExtendService(unittest.TestCase):
                 mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation."
                     "_validate_recovery_document_pdf",
-                    return_value=None,
-                ),
-                mock.patch(
-                    "ethernity.cli.features.extend.main_carrier_validation."
-                    "_validate_recovery_document_fallback_text",
                     return_value=None,
                 ),
                 mock.patch(
@@ -3284,11 +3192,6 @@ class TestExtendService(unittest.TestCase):
                 return_value=None,
             ),
             mock.patch(
-                "ethernity.cli.features.extend.main_carrier_validation."
-                "_validate_recovery_document_fallback_text",
-                return_value=None,
-            ),
-            mock.patch(
                 "ethernity.cli.features.extend.main_carrier_validation.resolve_auth_payload",
                 return_value=(
                     AuthPayload(
@@ -3324,15 +3227,13 @@ class TestExtendService(unittest.TestCase):
                 quiet=True,
             )
 
-    def test_validate_single_recovery_document_carrier_rejects_missing_pdf_fallback_text(
+    def test_validate_single_recovery_document_carrier_does_not_parse_pdf_fallback_text(
         self,
     ) -> None:
-        class _Page:
-            def extract_text(self) -> str:
-                return "Recovery Document\nAuth Frame\nMain Frame"
-
-        class _Reader:
-            pages = [_Page()]
+        class PoisonReader:
+            @property
+            def pages(self) -> list[object]:
+                raise AssertionError("staged recovery validation must not parse PDF text")
 
         ciphertext = b"enc:extension"
         doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
@@ -3357,7 +3258,7 @@ class TestExtendService(unittest.TestCase):
             mock.patch(
                 "ethernity.cli.features.extend.main_carrier_validation."
                 "_validate_recovery_document_pdf",
-                return_value=_Reader(),
+                return_value=PoisonReader(),
             ),
             mock.patch(
                 "ethernity.cli.features.extend.main_carrier_validation.resolve_auth_payload",
@@ -3372,32 +3273,28 @@ class TestExtendService(unittest.TestCase):
                 ),
             ),
         ):
-            with self.assertRaises(ApiCommandError) as ctx:
-                _validate_single_recovery_document_carrier(
-                    path=Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf"),
-                    frames=(auth_frame, main_frame),
-                    fallback_proof=RenderFallbackProof(
-                        section_frame_digests=tuple(
-                            hashlib.sha256(encode_frame(frame)).hexdigest()
-                            for frame in (auth_frame, main_frame)
-                        ),
-                        section_titles=(AUTH_FALLBACK_LABEL, "Main Frame"),
-                        expected_section_count=2,
-                        emitted_block_count=2,
-                        emitted_line_count=2,
-                        consumed_section_count=2,
-                        fully_consumed=True,
-                        emitted_fallback_lines=("auth-payload-line", "main-payload-line"),
+            _validate_single_recovery_document_carrier(
+                path=Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf"),
+                frames=(auth_frame, main_frame),
+                fallback_proof=RenderFallbackProof(
+                    section_frame_digests=tuple(
+                        hashlib.sha256(encode_frame(frame)).hexdigest()
+                        for frame in (auth_frame, main_frame)
                     ),
-                    expected_doc_id=doc_id,
-                    expected_doc_hash=doc_hash,
-                    expected_sign_pub=b"\x44" * 32,
-                    require_auth=True,
-                    quiet=True,
-                )
-
-        self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
-        self.assertIn("missing fallback text", str(ctx.exception))
+                    section_titles=(AUTH_FALLBACK_LABEL, "Main Frame"),
+                    expected_section_count=2,
+                    emitted_block_count=2,
+                    emitted_line_count=2,
+                    consumed_section_count=2,
+                    fully_consumed=True,
+                    emitted_fallback_lines=("auth-payload-line", "main-payload-line"),
+                ),
+                expected_doc_id=doc_id,
+                expected_doc_hash=doc_hash,
+                expected_sign_pub=b"\x44" * 32,
+                require_auth=True,
+                quiet=True,
+            )
 
     def test_validate_single_recovery_document_carrier_requires_render_proof(self) -> None:
         ciphertext = b"enc:extension"
@@ -3430,123 +3327,55 @@ class TestExtendService(unittest.TestCase):
         self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
         self.assertIn("missing fallback render proof", str(ctx.exception))
 
-    def test_validate_published_recovery_document_carrier_binds_visible_fallback(
+    def test_validate_published_recovery_document_carrier_checks_pdf_only(
         self,
     ) -> None:
-        doc_id, doc_hash, sign_pub, auth_frame, main_frame = _extension_main_and_auth_frames(
-            b"enc:extension",
-            signing_seed=b"\x33" * 32,
-        )
+        path = Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf")
 
         with mock.patch(
-            "ethernity.cli.features.extend.published_recovery_validation."
-            "_validate_recovery_document_pdf",
-            return_value=_PdfTextReader(
-                _published_recovery_pdf_text(auth_frame=auth_frame, main_frame=main_frame)
-            ),
-        ):
-            _validate_published_recovery_document_carrier(
-                path=Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf"),
-                expected_doc_id=doc_id,
-                expected_doc_hash=doc_hash,
-                expected_sign_pub=sign_pub,
-                quiet=True,
-            )
+            "ethernity.cli.features.extend.published_recovery_validation.validate_pdf_has_pages",
+            return_value=object(),
+        ) as validate_pdf_has_pages:
+            _validate_published_recovery_document_carrier(path=path)
 
-    def test_validate_published_recovery_document_carrier_rejects_stale_main(
+        validate_pdf_has_pages.assert_called_once_with(
+            path,
+            artifact_label="published recovery document recovery_document-01-deadbeefcafebabe.pdf",
+        )
+
+    def test_validate_published_recovery_document_carrier_wraps_pdf_errors(
         self,
     ) -> None:
-        _doc_id, _doc_hash, _sign_pub, auth_frame, main_frame = _extension_main_and_auth_frames(
-            b"stale-extension",
-            signing_seed=b"\x33" * 32,
-        )
-        expected_doc_id, expected_doc_hash, expected_sign_pub, _auth, _main = (
-            _extension_main_and_auth_frames(
-                b"current-extension",
-                signing_seed=b"\x33" * 32,
-            )
-        )
+        path = Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf")
 
         with (
             mock.patch(
                 "ethernity.cli.features.extend.published_recovery_validation."
-                "_validate_recovery_document_pdf",
-                return_value=_PdfTextReader(
-                    _published_recovery_pdf_text(auth_frame=auth_frame, main_frame=main_frame)
-                ),
+                "validate_pdf_has_pages",
+                side_effect=RenderProofError("published recovery document is invalid"),
             ),
             self.assertRaises(ApiCommandError) as ctx,
         ):
-            _validate_published_recovery_document_carrier(
-                path=Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf"),
-                expected_doc_id=expected_doc_id,
-                expected_doc_hash=expected_doc_hash,
-                expected_sign_pub=expected_sign_pub,
-                quiet=True,
-            )
+            _validate_published_recovery_document_carrier(path=path)
 
         self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
-        self.assertIn("does not match extension ciphertext", str(ctx.exception))
+        self.assertIn("published recovery document is invalid", str(ctx.exception))
 
-    def test_validate_published_recovery_document_carrier_rejects_wrong_auth_authority(
+    def test_validate_published_recovery_document_carrier_does_not_parse_fallback_text(
         self,
     ) -> None:
-        doc_id, doc_hash, _wrong_sign_pub, auth_frame, main_frame = _extension_main_and_auth_frames(
-            b"enc:extension",
-            signing_seed=b"\x55" * 32,
-        )
-        expected_sign_pub = derive_public_key(b"\x33" * 32)
+        class PoisonReader:
+            @property
+            def pages(self) -> list[object]:
+                raise AssertionError("published recovery validation must not parse PDF text")
 
-        with (
-            mock.patch(
-                "ethernity.cli.features.extend.published_recovery_validation."
-                "_validate_recovery_document_pdf",
-                return_value=_PdfTextReader(
-                    _published_recovery_pdf_text(auth_frame=auth_frame, main_frame=main_frame)
-                ),
-            ),
-            self.assertRaises(ApiCommandError) as ctx,
+        with mock.patch(
+            "ethernity.cli.features.extend.published_recovery_validation.validate_pdf_has_pages",
+            return_value=PoisonReader(),
         ):
             _validate_published_recovery_document_carrier(
                 path=Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf"),
-                expected_doc_id=doc_id,
-                expected_doc_hash=doc_hash,
-                expected_sign_pub=expected_sign_pub,
-                quiet=True,
             )
-
-        self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
-        self.assertIn("does not match the root-derived signing authority", str(ctx.exception))
-
-    def test_validate_published_recovery_document_carrier_rejects_missing_fallback(
-        self,
-    ) -> None:
-        doc_id, doc_hash, sign_pub, auth_frame, _main_frame = _extension_main_and_auth_frames(
-            b"enc:extension",
-            signing_seed=b"\x33" * 32,
-        )
-        text = "\n".join(
-            ["Recovery Document", AUTH_FALLBACK_LABEL, *_fallback_lines_for_frame(auth_frame)]
-        )
-
-        with (
-            mock.patch(
-                "ethernity.cli.features.extend.published_recovery_validation."
-                "_validate_recovery_document_pdf",
-                return_value=_PdfTextReader(text),
-            ),
-            self.assertRaises(ApiCommandError) as ctx,
-        ):
-            _validate_published_recovery_document_carrier(
-                path=Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf"),
-                expected_doc_id=doc_id,
-                expected_doc_hash=doc_hash,
-                expected_sign_pub=sign_pub,
-                quiet=True,
-            )
-
-        self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
-        self.assertIn("missing MAIN fallback section", str(ctx.exception))
 
     def test_validate_single_main_carrier_rejects_mismatched_auth_for_recovery_document_scan(
         self,

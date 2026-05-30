@@ -22,14 +22,11 @@ from pypdf import PdfReader, PdfWriter
 
 from ethernity.cli import run_compact, run_extend
 from ethernity.cli.features.backup.orchestrator import run_backup_command
-from ethernity.cli.features.extend.published_recovery_validation import (
-    extract_published_recovery_document_fallback_lines,
-)
 from ethernity.cli.features.mint.workflow import execute_mint
 from ethernity.cli.features.recover.orchestrator import run_recover_command
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
-from ethernity.cli.shared.io.frames import _frames_from_fallback_lines, recovery_frames_from_scan
+from ethernity.cli.shared.io.frames import recovery_frames_from_scan
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import BackupArgs, CompactArgs, ExtendArgs, MintArgs, RecoverArgs
 from ethernity.config.paths import DEFAULT_CONFIG_PATH, SUPPORTED_TEMPLATE_DESIGNS
@@ -116,10 +113,8 @@ class TestIntegrationExtensions(unittest.TestCase):
                 self.assertEqual(self._snapshot_tree(separate_auth_dir), expected_latest_state)
 
                 extension_fallback = tmp_path / "extension_fallback.txt"
-                self._write_extension_recovery_pdf_fallback_file(
-                    second_extension.recovery_document_path,
-                    extension_fallback,
-                    expected_doc_id=second_extension.doc_id,
+                self._write_extension_fallback_file(
+                    second_extension.qr_document_path, extension_fallback
                 )
                 fallback_recovered_dir = tmp_path / "recovered-extension-fallback"
                 self._run_recover(
@@ -490,7 +485,7 @@ class TestIntegrationExtensions(unittest.TestCase):
                 },
             )
 
-    def test_extension_recovery_document_fallback_is_visible_for_supported_designs(self) -> None:
+    def test_extension_recovery_document_renders_for_supported_designs(self) -> None:
         for design in SUPPORTED_TEMPLATE_DESIGNS:
             with self.subTest(design=design):
                 with tempfile.TemporaryDirectory() as tmpdir:
@@ -514,11 +509,40 @@ class TestIntegrationExtensions(unittest.TestCase):
                         )
 
                         reader = PdfReader(extension.recovery_document_path)
-                        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+                    self.assertGreater(len(reader.pages), 0)
 
-                    upper_text = text.upper()
-                    self.assertIn("AUTH FRAME", upper_text)
-                    self.assertIn("MAIN FRAME", upper_text)
+    def test_extend_forge_generated_folder_allows_second_extension(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup-root"
+            recovered_dir = tmp_path / "recovered"
+            source_dir.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(source_dir=source_dir, root_dir=root_dir, design="forge")
+
+                (source_dir / "alpha.txt").write_text("first-alpha", encoding="utf-8")
+                (source_dir / "first.bin").write_bytes(bytes(index % 251 for index in range(8192)))
+                self._run_extend(source_dir=source_dir, root_dir=root_dir, design="forge")
+
+                (source_dir / "alpha.txt").write_text("second-alpha", encoding="utf-8")
+                (source_dir / "second.bin").write_bytes(
+                    bytes((index * 7) % 251 for index in range(9216))
+                )
+                self._run_extend(source_dir=source_dir, root_dir=root_dir, design="forge")
+
+                self._run_recover(root_dir=root_dir, output_dir=recovered_dir)
+
+            self.assertEqual(
+                self._snapshot_tree(recovered_dir),
+                {
+                    "alpha.txt": b"second-alpha",
+                    "first.bin": bytes(index % 251 for index in range(8192)),
+                    "second.bin": bytes((index * 7) % 251 for index in range(9216)),
+                },
+            )
 
     def test_mint_against_extension_head_creates_recoverable_extension_bound_shards(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1183,31 +1207,6 @@ class TestIntegrationExtensions(unittest.TestCase):
                 )
             )
         self.assertEqual(exit_code, 0)
-
-    def _write_extension_recovery_pdf_fallback_file(
-        self,
-        recovery_document: Path,
-        fallback_path: Path,
-        *,
-        expected_doc_id: bytes,
-    ) -> None:
-        lines = self._fallback_lines_from_recovery_document(recovery_document)
-        frames = _frames_from_fallback_lines(lines, allow_invalid_auth=False, quiet=True)
-        main_frames = [frame for frame in frames if frame.frame_type == FrameType.MAIN_DOCUMENT]
-        auth_frames = [frame for frame in frames if frame.frame_type == FrameType.AUTH]
-
-        self.assertEqual(len(main_frames), 1)
-        self.assertEqual(len(auth_frames), 1)
-        self.assertEqual(main_frames[0].doc_id, expected_doc_id)
-        self.assertEqual(auth_frames[0].doc_id, expected_doc_id)
-        fallback_path.write_text("\n".join(lines), encoding="utf-8")
-
-    def _fallback_lines_from_recovery_document(self, recovery_document: Path) -> list[str]:
-        reader = PdfReader(recovery_document)
-        lines = extract_published_recovery_document_fallback_lines(reader)
-        self.assertIn(AUTH_FALLBACK_LABEL, lines)
-        self.assertIn(MAIN_FALLBACK_LABEL, lines)
-        return lines
 
     def _write_split_payload_files(
         self,

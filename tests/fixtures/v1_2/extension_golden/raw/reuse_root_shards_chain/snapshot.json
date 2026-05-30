@@ -1,0 +1,156 @@
+{
+  "artifact_hashes": {
+    "chain/extensions/01/qr_document-01-3e6b03f1c4c6a368.pdf": "93e9a2d2a2ffecd920ea9c37faaad79450b89be6e0651a5409b6cdb097c3d3ec",
+    "chain/extensions/01/recovery_document-01-3e6b03f1c4c6a368.pdf": "3be45bff7449052df87f873c8b150ac88bccab688f29c76617ddb373c2af79eb",
+    "chain/extensions/01/recovery_kit_index-01-3e6b03f1c4c6a368.pdf": "a0989a150f8f4231848c13ead8b744087b48a187825fa32d1ac37722dd4ac70a",
+    "chain/qr_document.pdf": "f5a245b3690657f0e504d35eca723d5c36af1cd14c29ba5a29e1a00cb11d54aa",
+    "chain/recovery_document.pdf": "8b80d6b7ebcfbc48b1df2e85a092e1163636130ff83acaa92d28165a271eaa56",
+    "chain/recovery_kit_index.pdf": "d154556d44d1489ecca751eeb81990cca469a57c2ffbe12bf31a96355b7a471c",
+    "chain/shard-898b84dc832b3bbe-1-of-3.pdf": "2ea424fda0eaa70361fdeb966f6069b4cbb091cbc1c2aca7a9816d7058f5421c",
+    "chain/shard-898b84dc832b3bbe-2-of-3.pdf": "0169cb6dd67052503f7bfad155947743ace0e5dc3b7e39f15c8360d3fbae02aa",
+    "chain/shard-898b84dc832b3bbe-3-of-3.pdf": "84d299ca9a5b45a5cb83bd35e0251f1b510801683f4f4f6f4f73e99360a4b354",
+    "chain_payloads.bin": "81bd07f6f4a50b1d0a9ea6d71ff7c3b4c0468bc664498d86dd07f6c8ed474393",
+    "chain_payloads.txt": "2a8c9c1167cc11508673634974bd6efc251b8504e0b9b977e688ea0eebb5ffa5",
+    "extension_01_payloads.bin": "7af1ff35e4f20a96fb40fb9c714cbe9d782e61b2aa32163c6e9c6315f0ce9f5f",
+    "extension_01_payloads.txt": "4c6e49068c8f9ce275413788036be5e320f560f1dcf054edcab1cc6406c1d9dc",
+    "root_payloads.bin": "f558e374c7c839e24a69b75395755781afe09d1b9a0e227bb427ccef8469b232",
+    "root_payloads.txt": "811f28771564f217064a7c8a5bd69dd3f0dec2d884a891c147504072a4cbb944",
+    "root_shard_payloads_threshold.bin": "f14e993f98a5f1c69317dcfba1dd9929121e018468946b4bedb7b651a938d669",
+    "root_shard_payloads_threshold.txt": "1631d6e7a8cd7954a04e703e8814528c629a93d1efee35b0fa7c2d84dc761b74"
+  },
+  "chain_dir": "chain",
+  "checks": [
+    "root shards reused by extension",
+    "no extension passphrase shards"
+  ],
+  "document_projection": [
+    {
+      "chunks": [
+        {
+          "chunk_id": "d4a4eb24f71588cffc2f26e6c0365ddec056ad6fb7eee04ab8c4de44adf2efd4",
+          "codec": "raw",
+          "decoded_sha256": "d4a4eb24f71588cffc2f26e6c0365ddec056ad6fb7eee04ab8c4de44adf2efd4",
+          "raw_len": 33,
+          "stored_len": 33
+        }
+      ],
+      "doc_hash": "3e6b03f1c4c6a368999b81d9407549697d96b093d26067e4901fd83b29859390",
+      "doc_id": "3e6b03f1c4c6a368",
+      "files": [
+        {
+          "path": "alpha.txt",
+          "sha256": "d4a4eb24f71588cffc2f26e6c0365ddec056ad6fb7eee04ab8c4de44adf2efd4",
+          "size": 33
+        }
+      ],
+      "index": 1,
+      "kind": "extension",
+      "parent_doc_hash": "898b84dc832b3bbe4f59787358ffe15c1225f7368a2a4ac7b4f7eb16f30c806e",
+      "root_doc_hash": "898b84dc832b3bbe4f59787358ffe15c1225f7368a2a4ac7b4f7eb16f30c806e"
+    },
+    {
+      "doc_hash": "898b84dc832b3bbe4f59787358ffe15c1225f7368a2a4ac7b4f7eb16f30c806e",
+      "doc_id": "898b84dc832b3bbe",
+      "files": [
+        {
+          "path": "alpha.txt",
+          "sha256": "07f4cebd8a668cf5edd85e2bc6d6f8620ca5fa660c21319ff714ac4553dd48e0",
+          "size": 17
+        }
+      ],
+      "kind": "root",
+      "payload_codec": "raw",
+      "payload_raw_len": null,
+      "sealed": false
+    }
+  ],
+  "extension_doc_hashes": {
+    "extension_01": "3e6b03f1c4c6a368999b81d9407549697d96b093d26067e4901fd83b29859390"
+  },
+  "passphrase": "stable-v1_2-extension-passphrase",
+  "payload_fixtures": {
+    "chain": {
+      "binary": "chain_payloads.bin",
+      "frame_count": 4,
+      "text": "chain_payloads.txt"
+    },
+    "extension_01": {
+      "binary": "extension_01_payloads.bin",
+      "frame_count": 2,
+      "text": "extension_01_payloads.txt"
+    },
+    "root": {
+      "binary": "root_payloads.bin",
+      "frame_count": 2,
+      "text": "root_payloads.txt"
+    }
+  },
+  "profile": "raw",
+  "qr_payload_codec": "raw",
+  "root_doc_hash": "898b84dc832b3bbe4f59787358ffe15c1225f7368a2a4ac7b4f7eb16f30c806e",
+  "scan_paths": [
+    "chain"
+  ],
+  "scenario_id": "reuse_root_shards_chain",
+  "shard_fixtures": {
+    "root": {
+      "binary": "root_shard_payloads_threshold.bin",
+      "pdf_count": 3,
+      "projection": {
+        "shard-898b84dc832b3bbe-1-of-3.pdf": [
+          {
+            "doc_hash": "898b84dc832b3bbe4f59787358ffe15c1225f7368a2a4ac7b4f7eb16f30c806e",
+            "doc_id": "898b84dc832b3bbe",
+            "key_type": "passphrase",
+            "secret_len": 32,
+            "set_id": "set-1",
+            "share_count": 3,
+            "share_index": 1,
+            "sign_pub": "e5c99e85a067d16d41ed34100d148045d77173f25609ba92e2283c11e1d21a26",
+            "threshold": 2,
+            "version": 2
+          }
+        ],
+        "shard-898b84dc832b3bbe-2-of-3.pdf": [
+          {
+            "doc_hash": "898b84dc832b3bbe4f59787358ffe15c1225f7368a2a4ac7b4f7eb16f30c806e",
+            "doc_id": "898b84dc832b3bbe",
+            "key_type": "passphrase",
+            "secret_len": 32,
+            "set_id": "set-1",
+            "share_count": 3,
+            "share_index": 2,
+            "sign_pub": "e5c99e85a067d16d41ed34100d148045d77173f25609ba92e2283c11e1d21a26",
+            "threshold": 2,
+            "version": 2
+          }
+        ],
+        "shard-898b84dc832b3bbe-3-of-3.pdf": [
+          {
+            "doc_hash": "898b84dc832b3bbe4f59787358ffe15c1225f7368a2a4ac7b4f7eb16f30c806e",
+            "doc_id": "898b84dc832b3bbe",
+            "key_type": "passphrase",
+            "secret_len": 32,
+            "set_id": "set-1",
+            "share_count": 3,
+            "share_index": 3,
+            "sign_pub": "e5c99e85a067d16d41ed34100d148045d77173f25609ba92e2283c11e1d21a26",
+            "threshold": 2,
+            "version": 2
+          }
+        ]
+      },
+      "text": "root_shard_payloads_threshold.txt",
+      "threshold": 2
+    }
+  },
+  "states": {
+    "extension_01": {
+      "alpha.txt": "d4a4eb24f71588cffc2f26e6c0365ddec056ad6fb7eee04ab8c4de44adf2efd4"
+    },
+    "root": {
+      "alpha.txt": "07f4cebd8a668cf5edd85e2bc6d6f8620ca5fa660c21319ff714ac4553dd48e0"
+    }
+  },
+  "version": "1.2.0"
+}

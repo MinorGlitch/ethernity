@@ -1094,16 +1094,10 @@ def _inspect_published_extension_inventory(
 ) -> RecoveryExtensionInventory:
     def validate_recovery_document(
         carrier: DiscoveredExtensionMainCarrier,
-        document: ImportedRecoveryDocument,
-        sign_pub: bytes,
+        _document: ImportedRecoveryDocument,
+        _sign_pub: bytes,
     ) -> None:
-        validate_published_recovery_document_carrier(
-            path=carrier.path,
-            expected_doc_id=document.doc_id,
-            expected_doc_hash=document.doc_hash,
-            expected_sign_pub=sign_pub,
-            quiet=quiet,
-        )
+        validate_published_recovery_document_carrier(path=carrier.path)
 
     return inspect_published_extension_inventory(
         root_dir,
