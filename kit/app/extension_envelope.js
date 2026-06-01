@@ -538,6 +538,9 @@ export function validateSingleGzipMember(bytes, expectedLen) {
     throw new Error("gzip chunk contains trailing data");
   }
   const expectedSize = readLittleUint32(bytes, trailerStart + 4);
+  if (expectedSize > expectedLen) {
+    throw new Error("decoded chunk exceeds raw_len");
+  }
   if (expectedSize !== expectedLen) {
     throw new Error("decoded chunk length does not match raw_len");
   }

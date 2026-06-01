@@ -161,37 +161,119 @@ class TestKitInterop(unittest.TestCase):
             extension_ciphertext
         )
 
-        result = self._recover_documents_with_kit(
-            {
-                "passphrase": passphrase,
-                "documents": [
-                    self._document_json(root_ciphertext, root_doc_hash, sign_pub, signing_seed),
-                    self._document_json(
-                        extension_ciphertext,
-                        extension_doc_hash,
-                        sign_pub,
-                        signing_seed,
-                    ),
-                ],
-            }
-        )
+        fixture = {
+            "passphrase": passphrase,
+            "documents": [
+                self._document_json(root_ciphertext, root_doc_hash, sign_pub, signing_seed),
+                self._document_json(
+                    extension_ciphertext,
+                    extension_doc_hash,
+                    sign_pub,
+                    signing_seed,
+                ),
+            ],
+        }
 
-        self.assertEqual(result["selected_extension_index"], 1)
-        self.assertEqual(result["selected_extension_doc_hash"], extension_doc_hash.hex())
-        self.assertEqual(result["freshness_scope"], "supplied_carriers_only")
+        for name, extension_target, expected in (
+            (
+                "missing selector defaults to latest",
+                None,
+                {
+                    "selected_extension_index": 1,
+                    "selected_extension_doc_hash": extension_doc_hash.hex(),
+                    "freshness_scope": "supplied_carriers_only",
+                    "replay_target": "latest",
+                    "input_roots": ["reconstructed-state"],
+                    "files": {
+                        "extra.txt": b"added value",
+                        "plain.txt": b"updated value",
+                    },
+                },
+            ),
+            (
+                "root selector",
+                "root",
+                {
+                    "selected_extension_index": None,
+                    "selected_extension_doc_hash": None,
+                    "freshness_scope": None,
+                    "replay_target": "root",
+                    "input_roots": ["vault"],
+                    "files": {"plain.txt": b"root value"},
+                },
+            ),
+            (
+                "index selector",
+                {"kind": "index", "index": 1},
+                {
+                    "selected_extension_index": 1,
+                    "selected_extension_doc_hash": extension_doc_hash.hex(),
+                    "freshness_scope": "supplied_carriers_only",
+                    "replay_target": "extension",
+                    "input_roots": ["reconstructed-state"],
+                    "files": {
+                        "extra.txt": b"added value",
+                        "plain.txt": b"updated value",
+                    },
+                },
+            ),
+            (
+                "doc_hash selector",
+                {"kind": "doc_hash", "doc_hash_hex": extension_doc_hash.hex()},
+                {
+                    "selected_extension_index": 1,
+                    "selected_extension_doc_hash": extension_doc_hash.hex(),
+                    "freshness_scope": "supplied_carriers_only",
+                    "replay_target": "extension",
+                    "input_roots": ["reconstructed-state"],
+                    "files": {
+                        "extra.txt": b"added value",
+                        "plain.txt": b"updated value",
+                    },
+                },
+            ),
+        ):
+            with self.subTest(name=name):
+                selected_fixture = dict(fixture)
+                if extension_target is not None:
+                    selected_fixture["extension_target"] = extension_target
+                result = self._recover_documents_with_kit(selected_fixture)
+                self._assert_recover_documents_result(result, expected)
+
+        missing_index = self._recover_documents_with_kit_raw(
+            {**fixture, "extension_target": {"kind": "index", "index": 2}}
+        )
+        self.assertNotEqual(missing_index.returncode, 0)
+        self.assertIn("extension index target was not supplied: 2", missing_index.stderr)
+
+        missing_doc_hash = self._recover_documents_with_kit_raw(
+            {**fixture, "extension_target": {"kind": "doc_hash", "doc_hash_hex": "f" * 64}}
+        )
+        self.assertNotEqual(missing_doc_hash.returncode, 0)
+        self.assertIn("extension doc_hash target was not supplied", missing_doc_hash.stderr)
+
+    def _assert_recover_documents_result(
+        self,
+        result: dict[str, object],
+        expected: dict[str, object],
+    ) -> None:
+        self.assertEqual(
+            result["selected_extension_index"],
+            expected["selected_extension_index"],
+        )
+        self.assertEqual(
+            result["selected_extension_doc_hash"],
+            expected["selected_extension_doc_hash"],
+        )
+        self.assertEqual(result["freshness_scope"], expected["freshness_scope"])
+        self.assertEqual(result["replay_target"], expected["replay_target"])
         self.assertEqual(result["manifest"]["input_origin"], "directory")
-        self.assertEqual(result["manifest"]["input_roots"], ["reconstructed-state"])
+        self.assertEqual(result["manifest"]["input_roots"], expected["input_roots"])
         recovered = {
             file_entry["path"]: base64.b64decode(file_entry["data_base64"])
             for file_entry in result["files"]
         }
-        self.assertEqual(
-            recovered,
-            {
-                "extra.txt": b"added value",
-                "plain.txt": b"updated value",
-            },
-        )
+        self.assertEqual(recovered, expected["files"])
 
     def _extract_with_kit(self, envelope_bytes: bytes) -> dict[str, bytes]:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -216,11 +298,13 @@ class TestKitInterop(unittest.TestCase):
                 extracted[file_entry["path"]] = base64.b64decode(file_entry["data_base64"])
             return extracted
 
-    def _recover_documents_with_kit(self, fixture: dict[str, object]) -> dict[str, object]:
+    def _recover_documents_with_kit_raw(
+        self, fixture: dict[str, object]
+    ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as tmp_dir:
             fixture_path = Path(tmp_dir) / "documents.json"
             fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
-            result = subprocess.run(
+            return subprocess.run(
                 ["node", str(_RECOVER_SCRIPT_PATH), str(fixture_path)],
                 cwd=_PROJECT_ROOT,
                 text=True,
@@ -228,14 +312,17 @@ class TestKitInterop(unittest.TestCase):
                 check=False,
                 timeout=cli_subprocess_timeout_seconds(),
             )
-            self.assertEqual(
-                result.returncode,
-                0,
-                msg=result.stderr.strip() or result.stdout.strip(),
-            )
-            payload = json.loads(result.stdout)
-            self.assertIsInstance(payload, dict)
-            return payload
+
+    def _recover_documents_with_kit(self, fixture: dict[str, object]) -> dict[str, object]:
+        result = self._recover_documents_with_kit_raw(fixture)
+        self.assertEqual(
+            result.returncode,
+            0,
+            msg=result.stderr.strip() or result.stdout.strip(),
+        )
+        payload = json.loads(result.stdout)
+        self.assertIsInstance(payload, dict)
+        return payload
 
     def _document_json(
         self,

@@ -45,6 +45,26 @@ function documentFromJson(value, index) {
   };
 }
 
+function extensionTargetFromJson(fixture) {
+  const value = fixture.extension_target ?? fixture.extensionTarget ?? "latest";
+  if (value === null || value === "latest" || value === "root") {
+    return value ?? "latest";
+  }
+  if (!value || typeof value !== "object") {
+    fail("extension_target must be 'latest', 'root', or an object");
+  }
+  if (value.kind === "latest" || value.kind === "root") {
+    return { kind: value.kind };
+  }
+  if (value.kind === "index") {
+    return { kind: "index", index: value.index };
+  }
+  if (value.kind === "doc_hash") {
+    return { kind: "doc_hash", docHashHex: value.docHashHex ?? value.doc_hash_hex };
+  }
+  fail("unknown extension_target kind");
+}
+
 async function main() {
   const input = process.argv[2];
   if (!input) {
@@ -56,10 +76,12 @@ async function main() {
     fail("documents must be an array");
   }
   const documents = fixture.documents.map(documentFromJson);
+  const extensionTarget = extensionTargetFromJson(fixture);
   const result = await recoverLatestFromEncryptedDocuments(
     documents,
     fixture.passphrase,
     decryptAgePassphrase,
+    { extensionTarget },
   );
   const files = result.files.map((file) => ({
     path: file.path,
