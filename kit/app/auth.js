@@ -20,7 +20,7 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { bytesEqual, bytesToHex, concatBytes } from "../lib/encoding.js";
 import { encodeCbor } from "../lib/cbor.js";
 import { AUTH_DOMAIN, AUTH_VERSION, textEncoder } from "./constants.js";
-import { primaryDocumentRecord, syncLegacyDocumentFields } from "./document_store.js";
+import { syncLegacyDocumentFields } from "./document_store.js";
 import { ensureDocumentCiphertextAndHash } from "./frames_cipher.js";
 
 let authStatusPending = false;
@@ -66,15 +66,14 @@ export async function updateAuthStatus(state) {
   }
   authStatusPending = true;
   try {
-    const record = primaryDocumentRecord(state) ?? state;
-    if (!record.authPayload && record !== state) {
+    if (state.documents?.size) {
+      for (const record of state.documents.values()) {
+        await updateDocumentAuthStatus(record);
+      }
       syncLegacyDocumentFields(state);
       return;
     }
-    await updateDocumentAuthStatus(record);
-    if (record !== state) {
-      syncLegacyDocumentFields(state);
-    }
+    await updateDocumentAuthStatus(state);
   } finally {
     authStatusPending = false;
   }
@@ -82,6 +81,9 @@ export async function updateAuthStatus(state) {
 
 export async function updateDocumentAuthStatus(record) {
   if (!record.authPayload) {
+    if (record.authErrors > 0 && record.authStatus === "invalid payload") {
+      return;
+    }
     record.authStatus = "missing";
     return;
   }

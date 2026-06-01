@@ -26,10 +26,9 @@ export function addFrame(state, frame) {
   }
   if (frame.frameType !== FRAME_TYPE_MAIN) {
     state.ignored += 1;
-    return true;
+    return false;
   }
-  addMainDocumentFrame(state, frame);
-  return true;
+  return addMainDocumentFrame(state, frame);
 }
 
 export function addShardFrame(state, frame) {
@@ -39,15 +38,14 @@ export function addShardFrame(state, frame) {
   }
   if (frame.total !== 1 || frame.index !== 0) {
     state.shardErrors += 1;
-    return true;
+    return false;
   }
   let payload;
   try {
     payload = decodeShardPayload(frame.data);
   } catch {
     state.shardErrors += 1;
-    return true;
+    return false;
   }
-  addShardPayloadFrame(state, frame, payload);
-  return true;
+  return addShardPayloadFrame(state, frame, payload);
 }

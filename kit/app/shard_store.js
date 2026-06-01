@@ -25,8 +25,22 @@ function shardDocHashHex(payload) {
   return bytesToHex(payload.docHash);
 }
 
+function shardSignPubHex(payload) {
+  return bytesToHex(payload.signPub);
+}
+
 function shardSetKey(docIdHex, payload) {
-  return [docIdHex, payload.keyType, shardDocHashHex(payload), shardSetIdHex(payload)].join(":");
+  return [
+    docIdHex,
+    payload.version,
+    payload.keyType,
+    payload.threshold,
+    payload.shareCount,
+    payload.secretLen,
+    shardDocHashHex(payload),
+    shardSignPubHex(payload),
+    shardSetIdHex(payload),
+  ].join(":");
 }
 
 function createShardSetRecord(docId, docIdHex, payload) {
@@ -39,7 +53,7 @@ function createShardSetRecord(docId, docIdHex, payload) {
     keyType: payload.keyType,
     secretLen: payload.secretLen,
     docHashHex: shardDocHashHex(payload),
-    signPubHex: bytesToHex(payload.signPub),
+    signPubHex: shardSignPubHex(payload),
     shardSetIdHex: shardSetIdHex(payload),
     shardFrames: new Map(),
     duplicates: 0,
@@ -104,7 +118,6 @@ export function addShardPayloadFrame(state, frame, payload) {
     } else if (!bytesEqual(existing.signature, payload.signature)) {
       state.shardConflicts += 1;
       record.conflicts += 1;
-      record.shardFrames.set(payload.shareIndex, payload);
     } else {
       state.shardDuplicates += 1;
       record.duplicates += 1;
@@ -159,7 +172,7 @@ function shardPayloadMatchesRecord(record, payload) {
     record.keyType === payload.keyType &&
     record.secretLen === payload.secretLen &&
     record.docHashHex === shardDocHashHex(payload) &&
-    record.signPubHex === bytesToHex(payload.signPub) &&
+    record.signPubHex === shardSignPubHex(payload) &&
     record.shardSetIdHex === shardSetIdHex(payload)
   );
 }

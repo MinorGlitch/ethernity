@@ -288,7 +288,7 @@ test("parseAutoShard rejects structurally invalid shard payload share lengths", 
   const state = createInitialState();
 
   const added = parseAutoShard(state, toUnpaddedBase64(frame));
-  assert.equal(added, 1);
+  assert.equal(added, 0);
   assert.equal(state.shardErrors, 1);
   assert.equal(state.shardFrames.size, 0);
 });
@@ -310,7 +310,7 @@ test("parseAutoShard rejects shard payloads above MAX_SHARD_SHARES", () => {
   const state = createInitialState();
 
   const added = parseAutoShard(state, toUnpaddedBase64(frame));
-  assert.equal(added, 1);
+  assert.equal(added, 0);
   assert.equal(state.shardErrors, 1);
   assert.equal(state.shardFrames.size, 0);
 });
@@ -332,7 +332,7 @@ test("parseAutoShard rejects non-32-byte signing-seed shard payloads", () => {
   const state = createInitialState();
 
   const added = parseAutoShard(state, toUnpaddedBase64(frame));
-  assert.equal(added, 1);
+  assert.equal(added, 0);
   assert.equal(state.shardErrors, 1);
   assert.equal(state.shardFrames.size, 0);
 });
@@ -355,7 +355,7 @@ test("parseAutoShard rejects non-canonical shard CBOR payload", () => {
   const state = createInitialState();
 
   const added = parseAutoShard(state, toUnpaddedBase64(frame));
-  assert.equal(added, 1);
+  assert.equal(added, 0);
   assert.equal(state.shardErrors, 1);
   assert.equal(state.shardFrames.size, 0);
 });

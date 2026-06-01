@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { ed25519 } from "@noble/curves/ed25519.js";
+
 import {
+  AUTH_DOMAIN,
+  AUTH_VERSION,
+  FRAME_TYPE_AUTH,
   FRAME_TYPE_KEY,
   FRAME_TYPE_MAIN,
   LEGACY_SHARD_VERSION,
@@ -10,7 +15,9 @@ import {
   SHARD_KEY_PASSPHRASE,
   SHARD_KEY_SIGNING_SEED,
   SHARD_VERSION,
+  textEncoder,
 } from "../app/constants.js";
+import { updateAuthStatus } from "../app/auth.js";
 import {
   detectMarker,
   parseAutoPayload,
@@ -34,6 +41,7 @@ import { bytesToHex, hexToBytes } from "../lib/encoding.js";
 import { recoverSecretFromShards } from "../lib/shamir.js";
 import {
   buildFrame,
+  concatBytes,
   encodeZBase32,
   ensureAtob,
   mutateFrameCrc,
@@ -52,6 +60,8 @@ const FIXTURE_SHARES = {
 const PYTHON_V2_SHARD_PAYLOAD_B64 =
   "q2NwdWJYINBKsjJ0K7SrOhNovUYV5ObQIkq3GgFrr4UgozLJd4c3Y3NpZ1hAWEsoTiqBNQb1DQfDrPstJfpOx3jJSN6LP/6YcgXY7OgAqttX4s1XA7c/DNsSsZbcuOzWEzdcZtLDYK22blOXAmRoYXNoWCBh7fSa0XckEjDu2bnOknmko8L07PQlig3lPwQaE0885GR0eXBlanBhc3NwaHJhc2Vlc2hhcmVYIOf9voVpa7vkuGboNLlhY2he9jZk2eqHRvlCeZrvMTsRZmxlbmd0aBgbZnNldF9pZFAAESIzRFVmd4iZqrvM3e7/Z3ZlcnNpb24CaXRocmVzaG9sZAJrc2hhcmVfY291bnQDa3NoYXJlX2luZGV4AQ==";
 const PYTHON_V2_SHARD_SET_ID_HEX = "00112233445566778899aabbccddeeff";
+const AUTH_SEED = new Uint8Array(32).fill(0x42);
+const AUTH_SIGN_PUB = ed25519.getPublicKey(AUTH_SEED);
 
 function shardPayload({
   version = LEGACY_SHARD_VERSION,
@@ -82,6 +92,37 @@ function shardPayload({
     payload.set_id = shardSetId;
   }
   return payload;
+}
+
+function signAuthPayload(docHash, signPub = AUTH_SIGN_PUB, signingSeed = AUTH_SEED) {
+  const signedPayload = { version: AUTH_VERSION, hash: docHash, pub: signPub };
+  const signedBytes = encodeCbor(signedPayload);
+  return ed25519.sign(concatBytes([textEncoder.encode(AUTH_DOMAIN), signedBytes]), signingSeed);
+}
+
+function addAuthenticatedDocument(state, ciphertext, signPub = AUTH_SIGN_PUB) {
+  const docHash = blake2b256(ciphertext);
+  const docId = docHash.slice(0, 8);
+  parseScannedPayload(state, {
+    bytes: buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      docId,
+      data: ciphertext,
+    }),
+  });
+  parseScannedPayload(state, {
+    bytes: buildFrame({
+      frameType: FRAME_TYPE_AUTH,
+      docId,
+      data: encodeCbor({
+        version: 1,
+        hash: docHash,
+        pub: signPub,
+        sig: signAuthPayload(docHash, signPub),
+      }),
+    }),
+  });
+  return { docHash, docId };
 }
 
 function bytesFromBase64(value) {
@@ -139,10 +180,10 @@ test("parseAutoPayload handles frame state transitions and hash caching", () => 
   );
 
   assert.equal(parseAutoPayload(state, main0), 1);
-  assert.equal(parseAutoPayload(state, main0Dup), 1);
-  assert.equal(parseAutoPayload(state, main0Conflict), 1);
+  assert.equal(parseAutoPayload(state, main0Dup), 0);
+  assert.equal(parseAutoPayload(state, main0Conflict), 0);
   assert.equal(parseAutoPayload(state, foreignDoc), 1);
-  assert.equal(parseAutoPayload(state, keyFrame), 1);
+  assert.equal(parseAutoPayload(state, keyFrame), 0);
 
   assert.equal(state.duplicates, 1);
   assert.equal(state.conflicts, 1);
@@ -158,6 +199,24 @@ test("parseAutoPayload handles frame state transitions and hash caching", () => 
   const secondHash = ensureCiphertextAndHash(state);
   assert.ok(firstHash instanceof Uint8Array);
   assert.deepEqual(Array.from(firstHash), Array.from(secondHash));
+});
+
+test("updateAuthStatus preserves invalid AUTH payload state", async () => {
+  const state = createInitialState();
+  const ciphertext = Uint8Array.of(1, 2, 9);
+  const docHash = blake2b256(ciphertext);
+  const docId = docHash.slice(0, 8);
+  parseScannedPayload(state, {
+    bytes: buildFrame({ frameType: FRAME_TYPE_MAIN, docId, data: ciphertext }),
+  });
+  parseScannedPayload(state, {
+    bytes: buildFrame({ frameType: FRAME_TYPE_AUTH, docId, data: Uint8Array.of(1, 2, 3) }),
+  });
+
+  await updateAuthStatus(state);
+
+  assert.equal(state.documents.get(bytesToHex(docId)).authStatus, "invalid payload");
+  assert.equal(state.authStatus, "invalid payload");
 });
 
 test("parseScannedPayload accepts raw frame bytes above text payload char limits", () => {
@@ -318,8 +377,8 @@ test("parseAutoShard handles duplicates, conflicts, and fallback", () => {
   });
 
   assert.equal(parseAutoShard(state, toUnpaddedBase64(first)), 1);
-  assert.equal(parseAutoShard(state, toUnpaddedBase64(duplicate)), 1);
-  assert.equal(parseAutoShard(state, toUnpaddedBase64(conflictSameIndex)), 1);
+  assert.equal(parseAutoShard(state, toUnpaddedBase64(duplicate)), 0);
+  assert.equal(parseAutoShard(state, toUnpaddedBase64(conflictSameIndex)), 0);
   assert.equal(parseAutoShard(state, toUnpaddedBase64(conflictDoc)), 1);
   assert.equal(state.shardSets.size, 2);
   assert.equal(state.shardFrames.size, 1);
@@ -408,16 +467,17 @@ test("verifyCollectedShardSignatures uses portable verification when WebCrypto i
   }
 });
 
-test("parseScannedShard replaces same-share shards when signature differs", () => {
+test("parseScannedShard keeps same-share shards when signature differs", () => {
   const state = createInitialState();
   const docId = Uint8Array.of(4, 4, 4, 4, 4, 4, 4, 4);
+  const firstSignature = new Uint8Array(64);
   const first = buildFrame({
     frameType: FRAME_TYPE_KEY,
     data: encodeCbor(
       shardPayload({
         shareIndex: 1,
         shareHex: FIXTURE_SHARES.share1,
-        signature: new Uint8Array(64),
+        signature: firstSignature,
       }),
     ),
     docId,
@@ -436,9 +496,9 @@ test("parseScannedShard replaces same-share shards when signature differs", () =
   });
 
   assert.equal(parseScannedShard(state, { bytes: first }), 1);
-  assert.equal(parseScannedShard(state, { bytes: second }), 1);
+  assert.equal(parseScannedShard(state, { bytes: second }), 0);
   assert.equal(state.shardConflicts, 1);
-  assert.deepEqual(state.shardFrames.get(1).signature, secondSignature);
+  assert.deepEqual(state.shardFrames.get(1).signature, firstSignature);
 });
 
 test("shard recovery matches extension-bound shards after root-first scans", () => {
@@ -483,6 +543,117 @@ test("shard recovery matches extension-bound shards after root-first scans", () 
   assert.equal(autoRecoverShardSecret(state), true);
   assert.equal(state.recoveredShardSecret, FIXTURE_PASSPHRASE);
   assert.equal(state.agePassphrase, FIXTURE_PASSPHRASE);
+});
+
+test("shard recovery rejects shards outside verified non-primary document authority", async () => {
+  const state = createInitialState();
+  addAuthenticatedDocument(state, Uint8Array.of(1, 2, 3));
+  const { docHash, docId } = addAuthenticatedDocument(state, Uint8Array.of(4, 5, 6));
+  await updateAuthStatus(state);
+  assert.equal(state.authStatus, "verified");
+  assert.equal(state.documents.get(bytesToHex(docId)).authStatus, "verified");
+
+  for (const [shareIndex, shareHex] of [
+    [1, FIXTURE_SHARES.share1],
+    [2, FIXTURE_SHARES.share2],
+  ]) {
+    parseScannedShard(state, {
+      bytes: buildFrame({
+        frameType: FRAME_TYPE_KEY,
+        docId: docHash.slice(0, 8),
+        data: encodeCbor(shardPayload({ shareIndex, shareHex, docHash })),
+      }),
+    });
+  }
+  for (const shardRecord of state.shardSets.values()) {
+    for (const payload of shardRecord.shardFrames.values()) {
+      payload.signatureVerified = true;
+    }
+  }
+
+  assert.equal(autoRecoverShardSecret(state), false);
+  assert.equal(state.shardStatus.type, "error");
+  assert.match(
+    state.shardStatus.lines.join("\n"),
+    /signing key does not match verified document AUTH/,
+  );
+});
+
+test("shard recovery ignores a wrong-authority set when a valid set is available", () => {
+  const state = createInitialState();
+  const cipher = Uint8Array.of(6, 5, 4);
+  const docHash = blake2b256(cipher);
+  parseScannedPayload(state, {
+    bytes: buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      docId: docHash.slice(0, 8),
+      data: cipher,
+    }),
+  });
+  const record = state.documents.get(bytesToHex(docHash.slice(0, 8)));
+  record.authStatus = "verified";
+  record.authSignPubHex = bytesToHex(AUTH_SIGN_PUB);
+
+  const wrongSignPub = new Uint8Array(32).fill(9);
+  for (const signPub of [wrongSignPub, AUTH_SIGN_PUB]) {
+    for (const [shareIndex, shareHex] of [
+      [1, FIXTURE_SHARES.share1],
+      [2, FIXTURE_SHARES.share2],
+    ]) {
+      parseScannedShard(state, {
+        bytes: buildFrame({
+          frameType: FRAME_TYPE_KEY,
+          docId: docHash.slice(0, 8),
+          data: encodeCbor(shardPayload({ shareIndex, shareHex, docHash, signPub })),
+        }),
+      });
+    }
+  }
+  assert.equal(state.shardSets.size, 2);
+  for (const shardRecord of state.shardSets.values()) {
+    for (const payload of shardRecord.shardFrames.values()) {
+      payload.signatureVerified = true;
+    }
+  }
+
+  assert.equal(autoRecoverShardSecret(state), true);
+  assert.equal(state.recoveredShardSecret, FIXTURE_PASSPHRASE);
+  assert.equal(state.shardSignPubHex, bytesToHex(AUTH_SIGN_PUB));
+});
+
+test("shard recovery blocks same-set shard conflicts", () => {
+  const state = createInitialState();
+  const cipher = Uint8Array.of(8, 8, 8);
+  const docHash = blake2b256(cipher);
+  parseScannedPayload(state, {
+    bytes: buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      docId: docHash.slice(0, 8),
+      data: cipher,
+    }),
+  });
+  for (const [shareIndex, shareHex] of [
+    [1, FIXTURE_SHARES.share1],
+    [2, FIXTURE_SHARES.share2],
+    [1, FIXTURE_SHARES.share3],
+  ]) {
+    parseScannedShard(state, {
+      bytes: buildFrame({
+        frameType: FRAME_TYPE_KEY,
+        docId: docHash.slice(0, 8),
+        data: encodeCbor(shardPayload({ shareIndex, shareHex, docHash })),
+      }),
+    });
+  }
+  for (const shardRecord of state.shardSets.values()) {
+    for (const payload of shardRecord.shardFrames.values()) {
+      payload.signatureVerified = true;
+    }
+  }
+
+  assert.equal(autoRecoverShardSecret(state), false);
+  assert.equal(state.shardStatus.type, "error");
+  assert.match(state.shardStatus.lines.join("\n"), /conflicting shard frames/);
 });
 
 test("shard recovery matches reused root shards after extension-first scans", () => {

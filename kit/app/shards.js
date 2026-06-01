@@ -45,14 +45,14 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     return false;
   }
 
-  let documentHashes;
+  let documentBindings;
   try {
-    documentHashes = collectedDocumentHashes(state);
+    documentBindings = collectedDocumentBindings(state);
   } catch (err) {
     setShardStatus(state, statusPrefix, `Shard recovery blocked: ${String(err)}`, "error");
     return false;
   }
-  if (!documentHashes.size) {
+  if (!documentBindings.size) {
     setShardStatus(
       state,
       statusPrefix,
@@ -62,9 +62,13 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     return false;
   }
 
-  const matchingCandidates = candidates.filter(({ record }) =>
-    documentHashes.has(record.docHashHex),
-  );
+  const matchingCandidates = candidates
+    .map(({ key, record }) => ({
+      key,
+      record,
+      documentBinding: documentBindings.get(record.docHashHex) ?? null,
+    }))
+    .filter(({ documentBinding }) => documentBinding !== null);
   if (!matchingCandidates.length) {
     setShardStatus(
       state,
@@ -75,11 +79,40 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     return false;
   }
 
-  const docIdMismatch = matchingCandidates.find(
-    ({ record }) => record.docIdHex && record.docIdHex !== record.docHashHex.slice(0, 16),
+  const authorityCompatibleCandidates = matchingCandidates.filter(
+    ({ record, documentBinding }) =>
+      !documentBinding.authSignPubHex || record.signPubHex === documentBinding.authSignPubHex,
   );
-  if (docIdMismatch) {
-    activateShardSet(state, docIdMismatch.key);
+  if (!authorityCompatibleCandidates.length) {
+    activateShardSet(state, matchingCandidates[0].key);
+    setShardStatus(
+      state,
+      statusPrefix,
+      "Shard recovery blocked: shard signing key does not match verified document AUTH.",
+      "error",
+    );
+    return false;
+  }
+
+  const unambiguousCandidates = authorityCompatibleCandidates.filter(
+    ({ record }) => (record.conflicts ?? 0) === 0,
+  );
+  if (!unambiguousCandidates.length) {
+    activateShardSet(state, authorityCompatibleCandidates[0].key);
+    setShardStatus(
+      state,
+      statusPrefix,
+      "Shard recovery blocked: conflicting shard frames for the selected shard set.",
+      "error",
+    );
+    return false;
+  }
+
+  const docIdCompatibleCandidates = unambiguousCandidates.filter(
+    ({ record }) => !record.docIdHex || record.docIdHex === record.docHashHex.slice(0, 16),
+  );
+  if (!docIdCompatibleCandidates.length) {
+    activateShardSet(state, unambiguousCandidates[0].key);
     setShardStatus(
       state,
       statusPrefix,
@@ -89,7 +122,7 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     return false;
   }
 
-  const selected = selectRecoveryCandidate(matchingCandidates);
+  const selected = selectRecoveryCandidate(docIdCompatibleCandidates);
   activateShardSet(state, selected.key);
   const { record } = selected;
   const unverified = Array.from(record.shardFrames.values()).filter(
@@ -134,19 +167,25 @@ function recoveryCandidates(state) {
   );
 }
 
-function collectedDocumentHashes(state) {
+function collectedDocumentBindings(state) {
   if (!state.documents?.size) {
     const cipherHash = ensureCiphertextAndHash(state);
-    return cipherHash ? new Map([[bytesToHex(cipherHash), true]]) : new Map();
+    return cipherHash
+      ? new Map([[bytesToHex(cipherHash), { authSignPubHex: verifiedAuthSignPubHex(state) }]])
+      : new Map();
   }
   const hashes = new Map();
   for (const record of completeDocumentRecords(state)) {
     const hash = ensureDocumentCiphertextAndHash(record);
     if (hash) {
-      hashes.set(bytesToHex(hash), true);
+      hashes.set(bytesToHex(hash), { authSignPubHex: verifiedAuthSignPubHex(record) });
     }
   }
   return hashes;
+}
+
+function verifiedAuthSignPubHex(record) {
+  return record.authStatus === "verified" && record.authSignPubHex ? record.authSignPubHex : null;
 }
 
 function selectRecoveryCandidate(candidates) {
