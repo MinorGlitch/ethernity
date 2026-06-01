@@ -89,7 +89,9 @@ Use this template for each change entry:
   - `tests/unit/test_compact_service.py`
   - `tests/unit/test_input_files.py`
   - `tests/integration/test_integration_extensions.py`
+  - `tests/e2e/test_end_to_end_v1_2_extension_golden.py`
   - `kit/tests/extension_recovery.test.mjs`
+  - `kit/tests/v1_2_extension_frozen_e2e.test.mjs`
 - In-branch profile decisions consolidated into this release entry:
   - Root backups remain standalone Version 1 envelopes; extension documents use outer envelope
     Version 2 and carry encrypted header/body content separately from the root.

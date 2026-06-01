@@ -15,6 +15,16 @@ For each published binary variant, expect:
 
 Bundle-first verification is the canonical path.
 
+## Extension Compatibility Gates
+
+For releases that include the v1.2 extension profile, CI must pass the frozen extension gates:
+
+- `uv run pytest tests/e2e/test_end_to_end_v1_2_extension_golden.py -v`
+- `cd kit && node --test tests/v1_2_extension_frozen_e2e.test.mjs`
+- `cd kit && node --test tests/loader_html.test.mjs`
+
+The committed recovery kit bundles must also decode to an extension-capable UI before release.
+
 ## Quick Verification Example
 
 ```sh
