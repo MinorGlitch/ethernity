@@ -22,31 +22,32 @@ import { addShardPayloadFrame } from "./shard_store.js";
 
 export function addFrame(state, frame) {
   if (frame.frameType === FRAME_TYPE_AUTH) {
-    addAuthDocumentFrame(state, frame);
-    return;
+    return addAuthDocumentFrame(state, frame);
   }
   if (frame.frameType !== FRAME_TYPE_MAIN) {
     state.ignored += 1;
-    return;
+    return true;
   }
   addMainDocumentFrame(state, frame);
+  return true;
 }
 
 export function addShardFrame(state, frame) {
   if (frame.frameType !== FRAME_TYPE_KEY) {
     state.shardErrors += 1;
-    return;
+    return false;
   }
   if (frame.total !== 1 || frame.index !== 0) {
     state.shardErrors += 1;
-    return;
+    return true;
   }
   let payload;
   try {
     payload = decodeShardPayload(frame.data);
   } catch {
     state.shardErrors += 1;
-    return;
+    return true;
   }
   addShardPayloadFrame(state, frame, payload);
+  return true;
 }

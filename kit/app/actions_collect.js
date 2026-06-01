@@ -16,6 +16,7 @@
  */
 
 import {
+  cancelDecryptRequest,
   copyAuthAndCipherFields,
   copyShardAsyncFields,
   dispatchPatch,
@@ -244,7 +245,16 @@ async function verifyAndRecoverShardSecret(work, baseStatusLines = [], baseStatu
 }
 
 export function updateField(dispatch, getState, key, value) {
-  dispatchPatch(dispatch, getState, { [key]: value });
+  const current = getState();
+  const patch = { [key]: value };
+  if (
+    current.isDecrypting &&
+    (key === "payloadText" || key === "agePassphrase" || key === "extensionTargetText")
+  ) {
+    patch.isDecrypting = false;
+    patch.decryptRequestId = current.decryptRequestId + 1;
+  }
+  dispatchPatch(dispatch, getState, patch);
 }
 
 export function resetAll(dispatch) {
@@ -262,6 +272,9 @@ export async function addPayloads(dispatch, getState) {
     authConflicts: base.authConflicts,
   };
   const { added, failed } = parseTextWithErrors(base, base.payloadText, parseAutoPayload, "errors");
+  if (added > 0 || failed) {
+    cancelDecryptRequest(base);
+  }
   const fullyAccepted = parsedMainAccepted(base, before, added);
   if (fullyAccepted) {
     base.payloadText = "";
@@ -290,6 +303,16 @@ export async function addScannedPayload(dispatch, getState, scanned) {
     authConflicts: base.authConflicts,
   };
   const added = parseScannedPayload(base, scanned);
+  if (
+    added > 0 ||
+    base.errors > before.errors ||
+    base.conflicts > before.conflicts ||
+    base.ignored > before.ignored ||
+    base.authErrors > before.authErrors ||
+    base.authConflicts > before.authConflicts
+  ) {
+    cancelDecryptRequest(base);
+  }
   const fullyAccepted = parsedMainAccepted(base, before, added);
   if (fullyAccepted) {
     base.payloadText = "";

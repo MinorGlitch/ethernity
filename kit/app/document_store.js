@@ -190,6 +190,16 @@ export function incompleteDocumentRecords(state) {
   return records;
 }
 
+export function authOnlyDocumentRecords(state) {
+  const records = [];
+  for (const record of state.documents.values()) {
+    if (record.total === null && (record.authPayload || record.authErrors > 0)) {
+      records.push(record);
+    }
+  }
+  return records;
+}
+
 function sumDocumentField(documents, key) {
   let total = 0;
   for (const record of documents.values()) {

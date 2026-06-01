@@ -39,8 +39,9 @@ function parsePayloadLinesWith(state, text, addFrameFn, errorKey) {
     }
     try {
       const frame = decodeFrame(bytes);
-      addFrameFn(state, frame);
-      added += 1;
+      if (addFrameFn(state, frame)) {
+        added += 1;
+      }
     } catch {
       bumpError(state, errorKey);
     }
@@ -203,9 +204,7 @@ function parseFallbackText(state, text) {
   enforceFallbackLimits(filtered, "main");
   const bytes = decodeZBase32(filtered.join(""));
   const frame = decodeFrame(bytes);
-  addFrame(state, frame);
-
-  let added = 1;
+  let added = addFrame(state, frame) ? 1 : 0;
   if (sections.auth.length) {
     try {
       const authLines = filterZBase32Lines(sections.auth.join("\n"));
@@ -213,8 +212,9 @@ function parseFallbackText(state, text) {
         enforceFallbackLimits(authLines, "auth");
         const authBytes = decodeZBase32(authLines.join(""));
         const authFrame = decodeFrame(authBytes);
-        addFrame(state, authFrame);
-        added += 1;
+        if (addFrame(state, authFrame)) {
+          added += 1;
+        }
       }
     } catch {
       state.authErrors += 1;
@@ -240,8 +240,7 @@ function parseShardFallbackText(state, text) {
   enforceFallbackLimits(filtered, "shard");
   const bytes = decodeZBase32(filtered.join(""));
   const frame = decodeFrame(bytes);
-  addShardFrame(state, frame);
-  return 1;
+  return addShardFrame(state, frame) ? 1 : 0;
 }
 
 function enforceRecoveryTextLimit(text) {
@@ -296,8 +295,7 @@ export function parseScannedPayload(state, scanned) {
   if (bytes?.length) {
     try {
       const frame = decodeFrame(bytes);
-      addFrame(state, frame);
-      return 1;
+      return addFrame(state, frame) ? 1 : 0;
     } catch {
       if (!text) {
         bumpError(state, "errors");
@@ -330,8 +328,7 @@ export function parseScannedShard(state, scanned) {
         bumpError(state, "shardErrors");
         return 0;
       }
-      addShardFrame(state, frame);
-      return 1;
+      return addShardFrame(state, frame) ? 1 : 0;
     } catch {
       if (!text) {
         bumpError(state, "shardErrors");

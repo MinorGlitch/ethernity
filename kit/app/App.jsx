@@ -41,6 +41,7 @@ import { StepShell } from "./components/StepShell.jsx";
 import { initialState, reducer } from "./state/reducer.js";
 import {
   selectActionState,
+  selectFrameCollectionComplete,
   selectFrameDiagnostics,
   selectOutputSummary,
   selectRecoveredLabel,
@@ -81,6 +82,7 @@ export function App() {
   const getState = () => stateRef.current;
 
   const frameDiagnostics = selectFrameDiagnostics(state);
+  const frameCollectionComplete = selectFrameCollectionComplete(state);
   const shardDiagnostics = selectShardDiagnostics(state);
   const shardInputs = selectShardInputs(state);
   const outputSummary = selectOutputSummary(state);
@@ -93,6 +95,8 @@ export function App() {
     updateField(dispatch, getState, "shardPayloadText", event.currentTarget.value);
   const handlePassphraseChange = (event) =>
     updateField(dispatch, getState, "agePassphrase", event.currentTarget.value);
+  const handleExtensionTargetChange = (event) =>
+    updateField(dispatch, getState, "extensionTargetText", event.currentTarget.value);
 
   const handleAddPayloads = () => addPayloads(dispatch, getState);
   const handleScannedPayload = (scanned) => addScannedPayload(dispatch, getState, scanned);
@@ -211,10 +215,11 @@ export function App() {
             onPayloadChange={handlePayloadChange}
             onAddPayloads={handleAddPayloads}
             onScannedPayload={handleScannedPayload}
-            isComplete={Boolean(state.total && state.mainFrames.size === state.total)}
+            isComplete={frameCollectionComplete}
             onReset={handleReset}
             onDownloadCipher={handleDownloadCipher}
             canDownloadCipher={actionState.canDownloadCipher}
+            downloadCipherDisabledReason={actionState.downloadCipherDisabledReason}
             isAdding={state.isAddingFrames}
           />
         </StepShell>
@@ -247,13 +252,14 @@ export function App() {
           <DecryptSection
             passphrase={state.agePassphrase}
             decryptStatus={state.decryptStatus}
+            extensionTarget={state.extensionTargetText}
             onPassphraseChange={handlePassphraseChange}
+            onExtensionTargetChange={handleExtensionTargetChange}
             onDecrypt={handleDecrypt}
             onDecryptRootOnly={actionState.hasMultipleDocuments ? handleDecryptRootOnly : null}
             canDecrypt={actionState.canDecryptCiphertext}
-            canDecryptRootOnly={
-              actionState.canDecryptCiphertext && actionState.hasMultipleDocuments
-            }
+            canDecryptRootOnly={actionState.canDecryptRootOnly}
+            hasMultipleDocuments={actionState.hasMultipleDocuments}
             isComplete={actionState.hasOutput || Boolean(state.decryptedEnvelope)}
             isDecrypting={state.isDecrypting}
             onExtract={handleExtract}

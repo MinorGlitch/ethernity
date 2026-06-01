@@ -317,7 +317,7 @@ export async function reconstructLatestFiles(rootFiles, rootDocHash, extensions)
   }
 
   return Array.from(state.keys())
-    .sort()
+    .sort(compareUnicodeCodePointStrings)
     .map((path) => state.get(path));
 }
 

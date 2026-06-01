@@ -19,6 +19,7 @@ import { blake2b256 } from "../lib/blake2b.js";
 import { bytesToHex, hexToBytes } from "../lib/encoding.js";
 import { DOC_ID_LEN, MAX_CIPHERTEXT_BYTES } from "./constants.js";
 import {
+  authOnlyDocumentRecords,
   completeDocumentRecords,
   incompleteDocumentRecords,
   primaryDocumentRecord,
@@ -97,11 +98,19 @@ export function syncCollectedCiphertext(state) {
   syncLegacyDocumentFields(state);
 }
 
-export function collectedRecoveryDocuments(state) {
+export function collectedRecoveryDocuments(
+  state,
+  { allowIncomplete = false, allowAuthOnly = false } = {},
+) {
   const incomplete = incompleteDocumentRecords(state);
-  if (incomplete.length) {
+  if (incomplete.length && !allowIncomplete) {
     const docIds = incomplete.map((record) => record.docIdHex).join(", ");
     throw new Error(`incomplete backup document(s): ${docIds}`);
+  }
+  const authOnly = authOnlyDocumentRecords(state);
+  if (authOnly.length && !allowAuthOnly) {
+    const docIds = authOnly.map((record) => record.docIdHex).join(", ");
+    throw new Error(`AUTH frame(s) without MAIN document: ${docIds}`);
   }
   const documents = [];
   for (const record of completeDocumentRecords(state)) {

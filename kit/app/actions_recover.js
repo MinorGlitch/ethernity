@@ -20,6 +20,7 @@ import { recoverLatestFromEncryptedDocuments } from "./extension_recovery.js";
 import { extractFiles } from "./envelope.js";
 import { collectedRecoveryDocuments, reassembleCiphertext } from "./frames_cipher.js";
 import { formatBytes } from "./format.js";
+import { authOnlyDocumentRecords, incompleteDocumentRecords } from "./document_store.js";
 import { cloneState } from "./state/initial.js";
 import {
   applyExtractResult,
@@ -33,7 +34,7 @@ import {
 } from "./actions_common.js";
 
 export async function decryptCiphertext(dispatch, getState, options = {}) {
-  const { decrypt = decryptAgePassphrase, verifySignature, extensionTarget = "latest" } = options;
+  const { decrypt = decryptAgePassphrase, verifySignature } = options;
   const base = cloneState(getState());
   if (!base.agePassphrase.trim()) {
     setLineStatus(base, "decryptStatus", "Passphrase required.", "warn");
@@ -46,21 +47,33 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
   let didStartDecrypt = false;
   let finalState = null;
   try {
+    const extensionTarget =
+      options.extensionTarget ?? parseExtensionTarget(prep.extensionTargetText);
     if (prep.conflicts > 0) {
       throw new Error("conflicting duplicate frames detected");
     }
     if (prep.authConflicts > 0) {
       throw new Error("conflicting AUTH frames detected");
     }
+    if (prep.authErrors > 0) {
+      throw new Error("invalid AUTH frames detected");
+    }
     if (!prep.ciphertext && prep.total && prep.mainFrames.size === prep.total) {
       prep.ciphertext = reassembleCiphertext(prep);
     }
-    const documents = collectedRecoveryDocuments(prep);
+    const allowPartialDocuments = !isLatestTarget(extensionTarget);
+    const ignoredDocumentLines = allowPartialDocuments ? ignoredPartialDocumentLines(prep) : [];
+    const documents = collectedRecoveryDocuments(prep, {
+      allowIncomplete: allowPartialDocuments,
+      allowAuthOnly: allowPartialDocuments,
+    });
     if (!documents.length) {
       throw new Error("Collected ciphertext not available yet.");
     }
+    prep.decryptRequestId = base.decryptRequestId + 1;
     prep.isDecrypting = true;
     setLineStatus(prep, "decryptStatus", "Unlocking backup...");
+    const requestId = prep.decryptRequestId;
     dispatchState(dispatch, prep);
     didStartDecrypt = true;
 
@@ -71,6 +84,9 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
       { verifySignature, extensionTarget },
     );
     const next = cloneLatest(getState);
+    if (!isCurrentDecryptRequest(next, requestId)) {
+      return;
+    }
     next.decryptedEnvelope =
       result.selectedExtensionIndex === null ? result.decryptedEnvelope : null;
     next.decryptedEnvelopeSource = "Collected ciphertext";
@@ -82,6 +98,7 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
         "Recovery complete.",
         `${result.files.length} file(s) recovered (${formatBytes(totalRecoveredBytes(result.files))}).`,
         ...extensionRecoveryLines(result),
+        ...ignoredDocumentLines,
       ],
       type: "ok",
     };
@@ -91,6 +108,9 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
     finalState = next;
   } catch (err) {
     const next = didStartDecrypt ? cloneLatest(getState) : prep;
+    if (didStartDecrypt && !isCurrentDecryptRequest(next, prep.decryptRequestId)) {
+      return;
+    }
     next.isDecrypting = false;
     const errorMsg = String(err);
     const friendlyError = errorMsg.includes("password")
@@ -104,16 +124,62 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
   dispatchState(dispatch, finalState);
 }
 
+function isCurrentDecryptRequest(state, requestId) {
+  return state.isDecrypting && state.decryptRequestId === requestId;
+}
+
+function parseExtensionTarget(value) {
+  const target = String(value ?? "").trim();
+  if (!target || target.toLowerCase() === "latest") {
+    return "latest";
+  }
+  if (target.toLowerCase() === "root" || target === "0") {
+    return "root";
+  }
+  if (/^[1-9]\d*$/.test(target)) {
+    return { kind: "index", index: Number.parseInt(target, 10) };
+  }
+  const hash = target.toLowerCase();
+  if (/^[0-9a-f]{64}$/.test(hash)) {
+    return { kind: "doc_hash", docHashHex: hash };
+  }
+  throw new Error("extension target must be latest, root, an extension index, or a doc hash");
+}
+
+function isLatestTarget(extensionTarget) {
+  return !extensionTarget || extensionTarget === "latest" || extensionTarget?.kind === "latest";
+}
+
+function ignoredPartialDocumentLines(state) {
+  const lines = [];
+  const incomplete = incompleteDocumentRecords(state);
+  const authOnly = authOnlyDocumentRecords(state);
+  if (incomplete.length) {
+    lines.push(`Ignored ${incomplete.length} incomplete non-root backup document(s).`);
+  }
+  if (authOnly.length) {
+    lines.push(`Ignored ${authOnly.length} AUTH-only non-root backup document(s).`);
+  }
+  return lines;
+}
+
 function totalRecoveredBytes(files) {
   return files.reduce((sum, file) => sum + file.data.length, 0);
 }
 
 function extensionRecoveryLines(result) {
-  if (result.replayTarget === "root" && result.suppliedDocumentCount > 1) {
+  if (result.replayTarget === "root") {
     return ["Replay target: root backup only."];
   }
   if (result.selectedExtensionIndex === null) {
     return [];
+  }
+  if (result.replayTarget === "extension") {
+    return [
+      `Replay target: supplied authenticated extension ${result.selectedExtensionIndex}.`,
+      `Extension doc hash: ${result.selectedExtensionDocHash}.`,
+      "Freshness scope: supplied carriers only.",
+    ];
   }
   return [
     `Replay target: latest supplied authenticated extension ${result.selectedExtensionIndex}.`,

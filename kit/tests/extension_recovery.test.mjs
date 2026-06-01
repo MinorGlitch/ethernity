@@ -27,8 +27,14 @@ import {
 import { addFrame } from "../app/frames_apply.js";
 import { collectedRecoveryDocuments } from "../app/frames_cipher.js";
 import { decodeFrame } from "../app/frames_protocol.js";
+import { parseAutoPayload } from "../app/frames_parse.js";
 import { createInitialState } from "../app/state/initial.js";
 import { reducer } from "../app/state/reducer.js";
+import {
+  selectActionState,
+  selectFrameCollectionComplete,
+  selectFrameDiagnostics,
+} from "../app/state/selectors.js";
 import { encodeCbor } from "../lib/cbor.js";
 import { blake2b256 } from "../lib/blake2b.js";
 import { bytesToHex } from "../lib/encoding.js";
@@ -507,6 +513,142 @@ test("browser recovery replays the latest supplied authenticated extension chain
   );
 });
 
+test("browser recovery can select a supplied extension by index", async () => {
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x10),
+    plaintext: rootPlaintext,
+  });
+  const ext1Plaintext = buildExtensionPlaintext({
+    index: 1,
+    parentDocHash: root.docHash,
+    rootDocHash: root.docHash,
+    files: [{ path: "a.txt", data: new TextEncoder().encode("one") }],
+  });
+  const ext1 = documentFromPlaintext({
+    docId: EXT1_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x20),
+    plaintext: ext1Plaintext,
+  });
+  const ext2Plaintext = buildExtensionPlaintext({
+    index: 2,
+    parentDocHash: ext1.docHash,
+    rootDocHash: root.docHash,
+    files: [{ path: "a.txt", data: new TextEncoder().encode("two") }],
+  });
+  const ext2 = documentFromPlaintext({
+    docId: EXT2_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x30),
+    plaintext: ext2Plaintext,
+  });
+
+  const result = await recoverLatestFromPlaintextDocuments([root, ext2, ext1], {
+    verifySignature: verifiedSignature,
+    extensionTarget: { kind: "index", index: 1 },
+  });
+
+  assert.equal(result.replayTarget, "extension");
+  assert.equal(result.selectedExtensionIndex, 1);
+  assert.deepEqual(
+    result.files.map((file) => [file.path, new TextDecoder().decode(file.data)]),
+    [["a.txt", "one"]],
+  );
+});
+
+test("browser recovery can select a supplied extension by doc hash", async () => {
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x11),
+    plaintext: rootPlaintext,
+  });
+  const ext1Plaintext = buildExtensionPlaintext({
+    index: 1,
+    parentDocHash: root.docHash,
+    rootDocHash: root.docHash,
+    files: [{ path: "a.txt", data: new TextEncoder().encode("one") }],
+  });
+  const ext1 = documentFromPlaintext({
+    docId: EXT1_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x21),
+    plaintext: ext1Plaintext,
+  });
+  const ext2Plaintext = buildExtensionPlaintext({
+    index: 2,
+    parentDocHash: ext1.docHash,
+    rootDocHash: root.docHash,
+    files: [{ path: "a.txt", data: new TextEncoder().encode("two") }],
+  });
+  const ext2 = documentFromPlaintext({
+    docId: EXT2_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x31),
+    plaintext: ext2Plaintext,
+  });
+
+  const result = await recoverLatestFromPlaintextDocuments([ext2, root, ext1], {
+    verifySignature: verifiedSignature,
+    extensionTarget: { kind: "doc_hash", docHashHex: ext1.docHashHex },
+  });
+
+  assert.equal(result.replayTarget, "extension");
+  assert.equal(result.selectedExtensionIndex, 1);
+  assert.equal(result.selectedExtensionDocHash, ext1.docHashHex);
+  assert.deepEqual(
+    result.files.map((file) => [file.path, new TextDecoder().decode(file.data)]),
+    [["a.txt", "one"]],
+  );
+});
+
+test("browser recovery ignores a damaged later document for an explicit index target", async () => {
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x41),
+    plaintext: rootPlaintext,
+  });
+  const ext1Plaintext = buildExtensionPlaintext({
+    index: 1,
+    parentDocHash: root.docHash,
+    rootDocHash: root.docHash,
+    files: [{ path: "a.txt", data: new TextEncoder().encode("one") }],
+  });
+  const ext1 = documentFromPlaintext({
+    docId: EXT1_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x42),
+    plaintext: ext1Plaintext,
+  });
+  const ext2Plaintext = buildExtensionPlaintext({
+    index: 2,
+    parentDocHash: ext1.docHash,
+    rootDocHash: root.docHash,
+    files: [{ path: "a.txt", data: new TextEncoder().encode("two") }],
+  });
+  const ext2 = documentFromPlaintext({
+    docId: EXT2_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x43),
+    plaintext: ext2Plaintext,
+    signPub: OTHER_SIGN_PUB,
+  });
+
+  const result = await recoverLatestFromPlaintextDocuments([root, ext1, ext2], {
+    verifySignature: verifiedSignature,
+    extensionTarget: { kind: "index", index: 1 },
+  });
+
+  assert.equal(result.selectedExtensionIndex, 1);
+  assert.deepEqual(
+    result.files.map((file) => [file.path, new TextDecoder().decode(file.data)]),
+    [["a.txt", "one"]],
+  );
+});
+
 test("browser recovery resolves extension references to virtual root chunks", async () => {
   const rootBytes = new TextEncoder().encode("same root content");
   const rootPlaintext = buildRootPlaintext([{ path: "a.txt", data: rootBytes }]);
@@ -574,6 +716,58 @@ test("browser encrypted recovery fails closed when a supplied document cannot de
         { verifySignature: verifiedSignature },
       ),
     /one or more supplied backup documents could not be decrypted/,
+  );
+});
+
+test("browser encrypted recovery ignores later decrypt failures for an explicit index target", async () => {
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x46),
+    plaintext: rootPlaintext,
+  });
+  const ext1Plaintext = buildExtensionPlaintext({
+    index: 1,
+    parentDocHash: root.docHash,
+    rootDocHash: root.docHash,
+    files: [{ path: "a.txt", data: new TextEncoder().encode("one") }],
+  });
+  const ext1 = documentFromPlaintext({
+    docId: EXT1_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x47),
+    plaintext: ext1Plaintext,
+  });
+  const ext2 = {
+    docId: EXT2_DOC_ID,
+    docIdHex: bytesToHex(EXT2_DOC_ID),
+    docHash: blake2b256(Uint8Array.of(0x48)),
+    docHashHex: bytesToHex(blake2b256(Uint8Array.of(0x48))),
+    ciphertext: Uint8Array.of(0x48),
+    authPayload: {
+      version: 1,
+      docHash: blake2b256(Uint8Array.of(0x48)),
+      signPub: ROOT_SIGN_PUB,
+      signature: SIGNATURE,
+    },
+  };
+
+  const result = await recoverLatestFromEncryptedDocuments(
+    [root, ext2, ext1],
+    "pw",
+    async (ciphertext) => {
+      if (bytesToHex(ciphertext) === bytesToHex(root.ciphertext)) return rootPlaintext;
+      if (bytesToHex(ciphertext) === bytesToHex(ext1.ciphertext)) return ext1Plaintext;
+      throw new Error("damaged age payload");
+    },
+    { verifySignature: verifiedSignature, extensionTarget: { kind: "index", index: 1 } },
+  );
+
+  assert.equal(result.selectedExtensionIndex, 1);
+  assert.deepEqual(
+    result.files.map((file) => [file.path, new TextDecoder().decode(file.data)]),
+    [["a.txt", "one"]],
   );
 });
 
@@ -791,6 +985,43 @@ test("browser decrypt action recovers latest supplied extension status", async (
   );
 });
 
+test("browser decrypt action does not apply stale results after reset", async () => {
+  const store = createStore();
+  const state = store.getState();
+  state.agePassphrase = "pw";
+  const rootCiphertext = Uint8Array.of(0x49);
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  let releaseDecrypt;
+  let markDecryptStarted;
+  const decryptStarted = new Promise((resolve) => {
+    markDecryptStarted = resolve;
+  });
+  const decryptGate = new Promise((resolve) => {
+    releaseDecrypt = resolve;
+  });
+
+  const decryptTask = decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    async decrypt() {
+      markDecryptStarted();
+      await decryptGate;
+      return rootPlaintext;
+    },
+    verifySignature: verifiedSignature,
+  });
+  await decryptStarted;
+  store.dispatch({ type: "RESET" });
+  releaseDecrypt();
+  await decryptTask;
+
+  const finalState = store.getState();
+  assert.equal(finalState.recoveryComplete, false);
+  assert.deepEqual(finalState.extractedFiles, []);
+  assert.deepEqual(finalState.frameStatus.lines, ["State cleared."]);
+});
+
 test("browser decrypt action can recover root only from multiple supplied documents", async () => {
   const store = createStore();
   const state = store.getState();
@@ -834,6 +1065,291 @@ test("browser decrypt action can recover root only from multiple supplied docume
     finalState.decryptStatus.lines.includes("Freshness scope: supplied carriers only."),
     false,
   );
+});
+
+test("browser decrypt action can recover root only with incomplete extension frames", async () => {
+  const store = createStore();
+  const state = store.getState();
+  state.agePassphrase = "pw";
+  const rootCiphertext = Uint8Array.of(0x1d);
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  addFrame(
+    state,
+    decodeFrame(
+      buildFrame({
+        frameType: FRAME_TYPE_MAIN,
+        docId: EXT1_DOC_ID,
+        index: 0,
+        total: 2,
+        data: Uint8Array.of(0x2d),
+      }),
+    ),
+  );
+
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    extensionTarget: "root",
+    async decrypt(ciphertext) {
+      if (bytesToHex(ciphertext) === bytesToHex(rootCiphertext)) return rootPlaintext;
+      throw new Error("unexpected ciphertext");
+    },
+    verifySignature: verifiedSignature,
+  });
+
+  const finalState = store.getState();
+  assert.equal(finalState.recoveryComplete, true);
+  assert.equal(finalState.decryptStatus.type, "ok");
+  assert.equal(finalState.decryptStatus.lines.includes("Replay target: root backup only."), true);
+  assert.equal(
+    finalState.decryptStatus.lines.includes("Ignored 1 incomplete non-root backup document(s)."),
+    true,
+  );
+});
+
+test("browser decrypt action reports ignored AUTH-only frames for root-only recovery", async () => {
+  const store = createStore();
+  const state = store.getState();
+  state.agePassphrase = "pw";
+  const rootCiphertext = Uint8Array.of(0x1f);
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  addFrame(
+    state,
+    decodeFrame(
+      buildFrame({
+        frameType: FRAME_TYPE_AUTH,
+        docId: EXT1_DOC_ID,
+        data: encodeCbor({
+          version: 1,
+          hash: new Uint8Array(32).fill(0xaa),
+          pub: ROOT_SIGN_PUB,
+          sig: SIGNATURE,
+        }),
+      }),
+    ),
+  );
+
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    extensionTarget: "root",
+    async decrypt(ciphertext) {
+      if (bytesToHex(ciphertext) === bytesToHex(rootCiphertext)) return rootPlaintext;
+      throw new Error("unexpected ciphertext");
+    },
+    verifySignature: verifiedSignature,
+  });
+
+  const finalState = store.getState();
+  assert.equal(finalState.recoveryComplete, true);
+  assert.equal(finalState.decryptStatus.type, "ok");
+  assert.equal(
+    finalState.decryptStatus.lines.includes("Ignored 1 AUTH-only non-root backup document(s)."),
+    true,
+  );
+});
+
+test("browser decrypt action can recover selected extension with incomplete later frames", async () => {
+  const store = createStore();
+  const state = store.getState();
+  state.agePassphrase = "pw";
+  state.extensionTargetText = "1";
+  const rootCiphertext = Uint8Array.of(0x35);
+  const ext1Ciphertext = Uint8Array.of(0x36);
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const rootDocHash = blake2b256(rootCiphertext);
+  const ext1Plaintext = buildExtensionPlaintext({
+    index: 1,
+    parentDocHash: rootDocHash,
+    rootDocHash,
+    files: [{ path: "a.txt", data: new TextEncoder().encode("one") }],
+  });
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  addSingleFrameDocument(state, { ciphertext: ext1Ciphertext });
+  addFrame(
+    state,
+    decodeFrame(
+      buildFrame({
+        frameType: FRAME_TYPE_MAIN,
+        docId: EXT2_DOC_ID,
+        index: 0,
+        total: 2,
+        data: Uint8Array.of(0x37),
+      }),
+    ),
+  );
+
+  assert.equal(selectActionState(state).canDecryptCiphertext, true);
+
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    async decrypt(ciphertext) {
+      if (bytesToHex(ciphertext) === bytesToHex(rootCiphertext)) return rootPlaintext;
+      if (bytesToHex(ciphertext) === bytesToHex(ext1Ciphertext)) return ext1Plaintext;
+      throw new Error("unexpected ciphertext");
+    },
+    verifySignature: verifiedSignature,
+  });
+
+  const finalState = store.getState();
+  assert.equal(finalState.recoveryComplete, true);
+  assert.equal(finalState.decryptStatus.type, "ok");
+  assert.equal(
+    finalState.decryptStatus.lines.includes("Replay target: supplied authenticated extension 1."),
+    true,
+  );
+  assert.equal(
+    finalState.decryptStatus.lines.includes("Ignored 1 incomplete non-root backup document(s)."),
+    true,
+  );
+  assert.deepEqual(
+    finalState.extractedFiles.map((file) => [file.path, new TextDecoder().decode(file.data)]),
+    [["a.txt", "one"]],
+  );
+});
+
+test("browser action state blocks latest recovery for AUTH-only extension records", () => {
+  const state = createInitialState();
+  state.agePassphrase = "pw";
+  addSingleFrameDocument(state, { ciphertext: Uint8Array.of(0x38) });
+  addFrame(
+    state,
+    decodeFrame(
+      buildFrame({
+        frameType: FRAME_TYPE_AUTH,
+        docId: EXT1_DOC_ID,
+        data: encodeCbor({
+          version: 1,
+          hash: new Uint8Array(32).fill(0xaa),
+          pub: ROOT_SIGN_PUB,
+          sig: SIGNATURE,
+        }),
+      }),
+    ),
+  );
+
+  assert.equal(selectActionState(state).canDecryptCiphertext, false);
+  state.extensionTargetText = "root";
+  assert.equal(selectActionState(state).canDecryptCiphertext, true);
+  state.extensionTargetText = "1";
+  assert.equal(selectActionState(state).canDecryptCiphertext, true);
+});
+
+test("browser decrypt action accepts extension target input by index", async () => {
+  const store = createStore();
+  const state = store.getState();
+  state.agePassphrase = "pw";
+  state.extensionTargetText = "1";
+  const rootCiphertext = Uint8Array.of(0x3c);
+  const ext1Ciphertext = Uint8Array.of(0x4c);
+  const ext2Ciphertext = Uint8Array.of(0x5c);
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const rootDocHash = blake2b256(rootCiphertext);
+  const ext1Plaintext = buildExtensionPlaintext({
+    index: 1,
+    parentDocHash: rootDocHash,
+    rootDocHash,
+    files: [{ path: "a.txt", data: new TextEncoder().encode("one") }],
+  });
+  const ext2Plaintext = buildExtensionPlaintext({
+    index: 2,
+    parentDocHash: blake2b256(ext1Ciphertext),
+    rootDocHash,
+    files: [{ path: "a.txt", data: new TextEncoder().encode("two") }],
+  });
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  addSingleFrameDocument(state, { ciphertext: ext1Ciphertext });
+  addSingleFrameDocument(state, { ciphertext: ext2Ciphertext });
+
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    async decrypt(ciphertext) {
+      if (bytesToHex(ciphertext) === bytesToHex(rootCiphertext)) return rootPlaintext;
+      if (bytesToHex(ciphertext) === bytesToHex(ext1Ciphertext)) return ext1Plaintext;
+      if (bytesToHex(ciphertext) === bytesToHex(ext2Ciphertext)) return ext2Plaintext;
+      throw new Error("unexpected ciphertext");
+    },
+    verifySignature: verifiedSignature,
+  });
+
+  const finalState = store.getState();
+  assert.equal(finalState.recoveryComplete, true);
+  assert.equal(finalState.decryptStatus.type, "ok");
+  assert.equal(
+    finalState.decryptStatus.lines.includes("Replay target: supplied authenticated extension 1."),
+    true,
+  );
+  assert.deepEqual(
+    finalState.extractedFiles.map((file) => [file.path, new TextDecoder().decode(file.data)]),
+    [["a.txt", "one"]],
+  );
+});
+
+test("browser decrypt action accepts extension target input by doc hash", async () => {
+  const store = createStore();
+  const state = store.getState();
+  state.agePassphrase = "pw";
+  const rootCiphertext = Uint8Array.of(0x6c);
+  const ext1Ciphertext = Uint8Array.of(0x7c);
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const rootDocHash = blake2b256(rootCiphertext);
+  const ext1Plaintext = buildExtensionPlaintext({
+    index: 1,
+    parentDocHash: rootDocHash,
+    rootDocHash,
+    files: [{ path: "a.txt", data: new TextEncoder().encode("one") }],
+  });
+  const extDocHashHex = bytesToHex(blake2b256(ext1Ciphertext));
+  state.extensionTargetText = extDocHashHex.toUpperCase();
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  addSingleFrameDocument(state, { ciphertext: ext1Ciphertext });
+
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    async decrypt(ciphertext) {
+      if (bytesToHex(ciphertext) === bytesToHex(rootCiphertext)) return rootPlaintext;
+      if (bytesToHex(ciphertext) === bytesToHex(ext1Ciphertext)) return ext1Plaintext;
+      throw new Error("unexpected ciphertext");
+    },
+    verifySignature: verifiedSignature,
+  });
+
+  const finalState = store.getState();
+  assert.equal(finalState.recoveryComplete, true);
+  assert.equal(finalState.decryptStatus.type, "ok");
+  assert.equal(
+    finalState.decryptStatus.lines.includes(`Extension doc hash: ${extDocHashHex}.`),
+    true,
+  );
+  assert.deepEqual(
+    finalState.extractedFiles.map((file) => [file.path, new TextDecoder().decode(file.data)]),
+    [["a.txt", "one"]],
+  );
+});
+
+test("browser decrypt action rejects invalid extension target input before decrypting", async () => {
+  const store = createStore();
+  const state = store.getState();
+  state.agePassphrase = "pw";
+  state.extensionTargetText = "not-a-target";
+  addSingleFrameDocument(state, { ciphertext: Uint8Array.of(0x7d) });
+
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    async decrypt() {
+      throw new Error("decrypt should not be called");
+    },
+    verifySignature: verifiedSignature,
+  });
+
+  const finalState = store.getState();
+  assert.equal(finalState.recoveryComplete, false);
+  assert.equal(finalState.decryptStatus.type, "error");
+  assert.match(finalState.decryptStatus.lines[0], /extension target/);
 });
 
 test("browser extract action extracts an already decrypted root envelope", async () => {
@@ -887,6 +1403,56 @@ test("browser decrypt action rejects conflicting AUTH payloads", async () => {
   assert.equal(finalState.decryptStatus.lines[0], "Error: conflicting AUTH frames detected");
 });
 
+test("browser decrypt action rejects malformed AUTH payloads", async () => {
+  const store = createStore();
+  const state = store.getState();
+  state.agePassphrase = "pw";
+  const rootCiphertext = Uint8Array.of(0x1a);
+  const rootDocId = docIdForCiphertext(rootCiphertext);
+  addFrame(
+    state,
+    decodeFrame(buildFrame({ frameType: FRAME_TYPE_MAIN, docId: rootDocId, data: rootCiphertext })),
+  );
+  addFrame(
+    state,
+    decodeFrame(
+      buildFrame({
+        frameType: FRAME_TYPE_AUTH,
+        docId: rootDocId,
+        data: Uint8Array.of(0xff),
+      }),
+    ),
+  );
+
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    async decrypt() {
+      throw new Error("decrypt should not be called");
+    },
+    verifySignature: verifiedSignature,
+  });
+
+  const finalState = store.getState();
+  assert.equal(finalState.authErrors, 1);
+  assert.equal(finalState.decryptStatus.type, "error");
+  assert.equal(finalState.decryptStatus.lines[0], "Error: invalid AUTH frames detected");
+});
+
+test("browser frame diagnostics surface invalid AUTH payloads", () => {
+  const state = createInitialState();
+  const frame = buildFrame({
+    frameType: FRAME_TYPE_AUTH,
+    docId: EXT1_DOC_ID,
+    data: Uint8Array.of(0xff),
+  });
+
+  const added = parseAutoPayload(state, Buffer.from(frame).toString("base64").replace(/=+$/, ""));
+  const diagnostics = selectFrameDiagnostics(state);
+
+  assert.equal(added, 0);
+  assert.equal(state.authErrors, 1);
+  assert.equal(diagnostics.find((item) => item.label === "AUTH errors")?.value, "1");
+});
+
 test("browser frame collection rejects AUTH duplicates with changed signed fields", () => {
   const state = createInitialState();
   const rootCiphertext = Uint8Array.of(0x19);
@@ -910,6 +1476,10 @@ test("browser frame collection rejects AUTH duplicates with changed signed field
   assert.equal(state.authDuplicates, 0);
   assert.equal(state.authConflicts, 1);
   assert.equal(state.authStatus, "conflicting auth payloads");
+  assert.equal(
+    selectFrameDiagnostics(state).find((item) => item.label === "AUTH conflicts")?.value,
+    "1",
+  );
 });
 
 test("browser frame collection rejects AUTH duplicates with changed doc hash", () => {
@@ -1145,4 +1715,67 @@ test("collected recovery documents reject frame doc_id not derived from cipherte
   );
 
   assert.throws(() => collectedRecoveryDocuments(state), /doc_id/);
+});
+
+test("collected recovery documents reject AUTH frames without MAIN documents", () => {
+  const state = createInitialState();
+  const ciphertext = Uint8Array.of(0x9a);
+  addSingleFrameDocument(state, { ciphertext });
+  addFrame(
+    state,
+    decodeFrame(
+      buildFrame({
+        frameType: FRAME_TYPE_AUTH,
+        docId: EXT1_DOC_ID,
+        data: encodeCbor({
+          version: 1,
+          hash: new Uint8Array(32).fill(0xab),
+          pub: ROOT_SIGN_PUB,
+          sig: SIGNATURE,
+        }),
+      }),
+    ),
+  );
+
+  assert.throws(() => collectedRecoveryDocuments(state), /AUTH frame\(s\) without MAIN/);
+});
+
+test("encrypted file download is disabled for multi-document scans", () => {
+  const state = createInitialState();
+  addSingleFrameDocument(state, { ciphertext: Uint8Array.of(0xa1) });
+  addSingleFrameDocument(state, { ciphertext: Uint8Array.of(0xa2) });
+
+  const actionState = selectActionState(state);
+
+  assert.equal(actionState.canDownloadCipher, false);
+  assert.equal(
+    actionState.downloadCipherDisabledReason,
+    "Encrypted file download is only available for one backup document.",
+  );
+});
+
+test("multi-document collection waits for incomplete extensions before latest recovery", () => {
+  const state = createInitialState();
+  state.agePassphrase = "pw";
+  addSingleFrameDocument(state, { ciphertext: Uint8Array.of(0xa3) });
+  addFrame(
+    state,
+    decodeFrame(
+      buildFrame({
+        frameType: FRAME_TYPE_MAIN,
+        docId: EXT1_DOC_ID,
+        index: 0,
+        total: 2,
+        data: Uint8Array.of(0xa4),
+      }),
+    ),
+  );
+
+  const latestActionState = selectActionState(state);
+  assert.equal(selectFrameCollectionComplete(state), false);
+  assert.equal(latestActionState.canDecryptCiphertext, false);
+  assert.equal(latestActionState.canDecryptRootOnly, true);
+
+  state.extensionTargetText = "root";
+  assert.equal(selectActionState(state).canDecryptCiphertext, true);
 });

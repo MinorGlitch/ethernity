@@ -48,6 +48,9 @@ export function downloadCipher(dispatch, getState) {
     if (next.conflicts > 0) {
       throw new Error("conflicting duplicate frames detected");
     }
+    if ((next.documents?.size ?? 0) > 1) {
+      throw new Error("Encrypted file download is only available for one backup document.");
+    }
     const ciphertext = reassembleCiphertext(next);
     next.ciphertext = ciphertext;
     downloadBytes(ciphertext, "ciphertext.age");

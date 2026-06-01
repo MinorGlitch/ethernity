@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 import { gzipSync } from "node:zlib";
@@ -118,4 +119,39 @@ test("buildCompressedLoaderHtml decodes and renders gzip payload", async () => {
   });
 
   assert.equal(written.join(""), sourceHtml);
+});
+
+test("committed recovery kit bundles decode to extension-capable UI", async () => {
+  const bundlePaths = [
+    "../../src/ethernity/resources/kit/recovery_kit.bundle.html",
+    "../../src/ethernity/resources/kit/recovery_kit.scanner.bundle.html",
+  ];
+
+  for (const bundlePath of bundlePaths) {
+    const html = await readFile(new URL(bundlePath, import.meta.url), "utf8");
+    const written = [];
+    const document = {
+      open() {
+        written.length = 0;
+      },
+      write(value) {
+        written.push(value);
+      },
+      close() {},
+    };
+
+    await vm.runInNewContext(extractLoaderScript(html), {
+      Blob,
+      DecompressionStream,
+      Response,
+      Uint8Array,
+      document,
+      window: { DecompressionStream },
+    });
+
+    const decoded = written.join("");
+    assert.match(decoded, /Extension target/);
+    assert.match(decoded, /Unlock root only/);
+    assert.match(decoded, /latest, root, index, or doc hash/);
+  }
 });

@@ -20,11 +20,14 @@ import { ActionsRow, Field, StatusBlock } from "./common.jsx";
 export function DecryptSection({
   passphrase,
   decryptStatus,
+  extensionTarget,
   onPassphraseChange,
+  onExtensionTargetChange,
   onDecrypt,
   onDecryptRootOnly,
   canDecrypt,
   canDecryptRootOnly,
+  hasMultipleDocuments,
   isComplete,
   isDecrypting,
   onExtract,
@@ -84,6 +87,16 @@ export function DecryptSection({
           autoComplete="off"
           spellCheck="false"
         />
+        {hasMultipleDocuments ? (
+          <Field
+            id="extension-target-input"
+            label="Extension target"
+            value={extensionTarget}
+            placeholder="latest, root, index, or doc hash"
+            onInput={onExtensionTargetChange}
+            spellCheck="false"
+          />
+        ) : null}
         <ActionsRow actions={decryptActions} />
       </div>
       <div class="step-section">

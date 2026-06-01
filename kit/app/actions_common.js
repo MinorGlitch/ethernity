@@ -132,6 +132,14 @@ export function clearDecryptedEnvelope(state) {
   state.decryptedEnvelopeSource = "";
 }
 
+export function cancelDecryptRequest(state) {
+  if (!state.isDecrypting) {
+    return;
+  }
+  state.isDecrypting = false;
+  state.decryptRequestId += 1;
+}
+
 export function applyExtractResult(state, result) {
   state.extractedFiles = result.files;
   setLineStatus(state, "extractStatus", `${result.files.length} file(s) ready.`, "ok");

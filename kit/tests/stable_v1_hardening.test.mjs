@@ -243,7 +243,7 @@ test("parseAutoPayload rejects non-canonical AUTH CBOR payload", () => {
   const state = createInitialState();
 
   const added = parseAutoPayload(state, toUnpaddedBase64(frame));
-  assert.equal(added, 1);
+  assert.equal(added, 0);
   assert.equal(state.authErrors, 1);
   assert.equal(state.authPayload, null);
 });
