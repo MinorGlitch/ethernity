@@ -1,0 +1,85 @@
+import fs from "node:fs";
+import path from "node:path";
+import process from "node:process";
+
+import { recoverLatestFromEncryptedDocuments } from "../app/extension_recovery.js";
+import { decryptAgePassphrase } from "../lib/age_scrypt.js";
+import { bytesToHex } from "../lib/encoding.js";
+
+if (typeof globalThis.atob !== "function") {
+  globalThis.atob = (value) => Buffer.from(value, "base64").toString("binary");
+}
+
+function fail(message) {
+  process.stderr.write(`${message}\n`);
+  process.exit(1);
+}
+
+function bytesFromBase64(value, label) {
+  if (typeof value !== "string" || !value) {
+    fail(`${label} must be base64 text`);
+  }
+  return new Uint8Array(Buffer.from(value, "base64"));
+}
+
+function authPayloadFromJson(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  return {
+    version: value.version ?? 1,
+    docHash: bytesFromBase64(value.doc_hash, "auth.doc_hash"),
+    signPub: bytesFromBase64(value.sign_pub, "auth.sign_pub"),
+    signature: bytesFromBase64(value.signature, "auth.signature"),
+  };
+}
+
+function documentFromJson(value, index) {
+  const ciphertext = bytesFromBase64(value?.ciphertext, `documents[${index}].ciphertext`);
+  const docHash = bytesFromBase64(value?.doc_hash, `documents[${index}].doc_hash`);
+  return {
+    ciphertext,
+    docHash,
+    docHashHex: bytesToHex(docHash),
+    authPayload: authPayloadFromJson(value?.auth),
+  };
+}
+
+async function main() {
+  const input = process.argv[2];
+  if (!input) {
+    fail("usage: node kit/scripts/run_recover_documents.mjs <documents-json-file>");
+  }
+  const fixturePath = path.resolve(input);
+  const fixture = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
+  if (!Array.isArray(fixture.documents)) {
+    fail("documents must be an array");
+  }
+  const documents = fixture.documents.map(documentFromJson);
+  const result = await recoverLatestFromEncryptedDocuments(
+    documents,
+    fixture.passphrase,
+    decryptAgePassphrase,
+  );
+  const files = result.files.map((file) => ({
+    path: file.path,
+    data_base64: Buffer.from(file.data).toString("base64"),
+  }));
+  process.stdout.write(
+    `${JSON.stringify({
+      selected_extension_index: result.selectedExtensionIndex,
+      selected_extension_doc_hash: result.selectedExtensionDocHash,
+      freshness_scope: result.freshnessScope,
+      replay_target: result.replayTarget,
+      manifest: {
+        input_origin: result.manifest.inputOrigin,
+        input_roots: result.manifest.inputRoots,
+      },
+      files,
+    })}\n`,
+  );
+}
+
+await main().catch((err) => {
+  fail(err instanceof Error ? err.message : String(err));
+});
