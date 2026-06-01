@@ -103,6 +103,21 @@ def _reject_compact_output_inside_root(root_dir: Path, output_dir_value: str) ->
         )
 
 
+def _reject_compact_layout_debug_inside_root(
+    root_dir: Path, layout_debug_dir_value: str | None
+) -> None:
+    if layout_debug_dir_value is None or not layout_debug_dir_value.strip():
+        return
+    debug_dir = Path(layout_debug_dir_value).expanduser()
+    root_resolved = root_dir.resolve(strict=False)
+    debug_resolved = debug_dir.resolve(strict=False)
+    if debug_resolved == root_resolved or debug_resolved.is_relative_to(root_resolved):
+        raise ValueError(
+            "compact layout debug directory must not be the source generated folder "
+            f"or inside it: {layout_debug_dir_value}"
+        )
+
+
 def _translate_compact_head_untrusted(exc: ApiCommandError) -> ApiCommandError:
     head_label = "requested" if exc.details.get("explicit_selection") else "latest supplied"
     message = f"{head_label} compact head could not be trusted; no checkpoint was created"
@@ -381,6 +396,7 @@ def run_compact(args: CompactArgs) -> BackupResult:
         raise ValueError("compact requires output_dir")
     if root_dir is not None:
         _reject_compact_output_inside_root(root_dir, args.output_dir)
+        _reject_compact_layout_debug_inside_root(root_dir, args.layout_debug_dir)
 
     recover_plan = plan_recover_from_args(_compact_recover_args(args, root_dir))
     chain = _recover_compact_chain(recover_plan, quiet=args.quiet)

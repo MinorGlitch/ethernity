@@ -279,6 +279,24 @@ class TestCompactService(unittest.TestCase):
                     )
                 )
 
+    def test_run_compact_rejects_layout_debug_dir_inside_root_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            with self.assertRaisesRegex(
+                ValueError,
+                "compact layout debug directory must not be the source generated folder "
+                "or inside it",
+            ):
+                run_compact(
+                    CompactArgs(
+                        root_dir=str(root_dir),
+                        output_dir=str(root_dir.parent / "compacted"),
+                        layout_debug_dir=str(root_dir / "layout-debug"),
+                        passphrase="secret",
+                        quiet=True,
+                    )
+                )
+
     def test_infer_root_publish_policy_uses_external_passphrase_shard_frames(self) -> None:
         doc_id = b"\x22" * 8
         doc_hash = b"\x44" * 32
