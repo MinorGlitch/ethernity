@@ -1,18 +1,18 @@
 {
   "artifact_hashes": {
-    "chain_payloads.bin": "728465fbcfc9ab4abe278d88f70ef265303c087311450c2df7afe75e5eb01ddd",
-    "chain_payloads.txt": "959cbf9e118dcc233783e11974198400093b96d125b97ef634c9e93eab5b9e40",
-    "extension_01_payloads.bin": "a6fda37835573e1d4ed1e68e3125f8b30e5aafbef5fd1fa2a1197b30d9e79c51",
-    "extension_01_payloads.txt": "bd0a8b02daeb970ec679fb10f475196d14dce801ab83bbd091abcf5fe792044b",
-    "extension_02_payloads.bin": "abb0f8e5ee42513725ae883d8a883f71fd4e922dbf0afdebc8ad2f5e4d55a5a4",
-    "extension_02_payloads.txt": "1b99d001af8260aecf4a7e548af450bb518b39294c6e05d4e6c970f9ce38064d",
-    "loose_chain/extension-02-f852f432ffc715b7/qr_document-02-f852f432ffc715b7.pdf": "9b5214b9bb40506be9ca11f95db3f24f66452f98d8e965a5f8c8a7230726879e",
-    "loose_chain/extension-02-f852f432ffc715b7/recovery_document-02-f852f432ffc715b7.pdf": "2cbbbf2c3ac5ec7434ba25bc2b94c1831f59158e1e585e53399c8368dc0f6dc2",
-    "loose_chain/extension-02-f852f432ffc715b7/recovery_kit_index-02-f852f432ffc715b7.pdf": "1a8b188446acb0144774e200bf23d4a827e7d4978905f6cbc02bfeb5b406cba4",
-    "loose_scans/phone-root-carrier.pdf": "01bbc90a9f25f328ef0a40a906e62b68f58c8875e786905a4179a95294f1c9dc",
-    "loose_scans/wallet-extension-one.pdf": "0b4a8cb677b78cccabcae671d65c08634fa1a7ac0d0819de58867ca1f86c5a28",
-    "root_payloads.bin": "cea3cd189b80b0fa0c8b0ccadd6060dc87a6dd093f7f344ff6e9b518b94718fb",
-    "root_payloads.txt": "ac3dfcea8e0ebb7beeca123702f0446792e9ec90a7095cd42d3f97161c96e20d"
+    "chain_payloads.bin": "e8f91515f066548422c5f1bd53bf40a4deafcc3a1baf1c48d3abf28f19fbbeaf",
+    "chain_payloads.txt": "a5d9f290a2751a7abd0b8b2860f73ddced61ef2d6127e402a69a5cdc3ffb852b",
+    "extension_01_payloads.bin": "016e407ed3f06f4ccb1325b345631ad14732f67e7ae54d9fe1ca40230bcf2f76",
+    "extension_01_payloads.txt": "945fcc35cc632ae26b0b492be90b2038edbae0423dbaf0901900fb472719ed52",
+    "extension_02_payloads.bin": "1fe5122abdc0266445ffb27d5a4c48254ceeaba932a60f2df5f454f4cc5d5f77",
+    "extension_02_payloads.txt": "a1ac980d324a2c9d7b76c5cc9f31e6f13ea06477fdd3e372c0e1d2fe5a2bd145",
+    "loose_chain/extension-02-21dc2ee0ad63e393/qr_document-02-21dc2ee0ad63e393.pdf": "3acd13a87b56b50c088e15089115ca75562afc7535920f0bd7850ca5d13f024a",
+    "loose_chain/extension-02-21dc2ee0ad63e393/recovery_document-02-21dc2ee0ad63e393.pdf": "781d7bff4c14d6148d39fdc10bf3e114449fd929cb18f3e0afefa88e2461ee3b",
+    "loose_chain/extension-02-21dc2ee0ad63e393/recovery_kit_index-02-21dc2ee0ad63e393.pdf": "0e6ae2a94e4620158bb8726e87c3fe9692ab6e813adaeef2838439af2faf5ceb",
+    "loose_scans/phone-root-carrier.pdf": "2dd4f0fecd31d19e7679d75b8bca8c9dba485c81dcf4975fd20a28cfe222ddd3",
+    "loose_scans/wallet-extension-one.pdf": "73287b36ea87531552df23aa2eb6b5a28113011871e57a1e31a7bef12386d4bc",
+    "root_payloads.bin": "ad31f9804acaa8114aa05a3f147299a0b53c645260c9b6cfd7bdba61304cd72f",
+    "root_payloads.txt": "507e8754834c2caf512bdae833047aa546b4f683327dc8969d2a005bc40669ab"
   },
   "chain_dir": "loose_chain",
   "checks": [
@@ -20,30 +20,6 @@
     "loose extension append layout"
   ],
   "document_projection": [
-    {
-      "chunks": [
-        {
-          "chunk_id": "930c78d2f11e1563239a743bcf3c050ae8781243008b0994459e5da22038f9bd",
-          "codec": "raw",
-          "decoded_sha256": "930c78d2f11e1563239a743bcf3c050ae8781243008b0994459e5da22038f9bd",
-          "raw_len": 28,
-          "stored_len": 28
-        }
-      ],
-      "doc_hash": "aa733291fab248497d2aac0a97045f2ce5e1292fd7dcccfa142cf3ecc2d6a267",
-      "doc_id": "aa733291fab24849",
-      "files": [
-        {
-          "path": "alpha.txt",
-          "sha256": "930c78d2f11e1563239a743bcf3c050ae8781243008b0994459e5da22038f9bd",
-          "size": 28
-        }
-      ],
-      "index": 1,
-      "kind": "extension",
-      "parent_doc_hash": "21f714e0392a2c4495050d12cff5d44fa8349e27dcc5d84174a6e64a4944bfc4",
-      "root_doc_hash": "21f714e0392a2c4495050d12cff5d44fa8349e27dcc5d84174a6e64a4944bfc4"
-    },
     {
       "chunks": [
         {
@@ -61,8 +37,8 @@
           "stored_len": 29
         }
       ],
-      "doc_hash": "f852f432ffc715b7480e5f18ebb846856fd2818b5abd083b83c007ebc7a2d9cc",
-      "doc_id": "f852f432ffc715b7",
+      "doc_hash": "21dc2ee0ad63e3936646321b40ed13cd6ab4deb30156df2bacbe9f38fd774888",
+      "doc_id": "21dc2ee0ad63e393",
       "files": [
         {
           "path": "alpha.txt",
@@ -77,12 +53,36 @@
       ],
       "index": 2,
       "kind": "extension",
-      "parent_doc_hash": "aa733291fab248497d2aac0a97045f2ce5e1292fd7dcccfa142cf3ecc2d6a267",
-      "root_doc_hash": "21f714e0392a2c4495050d12cff5d44fa8349e27dcc5d84174a6e64a4944bfc4"
+      "parent_doc_hash": "5eee9af8ea41a674f48d9b5b94d7ff9260013b3813fb3b51534d60ae9c2a14af",
+      "root_doc_hash": "6c19dd337987bfac2ae97df209530bb151b4f6a38f1cf1bc916dbe20555ea180"
     },
     {
-      "doc_hash": "21f714e0392a2c4495050d12cff5d44fa8349e27dcc5d84174a6e64a4944bfc4",
-      "doc_id": "21f714e0392a2c44",
+      "chunks": [
+        {
+          "chunk_id": "930c78d2f11e1563239a743bcf3c050ae8781243008b0994459e5da22038f9bd",
+          "codec": "raw",
+          "decoded_sha256": "930c78d2f11e1563239a743bcf3c050ae8781243008b0994459e5da22038f9bd",
+          "raw_len": 28,
+          "stored_len": 28
+        }
+      ],
+      "doc_hash": "5eee9af8ea41a674f48d9b5b94d7ff9260013b3813fb3b51534d60ae9c2a14af",
+      "doc_id": "5eee9af8ea41a674",
+      "files": [
+        {
+          "path": "alpha.txt",
+          "sha256": "930c78d2f11e1563239a743bcf3c050ae8781243008b0994459e5da22038f9bd",
+          "size": 28
+        }
+      ],
+      "index": 1,
+      "kind": "extension",
+      "parent_doc_hash": "6c19dd337987bfac2ae97df209530bb151b4f6a38f1cf1bc916dbe20555ea180",
+      "root_doc_hash": "6c19dd337987bfac2ae97df209530bb151b4f6a38f1cf1bc916dbe20555ea180"
+    },
+    {
+      "doc_hash": "6c19dd337987bfac2ae97df209530bb151b4f6a38f1cf1bc916dbe20555ea180",
+      "doc_id": "6c19dd337987bfac",
       "files": [
         {
           "path": "alpha.txt",
@@ -97,8 +97,8 @@
     }
   ],
   "extension_doc_hashes": {
-    "extension_01": "aa733291fab248497d2aac0a97045f2ce5e1292fd7dcccfa142cf3ecc2d6a267",
-    "extension_02": "f852f432ffc715b7480e5f18ebb846856fd2818b5abd083b83c007ebc7a2d9cc"
+    "extension_01": "5eee9af8ea41a674f48d9b5b94d7ff9260013b3813fb3b51534d60ae9c2a14af",
+    "extension_02": "21dc2ee0ad63e3936646321b40ed13cd6ab4deb30156df2bacbe9f38fd774888"
   },
   "passphrase": "stable-v1_2-extension-passphrase",
   "payload_fixtures": {
@@ -125,7 +125,7 @@
   },
   "profile": "raw",
   "qr_payload_codec": "raw",
-  "root_doc_hash": "21f714e0392a2c4495050d12cff5d44fa8349e27dcc5d84174a6e64a4944bfc4",
+  "root_doc_hash": "6c19dd337987bfac2ae97df209530bb151b4f6a38f1cf1bc916dbe20555ea180",
   "scan_paths": [
     "loose_scans/phone-root-carrier.pdf",
     "loose_scans/wallet-extension-one.pdf",

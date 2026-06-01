@@ -1,26 +1,26 @@
 {
   "artifact_hashes": {
-    "chain/extensions/01/qr_document-01-47cd2363343aeedb.pdf": "d4cc65e327ad582117cc90d28080991e96ec9ca5efcedfa792236db063bf74ae",
-    "chain/extensions/01/recovery_document-01-47cd2363343aeedb.pdf": "5ea04fc7c000fe0c8ecbd9331ec879fdb9e72e03e2b4666968fbb47cf681bf12",
-    "chain/extensions/01/recovery_kit_index-01-47cd2363343aeedb.pdf": "607fb2fea27aa386709c8fa357ac862bdc05d27665d54b6151970cd0ee3eacca",
-    "chain/extensions/01/shard-01-47cd2363343aeedb-1-of-3.pdf": "10cc4fd73409000748a5584b15434a0815aa8a9e29fff12f21f1832364bd7ad4",
-    "chain/extensions/01/shard-01-47cd2363343aeedb-2-of-3.pdf": "168b0c1db809ecd6ff380d98b2ead869a0fa637802691b8608a595d7ae40f586",
-    "chain/extensions/01/shard-01-47cd2363343aeedb-3-of-3.pdf": "e15b889a99e9569b5a28c38a91359e5c4317459c5e83e8af9a2ba7f8c41b0f30",
-    "chain/extensions/01/signing-key-shard-01-47cd2363343aeedb-1-of-2.pdf": "5db312d0ae0290ca9df2f47488dcd932a328910c4cc3af8961bce164e8cfe92f",
-    "chain/extensions/01/signing-key-shard-01-47cd2363343aeedb-2-of-2.pdf": "fb374a31c1d36747a2b22d6d96a3de0b990bfa754f889f19442dce738e1cf7c7",
-    "chain/qr_document.pdf": "0417c55608cd062b7931f570b5d055f1991de947288fb07c387abbe85dc62585",
-    "chain/recovery_document.pdf": "827b2ce21f33430406e0555a1026ed6b0c16df5b7fcc66d89057acd97ce16b98",
-    "chain/recovery_kit_index.pdf": "bc3cf46e80f4ab527502a54793ef7398b5a535d9ea3faf59b7e90a9261eeb744",
-    "chain_payloads.bin": "575c8f9f2c53bfdf98fe6148ddc437a4d2d5e54dc24416e66076a2be4d5eedad",
-    "chain_payloads.txt": "82703d9cd340dc9ea0660838738a57ea856b8ab0cee41bfb6c8b278adbf7065a",
-    "extension_01_payloads.bin": "ad1b236a69a17a89f054eab063c53437cc31060fcb92fc0ba6f2cdcc175b790b",
-    "extension_01_payloads.txt": "026435cdbd5211cde3236691f5056e306c0f9c6e341ad3769cf47d6298d41ae3",
-    "extension_shard_payloads_threshold.bin": "00e7b6ccc99dbea719a5ad76d7ab8c11f4d6148aecf6c9b29cd04ec7b9c237ea",
-    "extension_shard_payloads_threshold.txt": "7c0a0c91455a3c83fe74f54cb0bc1425ac6a60a3a0600d9735ce493a217616f9",
-    "root_payloads.bin": "9ee43bb3367a5545705e14a8c240f2e349a956245f6f07ec36126e9aeeda190d",
-    "root_payloads.txt": "dbd0c71b83317b4f8df91af2d42154bd5e33699020181963b90af2b573f7b29d",
-    "signing_key_shard_payloads_threshold.bin": "c0390c680b7a301d25aa4668a4d2b77db30c1f9f8d03ae4750e867794dcc8fe6",
-    "signing_key_shard_payloads_threshold.txt": "50562ea6debb286742bcf04385e2c4dedd5dbfdb0f68e765d3a316565969381e"
+    "chain/extensions/01/qr_document-01-f528066b09b240b9.pdf": "472ce4db952837d5c5250ff4686264ed545837e9ee4f82473ba7e7f325517839",
+    "chain/extensions/01/recovery_document-01-f528066b09b240b9.pdf": "7e4ff5087a57d3b6c2ff4834d0d3920bc26948b85883e805dea37c6149d9c3e0",
+    "chain/extensions/01/recovery_kit_index-01-f528066b09b240b9.pdf": "8128b784d7854c57d254ed47c4fa6fb3d8ae6336fb2dd8c864369c31737b5abe",
+    "chain/extensions/01/shard-01-f528066b09b240b9-1-of-3.pdf": "a40747789d0b05dbb55e190864d5907fab548c3eba705bb6af62c318460d0ad8",
+    "chain/extensions/01/shard-01-f528066b09b240b9-2-of-3.pdf": "e49ba319f9492abed1c07d977053c433b42be27b558cd27cf40af4bd3e3c2b17",
+    "chain/extensions/01/shard-01-f528066b09b240b9-3-of-3.pdf": "d8dd3a9bf2ead199050aedebda278caf0c2ccd19efc69b982e2c2c13a31a6cf7",
+    "chain/extensions/01/signing-key-shard-01-f528066b09b240b9-1-of-2.pdf": "67de05f6a9e6fbca7a529a7fd6e32abbfe0cb2070d75105171b4fe398ab0e1bc",
+    "chain/extensions/01/signing-key-shard-01-f528066b09b240b9-2-of-2.pdf": "b8dcb22fece1a6debc2a62490cec9b08086b3668d408f1d7edb78ca2547e5511",
+    "chain/qr_document.pdf": "1e2398f6f2946087f59cc20fb31e2adb98846f3a97467ac2501a987eccd7f190",
+    "chain/recovery_document.pdf": "9c847411ba0203f38517df2fa8829cb5d4dc877337eac962daa24b4f3dcefbcc",
+    "chain/recovery_kit_index.pdf": "7df709aa5a5044ccbb3bcb5a1a89e749665fe83d5b5bc27b2619a4579db6ccc6",
+    "chain_payloads.bin": "82c81f0aab7dfd469f3efd2689c5e2e217c9aebbb4f79f6d0bd9cb28a967c33c",
+    "chain_payloads.txt": "9d1323528051d5195fb8de3818b0fd63e3a24b58f0a8c61c9f738ead757aa770",
+    "extension_01_payloads.bin": "ccb9d2712d167ccd79785f938f8c32835246effacf1e50faeb0f432291b34d92",
+    "extension_01_payloads.txt": "1ecf201d031d3fd6ef146d1a268187cb0ad85a95e322bbf6742de2cc18054988",
+    "extension_shard_payloads_threshold.bin": "32b00e9e50dc7886395d0bf7392ab99ef1ab41b702b3c9fc4ea95b1450dd01ee",
+    "extension_shard_payloads_threshold.txt": "44ba1a32909ae7600807d141385a692d082ee1690b822b46624413c31c055446",
+    "root_payloads.bin": "04bda8c6de007a9ab91f7c0c3f218a93b88a7185b985aa3811d24ca8a9b35e66",
+    "root_payloads.txt": "8c58332f5d7da7906fb0c7b0327a2785b64b096e8b3077bfe15ca89be1b3a587",
+    "signing_key_shard_payloads_threshold.bin": "1e5f0204ad30fc83459fc375d5d21bff95d7e2b30b8c16dabdf1d5bcb8b430e9",
+    "signing_key_shard_payloads_threshold.txt": "a4f4e42c8ba228ae4155feccc178f67551a6d51039d45be9bf005d8e9d7098a1"
   },
   "chain_dir": "chain",
   "checks": [
@@ -45,8 +45,8 @@
           "stored_len": 21
         }
       ],
-      "doc_hash": "47cd2363343aeedb04dd88b1230a33e94e1217a0e66d8198ca4cfbaab441ce5c",
-      "doc_id": "47cd2363343aeedb",
+      "doc_hash": "f528066b09b240b9a1580ba4d0290663956fa6a220bf24bc7a3a23b4ec344984",
+      "doc_id": "f528066b09b240b9",
       "files": [
         {
           "path": "alpha.txt",
@@ -61,12 +61,12 @@
       ],
       "index": 1,
       "kind": "extension",
-      "parent_doc_hash": "9339a2b65b6ed39efe1db15d75c25870bf7abb8ee6e34068649d5530f0fbbfe9",
-      "root_doc_hash": "9339a2b65b6ed39efe1db15d75c25870bf7abb8ee6e34068649d5530f0fbbfe9"
+      "parent_doc_hash": "29d9f41046a0584cb333d4c57b48e9b1bca506291a6969e63cfd1786c49908f6",
+      "root_doc_hash": "29d9f41046a0584cb333d4c57b48e9b1bca506291a6969e63cfd1786c49908f6"
     },
     {
-      "doc_hash": "9339a2b65b6ed39efe1db15d75c25870bf7abb8ee6e34068649d5530f0fbbfe9",
-      "doc_id": "9339a2b65b6ed39e",
+      "doc_hash": "29d9f41046a0584cb333d4c57b48e9b1bca506291a6969e63cfd1786c49908f6",
+      "doc_id": "29d9f41046a0584c",
       "files": [
         {
           "path": "alpha.txt",
@@ -81,7 +81,7 @@
     }
   ],
   "extension_doc_hashes": {
-    "extension_01": "47cd2363343aeedb04dd88b1230a33e94e1217a0e66d8198ca4cfbaab441ce5c"
+    "extension_01": "f528066b09b240b9a1580ba4d0290663956fa6a220bf24bc7a3a23b4ec344984"
   },
   "passphrase": "stable-v1_2-extension-passphrase",
   "payload_fixtures": {
@@ -103,7 +103,7 @@
   },
   "profile": "raw",
   "qr_payload_codec": "raw",
-  "root_doc_hash": "9339a2b65b6ed39efe1db15d75c25870bf7abb8ee6e34068649d5530f0fbbfe9",
+  "root_doc_hash": "29d9f41046a0584cb333d4c57b48e9b1bca506291a6969e63cfd1786c49908f6",
   "scan_paths": [
     "chain"
   ],
@@ -113,44 +113,44 @@
       "binary": "extension_shard_payloads_threshold.bin",
       "pdf_count": 3,
       "projection": {
-        "shard-01-47cd2363343aeedb-1-of-3.pdf": [
+        "shard-01-f528066b09b240b9-1-of-3.pdf": [
           {
-            "doc_hash": "47cd2363343aeedb04dd88b1230a33e94e1217a0e66d8198ca4cfbaab441ce5c",
-            "doc_id": "47cd2363343aeedb",
+            "doc_hash": "f528066b09b240b9a1580ba4d0290663956fa6a220bf24bc7a3a23b4ec344984",
+            "doc_id": "f528066b09b240b9",
             "key_type": "passphrase",
             "secret_len": 32,
             "set_id": "set-1",
             "share_count": 3,
             "share_index": 1,
-            "sign_pub": "f38f8a75d73892d0b8d8409e663424faa23ec23c29da9487518225938e69fcae",
+            "sign_pub": "a342899fa38a568088f34809bf4bba64401a6997318b3e8b937c4b6d5fa4e5bb",
             "threshold": 2,
             "version": 2
           }
         ],
-        "shard-01-47cd2363343aeedb-2-of-3.pdf": [
+        "shard-01-f528066b09b240b9-2-of-3.pdf": [
           {
-            "doc_hash": "47cd2363343aeedb04dd88b1230a33e94e1217a0e66d8198ca4cfbaab441ce5c",
-            "doc_id": "47cd2363343aeedb",
+            "doc_hash": "f528066b09b240b9a1580ba4d0290663956fa6a220bf24bc7a3a23b4ec344984",
+            "doc_id": "f528066b09b240b9",
             "key_type": "passphrase",
             "secret_len": 32,
             "set_id": "set-1",
             "share_count": 3,
             "share_index": 2,
-            "sign_pub": "f38f8a75d73892d0b8d8409e663424faa23ec23c29da9487518225938e69fcae",
+            "sign_pub": "a342899fa38a568088f34809bf4bba64401a6997318b3e8b937c4b6d5fa4e5bb",
             "threshold": 2,
             "version": 2
           }
         ],
-        "shard-01-47cd2363343aeedb-3-of-3.pdf": [
+        "shard-01-f528066b09b240b9-3-of-3.pdf": [
           {
-            "doc_hash": "47cd2363343aeedb04dd88b1230a33e94e1217a0e66d8198ca4cfbaab441ce5c",
-            "doc_id": "47cd2363343aeedb",
+            "doc_hash": "f528066b09b240b9a1580ba4d0290663956fa6a220bf24bc7a3a23b4ec344984",
+            "doc_id": "f528066b09b240b9",
             "key_type": "passphrase",
             "secret_len": 32,
             "set_id": "set-1",
             "share_count": 3,
             "share_index": 3,
-            "sign_pub": "f38f8a75d73892d0b8d8409e663424faa23ec23c29da9487518225938e69fcae",
+            "sign_pub": "a342899fa38a568088f34809bf4bba64401a6997318b3e8b937c4b6d5fa4e5bb",
             "threshold": 2,
             "version": 2
           }
@@ -163,30 +163,54 @@
       "binary": "signing_key_shard_payloads_threshold.bin",
       "pdf_count": 2,
       "projection": {
-        "signing-key-shard-01-47cd2363343aeedb-1-of-2.pdf": [
+        "signing-key-shard-01-f528066b09b240b9-1-of-2.pdf": [
           {
-            "doc_hash": "47cd2363343aeedb04dd88b1230a33e94e1217a0e66d8198ca4cfbaab441ce5c",
-            "doc_id": "47cd2363343aeedb",
+            "doc_hash": "f528066b09b240b9a1580ba4d0290663956fa6a220bf24bc7a3a23b4ec344984",
+            "doc_id": "f528066b09b240b9",
             "key_type": "signing-seed",
             "secret_len": 32,
             "set_id": "set-1",
             "share_count": 2,
             "share_index": 1,
-            "sign_pub": "f38f8a75d73892d0b8d8409e663424faa23ec23c29da9487518225938e69fcae",
+            "sign_pub": "a342899fa38a568088f34809bf4bba64401a6997318b3e8b937c4b6d5fa4e5bb",
+            "threshold": 1,
+            "version": 2
+          },
+          {
+            "doc_hash": "f528066b09b240b9a1580ba4d0290663956fa6a220bf24bc7a3a23b4ec344984",
+            "doc_id": "f528066b09b240b9",
+            "key_type": "signing-seed",
+            "secret_len": 32,
+            "set_id": "set-1",
+            "share_count": 2,
+            "share_index": 1,
+            "sign_pub": "a342899fa38a568088f34809bf4bba64401a6997318b3e8b937c4b6d5fa4e5bb",
             "threshold": 1,
             "version": 2
           }
         ],
-        "signing-key-shard-01-47cd2363343aeedb-2-of-2.pdf": [
+        "signing-key-shard-01-f528066b09b240b9-2-of-2.pdf": [
           {
-            "doc_hash": "47cd2363343aeedb04dd88b1230a33e94e1217a0e66d8198ca4cfbaab441ce5c",
-            "doc_id": "47cd2363343aeedb",
+            "doc_hash": "f528066b09b240b9a1580ba4d0290663956fa6a220bf24bc7a3a23b4ec344984",
+            "doc_id": "f528066b09b240b9",
             "key_type": "signing-seed",
             "secret_len": 32,
             "set_id": "set-1",
             "share_count": 2,
             "share_index": 2,
-            "sign_pub": "f38f8a75d73892d0b8d8409e663424faa23ec23c29da9487518225938e69fcae",
+            "sign_pub": "a342899fa38a568088f34809bf4bba64401a6997318b3e8b937c4b6d5fa4e5bb",
+            "threshold": 1,
+            "version": 2
+          },
+          {
+            "doc_hash": "f528066b09b240b9a1580ba4d0290663956fa6a220bf24bc7a3a23b4ec344984",
+            "doc_id": "f528066b09b240b9",
+            "key_type": "signing-seed",
+            "secret_len": 32,
+            "set_id": "set-1",
+            "share_count": 2,
+            "share_index": 2,
+            "sign_pub": "a342899fa38a568088f34809bf4bba64401a6997318b3e8b937c4b6d5fa4e5bb",
             "threshold": 1,
             "version": 2
           }

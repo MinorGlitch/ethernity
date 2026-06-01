@@ -1,22 +1,22 @@
 {
   "artifact_hashes": {
-    "chain/extensions/01/qr_document-01-71b220f11ea3853b.pdf": "df4f96dc869759eecacbf988ef4a1d29ce3f4ed350d3e8ea2fed336d486ebcbd",
-    "chain/extensions/01/recovery_document-01-71b220f11ea3853b.pdf": "d46dbd15b6b3c66d9f1a692c1e4c0d2019817927aedf0cbf02ff32a7adb4aee0",
-    "chain/extensions/01/recovery_kit_index-01-71b220f11ea3853b.pdf": "ed0ee445d2856f30ef1bfd91d2bfb314e63f82abaf96be2f2658ee615cd6e5cb",
-    "chain/extensions/02/qr_document-02-9a5c1efdabcf9252.pdf": "187e0d4f5af6d49b3ce8da3e1308ecd66b403caf5f31ec4718ac703120cc0177",
-    "chain/extensions/02/recovery_document-02-9a5c1efdabcf9252.pdf": "e96a2e23207704e44fe5f7ee0d90faac31ad295366e17a5f8617269cbac99e90",
-    "chain/extensions/02/recovery_kit_index-02-9a5c1efdabcf9252.pdf": "3431782a2e12d28a2131aea7c94b1d7b4639d1d30b1d9391ad7c66664a3929c7",
-    "chain/qr_document.pdf": "2706c83dddede36819f99824d2b95e62dfade47decf5b87a2acc63edf240e724",
-    "chain/recovery_document.pdf": "89b1a77e7515ab0d6c0e083535eabb46101b210b1dd0c98b3a92c7d0b33b8cc5",
-    "chain/recovery_kit_index.pdf": "c181488aed4720465d827d7264ef4a8eb596130f2062e98f4316a0b139f48b61",
-    "chain_payloads.bin": "fc006526de87f1b531424eb045ca58418a3e6f385f92bf258f21af9c1117618a",
-    "chain_payloads.txt": "8a941658d665205f5255d9b6c78f4ffc2500def6a2aa26865019a8647788c3e2",
-    "extension_01_payloads.bin": "14c0447aa53560c9fce54c306c3f8ef12cd19dfdc76d3a02d519f776d22d5ecc",
-    "extension_01_payloads.txt": "89b8bfbf3da2a10c91fd6d7761a1b9ee65028d17d1558eb05a3b6e7d7588af3f",
-    "extension_02_payloads.bin": "363894cb6e9f5f171cd2bea40a78dab080a20f729c37696d09294588d25fee4e",
-    "extension_02_payloads.txt": "f726b0c88b571991b76cb46ccf0d1fe481c03d55020ca0de4d32a56fd5ed470c",
-    "root_payloads.bin": "c5e08441e05973ecac16aceda9e5515c3cefd36d2f8d5e249057c75eff11df1a",
-    "root_payloads.txt": "fffbb3ddb21af011bf0f4c6769d72bb5ec9ea388feacbd576f2b7a38f72cbdb6"
+    "chain/extensions/01/qr_document-01-38bf1486de542520.pdf": "b85f19b62f840e83fbdf9a60bddbc1fe1830104d1c90e6590e34a2db1e062710",
+    "chain/extensions/01/recovery_document-01-38bf1486de542520.pdf": "8072940166545a6b0c0c457b47caf10bf1e1718edf2eb5bf5d8f28a0cef40bce",
+    "chain/extensions/01/recovery_kit_index-01-38bf1486de542520.pdf": "f0daa59869aeb3715343fcd1d8d824e8586b89dfab147cabfa829fffbfe0e52c",
+    "chain/extensions/02/qr_document-02-3545578e8404b22c.pdf": "ef1fc0c84aa3044da8cb8596e2963b39228b8494cb85bcf771d60a0e75547bfd",
+    "chain/extensions/02/recovery_document-02-3545578e8404b22c.pdf": "484ffe74d1b50e14b70484e56a80f568c1b3f98f81aa83725b455c9ee2043232",
+    "chain/extensions/02/recovery_kit_index-02-3545578e8404b22c.pdf": "2e66b4e070f192c9c29bdd4f3f90cf1d4f6f134cb36106ffb8e704182e6e170b",
+    "chain/qr_document.pdf": "d4b7c0ebaed112f773586961c37fb72c70a4fd27316bfca3058532e2dec68c23",
+    "chain/recovery_document.pdf": "c244c42bf8bbd43b5f2da53e1cbb17cbbbd1f8520de08b5f80218fb457644c12",
+    "chain/recovery_kit_index.pdf": "bb6a096f0961be137c0ac022b99e21260c50dbd033027c0c17e0fd817f6c576c",
+    "chain_payloads.bin": "b618d08351fbfafcfd0fb539710e792d9f6249c01c5845c9decbea19d0eb0fde",
+    "chain_payloads.txt": "72b754a154132237658fcf9e2e16d964439174fa31c50a13a93c5fc01525bace",
+    "extension_01_payloads.bin": "b8bbf9e75d8f515dd869351e0b085b9b133a4e6ff2bc282c137335e208a57769",
+    "extension_01_payloads.txt": "6e7ace1580c8688dc96d9cc871a571ee9f599f7cd018b6c93848b224c1103075",
+    "extension_02_payloads.bin": "55b12cc16206463ee031e5a3430040f30becfe94f47989336c4e2b073a6a496c",
+    "extension_02_payloads.txt": "dc28bd7c0f798f069b20e0be760766aacfe733b8eb09a9dcf2de0a287b511a0b",
+    "root_payloads.bin": "91b9b69c98d8223cb5633a1328e3ec65be96a900f042db29a9b97d35faef3f3e",
+    "root_payloads.txt": "2ea2779e77403143913a164f86dfc33bf77a4180ac0234475e15a72062a7a8b2"
   },
   "chain_dir": "chain",
   "checks": [
@@ -25,37 +25,6 @@
     "latest, index, and doc-hash selection"
   ],
   "document_projection": [
-    {
-      "chunks": [
-        {
-          "chunk_id": "cce75deca61f0451437dc1bbf40b5aad5889aee9d2cdf758eed921480da917db",
-          "codec": "raw",
-          "decoded_sha256": "cce75deca61f0451437dc1bbf40b5aad5889aee9d2cdf758eed921480da917db",
-          "raw_len": 17097,
-          "stored_len": 17097
-        },
-        {
-          "chunk_id": "f1e67ebb46e76859fd6ca65cdaf524c4c1f744322967bad7cc4c85819b77ebc0",
-          "codec": "raw",
-          "decoded_sha256": "f1e67ebb46e76859fd6ca65cdaf524c4c1f744322967bad7cc4c85819b77ebc0",
-          "raw_len": 3383,
-          "stored_len": 3383
-        }
-      ],
-      "doc_hash": "71b220f11ea3853b0e1c581167791df8fa42479bfadc9e54849461c05f0fdb60",
-      "doc_id": "71b220f11ea3853b",
-      "files": [
-        {
-          "path": "extension-one-20480.bin",
-          "sha256": "38aae6f10a719e844f1828384e3a686006584a9b5df87490e34a3f18ded593d6",
-          "size": 20480
-        }
-      ],
-      "index": 1,
-      "kind": "extension",
-      "parent_doc_hash": "8732df207417be06e140d75325db675478fce69c94ed2f969d2e4dd6fc23aa2e",
-      "root_doc_hash": "8732df207417be06e140d75325db675478fce69c94ed2f969d2e4dd6fc23aa2e"
-    },
     {
       "chunks": [
         {
@@ -73,8 +42,8 @@
           "stored_len": 23094
         }
       ],
-      "doc_hash": "9a5c1efdabcf9252f9c0362750c45f56c8ba6d9a464b9d4f09bdf7aa79b2185e",
-      "doc_id": "9a5c1efdabcf9252",
+      "doc_hash": "3545578e8404b22c7a3fb925066f2341ae6a08c1e60cac743f09a393807cb561",
+      "doc_id": "3545578e8404b22c",
       "files": [
         {
           "path": "extension-two-28672.bin",
@@ -84,12 +53,43 @@
       ],
       "index": 2,
       "kind": "extension",
-      "parent_doc_hash": "71b220f11ea3853b0e1c581167791df8fa42479bfadc9e54849461c05f0fdb60",
-      "root_doc_hash": "8732df207417be06e140d75325db675478fce69c94ed2f969d2e4dd6fc23aa2e"
+      "parent_doc_hash": "38bf1486de54252065338cdaaa943a606c0845504fce24782a418949fa6ee96a",
+      "root_doc_hash": "2a1f50fe54143e292d72651c8a40c2022e0dc2c933705a8d03769c179f58de67"
     },
     {
-      "doc_hash": "8732df207417be06e140d75325db675478fce69c94ed2f969d2e4dd6fc23aa2e",
-      "doc_id": "8732df207417be06",
+      "chunks": [
+        {
+          "chunk_id": "cce75deca61f0451437dc1bbf40b5aad5889aee9d2cdf758eed921480da917db",
+          "codec": "raw",
+          "decoded_sha256": "cce75deca61f0451437dc1bbf40b5aad5889aee9d2cdf758eed921480da917db",
+          "raw_len": 17097,
+          "stored_len": 17097
+        },
+        {
+          "chunk_id": "f1e67ebb46e76859fd6ca65cdaf524c4c1f744322967bad7cc4c85819b77ebc0",
+          "codec": "raw",
+          "decoded_sha256": "f1e67ebb46e76859fd6ca65cdaf524c4c1f744322967bad7cc4c85819b77ebc0",
+          "raw_len": 3383,
+          "stored_len": 3383
+        }
+      ],
+      "doc_hash": "38bf1486de54252065338cdaaa943a606c0845504fce24782a418949fa6ee96a",
+      "doc_id": "38bf1486de542520",
+      "files": [
+        {
+          "path": "extension-one-20480.bin",
+          "sha256": "38aae6f10a719e844f1828384e3a686006584a9b5df87490e34a3f18ded593d6",
+          "size": 20480
+        }
+      ],
+      "index": 1,
+      "kind": "extension",
+      "parent_doc_hash": "2a1f50fe54143e292d72651c8a40c2022e0dc2c933705a8d03769c179f58de67",
+      "root_doc_hash": "2a1f50fe54143e292d72651c8a40c2022e0dc2c933705a8d03769c179f58de67"
+    },
+    {
+      "doc_hash": "2a1f50fe54143e292d72651c8a40c2022e0dc2c933705a8d03769c179f58de67",
+      "doc_id": "2a1f50fe54143e29",
       "files": [
         {
           "path": "root-40960.bin",
@@ -104,8 +104,8 @@
     }
   ],
   "extension_doc_hashes": {
-    "extension_01": "71b220f11ea3853b0e1c581167791df8fa42479bfadc9e54849461c05f0fdb60",
-    "extension_02": "9a5c1efdabcf9252f9c0362750c45f56c8ba6d9a464b9d4f09bdf7aa79b2185e"
+    "extension_01": "38bf1486de54252065338cdaaa943a606c0845504fce24782a418949fa6ee96a",
+    "extension_02": "3545578e8404b22c7a3fb925066f2341ae6a08c1e60cac743f09a393807cb561"
   },
   "passphrase": "stable-v1_2-extension-passphrase",
   "payload_fixtures": {
@@ -132,7 +132,7 @@
   },
   "profile": "raw",
   "qr_payload_codec": "raw",
-  "root_doc_hash": "8732df207417be06e140d75325db675478fce69c94ed2f969d2e4dd6fc23aa2e",
+  "root_doc_hash": "2a1f50fe54143e292d72651c8a40c2022e0dc2c933705a8d03769c179f58de67",
   "scan_paths": [
     "chain"
   ],

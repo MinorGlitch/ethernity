@@ -29,8 +29,9 @@ from tooling.document_inspector_app import MODE_PAYLOADS, inspect_pasted_text
 
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.crypto.sharding import KEY_TYPE_PASSPHRASE, decode_shard_payload
-from ethernity.encoding.framing import FrameType, decode_frame
-from ethernity.encoding.qr_payloads import decode_qr_payload
+from ethernity.crypto.signing import AuthPayload, decode_auth_payload, encode_auth_payload
+from ethernity.encoding.framing import VERSION, Frame, FrameType, decode_frame, encode_frame
+from ethernity.encoding.qr_payloads import decode_qr_payload, encode_qr_payload
 from ethernity.qr.scan import scan_qr_payloads
 from tests.test_support import build_cli_env, cli_subprocess_timeout_seconds
 
@@ -44,6 +45,13 @@ def _run_cli_subprocess(*args: Any, **kwargs: Any) -> subprocess.CompletedProces
 
 
 class TestStableV1_2ExtensionGolden(unittest.TestCase):
+    def test_fixture_index_was_built_by_current_builder(self) -> None:
+        index = json.loads((_FIXTURE_ROOT / "index.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            index["builder_sha256"],
+            self._sha256_file(_FIXTURE_ROOT / "build_golden.py"),
+        )
+
     def test_frozen_artifact_hashes_match_snapshots(self) -> None:
         for scenario_root, snapshot in self._snapshots():
             with self.subTest(scenario=str(snapshot["scenario_id"]), profile=snapshot["profile"]):
@@ -64,6 +72,8 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
 
     def test_payload_recovery_selects_root_prior_and_doc_hash_heads(self) -> None:
         for scenario_root, snapshot in self._snapshots():
+            if snapshot["scenario_id"] == "loose_scan_append_chain":
+                continue
             states = cast(dict[str, dict[str, str]], snapshot["states"])
             with self.subTest(
                 scenario=str(snapshot["scenario_id"]),
@@ -174,33 +184,213 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
         )
         self.assertIn("root backup", final["blocking_issues"][0]["message"])
 
-    def test_loose_scan_fixture_recovers_latest_without_canonical_layout(self) -> None:
-        scenario_root = _FIXTURE_ROOT / "raw" / "loose_scan_append_chain"
+    def test_golden_auth_mutations_fail_closed(self) -> None:
+        scenario_root = _FIXTURE_ROOT / "base64" / "gzip_replacement_chain"
         snapshot = self._snapshot_at(scenario_root / "snapshot.json")
-        chain_dir = scenario_root / str(snapshot["chain_dir"])
-        self.assertFalse((chain_dir / "qr_document.pdf").exists())
-        self.assertFalse((chain_dir / "extensions").exists())
+        root_doc_id = self._projection_doc_id(snapshot, kind="root")
+        extension_doc_id = self._projection_doc_id(snapshot, kind="extension", index=1)
+        frames = self._payload_frames(scenario_root / snapshot["payload_fixtures"]["chain"]["text"])
+        cases = (
+            (
+                "bad-root-auth",
+                self._mutated_auth_frames(
+                    frames,
+                    doc_id_hex=root_doc_id,
+                    mutate=lambda auth: self._auth_with_bad_signature(auth),
+                ),
+                ["--extension-index", "0"],
+                "invalid auth signature",
+            ),
+            (
+                "bad-extension-auth-key",
+                self._mutated_auth_frames(
+                    frames,
+                    doc_id_hex=extension_doc_id,
+                    mutate=lambda auth: self._auth_with_bad_sign_pub(auth),
+                ),
+                [],
+                "imported extension AUTH could not be verified: invalid auth signature",
+            ),
+            (
+                "duplicate-extension-auth-conflict",
+                self._with_duplicate_mutated_auth(
+                    frames,
+                    doc_id_hex=extension_doc_id,
+                    mutate=lambda auth: self._auth_with_bad_signature(auth),
+                ),
+                [],
+                "conflicting duplicate frames detected",
+            ),
+        )
+        for name, mutated_frames, selector_args, expected_error in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    payloads = Path(tmpdir) / "payloads.txt"
+                    output = Path(tmpdir) / "recovered"
+                    self._write_payload_frames(payloads, mutated_frames)
+                    cmd = [
+                        sys.executable,
+                        "-m",
+                        "ethernity.cli",
+                        "--config",
+                        str(DEFAULT_CONFIG_PATH),
+                        "recover",
+                        "--payloads-file",
+                        str(payloads),
+                        "--passphrase",
+                        str(snapshot["passphrase"]),
+                        "--output",
+                        str(output),
+                        "--quiet",
+                        *selector_args,
+                    ]
+                    result = self._run(cmd)
+                    self.assertNotEqual(
+                        result.returncode,
+                        0,
+                        msg=f"{name} unexpectedly recovered successfully",
+                    )
+                    self.assertIn(expected_error, result.stderr or result.stdout)
+
+    def test_duplicate_extension_index_with_different_doc_hash_fails(self) -> None:
+        scenario_root = _FIXTURE_ROOT / "base64" / "gzip_replacement_chain"
+        snapshot = self._snapshot_at(scenario_root / "snapshot.json")
         with tempfile.TemporaryDirectory() as tmpdir:
-            output = Path(tmpdir) / "recovered"
-            cmd = [
+            tmp_path = Path(tmpdir)
+            root_source = tmp_path / "root-source"
+            root_chain = tmp_path / "root-chain"
+            recover_root = [
                 sys.executable,
                 "-m",
                 "ethernity.cli",
                 "--config",
                 str(DEFAULT_CONFIG_PATH),
                 "recover",
-                "--output",
-                str(output),
+                "--payloads-file",
+                str(scenario_root / snapshot["payload_fixtures"]["root"]["text"]),
                 "--passphrase",
                 str(snapshot["passphrase"]),
+                "--extension-index",
+                "0",
+                "--output",
+                str(root_source),
                 "--quiet",
             ]
-            for rel_path in cast(list[str], snapshot["scan_paths"]):
-                cmd.extend(["--scan", str(scenario_root / rel_path)])
-            self._run_ok(cmd)
-            self._assert_output_hashes(
-                output, cast(dict[str, Any], snapshot["states"])["extension_02"]
+            self._run_ok(recover_root)
+            shutil.copytree(scenario_root / str(snapshot["chain_dir"]), root_chain)
+            shutil.rmtree(root_chain / "extensions")
+            (root_source / "duplicate-index.txt").write_text(
+                "different extension index 1\n",
+                encoding="utf-8",
             )
+            create_duplicate = [
+                sys.executable,
+                "-m",
+                "ethernity.cli",
+                "--config",
+                str(DEFAULT_CONFIG_PATH),
+                "extend",
+                "--root-dir",
+                str(root_chain),
+                "--input-dir",
+                str(root_source),
+                "--base-dir",
+                str(root_source),
+                "--passphrase",
+                str(snapshot["passphrase"]),
+                "--design",
+                "forge",
+                "--shard-count",
+                "0",
+                "--quiet",
+            ]
+            self._run_ok(create_duplicate)
+            original_ext = next(
+                (scenario_root / str(snapshot["chain_dir"]) / "extensions" / "01").glob(
+                    "qr_document-*.pdf"
+                )
+            )
+            duplicate_ext = next((root_chain / "extensions" / "01").glob("qr_document-*.pdf"))
+            recover = [
+                sys.executable,
+                "-m",
+                "ethernity.cli",
+                "--config",
+                str(DEFAULT_CONFIG_PATH),
+                "recover",
+                "--scan",
+                str(root_chain / "qr_document.pdf"),
+                "--scan",
+                str(original_ext),
+                "--scan",
+                str(duplicate_ext),
+                "--passphrase",
+                str(snapshot["passphrase"]),
+                "--output",
+                str(tmp_path / "recovered"),
+                "--quiet",
+            ]
+            result = self._run(recover)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "multiple authenticated extensions for index 1",
+                result.stderr or result.stdout,
+            )
+
+    def test_base64_canonical_pdf_scan_recovers_latest_state(self) -> None:
+        scenario_root = _FIXTURE_ROOT / "base64" / "gzip_replacement_chain"
+        snapshot = self._snapshot_at(scenario_root / "snapshot.json")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "recovered"
+            self._run_ok(
+                [
+                    sys.executable,
+                    "-m",
+                    "ethernity.cli",
+                    "--config",
+                    str(DEFAULT_CONFIG_PATH),
+                    "recover",
+                    "--scan",
+                    str(scenario_root / str(snapshot["chain_dir"])),
+                    "--passphrase",
+                    str(snapshot["passphrase"]),
+                    "--output",
+                    str(output),
+                    "--quiet",
+                ]
+            )
+            self._assert_output_hashes(
+                output,
+                cast(dict[str, Any], snapshot["states"])["extension_01"],
+            )
+
+    def test_loose_scan_fixture_recovers_latest_without_canonical_layout(self) -> None:
+        scenario_root = _FIXTURE_ROOT / "raw" / "loose_scan_append_chain"
+        snapshot = self._snapshot_at(scenario_root / "snapshot.json")
+        chain_dir = scenario_root / str(snapshot["chain_dir"])
+        self.assertFalse((chain_dir / "qr_document.pdf").exists())
+        self.assertFalse((chain_dir / "extensions").exists())
+        cases = (
+            ("latest", "extension_02", []),
+            ("root", "root", ["--extension-index", "0"]),
+            ("index-1", "extension_01", ["--extension-index", "1"]),
+            (
+                "doc-hash",
+                "extension_02",
+                [
+                    "--extension-doc-hash",
+                    cast(dict[str, str], snapshot["extension_doc_hashes"])["extension_02"],
+                ],
+            ),
+        )
+        for name, state_key, selector_args in cases:
+            with self.subTest(selection=name):
+                self._assert_recover_scan_state(
+                    scenario_root,
+                    snapshot,
+                    state_key=state_key,
+                    selector_args=selector_args,
+                )
 
     def test_stale_expected_head_hash_fails_before_recovery(self) -> None:
         scenario_root = _FIXTURE_ROOT / "base64" / "large_raw_two_extension_chain"
@@ -451,6 +641,35 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
             self._run_ok(cmd)
             self._assert_output_hashes(output, cast(dict[str, Any], snapshot["states"])[state_key])
 
+    def _assert_recover_scan_state(
+        self,
+        scenario_root: Path,
+        snapshot: dict[str, Any],
+        *,
+        state_key: str,
+        selector_args: list[str] | None = None,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "recovered"
+            cmd = [
+                sys.executable,
+                "-m",
+                "ethernity.cli",
+                "--config",
+                str(DEFAULT_CONFIG_PATH),
+                "recover",
+                "--output",
+                str(output),
+                "--quiet",
+            ]
+            for rel_path in cast(list[str], snapshot["scan_paths"]):
+                cmd.extend(["--scan", str(scenario_root / rel_path)])
+            cmd.extend(self._unlock_args(scenario_root, snapshot, state_key=state_key))
+            if selector_args:
+                cmd.extend(selector_args)
+            self._run_ok(cmd)
+            self._assert_output_hashes(output, cast(dict[str, Any], snapshot["states"])[state_key])
+
     def _recover_payload_cmd(
         self,
         scenario_root: Path,
@@ -576,6 +795,87 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
             if path.is_file()
         }
         self.assertEqual(found, expected_hashes)
+
+    def _payload_frames(self, path: Path) -> list[Frame]:
+        return [
+            decode_frame(decode_qr_payload(line.strip()))
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+
+    def _write_payload_frames(self, path: Path, frames: list[Frame]) -> None:
+        lines: list[str] = []
+        for frame in frames:
+            encoded = encode_qr_payload(encode_frame(frame))
+            lines.append(encoded.decode("ascii") if isinstance(encoded, bytes) else encoded)
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def _mutated_auth_frames(
+        self,
+        frames: list[Frame],
+        *,
+        doc_id_hex: str,
+        mutate: Any,
+    ) -> list[Frame]:
+        out: list[Frame] = []
+        replaced = False
+        for frame in frames:
+            if frame.frame_type == FrameType.AUTH and frame.doc_id.hex() == doc_id_hex:
+                out.append(self._mutated_auth_frame(frame, mutate))
+                replaced = True
+            else:
+                out.append(frame)
+        self.assertTrue(replaced, msg=f"missing AUTH frame for doc_id {doc_id_hex}")
+        return out
+
+    def _with_duplicate_mutated_auth(
+        self,
+        frames: list[Frame],
+        *,
+        doc_id_hex: str,
+        mutate: Any,
+    ) -> list[Frame]:
+        for frame in frames:
+            if frame.frame_type == FrameType.AUTH and frame.doc_id.hex() == doc_id_hex:
+                return [*frames, self._mutated_auth_frame(frame, mutate)]
+        self.fail(f"missing AUTH frame for doc_id {doc_id_hex}")
+
+    @staticmethod
+    def _mutated_auth_frame(frame: Frame, mutate: Any) -> Frame:
+        auth = decode_auth_payload(frame.data)
+        return Frame(
+            version=VERSION,
+            frame_type=FrameType.AUTH,
+            doc_id=frame.doc_id,
+            index=frame.index,
+            total=frame.total,
+            data=mutate(auth),
+        )
+
+    @staticmethod
+    def _auth_with_bad_signature(auth: AuthPayload) -> bytes:
+        signature = bytes([auth.signature[0] ^ 1]) + auth.signature[1:]
+        return encode_auth_payload(auth.doc_hash, sign_pub=auth.sign_pub, signature=signature)
+
+    @staticmethod
+    def _auth_with_bad_sign_pub(auth: AuthPayload) -> bytes:
+        sign_pub = bytes([auth.sign_pub[0] ^ 1]) + auth.sign_pub[1:]
+        return encode_auth_payload(auth.doc_hash, sign_pub=sign_pub, signature=auth.signature)
+
+    @staticmethod
+    def _projection_doc_id(
+        snapshot: dict[str, Any],
+        *,
+        kind: str,
+        index: int | None = None,
+    ) -> str:
+        for item in cast(list[dict[str, Any]], snapshot["document_projection"]):
+            if item["kind"] != kind:
+                continue
+            if index is not None and item.get("index") != index:
+                continue
+            return str(item["doc_id"])
+        raise AssertionError(f"missing {kind} projection")
 
     @staticmethod
     def _sha256_file(path: Path) -> str:

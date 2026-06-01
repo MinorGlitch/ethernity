@@ -1,6 +1,6 @@
 # Stable v1.2 Extension Golden Fixtures
 
-Frozen extension-chain fixtures for the v1.2 golden e2e matrix.
+Frozen Forge-rendered extension-chain fixtures for the v1.2 golden e2e matrix.
 
 ## Matrix
 
@@ -20,6 +20,10 @@ Each scenario commits rendered carriers, scanned payload fixtures, shard payload
 fixtures where applicable, and a semantic `snapshot.json`. The tests compare
 committed artifact hashes and semantic projections; freshly generated encrypted
 PDFs are not compared byte-for-byte.
+
+The top-level `index.json` records the SHA-256 of `build_golden.py`. If the
+builder changes, regenerate the fixtures so the committed generator and fixture
+matrix cannot drift silently.
 
 Regenerate with:
 

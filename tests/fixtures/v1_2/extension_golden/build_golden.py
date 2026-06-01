@@ -174,6 +174,7 @@ def _backup(
     chain_dir: Path,
     passphrase: str,
     shards: tuple[int, int] | None = None,
+    design: str = "forge",
 ) -> None:
     args = [
         "backup",
@@ -184,7 +185,7 @@ def _backup(
         "--passphrase",
         passphrase,
         "--design",
-        "sentinel",
+        design,
         "--output-dir",
         str(chain_dir),
         "--quiet",
@@ -207,6 +208,7 @@ def _extend(
     shard_count: int | None = 0,
     unlock_policy: str | None = None,
     signing_key_shards: bool = False,
+    design: str = "forge",
 ) -> None:
     args = [
         "extend",
@@ -217,7 +219,7 @@ def _extend(
         "--base-dir",
         str(source_dir),
         "--design",
-        "sentinel",
+        design,
         "--quiet",
     ]
     for scan in scans:
@@ -836,6 +838,7 @@ def _generate_scenario(
 def main() -> None:
     repo_root = Path(__file__).resolve().parents[4]
     golden_root = repo_root / "tests" / "fixtures" / "v1_2" / "extension_golden"
+    builder_sha256 = _sha256_file(Path(__file__).resolve())
     ensure_playwright_browsers(quiet=True)
     for child in golden_root.iterdir():
         if child.name in {"README.md", "build_golden.py"}:
@@ -846,7 +849,12 @@ def main() -> None:
             child.unlink()
 
     base_config = DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")
-    index: dict[str, Any] = {"version": "1.2.0", "passphrase": PASS_PHRASE, "profiles": {}}
+    index: dict[str, Any] = {
+        "version": "1.2.0",
+        "builder_sha256": builder_sha256,
+        "passphrase": PASS_PHRASE,
+        "profiles": {},
+    }
     with tempfile.TemporaryDirectory() as tmp:
         xdg_home = Path(tmp)
         for profile_name, qr_codec in PROFILES:
