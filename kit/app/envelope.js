@@ -18,8 +18,10 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import { decodeCanonicalCbor } from "../lib/cbor.js";
+import { crc32 } from "../lib/crc32.js";
 import { bytesEqual, readUvarint } from "../lib/encoding.js";
 import { validateManifestPath } from "../lib/path_validation.js";
+import { validateSingleGzipMember } from "./extension_envelope.js";
 import {
   ENVELOPE_MAGIC,
   ENVELOPE_VERSION,
@@ -323,6 +325,20 @@ async function gunzipBytesBounded(bytes, maxLength) {
   if (typeof DecompressionStream !== "function") {
     throw new Error("gzip payload requires DecompressionStream support");
   }
+  let gzipTrailer;
+  try {
+    gzipTrailer = validateSingleGzipMember(bytes, maxLength);
+  } catch (err) {
+    if (err instanceof Error) {
+      throw new Error(
+        err.message
+          .replaceAll("gzip chunk", "gzip payload")
+          .replaceAll("decoded chunk", "decoded payload")
+          .replaceAll("raw_len", "manifest payload_raw_len"),
+      );
+    }
+    throw err;
+  }
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
   const reader = stream.getReader();
   const chunks = [];
@@ -364,6 +380,9 @@ async function gunzipBytesBounded(bytes, maxLength) {
   for (const chunk of chunks) {
     decoded.set(chunk, offset);
     offset += chunk.length;
+  }
+  if (crc32(decoded) !== gzipTrailer.crc32) {
+    throw new Error("invalid gzip payload");
   }
   return decoded;
 }

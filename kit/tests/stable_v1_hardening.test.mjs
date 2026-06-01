@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { gzipSync } from "node:zlib";
 
 import { sha256 } from "@noble/hashes/sha2.js";
 
@@ -171,6 +172,28 @@ test("extractFiles supports stable-v1 prefix_table manifest entries", async () =
   assert.deepEqual(
     extracted.files.map((file) => file.path),
     ["docs/a.txt", "docs/sub/b.txt"],
+  );
+});
+
+test("extractFiles rejects gzip payloads with trailing members", async () => {
+  const data = new Uint8Array([1, 2, 3]);
+  const manifest = {
+    version: 1,
+    created: 1_700_000_000,
+    sealed: true,
+    seed: null,
+    input_origin: "file",
+    input_roots: [],
+    payload_codec: "gzip",
+    payload_raw_len: data.length,
+    path_encoding: "direct",
+    files: buildDirectManifestEntries([{ path: "a.txt", data }]),
+  };
+  const payload = concatBytes([gzipSync(data), gzipSync(new Uint8Array())]);
+
+  await assert.rejects(
+    () => extractFiles(buildEnvelope(manifest, payload)),
+    /gzip payload contains trailing data/,
   );
 });
 

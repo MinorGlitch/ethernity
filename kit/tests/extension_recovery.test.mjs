@@ -504,6 +504,8 @@ test("browser recovery replays the latest supplied authenticated extension chain
 
   assert.equal(result.selectedExtensionIndex, 2);
   assert.equal(result.freshnessScope, "supplied_carriers_only");
+  assert.equal(result.manifest.inputOrigin, "directory");
+  assert.deepEqual(result.manifest.inputRoots, ["reconstructed-state"]);
   assert.deepEqual(
     result.files.map((file) => [file.path, new TextDecoder().decode(file.data)]),
     [

@@ -213,8 +213,8 @@ export async function recoverLatestFromEncryptedDocuments(
 function syntheticManifestFromFiles(rootManifest, files) {
   return {
     ...rootManifest,
-    inputOrigin: "reconstructed",
-    inputRoots: ["root-plus-extension"],
+    inputOrigin: "directory",
+    inputRoots: ["reconstructed-state"],
     pathEncoding: "direct",
     payloadCodec: "raw",
     payloadRawLen: null,

@@ -531,7 +531,7 @@ async function gunzipBytesBounded(bytes, expectedLen) {
   return decoded;
 }
 
-function validateSingleGzipMember(bytes, expectedLen) {
+export function validateSingleGzipMember(bytes, expectedLen) {
   const dataStart = gzipDeflateDataStart(bytes);
   const trailerStart = deflateStreamEndOffset(bytes, dataStart);
   if (trailerStart + 8 !== bytes.length) {
