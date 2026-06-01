@@ -190,3 +190,27 @@ class TestCompactCliApp(unittest.TestCase):
         self.assertEqual(captured["root_dir"], str(Path("/tmp/root")))
         self.assertEqual(captured["output_dir"], "./compacted")
         self.assertTrue(captured["quiet"])
+
+    def test_compact_rejects_root_dir_with_scan_before_running(self) -> None:
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            with mock.patch(
+                "ethernity.cli.features.compact.command.run_compact_command"
+            ) as run_compact_command:
+                result = self.runner.invoke(
+                    cli.app,
+                    [
+                        "compact",
+                        "--root-dir",
+                        "/tmp/root",
+                        "--scan",
+                        "root.pdf",
+                        "--output-dir",
+                        "/tmp/out",
+                        "--passphrase",
+                        "secret",
+                    ],
+                )
+
+        self.assertEqual(result.exit_code, 2)
+        self.assertIn("use either --root-dir or --scan for compact, not both", result.output)
+        run_compact_command.assert_not_called()

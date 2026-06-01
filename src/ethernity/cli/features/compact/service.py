@@ -44,7 +44,9 @@ from ethernity.config import apply_template_design, load_app_config
 from ethernity.crypto import sharding as sharding_module
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import Frame, FrameType
+from ethernity.extensions.discovery import EXTENSIONS_DIR_NAME
 from ethernity.extensions.recovery import recover_chain_entries
+from ethernity.extensions.staging import EXTENSION_CHAIN_LOCK_DIR_NAME
 from ethernity.render.types import RenderLineage
 
 
@@ -77,6 +79,17 @@ def _validated_compact_root_dir(root_dir_value: str | None) -> Path:
     if not root_dir.is_dir():
         raise ValueError(f"--root-dir must be a directory: {root_dir_value}")
     return root_dir
+
+
+def validate_compact_source_selection(args: CompactArgs) -> None:
+    """Validate that compact has exactly one source mode."""
+
+    has_root_dir = bool(args.root_dir)
+    has_scan = bool(args.scan)
+    if has_root_dir and has_scan:
+        raise ValueError("use either --root-dir or --scan for compact, not both")
+    if not has_root_dir and not has_scan:
+        raise ValueError("compact requires --scan or root_dir")
 
 
 def _reject_compact_output_inside_root(root_dir: Path, output_dir_value: str) -> None:
@@ -179,6 +192,31 @@ def _validate_compact_source_head_for_promotion(
 
 def _compact_head_value(value: object) -> object:
     return value.hex() if isinstance(value, bytes) else value
+
+
+def _compact_source_chain_lock_dir(root_dir: Path | None) -> Path | None:
+    if root_dir is None:
+        return None
+    return root_dir / EXTENSIONS_DIR_NAME / EXTENSION_CHAIN_LOCK_DIR_NAME
+
+
+def _prepare_compact_source_chain_lock(root_dir: Path | None) -> None:
+    if root_dir is None:
+        return
+    extensions_dir = root_dir / EXTENSIONS_DIR_NAME
+    if extensions_dir.is_symlink():
+        raise ApiCommandError(
+            code=api_codes.INVALID_INPUT,
+            message="extensions path must not be a symlink",
+            details={"stage": "publish_head", "root_dir": str(root_dir)},
+        )
+    if extensions_dir.exists() and not extensions_dir.is_dir():
+        raise ApiCommandError(
+            code=api_codes.INVALID_INPUT,
+            message="extensions path must be a directory",
+            details={"stage": "publish_head", "root_dir": str(root_dir)},
+        )
+    extensions_dir.mkdir(mode=0o700, exist_ok=True)
 
 
 def _infer_root_publish_policy(
@@ -337,11 +375,10 @@ def _root_level_key_frames_from_source_scan(
 
 
 def run_compact(args: CompactArgs) -> BackupResult:
+    validate_compact_source_selection(args)
     root_dir = None if args.scan else _validated_compact_root_dir(args.root_dir)
     if not args.output_dir:
         raise ValueError("compact requires output_dir")
-    if root_dir is None and not args.scan:
-        raise ValueError("compact requires --scan or root_dir")
     if root_dir is not None:
         _reject_compact_output_inside_root(root_dir, args.output_dir)
 
@@ -444,6 +481,10 @@ def run_compact(args: CompactArgs) -> BackupResult:
         )
         for entry, data in chain.extracted
     ]
+    promote_lock_dir = _compact_source_chain_lock_dir(root_dir)
+    prepare_promotion = (
+        (lambda: _prepare_compact_source_chain_lock(root_dir)) if root_dir is not None else None
+    )
     result = run_backup(
         input_files=input_files,
         base_dir=None,
@@ -457,6 +498,8 @@ def run_compact(args: CompactArgs) -> BackupResult:
         config=config,
         signing_seed_override=None if manifest.sealed else manifest.signing_seed,
         render_lineage=RenderLineage(kind="compaction_checkpoint"),
+        promote_lock_dir=promote_lock_dir,
+        prepare_promotion=prepare_promotion,
         validate_promotion=lambda: _validate_compact_source_head_for_promotion(
             args=args,
             root_dir=root_dir,

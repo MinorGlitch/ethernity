@@ -100,6 +100,11 @@ def run_compact_api_command(args: CompactArgs, *, debug: bool = False) -> int:
             code=api_codes.INPUT_REQUIRED,
             message="--root-dir or --scan is required for `ethernity api compact`",
         )
+    if args.root_dir and args.scan:
+        raise ApiCommandError(
+            code=api_codes.INVALID_INPUT,
+            message="use either --root-dir or --scan for compact, not both",
+        )
     if not args.output_dir:
         raise ApiCommandError(
             code=api_codes.OUTPUT_REQUIRED,

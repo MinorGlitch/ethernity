@@ -16,13 +16,12 @@
 
 from __future__ import annotations
 
-import functools
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
-from ethernity.cli.features.compact.service import run_compact
+from ethernity.cli.features.compact.service import run_compact, validate_compact_source_selection
 from ethernity.cli.shared.common import (
     _ctx_state,
     _paper_callback,
@@ -301,5 +300,10 @@ def compact(
         quiet=quiet_value,
     )
     debug_value = debug or bool(state and state.debug)
-    runner = functools.partial(run_compact_command, args, debug=debug_value)
+
+    def _run() -> int:
+        validate_compact_source_selection(args)
+        return run_compact_command(args, debug=debug_value)
+
+    runner = _run
     _run_cli(runner, debug=debug_value)

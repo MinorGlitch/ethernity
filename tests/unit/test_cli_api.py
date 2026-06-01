@@ -4881,6 +4881,33 @@ class TestCliApi(unittest.TestCase):
             "--root-dir or --scan is required for `ethernity api compact`",
         )
 
+    def test_run_compact_api_command_rejects_root_dir_with_scan_before_side_effects(self) -> None:
+        buffer = io.StringIO()
+        args = CompactArgs(
+            root_dir="/tmp/root",
+            scan=["root.pdf"],
+            output_dir="/tmp/out",
+            passphrase="secret words",
+        )
+        with (
+            mock.patch(
+                "ethernity.cli.features.compact.api_handlers.ensure_playwright_browsers"
+            ) as ensure_playwright_browsers,
+            mock.patch("ethernity.cli.features.compact.api_handlers.run_compact") as run_compact,
+            ndjson_session(stream=buffer),
+            self.assertRaises(ApiCommandError) as ctx,
+        ):
+            run_compact_api_command(args)
+
+        self.assertEqual(ctx.exception.code, api_codes.INVALID_INPUT)
+        self.assertEqual(
+            str(ctx.exception),
+            "use either --root-dir or --scan for compact, not both",
+        )
+        ensure_playwright_browsers.assert_not_called()
+        run_compact.assert_not_called()
+        self.assertEqual(buffer.getvalue(), "")
+
     def test_api_inspect_mint_accepts_input_flags_without_output_dir(self) -> None:
         captured: dict[str, object] = {}
 

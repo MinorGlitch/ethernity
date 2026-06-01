@@ -122,6 +122,21 @@ class TestCompactService(unittest.TestCase):
                 )
             )
 
+    def test_run_compact_rejects_root_dir_with_scan_source(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "use either --root-dir or --scan for compact, not both",
+        ):
+            run_compact(
+                CompactArgs(
+                    root_dir="/tmp/root",
+                    scan=["root.pdf"],
+                    output_dir="/tmp/out",
+                    passphrase="secret",
+                    quiet=True,
+                )
+            )
+
     def test_run_compact_reports_scan_failure_for_empty_root_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir)
@@ -209,7 +224,7 @@ class TestCompactService(unittest.TestCase):
             mock.patch(
                 "ethernity.cli.features.compact.service.run_backup",
                 return_value=_backup_result(),
-            ),
+            ) as run_backup_mock,
         ):
             result = run_compact(
                 CompactArgs(
@@ -229,6 +244,8 @@ class TestCompactService(unittest.TestCase):
             infer_root_publish_policy.call_args.kwargs["source_scan"],
             ("root.pdf", "extension-01.pdf"),
         )
+        self.assertIsNone(run_backup_mock.call_args.kwargs.get("promote_lock_dir"))
+        self.assertIsNone(run_backup_mock.call_args.kwargs.get("prepare_promotion"))
 
     def test_run_compact_rejects_output_dir_equal_to_root_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1015,8 +1032,11 @@ class TestCompactService(unittest.TestCase):
             run_backup_mock.call_args.kwargs["render_lineage"].kind,
             "compaction_checkpoint",
         )
-        self.assertIsNone(run_backup_mock.call_args.kwargs.get("promote_lock_dir"))
-        self.assertIsNone(run_backup_mock.call_args.kwargs.get("prepare_promotion"))
+        self.assertEqual(
+            run_backup_mock.call_args.kwargs["promote_lock_dir"],
+            Path("/tmp/root") / "extensions" / ".chain.lock",
+        )
+        self.assertTrue(callable(run_backup_mock.call_args.kwargs["prepare_promotion"]))
         self.assertTrue(callable(run_backup_mock.call_args.kwargs["validate_promotion"]))
 
     def test_run_compact_revalidates_source_head_before_checkpoint_promotion(self) -> None:
@@ -1065,9 +1085,14 @@ class TestCompactService(unittest.TestCase):
             output_dir = Path(tmpdir) / "out"
 
             def _run_backup_with_promotion_validation(**kwargs):
-                self.assertIsNone(kwargs.get("promote_lock_dir"))
-                self.assertIsNone(kwargs.get("prepare_promotion"))
+                self.assertEqual(
+                    kwargs["promote_lock_dir"],
+                    root_dir / "extensions" / ".chain.lock",
+                )
+                self.assertTrue(callable(kwargs["prepare_promotion"]))
                 self.assertFalse((root_dir / "extensions").exists())
+                kwargs["prepare_promotion"]()
+                self.assertTrue((root_dir / "extensions").is_dir())
                 kwargs["validate_promotion"]()
                 return "backup-result"
 
