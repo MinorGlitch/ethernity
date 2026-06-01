@@ -105,7 +105,7 @@ def _print_extend_summary(result: PublishedExtensionResult, *, quiet: bool) -> N
             "Extension summary",
             build_kv_table(
                 [
-                    ("Root", str(result.final_dir.parent.parent)),
+                    ("Root", str(result.publish_root or result.final_dir.parent.parent)),
                     ("Extension dir", str(result.final_dir)),
                     ("Index", f"{result.index:02d}"),
                     ("Doc ID", result.doc_id.hex()),

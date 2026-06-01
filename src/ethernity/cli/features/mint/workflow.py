@@ -1553,43 +1553,38 @@ def _decode_mint_extension_candidates(
             continue
         _raise_if_mint_doc_id_collision(document, plan)
         try:
+            auth_payload, _auth_status = resolve_auth_payload(
+                list(document.auth_frames),
+                doc_id=document.doc_id,
+                doc_hash=document.doc_hash,
+                allow_unsigned=False,
+                require_auth=True,
+                quiet=quiet,
+            )
+        except ValueError as exc:
+            if fail_on_root_authority_errors:
+                raise ValueError(f"imported extension AUTH could not be trusted: {exc}") from exc
+            continue
+        if auth_payload is None or auth_payload.sign_pub != root_sign_pub:
+            continue
+        try:
             plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
             version, decoded = decode_any_envelope(plaintext)
         except Exception as exc:
             if fail_on_root_authority_errors:
-                if _mint_document_signed_by_authority(
-                    document,
-                    expected_sign_pub=root_sign_pub,
-                    quiet=quiet,
-                ):
-                    raise ValueError(
-                        f"imported root-authority document could not be trusted: {exc}"
-                    ) from exc
-                if _mint_document_targets_current_root(
-                    document,
-                    passphrase=passphrase,
-                    root_doc_hash=plan.doc_hash,
-                    debug=debug,
-                ):
-                    raise ValueError(f"imported extension could not be trusted: {exc}") from exc
+                raise ValueError(
+                    f"imported root-authority document could not be trusted: {exc}"
+                ) from exc
             continue
         if version != 2 or not isinstance(decoded, ExtensionEnvelope):
-            if fail_on_root_authority_errors and _mint_document_signed_by_authority(
-                document,
-                expected_sign_pub=root_sign_pub,
-                quiet=quiet,
-            ):
+            if fail_on_root_authority_errors:
                 raise ValueError(
                     "imported root-authority document could not be trusted: "
                     "imported document did not decode as an extension envelope"
                 )
             continue
         if decoded.header.root_doc_hash != plan.doc_hash:
-            if fail_on_root_authority_errors and _mint_document_signed_by_authority(
-                document,
-                expected_sign_pub=root_sign_pub,
-                quiet=quiet,
-            ):
+            if fail_on_root_authority_errors:
                 raise ValueError(
                     "imported root-authority extension targets a different root backup"
                 )
@@ -1663,26 +1658,6 @@ def _mint_documents_include_extension_for_root(
         ):
             return True
     return False
-
-
-def _mint_document_signed_by_authority(
-    document: Any,
-    *,
-    expected_sign_pub: bytes,
-    quiet: bool,
-) -> bool:
-    try:
-        auth_payload, _auth_status = resolve_auth_payload(
-            list(document.auth_frames),
-            doc_id=document.doc_id,
-            doc_hash=document.doc_hash,
-            allow_unsigned=False,
-            require_auth=True,
-            quiet=quiet,
-        )
-    except ValueError:
-        return False
-    return auth_payload is not None and auth_payload.sign_pub == expected_sign_pub
 
 
 def _mint_document_targets_current_root(

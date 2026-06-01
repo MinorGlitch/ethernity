@@ -96,7 +96,10 @@ class TestCliApp(unittest.TestCase):
         "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",
         return_value=(None, ["shards.txt"], ["payloads.txt"], ["scan.pdf"], [object()]),
     )
-    @mock.patch("ethernity.cli.bootstrap.app.prompt_choice", side_effect=["folder", "reuse-root"])
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_choice",
+        side_effect=["folder", "reuse-root", "not-stored"],
+    )
     @mock.patch("ethernity.cli.bootstrap.app.prompt_paths_with_picker", return_value=["/tmp/input"])
     @mock.patch("ethernity.cli.bootstrap.app.prompt_path_with_picker", return_value="/tmp/root")
     def test_prompt_home_extend_args_preserves_shard_unlock_inputs(
@@ -119,6 +122,40 @@ class TestCliApp(unittest.TestCase):
         self.assertEqual(args.shard_scan, ["scan.pdf"])
         self.assertEqual(len(args.shard_frames or []), 1)
         self.assertEqual(args.unlock_policy, "reuse-root")
+        self.assertEqual(args.signing_key_mode, "not-stored")
+
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",
+        return_value=(None, ["shards.txt"], ["payloads.txt"], ["scan.pdf"], [object()]),
+    )
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_int", side_effect=[4, 2])
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.prompt_choice",
+        side_effect=["folder", "reuse-root", "sharded"],
+    )
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_paths_with_picker", return_value=["/tmp/input"])
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_path_with_picker", return_value="/tmp/root")
+    def test_prompt_home_extend_args_allows_reuse_root_with_signing_key_shards(
+        self,
+        _prompt_path_with_picker: mock.MagicMock,
+        _prompt_paths_with_picker: mock.MagicMock,
+        _prompt_choice: mock.MagicMock,
+        _prompt_int: mock.MagicMock,
+        _prompt_passphrase_unlock_material: mock.MagicMock,
+    ) -> None:
+        args = app_module._prompt_home_extend_args(
+            config="cfg",
+            paper="A4",
+            design="forge",
+            quiet=False,
+        )
+
+        self.assertEqual(args.unlock_policy, "reuse-root")
+        self.assertIsNone(args.shard_count)
+        self.assertIsNone(args.shard_threshold)
+        self.assertEqual(args.signing_key_mode, "sharded")
+        self.assertEqual(args.signing_key_shard_count, 4)
+        self.assertEqual(args.signing_key_shard_threshold, 2)
 
     @mock.patch(
         "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",

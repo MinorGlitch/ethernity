@@ -3285,7 +3285,7 @@ class TestCliApi(unittest.TestCase):
                 ) as ensure_playwright_browsers,
                 mock.patch(
                     "ethernity.cli.features.extend.api_handlers.validate_prepared_extend_render"
-                ) as validate_render,
+                ) as validate_prepared_extend_render,
             ):
                 expected_prepared = prepare_extend_run(
                     ExtendArgs(
@@ -3325,7 +3325,7 @@ class TestCliApi(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 0, result.output)
         ensure_playwright_browsers.assert_called_once_with(quiet=True)
-        validate_render.assert_called_once()
+        validate_prepared_extend_render.assert_called_once()
         events = [json.loads(line) for line in result.output.splitlines() if line.strip()]
         self._assert_valid_events(events)
         self.assertEqual(

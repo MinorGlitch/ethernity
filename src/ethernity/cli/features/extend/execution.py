@@ -173,6 +173,7 @@ def execute_staged_extension_publish(
         parent_head_index=plan.prepared.inspection.validated_head_index,
         parent_head_doc_hash=plan.prepared.inspection.validated_head_doc_hash,
         expected_head_doc_hash=plan.prepared.args.expected_head_doc_hash,
+        publish_root=plan.artifacts.publish_root,
     )
 
 

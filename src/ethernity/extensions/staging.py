@@ -81,6 +81,7 @@ class PlannedStagedExtensionArtifacts:
     publish_layout: ExtensionPublishLayout
     staging_dir: Path
     final_dir: Path
+    publish_root: Path
     publish_root_identity: DirectoryIdentity
     artifact_parent_identity: DirectoryIdentity
     qr_document_path: Path
@@ -367,6 +368,7 @@ def create_staged_extension_artifact_plan(
         index=index,
         doc_id_hex=doc_id_hex,
     )
+    publish_root = _publish_root_for_staging_dir(staging_dir, publish_layout=layout)
     publish_root_identity, artifact_parent_identity = _publish_directory_identities(
         staging_dir,
         publish_layout=layout,
@@ -408,6 +410,7 @@ def create_staged_extension_artifact_plan(
         publish_layout=layout,
         staging_dir=staging_dir,
         final_dir=final_dir,
+        publish_root=publish_root,
         publish_root_identity=publish_root_identity,
         artifact_parent_identity=artifact_parent_identity,
         qr_document_path=qr_document_path,

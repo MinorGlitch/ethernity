@@ -20,6 +20,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from ethernity.cli.features.mint.workflow import (
+    _decode_mint_extension_candidates,
     _resolve_mint_chain_target,
     execute_mint,
     inspect_mint_inputs,
@@ -742,6 +743,32 @@ class TestMintInspection(unittest.TestCase):
         self.assertEqual(resolved.import_documents, ())
         self.assertNotEqual(resolved.doc_id, plan.doc_id)
         reconstruct_authenticated_latest_logical_state.assert_called_once()
+
+    def test_decode_mint_extension_candidates_skips_unauthenticated_docs_before_decrypt(
+        self,
+    ) -> None:
+        plan = _mint_recovery_plan()
+        unsigned_document = ImportedRecoveryDocument(
+            doc_id=b"\x88" * 8,
+            doc_hash=b"\x44" * 32,
+            ciphertext=b"extension-ciphertext",
+            auth_frames=(),
+            source_label="unsigned",
+        )
+
+        with mock.patch("ethernity.cli.features.mint.workflow.decrypt_bytes") as decrypt_bytes:
+            candidates = _decode_mint_extension_candidates(
+                plan,
+                import_documents=(unsigned_document,),
+                passphrase="passphrase",
+                root_sign_pub=ROOT_SIGN_PUB,
+                fail_on_root_authority_errors=False,
+                quiet=True,
+                debug=False,
+            )
+
+        self.assertEqual(candidates, ())
+        decrypt_bytes.assert_not_called()
 
     def test_resolve_mint_chain_target_rejects_unexpected_latest_head(self) -> None:
         plan = _mint_recovery_plan(

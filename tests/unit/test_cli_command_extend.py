@@ -177,6 +177,39 @@ class TestExtendCommand(unittest.TestCase):
         print_extend_summary.assert_called_once_with(result, quiet=False)
         print_completion_actions.assert_called_once_with(result, quiet=False)
 
+    @mock.patch("ethernity.cli.features.extend.command.console.print")
+    @mock.patch(
+        "ethernity.cli.features.extend.command.panel", side_effect=lambda _title, body: body
+    )
+    @mock.patch("ethernity.cli.features.extend.command.build_outputs_tree", return_value="outputs")
+    @mock.patch("ethernity.cli.features.extend.command.build_kv_table", return_value="summary")
+    def test_print_extend_summary_uses_publish_root_when_available(
+        self,
+        build_kv_table: mock.MagicMock,
+        _build_outputs_tree: mock.MagicMock,
+        _panel: mock.MagicMock,
+        _console_print: mock.MagicMock,
+    ) -> None:
+        result = PublishedExtensionResult(
+            index=2,
+            doc_id=b"\xaa" * 16,
+            doc_hash=b"\xbb" * 32,
+            final_dir=Path("/tmp/output/extension-02-aabbcc"),
+            qr_document_path=Path("/tmp/output/extension-02-aabbcc/qr_document-02-aa.pdf"),
+            recovery_document_path=Path(
+                "/tmp/output/extension-02-aabbcc/recovery_document-02-aa.pdf"
+            ),
+            recovery_kit_index_path=None,
+            shard_paths=(),
+            signing_key_shard_paths=(),
+            publish_root=Path("/tmp/output"),
+        )
+
+        extend_command._print_extend_summary(result, quiet=False)
+
+        summary_rows = build_kv_table.call_args.args[0]
+        self.assertEqual(summary_rows[0], ("Root", "/tmp/output"))
+
     @mock.patch("ethernity.cli.features.extend.command.print_completion_panel")
     def test_completion_actions_mentions_reused_root_shards(
         self,

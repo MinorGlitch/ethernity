@@ -2238,6 +2238,10 @@ class TestExtendService(unittest.TestCase):
                     "_validate_recovery_document_pdf",
                     return_value=None,
                 ),
+                mock.patch(
+                    "ethernity.cli.features.extend.main_carrier_validation."
+                    "validate_fallback_text_in_pdf",
+                ),
             ):
                 result = run_extend(
                     ExtendArgs(
@@ -2455,6 +2459,10 @@ class TestExtendService(unittest.TestCase):
                     return_value=None,
                 ),
                 mock.patch(
+                    "ethernity.cli.features.extend.main_carrier_validation."
+                    "validate_fallback_text_in_pdf",
+                ),
+                mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation.resolve_auth_payload",
                     return_value=(
                         AuthPayload(
@@ -2556,6 +2564,10 @@ class TestExtendService(unittest.TestCase):
                     return_value=None,
                 ),
                 mock.patch(
+                    "ethernity.cli.features.extend.main_carrier_validation."
+                    "validate_fallback_text_in_pdf",
+                ),
+                mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation.resolve_auth_payload",
                     return_value=(
                         AuthPayload(
@@ -2585,6 +2597,47 @@ class TestExtendService(unittest.TestCase):
             self.assertEqual(marker.read_text(encoding="utf-8"), "keep")
             self.assertFalse((root_dir / "extensions" / "02").exists())
             self.assertFalse((root_dir / "extensions" / ".staging-2-abc123").exists())
+
+    def test_validate_rendered_shard_carrier_accepts_repeated_identical_qr_payloads(
+        self,
+    ) -> None:
+        path = Path("/tmp/shard-01-deadbeef-1-of-1.pdf")
+        expected_doc_id = b"\x22" * 16
+        expected_doc_hash = b"\x33" * 32
+        expected_payload = _shard_payload(
+            share_index=1,
+            threshold=1,
+            share_count=1,
+            key_type="passphrase",
+            doc_hash=expected_doc_hash,
+        )
+        frame = Frame(
+            version=VERSION,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=expected_doc_id,
+            index=0,
+            total=1,
+            data=encode_shard_payload(expected_payload),
+        )
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.extend.shard_validation.shard_frames_from_scan",
+                return_value=[frame, frame],
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.shard_validation.verify_shard",
+                return_value=True,
+            ),
+        ):
+            _validate_rendered_shard_carrier(
+                path=path,
+                expected_payload=expected_payload,
+                expected_doc_id=expected_doc_id,
+                expected_doc_hash=expected_doc_hash,
+                quiet=True,
+                secret_label="passphrase shard",
+            )
 
     def test_validate_rendered_shard_carrier_rejects_invalid_signature(self) -> None:
         path = Path("/tmp/shard-01-deadbeef-1-of-1.pdf")
@@ -2690,6 +2743,10 @@ class TestExtendService(unittest.TestCase):
                     "ethernity.cli.features.extend.main_carrier_validation."
                     "_validate_recovery_document_pdf",
                     return_value=None,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.main_carrier_validation."
+                    "validate_fallback_text_in_pdf",
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation.resolve_auth_payload",
@@ -3184,13 +3241,18 @@ class TestExtendService(unittest.TestCase):
             total=1,
             data=ciphertext,
         )
+        reader = object()
 
         with (
             mock.patch(
                 "ethernity.cli.features.extend.main_carrier_validation."
                 "_validate_recovery_document_pdf",
-                return_value=None,
+                return_value=reader,
             ),
+            mock.patch(
+                "ethernity.cli.features.extend.main_carrier_validation."
+                "validate_fallback_text_in_pdf",
+            ) as validate_fallback_text_in_pdf,
             mock.patch(
                 "ethernity.cli.features.extend.main_carrier_validation.resolve_auth_payload",
                 return_value=(
@@ -3227,14 +3289,12 @@ class TestExtendService(unittest.TestCase):
                 quiet=True,
             )
 
-    def test_validate_single_recovery_document_carrier_does_not_parse_pdf_fallback_text(
+        validate_fallback_text_in_pdf.assert_called_once()
+        self.assertEqual(validate_fallback_text_in_pdf.call_args.kwargs["reader"], reader)
+
+    def test_validate_single_recovery_document_carrier_validates_pdf_fallback_text(
         self,
     ) -> None:
-        class PoisonReader:
-            @property
-            def pages(self) -> list[object]:
-                raise AssertionError("staged recovery validation must not parse PDF text")
-
         ciphertext = b"enc:extension"
         doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
         auth_frame = Frame(
@@ -3253,13 +3313,31 @@ class TestExtendService(unittest.TestCase):
             total=1,
             data=ciphertext,
         )
+        fallback_proof = RenderFallbackProof(
+            section_frame_digests=tuple(
+                hashlib.sha256(encode_frame(frame)).hexdigest()
+                for frame in (auth_frame, main_frame)
+            ),
+            section_titles=(AUTH_FALLBACK_LABEL, "Main Frame"),
+            expected_section_count=2,
+            emitted_block_count=2,
+            emitted_line_count=2,
+            consumed_section_count=2,
+            fully_consumed=True,
+            emitted_fallback_lines=("auth-payload-line", "main-payload-line"),
+        )
+        reader = object()
 
         with (
             mock.patch(
                 "ethernity.cli.features.extend.main_carrier_validation."
                 "_validate_recovery_document_pdf",
-                return_value=PoisonReader(),
+                return_value=reader,
             ),
+            mock.patch(
+                "ethernity.cli.features.extend.main_carrier_validation."
+                "validate_fallback_text_in_pdf",
+            ) as validate_fallback_text_in_pdf,
             mock.patch(
                 "ethernity.cli.features.extend.main_carrier_validation.resolve_auth_payload",
                 return_value=(
@@ -3276,25 +3354,19 @@ class TestExtendService(unittest.TestCase):
             _validate_single_recovery_document_carrier(
                 path=Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf"),
                 frames=(auth_frame, main_frame),
-                fallback_proof=RenderFallbackProof(
-                    section_frame_digests=tuple(
-                        hashlib.sha256(encode_frame(frame)).hexdigest()
-                        for frame in (auth_frame, main_frame)
-                    ),
-                    section_titles=(AUTH_FALLBACK_LABEL, "Main Frame"),
-                    expected_section_count=2,
-                    emitted_block_count=2,
-                    emitted_line_count=2,
-                    consumed_section_count=2,
-                    fully_consumed=True,
-                    emitted_fallback_lines=("auth-payload-line", "main-payload-line"),
-                ),
+                fallback_proof=fallback_proof,
                 expected_doc_id=doc_id,
                 expected_doc_hash=doc_hash,
                 expected_sign_pub=b"\x44" * 32,
                 require_auth=True,
                 quiet=True,
             )
+
+        validate_fallback_text_in_pdf.assert_called_once_with(
+            artifact_label="rendered recovery document recovery_document-01-deadbeefcafebabe.pdf",
+            reader=reader,
+            fallback_proof=fallback_proof,
+        )
 
     def test_validate_single_recovery_document_carrier_requires_render_proof(self) -> None:
         ciphertext = b"enc:extension"

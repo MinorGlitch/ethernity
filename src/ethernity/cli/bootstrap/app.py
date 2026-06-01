@@ -20,7 +20,7 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 import click
 import typer
@@ -467,9 +467,6 @@ def _prompt_home_extend_output_policy(
     default_shard_threshold = (
         backup_defaults.shard_threshold if backup_defaults is not None else None
     )
-    default_signing_key_mode = (
-        backup_defaults.signing_key_mode if backup_defaults is not None else "not-stored"
-    )
     mode = prompt_choice(
         "How should this extension be recoverable",
         {
@@ -484,7 +481,8 @@ def _prompt_home_extend_output_policy(
         ),
     )
     if mode == "reuse-root":
-        return _HomeExtendOutputPolicy(unlock_policy="reuse-root")
+        signing_key_policy = _prompt_home_extend_signing_key_policy(backup_defaults)
+        return _HomeExtendOutputPolicy(unlock_policy="reuse-root", **signing_key_policy)
     if mode == "plaintext":
         return _HomeExtendOutputPolicy(unlock_policy="self-contained", shard_count=0)
 
@@ -500,6 +498,29 @@ def _prompt_home_extend_output_policy(
         maximum=shard_count,
         help_text=_home_extend_shard_threshold_help(default_shard_threshold, shard_count),
     )
+    signing_key_policy = _prompt_home_extend_signing_key_policy(backup_defaults)
+    if signing_key_policy["signing_key_mode"] != "sharded":
+        return _HomeExtendOutputPolicy(
+            unlock_policy="self-contained",
+            shard_threshold=shard_threshold,
+            shard_count=shard_count,
+            **signing_key_policy,
+        )
+
+    return _HomeExtendOutputPolicy(
+        unlock_policy="self-contained",
+        shard_threshold=shard_threshold,
+        shard_count=shard_count,
+        **signing_key_policy,
+    )
+
+
+def _prompt_home_extend_signing_key_policy(
+    backup_defaults: BackupDefaults | None,
+) -> dict[str, Any]:
+    default_signing_key_mode = (
+        backup_defaults.signing_key_mode if backup_defaults is not None else "not-stored"
+    )
     signing_key_mode = prompt_choice(
         "Store root/chain signing authority shards for this extension",
         {
@@ -513,12 +534,7 @@ def _prompt_home_extend_output_policy(
         ),
     )
     if signing_key_mode != "sharded":
-        return _HomeExtendOutputPolicy(
-            unlock_policy="self-contained",
-            shard_threshold=shard_threshold,
-            shard_count=shard_count,
-            signing_key_mode="not-stored",
-        )
+        return {"signing_key_mode": "not-stored"}
 
     signing_key_shard_count = prompt_int(
         "Signing authority shard document count",
@@ -537,14 +553,11 @@ def _prompt_home_extend_output_policy(
             signing_key_shard_count,
         ),
     )
-    return _HomeExtendOutputPolicy(
-        unlock_policy="self-contained",
-        shard_threshold=shard_threshold,
-        shard_count=shard_count,
-        signing_key_mode="sharded",
-        signing_key_shard_threshold=signing_key_shard_threshold,
-        signing_key_shard_count=signing_key_shard_count,
-    )
+    return {
+        "signing_key_mode": "sharded",
+        "signing_key_shard_threshold": signing_key_shard_threshold,
+        "signing_key_shard_count": signing_key_shard_count,
+    }
 
 
 def _home_extend_shard_count_help(default_count: int | None) -> str:

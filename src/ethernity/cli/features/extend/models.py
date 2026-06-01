@@ -117,6 +117,7 @@ class PublishedExtensionResult:
     parent_head_index: int | None = None
     parent_head_doc_hash: str | None = None
     expected_head_doc_hash: str | None = None
+    publish_root: Path | None = None
 
 
 @dataclass(frozen=True)

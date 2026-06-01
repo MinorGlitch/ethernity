@@ -36,6 +36,7 @@ from ethernity.encoding.framing import Frame, FrameType
 from ethernity.render.proofs import (
     RenderProofError,
     validate_fallback_render_proof,
+    validate_fallback_text_in_pdf,
     validate_pdf_has_pages,
     validate_text_in_pdf,
 )
@@ -114,8 +115,13 @@ def validate_single_recovery_document_carrier(
     quiet: bool,
 ) -> None:
     try:
-        _validate_recovery_document_pdf(path)
+        reader = _validate_recovery_document_pdf(path)
         _validate_recovery_document_fallback_proof(path, frames, fallback_proof)
+        validate_fallback_text_in_pdf(
+            artifact_label=f"rendered recovery document {path.name}",
+            reader=reader,
+            fallback_proof=fallback_proof,
+        )
         _validate_main_carrier_frames(
             path=path,
             frames=list(frames),
