@@ -120,8 +120,9 @@ Use this template for each change entry:
     extension-like stale top-level entries under `extensions/`.
   - Root-only and selected-prefix recovery are explicit selection modes. Default recovery replays
     the latest supplied authenticated extension and reports freshness as supplied-carriers-only.
-  - Extension recovery documents are human fallback documents. They are validated for append
-    readiness but are not scraped as authoritative content-import carriers.
+  - Extension recovery documents are human fallback documents. Append readiness requires the
+    required recovery-document PDF to be present and loadable, but visible fallback text in PDF or
+    image files is not parsed or bound as authoritative content-import, discovery, or replay data.
   - Extension publish and mint paths fail closed when carriers, shard sets, chain ancestry, or
     authenticated replay cannot be validated.
   - Compaction shard policy inheritance is content-first and authenticated. Filename prefixes and

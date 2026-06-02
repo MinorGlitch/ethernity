@@ -1303,11 +1303,10 @@ transcription when QR scanning is unavailable or damaged. Manually typed or tran
 MAY be accepted through explicit text inputs, but implementations MUST NOT extract or parse fallback
 text from PDF or image files as a content-import or chain-replay carrier. Publish implementations
 MUST validate every machine-readable payload-bearing carrier before promotion. Append/discovery
-validation for a published chain head MUST also load the required `recovery_document-*` PDF,
-validate that visible AUTH and MAIN fallback sections decode, and bind those sections to the
-QR-derived extension `doc_id`, `doc_hash`, and signing authority. This recovery-document check is an
-append-validity rule only; implementations MUST NOT derive recovery replay semantics by scraping
-human-display text from the PDF.
+validation for a published chain head MUST also load the required `recovery_document-*` PDF and
+verify that it is a usable PDF artifact. This recovery-document check establishes the presence of
+the human fallback artifact only; implementations MUST NOT parse or bind visible fallback text from
+PDF or image files for append/discovery identity, content import, or chain replay.
 
 The authoritative extension identity comes from recovered ciphertext, AUTH, and decrypted
 extension-header metadata.
