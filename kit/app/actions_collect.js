@@ -17,6 +17,7 @@
 
 import {
   cancelDecryptRequest,
+  clearRecoveryResult,
   copyAuthAndCipherFields,
   copyShardAsyncFields,
   dispatchPatch,
@@ -35,6 +36,13 @@ import {
 import { verifyCollectedShardSignatures } from "./shard_auth.js";
 import { autoRecoverShardSecret } from "./shards.js";
 import { cloneState, setStatus } from "./state/initial.js";
+
+const RECOVERY_INPUT_FIELDS = new Set([
+  "payloadText",
+  "shardPayloadText",
+  "agePassphrase",
+  "extensionTargetText",
+]);
 
 function parsedMainAccepted(base, before, added) {
   return (
@@ -247,10 +255,15 @@ async function verifyAndRecoverShardSecret(work, baseStatusLines = [], baseStatu
 export function updateField(dispatch, getState, key, value) {
   const current = getState();
   const patch = { [key]: value };
-  if (
-    current.isDecrypting &&
-    (key === "payloadText" || key === "agePassphrase" || key === "extensionTargetText")
-  ) {
+  if (RECOVERY_INPUT_FIELDS.has(key) && current[key] !== value) {
+    patch.extractedFiles = [];
+    patch.decryptedEnvelope = null;
+    patch.decryptedEnvelopeSource = "";
+    patch.recoveryComplete = false;
+    patch.extractStatus = { lines: [], type: "" };
+    patch.decryptStatus = { lines: [], type: "" };
+  }
+  if (current.isDecrypting && RECOVERY_INPUT_FIELDS.has(key)) {
     patch.isDecrypting = false;
     patch.decryptRequestId = current.decryptRequestId + 1;
   }
@@ -274,6 +287,7 @@ export async function addPayloads(dispatch, getState) {
   const { added, failed } = parseTextWithErrors(base, base.payloadText, parseAutoPayload, "errors");
   if (added > 0 || failed) {
     cancelDecryptRequest(base);
+    clearRecoveryResult(base);
   }
   const fullyAccepted = parsedMainAccepted(base, before, added);
   if (fullyAccepted) {
@@ -312,6 +326,7 @@ export async function addScannedPayload(dispatch, getState, scanned) {
     base.authConflicts > before.authConflicts
   ) {
     cancelDecryptRequest(base);
+    clearRecoveryResult(base);
   }
   const fullyAccepted = parsedMainAccepted(base, before, added);
   if (fullyAccepted) {
@@ -343,6 +358,10 @@ export async function addShardPayloads(dispatch, getState) {
     parseAutoShard,
     "shardErrors",
   );
+  if (added > 0 || failed) {
+    cancelDecryptRequest(parsed);
+    clearRecoveryResult(parsed);
+  }
   const fullyAccepted = parsedShardAccepted(parsed, before, added);
   if (fullyAccepted) {
     parsed.shardPayloadText = "";
@@ -369,6 +388,14 @@ export async function addScannedShardPayload(dispatch, getState, scanned) {
     shardConflicts: parsed.shardConflicts,
   };
   const added = parseScannedShard(parsed, scanned);
+  if (
+    added > 0 ||
+    parsed.shardErrors > before.shardErrors ||
+    parsed.shardConflicts > before.shardConflicts
+  ) {
+    cancelDecryptRequest(parsed);
+    clearRecoveryResult(parsed);
+  }
   const fullyAccepted = parsedShardAccepted(parsed, before, added);
   if (fullyAccepted) {
     parsed.shardPayloadText = "";

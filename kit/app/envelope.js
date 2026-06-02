@@ -424,7 +424,13 @@ export async function extractFiles(envelopeBytes) {
     if (!bytesEqual(digest, entry.sha)) {
       throw new Error(`sha256 mismatch for ${entry.path}`);
     }
-    files.push({ path: entry.path, data });
+    files.push({
+      path: entry.path,
+      size: entry.size,
+      sha: entry.sha,
+      mtime: entry.mtime,
+      data,
+    });
     offset = end;
   }
   if (offset !== normalizedPayload.length) {

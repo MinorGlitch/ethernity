@@ -132,6 +132,13 @@ export function clearDecryptedEnvelope(state) {
   state.decryptedEnvelopeSource = "";
 }
 
+export function clearRecoveryResult(state) {
+  clearRecoveredOutput(state);
+  clearDecryptedEnvelope(state);
+  state.recoveryComplete = false;
+  setStatus(state, "decryptStatus", []);
+}
+
 export function cancelDecryptRequest(state) {
   if (!state.isDecrypting) {
     return;

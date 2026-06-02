@@ -7,6 +7,7 @@ import {
   addScannedPayload,
   addScannedShardPayload,
   resetAll,
+  updateField,
 } from "../app/actions_collect.js";
 import { updateAuthStatus } from "../app/auth.js";
 import { createInitialState } from "../app/state/initial.js";
@@ -94,6 +95,54 @@ test("async main followups do not overwrite reset state", async () => {
   assert.equal(finalState.frameStatus.lines[0], "State cleared.");
 });
 
+test("changing recovery target clears stale recovered output", () => {
+  const store = createStore();
+  const state = store.getState();
+  state.extractedFiles = [{ path: "old.txt", data: new Uint8Array([1]) }];
+  state.decryptedEnvelope = new Uint8Array([2]);
+  state.decryptedEnvelopeSource = "Collected ciphertext";
+  state.recoveryComplete = true;
+  state.extractStatus = { lines: ["1 file(s) ready."], type: "ok" };
+  state.decryptStatus = { lines: ["Recovery complete."], type: "ok" };
+  state.isDecrypting = true;
+  state.decryptRequestId = 3;
+
+  updateField(
+    store.dispatch.bind(store),
+    store.getState.bind(store),
+    "extensionTargetText",
+    "root",
+  );
+
+  const finalState = store.getState();
+  assert.deepEqual(finalState.extractedFiles, []);
+  assert.equal(finalState.decryptedEnvelope, null);
+  assert.equal(finalState.decryptedEnvelopeSource, "");
+  assert.equal(finalState.recoveryComplete, false);
+  assert.deepEqual(finalState.extractStatus.lines, []);
+  assert.deepEqual(finalState.decryptStatus.lines, []);
+  assert.equal(finalState.isDecrypting, false);
+  assert.equal(finalState.decryptRequestId, 4);
+});
+
+test("accepted pasted main frames clear stale recovered output", async () => {
+  const store = createStore();
+  const state = store.getState();
+  state.payloadText = MAIN_QR_PAYLOAD_SINGLE_FRAME;
+  state.extractedFiles = [{ path: "old.txt", data: new Uint8Array([1]) }];
+  state.recoveryComplete = true;
+  state.extractStatus = { lines: ["1 file(s) ready."], type: "ok" };
+  state.decryptStatus = { lines: ["Recovery complete."], type: "ok" };
+
+  await addPayloads(store.dispatch.bind(store), store.getState.bind(store));
+
+  const finalState = store.getState();
+  assert.deepEqual(finalState.extractedFiles, []);
+  assert.equal(finalState.recoveryComplete, false);
+  assert.deepEqual(finalState.extractStatus.lines, []);
+  assert.deepEqual(finalState.decryptStatus.lines, []);
+});
+
 test("scanned payload parse failures surface an error status", async () => {
   const store = createStore();
 
@@ -109,6 +158,9 @@ test("scanned payload parse failures surface an error status", async () => {
 
 test("scanned shard parse failures surface an error status", async () => {
   const store = createStore();
+  const state = store.getState();
+  state.extractedFiles = [{ path: "old.txt", data: new Uint8Array([1]) }];
+  state.recoveryComplete = true;
 
   await addScannedShardPayload(store.dispatch.bind(store), store.getState.bind(store), {
     text: "not a valid shard payload",
@@ -116,6 +168,8 @@ test("scanned shard parse failures surface an error status", async () => {
 
   const finalState = store.getState();
   assert.equal(finalState.shardErrors, 1);
+  assert.deepEqual(finalState.extractedFiles, []);
+  assert.equal(finalState.recoveryComplete, false);
   assert.equal(finalState.shardStatus.type, "error");
   assert.equal(finalState.shardStatus.lines[0], "Scanned shard QR could not be decoded.");
 });

@@ -306,7 +306,10 @@ export async function reconstructLatestFiles(rootFiles, rootDocHash, extensions)
     if (projected.size > MAX_MANIFEST_FILES) {
       throw new Error(`logical latest state exceeds MAX_MANIFEST_FILES (${MAX_MANIFEST_FILES})`);
     }
-    const logicalBytes = Array.from(projected.values()).reduce((sum, file) => sum + file.size, 0);
+    const logicalBytes = Array.from(projected.values()).reduce(
+      (sum, file) => sum + logicalFileSize(file),
+      0,
+    );
     if (logicalBytes > MAX_DECOMPRESSED_PAYLOAD_BYTES) {
       throw new Error("logical latest state exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES");
     }
@@ -319,6 +322,16 @@ export async function reconstructLatestFiles(rootFiles, rootDocHash, extensions)
   return Array.from(state.keys())
     .sort(compareUnicodeCodePointStrings)
     .map((path) => state.get(path));
+}
+
+function logicalFileSize(file) {
+  if (Number.isInteger(file.size) && file.size >= 0) {
+    return file.size;
+  }
+  if (file.data instanceof Uint8Array) {
+    return file.data.length;
+  }
+  throw new Error("logical file size is unavailable");
 }
 
 export function validateExtensionChain(rootDocHash, extensions) {

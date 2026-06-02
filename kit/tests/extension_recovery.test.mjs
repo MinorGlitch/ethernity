@@ -19,7 +19,11 @@ import {
 } from "../app/constants.js";
 import { deriveSigningPublicKey, verifyAuthSignature } from "../app/auth.js";
 import { decryptCiphertext, extractEnvelope } from "../app/actions_recover.js";
-import { decodeExtensionEnvelope, defaultExtensionChunker } from "../app/extension_envelope.js";
+import {
+  decodeExtensionEnvelope,
+  defaultExtensionChunker,
+  reconstructLatestFiles,
+} from "../app/extension_envelope.js";
 import {
   recoverLatestFromEncryptedDocuments,
   recoverLatestFromPlaintextDocuments,
@@ -678,6 +682,24 @@ test("browser recovery resolves extension references to virtual root chunks", as
   assert.deepEqual(
     result.files.map((file) => [file.path, new TextDecoder().decode(file.data)]),
     [["a.txt", "same root content"]],
+  );
+});
+
+test("browser replay counts unchanged root files in latest-state byte limit", async () => {
+  const rootDocHash = new Uint8Array(32).fill(0x9a);
+  const rootData = new Uint8Array(MAX_DECOMPRESSED_PAYLOAD_BYTES);
+  const extPlaintext = buildExtensionPlaintext({
+    index: 1,
+    parentDocHash: rootDocHash,
+    rootDocHash,
+    files: [{ path: "added.txt", data: Uint8Array.of(1) }],
+  });
+  const extension = await decodeExtensionEnvelope(extPlaintext);
+  extension.docHash = new Uint8Array(32).fill(0x9b);
+
+  await assert.rejects(
+    () => reconstructLatestFiles([{ path: "root.bin", data: rootData }], rootDocHash, [extension]),
+    /logical latest state exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES/,
   );
 });
 
