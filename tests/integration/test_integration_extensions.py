@@ -492,24 +492,28 @@ class TestIntegrationExtensions(unittest.TestCase):
                     tmp_path = Path(tmpdir)
                     source_dir = tmp_path / "source"
                     root_dir = tmp_path / "backup-root"
+                    recovered_dir = tmp_path / "recovered"
                     source_dir.mkdir()
                     (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+                    expected_alpha = f"extension-alpha-{design}"
 
                     with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
                         self._run_backup(source_dir=source_dir, root_dir=root_dir)
 
-                        (source_dir / "alpha.txt").write_text(
-                            f"extension-alpha-{design}",
-                            encoding="utf-8",
-                        )
+                        (source_dir / "alpha.txt").write_text(expected_alpha, encoding="utf-8")
                         extension = self._run_extend(
                             source_dir=source_dir,
                             root_dir=root_dir,
                             design=design,
                         )
+                        self._run_recover(root_dir=root_dir, output_dir=recovered_dir)
 
                         reader = PdfReader(extension.recovery_document_path)
                     self.assertGreater(len(reader.pages), 0)
+                    self.assertEqual(
+                        self._snapshot_tree(recovered_dir),
+                        {"alpha.txt": expected_alpha.encode("utf-8")},
+                    )
 
     def test_extend_forge_generated_folder_allows_second_extension(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

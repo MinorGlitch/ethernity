@@ -17,7 +17,7 @@ import gzip
 import hashlib
 import unittest
 
-from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES
+from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_CBOR_BYTES
 from ethernity.encoding.cbor import dumps_canonical
 from ethernity.encoding.varint import encode_uvarint
 from ethernity.formats.envelope_codec import (
@@ -950,6 +950,104 @@ class TestExtensionEnvelope(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "duplicate extension chunk_id"):
             ExtensionEnvelope.decode(_encode_sections(header, body))
+
+    def test_decode_rejects_invalid_magic(self) -> None:
+        encoded = _make_test_envelope().encode()
+
+        with self.assertRaisesRegex(ValueError, "invalid envelope magic"):
+            ExtensionEnvelope.decode(b"ZZ" + encoded[2:])
+
+    def test_decode_rejects_unsupported_envelope_version(self) -> None:
+        envelope = _make_test_envelope()
+        header, body = envelope.to_cbor_sections()
+        header_bytes = dumps_canonical(header)
+        body_bytes = dumps_canonical(body)
+        malformed = b"".join(
+            (
+                MAGIC,
+                encode_uvarint(3),
+                encode_uvarint(len(header_bytes)),
+                header_bytes,
+                encode_uvarint(len(body_bytes)),
+                body_bytes,
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "unsupported envelope version"):
+            ExtensionEnvelope.decode(malformed)
+
+    def test_decode_rejects_extra_bytes_after_body(self) -> None:
+        encoded = _make_test_envelope().encode()
+
+        with self.assertRaisesRegex(ValueError, "extension body length mismatch"):
+            ExtensionEnvelope.decode(encoded + b"\x00")
+
+    def test_decode_rejects_oversized_header_length_before_read(self) -> None:
+        malformed = b"".join(
+            (
+                MAGIC,
+                encode_uvarint(2),
+                encode_uvarint(MAX_MANIFEST_CBOR_BYTES + 1),
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "extension header exceeds"):
+            ExtensionEnvelope.decode(malformed)
+
+    def test_decode_rejects_oversized_body_length_before_read(self) -> None:
+        envelope = _make_test_envelope()
+        header, _body = envelope.to_cbor_sections()
+        header_bytes = dumps_canonical(header)
+        malformed = b"".join(
+            (
+                MAGIC,
+                encode_uvarint(2),
+                encode_uvarint(len(header_bytes)),
+                header_bytes,
+                encode_uvarint(MAX_MANIFEST_CBOR_BYTES + 1),
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "extension body exceeds"):
+            ExtensionEnvelope.decode(malformed)
+
+    def test_decode_rejects_indefinite_header_cbor(self) -> None:
+        body_bytes = dumps_canonical(_make_test_envelope().to_cbor_sections()[1])
+        malformed = b"".join(
+            (
+                MAGIC,
+                encode_uvarint(2),
+                encode_uvarint(2),
+                b"\xbf\xff",
+                encode_uvarint(len(body_bytes)),
+                body_bytes,
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "extension header must use canonical CBOR"):
+            ExtensionEnvelope.decode(malformed)
+
+    def test_decode_rejects_indefinite_body_cbor(self) -> None:
+        header_bytes = dumps_canonical(_make_test_envelope().to_cbor_sections()[0])
+        malformed = b"".join(
+            (
+                MAGIC,
+                encode_uvarint(2),
+                encode_uvarint(len(header_bytes)),
+                header_bytes,
+                encode_uvarint(2),
+                b"\xbf\xff",
+            )
+        )
+
+        with self.assertRaisesRegex(ValueError, "extension body must use canonical CBOR"):
+            ExtensionEnvelope.decode(malformed)
+
+    def test_decode_rejects_empty_files_array(self) -> None:
+        header, _body = _make_test_envelope().to_cbor_sections()
+
+        with self.assertRaisesRegex(ValueError, "extension body files"):
+            ExtensionEnvelope.decode(_encode_sections(header, {1: [], 2: []}))
 
     def test_extension_codec_dispatch_helpers(self) -> None:
         chunk_bytes = b"dispatch"
