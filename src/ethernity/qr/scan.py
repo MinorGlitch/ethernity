@@ -99,6 +99,13 @@ _IMAGE_MAGICS = (
     b"MM\x00*",
     b"RIFF",
 )
+MAX_SCAN_INPUT_FILES = 2048
+MAX_SCAN_INPUT_BYTES = 256 * 1024 * 1024
+MAX_SCAN_PDF_PAGES = 4096
+MAX_SCAN_PDF_IMAGES = 8192
+MAX_SCAN_PDF_IMAGE_BYTES = 32 * 1024 * 1024
+MAX_SCAN_IMAGE_PIXELS = 100_000_000
+MAX_SCAN_QR_PAYLOADS = 8192
 
 
 def _module(name: str, default: Any) -> Any:
@@ -110,6 +117,7 @@ def _module(name: str, default: Any) -> Any:
 def _decode_image(image, *, zxing_module) -> list[bytes]:
     """Decode QR codes in an opened image object."""
 
+    _enforce_image_pixel_budget(image)
     results = zxing_module.read_barcodes(image, formats=zxing_module.BarcodeFormat.QRCode)
     payloads: list[bytes] = []
     for result in results:
@@ -163,11 +171,15 @@ def scan_qr_payloads_with_sources(
 
     decoder = _load_decoder()
     payloads: list[ScannedQrPayload] = []
+    scan_file_count = 0
     for path in _expand_paths(
         paths,
         include_extension_carriers=include_extension_carriers,
         extension_carrier_max_index=extension_carrier_max_index,
     ):
+        scan_file_count += 1
+        if scan_file_count > MAX_SCAN_INPUT_FILES:
+            raise QrScanError(f"scan inputs exceed MAX_SCAN_INPUT_FILES ({MAX_SCAN_INPUT_FILES})")
         source_payloads = _scan_one_path(path, decoder)
         if (
             include_extension_carriers
@@ -175,6 +187,10 @@ def scan_qr_payloads_with_sources(
             and not source_payloads
         ):
             raise QrScanError(f"published extension carrier contains no QR codes: {path}")
+        if len(payloads) + len(source_payloads) > MAX_SCAN_QR_PAYLOADS:
+            raise QrScanError(
+                f"decoded QR payloads exceed MAX_SCAN_QR_PAYLOADS ({MAX_SCAN_QR_PAYLOADS})"
+            )
         payloads.extend(
             ScannedQrPayload(data=bytes(payload), source_path=path) for payload in source_payloads
         )
@@ -185,6 +201,7 @@ def scan_qr_payloads_with_sources(
 
 
 def _scan_one_path(path: Path, decoder: QrDecoder) -> list[bytes]:
+    _enforce_scan_file_budget(path)
     if looks_like_pdf(path):
         return _scan_pdf(path, decoder)
     if looks_like_image(path):
@@ -242,15 +259,55 @@ def _scan_pdf(path: Path, decoder: QrDecoder) -> list[bytes]:
     except (OSError, pypdf_module.errors.PdfReadError, ValueError) as exc:
         raise QrScanError(f"failed to read PDF: {path}") from exc
     payloads: list[bytes] = []
-    for page in reader.pages:
+    image_count = 0
+    for page_index, page in enumerate(reader.pages, start=1):
+        if page_index > MAX_SCAN_PDF_PAGES:
+            raise QrScanError(f"PDF exceeds MAX_SCAN_PDF_PAGES ({MAX_SCAN_PDF_PAGES}): {path}")
         if not hasattr(page, "images"):
             raise QrScanError("pypdf is missing page.images support (upgrade pypdf)")
         for image in page.images:
+            image_count += 1
+            if image_count > MAX_SCAN_PDF_IMAGES:
+                raise QrScanError(
+                    f"PDF images exceed MAX_SCAN_PDF_IMAGES ({MAX_SCAN_PDF_IMAGES}): {path}"
+                )
+            data = image.data
+            if len(data) > MAX_SCAN_PDF_IMAGE_BYTES:
+                raise QrScanError(
+                    "PDF embedded image exceeds MAX_SCAN_PDF_IMAGE_BYTES "
+                    f"({MAX_SCAN_PDF_IMAGE_BYTES}): {path}"
+                )
             try:
-                payloads.extend(decoder.decode_image_bytes(image.data))
+                payloads.extend(decoder.decode_image_bytes(data))
             except OSError:
                 continue
     return payloads
+
+
+def _enforce_scan_file_budget(path: Path) -> None:
+    try:
+        stat = path.stat()
+    except OSError as exc:
+        raise QrScanError(f"failed to stat scan file: {path}") from exc
+    if not path.is_file():
+        raise QrScanError(f"scan path must be a regular file: {path}")
+    if stat.st_size > MAX_SCAN_INPUT_BYTES:
+        raise QrScanError(
+            f"scan file exceeds MAX_SCAN_INPUT_BYTES ({MAX_SCAN_INPUT_BYTES}): {path}"
+        )
+
+
+def _enforce_image_pixel_budget(image) -> None:
+    size = getattr(image, "size", None)
+    if not isinstance(size, tuple) or len(size) != 2:
+        return
+    width, height = size
+    if not isinstance(width, int) or not isinstance(height, int):
+        return
+    if width < 0 or height < 0:
+        raise QrScanError("scan image has invalid dimensions")
+    if width * height > MAX_SCAN_IMAGE_PIXELS:
+        raise QrScanError(f"scan image exceeds MAX_SCAN_IMAGE_PIXELS ({MAX_SCAN_IMAGE_PIXELS})")
 
 
 def _expand_paths(
@@ -322,6 +379,10 @@ def _iter_scan_files(
                 continue
             suffix = path.suffix.lower()
             if _looks_like_scan_file(path) or suffix == ".pdf" or suffix in _IMAGE_SUFFIXES:
+                if len(files) >= MAX_SCAN_INPUT_FILES:
+                    raise QrScanError(
+                        f"scan inputs exceed MAX_SCAN_INPUT_FILES ({MAX_SCAN_INPUT_FILES})"
+                    )
                 files.append(path)
     files.sort()
     return files

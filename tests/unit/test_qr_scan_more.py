@@ -124,6 +124,18 @@ class TestQrScanMore(unittest.TestCase):
             ["a.png", "c.PDF", "scan-without-extension"],
         )
 
+    def test_iter_scan_files_rejects_too_many_scan_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            for index in range(3):
+                (root / f"{index}.png").write_bytes(b"")
+
+            with (
+                mock.patch.object(qr_scan, "MAX_SCAN_INPUT_FILES", 2),
+                self.assertRaisesRegex(QrScanError, "MAX_SCAN_INPUT_FILES"),
+            ):
+                _iter_scan_files(root)
+
     def test_iter_scan_files_rejects_symlinked_scan_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -151,6 +163,38 @@ class TestQrScanMore(unittest.TestCase):
 
             with self.assertRaisesRegex(QrScanError, "scan path must not be a symlink"):
                 qr_scan.scan_qr_payloads([link])
+
+    def test_scan_qr_payloads_rejects_oversized_scan_file(self) -> None:
+        decoder = QrDecoder(
+            name="dummy", decode_image_path=lambda _: [b"ok"], decode_image_bytes=lambda _: []
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "large.png"
+            path.write_bytes(b"xx")
+
+            with (
+                mock.patch.object(qr_scan, "_load_decoder", return_value=decoder),
+                mock.patch.object(qr_scan, "MAX_SCAN_INPUT_BYTES", 1),
+                self.assertRaisesRegex(QrScanError, "MAX_SCAN_INPUT_BYTES"),
+            ):
+                qr_scan.scan_qr_payloads([path])
+
+    def test_scan_qr_payloads_rejects_too_many_decoded_payloads(self) -> None:
+        decoder = QrDecoder(
+            name="dummy",
+            decode_image_path=lambda _: [b"one", b"two"],
+            decode_image_bytes=lambda _: [],
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "scan.png"
+            path.write_bytes(b"png-ish")
+
+            with (
+                mock.patch.object(qr_scan, "_load_decoder", return_value=decoder),
+                mock.patch.object(qr_scan, "MAX_SCAN_QR_PAYLOADS", 1),
+                self.assertRaisesRegex(QrScanError, "MAX_SCAN_QR_PAYLOADS"),
+            ):
+                qr_scan.scan_qr_payloads([path])
 
     def test_iter_scan_files_ignores_unpublished_extension_staging(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -583,6 +627,31 @@ class TestQrScanMore(unittest.TestCase):
         with _patched_modules({"pypdf": pypdf}):
             payloads = _scan_pdf(Path("dummy.pdf"), decoder)
         self.assertEqual(payloads, [b"a-ok", b"c-ok"])
+
+    def test_scan_pdf_enforces_page_image_and_embedded_byte_limits(self) -> None:
+        decoder = QrDecoder(
+            name="dummy",
+            decode_image_path=lambda _: [],
+            decode_image_bytes=lambda data: [data],
+        )
+        pypdf = types.ModuleType("pypdf")
+        pypdf.PdfReader = _FakeReader
+        with _patched_modules({"pypdf": pypdf}):
+            with (
+                mock.patch.object(qr_scan, "MAX_SCAN_PDF_PAGES", 1),
+                self.assertRaisesRegex(QrScanError, "MAX_SCAN_PDF_PAGES"),
+            ):
+                _scan_pdf(Path("dummy.pdf"), decoder)
+            with (
+                mock.patch.object(qr_scan, "MAX_SCAN_PDF_IMAGES", 2),
+                self.assertRaisesRegex(QrScanError, "MAX_SCAN_PDF_IMAGES"),
+            ):
+                _scan_pdf(Path("dummy.pdf"), decoder)
+            with (
+                mock.patch.object(qr_scan, "MAX_SCAN_PDF_IMAGE_BYTES", 0),
+                self.assertRaisesRegex(QrScanError, "MAX_SCAN_PDF_IMAGE_BYTES"),
+            ):
+                _scan_pdf(Path("dummy.pdf"), decoder)
 
     def test_scan_pdf_missing_images_attr(self) -> None:
         decoder = QrDecoder(

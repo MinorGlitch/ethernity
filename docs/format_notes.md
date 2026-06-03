@@ -153,8 +153,9 @@ Implementations should not negotiate or introduce additional codecs in v1.
 
 The current CLI scan implementation parses PDF and image carriers in-process through the centralized
 `ethernity.qr.scan` boundary. That boundary rejects symlinked scan inputs, applies backup-export
-layout rules before recursive scans, and hands decoded QR bytes back to the normal frame/profile
-validators, but it is not an OS sandbox around the PDF/image parser libraries.
+layout rules before recursive scans, enforces explicit file/PDF/image/decoded-payload budgets, and
+hands decoded QR bytes back to the normal frame/profile validators, but it is not an OS sandbox
+around the PDF/image parser libraries.
 
 Operational guidance:
 - Treat scans from unknown bulk sources as untrusted file parsing and run the CLI in an OS sandbox,
@@ -168,6 +169,7 @@ Operational guidance:
 
 Current runtime config requires:
 - `[defaults.backup].qr_payload_codec` with value `"raw"` or `"base64"`
+- `[defaults.extend].qr_payload_codec` with value `"raw"` or `"base64"` when present
 
 Missing, empty, or unknown values are rejected by config loading.
 
