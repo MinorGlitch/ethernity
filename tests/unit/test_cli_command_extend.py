@@ -30,6 +30,7 @@ from ethernity.config import (
     BackupDefaults,
     CliDefaults,
     DebugDefaults,
+    ExtendDefaults,
     RecoverDefaults,
     RuntimeDefaults,
     UiDefaults,
@@ -58,8 +59,9 @@ class TestExtendCommand(unittest.TestCase):
             design="forge",
             quiet=False,
             debug=True,
-            backup_defaults=BackupDefaults(
-                base_dir="./vault",
+            backup_defaults=BackupDefaults(base_dir="./backup-vault"),
+            extend_defaults=ExtendDefaults(
+                base_dir="./extension-vault",
                 shard_threshold=2,
                 shard_count=3,
                 signing_key_mode="sharded",
@@ -100,7 +102,7 @@ class TestExtendCommand(unittest.TestCase):
         self.assertEqual(args.root_dir, str(Path("/tmp/root")))
         self.assertEqual(args.scan, [])
         self.assertEqual(args.input, ["updated.txt"])
-        self.assertEqual(args.base_dir, "./vault")
+        self.assertEqual(args.base_dir, "./extension-vault")
         self.assertEqual(args.layout_debug_dir, "/tmp/layout")
         self.assertEqual(args.qr_chunk_size, 640)
         self.assertEqual(args.passphrase, "secret")
@@ -514,8 +516,9 @@ class TestExtendCliApp(unittest.TestCase):
             return 0
 
         defaults = CliDefaults(
-            backup=BackupDefaults(base_dir="./vault", shard_threshold=2),
+            backup=BackupDefaults(base_dir="./backup-vault", shard_threshold=2),
             recover=RecoverDefaults(),
+            extend=ExtendDefaults(base_dir="./extension-vault"),
             ui=UiDefaults(),
             debug=DebugDefaults(),
             runtime=RuntimeDefaults(),
@@ -534,6 +537,6 @@ class TestExtendCliApp(unittest.TestCase):
                     )
 
         self.assertEqual(result.exit_code, 0, result.output)
-        self.assertEqual(captured["base_dir"], "./vault")
+        self.assertEqual(captured["base_dir"], "./extension-vault")
         self.assertEqual(captured["root_dir"], str(Path("/tmp/root")))
         self.assertEqual(captured["input"], ["-"])

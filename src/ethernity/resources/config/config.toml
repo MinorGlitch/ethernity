@@ -60,6 +60,26 @@ signing_key_shard_count = 0
 payload_codec = "auto" # one of: auto | raw | gzip
 qr_payload_codec = "raw" # required: raw | base64
 
+[defaults.extend]
+# Extension output policy defaults. Leave as "" or 0 to require explicit CLI/prompt choices
+# or to inherit a compatible published root shard quorum when available.
+# base_dir = "/data/secrets"
+# unlock_policy = "self-contained" # self-contained | reuse-root
+# shard_threshold = 2
+# shard_count = 3
+# signing_key_mode = "sharded" # not-stored | sharded
+# signing_key_shard_threshold = 2
+# signing_key_shard_count = 3
+# qr_payload_codec = "raw" # required: raw | base64
+base_dir = ""
+unlock_policy = ""
+shard_threshold = 0
+shard_count = 0
+signing_key_mode = ""
+signing_key_shard_threshold = 0
+signing_key_shard_count = 0
+qr_payload_codec = "raw" # required: raw | base64
+
 [defaults.recover]
 # Default recover output path (file or directory).
 # Example:

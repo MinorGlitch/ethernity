@@ -25,7 +25,7 @@ from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.recovery_kit_index import resolve_recovery_kit_index_template_path
 from ethernity.cli.shared.types import ExtendArgs
-from ethernity.config import BackupDefaults, apply_template_design, load_app_config
+from ethernity.config import ExtendDefaults, apply_template_design, load_app_config
 from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.crypto.signing import derive_public_key
 from ethernity.render.layout_debug import (
@@ -79,14 +79,16 @@ def reject_reuse_root_passphrase_shard_overrides(args: ExtendArgs) -> None:
 def resolve_extend_policy(
     *,
     args: ExtendArgs,
-    defaults: BackupDefaults,
+    defaults: ExtendDefaults,
     root_passphrase_shard_threshold: int | None,
     root_passphrase_shard_count: int,
     require_recovery_kit_index: bool,
     inherited_passphrase_shard_threshold: int | None = None,
     inherited_passphrase_shard_count: int = 0,
 ) -> ResolvedExtendPolicy:
-    unlock_policy = resolve_unlock_policy(args.unlock_policy)
+    unlock_policy = resolve_unlock_policy(
+        args.unlock_policy if args.unlock_policy is not None else defaults.unlock_policy
+    )
     if unlock_policy == "reuse-root":
         reject_reuse_root_passphrase_shard_overrides(args)
         if root_passphrase_shard_threshold is None or root_passphrase_shard_count <= 0:
@@ -107,7 +109,7 @@ def resolve_extend_policy(
                 args=args,
                 defaults=defaults,
                 passphrase_recovery_available=True,
-                inherit_default_mode=False,
+                inherit_default_mode=True,
             ),
         )
 
@@ -168,7 +170,7 @@ def resolve_extend_policy(
 def resolve_extension_signing_key_policy(
     *,
     args: ExtendArgs,
-    defaults: BackupDefaults,
+    defaults: ExtendDefaults,
     passphrase_recovery_available: bool,
     inherit_default_mode: bool,
 ) -> SigningKeyStoragePolicy:
@@ -216,7 +218,7 @@ def resolve_extension_signing_key_policy(
 
 def _resolve_extension_signing_key_mode(
     args: ExtendArgs,
-    defaults: BackupDefaults,
+    defaults: ExtendDefaults,
     *,
     inherit_default_mode: bool,
 ) -> str:
@@ -260,7 +262,7 @@ def resolve_extend_runtime(
     )
     sign_pub = derive_public_key(prepared.signing_seed)
     root_passphrase_shard_threshold, root_passphrase_shard_count = (
-        resolve_root_passphrase_shard_policy(prepared, defaults=config.cli_defaults.backup)
+        resolve_root_passphrase_shard_policy(prepared, defaults=config.cli_defaults.extend)
     )
     inherited_passphrase_shard_threshold, inherited_passphrase_shard_count = (
         resolve_inherited_passphrase_shard_policy(
@@ -273,7 +275,7 @@ def resolve_extend_runtime(
     require_recovery_kit_index = kit_index_template_path is not None
     policy = resolve_extend_policy(
         args=prepared.args,
-        defaults=config.cli_defaults.backup,
+        defaults=config.cli_defaults.extend,
         root_passphrase_shard_threshold=root_passphrase_shard_threshold,
         root_passphrase_shard_count=root_passphrase_shard_count,
         inherited_passphrase_shard_threshold=inherited_passphrase_shard_threshold,
@@ -289,7 +291,7 @@ def resolve_extend_runtime(
     return ResolvedExtendRuntime(
         config=config,
         qr_chunk_size=qr_chunk_size,
-        qr_payload_codec=config.cli_defaults.backup.qr_payload_codec,
+        qr_payload_codec=config.cli_defaults.extend.qr_payload_codec,
         layout_debug_dir=(
             resolve_extend_layout_debug_dir(
                 prepared.args.layout_debug_dir,
@@ -310,7 +312,7 @@ def resolve_extend_runtime(
 def resolve_root_passphrase_shard_policy(
     prepared: PreparedExtendRun,
     *,
-    defaults: BackupDefaults,
+    defaults: ExtendDefaults,
 ) -> tuple[int | None, int]:
     threshold = prepared.root_passphrase_shard_threshold
     count = prepared.root_passphrase_shard_count
@@ -359,9 +361,11 @@ def resolve_inherited_passphrase_shard_policy(
 
 def _needs_published_root_passphrase_shard_policy(
     args: ExtendArgs,
-    defaults: BackupDefaults,
+    defaults: ExtendDefaults,
 ) -> bool:
-    unlock_policy = resolve_unlock_policy(args.unlock_policy)
+    unlock_policy = resolve_unlock_policy(
+        args.unlock_policy if args.unlock_policy is not None else defaults.unlock_policy
+    )
     if unlock_policy == "reuse-root":
         return True
     if args.shard_count is not None:

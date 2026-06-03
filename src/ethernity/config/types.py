@@ -13,6 +13,8 @@ QrPayloadCodec = Literal["raw", "base64"]
 QrErrorCorrection = Literal["L", "M", "Q", "H"]
 PageSize = Literal["A4", "LETTER"]
 SigningKeyMode = Literal["embedded", "sharded"]
+ExtensionUnlockPolicy = Literal["self-contained", "reuse-root"]
+ExtensionSigningKeyMode = Literal["not-stored", "sharded"]
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,20 @@ class RecoverDefaults:
     """Default CLI values for recover commands."""
 
     output: str | None = None
+
+
+@dataclass(frozen=True)
+class ExtendDefaults:
+    """Default CLI values for extension commands."""
+
+    base_dir: str | None = None
+    unlock_policy: ExtensionUnlockPolicy | None = None
+    shard_threshold: int | None = None
+    shard_count: int | None = None
+    signing_key_mode: ExtensionSigningKeyMode | None = None
+    signing_key_shard_threshold: int | None = None
+    signing_key_shard_count: int | None = None
+    qr_payload_codec: QrPayloadCodec = "raw"
 
 
 @dataclass(frozen=True)
@@ -75,6 +91,7 @@ class CliDefaults:
 
     backup: BackupDefaults = field(default_factory=BackupDefaults)
     recover: RecoverDefaults = field(default_factory=RecoverDefaults)
+    extend: ExtendDefaults = field(default_factory=ExtendDefaults)
     ui: UiDefaults = field(default_factory=UiDefaults)
     debug: DebugDefaults = field(default_factory=DebugDefaults)
     runtime: RuntimeDefaults = field(default_factory=RuntimeDefaults)

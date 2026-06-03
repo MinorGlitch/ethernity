@@ -57,7 +57,7 @@ from ethernity.cli.shared.ui_api import (
     panel,
     print_completion_panel,
 )
-from ethernity.config import BackupDefaults
+from ethernity.config import ExtendDefaults
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
 from ethernity.extensions.build import default_extension_chunker
 from ethernity.extensions.staging import preflight_extension_publish_target
@@ -77,6 +77,7 @@ _EXTEND_HELP = (
     "extension-local passphrase shards.\n"
     "  pass --shard-count 0 to explicitly choose plaintext passphrase output.\n"
     "  pass --signing-key-mode sharded to write root/chain signing authority shard documents.\n"
+    "  scan-mode append requires --expected-head-doc-hash or explicit --allow-stale-head.\n"
 )
 
 
@@ -402,6 +403,17 @@ def extend(
             rich_help_panel="Behavior",
         ),
     ] = None,
+    allow_stale_head: Annotated[
+        bool,
+        typer.Option(
+            "--allow-stale-head",
+            help=(
+                "Allow scan-mode append without a trusted expected head hash. "
+                "Only use when the supplied scans are known to be the latest chain state."
+            ),
+            rich_help_panel="Behavior",
+        ),
+    ] = False,
     quiet: Annotated[
         bool,
         typer.Option(
@@ -482,9 +494,9 @@ def extend(
     state = _ctx_state(ctx)
     config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
     design_value = design or (state.design if state is not None else None)
-    defaults = state.backup_defaults if state is not None else None
-    if not isinstance(defaults, BackupDefaults):
-        defaults = BackupDefaults()
+    defaults = state.extend_defaults if state is not None else None
+    if not isinstance(defaults, ExtendDefaults):
+        defaults = ExtendDefaults()
 
     quiet_value = quiet or (state.quiet if state is not None else False)
     debug_value = debug or (state.debug if state is not None else False)
@@ -512,6 +524,7 @@ def extend(
         signing_key_shard_threshold=signing_key_shard_threshold,
         signing_key_shard_count=signing_key_shard_count,
         expected_head_doc_hash=expected_head_doc_hash,
+        allow_stale_head=allow_stale_head,
         quiet=quiet_value,
     )
     if not args.input and not args.input_dir:

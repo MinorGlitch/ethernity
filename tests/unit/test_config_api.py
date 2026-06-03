@@ -117,7 +117,19 @@ class TestApiConfigService(unittest.TestCase):
                                     "max_size": 65536,
                                 }
                             },
-                            "defaults": {"backup": {"output_dir": "/tmp/backups"}},
+                            "defaults": {
+                                "backup": {"output_dir": "/tmp/backups"},
+                                "extend": {
+                                    "base_dir": "/tmp/extend-base",
+                                    "unlock_policy": "self-contained",
+                                    "shard_threshold": 2,
+                                    "shard_count": 3,
+                                    "signing_key_mode": "sharded",
+                                    "signing_key_shard_threshold": 2,
+                                    "signing_key_shard_count": 4,
+                                    "qr_payload_codec": "base64",
+                                },
+                            },
                         },
                         "onboarding": {
                             "mark_complete": True,
@@ -135,6 +147,16 @@ class TestApiConfigService(unittest.TestCase):
         backup = cast(dict[str, Any], defaults)["backup"]
         self.assertIsInstance(backup, dict)
         self.assertEqual(backup["output_dir"], "/tmp/backups")
+        extend = cast(dict[str, Any], defaults)["extend"]
+        self.assertIsInstance(extend, dict)
+        self.assertEqual(extend["base_dir"], "/tmp/extend-base")
+        self.assertEqual(extend["unlock_policy"], "self-contained")
+        self.assertEqual(extend["shard_threshold"], 2)
+        self.assertEqual(extend["shard_count"], 3)
+        self.assertEqual(extend["signing_key_mode"], "sharded")
+        self.assertEqual(extend["signing_key_shard_threshold"], 2)
+        self.assertEqual(extend["signing_key_shard_count"], 4)
+        self.assertEqual(extend["qr_payload_codec"], "base64")
         self.assertFalse(snapshot.onboarding["needed"])
         self.assertEqual(
             snapshot.onboarding["configured_fields"],
@@ -146,6 +168,14 @@ class TestApiConfigService(unittest.TestCase):
         self.assertEqual(parsed["extension"]["chunking"]["min_size"], 4096)
         self.assertEqual(parsed["extension"]["chunking"]["max_size"], 65536)
         self.assertEqual(parsed["defaults"]["backup"]["output_dir"], "/tmp/backups")
+        self.assertEqual(parsed["defaults"]["extend"]["base_dir"], "/tmp/extend-base")
+        self.assertEqual(parsed["defaults"]["extend"]["unlock_policy"], "self-contained")
+        self.assertEqual(parsed["defaults"]["extend"]["shard_threshold"], 2)
+        self.assertEqual(parsed["defaults"]["extend"]["shard_count"], 3)
+        self.assertEqual(parsed["defaults"]["extend"]["signing_key_mode"], "sharded")
+        self.assertEqual(parsed["defaults"]["extend"]["signing_key_shard_threshold"], 2)
+        self.assertEqual(parsed["defaults"]["extend"]["signing_key_shard_count"], 4)
+        self.assertEqual(parsed["defaults"]["extend"]["qr_payload_codec"], "base64")
 
     def test_get_api_config_snapshot_reports_invalid_toml_and_defaults(self) -> None:
         with _temporary_config_path('[defaults.backup\noutput_dir = "oops"\n') as path:
@@ -397,6 +427,33 @@ class TestApiConfigService(unittest.TestCase):
                 )
 
         self.assertEqual(raised.exception.code, "CONFIG_CONFLICT")
+
+    def test_apply_api_config_patch_rejects_invalid_extend_defaults(self) -> None:
+        cases = (
+            {"shard_threshold": 2, "shard_count": None},
+            {"shard_threshold": 3, "shard_count": 2},
+            {"unlock_policy": "reuse-root", "shard_threshold": 2, "shard_count": 3},
+            {"signing_key_mode": "embedded"},
+            {"signing_key_shard_threshold": 2, "signing_key_shard_count": None},
+            {"signing_key_shard_threshold": 2, "signing_key_shard_count": 3},
+            {
+                "signing_key_mode": "sharded",
+                "signing_key_shard_threshold": 4,
+                "signing_key_shard_count": 3,
+            },
+        )
+        for patch_values in cases:
+            with self.subTest(patch_values=patch_values):
+                with _temporary_config_path(
+                    DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")
+                ) as path:
+                    with self.assertRaises(api_config.ConfigPatchError) as raised:
+                        api_config.apply_api_config_patch(
+                            path,
+                            {"values": {"defaults": {"extend": patch_values}}},
+                        )
+
+                self.assertIn(raised.exception.code, {"CONFIG_CONFLICT", "CONFIG_INVALID_VALUE"})
 
     def test_apply_api_config_patch_rejects_onboarding_for_explicit_config(self) -> None:
         with _temporary_config_path(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) as path:

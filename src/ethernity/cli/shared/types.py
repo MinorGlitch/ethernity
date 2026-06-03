@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from ethernity.config import BackupDefaults, RecoverDefaults
+from ethernity.config import BackupDefaults, ExtendDefaults, RecoverDefaults
 from ethernity.encoding.framing import Frame
 
 
@@ -180,6 +180,7 @@ class ExtendArgs:
     signing_key_shard_threshold: int | None = None
     signing_key_shard_count: int | None = None
     expected_head_doc_hash: str | None = None
+    allow_stale_head: bool = False
     quiet: bool = False
 
 
@@ -238,3 +239,4 @@ class CliContextState:
     no_animations: bool = False
     backup_defaults: BackupDefaults = field(default_factory=BackupDefaults)
     recover_defaults: RecoverDefaults = field(default_factory=RecoverDefaults)
+    extend_defaults: ExtendDefaults = field(default_factory=ExtendDefaults)

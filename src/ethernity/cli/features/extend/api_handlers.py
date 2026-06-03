@@ -152,6 +152,7 @@ def _extend_started_args(
         "signing_key_shard_threshold": args.signing_key_shard_threshold,
         "signing_key_shard_count": args.signing_key_shard_count,
         "expected_head_doc_hash": args.expected_head_doc_hash,
+        "allow_stale_head": args.allow_stale_head,
         "quiet": args.quiet,
         "debug": debug,
     }

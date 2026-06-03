@@ -89,7 +89,13 @@ from ethernity.cli.shared.types import (
     MintResult,
     RecoverArgs,
 )
-from ethernity.config import BackupDefaults, CliDefaults, RecoverDefaults, load_app_config
+from ethernity.config import (
+    BackupDefaults,
+    CliDefaults,
+    ExtendDefaults,
+    RecoverDefaults,
+    load_app_config,
+)
 from ethernity.config.install import ONBOARDING_FIELDS
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.core.models import DocumentPlan, SigningSeedMode
@@ -378,6 +384,7 @@ class TestCliApi(unittest.TestCase):
         required = schema["$defs"]["inspectExtendStartedArgs"]["required"]
 
         self.assertIn("expected_head_doc_hash", required)
+        self.assertIn("allow_stale_head", required)
 
     def test_extend_result_schema_requires_complete_success_shape(self) -> None:
         schema = json.loads(CLI_API_SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -596,6 +603,7 @@ class TestCliApi(unittest.TestCase):
             "signing_key_shard_threshold": 0,
             "signing_key_shard_count": 0,
             "expected_head_doc_hash": None,
+            "allow_stale_head": False,
             "quiet": True,
             "debug": False,
         }
@@ -643,6 +651,8 @@ class TestCliApi(unittest.TestCase):
             "signing_key_mode": None,
             "signing_key_shard_threshold": 0,
             "signing_key_shard_count": 0,
+            "expected_head_doc_hash": None,
+            "allow_stale_head": False,
             "quiet": True,
             "debug": False,
         }
@@ -853,6 +863,16 @@ class TestCliApi(unittest.TestCase):
                     "qr_payload_codec": "raw",
                 },
                 "recover": {"output": None},
+                "extend": {
+                    "base_dir": None,
+                    "unlock_policy": None,
+                    "shard_threshold": None,
+                    "shard_count": None,
+                    "signing_key_mode": None,
+                    "signing_key_shard_threshold": None,
+                    "signing_key_shard_count": None,
+                    "qr_payload_codec": "raw",
+                },
             },
             "ui": {"quiet": False, "no_color": False, "no_animations": False},
             "debug": {"max_bytes": 1024},
@@ -865,6 +885,8 @@ class TestCliApi(unittest.TestCase):
             "payload_codecs": ["auto", "raw", "gzip"],
             "qr_payload_codecs": ["raw", "base64"],
             "signing_key_modes": ["embedded", "sharded"],
+            "extension_unlock_policies": ["self-contained", "reuse-root"],
+            "extension_signing_key_modes": ["not-stored", "sharded"],
             "onboarding_fields": list(ONBOARDING_FIELDS),
         }
         snapshot = SimpleNamespace(
@@ -933,6 +955,16 @@ class TestCliApi(unittest.TestCase):
                     "qr_payload_codec": "raw",
                 },
                 "recover": {"output": None},
+                "extend": {
+                    "base_dir": None,
+                    "unlock_policy": None,
+                    "shard_threshold": None,
+                    "shard_count": None,
+                    "signing_key_mode": None,
+                    "signing_key_shard_threshold": None,
+                    "signing_key_shard_count": None,
+                    "qr_payload_codec": "raw",
+                },
             },
             "ui": {"quiet": False, "no_color": False, "no_animations": False},
             "debug": {"max_bytes": 1024},
@@ -945,6 +977,8 @@ class TestCliApi(unittest.TestCase):
             "payload_codecs": ["auto", "raw", "gzip"],
             "qr_payload_codecs": ["raw", "base64"],
             "signing_key_modes": ["embedded", "sharded"],
+            "extension_unlock_policies": ["self-contained", "reuse-root"],
+            "extension_signing_key_modes": ["not-stored", "sharded"],
             "onboarding_fields": list(ONBOARDING_FIELDS),
         }
         snapshot = SimpleNamespace(
@@ -1288,6 +1322,7 @@ class TestCliApi(unittest.TestCase):
             captured["signing_key_mode"] = args.signing_key_mode
             captured["signing_key_shard_threshold"] = args.signing_key_shard_threshold
             captured["signing_key_shard_count"] = args.signing_key_shard_count
+            captured["allow_stale_head"] = args.allow_stale_head
             captured["debug"] = debug
             return 0
 
@@ -1330,6 +1365,7 @@ class TestCliApi(unittest.TestCase):
                         "2",
                         "--signing-key-shard-count",
                         "4",
+                        "--allow-stale-head",
                     ],
                     input="payload",
                 )
@@ -1347,18 +1383,20 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(captured["signing_key_mode"], "sharded")
         self.assertEqual(captured["signing_key_shard_threshold"], 2)
         self.assertEqual(captured["signing_key_shard_count"], 4)
+        self.assertTrue(captured["allow_stale_head"])
         self.assertFalse(captured["debug"])
 
     def test_build_extend_api_args_preserves_raw_policy_values(self) -> None:
         state = CliContextState(
-            backup_defaults=BackupDefaults(
+            backup_defaults=BackupDefaults(base_dir="/saved/backup-base"),
+            extend_defaults=ExtendDefaults(
                 base_dir="/saved/base",
                 shard_threshold=2,
                 shard_count=3,
                 signing_key_mode="sharded",
                 signing_key_shard_threshold=2,
                 signing_key_shard_count=4,
-            )
+            ),
         )
 
         def _build_args(unlock_policy: str | None) -> ExtendArgs:
@@ -1403,6 +1441,7 @@ class TestCliApi(unittest.TestCase):
         self.assertIsNone(reuse_root_args.signing_key_mode)
         self.assertIsNone(reuse_root_args.signing_key_shard_threshold)
         self.assertIsNone(reuse_root_args.signing_key_shard_count)
+        self.assertNotEqual(self_contained_args.base_dir, "/saved/backup-base")
 
     def test_build_extend_api_args_parses_explicit_policy_values(self) -> None:
         args = api_command._build_extend_api_args(

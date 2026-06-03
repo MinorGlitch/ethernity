@@ -50,6 +50,8 @@ _QR_ERROR_LEVELS = ("L", "M", "Q", "H")
 _PAYLOAD_CODECS = ("auto", "raw", "gzip")
 _QR_PAYLOAD_CODECS = ("raw", "base64")
 _SIGNING_KEY_MODES = ("embedded", "sharded")
+_EXTENSION_UNLOCK_POLICIES = ("self-contained", "reuse-root")
+_EXTENSION_SIGNING_KEY_MODES = ("not-stored", "sharded")
 
 
 @dataclass(frozen=True)
@@ -282,6 +284,16 @@ def _snapshot_values_from_loaded(
                 "qr_payload_codec": cli_defaults.backup.qr_payload_codec,
             },
             "recover": {"output": cli_defaults.recover.output},
+            "extend": {
+                "base_dir": cli_defaults.extend.base_dir,
+                "unlock_policy": cli_defaults.extend.unlock_policy,
+                "shard_threshold": cli_defaults.extend.shard_threshold,
+                "shard_count": cli_defaults.extend.shard_count,
+                "signing_key_mode": cli_defaults.extend.signing_key_mode,
+                "signing_key_shard_threshold": (cli_defaults.extend.signing_key_shard_threshold),
+                "signing_key_shard_count": cli_defaults.extend.signing_key_shard_count,
+                "qr_payload_codec": cli_defaults.extend.qr_payload_codec,
+            },
         },
         "ui": {
             "quiet": cli_defaults.ui.quiet,
@@ -303,6 +315,7 @@ def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
     defaults = cast(dict[str, object], values["defaults"])
     backup = cast(dict[str, object], defaults["backup"])
     recover = cast(dict[str, object], defaults["recover"])
+    extend = cast(dict[str, object], defaults["extend"])
     ui = cast(dict[str, object], values["ui"])
     debug = cast(dict[str, object], values["debug"])
     runtime = cast(dict[str, object], values["runtime"])
@@ -322,6 +335,7 @@ def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
     extension_chunking_table = _raw_table(_raw_table(raw, "extension"), "chunking")
     backup_table = _raw_table(_raw_table(raw, "defaults"), "backup")
     recover_table = _raw_table(_raw_table(raw, "defaults"), "recover")
+    extend_table = _raw_table(_raw_table(raw, "defaults"), "extend")
     ui_table = _raw_table(raw, "ui")
     debug_table = _raw_table(raw, "debug")
     runtime_table = _raw_table(raw, "runtime")
@@ -390,6 +404,38 @@ def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
     )
     recover["output"] = _coerce_optional_string(
         recover_table.get("output"), fallback=recover["output"]
+    )
+    extend["base_dir"] = _coerce_optional_string(
+        extend_table.get("base_dir"), fallback=extend["base_dir"]
+    )
+    extend["unlock_policy"] = _coerce_optional_enum(
+        extend_table.get("unlock_policy"),
+        allowed=_EXTENSION_UNLOCK_POLICIES,
+        fallback=extend["unlock_policy"],
+    )
+    extend["shard_threshold"] = _coerce_optional_positive_int(
+        extend_table.get("shard_threshold"), fallback=extend["shard_threshold"]
+    )
+    extend["shard_count"] = _coerce_optional_positive_int(
+        extend_table.get("shard_count"), fallback=extend["shard_count"]
+    )
+    extend["signing_key_mode"] = _coerce_optional_enum(
+        extend_table.get("signing_key_mode"),
+        allowed=_EXTENSION_SIGNING_KEY_MODES,
+        fallback=extend["signing_key_mode"],
+    )
+    extend["signing_key_shard_threshold"] = _coerce_optional_positive_int(
+        extend_table.get("signing_key_shard_threshold"),
+        fallback=extend["signing_key_shard_threshold"],
+    )
+    extend["signing_key_shard_count"] = _coerce_optional_positive_int(
+        extend_table.get("signing_key_shard_count"),
+        fallback=extend["signing_key_shard_count"],
+    )
+    extend["qr_payload_codec"] = _coerce_enum(
+        extend_table.get("qr_payload_codec"),
+        allowed=_QR_PAYLOAD_CODECS,
+        fallback=extend["qr_payload_codec"],
     )
     ui["quiet"] = _coerce_bool(ui_table.get("quiet"), fallback=ui["quiet"])
     ui["no_color"] = _coerce_bool(ui_table.get("no_color"), fallback=ui["no_color"])
@@ -471,6 +517,8 @@ def _config_options() -> dict[str, object]:
         "payload_codecs": list(_PAYLOAD_CODECS),
         "qr_payload_codecs": list(_QR_PAYLOAD_CODECS),
         "signing_key_modes": list(_SIGNING_KEY_MODES),
+        "extension_unlock_policies": list(_EXTENSION_UNLOCK_POLICIES),
+        "extension_signing_key_modes": list(_EXTENSION_SIGNING_KEY_MODES),
         "onboarding_fields": list(ONBOARDING_FIELDS),
     }
 
@@ -523,6 +571,7 @@ def _validate_config_values(values: dict[str, object]) -> dict[str, object]:
     defaults = _expect_section(values, "defaults")
     backup = _expect_section(defaults, "backup", prefix="defaults")
     recover = _expect_section(defaults, "recover", prefix="defaults")
+    extend = _expect_section(defaults, "extend", prefix="defaults")
     ui = _expect_section(values, "ui")
     debug = _expect_section(values, "debug")
     runtime = _expect_section(values, "runtime")
@@ -644,6 +693,89 @@ def _validate_config_values(values: dict[str, object]) -> dict[str, object]:
                 details={"field": "values.defaults.backup.signing_key_shard_count"},
             )
 
+    extend_unlock_policy = _validate_optional_enum(
+        extend.get("unlock_policy"),
+        field="values.defaults.extend.unlock_policy",
+        allowed=_EXTENSION_UNLOCK_POLICIES,
+    )
+    extend_shard_threshold = _validate_optional_count(
+        extend.get("shard_threshold"),
+        field="values.defaults.extend.shard_threshold",
+    )
+    extend_shard_count = _validate_optional_count(
+        extend.get("shard_count"),
+        field="values.defaults.extend.shard_count",
+    )
+    if (extend_shard_threshold is None) != (extend_shard_count is None):
+        raise ConfigPatchError(
+            code="CONFIG_CONFLICT",
+            message="defaults.extend.shard_threshold and shard_count must be set together",
+            details={"field": "values.defaults.extend"},
+        )
+    if (
+        extend_shard_threshold is not None
+        and extend_shard_count is not None
+        and extend_shard_count < extend_shard_threshold
+    ):
+        raise ConfigPatchError(
+            code="CONFIG_CONFLICT",
+            message="defaults.extend.shard_count must be >= shard_threshold",
+            details={"field": "values.defaults.extend.shard_count"},
+        )
+    if extend_unlock_policy == "reuse-root" and (
+        extend_shard_threshold is not None or extend_shard_count is not None
+    ):
+        raise ConfigPatchError(
+            code="CONFIG_CONFLICT",
+            message="defaults.extend.unlock_policy='reuse-root' cannot set extension shards",
+            details={"field": "values.defaults.extend.unlock_policy"},
+        )
+
+    extend_signing_key_mode = _validate_optional_enum(
+        extend.get("signing_key_mode"),
+        field="values.defaults.extend.signing_key_mode",
+        allowed=_EXTENSION_SIGNING_KEY_MODES,
+    )
+    extend_signing_key_shard_threshold = _validate_optional_count(
+        extend.get("signing_key_shard_threshold"),
+        field="values.defaults.extend.signing_key_shard_threshold",
+    )
+    extend_signing_key_shard_count = _validate_optional_count(
+        extend.get("signing_key_shard_count"),
+        field="values.defaults.extend.signing_key_shard_count",
+    )
+    if (extend_signing_key_shard_threshold is None) != (extend_signing_key_shard_count is None):
+        raise ConfigPatchError(
+            code="CONFIG_CONFLICT",
+            message=(
+                "defaults.extend.signing_key_shard_threshold and signing_key_shard_count "
+                "must be set together"
+            ),
+            details={"field": "values.defaults.extend"},
+        )
+    if extend_signing_key_shard_threshold is not None or extend_signing_key_shard_count is not None:
+        if extend_signing_key_mode != "sharded":
+            raise ConfigPatchError(
+                code="CONFIG_CONFLICT",
+                message=(
+                    "defaults.extend.signing_key_shard_threshold and "
+                    "signing_key_shard_count require signing_key_mode='sharded'"
+                ),
+                details={"field": "values.defaults.extend.signing_key_mode"},
+            )
+        if (
+            extend_signing_key_shard_threshold is not None
+            and extend_signing_key_shard_count is not None
+            and extend_signing_key_shard_count < extend_signing_key_shard_threshold
+        ):
+            raise ConfigPatchError(
+                code="CONFIG_CONFLICT",
+                message=(
+                    "defaults.extend.signing_key_shard_count must be >= signing_key_shard_threshold"
+                ),
+                details={"field": "values.defaults.extend.signing_key_shard_count"},
+            )
+
     render_jobs = _validate_render_jobs(
         runtime.get("render_jobs"), field="values.runtime.render_jobs"
     )
@@ -705,6 +837,23 @@ def _validate_config_values(values: dict[str, object]) -> dict[str, object]:
                 "output": _validate_optional_string(
                     recover.get("output"),
                     field="values.defaults.recover.output",
+                ),
+            },
+            "extend": {
+                "base_dir": _validate_optional_string(
+                    extend.get("base_dir"),
+                    field="values.defaults.extend.base_dir",
+                ),
+                "unlock_policy": extend_unlock_policy,
+                "shard_threshold": extend_shard_threshold,
+                "shard_count": extend_shard_count,
+                "signing_key_mode": extend_signing_key_mode,
+                "signing_key_shard_threshold": extend_signing_key_shard_threshold,
+                "signing_key_shard_count": extend_signing_key_shard_count,
+                "qr_payload_codec": _validate_enum(
+                    extend.get("qr_payload_codec"),
+                    field="values.defaults.extend.qr_payload_codec",
+                    allowed=_QR_PAYLOAD_CODECS,
                 ),
             },
         },
@@ -883,6 +1032,7 @@ def _apply_values_to_text(original: str, values: dict[str, object]) -> str:
     defaults = cast(dict[str, object], values["defaults"])
     backup = cast(dict[str, object], defaults["backup"])
     recover = cast(dict[str, object], defaults["recover"])
+    extend = cast(dict[str, object], defaults["extend"])
     ui = cast(dict[str, object], values["ui"])
     debug = cast(dict[str, object], values["debug"])
     runtime = cast(dict[str, object], values["runtime"])
@@ -1019,6 +1169,55 @@ def _apply_values_to_text(original: str, values: dict[str, object]) -> str:
         table="defaults.recover",
         key="output",
         value=_toml_quote(cast(str | None, recover["output"]) or ""),
+    )
+
+    updated = _upsert_table_key(
+        updated,
+        table="defaults.extend",
+        key="base_dir",
+        value=_toml_quote(cast(str | None, extend["base_dir"]) or ""),
+    )
+    updated = _upsert_table_key(
+        updated,
+        table="defaults.extend",
+        key="unlock_policy",
+        value=_toml_quote(cast(str | None, extend["unlock_policy"]) or ""),
+    )
+    updated = _upsert_table_key(
+        updated,
+        table="defaults.extend",
+        key="shard_threshold",
+        value=str(cast(int | None, extend["shard_threshold"]) or 0),
+    )
+    updated = _upsert_table_key(
+        updated,
+        table="defaults.extend",
+        key="shard_count",
+        value=str(cast(int | None, extend["shard_count"]) or 0),
+    )
+    updated = _upsert_table_key(
+        updated,
+        table="defaults.extend",
+        key="signing_key_mode",
+        value=_toml_quote(cast(str | None, extend["signing_key_mode"]) or ""),
+    )
+    updated = _upsert_table_key(
+        updated,
+        table="defaults.extend",
+        key="signing_key_shard_threshold",
+        value=str(cast(int | None, extend["signing_key_shard_threshold"]) or 0),
+    )
+    updated = _upsert_table_key(
+        updated,
+        table="defaults.extend",
+        key="signing_key_shard_count",
+        value=str(cast(int | None, extend["signing_key_shard_count"]) or 0),
+    )
+    updated = _upsert_table_key(
+        updated,
+        table="defaults.extend",
+        key="qr_payload_codec",
+        value=_toml_quote(cast(str, extend["qr_payload_codec"])),
     )
 
     updated = _upsert_table_key(

@@ -34,10 +34,11 @@ from ethernity.encoding.chunking import DEFAULT_CHUNK_SIZE
 class TestConfig(unittest.TestCase):
     @staticmethod
     def _with_required_qr_payload_codec(toml: str) -> str:
-        if "qr_payload_codec" in toml:
-            return toml
         marker = "[defaults.backup]"
         if marker in toml:
+            backup_section = toml.split(marker, 1)[1].split("\n[", 1)[0]
+            if "qr_payload_codec" in backup_section:
+                return toml
             return toml.replace(marker, f'{marker}\nqr_payload_codec = "raw"', 1)
         return toml.rstrip() + '\n\n[defaults.backup]\nqr_payload_codec = "raw"\n'
 
@@ -196,6 +197,46 @@ max_size = 65536
             path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "min_size <= target_size <= max_size"):
                 load_app_config(path=path)
+
+    def test_load_app_config_rejects_non_integer_extension_chunking_values(self) -> None:
+        cases = (
+            ("target_size", "true"),
+            ("target_size", "16384.0"),
+            ("target_size", '"16384"'),
+            ("min_size", "true"),
+            ("min_size", "4096.0"),
+            ("min_size", '"4096"'),
+            ("max_size", "true"),
+            ("max_size", "65536.0"),
+            ("max_size", '"65536"'),
+            ("target_size", "0"),
+            ("min_size", "-1"),
+        )
+        for field, value in cases:
+            with self.subTest(field=field, value=value), tempfile.TemporaryDirectory() as tmpdir:
+                path = Path(tmpdir) / "config.toml"
+                chunking_values = {
+                    "target_size": "16384",
+                    "min_size": "4096",
+                    "max_size": "65536",
+                }
+                chunking_values[field] = value
+                path.write_text(
+                    self._with_required_qr_payload_codec(
+                        f"""
+[extension.chunking]
+target_size = {chunking_values["target_size"]}
+min_size = {chunking_values["min_size"]}
+max_size = {chunking_values["max_size"]}
+"""
+                    ),
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(
+                    ValueError,
+                    f"extension.chunking.{field} must be a positive integer",
+                ):
+                    load_app_config(path=path)
 
     def test_load_app_config_ignores_payload_encoding_key(self) -> None:
         toml = """
@@ -431,6 +472,16 @@ qr_payload_codec = "base64"
 [defaults.recover]
 output = "/tmp/recovered"
 
+[defaults.extend]
+base_dir = "/tmp/extend-base"
+unlock_policy = "self-contained"
+shard_threshold = 3
+shard_count = 5
+signing_key_mode = "sharded"
+signing_key_shard_threshold = 2
+signing_key_shard_count = 4
+qr_payload_codec = "base64"
+
 [ui]
 quiet = true
 no_color = true
@@ -457,6 +508,14 @@ render_jobs = 6
         self.assertEqual(config.cli_defaults.backup.payload_codec, "raw")
         self.assertEqual(config.cli_defaults.backup.qr_payload_codec, "base64")
         self.assertEqual(config.cli_defaults.recover.output, "/tmp/recovered")
+        self.assertEqual(config.cli_defaults.extend.base_dir, "/tmp/extend-base")
+        self.assertEqual(config.cli_defaults.extend.unlock_policy, "self-contained")
+        self.assertEqual(config.cli_defaults.extend.shard_threshold, 3)
+        self.assertEqual(config.cli_defaults.extend.shard_count, 5)
+        self.assertEqual(config.cli_defaults.extend.signing_key_mode, "sharded")
+        self.assertEqual(config.cli_defaults.extend.signing_key_shard_threshold, 2)
+        self.assertEqual(config.cli_defaults.extend.signing_key_shard_count, 4)
+        self.assertEqual(config.cli_defaults.extend.qr_payload_codec, "base64")
         self.assertTrue(config.cli_defaults.ui.quiet)
         self.assertTrue(config.cli_defaults.ui.no_color)
         self.assertTrue(config.cli_defaults.ui.no_animations)
@@ -477,6 +536,16 @@ qr_payload_codec = "raw"
 
 [defaults.recover]
 output = ""
+
+[defaults.extend]
+base_dir = ""
+unlock_policy = ""
+shard_threshold = 0
+shard_count = 0
+signing_key_mode = ""
+signing_key_shard_threshold = 0
+signing_key_shard_count = 0
+qr_payload_codec = "raw"
 
 [debug]
 max_bytes = 0
@@ -499,6 +568,14 @@ render_jobs = "auto"
         self.assertEqual(defaults.backup.payload_codec, "auto")
         self.assertEqual(defaults.backup.qr_payload_codec, "raw")
         self.assertIsNone(defaults.recover.output)
+        self.assertIsNone(defaults.extend.base_dir)
+        self.assertIsNone(defaults.extend.unlock_policy)
+        self.assertIsNone(defaults.extend.shard_threshold)
+        self.assertIsNone(defaults.extend.shard_count)
+        self.assertIsNone(defaults.extend.signing_key_mode)
+        self.assertIsNone(defaults.extend.signing_key_shard_threshold)
+        self.assertIsNone(defaults.extend.signing_key_shard_count)
+        self.assertEqual(defaults.extend.qr_payload_codec, "raw")
         self.assertIsNone(defaults.debug.max_bytes)
         self.assertEqual(defaults.runtime.render_jobs, "auto")
 

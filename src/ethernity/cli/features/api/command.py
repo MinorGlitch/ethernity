@@ -64,7 +64,7 @@ from ethernity.cli.shared.types import (
     MintArgs,
     RecoverArgs,
 )
-from ethernity.config import BackupDefaults
+from ethernity.config import BackupDefaults, ExtendDefaults
 from ethernity.crypto.sharding import MAX_SHARES
 
 _API_HELP = (
@@ -608,6 +608,7 @@ def _extend_started_args_for_error(
     signing_key_shard_threshold: str | None,
     signing_key_shard_count: str | None,
     expected_head_doc_hash: str | None,
+    allow_stale_head: bool,
     operation: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
@@ -638,6 +639,7 @@ def _extend_started_args_for_error(
             max_value=MAX_SHARES,
         ),
         "expected_head_doc_hash": _normalized_doc_hash_for_started(expected_head_doc_hash),
+        "allow_stale_head": allow_stale_head,
         "quiet": True,
         "debug": _state_debug_enabled(state),
     }
@@ -751,6 +753,13 @@ def _state_backup_defaults(state: object | None) -> BackupDefaults:
     if isinstance(defaults, BackupDefaults):
         return defaults
     return BackupDefaults()
+
+
+def _state_extend_defaults(state: object | None) -> ExtendDefaults:
+    defaults = getattr(state, "extend_defaults", None) if state is not None else None
+    if isinstance(defaults, ExtendDefaults):
+        return defaults
+    return ExtendDefaults()
 
 
 def _build_recover_api_args(
@@ -1134,8 +1143,9 @@ def _build_extend_api_args(
     signing_key_shard_threshold: str | None,
     signing_key_shard_count: str | None,
     expected_head_doc_hash: str | None = None,
+    allow_stale_head: bool = False,
 ) -> ExtendArgs:
-    defaults = _state_backup_defaults(state)
+    defaults = _state_extend_defaults(state)
     qr_chunk_size_cli = _parse_api_int_option(
         "--qr-chunk-size",
         qr_chunk_size,
@@ -1196,6 +1206,7 @@ def _build_extend_api_args(
         signing_key_shard_threshold=signing_key_shard_threshold_cli,
         signing_key_shard_count=signing_key_shard_count_cli,
         expected_head_doc_hash=expected_head_doc_hash_value,
+        allow_stale_head=allow_stale_head,
         quiet=True,
     )
 
@@ -1507,6 +1518,16 @@ def extend(
             help="Require the validated current head to match this 32-byte doc hash.",
         ),
     ] = None,
+    allow_stale_head: Annotated[
+        bool,
+        typer.Option(
+            "--allow-stale-head",
+            help=(
+                "Allow scan-mode append without a trusted expected head hash. "
+                "Only use when the supplied scans are known to be latest."
+            ),
+        ),
+    ] = False,
     layout_debug_dir: Annotated[
         str | None,
         typer.Option(
@@ -1553,6 +1574,7 @@ def extend(
             signing_key_shard_threshold=signing_key_shard_threshold,
             signing_key_shard_count=signing_key_shard_count,
             expected_head_doc_hash=expected_head_doc_hash,
+            allow_stale_head=allow_stale_head,
         )
         return run_extend_api_command(args, debug=_state_debug_enabled(state))
 
@@ -1584,6 +1606,7 @@ def extend(
                 signing_key_shard_threshold=signing_key_shard_threshold,
                 signing_key_shard_count=signing_key_shard_count,
                 expected_head_doc_hash=expected_head_doc_hash,
+                allow_stale_head=allow_stale_head,
             ),
         ),
     )
@@ -2218,6 +2241,16 @@ def inspect_extend(
             help="Require the validated inspected head to match this 32-byte doc hash.",
         ),
     ] = None,
+    allow_stale_head: Annotated[
+        bool,
+        typer.Option(
+            "--allow-stale-head",
+            help=(
+                "Allow scan-mode inspect/append without a trusted expected head hash. "
+                "Only use when the supplied scans are known to be latest."
+            ),
+        ),
+    ] = False,
     config: Annotated[
         str | None,
         typer.Option("--config", help="Use this config file."),
@@ -2258,6 +2291,7 @@ def inspect_extend(
             signing_key_shard_threshold=signing_key_shard_threshold,
             signing_key_shard_count=signing_key_shard_count,
             expected_head_doc_hash=expected_head_doc_hash,
+            allow_stale_head=allow_stale_head,
         )
         return run_extend_inspect_api_command(args, debug=_state_debug_enabled(state))
 
@@ -2289,6 +2323,7 @@ def inspect_extend(
                 signing_key_shard_threshold=signing_key_shard_threshold,
                 signing_key_shard_count=signing_key_shard_count,
                 expected_head_doc_hash=expected_head_doc_hash,
+                allow_stale_head=allow_stale_head,
                 operation="inspect",
             ),
         ),

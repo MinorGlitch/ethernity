@@ -42,7 +42,7 @@ from ethernity.cli.shared import common as cli_common, ndjson as cli_ndjson, ui_
 from ethernity.cli.shared.crypto import normalize_doc_hash_hex
 from ethernity.cli.shared.recovery_prompts import prompt_passphrase_unlock_material
 from ethernity.cli.shared.types import BackupArgs, CliContextState, CompactArgs, ExtendArgs
-from ethernity.config import BackupDefaults, CliDefaults, load_cli_defaults
+from ethernity.config import CliDefaults, ExtendDefaults, load_cli_defaults
 from ethernity.config.install import DEFAULT_CONFIG_PATH, resolve_api_defaults_config_path
 from ethernity.crypto.sharding import MAX_SHARES
 
@@ -334,7 +334,7 @@ def _prompt_home_extend_args(
     paper: str | None,
     design: str | None,
     quiet: bool,
-    backup_defaults: BackupDefaults | None = None,
+    extend_defaults: ExtendDefaults | None = None,
 ) -> ExtendArgs:
     source_kind = prompt_choice(
         "What are you extending from",
@@ -363,6 +363,7 @@ def _prompt_home_extend_args(
             picker_help_text="Choose the scanned root and extension backup documents.",
         )
         expected_head_doc_hash = _prompt_home_extend_expected_head_doc_hash()
+        allow_stale_head = expected_head_doc_hash is None and _prompt_home_extend_stale_head_ack()
     else:
         root_dir = prompt_path_with_picker(
             "Generated backup folder to append from",
@@ -374,6 +375,7 @@ def _prompt_home_extend_args(
             picker_prompt="Select generated backup folder",
             picker_help_text="Choose the existing generated backup folder to append from.",
         )
+        allow_stale_head = False
     (
         passphrase,
         shard_fallback_files,
@@ -400,7 +402,7 @@ def _prompt_home_extend_args(
         empty_message="Choose at least one file or folder to add to the backup.",
     )
     input_files, input_dirs = _split_existing_paths(selected_paths)
-    output_policy = _prompt_home_extend_output_policy(backup_defaults)
+    output_policy = _prompt_home_extend_output_policy(extend_defaults)
     return ExtendArgs(
         config=config,
         paper=paper,
@@ -421,6 +423,7 @@ def _prompt_home_extend_args(
         signing_key_shard_threshold=output_policy.signing_key_shard_threshold,
         signing_key_shard_count=output_policy.signing_key_shard_count,
         expected_head_doc_hash=expected_head_doc_hash,
+        allow_stale_head=allow_stale_head,
         quiet=quiet,
     )
 
@@ -442,6 +445,17 @@ def _prompt_home_extend_expected_head_doc_hash() -> str | None:
             console_err.print(f"[error]{exc}[/error]")
 
 
+def _prompt_home_extend_stale_head_ack() -> bool:
+    return prompt_yes_no(
+        "Continue without a trusted latest head hash",
+        default=False,
+        help_text=(
+            "Only continue if these scans are known to be the latest extension chain state. "
+            "Otherwise paste the trusted latest head doc_hash to reject stale scan sets."
+        ),
+    )
+
+
 def _prompt_home_extend_scan_output_root() -> str:
     while True:
         root_dir = prompt_optional_path_with_picker(
@@ -461,11 +475,11 @@ def _prompt_home_extend_scan_output_root() -> str:
 
 
 def _prompt_home_extend_output_policy(
-    backup_defaults: BackupDefaults | None,
+    extend_defaults: ExtendDefaults | None,
 ) -> _HomeExtendOutputPolicy:
-    default_shard_count = backup_defaults.shard_count if backup_defaults is not None else None
+    default_shard_count = extend_defaults.shard_count if extend_defaults is not None else None
     default_shard_threshold = (
-        backup_defaults.shard_threshold if backup_defaults is not None else None
+        extend_defaults.shard_threshold if extend_defaults is not None else None
     )
     mode = prompt_choice(
         "How should this extension be recoverable",
@@ -481,7 +495,7 @@ def _prompt_home_extend_output_policy(
         ),
     )
     if mode == "reuse-root":
-        signing_key_policy = _prompt_home_extend_signing_key_policy(backup_defaults)
+        signing_key_policy = _prompt_home_extend_signing_key_policy(extend_defaults)
         return _HomeExtendOutputPolicy(unlock_policy="reuse-root", **signing_key_policy)
     if mode == "plaintext":
         return _HomeExtendOutputPolicy(unlock_policy="self-contained", shard_count=0)
@@ -498,7 +512,7 @@ def _prompt_home_extend_output_policy(
         maximum=shard_count,
         help_text=_home_extend_shard_threshold_help(default_shard_threshold, shard_count),
     )
-    signing_key_policy = _prompt_home_extend_signing_key_policy(backup_defaults)
+    signing_key_policy = _prompt_home_extend_signing_key_policy(extend_defaults)
     if signing_key_policy["signing_key_mode"] != "sharded":
         return _HomeExtendOutputPolicy(
             unlock_policy="self-contained",
@@ -516,10 +530,10 @@ def _prompt_home_extend_output_policy(
 
 
 def _prompt_home_extend_signing_key_policy(
-    backup_defaults: BackupDefaults | None,
+    extend_defaults: ExtendDefaults | None,
 ) -> dict[str, Any]:
     default_signing_key_mode = (
-        backup_defaults.signing_key_mode if backup_defaults is not None else "not-stored"
+        extend_defaults.signing_key_mode if extend_defaults is not None else "not-stored"
     )
     signing_key_mode = prompt_choice(
         "Store root/chain signing authority shards for this extension",
@@ -541,7 +555,7 @@ def _prompt_home_extend_signing_key_policy(
         minimum=1,
         maximum=MAX_SHARES,
         help_text=_home_extend_shard_count_help(
-            backup_defaults.signing_key_shard_count if backup_defaults is not None else None
+            extend_defaults.signing_key_shard_count if extend_defaults is not None else None
         ),
     )
     signing_key_shard_threshold = prompt_int(
@@ -549,7 +563,7 @@ def _prompt_home_extend_signing_key_policy(
         minimum=1,
         maximum=signing_key_shard_count,
         help_text=_home_extend_shard_threshold_help(
-            backup_defaults.signing_key_shard_threshold if backup_defaults is not None else None,
+            extend_defaults.signing_key_shard_threshold if extend_defaults is not None else None,
             signing_key_shard_count,
         ),
     )
@@ -800,6 +814,7 @@ def _configure_cli_context(
         no_animations=no_animations,
         backup_defaults=cli_defaults.backup,
         recover_defaults=cli_defaults.recover,
+        extend_defaults=cli_defaults.extend,
     )
 
 
@@ -856,7 +871,7 @@ def _run_home_screen(
             paper=paper_value,
             design=design,
             quiet=quiet,
-            backup_defaults=state.backup_defaults,
+            extend_defaults=state.extend_defaults,
         )
         _run_cli(lambda: run_extend_command(extend_args, debug=debug), debug=debug)
         return

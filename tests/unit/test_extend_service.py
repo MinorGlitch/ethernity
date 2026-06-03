@@ -74,7 +74,7 @@ from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL
 from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.ndjson import ApiCommandError, ndjson_session
 from ethernity.cli.shared.types import ExtendArgs, InputFile
-from ethernity.config import BackupDefaults
+from ethernity.config import ExtendDefaults
 from ethernity.crypto.sharding import ShardPayload, encode_shard_payload
 from ethernity.crypto.signing import AuthPayload, derive_public_key
 from ethernity.encoding.framing import VERSION, Frame, FrameType, encode_frame
@@ -446,10 +446,10 @@ class TestExtendService(unittest.TestCase):
         self.assertEqual(prepared.changed_paths, ("updated.txt",))
         self.assertEqual(prepared.unchanged_paths, ("same.txt",))
 
-    def test_resolve_extend_policy_applies_backup_defaults_for_self_contained(self) -> None:
+    def test_resolve_extend_policy_applies_extend_defaults_for_self_contained(self) -> None:
         policy = resolve_extend_policy(
             args=ExtendArgs(),
-            defaults=BackupDefaults(
+            defaults=ExtendDefaults(
                 shard_threshold=2,
                 shard_count=3,
                 signing_key_mode="sharded",
@@ -476,7 +476,7 @@ class TestExtendService(unittest.TestCase):
     def test_resolve_extend_policy_uses_not_stored_signing_key_mode(self) -> None:
         policy = resolve_extend_policy(
             args=ExtendArgs(signing_key_mode="not-stored"),
-            defaults=BackupDefaults(
+            defaults=ExtendDefaults(
                 shard_threshold=2,
                 shard_count=3,
                 signing_key_mode="sharded",
@@ -497,10 +497,10 @@ class TestExtendService(unittest.TestCase):
                 signing_key_shard_threshold=2,
                 signing_key_shard_count=3,
             ),
-            defaults=BackupDefaults(
+            defaults=ExtendDefaults(
                 shard_threshold=2,
                 shard_count=3,
-                signing_key_mode="embedded",
+                signing_key_mode="not-stored",
             ),
             root_passphrase_shard_threshold=None,
             root_passphrase_shard_count=0,
@@ -521,7 +521,7 @@ class TestExtendService(unittest.TestCase):
                     signing_key_shard_threshold=2,
                     signing_key_shard_count=3,
                 ),
-                defaults=BackupDefaults(shard_threshold=2, shard_count=3),
+                defaults=ExtendDefaults(shard_threshold=2, shard_count=3),
                 root_passphrase_shard_threshold=None,
                 root_passphrase_shard_count=0,
                 require_recovery_kit_index=False,
@@ -534,7 +534,7 @@ class TestExtendService(unittest.TestCase):
         with self.assertRaises(ApiCommandError) as ctx:
             resolve_extend_policy(
                 args=ExtendArgs(signing_key_mode="embedded"),  # type: ignore[arg-type]
-                defaults=BackupDefaults(
+                defaults=ExtendDefaults(
                     shard_threshold=2,
                     shard_count=3,
                     signing_key_mode="sharded",
@@ -562,7 +562,7 @@ class TestExtendService(unittest.TestCase):
                 with self.assertRaises(ApiCommandError) as ctx:
                     resolve_extend_policy(
                         args=args,
-                        defaults=BackupDefaults(shard_threshold=2, shard_count=3),
+                        defaults=ExtendDefaults(shard_threshold=2, shard_count=3),
                         root_passphrase_shard_threshold=None,
                         root_passphrase_shard_count=0,
                         require_recovery_kit_index=False,
@@ -575,7 +575,7 @@ class TestExtendService(unittest.TestCase):
         with self.assertRaises(ApiCommandError) as ctx:
             resolve_extend_policy(
                 args=ExtendArgs(),
-                defaults=BackupDefaults(shard_threshold=0, shard_count=0),
+                defaults=ExtendDefaults(shard_threshold=0, shard_count=0),
                 root_passphrase_shard_threshold=None,
                 root_passphrase_shard_count=0,
                 require_recovery_kit_index=False,
@@ -588,7 +588,7 @@ class TestExtendService(unittest.TestCase):
     def test_resolve_extend_policy_allows_explicit_plaintext_passphrase(self) -> None:
         policy = resolve_extend_policy(
             args=ExtendArgs(shard_count=0),
-            defaults=BackupDefaults(shard_threshold=2, shard_count=3),
+            defaults=ExtendDefaults(shard_threshold=2, shard_count=3),
             root_passphrase_shard_threshold=None,
             root_passphrase_shard_count=0,
             require_recovery_kit_index=False,
@@ -669,7 +669,7 @@ class TestExtendService(unittest.TestCase):
     def test_resolve_extend_policy_uses_validated_unlock_policy_for_reuse_root(self) -> None:
         policy = resolve_extend_policy(
             args=ExtendArgs(unlock_policy="reuse-root"),
-            defaults=BackupDefaults(
+            defaults=ExtendDefaults(
                 shard_threshold=2,
                 shard_count=3,
                 signing_key_mode="sharded",
@@ -685,15 +685,18 @@ class TestExtendService(unittest.TestCase):
             policy.passphrase,
             ReuseRootPassphraseShards(threshold=2, share_count=2),
         )
-        self.assertEqual(policy.signing_key, SigningKeyNotStored())
+        self.assertEqual(
+            policy.signing_key,
+            ExtensionSigningKeyShards(threshold=2, share_count=3),
+        )
         self.assertEqual(policy.to_publish_policy().passphrase_shard_count, 0)
-        self.assertEqual(policy.to_publish_policy().signing_key_shard_count, 0)
+        self.assertEqual(policy.to_publish_policy().signing_key_shard_count, 3)
         self.assertTrue(policy.require_recovery_kit_index)
 
     def test_resolve_extend_policy_allows_explicit_not_stored_for_reuse_root(self) -> None:
         policy = resolve_extend_policy(
             args=ExtendArgs(unlock_policy="reuse-root", signing_key_mode="not-stored"),
-            defaults=BackupDefaults(
+            defaults=ExtendDefaults(
                 shard_threshold=2,
                 shard_count=3,
                 signing_key_mode="sharded",
@@ -715,7 +718,7 @@ class TestExtendService(unittest.TestCase):
     def test_resolve_extend_policy_allows_sharded_signing_key_mode_for_reuse_root(self) -> None:
         policy = resolve_extend_policy(
             args=ExtendArgs(unlock_policy="reuse-root", signing_key_mode="sharded"),
-            defaults=BackupDefaults(
+            defaults=ExtendDefaults(
                 shard_threshold=2,
                 shard_count=3,
                 signing_key_mode="sharded",
@@ -745,10 +748,10 @@ class TestExtendService(unittest.TestCase):
                 signing_key_shard_threshold=2,
                 signing_key_shard_count=3,
             ),
-            defaults=BackupDefaults(
+            defaults=ExtendDefaults(
                 shard_threshold=2,
                 shard_count=3,
-                signing_key_mode="embedded",
+                signing_key_mode="not-stored",
             ),
             root_passphrase_shard_threshold=2,
             root_passphrase_shard_count=2,

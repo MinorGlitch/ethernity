@@ -116,7 +116,7 @@ Both commands:
   extension passphrase recovery policy
 - use `--signing-key-mode not-stored|sharded`, `--signing-key-shard-threshold`, and
   `--signing-key-shard-count` for extension-local signing-key recovery
-- reuse saved backup/config defaults when the UI does not override them explicitly
+- reuse saved extension/config defaults when the UI does not override them explicitly
 
 With `--scan`, treat `--root-dir` as a writable publish target for the new extension, not as the
 current-chain source. The target may be a fresh missing directory if its parent is writable, and its
@@ -124,6 +124,11 @@ directory must be empty when it already exists. The new documents are written as
 `extension-<index>-<doc_id>` bundle under that target, not under canonical `extensions/`. Inspect
 results can report `input_kind: "scanned_chain"`; schema-version-1 started events now include the
 `scan` array, so exhaustive clients should handle that field and enum value.
+
+Scan-mode extend cannot prove that the supplied scans include the latest extension. Pass
+`--expected-head-doc-hash <hash>` when the UI has a trusted latest head. If no trusted marker is
+available and the user explicitly accepts that risk, pass `--allow-stale-head`; otherwise inspect
+reports `RECOVERY_HEAD_UNTRUSTED` and the write-producing command fails closed.
 
 With `--unlock-policy reuse-root`, extension passphrase recovery depends on the root shard quorum;
 do not send extension `--shard-threshold` or `--shard-count` overrides. Signing-key recovery remains
@@ -333,6 +338,12 @@ Example onboarding/settings patch:
         "signing_key_mode": "sharded",
         "signing_key_shard_threshold": 2,
         "signing_key_shard_count": 3
+      },
+      "extend": {
+        "unlock_policy": "self-contained",
+        "shard_threshold": 2,
+        "shard_count": 3,
+        "signing_key_mode": "not-stored"
       }
     }
   },

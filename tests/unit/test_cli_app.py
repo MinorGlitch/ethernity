@@ -23,7 +23,7 @@ import typer
 
 from ethernity.cli.features.config.onboarding import FirstRunOnboardingResult
 from ethernity.cli.shared.types import CliContextState, CompactArgs, ExtendArgs, RecoverArgs
-from ethernity.config import BackupDefaults, CliDefaults, DebugDefaults, UiDefaults
+from ethernity.config import BackupDefaults, CliDefaults, DebugDefaults, ExtendDefaults, UiDefaults
 
 app_module = importlib.import_module("ethernity.cli.bootstrap.app")
 
@@ -223,6 +223,7 @@ class TestCliApp(unittest.TestCase):
         "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",
         return_value=("secret", [], [], [], []),
     )
+    @mock.patch("ethernity.cli.bootstrap.app._prompt_home_extend_stale_head_ack", return_value=True)
     @mock.patch("ethernity.cli.bootstrap.app.prompt_optional", return_value=None)
     @mock.patch("ethernity.cli.bootstrap.app.prompt_choice", side_effect=["scan", "plaintext"])
     @mock.patch(
@@ -241,6 +242,7 @@ class TestCliApp(unittest.TestCase):
         prompt_paths_with_picker: mock.MagicMock,
         _prompt_choice: mock.MagicMock,
         prompt_optional: mock.MagicMock,
+        prompt_stale_head_ack: mock.MagicMock,
         _prompt_passphrase_unlock_material: mock.MagicMock,
     ) -> None:
         args = app_module._prompt_home_extend_args(
@@ -255,9 +257,11 @@ class TestCliApp(unittest.TestCase):
         self.assertEqual(args.input, ["/tmp/input"])
         self.assertEqual(args.unlock_policy, "self-contained")
         self.assertEqual(args.shard_count, 0)
+        self.assertTrue(args.allow_stale_head)
         prompt_path_with_picker.assert_not_called()
         prompt_optional_path_with_picker.assert_called_once()
         prompt_optional.assert_called_once()
+        prompt_stale_head_ack.assert_called_once()
         self.assertEqual(prompt_paths_with_picker.call_count, 2)
 
     @mock.patch(
@@ -876,7 +880,7 @@ class TestCliApp(unittest.TestCase):
             paper="A4",
             design="forge",
             quiet=False,
-            backup_defaults=BackupDefaults(),
+            extend_defaults=ExtendDefaults(),
         )
         run_extend_command.assert_called_once_with(extend_args, debug=True)
 

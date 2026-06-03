@@ -569,6 +569,7 @@ def _resolve_extend_state_after_root_inspection(
         blocking_issues=tuple(blocking_issues),
     )
     inspection = _apply_expected_head_guard(args, inspection)
+    inspection = _apply_scan_freshness_guard(args, inspection)
     return ResolvedExtendState(
         inspection=inspection,
         loaded_scope=loaded_scope,
@@ -594,10 +595,10 @@ def _apply_expected_head_guard(args: ExtendArgs, inspection: ExtendInspection) -
         args.expected_head_doc_hash,
         option="--expected-head-doc-hash",
     )
+    args.expected_head_doc_hash = expected_head_doc_hash
     if inspection.validated_head_doc_hash is None:
         return inspection
     if inspection.validated_head_doc_hash == expected_head_doc_hash:
-        args.expected_head_doc_hash = expected_head_doc_hash
         return inspection
     issue = _blocking_issue(
         api_codes.RECOVERY_HEAD_UNTRUSTED,
@@ -612,6 +613,28 @@ def _apply_expected_head_guard(args: ExtendArgs, inspection: ExtendInspection) -
             "validated_head_index": inspection.validated_head_index,
             "validated_head_doc_hash": inspection.validated_head_doc_hash,
             "freshness_scope": "supplied_carriers_only",
+        },
+    )
+    return replace(inspection, blocking_issues=(issue, *inspection.blocking_issues))
+
+
+def _apply_scan_freshness_guard(args: ExtendArgs, inspection: ExtendInspection) -> ExtendInspection:
+    if not _uses_scanned_chain_source(args):
+        return inspection
+    if args.expected_head_doc_hash is not None or args.allow_stale_head:
+        return inspection
+    issue = _blocking_issue(
+        api_codes.RECOVERY_HEAD_UNTRUSTED,
+        (
+            "scan-mode extend cannot prove the supplied recovery set is the latest chain state; "
+            "provide --expected-head-doc-hash or pass --allow-stale-head to acknowledge this risk"
+        ),
+        details={
+            "stage": "selection",
+            "validated_head_index": inspection.validated_head_index,
+            "validated_head_doc_hash": inspection.validated_head_doc_hash,
+            "freshness_scope": "supplied_carriers_only",
+            "required_acknowledgement": "--allow-stale-head",
         },
     )
     return replace(inspection, blocking_issues=(issue, *inspection.blocking_issues))

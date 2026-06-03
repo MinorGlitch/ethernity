@@ -421,6 +421,7 @@ emitted as an `artifact` event with kind `layout_debug_json`.
   `extension.chunking.max_size`
 - `defaults.backup.*`
 - `defaults.recover.output`
+- `defaults.extend.*`
 - `ui.*`
 - `debug.max_bytes`
 - `runtime.render_jobs`
@@ -568,7 +569,7 @@ Example onboarding patch:
 ```json
 {"type":"started","schema_version":1,"command":"config","args":{"operation":"get","config":null,"input_json":null}}
 {"type":"phase","id":"load","label":"Loading config"}
-{"type":"result","ok":true,"command":"config","operation":"get","path":"/home/user/.config/ethernity/config.toml","source":"user","status":"valid","errors":[],"values":{"templates":{"default_name":"sentinel","template_name":null,"recovery_template_name":null,"shard_template_name":null,"signing_key_shard_template_name":null,"kit_template_name":null},"page":{"size":"A4"},"qr":{"error":"M","chunk_size":512},"extension":{"chunking":{"target_size":16384,"min_size":4096,"max_size":65536}},"defaults":{"backup":{"base_dir":null,"output_dir":null,"shard_threshold":null,"shard_count":null,"signing_key_mode":null,"signing_key_shard_threshold":null,"signing_key_shard_count":null,"payload_codec":"auto","qr_payload_codec":"raw"},"recover":{"output":null}},"ui":{"quiet":false,"no_color":false,"no_animations":false},"debug":{"max_bytes":1024},"runtime":{"render_jobs":"auto"}},"options":{"template_designs":["archive","forge","ledger","maritime","sentinel"],"page_sizes":["A4","LETTER"],"qr_error_correction":["L","M","Q","H"],"payload_codecs":["auto","raw","gzip"],"qr_payload_codecs":["raw","base64"],"signing_key_modes":["embedded","sharded"],"onboarding_fields":["template_design","page_size","backup_output_dir","qr_chunk_size","qr_error_correction","sharding","payload_codec","qr_payload_codec"]},"onboarding":{"needed":true,"configured_fields":[],"available_fields":["template_design","page_size","backup_output_dir","qr_chunk_size","qr_error_correction","sharding","payload_codec","qr_payload_codec"]}}
+{"type":"result","ok":true,"command":"config","operation":"get","path":"/home/user/.config/ethernity/config.toml","source":"user","status":"valid","errors":[],"values":{"templates":{"default_name":"sentinel","template_name":null,"recovery_template_name":null,"shard_template_name":null,"signing_key_shard_template_name":null,"kit_template_name":null},"page":{"size":"A4"},"qr":{"error":"M","chunk_size":512},"extension":{"chunking":{"target_size":16384,"min_size":4096,"max_size":65536}},"defaults":{"backup":{"base_dir":null,"output_dir":null,"shard_threshold":null,"shard_count":null,"signing_key_mode":null,"signing_key_shard_threshold":null,"signing_key_shard_count":null,"payload_codec":"auto","qr_payload_codec":"raw"},"recover":{"output":null},"extend":{"base_dir":null,"unlock_policy":null,"shard_threshold":null,"shard_count":null,"signing_key_mode":null,"signing_key_shard_threshold":null,"signing_key_shard_count":null,"qr_payload_codec":"raw"}},"ui":{"quiet":false,"no_color":false,"no_animations":false},"debug":{"max_bytes":1024},"runtime":{"render_jobs":"auto"}},"options":{"template_designs":["archive","forge","ledger","maritime","sentinel"],"page_sizes":["A4","LETTER"],"qr_error_correction":["L","M","Q","H"],"payload_codecs":["auto","raw","gzip"],"qr_payload_codecs":["raw","base64"],"signing_key_modes":["embedded","sharded"],"extension_unlock_policies":["self-contained","reuse-root"],"extension_signing_key_modes":["not-stored","sharded"],"onboarding_fields":["template_design","page_size","backup_output_dir","qr_chunk_size","qr_error_correction","sharding","payload_codec","qr_payload_codec"]},"onboarding":{"needed":true,"configured_fields":[],"available_fields":["template_design","page_size","backup_output_dir","qr_chunk_size","qr_error_correction","sharding","payload_codec","qr_payload_codec"]}}
 ```
 
 Recover can also scan QR payloads directly from PDFs, images, or directories by using `--scan`:
@@ -637,6 +638,12 @@ scanned source material with a stale digital layout, scan-mode publishing writes
 `extension-<index>-<doc_id>` bundle directly under that target and does not create canonical
 `extensions/<index>` output. Inspect/result payloads can report `input_kind: "scanned_chain"`, and
 started events include the `scan` array in schema version 1.
+
+Because scan-mode extend can only authenticate the supplied carriers, it cannot prove that no later
+extension exists elsewhere. Provide `--expected-head-doc-hash <hash>` to pin the trusted latest
+head. If no trusted marker exists and the operator explicitly accepts the stale-head risk, pass
+`--allow-stale-head`; otherwise inspect reports `RECOVERY_HEAD_UNTRUSTED` and `api extend` fails
+closed before publishing.
 
 `api extend` and `api inspect extend` can unlock the selected backup with passphrase shard inputs
 by using `--shard-fallback-file`, `--shard-payloads-file`, or `--shard-scan`.

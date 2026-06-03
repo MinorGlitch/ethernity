@@ -2440,6 +2440,7 @@
         "signing_key_shard_threshold",
         "signing_key_shard_count",
         "expected_head_doc_hash",
+        "allow_stale_head",
         "quiet",
         "debug",
         "operation"
@@ -2594,6 +2595,9 @@
         "expected_head_doc_hash": {
           "$ref": "#/$defs/nullableDocHashHex"
         },
+        "allow_stale_head": {
+          "type": "boolean"
+        },
         "quiet": {
           "type": "boolean"
         },
@@ -2654,6 +2658,7 @@
         "signing_key_shard_threshold",
         "signing_key_shard_count",
         "expected_head_doc_hash",
+        "allow_stale_head",
         "quiet",
         "debug"
       ],
@@ -2806,6 +2811,9 @@
         },
         "expected_head_doc_hash": {
           "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "allow_stale_head": {
+          "type": "boolean"
         },
         "quiet": {
           "type": "boolean"
@@ -3970,7 +3978,8 @@
           "additionalProperties": false,
           "required": [
             "backup",
-            "recover"
+            "recover",
+            "extend"
           ],
           "properties": {
             "backup": {
@@ -4069,6 +4078,82 @@
                   "minLength": 1
                 }
               }
+            },
+            "extend": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "base_dir",
+                "unlock_policy",
+                "shard_threshold",
+                "shard_count",
+                "signing_key_mode",
+                "signing_key_shard_threshold",
+                "signing_key_shard_count",
+                "qr_payload_codec"
+              ],
+              "properties": {
+                "base_dir": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1
+                },
+                "unlock_policy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "self-contained",
+                    "reuse-root",
+                    null
+                  ]
+                },
+                "shard_threshold": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "shard_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "signing_key_mode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "not-stored",
+                    "sharded",
+                    null
+                  ]
+                },
+                "signing_key_shard_threshold": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "signing_key_shard_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "qr_payload_codec": {
+                  "type": "string",
+                  "enum": [
+                    "raw",
+                    "base64"
+                  ]
+                }
+              }
             }
           }
         },
@@ -4146,6 +4231,8 @@
         "payload_codecs",
         "qr_payload_codecs",
         "signing_key_modes",
+        "extension_unlock_policies",
+        "extension_signing_key_modes",
         "onboarding_fields"
       ],
       "properties": {
@@ -4205,6 +4292,26 @@
             "type": "string",
             "enum": [
               "embedded",
+              "sharded"
+            ]
+          }
+        },
+        "extension_unlock_policies": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "self-contained",
+              "reuse-root"
+            ]
+          }
+        },
+        "extension_signing_key_modes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "not-stored",
               "sharded"
             ]
           }

@@ -21,6 +21,8 @@ from types import SimpleNamespace
 from unittest import mock
 
 from ethernity.cli.features.extend.planning import (
+    ExtendInspection,
+    _apply_expected_head_guard,
     _inspect_root_recovery,
     _RootRecoveryInspection,
     _shard_frames_from_extend_args,
@@ -1449,6 +1451,124 @@ max_size = 65536
         self.assertIn(api_codes.CHAIN_INVALID, issue_codes)
         self.assertNotIn("UNLOCK_FAILED", issue_codes)
         self.assertEqual(inspection.blocking_issues[0]["details"], {"stage": "chain"})
+
+    def test_expected_head_guard_canonicalizes_args_on_mismatch(self) -> None:
+        args = ExtendArgs(expected_head_doc_hash=f" {'AA' * 32} ")
+        inspection = ExtendInspection(
+            doc_id="11" * 8,
+            root_dir="/tmp/root",
+            input_label="Backup root directory",
+            input_detail="/tmp/root",
+            input_kind="extended_root",
+            source_summary=None,
+            frame_counts={"main": 0, "auth": 0, "shard": 0},
+            root_doc_id="11" * 8,
+            root_doc_hash="22" * 32,
+            chain_id="33" * 32,
+            auth_status="verified",
+            unlock={
+                "mode": "passphrase",
+                "passphrase_provided": True,
+                "validated_shard_count": 0,
+                "required_shard_threshold": None,
+                "shard_share_count": None,
+                "satisfied": True,
+            },
+            discovered_extension_dirs=(),
+            validated_head_index=1,
+            validated_head_doc_hash="22" * 32,
+            available_extensions=(),
+            ancestry_valid=True,
+            validated_head_auth_status="verified",
+            validated_head_root_authority_verified=True,
+            signing_authority={"available": True, "satisfied": True, "source": "embedded_seed"},
+            selected_scope=None,
+            diff_summary=None,
+            blocking_issues=(),
+        )
+
+        guarded = _apply_expected_head_guard(args, inspection)
+
+        self.assertEqual(args.expected_head_doc_hash, "aa" * 32)
+        self.assertEqual(guarded.blocking_issues[0]["code"], api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(
+            guarded.blocking_issues[0]["details"]["expected_head_doc_hash"],
+            "aa" * 32,
+        )
+
+    def test_scan_mode_requires_expected_head_or_explicit_stale_ack(self) -> None:
+        manifest, payload = build_manifest_and_payload(
+            (PayloadPart(path="alpha.txt", data=b"alpha", mtime=1),),
+            sealed=False,
+            signing_seed=b"\x33" * 32,
+            created_at=1.0,
+            input_origin="file",
+            input_roots=(),
+        )
+        unlocked_root = RecoveryInspection(
+            **{
+                **_root_inspection(passphrase="secret").__dict__,
+                "unlock": RecoveryUnlockStatus(
+                    mode="passphrase",
+                    passphrase_provided=True,
+                    validated_shard_count=0,
+                    required_shard_threshold=None,
+                    satisfied=True,
+                    resolved_passphrase="secret",
+                    blocking_issues=(),
+                ),
+            }
+        )
+        cases = (
+            ({}, True),
+            ({"expected_head_doc_hash": "22" * 32}, False),
+            ({"allow_stale_head": True}, False),
+        )
+        for arg_overrides, should_block in cases:
+            with self.subTest(arg_overrides=arg_overrides), tempfile.TemporaryDirectory() as tmpdir:
+                root_dir = Path(tmpdir) / "publish-root"
+                with (
+                    mock.patch(
+                        "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                        return_value=_RootRecoveryInspection(unlocked_root, "none"),
+                    ),
+                    mock.patch(
+                        "ethernity.cli.features.extend.planning._decode_root_manifest",
+                        return_value=(manifest, payload),
+                    ),
+                    mock.patch(
+                        "ethernity.cli.features.extend.planning.extract_root_logical_state",
+                        return_value=(
+                            LogicalFileState(
+                                path="alpha.txt",
+                                size=5,
+                                sha256=manifest.files[0].sha256,
+                                mtime=1,
+                                data=b"alpha",
+                            ),
+                        ),
+                    ),
+                ):
+                    inspection = inspect_from_args(
+                        ExtendArgs(
+                            root_dir=str(root_dir),
+                            scan=["root.pdf"],
+                            passphrase="secret",
+                            **arg_overrides,
+                        )
+                    )
+
+            issue_codes = [issue["code"] for issue in inspection.blocking_issues]
+            self.assertEqual(inspection.input_kind, "scanned_chain")
+            self.assertEqual(inspection.validated_head_doc_hash, "22" * 32)
+            if should_block:
+                self.assertIn(api_codes.RECOVERY_HEAD_UNTRUSTED, issue_codes)
+                issue = inspection.blocking_issues[0]
+                self.assertEqual(issue["details"]["validated_head_index"], 0)
+                self.assertEqual(issue["details"]["validated_head_doc_hash"], "22" * 32)
+                self.assertEqual(issue["details"]["freshness_scope"], "supplied_carriers_only")
+            else:
+                self.assertNotIn(api_codes.RECOVERY_HEAD_UNTRUSTED, issue_codes)
 
     def test_inspect_from_args_uses_shared_recovery_head_refusal_for_degraded_latest_chain(
         self,
