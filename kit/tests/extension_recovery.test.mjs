@@ -75,7 +75,12 @@ function buildRootPlaintext(files, { sealed = false, signingSeed = ROOT_SIGNING_
     input_roots: [],
     payload_codec: "raw",
     path_encoding: "direct",
-    files: files.map((file) => [file.path, file.data.length, sha256(file.data), null]),
+    files: files.map((file) => [
+      file.path,
+      file.data.length,
+      sha256(file.data),
+      file.mtime ?? null,
+    ]),
   };
   return buildEnvelope(ENVELOPE_VERSION, encodeCbor(manifest), payload);
 }
@@ -214,7 +219,7 @@ function buildExtensionFileRecipe(file, chunksById) {
       chunksById.set(chunkIdHex, { chunkId, chunkIdHex, data: chunk });
     }
   }
-  return [file.path, file.data.length, sha256(file.data), null, refs];
+  return [file.path, file.data.length, sha256(file.data), file.mtime ?? null, refs];
 }
 
 function buildEnvelope(version, firstSection, secondSection) {
@@ -472,7 +477,7 @@ test("extension envelope rejects trailing gzip members", async () => {
 
 test("browser recovery replays the latest supplied authenticated extension chain", async () => {
   const rootPlaintext = buildRootPlaintext([
-    { path: "a.txt", data: new TextEncoder().encode("root") },
+    { path: "a.txt", data: new TextEncoder().encode("root"), mtime: 111 },
   ]);
   const root = documentFromPlaintext({
     docId: ROOT_DOC_ID,
@@ -483,7 +488,7 @@ test("browser recovery replays the latest supplied authenticated extension chain
     index: 1,
     parentDocHash: root.docHash,
     rootDocHash: root.docHash,
-    files: [{ path: "a.txt", data: new TextEncoder().encode("one") }],
+    files: [{ path: "a.txt", data: new TextEncoder().encode("one"), mtime: 222 }],
   });
   const ext1 = documentFromPlaintext({
     docId: EXT1_DOC_ID,
@@ -494,7 +499,7 @@ test("browser recovery replays the latest supplied authenticated extension chain
     index: 2,
     parentDocHash: ext1.docHash,
     rootDocHash: root.docHash,
-    files: [{ path: "b.txt", data: new TextEncoder().encode("two") }],
+    files: [{ path: "b.txt", data: new TextEncoder().encode("two"), mtime: 333 }],
   });
   const ext2 = documentFromPlaintext({
     docId: EXT2_DOC_ID,
@@ -515,6 +520,13 @@ test("browser recovery replays the latest supplied authenticated extension chain
     [
       ["a.txt", "one"],
       ["b.txt", "two"],
+    ],
+  );
+  assert.deepEqual(
+    result.manifest.entries.map((entry) => [entry.path, entry.mtime]),
+    [
+      ["a.txt", 222],
+      ["b.txt", 333],
     ],
   );
 });

@@ -222,7 +222,7 @@ function syntheticManifestFromFiles(rootManifest, files) {
       path: file.path,
       size: file.data.length,
       sha: sha256(file.data),
-      mtime: null,
+      mtime: file.mtime ?? null,
     })),
   };
 }
