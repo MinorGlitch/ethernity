@@ -64,6 +64,7 @@ export function createBaseState() {
     shardPayloadText: "",
     agePassphrase: "",
     extensionTargetText: "latest",
+    expectedHeadDocHashText: "",
     decryptStatus: { lines: [], type: "" },
     decryptRequestId: 0,
     isDecrypting: false,

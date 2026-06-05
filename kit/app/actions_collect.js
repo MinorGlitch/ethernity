@@ -42,6 +42,7 @@ const RECOVERY_INPUT_FIELDS = new Set([
   "shardPayloadText",
   "agePassphrase",
   "extensionTargetText",
+  "expectedHeadDocHashText",
 ]);
 
 function parsedMainAccepted(base, before, added) {

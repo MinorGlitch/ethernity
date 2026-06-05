@@ -66,11 +66,15 @@ export async function recoverLatestFromPlaintextDocuments(
   }
   const root = roots[0];
   const rawExtensions = decoded.filter((item) => item.kind === "extension");
+  for (const failure of decodeErrors) {
+    throwIfSelectedDocHashFailure(target, failure.document, "decoded", failure.message);
+  }
   if (decodeErrors.length && documents.length > 1 && target.kind === "latest") {
     throw new Error("one or more supplied backup documents could not be decoded");
   }
   const suppliedRootAuthPayload = await verifySuppliedRootAuth(root, verifySignature);
   if (rootOnly) {
+    ensureExpectedHeadSatisfied(target, root.document.docHashHex);
     return {
       files: root.extracted.files,
       manifest: root.extracted.manifest,
@@ -86,6 +90,7 @@ export async function recoverLatestFromPlaintextDocuments(
     if (target.kind !== "latest") {
       throw new Error("requested extension target was not supplied");
     }
+    ensureExpectedHeadSatisfied(target, root.document.docHashHex);
     return {
       files: root.extracted.files,
       manifest: root.extracted.manifest,
@@ -113,6 +118,7 @@ export async function recoverLatestFromPlaintextDocuments(
         verifySignature,
       );
     } catch (err) {
+      throwIfSelectedDocHashFailure(target, item.document, "trusted", String(err));
       extensionFailures.push({
         authenticated: false,
         message: String(err),
@@ -123,6 +129,12 @@ export async function recoverLatestFromPlaintextDocuments(
     try {
       extension = await decodeExtensionEnvelope(item.document.plaintext);
     } catch (err) {
+      throwIfSelectedDocHashFailure(
+        target,
+        item.document,
+        "decoded",
+        `root-authority extension could not be decoded: ${String(err)}`,
+      );
       extensionFailures.push({
         authenticated: true,
         message: `root-authority extension could not be decoded: ${String(err)}`,
@@ -130,6 +142,12 @@ export async function recoverLatestFromPlaintextDocuments(
       continue;
     }
     if (!bytesEqual(extension.header.rootDocHash, root.document.docHash)) {
+      throwIfSelectedDocHashFailure(
+        target,
+        item.document,
+        "trusted",
+        "extension root_doc_hash does not match root backup",
+      );
       extensionFailures.push({
         authenticated: true,
         message: "extension root_doc_hash does not match root backup",
@@ -164,6 +182,7 @@ export async function recoverLatestFromPlaintextDocuments(
   const selected = selectSuppliedChainForTarget(extensions, target);
   const files = await reconstructLatestFiles(root.extracted.files, root.document.docHash, selected);
   const latest = selected.at(-1);
+  ensureExpectedHeadSatisfied(target, latest?.docHashHex ?? root.document.docHashHex);
   return {
     files,
     manifest: selected.length
@@ -196,6 +215,9 @@ export async function recoverLatestFromEncryptedDocuments(
     } catch (err) {
       decryptErrors.push({ document, message: String(err) });
     }
+  }
+  for (const failure of decryptErrors) {
+    throwIfSelectedDocHashFailure(target, failure.document, "decrypted", failure.message);
   }
   if (!plaintextDocuments.length) {
     throw new Error(decryptErrors[0]?.message ?? "Could not unlock backup. Check passphrase.");
@@ -231,32 +253,78 @@ function normalizeExtensionTarget(extensionTarget) {
   if (!extensionTarget || extensionTarget === "latest") {
     return { kind: "latest" };
   }
+  if (typeof extensionTarget === "string") {
+    const latestMatch = extensionTarget.trim().match(/^latest:([0-9a-fA-F]{64})$/);
+    if (latestMatch) {
+      return {
+        kind: "latest",
+        expectedHeadDocHashHex: latestMatch[1].toLowerCase(),
+      };
+    }
+  }
   if (extensionTarget === "root") {
     return { kind: "root" };
   }
   if (typeof extensionTarget === "object" && extensionTarget.kind === "latest") {
-    return { kind: "latest" };
+    return withExpectedHeadDocHash({ kind: "latest" }, extensionTarget.expectedHeadDocHashHex);
   }
   if (typeof extensionTarget === "object" && extensionTarget.kind === "root") {
-    return { kind: "root" };
+    return withExpectedHeadDocHash({ kind: "root" }, extensionTarget.expectedHeadDocHashHex);
   }
   if (typeof extensionTarget === "object" && extensionTarget.kind === "index") {
     if (!Number.isInteger(extensionTarget.index) || extensionTarget.index < 0) {
       throw new Error("extension index target must be a non-negative integer");
     }
     if (extensionTarget.index === 0) {
-      return { kind: "root" };
+      return withExpectedHeadDocHash({ kind: "root" }, extensionTarget.expectedHeadDocHashHex);
     }
-    return { kind: "index", index: extensionTarget.index };
+    return withExpectedHeadDocHash(
+      { kind: "index", index: extensionTarget.index },
+      extensionTarget.expectedHeadDocHashHex,
+    );
   }
   if (typeof extensionTarget === "object" && extensionTarget.kind === "doc_hash") {
     const docHashHex = String(extensionTarget.docHashHex ?? "").toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(docHashHex)) {
       throw new Error("extension doc_hash target must be 64 lowercase hex characters");
     }
-    return { kind: "doc_hash", docHashHex };
+    return withExpectedHeadDocHash(
+      { kind: "doc_hash", docHashHex },
+      extensionTarget.expectedHeadDocHashHex,
+    );
   }
   throw new Error("unknown extension recovery target");
+}
+
+function withExpectedHeadDocHash(target, value) {
+  if (value === undefined || value === null || value === "") {
+    return target;
+  }
+  const expectedHeadDocHashHex = String(value).toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(expectedHeadDocHashHex)) {
+    throw new Error("expected extension head doc_hash must be 64 lowercase hex characters");
+  }
+  return { ...target, expectedHeadDocHashHex };
+}
+
+function ensureExpectedHeadSatisfied(target, actualHeadDocHashHex) {
+  if (!target.expectedHeadDocHashHex) {
+    return;
+  }
+  if (actualHeadDocHashHex !== target.expectedHeadDocHashHex) {
+    throw new Error(
+      `validated extension head doc_hash does not match expected head ${target.expectedHeadDocHashHex}; latest supplied head is ${actualHeadDocHashHex}`,
+    );
+  }
+}
+
+function throwIfSelectedDocHashFailure(target, document, verb, message) {
+  if (target.kind !== "doc_hash" || document.docHashHex !== target.docHashHex) {
+    return;
+  }
+  throw new Error(
+    `selected extension doc_hash ${target.docHashHex} could not be ${verb}: ${message}`,
+  );
 }
 
 function deriveRootSigningAuthority(manifest) {
@@ -294,12 +362,13 @@ function selectLatestSuppliedChain(extensions) {
 }
 
 function selectSuppliedChainForTarget(extensions, target) {
-  const chain = selectLatestSuppliedChain(extensions);
   if (target.kind === "latest") {
-    return chain;
+    return selectLatestSuppliedChain(extensions);
   }
   if (target.kind === "index") {
-    const selected = chain.filter((extension) => extension.header.index <= target.index);
+    const selected = selectLatestSuppliedChain(
+      extensions.filter((extension) => extension.header.index <= target.index),
+    );
     const latest = selected.at(-1);
     if (!latest || latest.header.index !== target.index) {
       throw new Error(`extension index target was not supplied: ${target.index}`);
@@ -307,11 +376,15 @@ function selectSuppliedChainForTarget(extensions, target) {
     return selected;
   }
   if (target.kind === "doc_hash") {
-    const targetExtension = chain.find((extension) => extension.docHashHex === target.docHashHex);
+    const targetExtension = extensions.find(
+      (extension) => extension.docHashHex === target.docHashHex,
+    );
     if (!targetExtension) {
       throw new Error(`extension doc_hash target was not supplied: ${target.docHashHex}`);
     }
-    return chain.filter((extension) => extension.header.index <= targetExtension.header.index);
+    return selectLatestSuppliedChain(
+      extensions.filter((extension) => extension.header.index <= targetExtension.header.index),
+    );
   }
   throw new Error("unknown extension recovery target");
 }

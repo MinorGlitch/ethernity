@@ -97,6 +97,8 @@ export function App() {
     updateField(dispatch, getState, "agePassphrase", event.currentTarget.value);
   const handleExtensionTargetChange = (event) =>
     updateField(dispatch, getState, "extensionTargetText", event.currentTarget.value);
+  const handleExpectedHeadDocHashChange = (event) =>
+    updateField(dispatch, getState, "expectedHeadDocHashText", event.currentTarget.value);
 
   const handleAddPayloads = () => addPayloads(dispatch, getState);
   const handleScannedPayload = (scanned) => addScannedPayload(dispatch, getState, scanned);
@@ -253,8 +255,10 @@ export function App() {
             passphrase={state.agePassphrase}
             decryptStatus={state.decryptStatus}
             extensionTarget={state.extensionTargetText}
+            expectedHeadDocHash={state.expectedHeadDocHashText}
             onPassphraseChange={handlePassphraseChange}
             onExtensionTargetChange={handleExtensionTargetChange}
+            onExpectedHeadDocHashChange={handleExpectedHeadDocHashChange}
             onDecrypt={handleDecrypt}
             onDecryptRootOnly={actionState.hasMultipleDocuments ? handleDecryptRootOnly : null}
             canDecrypt={actionState.canDecryptCiphertext}

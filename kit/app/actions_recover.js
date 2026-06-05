@@ -47,8 +47,7 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
   let didStartDecrypt = false;
   let finalState = null;
   try {
-    const extensionTarget =
-      options.extensionTarget ?? parseExtensionTarget(prep.extensionTargetText);
+    const extensionTarget = resolveExtensionTarget(prep, options);
     if (prep.conflicts > 0) {
       throw new Error("conflicting duplicate frames detected");
     }
@@ -113,11 +112,13 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
     }
     next.isDecrypting = false;
     const errorMsg = String(err);
-    const friendlyError = errorMsg.includes("password")
-      ? "Incorrect passphrase."
-      : errorMsg.includes("decrypt")
-        ? "Could not unlock backup. Check passphrase."
-        : errorMsg;
+    const friendlyError = errorMsg.includes("selected extension doc_hash")
+      ? errorMsg
+      : errorMsg.includes("password")
+        ? "Incorrect passphrase."
+        : errorMsg.includes("decrypt")
+          ? "Could not unlock backup. Check passphrase."
+          : errorMsg;
     setLineStatus(next, "decryptStatus", friendlyError, "error");
     finalState = next;
   }
@@ -128,22 +129,80 @@ function isCurrentDecryptRequest(state, requestId) {
   return state.isDecrypting && state.decryptRequestId === requestId;
 }
 
-function parseExtensionTarget(value) {
+function resolveExtensionTarget(state, options) {
+  const expectedHeadDocHashHex = normalizeExpectedHeadDocHash(state.expectedHeadDocHashText);
+  if (options.extensionTarget !== undefined) {
+    return withExpectedHead(options.extensionTarget, expectedHeadDocHashHex);
+  }
+  return parseExtensionTarget(state.extensionTargetText, expectedHeadDocHashHex);
+}
+
+function parseExtensionTarget(value, expectedHeadDocHashHex) {
   const target = String(value ?? "").trim();
   if (!target || target.toLowerCase() === "latest") {
-    return "latest";
+    return withExpectedHead("latest", expectedHeadDocHashHex);
+  }
+  const latestMatch = target.match(/^latest:([0-9a-fA-F]{64})$/);
+  if (latestMatch) {
+    const inlineExpectedHeadDocHashHex = latestMatch[1].toLowerCase();
+    if (expectedHeadDocHashHex && expectedHeadDocHashHex !== inlineExpectedHeadDocHashHex) {
+      throw new Error("expected head doc hash conflicts with latest:<doc hash> target");
+    }
+    return {
+      kind: "latest",
+      expectedHeadDocHashHex: inlineExpectedHeadDocHashHex,
+    };
   }
   if (target.toLowerCase() === "root" || target === "0") {
-    return "root";
+    return withExpectedHead("root", expectedHeadDocHashHex);
   }
   if (/^[1-9]\d*$/.test(target)) {
-    return { kind: "index", index: Number.parseInt(target, 10) };
+    return withExpectedHead(
+      { kind: "index", index: Number.parseInt(target, 10) },
+      expectedHeadDocHashHex,
+    );
   }
   const hash = target.toLowerCase();
   if (/^[0-9a-f]{64}$/.test(hash)) {
-    return { kind: "doc_hash", docHashHex: hash };
+    return withExpectedHead({ kind: "doc_hash", docHashHex: hash }, expectedHeadDocHashHex);
   }
-  throw new Error("extension target must be latest, root, an extension index, or a doc hash");
+  throw new Error(
+    "extension target must be latest, latest:<doc hash>, root, an extension index, or a doc hash",
+  );
+}
+
+function normalizeExpectedHeadDocHash(value) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return null;
+  }
+  const hash = text.toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(hash)) {
+    throw new Error("expected head doc hash must be 64 hex characters");
+  }
+  return hash;
+}
+
+function withExpectedHead(target, expectedHeadDocHashHex) {
+  if (!expectedHeadDocHashHex) {
+    return target;
+  }
+  if (target === "latest") {
+    return { kind: "latest", expectedHeadDocHashHex };
+  }
+  if (target === "root") {
+    return { kind: "root", expectedHeadDocHashHex };
+  }
+  if (target && typeof target === "object" && target.expectedHeadDocHashHex) {
+    if (target.expectedHeadDocHashHex.toLowerCase() !== expectedHeadDocHashHex) {
+      throw new Error("expected head doc hash conflicts with extension recovery target");
+    }
+    return target;
+  }
+  if (target && typeof target === "object") {
+    return { ...target, expectedHeadDocHashHex };
+  }
+  return target;
 }
 
 function isLatestTarget(extensionTarget) {

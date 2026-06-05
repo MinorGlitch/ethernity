@@ -125,6 +125,36 @@ test("changing recovery target clears stale recovered output", () => {
   assert.equal(finalState.decryptRequestId, 4);
 });
 
+test("changing expected head clears stale recovered output", () => {
+  const store = createStore();
+  const state = store.getState();
+  state.extractedFiles = [{ path: "old.txt", data: new Uint8Array([1]) }];
+  state.decryptedEnvelope = new Uint8Array([2]);
+  state.decryptedEnvelopeSource = "Collected ciphertext";
+  state.recoveryComplete = true;
+  state.extractStatus = { lines: ["1 file(s) ready."], type: "ok" };
+  state.decryptStatus = { lines: ["Recovery complete."], type: "ok" };
+  state.isDecrypting = true;
+  state.decryptRequestId = 3;
+
+  updateField(
+    store.dispatch.bind(store),
+    store.getState.bind(store),
+    "expectedHeadDocHashText",
+    "a".repeat(64),
+  );
+
+  const finalState = store.getState();
+  assert.deepEqual(finalState.extractedFiles, []);
+  assert.equal(finalState.decryptedEnvelope, null);
+  assert.equal(finalState.decryptedEnvelopeSource, "");
+  assert.equal(finalState.recoveryComplete, false);
+  assert.deepEqual(finalState.extractStatus.lines, []);
+  assert.deepEqual(finalState.decryptStatus.lines, []);
+  assert.equal(finalState.isDecrypting, false);
+  assert.equal(finalState.decryptRequestId, 4);
+});
+
 test("accepted pasted main frames clear stale recovered output", async () => {
   const store = createStore();
   const state = store.getState();

@@ -21,8 +21,10 @@ export function DecryptSection({
   passphrase,
   decryptStatus,
   extensionTarget,
+  expectedHeadDocHash,
   onPassphraseChange,
   onExtensionTargetChange,
+  onExpectedHeadDocHashChange,
   onDecrypt,
   onDecryptRootOnly,
   canDecrypt,
@@ -94,6 +96,16 @@ export function DecryptSection({
             value={extensionTarget}
             placeholder="latest, root, index, or doc hash"
             onInput={onExtensionTargetChange}
+            spellCheck="false"
+          />
+        ) : null}
+        {hasMultipleDocuments ? (
+          <Field
+            id="expected-head-doc-hash-input"
+            label="Expected head"
+            value={expectedHeadDocHash}
+            placeholder="optional latest doc hash"
+            onInput={onExpectedHeadDocHashChange}
             spellCheck="false"
           />
         ) : null}
