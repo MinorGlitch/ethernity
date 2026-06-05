@@ -195,6 +195,7 @@ class TestIntegrationExtensions(unittest.TestCase):
                     source_dir=source_dir,
                     root_dir=rehydrated_root,
                     scan=[str(root_scan), str(first_scan)],
+                    expected_head_doc_hash=first_extension.doc_hash.hex(),
                 )
 
                 self.assertEqual(second_extension.index, 2)
@@ -1123,6 +1124,8 @@ class TestIntegrationExtensions(unittest.TestCase):
         signing_key_shard_count: int | None = None,
         scan: list[str] | None = None,
         shard_scan: list[str] | None = None,
+        expected_head_doc_hash: str | None = None,
+        allow_stale_head: bool = False,
     ):
         with suppress_output():
             return run_extend(
@@ -1141,6 +1144,8 @@ class TestIntegrationExtensions(unittest.TestCase):
                     signing_key_mode=signing_key_mode,
                     signing_key_shard_threshold=signing_key_shard_threshold,
                     signing_key_shard_count=signing_key_shard_count,
+                    expected_head_doc_hash=expected_head_doc_hash,
+                    allow_stale_head=allow_stale_head,
                     quiet=True,
                 )
             )

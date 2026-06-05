@@ -216,6 +216,8 @@ def _validate_main_carrier_frames(
 
 def validate_staged_recovery_kit_index_document(
     plan: PreparedExtensionPublishPlan,
+    *,
+    root_passphrase_shards_required: bool = False,
 ) -> None:
     path = plan.artifacts.recovery_kit_index_path
     if path is None:
@@ -228,7 +230,10 @@ def validate_staged_recovery_kit_index_document(
         validate_text_in_pdf(
             artifact_label="rendered recovery_kit_index artifact",
             reader=reader,
-            expected_text=expected_recovery_kit_index_component_ids(plan),
+            expected_text=expected_recovery_kit_index_component_ids(
+                plan,
+                root_passphrase_shards_required=root_passphrase_shards_required,
+            ),
             details_key="missing_component_ids",
             missing_message=(
                 "rendered recovery_kit_index artifact is missing expected inventory rows"
@@ -245,6 +250,8 @@ def validate_staged_recovery_kit_index_document(
 
 def expected_recovery_kit_index_component_ids(
     plan: PreparedExtensionPublishPlan,
+    *,
+    root_passphrase_shards_required: bool = False,
 ) -> tuple[str, ...]:
     component_ids = [
         plan.encrypted.doc_id.hex(),
@@ -253,7 +260,7 @@ def expected_recovery_kit_index_component_ids(
         "QR-DOC-01",
         "RECOVERY-DOC-01",
     ]
-    if plan.prepared.args.unlock_policy == "reuse-root":
+    if root_passphrase_shards_required or plan.prepared.args.unlock_policy == "reuse-root":
         component_ids.append("ROOT-SHARDS")
     component_ids.extend(
         f"SHARD-{share_index:02d}"

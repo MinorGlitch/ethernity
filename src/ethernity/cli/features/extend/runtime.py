@@ -60,6 +60,12 @@ def resolve_unlock_policy(policy: str | None) -> str:
     return policy
 
 
+def resolve_effective_unlock_policy(args: ExtendArgs, defaults: ExtendDefaults) -> str:
+    return resolve_unlock_policy(
+        args.unlock_policy if args.unlock_policy is not None else defaults.unlock_policy
+    )
+
+
 def reject_reuse_root_passphrase_shard_overrides(args: ExtendArgs) -> None:
     conflicting_options: list[str] = []
     if args.shard_threshold is not None:
@@ -86,9 +92,7 @@ def resolve_extend_policy(
     inherited_passphrase_shard_threshold: int | None = None,
     inherited_passphrase_shard_count: int = 0,
 ) -> ResolvedExtendPolicy:
-    unlock_policy = resolve_unlock_policy(
-        args.unlock_policy if args.unlock_policy is not None else defaults.unlock_policy
-    )
+    unlock_policy = resolve_effective_unlock_policy(args, defaults)
     if unlock_policy == "reuse-root":
         reject_reuse_root_passphrase_shard_overrides(args)
         if root_passphrase_shard_threshold is None or root_passphrase_shard_count <= 0:
@@ -318,10 +322,8 @@ def resolve_root_passphrase_shard_policy(
     count = prepared.root_passphrase_shard_count
     if count > 0 or not _needs_published_root_passphrase_shard_policy(prepared.args, defaults):
         return threshold, count
-    if (
-        prepared.unlock_passphrase_shard_count > 0
-        and resolve_unlock_policy(prepared.args.unlock_policy) != "reuse-root"
-    ):
+    unlock_policy = resolve_effective_unlock_policy(prepared.args, defaults)
+    if prepared.unlock_passphrase_shard_count > 0 and unlock_policy != "reuse-root":
         return threshold, count
 
     root_dir = prepared.args.root_dir
@@ -363,9 +365,7 @@ def _needs_published_root_passphrase_shard_policy(
     args: ExtendArgs,
     defaults: ExtendDefaults,
 ) -> bool:
-    unlock_policy = resolve_unlock_policy(
-        args.unlock_policy if args.unlock_policy is not None else defaults.unlock_policy
-    )
+    unlock_policy = resolve_effective_unlock_policy(args, defaults)
     if unlock_policy == "reuse-root":
         return True
     if args.shard_count is not None:

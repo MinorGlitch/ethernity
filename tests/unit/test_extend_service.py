@@ -26,6 +26,7 @@ from fpdf import FPDF
 
 from ethernity.cli.features.extend import execution as extend_execution
 from ethernity.cli.features.extend.main_carrier_validation import (
+    expected_recovery_kit_index_component_ids,
     validate_single_main_carrier as _validate_single_main_carrier,
     validate_single_recovery_document_carrier as _validate_single_recovery_document_carrier,
     validate_staged_main_carrier as _validate_staged_main_carrier,
@@ -260,6 +261,22 @@ def _kit_index_pdf_lines(inputs: RenderInputs) -> list[str]:
 
 def _config_with_no_shard_defaults(path: Path) -> Path:
     path.write_text('[defaults.backup]\nqr_payload_codec = "raw"\n', encoding="utf-8")
+    return path
+
+
+def _config_with_reuse_root_default(path: Path) -> Path:
+    path.write_text(
+        "\n".join(
+            (
+                "[defaults.backup]",
+                'qr_payload_codec = "raw"',
+                "[defaults.extend]",
+                'unlock_policy = "reuse-root"',
+                "",
+            )
+        ),
+        encoding="utf-8",
+    )
     return path
 
 
@@ -693,6 +710,34 @@ class TestExtendService(unittest.TestCase):
         self.assertEqual(policy.to_publish_policy().signing_key_shard_count, 3)
         self.assertTrue(policy.require_recovery_kit_index)
 
+    def test_resolve_extend_policy_uses_defaulted_unlock_policy_for_reuse_root(self) -> None:
+        policy = resolve_extend_policy(
+            args=ExtendArgs(),
+            defaults=ExtendDefaults(
+                unlock_policy="reuse-root",
+                shard_threshold=2,
+                shard_count=3,
+                signing_key_mode="sharded",
+                signing_key_shard_threshold=2,
+                signing_key_shard_count=3,
+            ),
+            root_passphrase_shard_threshold=2,
+            root_passphrase_shard_count=2,
+            require_recovery_kit_index=True,
+        )
+
+        self.assertEqual(
+            policy.passphrase,
+            ReuseRootPassphraseShards(threshold=2, share_count=2),
+        )
+        self.assertEqual(
+            policy.signing_key,
+            ExtensionSigningKeyShards(threshold=2, share_count=3),
+        )
+        self.assertEqual(policy.to_publish_policy().passphrase_shard_count, 0)
+        self.assertEqual(policy.to_publish_policy().signing_key_shard_count, 3)
+        self.assertTrue(policy.require_recovery_kit_index)
+
     def test_resolve_extend_policy_allows_explicit_not_stored_for_reuse_root(self) -> None:
         policy = resolve_extend_policy(
             args=ExtendArgs(unlock_policy="reuse-root", signing_key_mode="not-stored"),
@@ -988,6 +1033,14 @@ class TestExtendService(unittest.TestCase):
             publish.artifacts.recovery_document_path.name,
             f"recovery_document-02-{publish.encrypted.doc_id.hex()}.pdf",
         )
+        self.assertNotIn("ROOT-SHARDS", expected_recovery_kit_index_component_ids(publish))
+        self.assertIn(
+            "ROOT-SHARDS",
+            expected_recovery_kit_index_component_ids(
+                publish,
+                root_passphrase_shards_required=True,
+            ),
+        )
         self.assertEqual(
             publish.artifacts.recovery_kit_index_path.name
             if publish.artifacts.recovery_kit_index_path
@@ -1167,6 +1220,78 @@ class TestExtendService(unittest.TestCase):
             validate_main.assert_called_once()
             validate_shards.assert_called_once()
             validate_index.assert_called_once()
+            self.assertFalse(validate_index.call_args.kwargs["root_passphrase_shards_required"])
+
+    def test_validate_prepared_extend_render_requires_root_shards_for_defaulted_reuse_root(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir(exist_ok=True)
+            config_path = _config_with_reuse_root_default(Path(tmpdir) / "config.toml")
+            resolved = _resolved_state(
+                diff_summary={
+                    "new_paths": ["new.txt"],
+                    "changed_paths": ["updated.txt"],
+                    "unchanged_paths": [],
+                    "missing_paths": [],
+                },
+                root_passphrase_shard_threshold=2,
+                root_passphrase_shard_count=3,
+            )
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                    return_value=resolved,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.prepare.encrypt_bytes_with_passphrase",
+                    side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
+                ),
+            ):
+                prepared = prepare_extend_run(
+                    ExtendArgs(
+                        config=str(config_path),
+                        root_dir=str(root_dir),
+                        input=["/tmp/root/example.txt"],
+                        signing_key_mode="not-stored",
+                    )
+                )
+                runtime = resolve_extend_runtime(prepared, create_layout_debug_dir=False)
+                encrypted = encrypt_prepared_extension_document(
+                    prepared,
+                    chunker=lambda data, _profile: (data,),
+                )
+
+            def _fake_render(inputs: RenderInputs) -> RenderResult:
+                output_path = Path(inputs.output_path)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_bytes(output_path.name.encode("utf-8"))
+                return _render_result_for_inputs(inputs)
+
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.execution.render_module.render_frames_to_pdf",
+                    side_effect=_fake_render,
+                ),
+                mock.patch("ethernity.cli.features.extend.execution.validate_staged_main_carrier"),
+                mock.patch(
+                    "ethernity.cli.features.extend.execution.validate_staged_shard_carriers"
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.execution."
+                    "validate_staged_recovery_kit_index_document"
+                ) as validate_index,
+            ):
+                validate_prepared_extend_render(
+                    prepared,
+                    runtime=runtime,
+                    encrypted=encrypted,
+                    nonce="preview",
+                )
+
+            validate_index.assert_called_once()
+            self.assertTrue(validate_index.call_args.kwargs["root_passphrase_shards_required"])
 
     def test_validate_prepared_extend_render_uses_scan_mode_loose_preview_layout(self) -> None:
         with TemporaryDirectory() as tmpdir:
@@ -2689,6 +2814,7 @@ class TestExtendService(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
             root_dir.mkdir(exist_ok=True)
+            config_path = _config_with_reuse_root_default(Path(tmpdir) / "config.toml")
             existing_head = root_dir / "extensions" / "01"
             existing_head.mkdir(parents=True)
 
@@ -2766,9 +2892,9 @@ class TestExtendService(unittest.TestCase):
             ):
                 result = run_extend(
                     ExtendArgs(
+                        config=str(config_path),
                         root_dir=str(root_dir),
                         input=["/tmp/root/example.txt"],
-                        unlock_policy="reuse-root",
                     ),
                     chunker=lambda data, _profile: (data,),
                     nonce="abc123",
@@ -2777,6 +2903,8 @@ class TestExtendService(unittest.TestCase):
             self.assertEqual(result.final_dir.name, "02")
             self.assertEqual(len(result.shard_paths), 0)
             self.assertEqual(len(result.signing_key_shard_paths), 0)
+            self.assertEqual(result.root_passphrase_shard_threshold, 2)
+            self.assertEqual(result.root_passphrase_shard_count, 2)
             self.assertIsNotNone(result.recovery_kit_index_path)
             recovery_inputs = rendered_inputs[result.recovery_document_path.name]
             self.assertIsNone(recovery_inputs.recovery_meta.passphrase)
@@ -2953,6 +3081,46 @@ class TestExtendService(unittest.TestCase):
                 runtime = resolve_extend_runtime(prepared)
 
         self.assertEqual(runtime.passphrase, ExtensionPassphraseShards(threshold=2, share_count=5))
+
+    def test_resolve_extend_runtime_defaulted_reuse_root_scans_published_root_policy(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "root"
+            root_dir.mkdir()
+            config_path = _config_with_reuse_root_default(Path(tmpdir) / "config.toml")
+            resolved = replace(
+                _resolved_state(
+                    diff_summary={
+                        "new_paths": ["new.txt"],
+                        "changed_paths": ["updated.txt"],
+                        "unchanged_paths": [],
+                        "missing_paths": [],
+                    },
+                ),
+                unlock_passphrase_shard_threshold=2,
+                unlock_passphrase_shard_count=3,
+            )
+            with mock.patch(
+                "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                return_value=resolved,
+            ):
+                prepared = prepare_extend_run(
+                    ExtendArgs(
+                        config=str(config_path),
+                        root_dir=str(root_dir),
+                        input=["/tmp/root/example.txt"],
+                    )
+                )
+
+            with mock.patch(
+                "ethernity.cli.features.extend.runtime.published_root_passphrase_shard_policy",
+                return_value=(2, 5),
+            ) as scanner:
+                runtime = resolve_extend_runtime(prepared)
+
+        scanner.assert_called_once()
+        self.assertEqual(runtime.passphrase, ReuseRootPassphraseShards(threshold=2, share_count=5))
 
     def test_resolve_extend_runtime_reuse_root_requires_validated_unlock_shard_policy(
         self,

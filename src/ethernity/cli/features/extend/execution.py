@@ -159,7 +159,7 @@ def execute_staged_extension_publish(
                 root_passphrase_shard_threshold=root_passphrase_shard_threshold,
                 root_passphrase_shard_count=root_passphrase_shard_count,
             )
-            if plan.prepared.args.unlock_policy == "reuse-root"
+            if root_passphrase_shard_count
             else None
         ),
         root_passphrase_shard_count=(
@@ -167,7 +167,7 @@ def execute_staged_extension_publish(
                 plan,
                 root_passphrase_shard_count=root_passphrase_shard_count,
             )
-            if plan.prepared.args.unlock_policy == "reuse-root"
+            if root_passphrase_shard_count
             else 0
         ),
         parent_head_index=plan.prepared.inspection.validated_head_index,
@@ -327,7 +327,13 @@ def execute_prepared_extend(
     ) -> None:
         validate_staged_main_carrier(plan, rendered)
         validate_staged_shard_carriers(plan, rendered)
-        validate_staged_recovery_kit_index_document(plan)
+        validate_staged_recovery_kit_index_document(
+            plan,
+            root_passphrase_shards_required=isinstance(
+                render_runtime.passphrase,
+                ReuseRootPassphraseShards,
+            ),
+        )
 
     try:
         result = execute_staged_extension_publish(
@@ -406,7 +412,13 @@ def validate_prepared_extend_render(
         )
         validate_staged_main_carrier(plan, rendered)
         validate_staged_shard_carriers(plan, rendered)
-        validate_staged_recovery_kit_index_document(plan)
+        validate_staged_recovery_kit_index_document(
+            plan,
+            root_passphrase_shards_required=isinstance(
+                render_runtime.passphrase,
+                ReuseRootPassphraseShards,
+            ),
+        )
         return rendered
     finally:
         discard_staged_artifact_dir(preview_root)
