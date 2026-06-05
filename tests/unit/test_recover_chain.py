@@ -877,6 +877,54 @@ class TestRecoverChain(unittest.TestCase):
         self.assertIn("signing key does not match", caught.exception.message)
         self.assertNotIn(extension_ciphertext, decrypt_calls)
 
+    def test_recover_chain_entries_rejects_malformed_extension_auth_before_decrypt(
+        self,
+    ) -> None:
+        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+        extension_ciphertext = _extension_ciphertext(root_doc_hash)
+        extension_doc_id, _extension_doc_hash = doc_id_and_hash_from_ciphertext(
+            extension_ciphertext
+        )
+        malformed_auth_frame = Frame(
+            version=VERSION,
+            frame_type=FrameType.AUTH,
+            doc_id=extension_doc_id,
+            index=0,
+            total=1,
+            data=b"\xff",
+        )
+        plan = dataclasses.replace(
+            _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
+            import_documents=(
+                _imported_document(root_ciphertext),
+                _imported_document(
+                    extension_ciphertext,
+                    auth_frames=(malformed_auth_frame,),
+                ),
+            ),
+        )
+        decrypt_calls: list[bytes] = []
+
+        def _decrypt(data: bytes, *, passphrase: str, debug: bool = False) -> bytes:
+            decrypt_calls.append(data)
+            if data == extension_ciphertext:
+                raise AssertionError("extension body was decrypted before AUTH verification")
+            return data
+
+        with (
+            mock.patch(
+                "ethernity.extensions.recovery.decrypt_bytes",
+                side_effect=_decrypt,
+            ),
+            self.assertRaises(ApiCommandError) as caught,
+        ):
+            recover_chain_entries(plan, quiet=True)
+
+        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertIn("imported extension AUTH could not be verified", caught.exception.message)
+        self.assertEqual(caught.exception.details["stage"], "auth")
+        self.assertNotIn(extension_ciphertext, decrypt_calls)
+
     def test_recover_chain_entries_rejects_selected_bad_auth_before_decrypt(
         self,
     ) -> None:
