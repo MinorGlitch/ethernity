@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
+import json
 import shutil
 import tempfile
 import unittest
@@ -162,6 +163,40 @@ class TestIntegrationExtensions(unittest.TestCase):
                     extension_doc_hash=first_extension.doc_hash.hex(),
                 )
                 self.assertEqual(self._snapshot_tree(first_hash_dir), expected_first)
+
+    def test_extend_writes_structured_layout_debug_sidecars(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup-root"
+            debug_dir = tmp_path / "layout-debug"
+            source_dir.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(source_dir=source_dir, root_dir=root_dir, design="sentinel")
+                (source_dir / "alpha.txt").write_text("extension-alpha", encoding="utf-8")
+                self._run_extend(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    design="sentinel",
+                    layout_debug_dir=debug_dir,
+                )
+
+            expected = {
+                "qr_document.layout.json": "main",
+                "recovery_document.layout.json": "recovery",
+            }
+            for filename, doc_type in expected.items():
+                with self.subTest(filename=filename):
+                    sidecar = debug_dir / filename
+                    self.assertTrue(sidecar.exists(), msg=f"missing layout sidecar: {sidecar}")
+                    payload = json.loads(sidecar.read_text(encoding="utf-8"))
+                    self.assertEqual(payload["doc_type"], doc_type)
+                    self.assertIn("layout_first", payload)
+                    self.assertIsInstance(payload["pages"], list)
+                    self.assertGreaterEqual(len(payload["pages"]), 1)
+                    self.assertIn("qr_count", payload["pages"][0])
 
     def test_extend_from_scanned_chain_without_original_publish_layout(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1129,6 +1164,7 @@ class TestIntegrationExtensions(unittest.TestCase):
         shard_scan: list[str] | None = None,
         expected_head_doc_hash: str | None = None,
         allow_stale_head: bool = False,
+        layout_debug_dir: Path | None = None,
     ):
         with suppress_output():
             return run_extend(
@@ -1149,6 +1185,9 @@ class TestIntegrationExtensions(unittest.TestCase):
                     signing_key_shard_count=signing_key_shard_count,
                     expected_head_doc_hash=expected_head_doc_hash,
                     allow_stale_head=allow_stale_head,
+                    layout_debug_dir=(
+                        str(layout_debug_dir) if layout_debug_dir is not None else None
+                    ),
                     quiet=True,
                 )
             )

@@ -222,9 +222,9 @@ a mix of QR-readable artifacts and typed/transcribed recovery text. `--fallback-
 Extension `recovery_document-*` PDFs are human-readable fallback artifacts, not machine-readable
 scan inputs. Use extension `qr_document-*` artifacts for `--scan`. If QR recovery is unavailable,
 users may manually type or transcribe fallback text into `--fallback-file`; do not extract fallback
-text from PDF or image files. `api inspect extend` and `api extend` still validate published
-`recovery_document-*` PDFs for append-validity by checking that their visible AUTH and MAIN fallback
-sections bind to the QR-derived extension identity.
+text from PDF or image files. `api inspect extend` and `api extend` validate published
+`recovery_document-*` PDFs only as usable PDF artifacts; extension identity and append-validity come
+from QR-derived extension carriers and authenticated chain replay, not visible fallback text.
 
 When users choose root-only recovery with `--extension-index 0`, or select an earlier extension by
 index, a recursive backup-root scan should ignore later published extension carriers. The scan still
