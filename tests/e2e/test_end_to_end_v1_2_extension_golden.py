@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -37,6 +38,8 @@ from tests.test_support import build_cli_env, cli_subprocess_timeout_seconds
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _FIXTURE_ROOT = _REPO_ROOT / "tests" / "fixtures" / "v1_2" / "extension_golden"
+_BINARY_PAYLOADS_MAGIC = b"EQPB"
+_BINARY_PAYLOADS_VERSION = 1
 
 
 def _run_cli_subprocess(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
@@ -69,6 +72,21 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
                     snapshot,
                     state_key=self._latest_state_key(snapshot),
                 )
+
+    def test_binary_payload_fixtures_match_text_frames(self) -> None:
+        for scenario_root, snapshot in self._snapshots():
+            for group_name in ("payload_fixtures", "shard_fixtures"):
+                for fixture_name, fixture in cast(dict[str, Any], snapshot[group_name]).items():
+                    with self.subTest(
+                        scenario=str(snapshot["scenario_id"]),
+                        profile=snapshot["profile"],
+                        group=group_name,
+                        fixture=fixture_name,
+                    ):
+                        self._assert_binary_payload_fixture_matches_text(
+                            scenario_root,
+                            cast(dict[str, str], fixture),
+                        )
 
     def test_payload_recovery_selects_root_prior_and_doc_hash_heads(self) -> None:
         for scenario_root, snapshot in self._snapshots():
@@ -251,6 +269,52 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
                         msg=f"{name} unexpectedly recovered successfully",
                     )
                     self.assertIn(expected_error, result.stderr or result.stdout)
+
+    def test_golden_main_document_mutations_fail_closed(self) -> None:
+        scenario_root = _FIXTURE_ROOT / "base64" / "gzip_replacement_chain"
+        snapshot = self._snapshot_at(scenario_root / "snapshot.json")
+        root_doc_id = self._projection_doc_id(snapshot, kind="root")
+        extension_doc_id = self._projection_doc_id(snapshot, kind="extension", index=1)
+        frames = self._payload_frames(scenario_root / snapshot["payload_fixtures"]["chain"]["text"])
+        cases = (
+            ("bad-root-main", root_doc_id, ["--extension-index", "0"]),
+            ("bad-extension-main", extension_doc_id, []),
+        )
+        for name, doc_id, selector_args in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    payloads = Path(tmpdir) / "payloads.txt"
+                    output = Path(tmpdir) / "recovered"
+                    self._write_payload_frames(
+                        payloads,
+                        self._mutated_main_frames(frames, doc_id_hex=doc_id),
+                    )
+                    cmd = [
+                        sys.executable,
+                        "-m",
+                        "ethernity.cli",
+                        "--config",
+                        str(DEFAULT_CONFIG_PATH),
+                        "recover",
+                        "--payloads-file",
+                        str(payloads),
+                        "--passphrase",
+                        str(snapshot["passphrase"]),
+                        "--output",
+                        str(output),
+                        "--quiet",
+                        *selector_args,
+                    ]
+                    result = self._run(cmd)
+                    self.assertNotEqual(
+                        result.returncode,
+                        0,
+                        msg=f"{name} unexpectedly recovered successfully",
+                    )
+                    self.assertIn(
+                        "doc_id does not match recovered ciphertext",
+                        result.stderr or result.stdout,
+                    )
 
     def test_duplicate_extension_index_with_different_doc_hash_fails(self) -> None:
         scenario_root = _FIXTURE_ROOT / "base64" / "gzip_replacement_chain"
@@ -505,6 +569,8 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
                 str(scenario_root / str(snapshot["chain_dir"])),
                 "--passphrase",
                 str(snapshot["passphrase"]),
+                "--expected-head-doc-hash",
+                latest_hash,
                 "--output-dir",
                 str(mint_dir),
                 "--shard-threshold",
@@ -803,6 +869,44 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
             if line.strip()
         ]
 
+    def _assert_binary_payload_fixture_matches_text(
+        self,
+        scenario_root: Path,
+        fixture: dict[str, str],
+    ) -> None:
+        text_frames = self._payload_frames(scenario_root / fixture["text"])
+        binary_payloads = self._read_binary_payload_file(scenario_root / fixture["binary"])
+        self.assertEqual(len(binary_payloads), len(text_frames))
+        for payload, text_frame in zip(binary_payloads, text_frames, strict=True):
+            self.assertEqual(decode_frame(payload), text_frame)
+            self.assertEqual(payload, encode_frame(text_frame))
+
+    def _read_binary_payload_file(self, path: Path) -> list[bytes]:
+        blob = path.read_bytes()
+        if len(blob) < 9:
+            raise AssertionError(f"invalid binary payload fixture (too short): {path}")
+        if blob[:4] != _BINARY_PAYLOADS_MAGIC:
+            raise AssertionError(f"invalid binary payload fixture magic: {path}")
+        version = blob[4]
+        if version != _BINARY_PAYLOADS_VERSION:
+            raise AssertionError(f"unsupported binary payload fixture version: {version}")
+        count = struct.unpack(">I", blob[5:9])[0]
+        offset = 9
+        payloads: list[bytes] = []
+        for _ in range(count):
+            if offset + 4 > len(blob):
+                raise AssertionError(f"truncated binary payload fixture length table: {path}")
+            payload_len = struct.unpack(">I", blob[offset : offset + 4])[0]
+            offset += 4
+            end = offset + payload_len
+            if end > len(blob):
+                raise AssertionError(f"truncated binary payload fixture payload body: {path}")
+            payloads.append(blob[offset:end])
+            offset = end
+        if offset != len(blob):
+            raise AssertionError(f"extra trailing bytes in binary payload fixture: {path}")
+        return payloads
+
     def _write_payload_frames(self, path: Path, frames: list[Frame]) -> None:
         lines: list[str] = []
         for frame in frames:
@@ -839,6 +943,32 @@ class TestStableV1_2ExtensionGolden(unittest.TestCase):
             if frame.frame_type == FrameType.AUTH and frame.doc_id.hex() == doc_id_hex:
                 return [*frames, self._mutated_auth_frame(frame, mutate)]
         self.fail(f"missing AUTH frame for doc_id {doc_id_hex}")
+
+    def _mutated_main_frames(self, frames: list[Frame], *, doc_id_hex: str) -> list[Frame]:
+        out: list[Frame] = []
+        replaced = False
+        for frame in frames:
+            if (
+                not replaced
+                and frame.frame_type == FrameType.MAIN_DOCUMENT
+                and frame.doc_id.hex() == doc_id_hex
+            ):
+                data = bytes([frame.data[0] ^ 1]) + frame.data[1:]
+                out.append(
+                    Frame(
+                        version=VERSION,
+                        frame_type=FrameType.MAIN_DOCUMENT,
+                        doc_id=frame.doc_id,
+                        index=frame.index,
+                        total=frame.total,
+                        data=data,
+                    )
+                )
+                replaced = True
+            else:
+                out.append(frame)
+        self.assertTrue(replaced, msg=f"missing MAIN frame for doc_id {doc_id_hex}")
+        return out
 
     @staticmethod
     def _mutated_auth_frame(frame: Frame, mutate: Any) -> Frame:

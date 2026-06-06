@@ -393,6 +393,17 @@ class TestCliApi(unittest.TestCase):
         self.assertIn("expected_head_doc_hash", required)
         self.assertIn("allow_stale_head", required)
 
+    def test_mint_started_schema_requires_head_acknowledgement_fields(self) -> None:
+        schema = json.loads(CLI_API_SCHEMA_PATH.read_text(encoding="utf-8"))
+
+        self.assertIn("expected_head_doc_hash", schema["$defs"]["mintStartedArgs"]["required"])
+        self.assertIn("allow_stale_head", schema["$defs"]["mintStartedArgs"]["required"])
+        self.assertIn(
+            "expected_head_doc_hash",
+            schema["$defs"]["inspectMintStartedArgs"]["required"],
+        )
+        self.assertIn("allow_stale_head", schema["$defs"]["inspectMintStartedArgs"]["required"])
+
     def test_extend_result_schema_requires_complete_success_shape(self) -> None:
         schema = json.loads(CLI_API_SCHEMA_PATH.read_text(encoding="utf-8"))
         extend_result_schema = {
@@ -4996,6 +5007,7 @@ class TestCliApi(unittest.TestCase):
                 args.signing_key_shard_payloads_file or []
             )
             captured["signing_key_shard_scan"] = list(args.signing_key_shard_scan or [])
+            captured["allow_stale_head"] = args.allow_stale_head
             return 0
 
         with (
@@ -5028,6 +5040,7 @@ class TestCliApi(unittest.TestCase):
                     "signing-a.pdf",
                     "--signing-key-shard-scan",
                     "signing-b.png",
+                    "--allow-stale-head",
                 ],
             )
 
@@ -5048,6 +5061,7 @@ class TestCliApi(unittest.TestCase):
             ],
         )
         self.assertEqual(captured["signing_key_shard_scan"], ["signing-a.pdf", "signing-b.png"])
+        self.assertTrue(captured["allow_stale_head"])
 
     def test_api_inspect_mint_rejects_layout_debug_dir_option(self) -> None:
         with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):

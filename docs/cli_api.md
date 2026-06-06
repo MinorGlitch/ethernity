@@ -152,6 +152,9 @@ creates that exact directory.
 Mint results include `doc_hash`, `selected_extension_index`, `selected_extension_doc_hash`,
 `expected_head_doc_hash`, `validated_head_index`, `validated_head_doc_hash`, `freshness_scope`,
 `signing_key_source`, and a stable `artifacts` object for minted shard paths.
+Minting from an imported root-plus-extension recovery set requires either
+`--expected-head-doc-hash` or `--allow-stale-head` because the supplied carriers prove only the
+freshest head among the supplied inputs.
 
 Compact results include `expected_head_doc_hash`, `validated_head_index`,
 `validated_head_doc_hash`, and `freshness_scope` for the source head that was flattened into the

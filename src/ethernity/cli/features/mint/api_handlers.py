@@ -109,6 +109,7 @@ def _mint_started_args(
         "extension_index": args.extension_index,
         "extension_doc_hash": normalized_extension_doc_hash,
         "expected_head_doc_hash": normalized_expected_head_doc_hash,
+        "allow_stale_head": args.allow_stale_head,
         "signing_key_shard_fallback_file": list(args.signing_key_shard_fallback_file or []),
         "signing_key_shard_payloads_file": list(args.signing_key_shard_payloads_file or []),
         "signing_key_shard_scan": list(args.signing_key_shard_scan or []),

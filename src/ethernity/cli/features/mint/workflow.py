@@ -307,7 +307,12 @@ def inspect_mint_inputs(args: MintArgs, *, debug: bool = False) -> MintInspectio
     chain_target_trusted = True
     if plan is not None:
         try:
-            target_plan = _resolve_mint_chain_target(plan, quiet=args.quiet, debug=debug)
+            target_plan = _resolve_mint_chain_target(
+                plan,
+                quiet=args.quiet,
+                debug=debug,
+                allow_stale_head=args.allow_stale_head,
+            )
             recovery = _mint_recovery_inspection_with_target(recovery, target_plan)
         except Exception as exc:
             chain_target_trusted = False
@@ -689,6 +694,7 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                     plan,
                     quiet=quiet,
                     debug=debug,
+                    allow_stale_head=working_args.allow_stale_head,
                     root_decoded=(manifest, root_payload),
                 )
                 needs_signing_authority = manifest.signing_seed is None
@@ -1363,6 +1369,7 @@ def _resolve_mint_chain_target(
     *,
     quiet: bool,
     debug: bool,
+    allow_stale_head: bool = False,
     root_decoded: tuple[EnvelopeManifest, bytes] | None = None,
 ) -> Any:
     auth_payload = getattr(plan, "auth_payload", None)
@@ -1376,6 +1383,13 @@ def _resolve_mint_chain_target(
             plan,
             selected_extension_index=None,
             selected_extension_doc_hash=None,
+        )
+        _require_mint_head_acknowledgement(
+            plan,
+            allow_stale_head=allow_stale_head,
+            selected_extension_index=None,
+            selected_extension_doc_hash=None,
+            has_imported_extensions=len(import_documents) > 1,
         )
         return replace(plan, extension_index=None, extension_doc_hash=None, import_documents=())
 
@@ -1488,6 +1502,13 @@ def _resolve_mint_chain_target(
         selected_extension_index=latest_decoded.link.document.header.index,
         selected_extension_doc_hash=latest.doc_hash.hex(),
     )
+    _require_mint_head_acknowledgement(
+        plan,
+        allow_stale_head=allow_stale_head,
+        selected_extension_index=latest_decoded.link.document.header.index,
+        selected_extension_doc_hash=latest.doc_hash.hex(),
+        has_imported_extensions=True,
+    )
 
     return replace(
         plan,
@@ -1499,6 +1520,36 @@ def _resolve_mint_chain_target(
         extension_index=latest_decoded.link.document.header.index,
         extension_doc_hash=latest.doc_hash.hex(),
         import_documents=(),
+    )
+
+
+def _require_mint_head_acknowledgement(
+    plan: Any,
+    *,
+    allow_stale_head: bool,
+    selected_extension_index: int | None,
+    selected_extension_doc_hash: str | None,
+    has_imported_extensions: bool,
+) -> None:
+    if not has_imported_extensions:
+        return
+    if getattr(plan, "expected_head_doc_hash", None) is not None or allow_stale_head:
+        return
+    validated_head_index = selected_extension_index if selected_extension_index is not None else 0
+    validated_head_doc_hash = selected_extension_doc_hash or plan.doc_hash.hex()
+    raise ApiCommandError(
+        code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+        message=(
+            "mint cannot prove the supplied recovery set is the latest chain state; "
+            "provide --expected-head-doc-hash or pass --allow-stale-head to acknowledge this risk"
+        ),
+        details={
+            "stage": "selection",
+            "validated_head_index": validated_head_index,
+            "validated_head_doc_hash": validated_head_doc_hash,
+            "freshness_scope": "supplied_carriers_only",
+            "required_acknowledgement": "--allow-stale-head",
+        },
     )
 
 
@@ -1927,7 +1978,12 @@ def _mint_from_plan(
     manifest_signing_seed: object,
     debug: bool,
 ) -> MintResult:
-    target_plan = _resolve_mint_chain_target(plan, quiet=args.quiet, debug=debug)
+    target_plan = _resolve_mint_chain_target(
+        plan,
+        quiet=args.quiet,
+        debug=debug,
+        allow_stale_head=args.allow_stale_head,
+    )
     if manifest_signing_seed is _UNSET:
         plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
         manifest, _payload = decode_envelope(plaintext)

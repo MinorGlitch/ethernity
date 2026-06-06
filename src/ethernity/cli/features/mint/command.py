@@ -177,6 +177,17 @@ def mint(
             rich_help_panel="Inputs",
         ),
     ] = None,
+    allow_stale_head: Annotated[
+        bool,
+        typer.Option(
+            "--allow-stale-head",
+            help=(
+                "Allow minting from the latest supplied recovery set without a trusted expected "
+                "head hash. Only use when the supplied scans are known to be latest."
+            ),
+            rich_help_panel="Inputs",
+        ),
+    ] = False,
     signing_key_shard_fallback_file: Annotated[
         list[str] | None,
         typer.Option(
@@ -353,6 +364,7 @@ def mint(
         extension_index=extension_index,
         extension_doc_hash=extension_doc_hash,
         expected_head_doc_hash=expected_head_doc_hash,
+        allow_stale_head=allow_stale_head,
         signing_key_shard_fallback_file=signing_key_shard_files,
         signing_key_shard_payloads_file=list(signing_key_shard_payloads_file or []),
         signing_key_shard_scan=list(signing_key_shard_scan or []),

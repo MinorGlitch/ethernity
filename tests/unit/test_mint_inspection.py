@@ -735,7 +735,12 @@ class TestMintInspection(unittest.TestCase):
                 return_value=(),
             ) as reconstruct_authenticated_latest_logical_state,
         ):
-            resolved = _resolve_mint_chain_target(plan, quiet=True, debug=False)
+            resolved = _resolve_mint_chain_target(
+                plan,
+                quiet=True,
+                debug=False,
+                allow_stale_head=True,
+            )
 
         self.assertEqual(resolved.ciphertext, b"extension-ciphertext")
         self.assertEqual(resolved.auth_payload, extension_auth)
@@ -743,6 +748,71 @@ class TestMintInspection(unittest.TestCase):
         self.assertEqual(resolved.import_documents, ())
         self.assertNotEqual(resolved.doc_id, plan.doc_id)
         reconstruct_authenticated_latest_logical_state.assert_called_once()
+
+    def test_resolve_mint_chain_target_rejects_unacknowledged_imported_head(self) -> None:
+        plan = _mint_recovery_plan(
+            import_documents=(
+                _imported_document(
+                    doc_id=b"\x66" * 8,
+                    doc_hash=b"\x77" * 32,
+                    ciphertext=b"root-ciphertext",
+                    source_label="root",
+                ),
+                _imported_document(
+                    doc_id=b"\x88" * 8,
+                    doc_hash=b"\x44" * 32,
+                    ciphertext=b"extension-ciphertext",
+                    source_label="extension",
+                ),
+            ),
+        )
+        decoded = SimpleNamespace(
+            auth_payload=_root_auth(b"\x44" * 32),
+            auth_status="verified",
+            link=SimpleNamespace(
+                doc_hash=b"\x44" * 32,
+                document=SimpleNamespace(
+                    header=SimpleNamespace(
+                        index=1,
+                        parent_doc_hash=plan.doc_hash,
+                        root_doc_hash=plan.doc_hash,
+                        chunking=object(),
+                    )
+                ),
+            ),
+        )
+        candidate = _mint_candidate(plan.import_documents[1], index=1)
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._decode_mint_extension_candidates",
+                return_value=(candidate,),
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decode_imported_extension_link",
+                return_value=decoded,
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decode_root_manifest",
+                return_value=(SimpleNamespace(signing_seed=ROOT_SIGNING_SEED), b"payload"),
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.validate_authenticated_extension_chain",
+                return_value=None,
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow."
+                "reconstruct_authenticated_latest_logical_state",
+                return_value=(),
+            ),
+            self.assertRaises(ApiCommandError) as caught,
+        ):
+            _resolve_mint_chain_target(plan, quiet=True, debug=False)
+
+        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertEqual(caught.exception.details["required_acknowledgement"], "--allow-stale-head")
+        self.assertEqual(caught.exception.details["validated_head_index"], 1)
+        self.assertEqual(caught.exception.details["validated_head_doc_hash"], "44" * 32)
 
     def test_decode_mint_extension_candidates_skips_unauthenticated_docs_before_decrypt(
         self,
@@ -857,7 +927,12 @@ class TestMintInspection(unittest.TestCase):
         with mock.patch(
             "ethernity.cli.features.mint.workflow.decode_root_manifest"
         ) as decode_root_manifest:
-            resolved = _resolve_mint_chain_target(plan, quiet=True, debug=False)
+            resolved = _resolve_mint_chain_target(
+                plan,
+                quiet=True,
+                debug=False,
+                allow_stale_head=True,
+            )
 
         decode_root_manifest.assert_not_called()
         self.assertEqual(resolved.doc_hash, plan.doc_hash)
@@ -958,7 +1033,12 @@ class TestMintInspection(unittest.TestCase):
                 return_value=(),
             ) as reconstruct_authenticated_latest_logical_state,
         ):
-            resolved = _resolve_mint_chain_target(plan, quiet=True, debug=False)
+            resolved = _resolve_mint_chain_target(
+                plan,
+                quiet=True,
+                debug=False,
+                allow_stale_head=True,
+            )
 
         decode_imported_extension_link.assert_called_once()
         selected_links = validate_authenticated_extension_chain.call_args.kwargs["extensions"]

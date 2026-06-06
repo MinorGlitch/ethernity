@@ -2846,6 +2846,7 @@
         "extension_index",
         "extension_doc_hash",
         "expected_head_doc_hash",
+        "allow_stale_head",
         "signing_key_shard_fallback_file",
         "signing_key_shard_payloads_file",
         "signing_key_shard_scan",
@@ -2960,6 +2961,9 @@
         "expected_head_doc_hash": {
           "$ref": "#/$defs/nullableDocHashHex"
         },
+        "allow_stale_head": {
+          "type": "boolean"
+        },
         "signing_key_shard_fallback_file": {
           "type": "array",
           "items": {
@@ -3068,6 +3072,7 @@
         "extension_index",
         "extension_doc_hash",
         "expected_head_doc_hash",
+        "allow_stale_head",
         "signing_key_shard_fallback_file",
         "signing_key_shard_payloads_file",
         "signing_key_shard_scan",
@@ -3182,6 +3187,9 @@
         },
         "expected_head_doc_hash": {
           "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "allow_stale_head": {
+          "type": "boolean"
         },
         "signing_key_shard_fallback_file": {
           "type": "array",

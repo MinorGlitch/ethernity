@@ -669,6 +669,7 @@ def _mint_started_args_for_error(
     extension_index: str | None,
     extension_doc_hash: str | None,
     expected_head_doc_hash: str | None,
+    allow_stale_head: bool,
     signing_key_shard_fallback_file: list[str] | None,
     signing_key_shard_payloads_file: list[str] | None,
     signing_key_shard_scan: list[str] | None,
@@ -700,6 +701,7 @@ def _mint_started_args_for_error(
         "extension_index": _optional_int_for_started(extension_index),
         "extension_doc_hash": _normalized_extension_doc_hash_for_started(extension_doc_hash),
         "expected_head_doc_hash": _normalized_doc_hash_for_started(expected_head_doc_hash),
+        "allow_stale_head": allow_stale_head,
         "signing_key_shard_fallback_file": list(signing_key_shard_fallback_file or []),
         "signing_key_shard_payloads_file": list(signing_key_shard_payloads_file or []),
         "signing_key_shard_scan": list(signing_key_shard_scan or []),
@@ -883,6 +885,7 @@ def _build_mint_api_args(
     extension_index: int | None,
     extension_doc_hash: str | None,
     expected_head_doc_hash: str | None,
+    allow_stale_head: bool,
     signing_key_shard_fallback_file: list[str] | None,
     signing_key_shard_dir: str | None,
     signing_key_shard_payloads_file: list[str] | None,
@@ -936,6 +939,7 @@ def _build_mint_api_args(
         extension_index=extension_index,
         extension_doc_hash=extension_doc_hash_value,
         expected_head_doc_hash=expected_head_doc_hash_value,
+        allow_stale_head=allow_stale_head,
         signing_key_shard_fallback_file=signing_key_shard_files,
         signing_key_shard_payloads_file=list(signing_key_shard_payloads_file or []),
         signing_key_shard_scan=list(signing_key_shard_scan or []),
@@ -990,6 +994,7 @@ def _run_mint_operation(
     extension_index: int | None,
     extension_doc_hash: str | None,
     expected_head_doc_hash: str | None,
+    allow_stale_head: bool,
     signing_key_shard_fallback_file: list[str] | None,
     signing_key_shard_dir: str | None,
     signing_key_shard_payloads_file: list[str] | None,
@@ -1025,6 +1030,7 @@ def _run_mint_operation(
         extension_index=extension_index,
         extension_doc_hash=extension_doc_hash,
         expected_head_doc_hash=expected_head_doc_hash,
+        allow_stale_head=allow_stale_head,
         signing_key_shard_fallback_file=list(signing_key_shard_fallback_file or []),
         signing_key_shard_dir=signing_key_shard_dir,
         signing_key_shard_payloads_file=list(signing_key_shard_payloads_file or []),
@@ -2414,6 +2420,16 @@ def mint(
             help="Require the validated mint source head to match this 32-byte doc hash.",
         ),
     ] = None,
+    allow_stale_head: Annotated[
+        bool,
+        typer.Option(
+            "--allow-stale-head",
+            help=(
+                "Allow minting without a trusted expected head hash. Only use when the supplied "
+                "scans are known to be latest."
+            ),
+        ),
+    ] = False,
     signing_key_shard_fallback_file: Annotated[
         list[str] | None,
         typer.Option(
@@ -2551,6 +2567,7 @@ def mint(
             ),
             extension_doc_hash=extension_doc_hash,
             expected_head_doc_hash=expected_head_doc_hash,
+            allow_stale_head=allow_stale_head,
             signing_key_shard_fallback_file=signing_key_shard_fallback_file,
             signing_key_shard_dir=signing_key_shard_dir,
             signing_key_shard_payloads_file=signing_key_shard_payloads_file,
@@ -2590,6 +2607,7 @@ def mint(
                 extension_index=extension_index,
                 extension_doc_hash=extension_doc_hash,
                 expected_head_doc_hash=expected_head_doc_hash,
+                allow_stale_head=allow_stale_head,
                 signing_key_shard_fallback_file=signing_key_shard_fallback_file,
                 signing_key_shard_payloads_file=signing_key_shard_payloads_file,
                 signing_key_shard_scan=signing_key_shard_scan,
@@ -2676,6 +2694,16 @@ def inspect_mint(
             help="Require the validated mint source head to match this 32-byte doc hash.",
         ),
     ] = None,
+    allow_stale_head: Annotated[
+        bool,
+        typer.Option(
+            "--allow-stale-head",
+            help=(
+                "Allow mint inspection without a trusted expected head hash. Only use when the "
+                "supplied scans are known to be latest."
+            ),
+        ),
+    ] = False,
     signing_key_shard_fallback_file: Annotated[
         list[str] | None,
         typer.Option(
@@ -2805,6 +2833,7 @@ def inspect_mint(
             ),
             extension_doc_hash=extension_doc_hash,
             expected_head_doc_hash=expected_head_doc_hash,
+            allow_stale_head=allow_stale_head,
             signing_key_shard_fallback_file=signing_key_shard_fallback_file,
             signing_key_shard_dir=signing_key_shard_dir,
             signing_key_shard_payloads_file=signing_key_shard_payloads_file,
@@ -2844,6 +2873,7 @@ def inspect_mint(
                 extension_index=extension_index,
                 extension_doc_hash=extension_doc_hash,
                 expected_head_doc_hash=expected_head_doc_hash,
+                allow_stale_head=allow_stale_head,
                 signing_key_shard_fallback_file=signing_key_shard_fallback_file,
                 signing_key_shard_payloads_file=signing_key_shard_payloads_file,
                 signing_key_shard_scan=signing_key_shard_scan,

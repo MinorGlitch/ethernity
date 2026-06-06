@@ -50,6 +50,8 @@ class TestMintCommand(unittest.TestCase):
             "auth_payloads_file": None,
             "extension_index": None,
             "extension_doc_hash": None,
+            "expected_head_doc_hash": None,
+            "allow_stale_head": False,
             "signing_key_shard_fallback_file": None,
             "signing_key_shard_dir": None,
             "signing_key_shard_payloads_file": None,
@@ -115,6 +117,7 @@ class TestMintCommand(unittest.TestCase):
             passphrase_replacement_count=1,
             signing_key_replacement_count=2,
             extension_index=0,
+            allow_stale_head=True,
         )
         args = run_mint_command.call_args.args[0]
         self.assertIsInstance(args, MintArgs)
@@ -130,6 +133,7 @@ class TestMintCommand(unittest.TestCase):
         self.assertEqual(args.signing_key_shard_scan, ["signing-scan-a.pdf", "signing-scan-b.pdf"])
         self.assertEqual(args.extension_index, 0)
         self.assertIsNone(args.extension_doc_hash)
+        self.assertTrue(args.allow_stale_head)
         self.assertTrue(args.output_dir_existing_parent)
         self.assertEqual(args.passphrase_replacement_count, 1)
         self.assertEqual(args.signing_key_replacement_count, 2)
@@ -827,6 +831,7 @@ class TestMintFlow(unittest.TestCase):
                 {
                     "quiet": True,
                     "debug": False,
+                    "allow_stale_head": False,
                     "root_decoded": (manifest, b"payload"),
                 },
             )

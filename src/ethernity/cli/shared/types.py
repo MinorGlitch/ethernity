@@ -124,6 +124,7 @@ class MintArgs:
     extension_index: int | None = None
     extension_doc_hash: str | None = None
     expected_head_doc_hash: str | None = None
+    allow_stale_head: bool = False
     signing_key_shard_fallback_file: list[str] | None = None
     signing_key_shard_payloads_file: list[str] | None = None
     signing_key_shard_scan: list[str] | None = None
