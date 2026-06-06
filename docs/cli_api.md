@@ -155,7 +155,8 @@ Mint results include `doc_hash`, `selected_extension_index`, `selected_extension
 
 Compact results include `expected_head_doc_hash`, `validated_head_index`,
 `validated_head_doc_hash`, and `freshness_scope` for the source head that was flattened into the
-new standalone backup.
+new standalone backup. Scan-mode compact requires either `--expected-head-doc-hash` or
+`--allow-stale-head` because scanned carriers prove only the freshest head among supplied inputs.
 
 Extend results include `index`, `doc_id`, `doc_hash`, `root_doc_id`, `root_doc_hash`, `chain_id`,
 `parent_head_index`, `parent_head_doc_hash`, `expected_head_doc_hash`, `freshness_scope`, the
@@ -557,7 +558,7 @@ Example onboarding patch:
 ```
 
 ```json
-{"type":"started","schema_version":1,"command":"compact","args":{"config":null,"paper":null,"design":null,"root_dir":null,"scan":["root.pdf","extension-01.pdf"],"output_dir":"compacted","shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"expected_head_doc_hash":null,"layout_debug_dir":null,"qr_chunk_size":null,"has_passphrase":true,"quiet":true,"debug":false}}
+{"type":"started","schema_version":1,"command":"compact","args":{"config":null,"paper":null,"design":null,"root_dir":null,"scan":["root.pdf","extension-01.pdf"],"output_dir":"compacted","shard_fallback_file":[],"shard_payloads_file":[],"shard_scan":[],"auth_fallback_file":null,"auth_payloads_file":null,"expected_head_doc_hash":null,"allow_stale_head":true,"layout_debug_dir":null,"qr_chunk_size":null,"has_passphrase":true,"quiet":true,"debug":false}}
 {"type":"phase","id":"compact","label":"Replaying source chain and preparing checkpoint"}
 {"type":"progress","phase":"compact","current":0,"total":1,"unit":"step","details":{"root_dir":null,"scan":["root.pdf","extension-01.pdf"],"output_dir":"compacted"}}
 {"type":"progress","phase":"compact","current":1,"total":1,"unit":"step","details":{"root_dir":null,"scan":["root.pdf","extension-01.pdf"],"output_dir":"compacted"}}
@@ -593,11 +594,11 @@ Use `--extension-index 0` for intentional root-only recovery when the supplied e
 trusted or the UI needs the original backup state. Recursive backup-root scans ignore published
 extension carriers after an explicitly selected numeric index, so rollback to an earlier index is not
 blocked by later carrier damage.
-Use `--expected-head-doc-hash <hash>` with `recover`, `inspect recover`, `extend`, or
-`inspect extend` when the client already knows the trusted head. Commands fail closed if the
-validated supplied head does not match. `freshness_scope: "supplied_carriers_only"` means the
-validated head is the freshest authenticated head among the supplied carriers, not proof that no
-later carrier exists elsewhere.
+Use `--expected-head-doc-hash <hash>` with `recover`, `inspect recover`, `extend`, `inspect extend`,
+or `compact` when the client already knows the trusted head. Commands fail closed if the validated
+supplied head does not match. `freshness_scope: "supplied_carriers_only"` means the validated head is
+the freshest authenticated head among the supplied carriers, not proof that no later carrier exists
+elsewhere.
 
 ## Client Guidance
 

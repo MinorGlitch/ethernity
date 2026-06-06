@@ -187,6 +187,7 @@ The command:
 - reuses saved backup/config defaults for render policy when the UI does not override them, but
   never infers the output directory from saved backup defaults
 - performs authenticated recovery semantics
+- requires `--expected-head-doc-hash` or `--allow-stale-head` in scan mode
 - emits `expected_head_doc_hash`, `validated_head_index`, `validated_head_doc_hash`, and
   `freshness_scope` for the source head it flattened
 

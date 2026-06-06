@@ -205,6 +205,25 @@ class TestApiConfigService(unittest.TestCase):
             {"target_size": 16384, "min_size": 4096, "max_size": 65536},
         )
 
+    def test_get_api_config_snapshot_repairs_out_of_profile_extension_chunking(self) -> None:
+        with _temporary_config_path(
+            DEFAULT_CONFIG_PATH.read_text(encoding="utf-8").replace(
+                "target_size = 16384\nmin_size = 4096\nmax_size = 65536",
+                "target_size = 1024\nmin_size = 1024\nmax_size = 4096",
+                1,
+            )
+        ) as path:
+            snapshot = api_config.get_api_config_snapshot(path)
+
+        extension = cast(dict[str, Any], snapshot.values["extension"])
+        chunking = cast(dict[str, Any], extension["chunking"])
+        self.assertEqual(snapshot.status, "invalid_values")
+        self.assertTrue(snapshot.errors)
+        self.assertEqual(
+            chunking,
+            {"target_size": 16384, "min_size": 4096, "max_size": 65536},
+        )
+
     def test_apply_api_config_patch_repairs_invalid_current_values(self) -> None:
         with _temporary_config_path(
             DEFAULT_CONFIG_PATH.read_text(encoding="utf-8").replace(
@@ -427,6 +446,27 @@ class TestApiConfigService(unittest.TestCase):
                 )
 
         self.assertEqual(raised.exception.code, "CONFIG_CONFLICT")
+
+    def test_apply_api_config_patch_rejects_out_of_profile_extension_chunking(self) -> None:
+        with _temporary_config_path(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")) as path:
+            with self.assertRaises(api_config.ConfigPatchError) as raised:
+                api_config.apply_api_config_patch(
+                    path,
+                    {
+                        "values": {
+                            "extension": {
+                                "chunking": {
+                                    "target_size": 1024,
+                                    "min_size": 1024,
+                                    "max_size": 4096,
+                                }
+                            }
+                        }
+                    },
+                )
+
+        self.assertEqual(raised.exception.code, "CONFIG_INVALID_VALUE")
+        self.assertEqual(raised.exception.details["field"], "values.extension.chunking.target_size")
 
     def test_apply_api_config_patch_rejects_invalid_extend_defaults(self) -> None:
         cases = (

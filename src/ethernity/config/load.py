@@ -43,7 +43,9 @@ from ethernity.config.types import (
     RuntimeDefaults,
     UiDefaults,
 )
+from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES
 from ethernity.encoding.chunking import DEFAULT_CHUNK_SIZE
+from ethernity.formats.extension_envelope import MIN_EXTENSION_CHUNK_SIZE
 from ethernity.qr.codec import QrConfig
 
 _T = TypeVar("_T")
@@ -355,11 +357,25 @@ def _parse_extension_chunking_defaults(cfg: dict[str, object]) -> ExtensionChunk
         raise ValueError("extension.chunking.min_size must be a positive integer")
     if chunking.max_size <= 0:
         raise ValueError("extension.chunking.max_size must be a positive integer")
+    for field, value in (
+        ("target_size", chunking.target_size),
+        ("min_size", chunking.min_size),
+        ("max_size", chunking.max_size),
+    ):
+        _validate_extension_chunking_size(field=field, value=value)
     if not chunking.min_size <= chunking.target_size <= chunking.max_size:
         raise ValueError(
             "extension.chunking sizes must satisfy min_size <= target_size <= max_size"
         )
     return chunking
+
+
+def _validate_extension_chunking_size(*, field: str, value: int) -> None:
+    label = f"extension.chunking.{field}"
+    if value < MIN_EXTENSION_CHUNK_SIZE:
+        raise ValueError(f"{label} must be >= {MIN_EXTENSION_CHUNK_SIZE}")
+    if value > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+        raise ValueError(f"{label} must be <= MAX_DECOMPRESSED_PAYLOAD_BYTES")
 
 
 def _resolve_default_template_design_path(cfg: dict[str, object]) -> Path | None:

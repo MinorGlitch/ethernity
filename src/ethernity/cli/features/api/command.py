@@ -561,6 +561,7 @@ def _compact_started_args_for_error(
     qr_chunk_size: str | None,
     passphrase: str | None,
     expected_head_doc_hash: str | None,
+    allow_stale_head: bool,
 ) -> dict[str, Any]:
     return {
         "config": _explicit_api_config_value(ctx, config),
@@ -575,6 +576,7 @@ def _compact_started_args_for_error(
         "auth_fallback_file": auth_fallback_file,
         "auth_payloads_file": auth_payloads_file,
         "expected_head_doc_hash": _normalized_doc_hash_for_started(expected_head_doc_hash),
+        "allow_stale_head": allow_stale_head,
         "layout_debug_dir": layout_debug_dir,
         "qr_chunk_size": _optional_int_for_started(qr_chunk_size, min_value=1),
         "has_passphrase": passphrase is not None,
@@ -1229,6 +1231,7 @@ def _build_compact_api_args(
     qr_chunk_size: str | None,
     passphrase: str | None,
     expected_head_doc_hash: str | None = None,
+    allow_stale_head: bool = False,
 ) -> CompactArgs:
     qr_chunk_size_cli = _parse_api_int_option("--qr-chunk-size", qr_chunk_size, min_value=1)
     expected_head_doc_hash_value = _parse_api_expected_head_doc_hash_option(expected_head_doc_hash)
@@ -1248,6 +1251,7 @@ def _build_compact_api_args(
         qr_chunk_size=qr_chunk_size_cli,
         passphrase=passphrase,
         expected_head_doc_hash=expected_head_doc_hash_value,
+        allow_stale_head=allow_stale_head,
         quiet=True,
     )
 
@@ -1319,6 +1323,16 @@ def compact(
             help="Require the validated compact source head to match this 32-byte doc hash.",
         ),
     ] = None,
+    allow_stale_head: Annotated[
+        bool,
+        typer.Option(
+            "--allow-stale-head",
+            help=(
+                "Allow scan-mode compact without proving the supplied recovery set is the latest "
+                "chain state."
+            ),
+        ),
+    ] = False,
     config: Annotated[
         str | None,
         typer.Option("--config", help="Use this config file."),
@@ -1353,6 +1367,7 @@ def compact(
             qr_chunk_size=qr_chunk_size,
             passphrase=passphrase,
             expected_head_doc_hash=expected_head_doc_hash,
+            allow_stale_head=allow_stale_head,
         )
         return run_compact_api_command(args, debug=_state_debug_enabled(state))
 
@@ -1378,6 +1393,7 @@ def compact(
                 qr_chunk_size=qr_chunk_size,
                 passphrase=passphrase,
                 expected_head_doc_hash=expected_head_doc_hash,
+                allow_stale_head=allow_stale_head,
             ),
         ),
     )

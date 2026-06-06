@@ -205,6 +205,7 @@ class CompactArgs:
     qr_chunk_size: int | None = None
     passphrase: str | None = None
     expected_head_doc_hash: str | None = None
+    allow_stale_head: bool = False
     quiet: bool = False
 
 

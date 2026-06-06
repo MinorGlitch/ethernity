@@ -153,6 +153,20 @@ class TestCompactService(unittest.TestCase):
                     )
                 )
 
+    def test_run_compact_rejects_unacknowledged_scan_source(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "--allow-stale-head",
+        ):
+            run_compact(
+                CompactArgs(
+                    scan=["root.pdf"],
+                    output_dir="/tmp/out",
+                    passphrase="secret",
+                    quiet=True,
+                )
+            )
+
     def test_run_compact_accepts_scan_source_without_root_dir(self) -> None:
         chain = SimpleNamespace(
             manifest=EnvelopeManifest(
@@ -231,6 +245,7 @@ class TestCompactService(unittest.TestCase):
                     scan=["root.pdf", "extension-01.pdf"],
                     output_dir="/tmp/out",
                     passphrase="secret",
+                    allow_stale_head=True,
                     quiet=True,
                 )
             )

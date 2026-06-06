@@ -255,6 +255,7 @@ class TestIntegrationExtensions(unittest.TestCase):
                     root_dir=None,
                     output_dir=compacted_dir,
                     scan=[str(root_scan), str(extension_scan)],
+                    allow_stale_head=True,
                 )
                 self._run_recover(
                     root_dir=compacted_dir,
@@ -1095,6 +1096,7 @@ class TestIntegrationExtensions(unittest.TestCase):
         passphrase: str | None = TEST_PASSPHRASE,
         scan: list[str] | None = None,
         shard_scan: list[str] | None = None,
+        allow_stale_head: bool = False,
     ):
         with suppress_output():
             return run_compact(
@@ -1105,6 +1107,7 @@ class TestIntegrationExtensions(unittest.TestCase):
                     output_dir=str(output_dir),
                     passphrase=passphrase,
                     shard_scan=shard_scan,
+                    allow_stale_head=allow_stale_head,
                     quiet=True,
                 )
             )

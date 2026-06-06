@@ -386,6 +386,13 @@ class TestCliApi(unittest.TestCase):
         self.assertIn("expected_head_doc_hash", required)
         self.assertIn("allow_stale_head", required)
 
+    def test_compact_started_schema_requires_head_acknowledgement_fields(self) -> None:
+        schema = json.loads(CLI_API_SCHEMA_PATH.read_text(encoding="utf-8"))
+        required = schema["$defs"]["compactStartedArgs"]["required"]
+
+        self.assertIn("expected_head_doc_hash", required)
+        self.assertIn("allow_stale_head", required)
+
     def test_extend_result_schema_requires_complete_success_shape(self) -> None:
         schema = json.loads(CLI_API_SCHEMA_PATH.read_text(encoding="utf-8"))
         extend_result_schema = {
@@ -1696,6 +1703,7 @@ class TestCliApi(unittest.TestCase):
             captured["design"] = args.design
             captured["shard_scan"] = args.shard_scan
             captured["auth_payloads_file"] = args.auth_payloads_file
+            captured["allow_stale_head"] = args.allow_stale_head
             captured["debug"] = debug
             return 0
 
@@ -1723,6 +1731,7 @@ class TestCliApi(unittest.TestCase):
                         "32",
                         "--design",
                         "forge",
+                        "--allow-stale-head",
                     ],
                 )
 
@@ -1734,6 +1743,7 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(captured["design"], "forge")
         self.assertEqual(captured["shard_scan"], ["shard-a.pdf"])
         self.assertEqual(captured["auth_payloads_file"], "auth.payloads")
+        self.assertTrue(captured["allow_stale_head"])
         self.assertFalse(captured["debug"])
 
     def test_api_compact_output_dir_remains_explicit_even_with_backup_default(self) -> None:
@@ -4795,6 +4805,7 @@ class TestCliApi(unittest.TestCase):
             scan=["root.pdf", "extension-01.pdf"],
             output_dir="/tmp/out",
             passphrase="secret words",
+            allow_stale_head=True,
             quiet=True,
         )
         result = BackupResult(
@@ -4825,6 +4836,7 @@ class TestCliApi(unittest.TestCase):
         self._assert_valid_events(events)
         self.assertIsNone(events[0]["args"]["root_dir"])
         self.assertEqual(events[0]["args"]["scan"], ["root.pdf", "extension-01.pdf"])
+        self.assertTrue(events[0]["args"]["allow_stale_head"])
         self.assertIsNone(events[-1]["root_dir"])
         self.assertEqual(events[-1]["source_scan"], ["root.pdf", "extension-01.pdf"])
 
@@ -4943,6 +4955,32 @@ class TestCliApi(unittest.TestCase):
             str(ctx.exception),
             "use either --root-dir or --scan for compact, not both",
         )
+        ensure_playwright_browsers.assert_not_called()
+        run_compact.assert_not_called()
+        self.assertEqual(buffer.getvalue(), "")
+
+    def test_run_compact_api_command_rejects_unacknowledged_scan_before_side_effects(
+        self,
+    ) -> None:
+        buffer = io.StringIO()
+        args = CompactArgs(
+            scan=["root.pdf"],
+            output_dir="/tmp/out",
+            passphrase="secret words",
+        )
+        with (
+            mock.patch(
+                "ethernity.cli.features.compact.api_handlers.ensure_playwright_browsers"
+            ) as ensure_playwright_browsers,
+            mock.patch("ethernity.cli.features.compact.api_handlers.run_compact") as run_compact,
+            ndjson_session(stream=buffer),
+            self.assertRaises(ApiCommandError) as ctx,
+        ):
+            run_compact_api_command(args)
+
+        self.assertEqual(ctx.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
+        self.assertIn("--allow-stale-head", str(ctx.exception))
+        self.assertEqual(ctx.exception.details["required_acknowledgement"], "--allow-stale-head")
         ensure_playwright_browsers.assert_not_called()
         run_compact.assert_not_called()
         self.assertEqual(buffer.getvalue(), "")

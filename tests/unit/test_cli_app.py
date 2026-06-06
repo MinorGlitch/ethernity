@@ -337,6 +337,8 @@ class TestCliApp(unittest.TestCase):
         "ethernity.cli.bootstrap.app.prompt_passphrase_unlock_material",
         return_value=("secret", [], [], [], []),
     )
+    @mock.patch("ethernity.cli.bootstrap.app._prompt_home_extend_stale_head_ack", return_value=True)
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_optional", return_value=None)
     @mock.patch(
         "ethernity.cli.bootstrap.app.prompt_optional_path_with_picker",
         return_value="/tmp/output",
@@ -353,6 +355,8 @@ class TestCliApp(unittest.TestCase):
         _prompt_choice: mock.MagicMock,
         _prompt_paths_with_picker: mock.MagicMock,
         _prompt_optional_path_with_picker: mock.MagicMock,
+        prompt_optional: mock.MagicMock,
+        prompt_stale_head_ack: mock.MagicMock,
         _prompt_passphrase_unlock_material: mock.MagicMock,
         prompt_home_auth_inputs: mock.MagicMock,
     ) -> None:
@@ -367,7 +371,10 @@ class TestCliApp(unittest.TestCase):
         self.assertEqual(args.scan, ["/tmp/root.pdf", "/tmp/ext1.pdf"])
         self.assertEqual(args.output_dir, "/tmp/output")
         self.assertEqual(args.passphrase, "secret")
+        self.assertTrue(args.allow_stale_head)
         prompt_path_with_picker.assert_not_called()
+        prompt_optional.assert_called_once()
+        prompt_stale_head_ack.assert_called_once()
         prompt_home_auth_inputs.assert_not_called()
 
     def test_argv_invokes_api_detects_top_level_api_surface(self) -> None:

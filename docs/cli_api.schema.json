@@ -2051,6 +2051,7 @@
         "auth_fallback_file",
         "auth_payloads_file",
         "expected_head_doc_hash",
+        "allow_stale_head",
         "layout_debug_dir",
         "qr_chunk_size",
         "has_passphrase",
@@ -2137,6 +2138,9 @@
         },
         "expected_head_doc_hash": {
           "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "allow_stale_head": {
+          "type": "boolean"
         },
         "layout_debug_dir": {
           "type": [
@@ -3959,15 +3963,18 @@
               "properties": {
                 "target_size": {
                   "type": "integer",
-                  "minimum": 1
+                  "minimum": 4096,
+                  "maximum": 67108864
                 },
                 "min_size": {
                   "type": "integer",
-                  "minimum": 1
+                  "minimum": 4096,
+                  "maximum": 67108864
                 },
                 "max_size": {
                   "type": "integer",
-                  "minimum": 1
+                  "minimum": 4096,
+                  "maximum": 67108864
                 }
               }
             }

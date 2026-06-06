@@ -90,6 +90,11 @@ def validate_compact_source_selection(args: CompactArgs) -> None:
         raise ValueError("use either --root-dir or --scan for compact, not both")
     if not has_root_dir and not has_scan:
         raise ValueError("compact requires --scan or root_dir")
+    if has_scan and args.expected_head_doc_hash is None and not args.allow_stale_head:
+        raise ValueError(
+            "scan-mode compact cannot prove the supplied recovery set is the latest chain state; "
+            "provide --expected-head-doc-hash or pass --allow-stale-head to acknowledge this risk"
+        )
 
 
 def _reject_compact_output_inside_root(root_dir: Path, output_dir_value: str) -> None:

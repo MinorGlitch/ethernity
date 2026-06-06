@@ -199,6 +199,17 @@ def compact(
             rich_help_panel="Unlock",
         ),
     ] = None,
+    allow_stale_head: Annotated[
+        bool,
+        typer.Option(
+            "--allow-stale-head",
+            help=(
+                "Allow scan-mode compact without proving the supplied recovery set is the latest "
+                "chain state."
+            ),
+            rich_help_panel="Unlock",
+        ),
+    ] = False,
     output_dir: Annotated[
         str | None,
         typer.Option(
@@ -297,6 +308,7 @@ def compact(
         qr_chunk_size=qr_chunk_size,
         passphrase=passphrase,
         expected_head_doc_hash=expected_head_doc_hash,
+        allow_stale_head=allow_stale_head,
         quiet=quiet_value,
     )
     debug_value = debug or bool(state and state.debug)

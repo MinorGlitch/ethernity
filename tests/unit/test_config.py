@@ -198,6 +198,21 @@ max_size = 65536
             with self.assertRaisesRegex(ValueError, "min_size <= target_size <= max_size"):
                 load_app_config(path=path)
 
+    def test_load_app_config_rejects_extension_chunking_below_profile_minimum(self) -> None:
+        toml = """
+[extension.chunking]
+target_size = 1024
+min_size = 1024
+max_size = 4096
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "config.toml"
+            path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
+            with self.assertRaisesRegex(
+                ValueError, "extension.chunking.target_size must be >= 4096"
+            ):
+                load_app_config(path=path)
+
     def test_load_app_config_rejects_non_integer_extension_chunking_values(self) -> None:
         cases = (
             ("target_size", "true"),

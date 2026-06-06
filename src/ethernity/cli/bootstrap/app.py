@@ -609,6 +609,8 @@ def _prompt_home_compact_args(
     )
     root_dir: str | None = None
     scan_paths: list[str] | None = None
+    expected_head_doc_hash: str | None = None
+    allow_stale_head = False
     if source_kind == "scan":
         scan_paths = prompt_paths_with_picker(
             "Backup document scans",
@@ -620,6 +622,8 @@ def _prompt_home_compact_args(
             picker_prompt="Select backup document scans",
             picker_help_text="Choose the scanned root and extension backup documents.",
         )
+        expected_head_doc_hash = _prompt_home_extend_expected_head_doc_hash()
+        allow_stale_head = expected_head_doc_hash is None and _prompt_home_extend_stale_head_ack()
     else:
         root_dir = prompt_path_with_picker(
             "Generated backup folder to rebuild",
@@ -670,6 +674,8 @@ def _prompt_home_compact_args(
         shard_payloads_file=shard_payloads_file or None,
         shard_scan=shard_scan or None,
         shard_frames=shard_frames or None,
+        expected_head_doc_hash=expected_head_doc_hash,
+        allow_stale_head=allow_stale_head,
         quiet=quiet,
     )
 

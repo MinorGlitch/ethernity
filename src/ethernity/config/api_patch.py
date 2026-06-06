@@ -40,6 +40,8 @@ from ethernity.config.install import (
 )
 from ethernity.config.load import _load_toml, load_app_config, load_cli_defaults
 from ethernity.config.paths import DEFAULT_CONFIG_PATH, DEFAULT_TEMPLATE_STYLE
+from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES
+from ethernity.formats.extension_envelope import MIN_EXTENSION_CHUNK_SIZE
 
 ConfigTargetSource = Literal["default", "user", "explicit"]
 
@@ -52,6 +54,14 @@ _QR_PAYLOAD_CODECS = ("raw", "base64")
 _SIGNING_KEY_MODES = ("embedded", "sharded")
 _EXTENSION_UNLOCK_POLICIES = ("self-contained", "reuse-root")
 _EXTENSION_SIGNING_KEY_MODES = ("not-stored", "sharded")
+
+
+def _extension_chunking_profile_is_valid(*, target_size: int, min_size: int, max_size: int) -> bool:
+    return (
+        MIN_EXTENSION_CHUNK_SIZE <= min_size <= target_size <= max_size
+        and target_size <= MAX_DECOMPRESSED_PAYLOAD_BYTES
+        and max_size <= MAX_DECOMPRESSED_PAYLOAD_BYTES
+    )
 
 
 @dataclass(frozen=True)
@@ -360,10 +370,10 @@ def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
         extension_chunking_table.get("max_size"),
         fallback=extension_chunking["max_size"],
     )
-    if not (
-        cast(int, extension_chunking["min_size"])
-        <= cast(int, extension_chunking["target_size"])
-        <= cast(int, extension_chunking["max_size"])
+    if not _extension_chunking_profile_is_valid(
+        target_size=cast(int, extension_chunking["target_size"]),
+        min_size=cast(int, extension_chunking["min_size"]),
+        max_size=cast(int, extension_chunking["max_size"]),
     ):
         extension_chunking.update(default_extension_chunking)
 
@@ -613,6 +623,12 @@ def _validate_config_values(values: dict[str, object]) -> dict[str, object]:
         extension_chunking.get("max_size"),
         field="values.extension.chunking.max_size",
     )
+    for field, value in (
+        ("target_size", chunking_target_size),
+        ("min_size", chunking_min_size),
+        ("max_size", chunking_max_size),
+    ):
+        _validate_extension_chunking_size(field=field, value=value)
     if not chunking_min_size <= chunking_target_size <= chunking_max_size:
         raise ConfigPatchError(
             code="CONFIG_CONFLICT",
@@ -963,6 +979,22 @@ def _validate_positive_int(value: object, *, field: str) -> int:
             details={"field": field},
         )
     return value
+
+
+def _validate_extension_chunking_size(*, field: str, value: int) -> None:
+    label = f"values.extension.chunking.{field}"
+    if value < MIN_EXTENSION_CHUNK_SIZE:
+        raise ConfigPatchError(
+            code="CONFIG_INVALID_VALUE",
+            message=f"{label} must be >= {MIN_EXTENSION_CHUNK_SIZE}",
+            details={"field": label},
+        )
+    if value > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+        raise ConfigPatchError(
+            code="CONFIG_INVALID_VALUE",
+            message=f"{label} must be <= MAX_DECOMPRESSED_PAYLOAD_BYTES",
+            details={"field": label},
+        )
 
 
 def _validate_optional_positive_int(value: object, *, field: str) -> int | None:

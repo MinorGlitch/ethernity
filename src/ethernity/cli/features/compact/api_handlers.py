@@ -105,6 +105,20 @@ def run_compact_api_command(args: CompactArgs, *, debug: bool = False) -> int:
             code=api_codes.INVALID_INPUT,
             message="use either --root-dir or --scan for compact, not both",
         )
+    if args.scan and args.expected_head_doc_hash is None and not args.allow_stale_head:
+        raise ApiCommandError(
+            code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+            message=(
+                "scan-mode compact cannot prove the supplied recovery set is the latest chain "
+                "state; provide --expected-head-doc-hash or pass --allow-stale-head to "
+                "acknowledge this risk"
+            ),
+            details={
+                "stage": "selection",
+                "freshness_scope": "supplied_carriers_only",
+                "required_acknowledgement": "--allow-stale-head",
+            },
+        )
     if not args.output_dir:
         raise ApiCommandError(
             code=api_codes.OUTPUT_REQUIRED,
@@ -127,6 +141,7 @@ def run_compact_api_command(args: CompactArgs, *, debug: bool = False) -> int:
             "auth_fallback_file": args.auth_fallback_file,
             "auth_payloads_file": args.auth_payloads_file,
             "expected_head_doc_hash": args.expected_head_doc_hash,
+            "allow_stale_head": args.allow_stale_head,
             "layout_debug_dir": args.layout_debug_dir,
             "qr_chunk_size": args.qr_chunk_size,
             "has_passphrase": args.passphrase is not None,
