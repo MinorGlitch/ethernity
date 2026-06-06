@@ -112,13 +112,7 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
     }
     next.isDecrypting = false;
     const errorMsg = String(err);
-    const friendlyError = errorMsg.includes("selected extension doc_hash")
-      ? errorMsg
-      : errorMsg.includes("password")
-        ? "Incorrect passphrase."
-        : errorMsg.includes("decrypt")
-          ? "Could not unlock backup. Check passphrase."
-          : errorMsg;
+    const friendlyError = recoveryFriendlyError(errorMsg);
     setLineStatus(next, "decryptStatus", friendlyError, "error");
     finalState = next;
   }
@@ -127,6 +121,22 @@ export async function decryptCiphertext(dispatch, getState, options = {}) {
 
 function isCurrentDecryptRequest(state, requestId) {
   return state.isDecrypting && state.decryptRequestId === requestId;
+}
+
+function recoveryFriendlyError(errorMsg) {
+  if (
+    errorMsg.includes("selected extension doc_hash") ||
+    errorMsg.includes("supplied backup documents")
+  ) {
+    return errorMsg;
+  }
+  if (errorMsg.includes("password")) {
+    return "Incorrect passphrase.";
+  }
+  if (errorMsg.includes("decrypt")) {
+    return "Could not unlock backup. Check passphrase.";
+  }
+  return errorMsg;
 }
 
 function resolveExtensionTarget(state, options) {

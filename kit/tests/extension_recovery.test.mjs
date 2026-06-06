@@ -85,9 +85,15 @@ function buildRootPlaintext(files, { sealed = false, signingSeed = ROOT_SIGNING_
   return buildEnvelope(ENVELOPE_VERSION, encodeCbor(manifest), payload);
 }
 
-function buildExtensionPlaintext({ index, parentDocHash, rootDocHash, files }) {
+function buildExtensionPlaintext({
+  index,
+  parentDocHash,
+  rootDocHash,
+  files,
+  chunking = CHUNKING,
+}) {
   const chunksById = new Map();
-  const recipes = files.map((file) => buildExtensionFileRecipe(file, chunksById));
+  const recipes = files.map((file) => buildExtensionFileRecipe(file, chunksById, chunking));
   const chunks = Array.from(chunksById.values())
     .sort((left, right) => left.chunkIdHex.localeCompare(right.chunkIdHex))
     .map((chunk) => [chunk.chunkId, 0, chunk.data.length, chunk.data]);
@@ -97,7 +103,7 @@ function buildExtensionPlaintext({ index, parentDocHash, rootDocHash, files }) {
     [4, parentDocHash],
     [5, rootDocHash],
     [7, 1_700_000_100 + index],
-    [10, [1, CHUNKING.targetSize, CHUNKING.minSize, CHUNKING.maxSize]],
+    [10, [1, chunking.targetSize, chunking.minSize, chunking.maxSize]],
     [11, "file"],
     [12, []],
   ]);
@@ -209,9 +215,9 @@ function aggregateOverflowExtensionBodyBytes() {
   );
 }
 
-function buildExtensionFileRecipe(file, chunksById) {
+function buildExtensionFileRecipe(file, chunksById, chunking = CHUNKING) {
   const refs = [];
-  for (const chunk of defaultExtensionChunker(file.data, CHUNKING)) {
+  for (const chunk of defaultExtensionChunker(file.data, chunking)) {
     const chunkId = sha256(chunk);
     const chunkIdHex = bytesToHex(chunkId);
     refs.push([chunkId, chunk.length]);
@@ -1192,7 +1198,21 @@ test("browser recovery fails closed when a supplied document cannot decode", asy
   const malformedDocument = documentFromPlaintext({
     docId: EXT1_DOC_ID,
     ciphertextSeed: Uint8Array.of(0x29),
-    plaintext: buildExtensionEnvelopeBytes({ bodyBytes: Uint8Array.of(0xff) }),
+    plaintext: buildExtensionEnvelopeBytes({
+      headerBytes: encodeCbor(
+        new Map([
+          [1, 1],
+          [2, 1],
+          [4, root.docHash],
+          [5, root.docHash],
+          [7, 1_700_000_101],
+          [10, [1, CHUNKING.targetSize, CHUNKING.minSize, CHUNKING.maxSize]],
+          [11, "file"],
+          [12, []],
+        ]),
+      ),
+      bodyBytes: Uint8Array.of(0xff),
+    }),
   });
 
   await assert.rejects(
@@ -1512,6 +1532,65 @@ test("browser decrypt action can recover selected extension with incomplete late
   );
 });
 
+test("browser recovery does not decode later extension bodies for explicit index targets", async () => {
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x39),
+    plaintext: rootPlaintext,
+  });
+  const ext1Plaintext = buildExtensionPlaintext({
+    index: 1,
+    parentDocHash: root.docHash,
+    rootDocHash: root.docHash,
+    files: [{ path: "a.txt", data: new TextEncoder().encode("one") }],
+  });
+  const ext1 = documentFromPlaintext({
+    docId: EXT1_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x3a),
+    plaintext: ext1Plaintext,
+  });
+  const ext2Header = encodeCbor(
+    new Map([
+      [1, 1],
+      [2, 2],
+      [4, ext1.docHash],
+      [5, root.docHash],
+      [7, 1_700_000_102],
+      [10, [1, CHUNKING.targetSize, CHUNKING.minSize, CHUNKING.maxSize]],
+      [11, "file"],
+      [12, []],
+    ]),
+  );
+  const ext2 = documentFromPlaintext({
+    docId: EXT2_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x3b),
+    plaintext: buildExtensionEnvelopeBytes({
+      headerBytes: ext2Header,
+      bodyBytes: Uint8Array.of(0xff),
+    }),
+  });
+
+  const result = await recoverLatestFromPlaintextDocuments([root, ext1, ext2], {
+    verifySignature: verifiedSignature,
+    extensionTarget: { kind: "index", index: 1 },
+  });
+  assert.deepEqual(
+    result.files.map((file) => [file.path, new TextDecoder().decode(file.data)]),
+    [["a.txt", "one"]],
+  );
+
+  await assert.rejects(
+    () =>
+      recoverLatestFromPlaintextDocuments([root, ext1, ext2], {
+        verifySignature: verifiedSignature,
+      }),
+    /root-authority extension could not be decoded/,
+  );
+});
+
 test("browser action state blocks latest recovery for AUTH-only extension records", () => {
   const state = createInitialState();
   state.agePassphrase = "pw";
@@ -1661,6 +1740,35 @@ test("browser decrypt action preserves selected doc hash decrypt errors", async 
   assert.match(
     finalState.decryptStatus.lines[0],
     /selected extension doc_hash .* could not be decrypted: Error: damaged age payload/,
+  );
+});
+
+test("browser decrypt action preserves supplied-document decrypt failures", async () => {
+  const store = createStore();
+  const state = store.getState();
+  state.agePassphrase = "pw";
+  const rootCiphertext = Uint8Array.of(0x5d);
+  const extensionCiphertext = Uint8Array.of(0x5e);
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  addSingleFrameDocument(state, { ciphertext: rootCiphertext });
+  addSingleFrameDocument(state, { ciphertext: extensionCiphertext });
+
+  await decryptCiphertext(store.dispatch.bind(store), store.getState.bind(store), {
+    async decrypt(ciphertext) {
+      if (bytesToHex(ciphertext) === bytesToHex(rootCiphertext)) return rootPlaintext;
+      throw new Error("damaged age payload");
+    },
+    verifySignature: verifiedSignature,
+  });
+
+  const finalState = store.getState();
+  assert.equal(finalState.recoveryComplete, false);
+  assert.equal(finalState.decryptStatus.type, "error");
+  assert.match(
+    finalState.decryptStatus.lines[0],
+    /one or more supplied backup documents could not be decrypted/,
   );
 });
 
@@ -2140,6 +2248,48 @@ test("browser recovery rejects extension parent_doc_hash mismatch", async () => 
         verifySignature: verifiedSignature,
       }),
     /extension parent_doc_hash does not match previous document/,
+  );
+});
+
+test("browser recovery rejects extension chunking profile drift", async () => {
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const root = documentFromPlaintext({
+    docId: ROOT_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x18),
+    plaintext: rootPlaintext,
+  });
+  const ext1Plaintext = buildExtensionPlaintext({
+    index: 1,
+    parentDocHash: root.docHash,
+    rootDocHash: root.docHash,
+    files: [{ path: "a.txt", data: new TextEncoder().encode("one") }],
+  });
+  const ext1 = documentFromPlaintext({
+    docId: EXT1_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x28),
+    plaintext: ext1Plaintext,
+  });
+  const ext2Plaintext = buildExtensionPlaintext({
+    index: 2,
+    parentDocHash: ext1.docHash,
+    rootDocHash: root.docHash,
+    files: [{ path: "a.txt", data: new TextEncoder().encode("two") }],
+    chunking: { ...CHUNKING, targetSize: CHUNKING.targetSize * 2 },
+  });
+  const ext2 = documentFromPlaintext({
+    docId: EXT2_DOC_ID,
+    ciphertextSeed: Uint8Array.of(0x38),
+    plaintext: ext2Plaintext,
+  });
+
+  await assert.rejects(
+    () =>
+      recoverLatestFromPlaintextDocuments([root, ext1, ext2], {
+        verifySignature: verifiedSignature,
+      }),
+    /extension chunking profile must match the locked chain profile/,
   );
 });
 

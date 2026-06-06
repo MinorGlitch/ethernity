@@ -176,3 +176,48 @@ test("frozen v1.2 extension fixtures allow root-only kit recovery", async (t) =>
     }
   }
 });
+
+test("frozen v1.2 two-extension fixtures allow selected kit recovery heads", async (t) => {
+  for (const profileName of ["base64", "raw"]) {
+    const snapshotPath = path.join(
+      FIXTURES_ROOT,
+      profileName,
+      "large_raw_two_extension_chain",
+      "snapshot.json",
+    );
+    await t.test(`${profileName}/index-1`, async () => {
+      const { result, snapshot } = await restoreScenario(snapshotPath, {
+        extensionTarget: { kind: "index", index: 1 },
+      });
+      assert.equal(result.selectedExtensionIndex, 1);
+      assert.equal(result.selectedExtensionDocHash, snapshot.extension_doc_hashes.extension_01);
+      assert.deepEqual(recoveredFileHashes(result.files), snapshot.states.extension_01);
+    });
+
+    await t.test(`${profileName}/doc-hash-1`, async () => {
+      const snapshot = readJson(snapshotPath);
+      const { result } = await restoreScenario(snapshotPath, {
+        extensionTarget: {
+          kind: "doc_hash",
+          docHashHex: snapshot.extension_doc_hashes.extension_01,
+        },
+      });
+      assert.equal(result.selectedExtensionIndex, 1);
+      assert.deepEqual(recoveredFileHashes(result.files), snapshot.states.extension_01);
+    });
+
+    await t.test(`${profileName}/stale-expected-head`, async () => {
+      const snapshot = readJson(snapshotPath);
+      await assert.rejects(
+        () =>
+          restoreScenario(snapshotPath, {
+            extensionTarget: {
+              kind: "latest",
+              expectedHeadDocHashHex: snapshot.extension_doc_hashes.extension_01,
+            },
+          }),
+        /validated extension head doc_hash does not match expected head/,
+      );
+    });
+  }
+});

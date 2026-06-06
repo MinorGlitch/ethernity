@@ -47,7 +47,23 @@ const DISTANCE_EXTRA_BITS = [
   0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13,
 ];
 
+export function decodeExtensionEnvelopeHeader(bytes) {
+  return readExtensionEnvelopeHeader(bytes).header;
+}
+
 export async function decodeExtensionEnvelope(bytes) {
+  const { header, bodyStart, bodyEnd } = readExtensionEnvelopeHeader(bytes);
+  const body = await parseExtensionBody(
+    decodeCanonicalCbor(bytes.slice(bodyStart, bodyEnd), "extension body", {
+      preserveFloatType: true,
+      preserveMapType: true,
+    }),
+    header,
+  );
+  return { header, files: body.files, chunks: body.chunks };
+}
+
+function readExtensionEnvelopeHeader(bytes) {
   let idx = 0;
   if (bytes.length < ENVELOPE_MAGIC.length + 1) {
     throw new Error("extension envelope too short");
@@ -93,14 +109,7 @@ export async function decodeExtensionEnvelope(bytes) {
   if (bodyEnd !== bytes.length) {
     throw new Error("extension body length mismatch");
   }
-  const body = await parseExtensionBody(
-    decodeCanonicalCbor(bytes.slice(idx, bodyEnd), "extension body", {
-      preserveFloatType: true,
-      preserveMapType: true,
-    }),
-    header,
-  );
-  return { header, files: body.files, chunks: body.chunks };
+  return { header, bodyStart: idx, bodyEnd };
 }
 
 function parseExtensionHeader(value) {

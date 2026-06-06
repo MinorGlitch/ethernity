@@ -19,7 +19,11 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesEqual } from "../lib/encoding.js";
 import { EXTENSION_ENVELOPE_VERSION, ENVELOPE_VERSION } from "./constants.js";
 import { extractFiles, readEnvelopeVersion } from "./envelope.js";
-import { decodeExtensionEnvelope, reconstructLatestFiles } from "./extension_envelope.js";
+import {
+  decodeExtensionEnvelope,
+  decodeExtensionEnvelopeHeader,
+  reconstructLatestFiles,
+} from "./extension_envelope.js";
 import { deriveSigningPublicKey, verifyAuthSignature } from "./auth.js";
 
 export async function recoverLatestFromPlaintextDocuments(
@@ -107,7 +111,7 @@ export async function recoverLatestFromPlaintextDocuments(
   if (!suppliedRootAuthPayload) {
     await requireVerifiedDocumentAuth(root.document, rootAuthoritySignPub, verifySignature);
   }
-  const extensions = [];
+  const authenticatedExtensions = [];
   const extensionFailures = [];
   for (const item of rawExtensions) {
     let authPayload;
@@ -125,9 +129,9 @@ export async function recoverLatestFromPlaintextDocuments(
       });
       continue;
     }
-    let extension;
+    let header;
     try {
-      extension = await decodeExtensionEnvelope(item.document.plaintext);
+      header = decodeExtensionEnvelopeHeader(item.document.plaintext);
     } catch (err) {
       throwIfSelectedDocHashFailure(
         target,
@@ -141,7 +145,7 @@ export async function recoverLatestFromPlaintextDocuments(
       });
       continue;
     }
-    if (!bytesEqual(extension.header.rootDocHash, root.document.docHash)) {
+    if (!bytesEqual(header.rootDocHash, root.document.docHash)) {
       throwIfSelectedDocHashFailure(
         target,
         item.document,
@@ -154,8 +158,9 @@ export async function recoverLatestFromPlaintextDocuments(
       });
       continue;
     }
-    extensions.push({
-      ...extension,
+    authenticatedExtensions.push({
+      header,
+      document: item.document,
       docHash: item.document.docHash,
       docHashHex: item.document.docHashHex,
       authPayload,
@@ -179,7 +184,28 @@ export async function recoverLatestFromPlaintextDocuments(
     throw new Error(extensionFailures[0].message);
   }
 
-  const selected = selectSuppliedChainForTarget(extensions, target);
+  const selectedHeaders = selectSuppliedChainForTarget(authenticatedExtensions, target);
+  const selected = [];
+  for (const item of selectedHeaders) {
+    let extension;
+    try {
+      extension = await decodeExtensionEnvelope(item.document.plaintext);
+    } catch (err) {
+      throwIfSelectedDocHashFailure(
+        target,
+        item.document,
+        "decoded",
+        `root-authority extension could not be decoded: ${String(err)}`,
+      );
+      throw new Error(`root-authority extension could not be decoded: ${String(err)}`);
+    }
+    selected.push({
+      ...extension,
+      docHash: item.document.docHash,
+      docHashHex: item.document.docHashHex,
+      authPayload: item.authPayload,
+    });
+  }
   const files = await reconstructLatestFiles(root.extracted.files, root.document.docHash, selected);
   const latest = selected.at(-1);
   ensureExpectedHeadSatisfied(target, latest?.docHashHex ?? root.document.docHashHex);
