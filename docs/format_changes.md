@@ -46,6 +46,26 @@ Use this template for each change entry:
 
 ## Entries
 
+## 2026-06-07 - Accept rendered fallback line labels in manual input
+
+- Type: validation
+- Normative spec updated: yes
+- Sections changed: 11
+- Compatibility:
+  - Old decoders reading new artifacts: yes (artifact bytes are unchanged; only manual text input
+    tolerance changed)
+  - New decoders reading old artifacts: yes
+- Version/profile bump required: no (this accepts a display-only transcription prefix and keeps
+  malformed non-z-base-32 content fail-closed)
+- Implementation refs:
+  - `src/ethernity/cli/shared/io/fallback_parser.py`
+  - `kit/lib/encoding.js`
+- Test refs:
+  - `tests/unit/test_fallback_parser.py`
+  - `kit/tests/encoding_cbor_path_zip_state.test.mjs`
+- Security impact:
+  - Preserves strict z-base-32 validation after removing only an exact dotted rendered line label
+
 ## 2026-04-09 - Add extension-envelope chain, compaction, and recovery profile
 
 - Type: feature/profile
@@ -116,6 +136,8 @@ Use this template for each change entry:
   - Published export trees and append workflows distinguish recovery-valid carrier sets from
     append-valid canonical layouts; scan-mode append emits loose extension bundles unless the full
     canonical prefix is present.
+  - Canonical published extension directories and artifact filenames have an explicit decimal index,
+    document id, and shard share filename grammar for interoperable append-valid export trees.
   - Recursive backup-export scans exclude unpublished `extensions/.staging-*` workspaces and reject
     extension-like stale top-level entries under `extensions/`.
   - Root-only and selected-prefix recovery are explicit selection modes. Default recovery replays

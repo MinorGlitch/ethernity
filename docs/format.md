@@ -533,13 +533,16 @@ Decoding:
   `MAX_RECOVERY_TEXT_BYTES` (Section 17).
 - For each fallback section, decoders MUST apply the following deterministic filtering algorithm:
   1. Split section text into lines using `\n`, `\r\n`, or `\r`.
-  2. For each line, remove all Unicode whitespace code points and ASCII dashes (`-`).
-  3. If the resulting string is empty, discard it.
-  4. The remaining string MUST consist only of z-base-32 alphabet characters
+  2. For each line, decoders MAY remove one leading rendered line label matching
+     `[0-9]{1,4}\.` followed by optional whitespace. Undotted digit prefixes MUST NOT be treated as
+     rendered line labels.
+  3. Remove all Unicode whitespace code points and ASCII dashes (`-`).
+  4. If the resulting string is empty, discard it.
+  5. The remaining string MUST consist only of z-base-32 alphabet characters
      (`ybndrfg8ejkmcpqxot1uwisza345h769`) when compared case-insensitively.
-  5. Normalize the remaining string to lowercase ASCII and append it to the filtered-line list.
-- `MAX_FALLBACK_LINES` counts the number of filtered lines after Step 5.
-- `MAX_FALLBACK_NORMALIZED_CHARS` counts the sum of lengths of all filtered lines after Step 5.
+  6. Normalize the remaining string to lowercase ASCII and append it to the filtered-line list.
+- `MAX_FALLBACK_LINES` counts the number of filtered lines after Step 6.
+- `MAX_FALLBACK_NORMALIZED_CHARS` counts the sum of lengths of all filtered lines after Step 6.
 - Decoders MUST reject any fallback section that exceeds either bound.
 - Decoders MUST decode each filtered line list by concatenating filtered lines in order and applying
   z-base-32 decoding.
@@ -1293,6 +1296,26 @@ For this release profile, a published extension directory is append-valid only w
 validation. If shard artifacts are present in the published extension directory, each shard document
 type MUST form a complete set with one declared `share_count` and share indexes `1..share_count`;
 passphrase shards and signing-key shards are validated as independent sets.
+
+Canonical published extension directory names MUST be the decimal extension index with two digits
+for indexes `1..99` (`01`, `02`, ..., `99`) and unpadded decimal for indexes `>= 100`.
+Canonical MAIN artifact filenames MUST use:
+
+```text
+qr_document-<index>-<doc_id>.pdf
+recovery_document-<index>-<doc_id>.pdf
+recovery_kit_index-<index>-<doc_id>.pdf
+```
+
+where `<index>` is the canonical directory index string and `<doc_id>` is the lowercase 16-hex
+document id. Canonical extension shard artifact filenames, when present, MUST use:
+
+```text
+shard-<index>-<doc_id>-<share_index>-of-<share_count>.pdf
+signing-key-shard-<index>-<doc_id>-<share_index>-of-<share_count>.pdf
+```
+
+`share_index` and `share_count` are unpadded positive decimal integers.
 
 For this release profile, `qr_document-*` artifacts are the only machine-readable
 payload-bearing MAIN carriers in a canonical published extension directory. This filename role is an
