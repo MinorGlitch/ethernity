@@ -29,6 +29,7 @@ _FALLBACK_SECTION_PATTERNS = {
     "key": re.compile(r"^[=\-:\s]*(?:key|shard) frame[=\-:\s]*$", re.IGNORECASE),
     "main": re.compile(r"^[=\-:\s]*main frame[=\-:\s]*$", re.IGNORECASE),
 }
+_FALLBACK_RENDERED_LINE_PREFIX_RE = re.compile(r"^\d{1,4}\.\s*")
 
 
 def _is_valid_zbase32_line(line: str) -> bool:
@@ -46,12 +47,18 @@ def _is_valid_zbase32_line(line: str) -> bool:
     return has_payload_char
 
 
+def _strip_rendered_line_prefix(line: str) -> str:
+    """Remove the visible line label emitted by recovery templates."""
+
+    return _FALLBACK_RENDERED_LINE_PREFIX_RE.sub("", line, count=1)
+
+
 def filter_fallback_lines(lines: Sequence[str]) -> list[str]:
     """Filter lines to valid z-base-32 fallback content."""
     filtered: list[str] = []
 
     for line in lines:
-        stripped = line.strip()
+        stripped = _strip_rendered_line_prefix(line.strip())
         if not stripped:
             continue
 

@@ -239,6 +239,7 @@
       font-size: var(--line-num-size);
       letter-spacing: var(--line-num-letter-spacing);
       color: var(--ink-soft);
+      user-select: none;
     }
     .fallback-payload {
       min-width: 0;
@@ -307,7 +308,7 @@
       {%- endif %}
       <div class="fallback-lines">
         {%- for line in block.lines %}
-        <div class="fallback-line"><span class="fallback-number">{{ '%02d.' % (block.line_offset + loop.index) }}</span><span class="fallback-payload">{{ line }}</span></div>
+        <div class="fallback-line"><span class="fallback-number" aria-hidden="true">{{ '%02d.' % (block.line_offset + loop.index) }}</span><span class="fallback-payload">{{ line }}</span></div>
         {%- endfor %}
       </div>
     </div>

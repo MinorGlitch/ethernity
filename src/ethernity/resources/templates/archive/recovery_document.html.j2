@@ -336,6 +336,7 @@
       color: #9ca3af;
       font-size: 5.5pt;
       letter-spacing: 0.06em;
+      user-select: none;
     }
 
     .fallback-payload {
@@ -488,7 +489,7 @@
                 {% if block.title %}<div class="fallback-title">{{ block.title }}</div>{% endif %}
                 <div class="fallback-lines" style="--line-offset: {{ block.line_offset }};">
                   {% for line in block.lines %}
-                  <div class="fallback-line"><span class="fallback-number">{{ '%02d.' % (block.line_offset + loop.index) }}</span><span class="fallback-payload">{{ line }}</span></div>
+                  <div class="fallback-line"><span class="fallback-number" aria-hidden="true">{{ '%02d.' % (block.line_offset + loop.index) }}</span><span class="fallback-payload">{{ line }}</span></div>
                   {% endfor %}
                 </div>
               </div>
