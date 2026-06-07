@@ -422,6 +422,8 @@ def _validate_backup_export_scan_layout(
             continue
         if _entry_after_extension_max_index(entry.name, extension_carrier_max_index):
             continue
+        if entry.is_symlink():
+            raise QrScanError(f"extensions directory must not contain symlinked entries: {entry}")
         if is_canonical_extension_dir_name(entry.name):
             if not entry.is_dir():
                 raise QrScanError(f"canonical extension entry must be a directory: {entry.name}")

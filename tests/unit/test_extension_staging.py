@@ -101,6 +101,42 @@ class TestExtensionStaging(unittest.TestCase):
             self.assertEqual(planned.shard_paths, ())
             self.assertEqual(planned.signing_key_shard_paths, ())
 
+    def test_create_staged_extension_artifact_plan_uses_index_100_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            planned = create_staged_extension_artifact_plan(
+                tmpdir,
+                index=100,
+                doc_id_hex="deadbeefcafebabe",
+                nonce="abc123",
+                publish_policy=ExtensionPublishPolicy(
+                    require_recovery_kit_index=True,
+                    passphrase_shard_count=1,
+                    signing_key_shard_count=1,
+                ),
+            )
+
+            self.assertEqual(planned.final_dir.name, "100")
+            self.assertEqual(
+                planned.qr_document_path.name,
+                "qr_document-100-deadbeefcafebabe.pdf",
+            )
+            self.assertEqual(
+                planned.recovery_document_path.name,
+                "recovery_document-100-deadbeefcafebabe.pdf",
+            )
+            self.assertEqual(
+                planned.recovery_kit_index_path.name if planned.recovery_kit_index_path else None,
+                "recovery_kit_index-100-deadbeefcafebabe.pdf",
+            )
+            self.assertEqual(
+                [path.name for path in planned.shard_paths],
+                ["shard-100-deadbeefcafebabe-1-of-1.pdf"],
+            )
+            self.assertEqual(
+                [path.name for path in planned.signing_key_shard_paths],
+                ["signing-key-shard-100-deadbeefcafebabe-1-of-1.pdf"],
+            )
+
     def test_create_staged_extension_artifact_plan_returns_loose_scan_targets(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_root = Path(tmpdir) / "scan-output"
@@ -130,21 +166,44 @@ class TestExtensionStaging(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "extension publish root not found"):
                 create_extension_staging_dir(missing_root, index=1, nonce="abc123")
 
-    def test_create_staging_dir_can_create_missing_canonical_publish_root(self) -> None:
+    def test_create_staging_dir_rejects_missing_canonical_publish_root_creation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             missing_root = Path(tmpdir) / "scan-output-root"
 
-            staging_dir = create_extension_staging_dir(
-                missing_root,
-                index=1,
-                nonce="abc123",
-                allow_missing_root=True,
-                require_empty_extensions=True,
-            )
+            with self.assertRaisesRegex(
+                ValueError,
+                "canonical extension publish root must already exist",
+            ):
+                create_extension_staging_dir(
+                    missing_root,
+                    index=1,
+                    nonce="abc123",
+                    allow_missing_root=True,
+                    require_empty_extensions=True,
+                )
 
-            self.assertTrue(missing_root.is_dir())
-            self._assert_private_mode_when_supported(missing_root)
-            self.assertEqual(staging_dir.parent, missing_root / "extensions")
+            self.assertFalse(missing_root.exists())
+
+    def test_create_staged_extension_artifact_plan_rejects_missing_canonical_publish_root_creation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing_root = Path(tmpdir) / "scan-output-root"
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "canonical extension publish root must already exist",
+            ):
+                create_staged_extension_artifact_plan(
+                    missing_root,
+                    index=1,
+                    doc_id_hex="deadbeefcafebabe",
+                    nonce="abc123",
+                    publish_policy=ExtensionPublishPolicy(),
+                    allow_missing_root=True,
+                )
+
+            self.assertFalse(missing_root.exists())
 
     def test_preflight_extension_publish_target_accepts_missing_scan_publish_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -157,6 +216,24 @@ class TestExtensionStaging(unittest.TestCase):
                 allow_missing_root=True,
                 require_empty_root=True,
             )
+
+            self.assertFalse(missing_root.exists())
+
+    def test_preflight_extension_publish_target_rejects_missing_canonical_root_creation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing_root = Path(tmpdir) / "scan-output-root"
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "canonical extension publish root must already exist",
+            ):
+                preflight_extension_publish_target(
+                    missing_root,
+                    index=1,
+                    allow_missing_root=True,
+                )
 
             self.assertFalse(missing_root.exists())
 

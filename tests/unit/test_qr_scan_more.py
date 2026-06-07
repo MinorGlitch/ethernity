@@ -279,6 +279,26 @@ class TestQrScanMore(unittest.TestCase):
 
         self.assertEqual([path.relative_to(root).as_posix() for path in files], ["qr_document.pdf"])
 
+    def test_iter_scan_files_root_only_rejects_symlinked_canonical_extension_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "root"
+            external = Path(tmpdir) / "external"
+            root.mkdir()
+            external.mkdir()
+            (root / "qr_document.pdf").write_bytes(b"%PDF-1.7\n")
+            extensions_dir = root / "extensions"
+            extensions_dir.mkdir()
+            try:
+                (extensions_dir / "01").symlink_to(external, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+
+            with self.assertRaisesRegex(
+                QrScanError,
+                "extensions directory must not contain symlinked entries",
+            ):
+                _iter_scan_files(root, include_extension_carriers=False)
+
     def test_iter_scan_files_can_bound_published_extension_carriers_by_index(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

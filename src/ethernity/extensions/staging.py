@@ -102,21 +102,13 @@ def create_extension_staging_dir(
     """Create and return a non-canonical staging directory under the extensions root."""
 
     root_path = Path(root_dir).expanduser()
-    if not root_path.exists() and allow_missing_root:
-        _require_creatable_root_parent(root_path)
-        root_path.mkdir(mode=0o700)
-        root_path.chmod(0o700)
-        _require_existing_directory_no_symlink(
-            root_path,
-            label="extension publish root",
-            display_path=root_dir,
-        )
-    else:
-        _require_existing_directory_no_symlink(
-            root_path,
-            label="extension publish root",
-            display_path=root_dir,
-        )
+    if allow_missing_root:
+        raise ValueError("canonical extension publish root must already exist")
+    _require_existing_directory_no_symlink(
+        root_path,
+        label="extension publish root",
+        display_path=root_dir,
+    )
     extensions_dir = root_path / EXTENSIONS_DIR_NAME
     if extensions_dir.is_symlink():
         raise ValueError("extensions path must not be a symlink")
@@ -247,7 +239,9 @@ def preflight_extension_publish_target(
 
     if isinstance(index, bool) or not isinstance(index, int) or index <= 0:
         raise ValueError("extension index must be a positive integer")
-    _require_publish_layout(publish_layout)
+    layout = _require_publish_layout(publish_layout)
+    if allow_missing_root and layout != "loose":
+        raise ValueError("canonical extension publish root must already exist")
     root_path = Path(root_dir).expanduser()
     if root_path.is_symlink():
         raise ValueError("extension publish root must not be a symlink")
@@ -258,7 +252,7 @@ def preflight_extension_publish_target(
         raise ValueError(f"extension publish root not found: {root_dir}")
     if not root_path.is_dir():
         raise ValueError(f"extension publish root must be a directory: {root_dir}")
-    if publish_layout == "loose":
+    if layout == "loose":
         if require_empty_root:
             _require_empty_loose_publish_root(root_path)
         if not os.access(root_path, os.W_OK | os.X_OK):

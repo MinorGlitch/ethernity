@@ -1697,6 +1697,65 @@ class TestExtendService(unittest.TestCase):
 
             self.assertFalse(publish.artifacts.staging_dir.exists())
 
+    def test_execute_staged_extension_publish_rejects_loose_root_mutation_before_promotion(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "scan-output"
+            root_dir.mkdir(exist_ok=True)
+            resolved = _resolved_state(
+                diff_summary={
+                    "new_paths": ["new.txt"],
+                    "changed_paths": ["updated.txt"],
+                    "unchanged_paths": [],
+                    "missing_paths": [],
+                },
+            )
+            with mock.patch(
+                "ethernity.cli.features.extend.prepare.resolve_extend_state",
+                return_value=resolved,
+            ):
+                prepared = prepare_extend_run(
+                    ExtendArgs(
+                        root_dir=str(root_dir),
+                        scan=["/tmp/root.pdf"],
+                        input=["/tmp/root/example.txt"],
+                        shard_count=0,
+                    )
+                )
+                with mock.patch(
+                    "ethernity.cli.features.extend.prepare.encrypt_bytes_with_passphrase",
+                    side_effect=lambda data, *, passphrase: (b"enc:" + data, passphrase),
+                ):
+                    publish = prepare_staged_extension_publish(
+                        prepared,
+                        chunker=lambda data, _profile: (data,),
+                        nonce="abc123",
+                        publish_policy=ExtensionPublishPolicy(),
+                    )
+
+            def _renderer(plan) -> None:
+                plan.artifacts.qr_document_path.write_bytes(b"qr")
+                plan.artifacts.recovery_document_path.write_bytes(b"recovery")
+
+            def _post_validate(plan, _render_result) -> None:
+                (plan.artifacts.publish_root / "unexpected.txt").write_text(
+                    "changed",
+                    encoding="utf-8",
+                )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "scan-mode extension publish target changed before promotion",
+            ):
+                execute_staged_extension_publish(
+                    publish,
+                    renderer=_renderer,
+                    post_validate=_post_validate,
+                )
+
+            self.assertFalse(publish.artifacts.staging_dir.exists())
+
     def test_execute_staged_extension_publish_rejects_extensions_dir_swap(self) -> None:
         with TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir) / "root"
