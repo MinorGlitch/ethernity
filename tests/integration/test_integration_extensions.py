@@ -608,6 +608,7 @@ class TestIntegrationExtensions(unittest.TestCase):
                             config=str(DEFAULT_CONFIG_PATH),
                             scan=[str(root_dir)],
                             passphrase=TEST_PASSPHRASE,
+                            expected_head_doc_hash=extension.doc_hash.hex(),
                             output_dir=str(mint_dir),
                             shard_threshold=2,
                             shard_count=3,
@@ -667,6 +668,7 @@ class TestIntegrationExtensions(unittest.TestCase):
                             signing_key_shard_scan=[
                                 str(path) for path in extension.signing_key_shard_paths[:2]
                             ],
+                            expected_head_doc_hash=extension.doc_hash.hex(),
                             output_dir=str(mint_dir),
                             mint_passphrase_shards=False,
                             mint_signing_key_shards=True,
