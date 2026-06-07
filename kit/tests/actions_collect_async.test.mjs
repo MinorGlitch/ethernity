@@ -1,19 +1,41 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { MAX_CIPHERTEXT_BYTES } from "../app/constants.js";
+import {
+  AUTH_DOMAIN,
+  AUTH_VERSION,
+  FRAME_TYPE_AUTH,
+  FRAME_TYPE_KEY,
+  FRAME_TYPE_MAIN,
+  LEGACY_SHARD_VERSION,
+  MAX_CIPHERTEXT_BYTES,
+  SHARD_DOMAIN,
+  SHARD_KEY_PASSPHRASE,
+  textEncoder,
+} from "../app/constants.js";
 import {
   addPayloads,
   addScannedPayload,
   addScannedShardPayload,
+  addShardPayloads,
   resetAll,
   updateField,
 } from "../app/actions_collect.js";
 import { updateAuthStatus } from "../app/auth.js";
 import { createInitialState } from "../app/state/initial.js";
 import { reducer } from "../app/state/reducer.js";
+import { encodeCbor } from "../lib/cbor.js";
+import { blake2b256 } from "../lib/blake2b.js";
+import { buildFrame, toUnpaddedBase64 } from "./test_helpers.mjs";
 
 const MAIN_QR_PAYLOAD_SINGLE_FRAME = "QVABRAAAAAAAAAAAAAEBYSBj2P8";
+const FIXTURE_PASSPHRASE = "stable-v1-shamir-meaningful";
+const FIXTURE_SHARES = {
+  share1: "e7fdbe85696bbbe4b866e834b96163685ef63664d9ea8746f942799aef313b11",
+  share2: "5a67deac6678005323ba45d1d1757dc1ca5bc36a016ebc24581b4735de627622",
+};
+const AUTH_SIGN_PUB = new Uint8Array(32).fill(0x42);
+const WRONG_SHARD_SIGN_PUB = new Uint8Array(32).fill(0x24);
 
 function createStore() {
   let state = createInitialState();
@@ -25,6 +47,32 @@ function createStore() {
       return state;
     },
   };
+}
+
+function bytesFromHex(value) {
+  return Uint8Array.from(value.match(/../g).map((byte) => Number.parseInt(byte, 16)));
+}
+
+function shardPayload({ shareIndex, shareHex, docHash }) {
+  return {
+    version: LEGACY_SHARD_VERSION,
+    type: SHARD_KEY_PASSPHRASE,
+    threshold: 2,
+    share_count: 3,
+    share_index: shareIndex,
+    length: FIXTURE_PASSPHRASE.length,
+    share: bytesFromHex(shareHex),
+    hash: docHash,
+    pub: WRONG_SHARD_SIGN_PUB,
+    sig: new Uint8Array(64),
+  };
+}
+
+function startsWithBytes(bytes, prefix) {
+  if (bytes.length < prefix.length) {
+    return false;
+  }
+  return prefix.every((byte, index) => bytes[index] === byte);
 }
 
 test("updateAuthStatus clears pending guard after ciphertext errors", async () => {
@@ -93,6 +141,92 @@ test("async main followups do not overwrite reset state", async () => {
   assert.equal(finalState.cipherDocHashHex, null);
   assert.equal(finalState.authStatus, "missing");
   assert.equal(finalState.frameStatus.lines[0], "State cleared.");
+});
+
+test("shard followups wait for pending AUTH before recovering a shard secret", async () => {
+  const originalCrypto = globalThis.crypto;
+  const authPrefix = textEncoder.encode(AUTH_DOMAIN);
+  const shardPrefix = textEncoder.encode(SHARD_DOMAIN);
+  let releaseAuthVerify;
+  let resolveAuthVerifyStarted;
+  const authVerifyGate = new Promise((resolve) => {
+    releaseAuthVerify = resolve;
+  });
+  const authVerifyStarted = new Promise((resolve) => {
+    resolveAuthVerifyStarted = resolve;
+  });
+  globalThis.crypto = {
+    subtle: {
+      async importKey() {
+        return {};
+      },
+      async verify(_algorithm, _key, _signature, message) {
+        const bytes = message instanceof Uint8Array ? message : new Uint8Array(message);
+        if (startsWithBytes(bytes, authPrefix)) {
+          resolveAuthVerifyStarted();
+          await authVerifyGate;
+          return true;
+        }
+        if (startsWithBytes(bytes, shardPrefix)) {
+          return true;
+        }
+        return false;
+      },
+    },
+  };
+
+  try {
+    const store = createStore();
+    const ciphertext = Uint8Array.of(8, 7, 6);
+    const docHash = blake2b256(ciphertext);
+    const docId = docHash.slice(0, 8);
+    await addScannedPayload(store.dispatch.bind(store), store.getState.bind(store), {
+      bytes: buildFrame({ frameType: FRAME_TYPE_MAIN, docId, data: ciphertext }),
+    });
+
+    const authPending = addScannedPayload(store.dispatch.bind(store), store.getState.bind(store), {
+      bytes: buildFrame({
+        frameType: FRAME_TYPE_AUTH,
+        docId,
+        data: encodeCbor({
+          version: AUTH_VERSION,
+          hash: docHash,
+          pub: AUTH_SIGN_PUB,
+          sig: new Uint8Array(64),
+        }),
+      }),
+    });
+    await authVerifyStarted;
+
+    const shardFrames = [
+      [1, FIXTURE_SHARES.share1],
+      [2, FIXTURE_SHARES.share2],
+    ].map(([shareIndex, shareHex]) =>
+      toUnpaddedBase64(
+        buildFrame({
+          frameType: FRAME_TYPE_KEY,
+          docId,
+          data: encodeCbor(shardPayload({ shareIndex, shareHex, docHash })),
+        }),
+      ),
+    );
+    store.getState().shardPayloadText = shardFrames.join("\n");
+    const shardPending = addShardPayloads(store.dispatch.bind(store), store.getState.bind(store));
+
+    releaseAuthVerify();
+    await Promise.all([authPending, shardPending]);
+
+    const finalState = store.getState();
+    assert.equal(finalState.authStatus, "verified");
+    assert.equal(finalState.recoveredShardSecret, "");
+    assert.equal(finalState.agePassphrase, "");
+    assert.match(
+      finalState.shardStatus.lines.join("\n"),
+      /signing key does not match verified document AUTH/,
+    );
+  } finally {
+    globalThis.crypto = originalCrypto;
+  }
 });
 
 test("changing recovery target clears stale recovered output", () => {

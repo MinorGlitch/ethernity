@@ -23,7 +23,7 @@ import { AUTH_DOMAIN, AUTH_VERSION, textEncoder } from "./constants.js";
 import { syncLegacyDocumentFields } from "./document_store.js";
 import { ensureDocumentCiphertextAndHash } from "./frames_cipher.js";
 
-let authStatusPending = false;
+let authStatusQueue = Promise.resolve();
 
 export function deriveSigningPublicKey(signingSeed) {
   return ed25519.getPublicKey(signingSeed);
@@ -61,22 +61,23 @@ function verifyAuthSignaturePortable(signature, message, signPub) {
 }
 
 export async function updateAuthStatus(state) {
-  if (authStatusPending) {
+  const run = authStatusQueue.then(
+    () => updateAuthStatusNow(state),
+    () => updateAuthStatusNow(state),
+  );
+  authStatusQueue = run.catch(() => {});
+  await run;
+}
+
+async function updateAuthStatusNow(state) {
+  if (state.documents?.size) {
+    for (const record of state.documents.values()) {
+      await updateDocumentAuthStatus(record);
+    }
+    syncLegacyDocumentFields(state);
     return;
   }
-  authStatusPending = true;
-  try {
-    if (state.documents?.size) {
-      for (const record of state.documents.values()) {
-        await updateDocumentAuthStatus(record);
-      }
-      syncLegacyDocumentFields(state);
-      return;
-    }
-    await updateDocumentAuthStatus(state);
-  } finally {
-    authStatusPending = false;
-  }
+  await updateDocumentAuthStatus(state);
 }
 
 export async function updateDocumentAuthStatus(record) {

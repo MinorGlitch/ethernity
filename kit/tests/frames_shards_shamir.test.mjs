@@ -411,6 +411,10 @@ test("parseAutoShard handles duplicates, conflicts, and fallback", () => {
   const fallbackText = ["Shard Frame:", encodeZBase32(first)].join("\n");
   assert.equal(parseAutoShard(fallbackState, fallbackText), 1);
 
+  const keyFallbackState = createInitialState();
+  const keyFallbackText = ["Key Frame:", encodeZBase32(first)].join("\n");
+  assert.equal(parseAutoShard(keyFallbackState, keyFallbackText), 1);
+
   assert.throws(
     () => parseAutoShard(createInitialState(), "Shard Frame:\nnot-zbase32!!!"),
     /outside the z-base-32 alphabet/,
@@ -595,6 +599,52 @@ test("shard recovery rejects shards outside verified non-primary document author
 
   assert.equal(autoRecoverShardSecret(state), false);
   assert.equal(state.shardStatus.type, "error");
+  assert.match(
+    state.shardStatus.lines.join("\n"),
+    /signing key does not match verified document AUTH/,
+  );
+});
+
+test("shard recovery clears a recovered secret when later AUTH rejects authority", () => {
+  const state = createInitialState();
+  const cipher = Uint8Array.of(8, 7, 6);
+  const docHash = blake2b256(cipher);
+  parseScannedPayload(state, {
+    bytes: buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      docId: docHash.slice(0, 8),
+      data: cipher,
+    }),
+  });
+  for (const [shareIndex, shareHex] of [
+    [1, FIXTURE_SHARES.share1],
+    [2, FIXTURE_SHARES.share2],
+  ]) {
+    parseScannedShard(state, {
+      bytes: buildFrame({
+        frameType: FRAME_TYPE_KEY,
+        docId: docHash.slice(0, 8),
+        data: encodeCbor(shardPayload({ shareIndex, shareHex, docHash })),
+      }),
+    });
+  }
+  for (const record of state.shardSets.values()) {
+    for (const payload of record.shardFrames.values()) {
+      payload.signatureVerified = true;
+    }
+  }
+
+  assert.equal(autoRecoverShardSecret(state), true);
+  assert.equal(state.recoveredShardSecret, FIXTURE_PASSPHRASE);
+  assert.equal(state.agePassphrase, FIXTURE_PASSPHRASE);
+
+  const record = state.documents.get(bytesToHex(docHash.slice(0, 8)));
+  record.authStatus = "verified";
+  record.authSignPubHex = bytesToHex(AUTH_SIGN_PUB);
+
+  assert.equal(autoRecoverShardSecret(state), false);
+  assert.equal(state.recoveredShardSecret, "");
+  assert.equal(state.agePassphrase, "");
   assert.match(
     state.shardStatus.lines.join("\n"),
     /signing key does not match verified document AUTH/,

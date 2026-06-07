@@ -228,12 +228,14 @@ function parseFallbackText(state, text) {
   return added;
 }
 
+const SHARD_FALLBACK_MARKERS = ["key frame", "shard frame", "shard payload"];
+
 function parseShardFallbackText(state, text) {
   const payloadLines = [];
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line) continue;
-    if (detectMarker(line, ["shard frame", "shard payload"])) {
+    if (detectMarker(line, SHARD_FALLBACK_MARKERS)) {
       continue;
     }
     payloadLines.push(line);
@@ -281,7 +283,7 @@ export function parseAutoShard(state, text) {
   if (!lines.length) {
     throw new Error("no input lines found");
   }
-  if (hasMarker(lines, ["shard frame", "shard payload"])) {
+  if (hasMarker(lines, SHARD_FALLBACK_MARKERS)) {
     return parseShardFallbackText(state, text);
   }
   if (allLinesDecodeShardFrames(lines)) {

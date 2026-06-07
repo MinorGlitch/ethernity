@@ -61,9 +61,7 @@ async function runMainAsyncFollowups(dispatch, base) {
   const targetRevision = base.revision + 1;
   await updateAuthStatus(work);
   syncCollectedCiphertext(work);
-  if (!work.recoveredShardSecret) {
-    await verifyAndRecoverShardSecret(work);
-  }
+  await verifyAndRecoverShardSecret(work);
   dispatch({
     type: "MUTATE_STATE",
     baseRevision: targetRevision,
@@ -204,17 +202,37 @@ function shardTextStatus(parsed, added, failed) {
   };
 }
 
-async function runShardAsyncFollowups(dispatch, parsed, baseStatusLines, baseStatusType = "") {
+async function runShardAsyncFollowups(
+  dispatch,
+  getState,
+  parsed,
+  baseStatusLines,
+  baseStatusType = "",
+) {
   const work = cloneState(parsed);
-  const targetRevision = parsed.revision + 1;
+  await updateAuthStatus(work);
+  syncCollectedCiphertext(work);
   await verifyAndRecoverShardSecret(work, baseStatusLines, baseStatusType);
+  const latest = cloneState(getState());
+  if (!shardAsyncTargetStillCurrent(latest, parsed)) {
+    return;
+  }
   dispatch({
     type: "MUTATE_STATE",
-    baseRevision: targetRevision,
+    baseRevision: latest.revision,
     mutate(next) {
+      copyAuthAndCipherFields(next, work);
       copyShardAsyncFields(next, work);
     },
   });
+}
+
+function shardAsyncTargetStillCurrent(latest, parsed) {
+  return (
+    latest.isAddingShards &&
+    latest.shardPayloadText === parsed.shardPayloadText &&
+    latest.agePassphrase === parsed.agePassphrase
+  );
 }
 
 async function verifyAndRecoverShardSecret(work, baseStatusLines = [], baseStatusType = "") {
@@ -373,7 +391,7 @@ export async function addShardPayloads(dispatch, getState) {
   setStatus(parsed, "shardStatus", baseStatusLines, shardStatus.type);
   dispatchState(dispatch, parsed);
   try {
-    await runShardAsyncFollowups(dispatch, parsed, baseStatusLines, shardStatus.type);
+    await runShardAsyncFollowups(dispatch, getState, parsed, baseStatusLines, shardStatus.type);
   } finally {
     const latest = cloneState(getState());
     latest.isAddingShards = false;
@@ -407,7 +425,7 @@ export async function addScannedShardPayload(dispatch, getState, scanned) {
   setStatus(parsed, "shardStatus", baseStatusLines, shardStatus.type);
   dispatchState(dispatch, parsed);
   try {
-    await runShardAsyncFollowups(dispatch, parsed, baseStatusLines, shardStatus.type);
+    await runShardAsyncFollowups(dispatch, getState, parsed, baseStatusLines, shardStatus.type);
   } finally {
     const latest = cloneState(getState());
     latest.isAddingShards = false;

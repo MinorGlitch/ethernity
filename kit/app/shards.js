@@ -29,6 +29,7 @@ function setShardStatus(state, statusPrefix, line, type) {
 }
 
 export function autoRecoverShardSecret(state, statusPrefix = []) {
+  clearRecoveredShardSecret(state);
   const candidates = recoveryCandidates(state);
   if (!candidates.length) {
     return false;
@@ -190,4 +191,12 @@ function verifiedAuthSignPubHex(record) {
 
 function selectRecoveryCandidate(candidates) {
   return candidates.find(({ record }) => record.keyType === SHARD_KEY_PASSPHRASE) ?? candidates[0];
+}
+
+function clearRecoveredShardSecret(state) {
+  const previous = state.recoveredShardSecret;
+  state.recoveredShardSecret = "";
+  if (previous && state.agePassphrase === previous) {
+    state.agePassphrase = "";
+  }
 }
