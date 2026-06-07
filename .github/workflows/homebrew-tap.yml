@@ -177,6 +177,7 @@ jobs:
           brew tap "${tap_name}" "file://${GITHUB_WORKSPACE}/tap"
           brew uninstall --ignore-dependencies "${formula_ref}" || true
           brew install --build-bottle "${formula_ref}"
+          brew test "${formula_ref}"
           out_dir="${RUNNER_TEMP}/bottles"
           mkdir -p "${out_dir}"
           cd "${out_dir}"

@@ -248,6 +248,16 @@ jobs:
         run: |
           python3 -c "import ethernity, ethernity.cli.bootstrap.app; print(ethernity.__file__)"
           python3 -m ethernity --help > /dev/null
+          SMOKE_OUT="${RUNNER_TEMP:-/tmp}/ethernity-wheel-smoke"
+          rm -rf "$SMOKE_OUT"
+          mkdir -p "$SMOKE_OUT"
+          python3 -m ethernity recover \
+            --scan tests/fixtures/v1_2/extension_golden/raw/gzip_replacement_chain/chain/qr_document.pdf \
+            --scan tests/fixtures/v1_2/extension_golden/raw/gzip_replacement_chain/chain/extensions/01/qr_document-01-94faaa261ae97e70.pdf \
+            --passphrase stable-v1_2-extension-passphrase \
+            --output "$SMOKE_OUT/recovered" \
+            --quiet
+          test -d "$SMOKE_OUT/recovered"
 
   kit-verify:
     runs-on: ubuntu-latest
