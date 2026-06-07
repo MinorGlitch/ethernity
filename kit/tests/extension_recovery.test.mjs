@@ -14,7 +14,9 @@ import {
   EXTENSION_ENVELOPE_VERSION,
   FRAME_TYPE_AUTH,
   FRAME_TYPE_MAIN,
+  MAX_CIPHERTEXT_BYTES,
   MAX_DECOMPRESSED_PAYLOAD_BYTES,
+  MAX_RECOVERY_DOCUMENTS,
   textEncoder,
 } from "../app/constants.js";
 import { deriveSigningPublicKey, verifyAuthSignature } from "../app/auth.js";
@@ -1093,6 +1095,58 @@ test("browser encrypted recovery rejects caller-supplied doc hash metadata", asy
         extensionTarget: "root",
       }),
     /supplied doc_hash does not match derived ciphertext identity/,
+  );
+});
+
+test("browser encrypted recovery enforces document count cap before decrypting", async () => {
+  let decryptCalls = 0;
+  const documents = Array.from({ length: MAX_RECOVERY_DOCUMENTS + 1 }, (_value, index) => ({
+    ciphertext: Uint8Array.of(index & 0xff),
+  }));
+
+  await assert.rejects(
+    () =>
+      recoverLatestFromEncryptedDocuments(documents, "pw", async () => {
+        decryptCalls += 1;
+        return new Uint8Array();
+      }),
+    /MAX_RECOVERY_DOCUMENTS/,
+  );
+  assert.equal(decryptCalls, 0);
+});
+
+test("browser encrypted recovery enforces per-document ciphertext cap before decrypting", async () => {
+  let decryptCalls = 0;
+  const documents = [{ ciphertext: new Uint8Array(MAX_CIPHERTEXT_BYTES + 1) }];
+
+  await assert.rejects(
+    () =>
+      recoverLatestFromEncryptedDocuments(documents, "pw", async () => {
+        decryptCalls += 1;
+        return new Uint8Array();
+      }),
+    /MAX_CIPHERTEXT_BYTES/,
+  );
+  assert.equal(decryptCalls, 0);
+});
+
+test("browser plaintext recovery enforces document count cap before decoding", async () => {
+  const documents = Array.from({ length: MAX_RECOVERY_DOCUMENTS + 1 }, () => ({
+    plaintext: Uint8Array.of(0),
+  }));
+
+  await assert.rejects(
+    () => recoverLatestFromPlaintextDocuments(documents, { verifySignature: verifiedSignature }),
+    /MAX_RECOVERY_DOCUMENTS/,
+  );
+});
+
+test("browser plaintext recovery enforces per-document byte cap before decoding", async () => {
+  const documents = [{ plaintext: new Uint8Array(MAX_CIPHERTEXT_BYTES + 1) }];
+
+  await assert.rejects(
+    () => recoverLatestFromPlaintextDocuments(documents, { verifySignature: verifiedSignature }),
+    /MAX_CIPHERTEXT_BYTES/,
   );
 });
 

@@ -26,6 +26,7 @@ import {
   reconstructLatestFiles,
 } from "./extension_envelope.js";
 import { deriveSigningPublicKey, verifyAuthSignature } from "./auth.js";
+import { enforceRecoveryDocumentBudget } from "./frames_cipher.js";
 
 export async function recoverLatestFromPlaintextDocuments(
   documents,
@@ -34,6 +35,7 @@ export async function recoverLatestFromPlaintextDocuments(
   if (!documents.length) {
     throw new Error("Collected ciphertext not available yet.");
   }
+  enforceRecoveryDocumentBudget(documents, { byteField: "plaintext", byteLabel: "plaintext" });
   const target = normalizeExtensionTarget(extensionTarget);
   const rootOnly = target.kind === "root";
   const decoded = [];
@@ -231,6 +233,7 @@ export async function recoverLatestFromEncryptedDocuments(
   { verifySignature = verifyAuthSignature, extensionTarget = "latest" } = {},
 ) {
   const target = normalizeExtensionTarget(extensionTarget);
+  enforceRecoveryDocumentBudget(documents);
   const plaintextDocuments = [];
   const decryptErrors = [];
   for (const document of documents) {

@@ -17,7 +17,12 @@
 
 import { blake2b256 } from "../lib/blake2b.js";
 import { bytesToHex, hexToBytes } from "../lib/encoding.js";
-import { DOC_ID_LEN, MAX_CIPHERTEXT_BYTES } from "./constants.js";
+import {
+  DOC_ID_LEN,
+  MAX_CIPHERTEXT_BYTES,
+  MAX_RECOVERY_CIPHERTEXT_BYTES,
+  MAX_RECOVERY_DOCUMENTS,
+} from "./constants.js";
 import {
   authOnlyDocumentRecords,
   completeDocumentRecords,
@@ -125,8 +130,38 @@ export function collectedRecoveryDocuments(
       authPayload: record.authPayload,
     });
   }
+  enforceRecoveryDocumentBudget(documents);
   syncLegacyDocumentFields(state);
   return documents;
+}
+
+export function enforceRecoveryDocumentBudget(
+  documents,
+  { byteField = "ciphertext", byteLabel = "ciphertext" } = {},
+) {
+  if (documents.length > MAX_RECOVERY_DOCUMENTS) {
+    throw new Error(
+      `collected backup documents exceed MAX_RECOVERY_DOCUMENTS (${MAX_RECOVERY_DOCUMENTS}): ${documents.length}`,
+    );
+  }
+  let totalBytes = 0;
+  for (const document of documents) {
+    const bytes = document[byteField];
+    if (!(bytes instanceof Uint8Array)) {
+      continue;
+    }
+    if (bytes.length > MAX_CIPHERTEXT_BYTES) {
+      throw new Error(
+        `collected ${byteLabel} exceeds MAX_CIPHERTEXT_BYTES (${MAX_CIPHERTEXT_BYTES}): ${bytes.length} bytes`,
+      );
+    }
+    totalBytes += bytes.length;
+  }
+  if (totalBytes > MAX_RECOVERY_CIPHERTEXT_BYTES) {
+    throw new Error(
+      `collected ${byteLabel} exceeds MAX_RECOVERY_CIPHERTEXT_BYTES (${MAX_RECOVERY_CIPHERTEXT_BYTES}): ${totalBytes} bytes`,
+    );
+  }
 }
 
 function enforceDerivedDocId(record, docHash) {
