@@ -33,7 +33,7 @@ jobs:
       bottle_release_tag: ${{ steps.meta.outputs.bottle_release_tag }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Resolve release tag
         id: meta
@@ -100,7 +100,7 @@ jobs:
           fi
 
       - name: Checkout tap repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           repository: ${{ steps.tap.outputs.tap_repo }}
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
@@ -147,7 +147,7 @@ jobs:
             id: ubuntu-24.04
     steps:
       - name: Checkout tap repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           repository: ${{ needs.update-tap.outputs.tap_repo }}
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
@@ -199,7 +199,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Download bottle artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -216,7 +216,7 @@ jobs:
           done < <(find "${RUNNER_TEMP}/bottles" -type f -name 'ethernity--*.bottle.tar.gz' -print0)
 
       - name: Checkout tap repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           repository: ${{ needs.update-tap.outputs.tap_repo }}
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
