@@ -570,6 +570,7 @@ def promote_staged_extension_dir(validated: ValidatedStagedExtension) -> Path:
             staging_dir,
             final_dir,
             expected_snapshot=validated.staging_snapshot,
+            expected_staging_identity=validated.staging_dir_identity,
             validate_staging=_validate_for_promotion,
             lock_dir=staging_dir.parent / f".{expected_final_dir_name}.lock",
         )

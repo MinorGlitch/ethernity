@@ -148,6 +148,32 @@ class TestArtifactPublish(unittest.TestCase):
             self.assertFalse(staging_dir.exists())
             self.assertTrue((final_dir / "qr_document.pdf").is_file())
 
+    def test_promote_rejects_parent_replacement_before_rename(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "publish"
+            moved_root = Path(tmpdir) / "moved-publish"
+            root.mkdir()
+            final_dir = root / "backup-deadbeef"
+            staging_dir = create_sibling_staging_dir(final_dir)
+            (staging_dir / "qr_document.pdf").write_bytes(b"qr")
+
+            def _replace_parent() -> None:
+                try:
+                    root.rename(moved_root)
+                    root.mkdir()
+                except OSError as exc:
+                    self.skipTest(f"parent replacement unavailable: {exc}")
+
+            with self.assertRaisesRegex(ValueError, "parent changed before promotion"):
+                promote_staged_artifact_dir(
+                    staging_dir,
+                    final_dir,
+                    validate_promotion=_replace_parent,
+                )
+
+            self.assertFalse(final_dir.exists())
+            self.assertTrue((moved_root / staging_dir.name / "qr_document.pdf").is_file())
+
     def test_publish_staged_artifacts_cleans_up_on_keyboard_interrupt(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             final_dir = Path(tmpdir) / "backup-deadbeef"

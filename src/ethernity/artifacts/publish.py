@@ -121,10 +121,16 @@ def promote_staged_artifact_dir(
 
     staging_path = Path(staging_dir).expanduser()
     final_path = Path(final_dir).expanduser()
+    staging_parent_identity = _directory_identity_or_none(staging_path.parent)
+    final_parent_identity = _directory_identity_or_none(final_path.parent)
     if staging_path.is_symlink():
         raise ValueError("validated staging_dir must not be a symlink")
     if not staging_path.exists() or not staging_path.is_dir():
         raise ValueError("validated staging_dir no longer exists")
+    if staging_parent_identity is None:
+        raise ValueError("validated staging_dir parent no longer exists")
+    if final_parent_identity is None:
+        raise ValueError("final artifact directory parent does not exist")
     if final_path.exists() or final_path.is_symlink():
         raise ValueError(f"final artifact directory already exists: {final_path.name}")
 
@@ -157,11 +163,91 @@ def promote_staged_artifact_dir(
             raise ValueError("validated staging_dir artifacts changed before promotion")
         if validate_promotion is not None:
             validate_promotion()
-        staging_path.rename(final_path)
+        _rename_validated_staging_dir(
+            staging_path,
+            final_path,
+            expected_staging_identity=expected_staging_identity,
+            expected_staging_parent_identity=staging_parent_identity,
+            expected_final_parent_identity=final_parent_identity,
+        )
     finally:
         with suppress(OSError):
             resolved_lock_dir.rmdir()
     return final_path
+
+
+def _rename_validated_staging_dir(
+    staging_path: Path,
+    final_path: Path,
+    *,
+    expected_staging_identity: DirectoryIdentity | None,
+    expected_staging_parent_identity: DirectoryIdentity,
+    expected_final_parent_identity: DirectoryIdentity,
+) -> None:
+    if _directory_identity_or_none(staging_path.parent) != expected_staging_parent_identity:
+        raise ValueError("validated staging_dir parent changed before promotion")
+    if _directory_identity_or_none(final_path.parent) != expected_final_parent_identity:
+        raise ValueError("final artifact directory parent changed before promotion")
+    if final_path.exists() or final_path.is_symlink():
+        raise ValueError(f"final artifact directory already exists: {final_path.name}")
+    if (
+        expected_staging_identity is not None
+        and _directory_identity_or_none(staging_path) != expected_staging_identity
+    ):
+        raise ValueError("validated staging_dir changed before promotion")
+
+    if _supports_fd_relative_rename():
+        _rename_validated_staging_dir_fd(
+            staging_path,
+            final_path,
+            expected_staging_identity=expected_staging_identity,
+            expected_staging_parent_identity=expected_staging_parent_identity,
+            expected_final_parent_identity=expected_final_parent_identity,
+        )
+    else:
+        staging_path.rename(final_path)
+
+    promoted_identity = _directory_identity_or_none(final_path)
+    if expected_staging_identity is not None and promoted_identity != expected_staging_identity:
+        raise ValueError(
+            "promoted artifact directory identity does not match validated staging_dir"
+        )
+
+
+def _rename_validated_staging_dir_fd(
+    staging_path: Path,
+    final_path: Path,
+    *,
+    expected_staging_identity: DirectoryIdentity | None,
+    expected_staging_parent_identity: DirectoryIdentity,
+    expected_final_parent_identity: DirectoryIdentity,
+) -> None:
+    source_parent_fd = _open_directory_fd(staging_path.parent)
+    try:
+        final_parent_fd = _open_directory_fd(final_path.parent)
+        try:
+            if _directory_identity_from_fd(source_parent_fd) != expected_staging_parent_identity:
+                raise ValueError("validated staging_dir parent changed before promotion")
+            if _directory_identity_from_fd(final_parent_fd) != expected_final_parent_identity:
+                raise ValueError("final artifact directory parent changed before promotion")
+            if (
+                expected_staging_identity is not None
+                and _directory_child_identity_or_none(staging_path.name, source_parent_fd)
+                != expected_staging_identity
+            ):
+                raise ValueError("validated staging_dir changed before promotion")
+            if _directory_child_identity_or_none(final_path.name, final_parent_fd) is not None:
+                raise ValueError(f"final artifact directory already exists: {final_path.name}")
+            os.rename(
+                staging_path.name,
+                final_path.name,
+                src_dir_fd=source_parent_fd,
+                dst_dir_fd=final_parent_fd,
+            )
+        finally:
+            os.close(final_parent_fd)
+    finally:
+        os.close(source_parent_fd)
 
 
 def snapshot_artifact_dir(staging_dir: str | Path) -> ArtifactSnapshot:
@@ -213,6 +299,32 @@ def _directory_identity_or_none(path: Path) -> DirectoryIdentity | None:
     except OSError:
         return None
     return (stat_result.st_dev, stat_result.st_ino)
+
+
+def _directory_child_identity_or_none(name: str, parent_fd: int) -> DirectoryIdentity | None:
+    try:
+        stat_result = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except OSError:
+        return None
+    return (stat_result.st_dev, stat_result.st_ino)
+
+
+def _directory_identity_from_fd(fd: int) -> DirectoryIdentity:
+    stat_result = os.fstat(fd)
+    return (stat_result.st_dev, stat_result.st_ino)
+
+
+def _open_directory_fd(path: Path) -> int:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    return os.open(path, flags)
+
+
+def _supports_fd_relative_rename() -> bool:
+    return os.rename in os.supports_dir_fd and os.stat in os.supports_dir_fd
 
 
 def _harden_dir_permissions(path: Path) -> None:

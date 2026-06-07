@@ -400,6 +400,31 @@ class TestExtensionStaging(unittest.TestCase):
             self.assertTrue((Path(tmpdir) / "extension-02-deadbeefcafebabe").is_dir())
             self.assertFalse((Path(tmpdir) / "extension-02-cafebabedeadbeef").exists())
 
+    def test_promote_passes_staging_identity_to_artifact_publisher(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            staging_dir = create_extension_staging_dir(tmpdir, index=1, nonce="abc123")
+            self._write(staging_dir / "qr_document-01-deadbeefcafebabe.pdf")
+            self._write(staging_dir / "recovery_document-01-deadbeefcafebabe.pdf")
+            validated = validate_staged_extension_dir(
+                staging_dir,
+                expected_index=1,
+                publish_policy=ExtensionPublishPolicy(),
+            )
+            expected_final = Path(tmpdir) / "extensions" / "01"
+
+            with mock.patch(
+                "ethernity.extensions.staging.promote_staged_artifact_dir",
+                return_value=expected_final,
+            ) as promote_mock:
+                final_dir = promote_staged_extension_dir(validated)
+
+        self.assertEqual(final_dir, expected_final)
+        promote_mock.assert_called_once()
+        self.assertEqual(
+            promote_mock.call_args.kwargs["expected_staging_identity"],
+            validated.staging_dir_identity,
+        )
+
     def test_promote_rejects_regular_file_swap_after_validation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             staging_dir = create_extension_staging_dir(tmpdir, index=1, nonce="abc123")
