@@ -489,6 +489,7 @@ def _build_loose_scan_append_chain(
         source_dir=source,
         root_dir=loose_chain,
         passphrase=PASS_PHRASE,
+        extra_args=("--allow-stale-head",),
         scans=(root_scan, ext1_scan),
     )
     states["extension_02"] = _hash_tree(source)

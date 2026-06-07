@@ -118,19 +118,32 @@ function buildExtensionEnvelopeBytes({ headerBytes = validExtensionHeaderBytes()
   return buildEnvelope(EXTENSION_ENVELOPE_VERSION, headerBytes, bodyBytes);
 }
 
+function buildEnvelopeWithVersionBytes(versionBytes, firstSection, secondSection) {
+  return concatBytes([
+    Uint8Array.from(ENVELOPE_MAGIC),
+    versionBytes,
+    encodeUvarint(firstSection.length),
+    firstSection,
+    encodeUvarint(secondSection.length),
+    secondSection,
+  ]);
+}
+
+function validExtensionHeaderMap() {
+  return new Map([
+    [1, 1],
+    [2, 1],
+    [4, new Uint8Array(32).fill(1)],
+    [5, new Uint8Array(32).fill(2)],
+    [7, 1_700_000_100],
+    [10, [1, CHUNKING.targetSize, CHUNKING.minSize, CHUNKING.maxSize]],
+    [11, "file"],
+    [12, []],
+  ]);
+}
+
 function validExtensionHeaderBytes() {
-  return encodeCbor(
-    new Map([
-      [1, 1],
-      [2, 1],
-      [4, new Uint8Array(32).fill(1)],
-      [5, new Uint8Array(32).fill(2)],
-      [7, 1_700_000_100],
-      [10, [1, CHUNKING.targetSize, CHUNKING.minSize, CHUNKING.maxSize]],
-      [11, "file"],
-      [12, []],
-    ]),
-  );
+  return encodeCbor(validExtensionHeaderMap());
 }
 
 function validExtensionBodyBytes() {
@@ -405,6 +418,85 @@ test("extension envelope rejects float-typed integer fields", async () => {
   await assert.rejects(
     () => decodeExtensionEnvelope(envelope),
     /extension header version must be an int/,
+  );
+});
+
+test("extension envelope rejects malformed header and body key sets", async () => {
+  const headerWithUnknownKey = validExtensionHeaderMap();
+  headerWithUnknownKey.set(99, true);
+  const headerMissingInputRoots = validExtensionHeaderMap();
+  headerMissingInputRoots.delete(12);
+  const validData = new TextEncoder().encode("x");
+  const validChunkId = sha256(validData);
+  const validFile = ["a.txt", validData.length, sha256(validData), null, [[validChunkId, 1]]];
+  const validChunk = [validChunkId, 0, validData.length, validData];
+  const cases = [
+    {
+      name: "non-map header",
+      headerBytes: encodeCbor([]),
+      bodyBytes: validExtensionBodyBytes(),
+      pattern: /extension header must be a map/,
+    },
+    {
+      name: "unknown header key",
+      headerBytes: encodeCbor(headerWithUnknownKey),
+      bodyBytes: validExtensionBodyBytes(),
+      pattern: /extension header contains unknown keys/,
+    },
+    {
+      name: "missing required header key",
+      headerBytes: encodeCbor(headerMissingInputRoots),
+      bodyBytes: validExtensionBodyBytes(),
+      pattern: /extension header key 12 is required/,
+    },
+    {
+      name: "unknown body key",
+      headerBytes: validExtensionHeaderBytes(),
+      bodyBytes: encodeCbor(
+        new Map([
+          [1, [validFile]],
+          [2, [validChunk]],
+          [99, []],
+        ]),
+      ),
+      pattern: /extension body contains unknown keys/,
+    },
+    {
+      name: "missing body key",
+      headerBytes: validExtensionHeaderBytes(),
+      bodyBytes: encodeCbor(new Map([[1, [validFile]]])),
+      pattern: /extension body files and chunks are required/,
+    },
+  ];
+
+  for (const testCase of cases) {
+    const envelope = buildExtensionEnvelopeBytes({
+      headerBytes: testCase.headerBytes,
+      bodyBytes: testCase.bodyBytes,
+    });
+
+    await assert.rejects(() => decodeExtensionEnvelope(envelope), testCase.pattern, testCase.name);
+  }
+});
+
+test("extension envelope rejects non-canonical envelope and CBOR encodings", async () => {
+  const nonCanonicalVersionEnvelope = buildEnvelopeWithVersionBytes(
+    Uint8Array.of(0x82, 0x00),
+    validExtensionHeaderBytes(),
+    validExtensionBodyBytes(),
+  );
+  const nonCanonicalHeader = buildExtensionEnvelopeBytes({
+    headerBytes: extensionHeaderWithVersionBytes(Uint8Array.of(0x18, 0x01)),
+    bodyBytes: validExtensionBodyBytes(),
+  });
+
+  await assert.rejects(
+    () => decodeExtensionEnvelope(nonCanonicalVersionEnvelope),
+    /non-canonical varint/,
+  );
+  await assert.rejects(
+    () => decodeExtensionEnvelope(nonCanonicalHeader),
+    /canonical CBOR encoding/,
   );
 });
 
