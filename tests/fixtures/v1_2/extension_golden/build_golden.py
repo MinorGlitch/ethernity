@@ -209,6 +209,7 @@ def _extend(
     unlock_policy: str | None = None,
     signing_key_shards: bool = False,
     design: str = "forge",
+    extra_args: tuple[str, ...] = (),
 ) -> None:
     args = [
         "extend",
@@ -243,6 +244,7 @@ def _extend(
                 "2",
             ]
         )
+    args.extend(extra_args)
     _run_cli(repo_root, args, config_path=config_path, xdg_home=xdg_home)
 
 

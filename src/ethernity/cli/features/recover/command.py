@@ -59,6 +59,9 @@ def register(app: typer.Typer) -> None:
             "--shard-scan shard-02.pdf --output recovered.bin\n"
             "  ethernity recover --fallback-file recovery.txt --output recovered.bin\n"
             "  ethernity recover --payloads-file qr_payloads.txt\n"
+            "  ethernity recover --scan ./backup-root --extension-index 0\n"
+            "  ethernity recover --scan ./backup-root --extension-doc-hash <64-hex-hash>\n"
+            "  ethernity recover --scan ./backup-root --expected-head-doc-hash <64-hex-hash>\n"
         )
     )(recover)
 

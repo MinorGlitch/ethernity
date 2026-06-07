@@ -1,17 +1,17 @@
 {
   "artifact_hashes": {
-    "chain/extensions/01/qr_document-01-94faaa261ae97e70.pdf": "322c75049eef22759054de629dd2438b1eaa602308496ddd97205b92c1fbe9d1",
-    "chain/extensions/01/recovery_document-01-94faaa261ae97e70.pdf": "59ad0adff9427de2ed9c7ef7cd20a2de68fdf5d0983bcceae58664a9d2611634",
-    "chain/extensions/01/recovery_kit_index-01-94faaa261ae97e70.pdf": "e8d0fa3918009863b0f4443752e801322e968a8dbc12c9b3164663f534636b0f",
-    "chain/qr_document.pdf": "a88d3d4c6d69ea56c55e778aa652d26d1925f5fa2e01765ed89ce2c9799ee503",
-    "chain/recovery_document.pdf": "67cb5181862b4a1aff19c294eb010ffc46c6c65bdd84207afe46e84764a61c27",
-    "chain/recovery_kit_index.pdf": "0f874af8cf3106b573d209a0ca82acef43510bc3d3d43017a4ea6689594a21a4",
-    "chain_payloads.bin": "9388ef793d58d5037546f5159cd23e7ec5f7c09d4dfe02b882eb5f5ba3a20752",
-    "chain_payloads.txt": "639fac00c3051e9b2fddb99e89de2757a71c310a77b90316c0c9802a9f31d725",
-    "extension_01_payloads.bin": "86d46ac58d4ae6fe04fd3bf305cb417570265f7156e6a91802f166e1b69dbe5c",
-    "extension_01_payloads.txt": "28f5adf39a50c3d4266a95daefc448d167f4fe2b59b0a52d9f1f8dd040a56bb3",
-    "root_payloads.bin": "b43d0f96d4ee82696482c750593498da1aa813a30fe2bf052f63f6bacdcba482",
-    "root_payloads.txt": "e7c2b294007ba321814a20476ee6408c376dfd249003fd26d291e27613ff4478"
+    "chain/extensions/01/qr_document-01-4a0b046ba30a3141.pdf": "31541a04e9affc6fbfa30a6cc952d18185ffb586a7df343e29d00aa703ef3e7b",
+    "chain/extensions/01/recovery_document-01-4a0b046ba30a3141.pdf": "c2f71cc095e4427d1840d5351b80e177ec16b5fefe7806bfee727bd29ea357bf",
+    "chain/extensions/01/recovery_kit_index-01-4a0b046ba30a3141.pdf": "b8fe96c812a56c6bf50641a4ce8a96099ce9d46921dff25c421691231f803375",
+    "chain/qr_document.pdf": "a2b64f380c36de4defd22122ed046406548ccf3960127f7afc83d7570ac96423",
+    "chain/recovery_document.pdf": "ed5cce528b0caedf61880351ed5a12c4f70240093208fda7d803b9efcb14f00c",
+    "chain/recovery_kit_index.pdf": "3cc11e0ffc7a60a13d9da56124e8e94134d4fe3a201e2dec87056a0759323934",
+    "chain_payloads.bin": "8acc3584ca2b4da125cb8110d71fb0f74eeb2d6f75c137292a976c5d8caa3f86",
+    "chain_payloads.txt": "b0dadd6e86151651f261abcf5066aadc49de5019beecb2ada1d0c44436f8226f",
+    "extension_01_payloads.bin": "6ebd66b621604c970ccce742efa8a5e2fa6acb8ffd7d999e08a2b923fa055b13",
+    "extension_01_payloads.txt": "711ff471844385fbaa3fa8172e5658150f3ff4de9fc26af0d663bba936bc793e",
+    "root_payloads.bin": "e8300b047e499da4702872aaa157334f1045d308c0108fe537d17eb8f84abc3d",
+    "root_payloads.txt": "b7c792bb8cec5e03986bf23ffbbf91bf825f68f0b01c4864c491a902ffb93723"
   },
   "chain_dir": "chain",
   "checks": [
@@ -30,8 +30,8 @@
           "stored_len": 154
         }
       ],
-      "doc_hash": "94faaa261ae97e70185baca0fa4929fc64386b8ed6ee1bd72c1cdcab381c7dda",
-      "doc_id": "94faaa261ae97e70",
+      "doc_hash": "4a0b046ba30a31411a61bc1838e465dfb132c64db4400aab6a78a671bfe7a4d3",
+      "doc_id": "4a0b046ba30a3141",
       "files": [
         {
           "path": "alpha.txt",
@@ -46,12 +46,12 @@
       ],
       "index": 1,
       "kind": "extension",
-      "parent_doc_hash": "6599518a7f536206ad67808b6659e0e6d367493b49828366e9ae3b9b079d267f",
-      "root_doc_hash": "6599518a7f536206ad67808b6659e0e6d367493b49828366e9ae3b9b079d267f"
+      "parent_doc_hash": "aa9813172990fa3c4346644cdc911ea3af60139cdb8c2caeadb733bd032987ca",
+      "root_doc_hash": "aa9813172990fa3c4346644cdc911ea3af60139cdb8c2caeadb733bd032987ca"
     },
     {
-      "doc_hash": "6599518a7f536206ad67808b6659e0e6d367493b49828366e9ae3b9b079d267f",
-      "doc_id": "6599518a7f536206",
+      "doc_hash": "aa9813172990fa3c4346644cdc911ea3af60139cdb8c2caeadb733bd032987ca",
+      "doc_id": "aa9813172990fa3c",
       "files": [
         {
           "path": "alpha.txt",
@@ -76,7 +76,7 @@
     }
   ],
   "extension_doc_hashes": {
-    "extension_01": "94faaa261ae97e70185baca0fa4929fc64386b8ed6ee1bd72c1cdcab381c7dda"
+    "extension_01": "4a0b046ba30a31411a61bc1838e465dfb132c64db4400aab6a78a671bfe7a4d3"
   },
   "passphrase": "stable-v1_2-extension-passphrase",
   "payload_fixtures": {
@@ -98,7 +98,7 @@
   },
   "profile": "raw",
   "qr_payload_codec": "raw",
-  "root_doc_hash": "6599518a7f536206ad67808b6659e0e6d367493b49828366e9ae3b9b079d267f",
+  "root_doc_hash": "aa9813172990fa3c4346644cdc911ea3af60139cdb8c2caeadb733bd032987ca",
   "scan_paths": [
     "chain"
   ],

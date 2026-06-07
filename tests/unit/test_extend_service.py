@@ -1104,10 +1104,10 @@ class TestExtendService(unittest.TestCase):
                         text="\n".join(
                             [
                                 "Recovery Kit Index",
-                                "QR-DOC-01",
-                                "RECOVERY-DOC-01",
-                                "SHARD-01",
-                                "SHARD-02",
+                                "EXT-02-QR-DOC-01",
+                                "EXT-02-RECOVERY-DOC-01",
+                                "EXT-02-SHARD-01",
+                                "EXT-02-SHARD-02",
                             ]
                         ),
                     )
@@ -1499,8 +1499,8 @@ class TestExtendService(unittest.TestCase):
                         publish.encrypted.doc_id.hex(),
                         "Extension 02",
                         "ROOT-BACKUP",
-                        "QR-DOC-01",
-                        "RECOVERY-DOC-01",
+                        "EXT-02-QR-DOC-01",
+                        "EXT-02-RECOVERY-DOC-01",
                     ]
                 ),
             )
@@ -1551,8 +1551,8 @@ class TestExtendService(unittest.TestCase):
                         "Recovery Kit Index",
                         "wrong-doc-id",
                         "Extension 02",
-                        "QR-DOC-01",
-                        "RECOVERY-DOC-01",
+                        "EXT-02-QR-DOC-01",
+                        "EXT-02-RECOVERY-DOC-01",
                     ]
                 ),
             )

@@ -109,6 +109,7 @@ def build_kit_index_inputs(
         *build_kit_index_inventory_rows(
             shard_payloads=list(passphrase_shards),
             signing_key_shard_payloads=list(signing_key_shards),
+            component_id_prefix=f"EXT-{plan.prepared.next_index:02d}-",
         ),
     ]
     context = render_service.base_context(

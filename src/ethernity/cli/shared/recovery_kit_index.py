@@ -58,17 +58,18 @@ def build_recovery_kit_index_inventory_rows(
     *,
     shard_payloads: list[ShardPayload],
     signing_key_shard_payloads: list[ShardPayload],
+    component_id_prefix: str = "",
 ) -> list[dict[str, str]]:
     """Build inventory rows for the optional recovery kit index document."""
 
     rows = [
         {
-            "component_id": "QR-DOC-01",
+            "component_id": f"{component_id_prefix}QR-DOC-01",
             "detail": "Encrypted payload and auth QR frames",
             "status": "Generated",
         },
         {
-            "component_id": "RECOVERY-DOC-01",
+            "component_id": f"{component_id_prefix}RECOVERY-DOC-01",
             "detail": "Recovery keys and full fallback text",
             "status": "Generated",
         },
@@ -78,7 +79,7 @@ def build_recovery_kit_index_inventory_rows(
         for shard in sorted(shard_payloads, key=lambda item: item.share_index):
             rows.append(
                 {
-                    "component_id": f"SHARD-{shard.share_index:02d}",
+                    "component_id": f"{component_id_prefix}SHARD-{shard.share_index:02d}",
                     "detail": (f"Passphrase shard {shard.share_index} of {shard.share_count}"),
                     "status": "Generated",
                 }
@@ -88,7 +89,7 @@ def build_recovery_kit_index_inventory_rows(
         for shard in sorted(signing_key_shard_payloads, key=lambda item: item.share_index):
             rows.append(
                 {
-                    "component_id": f"SIGNING-SHARD-{shard.share_index:02d}",
+                    "component_id": (f"{component_id_prefix}SIGNING-SHARD-{shard.share_index:02d}"),
                     "detail": (f"Signing-key shard {shard.share_index} of {shard.share_count}"),
                     "status": "Generated",
                 }

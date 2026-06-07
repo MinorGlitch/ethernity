@@ -253,21 +253,22 @@ def expected_recovery_kit_index_component_ids(
     *,
     root_passphrase_shards_required: bool = False,
 ) -> tuple[str, ...]:
+    extension_prefix = f"EXT-{plan.prepared.next_index:02d}-"
     component_ids = [
         plan.encrypted.doc_id.hex(),
         f"Extension {plan.prepared.next_index:02d}",
         "ROOT-BACKUP",
-        "QR-DOC-01",
-        "RECOVERY-DOC-01",
+        f"{extension_prefix}QR-DOC-01",
+        f"{extension_prefix}RECOVERY-DOC-01",
     ]
     if root_passphrase_shards_required or plan.prepared.args.unlock_policy == "reuse-root":
         component_ids.append("ROOT-SHARDS")
     component_ids.extend(
-        f"SHARD-{share_index:02d}"
+        f"{extension_prefix}SHARD-{share_index:02d}"
         for share_index in range(1, plan.publish_policy.passphrase_shard_count + 1)
     )
     component_ids.extend(
-        f"SIGNING-SHARD-{share_index:02d}"
+        f"{extension_prefix}SIGNING-SHARD-{share_index:02d}"
         for share_index in range(1, plan.publish_policy.signing_key_shard_count + 1)
     )
     return tuple(component_ids)
