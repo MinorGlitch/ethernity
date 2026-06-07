@@ -463,13 +463,18 @@ def frames_from_scan(
         raise ValueError("no QR payloads found; check the scan path and image quality")
     frames: list[Frame] = []
     errors: list[str] = []
+    explicit_sources: set[Path] = set()
+    explicit_frames_by_source: dict[Path, list[Frame]] = {}
+    explicit_errors_by_source: dict[Path, list[str]] = {}
     extension_carrier_sources: set[Path] = set()
     extension_frames_by_source: dict[Path, list[Frame]] = {}
     extension_errors_by_source: dict[Path, list[str]] = {}
     for idx, payload in enumerate(payloads, start=1):
         source_path = payload.source_path
-        is_extension_carrier = (
-            include_extension_carriers and is_published_extension_payload_carrier(source_path)
+        if payload.source_is_explicit:
+            explicit_sources.add(source_path)
+        is_extension_carrier = is_published_extension_payload_carrier(source_path) and (
+            include_extension_carriers or payload.source_is_explicit
         )
         if is_extension_carrier:
             extension_carrier_sources.add(source_path)
@@ -477,10 +482,14 @@ def frames_from_scan(
             frame = _frame_from_scanned_payload(payload.data)
         except ValueError as exc:
             errors.append(f"#{idx}: {exc}")
+            if payload.source_is_explicit:
+                explicit_errors_by_source.setdefault(source_path, []).append(str(exc))
             if is_extension_carrier:
                 extension_errors_by_source.setdefault(source_path, []).append(str(exc))
             continue
         frames.append(frame)
+        if payload.source_is_explicit:
+            explicit_frames_by_source.setdefault(source_path, []).append(frame)
         if is_extension_carrier:
             extension_frames_by_source.setdefault(source_path, []).append(frame)
     _require_valid_published_extension_carriers(
@@ -488,12 +497,37 @@ def frames_from_scan(
         frames_by_source=extension_frames_by_source,
         errors_by_source=extension_errors_by_source,
     )
+    _require_valid_explicit_scan_sources(
+        explicit_sources=explicit_sources,
+        frames_by_source=explicit_frames_by_source,
+        errors_by_source=explicit_errors_by_source,
+    )
     if not frames:
         if errors:
             detail = "; ".join(errors[:3])
             raise ValueError(f"invalid QR payloads ({len(errors)}): {detail}")
         raise ValueError("no QR payloads found; check the scan path and image quality")
     return frames
+
+
+def _require_valid_explicit_scan_sources(
+    *,
+    explicit_sources: set[Path],
+    frames_by_source: dict[Path, list[Frame]],
+    errors_by_source: dict[Path, list[str]],
+) -> None:
+    """Fail closed when an explicit scan file yields no valid frame or any invalid payload."""
+
+    for source_path in sorted(explicit_sources, key=str):
+        frames = frames_by_source.get(source_path, [])
+        errors = errors_by_source.get(source_path, [])
+        if errors:
+            details = _extension_carrier_error_details(errors)
+            raise ValueError(
+                f"explicit scan input yielded invalid QR payloads: {source_path}{details}"
+            )
+        if not frames:
+            raise ValueError(f"explicit scan input yielded no valid QR frames: {source_path}")
 
 
 def _require_valid_published_extension_carriers(

@@ -406,6 +406,26 @@ class TestFramesIo(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, r"invalid QR payloads \(2\)"):
                     frames_from_scan(["scan.png"])
 
+    def test_frames_from_scan_rejects_invalid_payload_from_explicit_source(self) -> None:
+        root_frame = self._frame(doc_id=b"\x31" * DOC_ID_LEN)
+        loose_extension = Path("wallet-extension-one.pdf")
+        with mock.patch(
+            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            return_value=[
+                ScannedQrPayload(data=encode_frame(root_frame), source_path=Path("root.pdf")),
+                ScannedQrPayload(
+                    data=b"bad-extension",
+                    source_path=loose_extension,
+                    source_is_explicit=True,
+                ),
+            ],
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                "explicit scan input yielded invalid QR payloads",
+            ):
+                frames_from_scan(["root.pdf", str(loose_extension)])
+
     def test_frames_from_scan_accepts_raw_frame_bytes(self) -> None:
         frame = self._frame(frame_type=FrameType.AUTH, doc_id=b"\x31" * DOC_ID_LEN, data=b"auth")
         with mock.patch(
@@ -448,6 +468,26 @@ class TestFramesIo(unittest.TestCase):
                 "published extension carrier did not yield a valid extension MAIN/AUTH document",
             ):
                 frames_from_scan(["root"])
+
+    def test_frames_from_scan_validates_explicit_extension_carrier_when_excluded(self) -> None:
+        extension_doc_id = bytes.fromhex("deadbeefcafebabe")
+        extension_path = Path("root/extensions/01/qr_document-01-deadbeefcafebabe.pdf")
+        extension_main = self._frame(doc_id=extension_doc_id)
+        with mock.patch(
+            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            return_value=[
+                ScannedQrPayload(
+                    data=encode_frame(extension_main),
+                    source_path=extension_path,
+                    source_is_explicit=True,
+                ),
+            ],
+        ):
+            with self.assertRaisesRegex(
+                ValueError,
+                "published extension carrier did not yield a valid extension MAIN/AUTH document",
+            ):
+                frames_from_scan([str(extension_path)], include_extension_carriers=False)
 
     def test_frames_from_scan_accepts_valid_published_extension_carrier(self) -> None:
         extension_doc_id = bytes.fromhex("deadbeefcafebabe")

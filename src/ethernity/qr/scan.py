@@ -73,6 +73,15 @@ class ScannedQrPayload:
 
     data: bytes
     source_path: Path
+    source_is_explicit: bool = False
+
+
+@dataclass(frozen=True)
+class _ScanInput:
+    """Internal scan path plus whether the user supplied the file directly."""
+
+    path: Path
+    explicit: bool
 
 
 __all__ = [
@@ -172,11 +181,12 @@ def scan_qr_payloads_with_sources(
     decoder = _load_decoder()
     payloads: list[ScannedQrPayload] = []
     scan_file_count = 0
-    for path in _expand_paths(
+    for scan_input in _expand_paths(
         paths,
         include_extension_carriers=include_extension_carriers,
         extension_carrier_max_index=extension_carrier_max_index,
     ):
+        path = scan_input.path
         scan_file_count += 1
         if scan_file_count > MAX_SCAN_INPUT_FILES:
             raise QrScanError(f"scan inputs exceed MAX_SCAN_INPUT_FILES ({MAX_SCAN_INPUT_FILES})")
@@ -187,12 +197,19 @@ def scan_qr_payloads_with_sources(
             and not source_payloads
         ):
             raise QrScanError(f"published extension carrier contains no QR codes: {path}")
+        if scan_input.explicit and not source_payloads:
+            raise QrScanError(f"explicit scan input contains no QR codes: {path}")
         if len(payloads) + len(source_payloads) > MAX_SCAN_QR_PAYLOADS:
             raise QrScanError(
                 f"decoded QR payloads exceed MAX_SCAN_QR_PAYLOADS ({MAX_SCAN_QR_PAYLOADS})"
             )
         payloads.extend(
-            ScannedQrPayload(data=bytes(payload), source_path=path) for payload in source_payloads
+            ScannedQrPayload(
+                data=bytes(payload),
+                source_path=path,
+                source_is_explicit=scan_input.explicit,
+            )
+            for payload in source_payloads
         )
 
     if not payloads:
@@ -315,7 +332,7 @@ def _expand_paths(
     *,
     include_extension_carriers: bool = True,
     extension_carrier_max_index: int | None = None,
-) -> Iterable[Path]:
+) -> Iterable[_ScanInput]:
     """Expand path inputs, recursing into directories for supported scan files."""
 
     for raw in paths:
@@ -332,11 +349,9 @@ def _expand_paths(
             )
             if not scan_files:
                 raise QrScanError(f"no scan files found in directory: {path}")
-            yield from scan_files
+            yield from (_ScanInput(path=scan_file, explicit=False) for scan_file in scan_files)
         else:
-            if _is_published_extension_after_max_index(path, extension_carrier_max_index):
-                continue
-            yield path
+            yield _ScanInput(path=path, explicit=True)
 
 
 def _iter_scan_files(

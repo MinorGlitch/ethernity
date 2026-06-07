@@ -532,6 +532,86 @@ class TestQrScanMore(unittest.TestCase):
 
         self.assertEqual(payloads, [b"root"])
 
+    def test_scan_qr_payloads_rejects_blank_explicit_scan_file(self) -> None:
+        decoder = QrDecoder(
+            name="dummy", decode_image_path=lambda _: [], decode_image_bytes=lambda _: []
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            root_pdf = root / "root.pdf"
+            loose_extension_pdf = root / "wallet-extension-one.pdf"
+            root_pdf.write_bytes(b"%PDF-1.7\n")
+            loose_extension_pdf.write_bytes(b"%PDF-1.7\n")
+
+            def fake_scan_pdf(path: Path, _decoder: QrDecoder) -> list[bytes]:
+                if path == root_pdf:
+                    return [b"root"]
+                return []
+
+            with (
+                mock.patch.object(qr_scan, "_load_decoder", return_value=decoder),
+                mock.patch.object(qr_scan, "_scan_pdf", side_effect=fake_scan_pdf),
+                self.assertRaisesRegex(QrScanError, "explicit scan input contains no QR codes"),
+            ):
+                qr_scan.scan_qr_payloads([root_pdf, loose_extension_pdf])
+
+    def test_scan_qr_payloads_scans_explicit_published_extension_for_root_only(self) -> None:
+        decoder = QrDecoder(
+            name="dummy", decode_image_path=lambda _: [], decode_image_bytes=lambda _: []
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            root_pdf = root / "qr_document.pdf"
+            root_pdf.write_bytes(b"%PDF-1.7\n")
+            extension_dir = root / "extensions" / "01"
+            extension_dir.mkdir(parents=True)
+            extension_pdf = extension_dir / "qr_document-01-deadbeefcafebabe.pdf"
+            extension_pdf.write_bytes(b"%PDF-1.7\n")
+            scanned: list[str] = []
+
+            def fake_scan_pdf(path: Path, _decoder: QrDecoder) -> list[bytes]:
+                scanned.append(path.relative_to(root).as_posix())
+                return [path.name.encode("utf-8")]
+
+            with (
+                mock.patch.object(qr_scan, "_load_decoder", return_value=decoder),
+                mock.patch.object(qr_scan, "_scan_pdf", side_effect=fake_scan_pdf),
+            ):
+                payloads = qr_scan.scan_qr_payloads(
+                    [root_pdf, extension_pdf],
+                    include_extension_carriers=False,
+                )
+
+        self.assertEqual(
+            payloads,
+            [root_pdf.name.encode("utf-8"), extension_pdf.name.encode("utf-8")],
+        )
+        self.assertEqual(
+            scanned, ["qr_document.pdf", "extensions/01/qr_document-01-deadbeefcafebabe.pdf"]
+        )
+
+    def test_scan_qr_payloads_scans_explicit_published_extension_after_max_index(self) -> None:
+        decoder = QrDecoder(
+            name="dummy", decode_image_path=lambda _: [], decode_image_bytes=lambda _: []
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            extension_dir = root / "extensions" / "02"
+            extension_dir.mkdir(parents=True)
+            extension_pdf = extension_dir / "qr_document-02-deadbeefcafebabe.pdf"
+            extension_pdf.write_bytes(b"%PDF-1.7\n")
+
+            with (
+                mock.patch.object(qr_scan, "_load_decoder", return_value=decoder),
+                mock.patch.object(qr_scan, "_scan_pdf", return_value=[b"explicit"]),
+            ):
+                payloads = qr_scan.scan_qr_payloads(
+                    [extension_pdf],
+                    extension_carrier_max_index=1,
+                )
+
+        self.assertEqual(payloads, [b"explicit"])
+
     def test_explicit_staging_carrier_file_remains_a_scan_input(self) -> None:
         decoder = QrDecoder(
             name="dummy", decode_image_path=lambda _: [], decode_image_bytes=lambda _: []
