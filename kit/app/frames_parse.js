@@ -197,14 +197,19 @@ function parseFallbackText(state, text) {
     throw new Error("unexpected content before the first marked fallback section");
   }
   const target = sections.main.length ? sections.main : sections.any;
-  const filtered = filterZBase32Lines(target.join("\n"));
-  if (!filtered.length) {
+  let added = 0;
+  if (target.length) {
+    const filtered = filterZBase32Lines(target.join("\n"));
+    if (!filtered.length) {
+      throw new Error("no fallback lines found");
+    }
+    enforceFallbackLimits(filtered, "main");
+    const bytes = decodeZBase32(filtered.join(""));
+    const frame = decodeFrame(bytes);
+    added = addFrame(state, frame) ? 1 : 0;
+  } else if (!sections.auth.length) {
     throw new Error("no fallback lines found");
   }
-  enforceFallbackLimits(filtered, "main");
-  const bytes = decodeZBase32(filtered.join(""));
-  const frame = decodeFrame(bytes);
-  let added = addFrame(state, frame) ? 1 : 0;
   if (sections.auth.length) {
     try {
       const authLines = filterZBase32Lines(sections.auth.join("\n"));

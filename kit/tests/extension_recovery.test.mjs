@@ -948,13 +948,10 @@ test("browser encrypted recovery fails closed when a supplied document cannot de
     { path: "a.txt", data: new TextEncoder().encode("root") },
   ]);
   const root = documentFromPlaintext({
-    docId: ROOT_DOC_ID,
     ciphertextSeed: Uint8Array.of(0x16),
     plaintext: rootPlaintext,
   });
   const extension = {
-    docId: EXT1_DOC_ID,
-    docIdHex: bytesToHex(EXT1_DOC_ID),
     docHash: blake2b256(Uint8Array.of(0x26)),
     docHashHex: bytesToHex(blake2b256(Uint8Array.of(0x26))),
     ciphertext: Uint8Array.of(0x26),
@@ -983,12 +980,35 @@ test("browser encrypted recovery fails closed when a supplied document cannot de
   );
 });
 
+test("browser encrypted recovery rejects caller-supplied doc hash metadata", async () => {
+  const rootPlaintext = buildRootPlaintext([
+    { path: "a.txt", data: new TextEncoder().encode("root") },
+  ]);
+  const root = documentFromPlaintext({
+    ciphertextSeed: Uint8Array.of(0x56),
+    plaintext: rootPlaintext,
+  });
+  const tampered = {
+    ...root,
+    docHash: new Uint8Array(32).fill(0xaa),
+    docHashHex: "aa".repeat(32),
+  };
+
+  await assert.rejects(
+    () =>
+      recoverLatestFromEncryptedDocuments([tampered], "pw", async () => rootPlaintext, {
+        verifySignature: verifiedSignature,
+        extensionTarget: "root",
+      }),
+    /supplied doc_hash does not match derived ciphertext identity/,
+  );
+});
+
 test("browser encrypted recovery ignores later decrypt failures for an explicit index target", async () => {
   const rootPlaintext = buildRootPlaintext([
     { path: "a.txt", data: new TextEncoder().encode("root") },
   ]);
   const root = documentFromPlaintext({
-    docId: ROOT_DOC_ID,
     ciphertextSeed: Uint8Array.of(0x46),
     plaintext: rootPlaintext,
   });
@@ -999,13 +1019,10 @@ test("browser encrypted recovery ignores later decrypt failures for an explicit 
     files: [{ path: "a.txt", data: new TextEncoder().encode("one") }],
   });
   const ext1 = documentFromPlaintext({
-    docId: EXT1_DOC_ID,
     ciphertextSeed: Uint8Array.of(0x47),
     plaintext: ext1Plaintext,
   });
   const ext2 = {
-    docId: EXT2_DOC_ID,
-    docIdHex: bytesToHex(EXT2_DOC_ID),
     docHash: blake2b256(Uint8Array.of(0x48)),
     docHashHex: bytesToHex(blake2b256(Uint8Array.of(0x48))),
     ciphertext: Uint8Array.of(0x48),
@@ -1040,15 +1057,12 @@ test("browser encrypted recovery reports selected doc hash decrypt failure", asy
     { path: "a.txt", data: new TextEncoder().encode("root") },
   ]);
   const root = documentFromPlaintext({
-    docId: ROOT_DOC_ID,
     ciphertextSeed: Uint8Array.of(0x49),
     plaintext: rootPlaintext,
   });
   const extensionCiphertext = Uint8Array.of(0x4a);
   const extensionDocHash = blake2b256(extensionCiphertext);
   const extension = {
-    docId: EXT1_DOC_ID,
-    docIdHex: bytesToHex(EXT1_DOC_ID),
     docHash: extensionDocHash,
     docHashHex: bytesToHex(extensionDocHash),
     ciphertext: extensionCiphertext,
@@ -1083,13 +1097,10 @@ test("browser root-only encrypted recovery ignores a supplied extension decrypt 
     { path: "a.txt", data: new TextEncoder().encode("root") },
   ]);
   const root = documentFromPlaintext({
-    docId: ROOT_DOC_ID,
     ciphertextSeed: Uint8Array.of(0x1a),
     plaintext: rootPlaintext,
   });
   const extension = {
-    docId: EXT1_DOC_ID,
-    docIdHex: bytesToHex(EXT1_DOC_ID),
     docHash: blake2b256(Uint8Array.of(0x2a)),
     docHashHex: bytesToHex(blake2b256(Uint8Array.of(0x2a))),
     ciphertext: Uint8Array.of(0x2a),

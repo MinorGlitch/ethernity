@@ -36,13 +36,19 @@ function authPayloadFromJson(value) {
 
 function documentFromJson(value, index) {
   const ciphertext = bytesFromBase64(value?.ciphertext, `documents[${index}].ciphertext`);
-  const docHash = bytesFromBase64(value?.doc_hash, `documents[${index}].doc_hash`);
-  return {
+  const docHash =
+    value?.doc_hash === undefined || value?.doc_hash === null || value?.doc_hash === ""
+      ? null
+      : bytesFromBase64(value.doc_hash, `documents[${index}].doc_hash`);
+  const document = {
     ciphertext,
-    docHash,
-    docHashHex: bytesToHex(docHash),
     authPayload: authPayloadFromJson(value?.auth),
   };
+  if (docHash) {
+    document.docHash = docHash;
+    document.docHashHex = bytesToHex(docHash);
+  }
+  return document;
 }
 
 function extensionTargetFromJson(fixture) {

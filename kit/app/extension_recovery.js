@@ -16,8 +16,9 @@
  */
 
 import { sha256 } from "@noble/hashes/sha2.js";
-import { bytesEqual } from "../lib/encoding.js";
-import { EXTENSION_ENVELOPE_VERSION, ENVELOPE_VERSION } from "./constants.js";
+import { blake2b256 } from "../lib/blake2b.js";
+import { bytesEqual, bytesToHex } from "../lib/encoding.js";
+import { DOC_ID_LEN, EXTENSION_ENVELOPE_VERSION, ENVELOPE_VERSION } from "./constants.js";
 import { extractFiles, readEnvelopeVersion } from "./envelope.js";
 import {
   decodeExtensionEnvelope,
@@ -233,13 +234,21 @@ export async function recoverLatestFromEncryptedDocuments(
   const plaintextDocuments = [];
   const decryptErrors = [];
   for (const document of documents) {
+    let identifiedDocument = document;
     try {
-      plaintextDocuments.push({
+      const identity = deriveDocumentIdentityFromCiphertext(document);
+      identifiedDocument = {
         ...document,
-        plaintext: await decrypt(document.ciphertext, passphrase),
+        ...identity,
+      };
+      const plaintext = await decrypt(document.ciphertext, passphrase);
+      assertSuppliedDocumentIdentityMatches(document, identity);
+      plaintextDocuments.push({
+        ...identifiedDocument,
+        plaintext,
       });
     } catch (err) {
-      decryptErrors.push({ document, message: String(err) });
+      decryptErrors.push({ document: identifiedDocument, message: String(err) });
     }
   }
   for (const failure of decryptErrors) {
@@ -256,6 +265,49 @@ export async function recoverLatestFromEncryptedDocuments(
     extensionTarget: target,
   });
   return result;
+}
+
+function deriveDocumentIdentityFromCiphertext(document) {
+  if (!(document.ciphertext instanceof Uint8Array)) {
+    throw new Error("document ciphertext must be bytes");
+  }
+  const docHash = blake2b256(document.ciphertext);
+  const docHashHex = bytesToHex(docHash);
+  const docId = docHash.slice(0, DOC_ID_LEN);
+  return {
+    docHash,
+    docHashHex,
+    docId,
+    docIdHex: bytesToHex(docId),
+  };
+}
+
+function assertSuppliedDocumentIdentityMatches(document, identity) {
+  assertSuppliedBytesMatch(document.docHash, identity.docHash, "doc_hash");
+  assertSuppliedHexMatch(document.docHashHex, identity.docHashHex, "doc_hash_hex");
+  assertSuppliedBytesMatch(document.docId, identity.docId, "doc_id");
+  assertSuppliedHexMatch(document.docIdHex, identity.docIdHex, "doc_id_hex");
+}
+
+function assertSuppliedBytesMatch(value, expected, label) {
+  if (value === undefined || value === null) {
+    return;
+  }
+  if (!(value instanceof Uint8Array)) {
+    throw new Error(`supplied ${label} must be bytes`);
+  }
+  if (!bytesEqual(value, expected)) {
+    throw new Error(`supplied ${label} does not match derived ciphertext identity`);
+  }
+}
+
+function assertSuppliedHexMatch(value, expected, label) {
+  if (value === undefined || value === null || value === "") {
+    return;
+  }
+  if (String(value).toLowerCase() !== expected) {
+    throw new Error(`supplied ${label} does not match derived ciphertext identity`);
+  }
 }
 
 function syntheticManifestFromFiles(rootManifest, files) {

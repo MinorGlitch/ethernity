@@ -135,8 +135,21 @@ test("path validation and zip creation enforce safe relative paths", async () =>
 
 test("state helpers clone and reset mutable fields safely", () => {
   const state = createInitialState();
+  const shardPayload = {
+    share: Uint8Array.of(2),
+    docHash: Uint8Array.of(3),
+    signPub: Uint8Array.of(4),
+    signature: Uint8Array.of(5),
+    shardSetId: Uint8Array.of(6),
+  };
+  const shardRecord = {
+    docId: Uint8Array.of(7),
+    shardFrames: new Map([[1, shardPayload]]),
+  };
   state.mainFrames.set(0, { data: Uint8Array.of(1) });
-  state.shardFrames.set(1, { share: Uint8Array.of(2) });
+  state.shardSets.set("active", shardRecord);
+  state.activeShardSetKey = "active";
+  state.shardFrames = shardRecord.shardFrames;
   state.extractedFiles.push({ path: "a", data: Uint8Array.of(3) });
   setStatus(state, "frameStatus", ["ok"], "ok");
   bumpError(state, "errors");
@@ -147,6 +160,13 @@ test("state helpers clone and reset mutable fields safely", () => {
   assert.notEqual(cloned.shardFrames, state.shardFrames);
   assert.notEqual(cloned.extractedFiles, state.extractedFiles);
   assert.deepEqual(cloned.frameStatus, state.frameStatus);
+  assert.equal(cloned.shardFrames, cloned.shardSets.get("active").shardFrames);
+  assert.notEqual(cloned.shardFrames.get(1), shardPayload);
+  assert.notEqual(cloned.shardFrames.get(1).share, shardPayload.share);
+  cloned.shardFrames.get(1).signatureVerified = true;
+  cloned.shardFrames.get(1).share[0] = 9;
+  assert.equal(shardPayload.signatureVerified, undefined);
+  assert.equal(shardPayload.share[0], 2);
 
   resetState(state);
   assert.equal(state.mainFrames.size, 0);

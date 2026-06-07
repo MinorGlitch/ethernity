@@ -287,6 +287,28 @@ test("parseAutoPayload supports fallback sections and handles invalid auth fallb
   assert.equal(state.authErrors, 1);
 });
 
+test("parseAutoPayload accepts AUTH-only marked fallback sections", () => {
+  const state = createInitialState();
+  const docId = Uint8Array.of(8, 8, 8, 8, 8, 8, 8, 8);
+  const authFrame = buildFrame({
+    frameType: FRAME_TYPE_AUTH,
+    docId,
+    data: encodeCbor({
+      version: AUTH_VERSION,
+      hash: new Uint8Array(32).fill(0x11),
+      pub: AUTH_SIGN_PUB,
+      sig: new Uint8Array(64).fill(0x22),
+    }),
+  });
+  const text = ["Auth Frame:", encodeZBase32(authFrame)].join("\n");
+
+  const added = parseAutoPayload(state, text);
+  assert.equal(added, 1);
+  assert.equal(state.mainFrames.size, 0);
+  assert.equal(state.documents.get(bytesToHex(docId)).authPayload.version, AUTH_VERSION);
+  assert.equal(state.authErrors, 0);
+});
+
 test("detectMarker only matches explicit fallback headers", () => {
   assert.equal(detectMarker("=== Main Frame ===", ["main frame", "auth frame"]), "main frame");
   assert.equal(detectMarker("Auth Frame:", ["main frame", "auth frame"]), "auth frame");

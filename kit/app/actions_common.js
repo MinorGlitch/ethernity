@@ -17,7 +17,7 @@
 
 import { bumpError, cloneState, setStatus } from "./state/initial.js";
 import { cloneDocuments } from "./document_store.js";
-import { cloneShardSets } from "./shard_store.js";
+import { cloneShardFrames, cloneShardSets } from "./shard_store.js";
 
 export function dispatchState(dispatch, state) {
   dispatch({
@@ -34,7 +34,7 @@ export function dispatchState(dispatch, state) {
       next.shardSets = cloneShardSets(state.shardSets);
       next.activeShardSetKey = state.activeShardSetKey;
       next.mainFrames = new Map(state.mainFrames);
-      next.shardFrames = new Map(state.shardFrames);
+      next.shardFrames = clonedLegacyShardFrames(state, next.shardSets);
       next.extractedFiles = state.extractedFiles.slice();
       next.frameStatus = { ...state.frameStatus };
       next.shardStatus = { ...state.shardStatus };
@@ -81,7 +81,7 @@ export function copyAuthAndCipherFields(target, source) {
 export function copyShardAsyncFields(target, source) {
   target.shardSets = cloneShardSets(source.shardSets);
   target.activeShardSetKey = source.activeShardSetKey;
-  target.shardFrames = new Map(source.shardFrames);
+  target.shardFrames = clonedLegacyShardFrames(source, target.shardSets);
   target.shardDocIdHex = source.shardDocIdHex;
   target.shardVersion = source.shardVersion;
   target.shardDocHashHex = source.shardDocHashHex;
@@ -100,6 +100,11 @@ export function copyShardAsyncFields(target, source) {
   target.documents = cloneDocuments(source.documents);
   target.ciphertext = source.ciphertext;
   target.cipherDocHashHex = source.cipherDocHashHex;
+}
+
+function clonedLegacyShardFrames(source, clonedShardSets) {
+  const active = source.activeShardSetKey ? clonedShardSets.get(source.activeShardSetKey) : null;
+  return active ? active.shardFrames : cloneShardFrames(source.shardFrames);
 }
 
 export function setLineStatus(state, key, line, type = "") {

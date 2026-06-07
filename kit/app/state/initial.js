@@ -15,6 +15,8 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { cloneShardFrames, cloneShardSets } from "../shard_store.js";
+
 export function createBaseState() {
   return {
     revision: 0,
@@ -100,6 +102,8 @@ export function bumpError(state, key) {
 }
 
 export function cloneState(state) {
+  const shardSets = cloneShardSets(state.shardSets);
+  const activeShardSet = state.activeShardSetKey ? shardSets.get(state.activeShardSetKey) : null;
   return {
     ...state,
     documents: new Map(
@@ -112,18 +116,9 @@ export function cloneState(state) {
         },
       ]),
     ),
-    shardSets: new Map(
-      Array.from(state.shardSets.entries(), ([key, record]) => [
-        key,
-        {
-          ...record,
-          docId: record.docId.slice(),
-          shardFrames: new Map(record.shardFrames),
-        },
-      ]),
-    ),
+    shardSets,
     mainFrames: new Map(state.mainFrames),
-    shardFrames: new Map(state.shardFrames),
+    shardFrames: activeShardSet ? activeShardSet.shardFrames : cloneShardFrames(state.shardFrames),
     extractedFiles: state.extractedFiles.slice(),
     frameStatus: { ...state.frameStatus },
     shardStatus: { ...state.shardStatus },

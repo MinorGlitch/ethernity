@@ -68,10 +68,34 @@ export function cloneShardSets(shardSets) {
       {
         ...record,
         docId: record.docId.slice(),
-        shardFrames: new Map(record.shardFrames),
+        shardFrames: cloneShardFrames(record.shardFrames),
       },
     ]),
   );
+}
+
+export function cloneShardFrames(shardFrames) {
+  return new Map(
+    Array.from(shardFrames.entries(), ([shareIndex, payload]) => [
+      shareIndex,
+      cloneShardPayload(payload),
+    ]),
+  );
+}
+
+export function cloneShardPayload(payload) {
+  return {
+    ...payload,
+    share: cloneOptionalBytes(payload.share),
+    docHash: cloneOptionalBytes(payload.docHash),
+    signPub: cloneOptionalBytes(payload.signPub),
+    signature: cloneOptionalBytes(payload.signature),
+    shardSetId: cloneOptionalBytes(payload.shardSetId),
+  };
+}
+
+function cloneOptionalBytes(value) {
+  return value instanceof Uint8Array ? value.slice() : value;
 }
 
 export function syncLegacyShardFields(state, preferredKey = state.activeShardSetKey) {
