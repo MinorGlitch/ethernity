@@ -66,7 +66,6 @@ from ethernity.extensions.discovery import (
     require_backup_root_dir,
 )
 from ethernity.extensions.published import (
-    available_extensions_from_inventory as _domain_available_extensions_from_inventory,
     available_extensions_from_recovery_chain,
     discovered_extension_indices as _domain_discovered_extension_indices,
     extension_chain_present,
@@ -224,7 +223,6 @@ def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
                 quiet=args.quiet,
             )
             discovered_extension_dirs = _discovered_extension_indices(extension_inventory)
-            available_extensions = _available_extensions_from_inventory(extension_inventory)
             if discovered_extension_dirs:
                 input_kind = "extended_root"
             if extension_inventory.failure is not None:
@@ -409,9 +407,6 @@ def _resolve_extend_state_after_root_inspection(
                                 quiet=args.quiet,
                             )
                             discovered_extension_dirs = _discovered_extension_indices(
-                                chain_inventory
-                            )
-                            available_extensions = _available_extensions_from_inventory(
                                 chain_inventory
                             )
                             if chain_inventory.failure is not None:
@@ -656,7 +651,7 @@ def _inspect_root_recovery(
             message="root backup documents not found in the writable backup directory",
             details={"root_dir": str(root_dir)},
         )
-    frames = recovery_frames_from_scan(scan_paths, quiet=args.quiet)
+    frames = _recovery_frames_from_published_root_scan_paths(scan_paths, quiet=args.quiet)
     shard_frames, shard_fallback_files, shard_payloads_file, shard_scan = (
         _shard_frames_from_extend_args(args, quiet=args.quiet)
     )
@@ -1085,12 +1080,6 @@ def _decode_root_manifest(ciphertext: bytes, *, passphrase: str) -> tuple[Envelo
     return _decode_root_manifest_shared(ciphertext=ciphertext, passphrase=passphrase, debug=False)
 
 
-def _available_extensions_from_inventory(
-    inventory: RecoveryExtensionInventory,
-) -> tuple[dict[str, object], ...]:
-    return _domain_available_extensions_from_inventory(inventory)
-
-
 def _discovered_extension_indices(inventory: RecoveryExtensionInventory) -> tuple[int, ...]:
     return _domain_discovered_extension_indices(inventory)
 
@@ -1108,6 +1097,34 @@ def _published_root_scan_paths(root_dir: Path) -> list[str]:
         if candidate.is_file():
             paths.append(str(candidate))
     return paths
+
+
+def _recovery_frames_from_published_root_scan_paths(
+    scan_paths: list[str],
+    *,
+    quiet: bool,
+) -> list[Frame]:
+    frames: list[Frame] = []
+    for path in scan_paths:
+        try:
+            frames.extend(recovery_frames_from_scan([path], quiet=quiet))
+        except ValueError as exc:
+            if _is_no_qr_scan_error(exc):
+                continue
+            raise
+    if not frames:
+        raise ValueError("published root scan found no QR frames")
+    return frames
+
+
+def _is_no_qr_scan_error(exc: ValueError) -> bool:
+    message = str(exc)
+    return (
+        "scan failed: explicit scan input contains no QR codes:" in message
+        or "scan failed: no QR codes found in scan inputs" in message
+        or "explicit scan input yielded no valid QR frames:" in message
+        or "no QR payloads found; check the scan path and image quality" in message
+    )
 
 
 def _inspect_published_extension_inventory(

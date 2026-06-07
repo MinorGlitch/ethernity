@@ -693,10 +693,10 @@ can still produce a blocking issue such as `EXTENSION_LAYOUT_INVALID` or
 as a human fallback artifact by checking that its visible AUTH and MAIN fallback sections bind to
 the QR-derived extension identity; the PDF is still not used as a machine replay source.
 
-`available_extensions` entries always include the numeric `index` alongside `dir_name`, `doc_id`,
-and non-null `doc_hash`. Directories whose payloads cannot be fully decoded are reported through
-blocking issues instead of partial `available_extensions` entries. When chain authentication has
-been evaluated, entries may also include:
+`available_extensions` lists only extension entries that were authenticated and replayed as part of
+the validated chain head. Layout-only discoveries remain in `discovered_extension_dirs` and must not
+be treated as available for replay. Entries always include the numeric `index` alongside `dir_name`,
+`doc_id`, and non-null `doc_hash`, plus:
 
 - `auth_status`
 - `root_authority_verified`

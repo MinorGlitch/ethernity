@@ -373,6 +373,54 @@ class TestCompactService(unittest.TestCase):
         self.assertEqual(policy.passphrase_shard_threshold, 2)
         self.assertEqual(policy.passphrase_shard_count, 3)
 
+    def test_infer_root_publish_policy_ignores_root_level_pdf_without_qr(self) -> None:
+        doc_id = b"\x22" * 8
+        doc_hash = b"\x44" * 32
+        sign_priv = b"\x33" * 32
+        sign_pub = derive_public_key(sign_priv)
+        shard_frames = _passphrase_shard_frames(
+            "secret passphrase",
+            threshold=2,
+            share_count=3,
+            doc_id=doc_id,
+            doc_hash=doc_hash,
+            sign_priv=sign_priv,
+        )[:2]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            qr_document = root_dir / "qr_document.pdf"
+            recovery_document = root_dir / "recovery_document.pdf"
+            shard_document = root_dir / "renamed-root-policy.pdf"
+            qr_document.write_bytes(b"%PDF-1.7\n")
+            recovery_document.write_bytes(b"%PDF-1.7\n")
+            shard_document.write_bytes(b"%PDF-1.7\n")
+
+            def _scan_one(paths: list[str]) -> list[Frame]:
+                path = Path(paths[0])
+                if path == recovery_document:
+                    raise ValueError(
+                        f"scan failed: explicit scan input contains no QR codes: {path}"
+                    )
+                if path == shard_document:
+                    return list(shard_frames)
+                return []
+
+            with mock.patch(
+                "ethernity.cli.shared.root_shard_policy.frames_from_scan",
+                side_effect=_scan_one,
+            ) as frames_from_scan:
+                policy = _infer_root_publish_policy(
+                    root_dir=str(root_dir),
+                    root_doc_id_hex=doc_id.hex(),
+                    root_doc_hash=doc_hash,
+                    sign_pub=sign_pub,
+                    quiet=True,
+                )
+
+        self.assertEqual(frames_from_scan.call_count, 3)
+        self.assertEqual(policy.passphrase_shard_threshold, 2)
+        self.assertEqual(policy.passphrase_shard_count, 3)
+
     def test_infer_root_publish_policy_classifies_signing_key_shards_by_payload(self) -> None:
         doc_id = b"\x22" * 8
         doc_hash = b"\x44" * 32

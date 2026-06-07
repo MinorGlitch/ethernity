@@ -2626,17 +2626,7 @@ class TestCliApi(unittest.TestCase):
         self.assertEqual(events[-1]["input_kind"], "extended_root")
         self.assertEqual(events[-1]["doc_id"], "1111111111111111")
         self.assertEqual(events[-1]["discovered_extension_dirs"], [1])
-        self.assertEqual(
-            events[-1]["available_extensions"],
-            [
-                {
-                    "index": 1,
-                    "dir_name": "01",
-                    "doc_id": "deadbeefcafebabe",
-                    "doc_hash": "ca" * 32,
-                }
-            ],
-        )
+        self.assertEqual(events[-1]["available_extensions"], [])
         self.assertEqual(
             events[-1]["selected_scope"],
             {
@@ -2798,14 +2788,7 @@ class TestCliApi(unittest.TestCase):
             discovered_extension_dirs=(1,),
             validated_head_index=0,
             validated_head_doc_hash="22" * 32,
-            available_extensions=(
-                {
-                    "index": 1,
-                    "dir_name": "01",
-                    "doc_id": "deadbeefcafebabe",
-                    "doc_hash": "aa" * 32,
-                },
-            ),
+            available_extensions=(),
             ancestry_valid=False,
             validated_head_auth_status=None,
             validated_head_root_authority_verified=None,

@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -42,6 +43,13 @@ from ethernity.crypto.signing import (
 )
 from ethernity.encoding.framing import VERSION, Frame, FrameType
 from ethernity.extensions.recovery import ImportedRecoveryDocument
+from ethernity.formats.extension_envelope import (
+    ExtensionChunkingProfile,
+    ExtensionEnvelope,
+    ExtensionEnvelopeHeader,
+    ExtensionFile,
+)
+from ethernity.formats.extension_envelope_constants import CHUNK_ALGORITHM_FASTCDC
 
 ROOT_SIGNING_SEED = b"\x33" * 32
 ROOT_SIGN_PUB = derive_public_key(ROOT_SIGNING_SEED)
@@ -53,6 +61,55 @@ def _root_auth(doc_hash: bytes = b"\x77" * 32) -> AuthPayload:
         doc_hash=doc_hash,
         sign_pub=ROOT_SIGN_PUB,
         signature=sign_auth(doc_hash, sign_pub=ROOT_SIGN_PUB, sign_priv=ROOT_SIGNING_SEED),
+    )
+
+
+def _auth_frame(doc_id: bytes, doc_hash: bytes) -> Frame:
+    return Frame(
+        version=VERSION,
+        frame_type=FrameType.AUTH,
+        doc_id=doc_id,
+        index=0,
+        total=1,
+        data=encode_auth_payload(
+            doc_hash,
+            sign_pub=ROOT_SIGN_PUB,
+            signature=sign_auth(
+                doc_hash,
+                sign_pub=ROOT_SIGN_PUB,
+                sign_priv=ROOT_SIGNING_SEED,
+            ),
+        ),
+    )
+
+
+def _extension_envelope(index: int, *, root_doc_hash: bytes) -> ExtensionEnvelope:
+    return ExtensionEnvelope(
+        header=ExtensionEnvelopeHeader(
+            version=1,
+            index=index,
+            parent_doc_hash=b"\x77" * 32,
+            root_doc_hash=root_doc_hash,
+            created_at=1,
+            chunking=ExtensionChunkingProfile(
+                algorithm_id=CHUNK_ALGORITHM_FASTCDC,
+                target_size=64 * 1024,
+                min_size=16 * 1024,
+                max_size=256 * 1024,
+            ),
+            input_origin="file",
+            input_roots=(),
+        ),
+        files=(
+            ExtensionFile(
+                path="empty.txt",
+                size=0,
+                sha256=hashlib.sha256(b"").digest(),
+                mtime=None,
+                chunk_refs=(),
+            ),
+        ),
+        chunks=(),
     )
 
 
@@ -839,6 +896,159 @@ class TestMintInspection(unittest.TestCase):
 
         self.assertEqual(candidates, ())
         decrypt_bytes.assert_not_called()
+
+    def test_decode_mint_extension_candidates_rejects_selected_bad_auth_before_decrypt(
+        self,
+    ) -> None:
+        plan = _mint_recovery_plan()
+        selected_doc_hash = b"\x44" * 32
+        selected_document = ImportedRecoveryDocument(
+            doc_id=b"\x88" * 8,
+            doc_hash=selected_doc_hash,
+            ciphertext=b"extension-ciphertext",
+            auth_frames=(),
+            source_label="selected",
+        )
+
+        with (
+            mock.patch("ethernity.cli.features.mint.workflow.decrypt_bytes") as decrypt_bytes,
+            self.assertRaisesRegex(
+                ValueError,
+                "selected extension doc_hash .* could not be trusted: "
+                "imported extension AUTH could not be trusted",
+            ),
+        ):
+            _decode_mint_extension_candidates(
+                plan,
+                import_documents=(selected_document,),
+                passphrase="passphrase",
+                root_sign_pub=ROOT_SIGN_PUB,
+                requested_doc_hash=selected_doc_hash,
+                fail_on_root_authority_errors=False,
+                quiet=True,
+                debug=False,
+            )
+
+        decrypt_bytes.assert_not_called()
+
+    def test_decode_mint_extension_candidates_rejects_selected_malformed_extension(
+        self,
+    ) -> None:
+        plan = _mint_recovery_plan()
+        selected_doc_hash = b"\x44" * 32
+        selected_document = ImportedRecoveryDocument(
+            doc_id=b"\x88" * 8,
+            doc_hash=selected_doc_hash,
+            ciphertext=b"extension-ciphertext",
+            auth_frames=(_auth_frame(b"\x88" * 8, selected_doc_hash),),
+            source_label="selected",
+        )
+
+        with (
+            mock.patch("ethernity.cli.features.mint.workflow.decrypt_bytes", return_value=b"plain"),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decode_any_envelope",
+                side_effect=ValueError("bad extension envelope"),
+            ),
+            self.assertRaisesRegex(
+                ValueError,
+                "selected extension doc_hash .* could not be trusted: "
+                "imported root-authority document could not be trusted: bad extension envelope",
+            ),
+        ):
+            _decode_mint_extension_candidates(
+                plan,
+                import_documents=(selected_document,),
+                passphrase="passphrase",
+                root_sign_pub=ROOT_SIGN_PUB,
+                requested_doc_hash=selected_doc_hash,
+                fail_on_root_authority_errors=False,
+                quiet=True,
+                debug=False,
+            )
+
+    def test_decode_mint_extension_candidates_rejects_selected_wrong_root_extension(
+        self,
+    ) -> None:
+        plan = _mint_recovery_plan()
+        selected_doc_hash = b"\x44" * 32
+        selected_document = ImportedRecoveryDocument(
+            doc_id=b"\x88" * 8,
+            doc_hash=selected_doc_hash,
+            ciphertext=b"extension-ciphertext",
+            auth_frames=(_auth_frame(b"\x88" * 8, selected_doc_hash),),
+            source_label="selected",
+        )
+
+        with (
+            mock.patch("ethernity.cli.features.mint.workflow.decrypt_bytes", return_value=b"plain"),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decode_any_envelope",
+                return_value=(
+                    2,
+                    _extension_envelope(1, root_doc_hash=b"\x99" * 32),
+                ),
+            ),
+            self.assertRaisesRegex(
+                ValueError,
+                "selected extension doc_hash .* could not be trusted: "
+                "imported root-authority extension targets a different root backup",
+            ),
+        ):
+            _decode_mint_extension_candidates(
+                plan,
+                import_documents=(selected_document,),
+                passphrase="passphrase",
+                root_sign_pub=ROOT_SIGN_PUB,
+                requested_doc_hash=selected_doc_hash,
+                fail_on_root_authority_errors=False,
+                quiet=True,
+                debug=False,
+            )
+
+    def test_resolve_mint_chain_target_rejects_duplicate_authenticated_extension_index(
+        self,
+    ) -> None:
+        plan = _mint_recovery_plan(
+            import_documents=(
+                _imported_document(
+                    doc_id=b"\x66" * 8,
+                    doc_hash=b"\x77" * 32,
+                    ciphertext=b"root-ciphertext",
+                    source_label="root",
+                ),
+                _imported_document(
+                    doc_id=b"\x88" * 8,
+                    doc_hash=b"\x44" * 32,
+                    ciphertext=b"extension-one",
+                    source_label="extension-one",
+                ),
+                _imported_document(
+                    doc_id=b"\x99" * 8,
+                    doc_hash=b"\x55" * 32,
+                    ciphertext=b"extension-two",
+                    source_label="extension-two",
+                ),
+            ),
+        )
+        first = _mint_candidate(plan.import_documents[1], index=1)
+        second = _mint_candidate(plan.import_documents[2], index=1)
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.mint.workflow.decode_root_manifest",
+                return_value=(SimpleNamespace(signing_seed=ROOT_SIGNING_SEED), b"payload"),
+            ),
+            mock.patch(
+                "ethernity.cli.features.mint.workflow._decode_mint_extension_candidates",
+                return_value=(first, second),
+            ),
+            self.assertRaisesRegex(
+                ValueError,
+                "multiple authenticated extensions for index 1",
+            ),
+        ):
+            _resolve_mint_chain_target(plan, quiet=True, debug=False, allow_stale_head=True)
 
     def test_resolve_mint_chain_target_rejects_unexpected_latest_head(self) -> None:
         plan = _mint_recovery_plan(

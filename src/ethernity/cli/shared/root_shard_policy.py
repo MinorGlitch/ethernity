@@ -48,12 +48,14 @@ def root_level_key_frames_from_scan(root_dir: Path, *, quiet: bool) -> tuple[Fra
 
     _ = quiet
     candidates = _root_level_scan_candidates(root_dir)
-    if not candidates:
-        return ()
-    try:
-        frames = frames_from_scan([str(path) for path in candidates])
-    except ValueError as exc:
-        raise ValueError(f"root shard policy scan failed: {exc}") from exc
+    frames: list[Frame] = []
+    for path in candidates:
+        try:
+            frames.extend(frames_from_scan([str(path)]))
+        except ValueError as exc:
+            if _is_no_qr_scan_error(exc):
+                continue
+            raise ValueError(f"root shard policy scan failed: {exc}") from exc
     return tuple(frame for frame in frames if frame.frame_type == FrameType.KEY_DOCUMENT)
 
 
@@ -134,6 +136,16 @@ def _root_level_scan_candidates(root_dir: Path) -> tuple[Path, ...]:
         if suffix in _SCAN_FILE_SUFFIXES or looks_like_pdf(path) or looks_like_image(path):
             candidates.append(path)
     return tuple(candidates)
+
+
+def _is_no_qr_scan_error(exc: ValueError) -> bool:
+    message = str(exc)
+    return (
+        "scan failed: explicit scan input contains no QR codes:" in message
+        or "scan failed: no QR codes found in scan inputs" in message
+        or "explicit scan input yielded no valid QR frames:" in message
+        or "no QR payloads found; check the scan path and image quality" in message
+    )
 
 
 def _select_root_shard_frames(

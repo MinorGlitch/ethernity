@@ -266,17 +266,7 @@ class TestExtendInspection(unittest.TestCase):
 
         self.assertEqual(inspection.input_kind, "extended_root")
         self.assertEqual(inspection.discovered_extension_dirs, (1,))
-        self.assertEqual(
-            inspection.available_extensions,
-            (
-                {
-                    "index": 1,
-                    "dir_name": "01",
-                    "doc_id": "deadbeefcafebabe",
-                    "doc_hash": "cafebabe" * 8,
-                },
-            ),
-        )
+        self.assertEqual(inspection.available_extensions, ())
         self.assertEqual(
             inspection.selected_scope,
             {
@@ -1008,6 +998,52 @@ class TestExtendInspection(unittest.TestCase):
         self.assertIsNone(resolved.root_passphrase_shard_threshold)
         self.assertEqual(resolved.root_passphrase_shard_count, 0)
 
+    def test_inspect_root_recovery_ignores_fallback_only_root_recovery_document(self) -> None:
+        root_inspection = _root_inspection(passphrase="secret")
+        qr_path = Path("/tmp/root/qr_document.pdf")
+        recovery_path = Path("/tmp/root/recovery_document.pdf")
+        root_frame = Frame(1, FrameType.MAIN_DOCUMENT, b"\x11" * 8, 0, 1, b"root")
+
+        def _scan(paths: list[str], *, quiet: bool = False) -> list[Frame]:
+            _ = quiet
+            self.assertEqual(len(paths), 1)
+            if paths == [str(qr_path)]:
+                return [root_frame]
+            if paths == [str(recovery_path)]:
+                raise ValueError(
+                    f"scan failed: explicit scan input contains no QR codes: {recovery_path}"
+                )
+            raise AssertionError(f"unexpected scan paths: {paths!r}")
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.extend.planning._published_root_scan_paths",
+                return_value=[str(qr_path), str(recovery_path)],
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.planning.recovery_frames_from_scan",
+                side_effect=_scan,
+            ) as recovery_frames_from_scan,
+            mock.patch(
+                "ethernity.cli.features.extend.planning._shard_frames_from_extend_args",
+                return_value=([], [], [], []),
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.planning.inspect_recovery_inputs",
+                return_value=root_inspection,
+            ) as inspect_recovery_inputs,
+        ):
+            recovery = _inspect_root_recovery(
+                Path("/tmp/root"),
+                ExtendArgs(root_dir="/tmp/root", passphrase="secret"),
+                extension_inventory=None,
+            )
+
+        self.assertEqual(recovery.shard_unlock_target, "none")
+        self.assertEqual(recovery_frames_from_scan.call_count, 2)
+        inspect_recovery_inputs.assert_called_once()
+        self.assertEqual(inspect_recovery_inputs.call_args.kwargs["frames"], [root_frame])
+
     def test_inspect_root_recovery_surfaces_extension_shard_selection_failure(self) -> None:
         root_inspection = replace(_root_inspection(), doc_id=b"\x11" * 8)
         shard_frame = Frame(
@@ -1716,10 +1752,7 @@ max_size = 65536
         self.assertEqual(inspection.validated_head_doc_hash, "22" * 32)
         self.assertEqual(inspection.validated_head_auth_status, "verified")
         self.assertTrue(inspection.validated_head_root_authority_verified)
-        self.assertEqual(
-            inspection.available_extensions,
-            ({"index": 1, "dir_name": "01", "doc_id": "de" * 8, "doc_hash": "aa" * 32},),
-        )
+        self.assertEqual(inspection.available_extensions, ())
         expected_details = {
             **degraded_refusal.details,
             "validated_head_auth_status": "verified",

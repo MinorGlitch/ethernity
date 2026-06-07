@@ -158,21 +158,21 @@ For `api inspect extend`, use these final `result` fields for chain-head state:
 - `validated_head_auth_status`: auth status for the validated head when known
 - `validated_head_root_authority_verified`: whether the validated head is signed by the root
   authority when known
-- `available_extensions`: discovered extension entries with explicit `index`, `dir_name`, `doc_id`,
-  and `doc_hash`; entries may include `auth_status` and `root_authority_verified` after chain
-  authentication has been evaluated
+- `available_extensions`: extension entries authenticated and replayed as part of the validated
+  chain head, with explicit `index`, `dir_name`, `doc_id`, `doc_hash`, `auth_status`, and
+  `root_authority_verified`
 - `ancestry_valid`: whether the inspected chain ancestry is valid when the backend can determine it
 - `resolved_policy`: the execution-grade passphrase/signing-key/output preview when the selected
   scope can be prepared, otherwise `null`
 
 If `blocking_issues` contains `RECOVERY_HEAD_UNTRUSTED`, show the extension chain as not ready for
 write-producing actions. The `details` object identifies the failed/latest/requested head and the
-last validated head. Do not treat filenames or `available_extensions` alone as authenticated proof of
-the supplied chain state; use the validated-head fields for that. These fields do not prove that no
-later extension exists outside the supplied recovery set. When the UI knows the trusted head from a
-prior session or user confirmation, pass `--expected-head-doc-hash <hash>` so recover/extend fails
-closed if the supplied media validates to a different head. Use the same guard for mint and compact
-when those actions are launched from a previously displayed head.
+last validated head. Do not treat filenames or `discovered_extension_dirs` alone as authenticated
+proof of the supplied chain state; use the validated-head fields for that. These fields do not prove
+that no later extension exists outside the supplied recovery set. When the UI knows the trusted head
+from a prior session or user confirmation, pass `--expected-head-doc-hash <hash>` so recover/extend
+fails closed if the supplied media validates to a different head. Use the same guard for mint and
+compact when those actions are launched from a previously displayed head.
 
 ### Compaction Flow
 

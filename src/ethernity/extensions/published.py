@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from ethernity.cli.shared import api_codes
+from ethernity.cli.shared.crypto import doc_id_from_doc_hash
 from ethernity.extensions.chain import (
     LogicalFileState,
     build_chain_available_chunks,
@@ -428,17 +429,24 @@ def available_extensions_from_recovery_chain(
     chain_inspection: RecoveryChainInspection,
 ) -> tuple[dict[str, object], ...]:
     available_extensions: list[dict[str, object]] = []
-    for index, item in enumerate(chain_inspection.inventory.extensions):
+    inventory_by_identity = {
+        (item.index, item.doc_hash): item for item in chain_inspection.inventory.extensions
+    }
+    for decoded_link in chain_inspection.links:
+        index = decoded_link.link.document.header.index
+        item = inventory_by_identity.get((index, decoded_link.link.doc_hash))
         extension_payload: dict[str, object] = {
-            "index": item.index,
-            "dir_name": item.dir_name,
-            "doc_id": item.doc_id_hex,
-            "doc_hash": item.doc_hash.hex(),
+            "index": index,
+            "dir_name": item.dir_name if item is not None else f"extension-{index:02d}",
+            "doc_id": (
+                item.doc_id_hex
+                if item is not None
+                else doc_id_from_doc_hash(decoded_link.link.doc_hash).hex()
+            ),
+            "doc_hash": decoded_link.link.doc_hash.hex(),
         }
-        if index < len(chain_inspection.links):
-            decoded_link = chain_inspection.links[index]
-            extension_payload["auth_status"] = decoded_link.auth_status
-            extension_payload["root_authority_verified"] = decoded_link.root_authority_verified
+        extension_payload["auth_status"] = decoded_link.auth_status
+        extension_payload["root_authority_verified"] = decoded_link.root_authority_verified
         available_extensions.append(extension_payload)
     return tuple(available_extensions)
 

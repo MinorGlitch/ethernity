@@ -1378,6 +1378,11 @@ def _resolve_mint_chain_target(
     requested_index = getattr(plan, "extension_index", None)
     requested_doc_hash = getattr(plan, "extension_doc_hash", None)
     _validate_mint_extension_selector(requested_index, requested_doc_hash)
+    requested_doc_hash_bytes = (
+        _parse_mint_extension_doc_hash(requested_doc_hash)
+        if requested_doc_hash is not None
+        else None
+    )
     if requested_index == 0:
         validate_expected_recovery_head(
             plan,
@@ -1449,10 +1454,12 @@ def _resolve_mint_chain_target(
         import_documents=tuple(import_documents),
         passphrase=passphrase,
         root_sign_pub=root_sign_pub,
+        requested_doc_hash=requested_doc_hash_bytes,
         fail_on_root_authority_errors=not explicit_extension_selection,
         quiet=quiet,
         debug=debug,
     )
+    _reject_conflicting_mint_extension_indices(candidates)
     candidates = _select_mint_extension_candidates(
         candidates,
         requested_index=requested_index,
@@ -1596,6 +1603,7 @@ def _decode_mint_extension_candidates(
     fail_on_root_authority_errors: bool,
     quiet: bool,
     debug: bool,
+    requested_doc_hash: bytes | None = None,
 ) -> tuple[_MintExtensionCandidate, ...]:
     candidates: list[_MintExtensionCandidate] = []
     seen_doc_hashes = {plan.doc_hash}
@@ -1603,6 +1611,10 @@ def _decode_mint_extension_candidates(
         if document.doc_hash in seen_doc_hashes:
             continue
         _raise_if_mint_doc_id_collision(document, plan)
+        selected_doc_hash = (
+            requested_doc_hash is not None and document.doc_hash == requested_doc_hash
+        )
+        fail_on_document_errors = fail_on_root_authority_errors or selected_doc_hash
         try:
             auth_payload, _auth_status = resolve_auth_payload(
                 list(document.auth_frames),
@@ -1613,36 +1625,89 @@ def _decode_mint_extension_candidates(
                 quiet=quiet,
             )
         except ValueError as exc:
-            if fail_on_root_authority_errors:
-                raise ValueError(f"imported extension AUTH could not be trusted: {exc}") from exc
+            if fail_on_document_errors:
+                raise ValueError(
+                    _mint_extension_trust_error(
+                        document,
+                        f"imported extension AUTH could not be trusted: {exc}",
+                        selected=selected_doc_hash,
+                    )
+                ) from exc
             continue
         if auth_payload is None or auth_payload.sign_pub != root_sign_pub:
+            if selected_doc_hash:
+                raise ValueError(
+                    _mint_extension_trust_error(
+                        document,
+                        "imported extension AUTH signing key does not match root authority",
+                        selected=True,
+                    )
+                )
             continue
         try:
             plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
             version, decoded = decode_any_envelope(plaintext)
         except Exception as exc:
-            if fail_on_root_authority_errors:
+            if fail_on_document_errors:
                 raise ValueError(
-                    f"imported root-authority document could not be trusted: {exc}"
+                    _mint_extension_trust_error(
+                        document,
+                        f"imported root-authority document could not be trusted: {exc}",
+                        selected=selected_doc_hash,
+                    )
                 ) from exc
             continue
         if version != 2 or not isinstance(decoded, ExtensionEnvelope):
-            if fail_on_root_authority_errors:
+            if fail_on_document_errors:
                 raise ValueError(
-                    "imported root-authority document could not be trusted: "
-                    "imported document did not decode as an extension envelope"
+                    _mint_extension_trust_error(
+                        document,
+                        (
+                            "imported root-authority document could not be trusted: "
+                            "imported document did not decode as an extension envelope"
+                        ),
+                        selected=selected_doc_hash,
+                    )
                 )
             continue
         if decoded.header.root_doc_hash != plan.doc_hash:
-            if fail_on_root_authority_errors:
+            if fail_on_document_errors:
                 raise ValueError(
-                    "imported root-authority extension targets a different root backup"
+                    _mint_extension_trust_error(
+                        document,
+                        "imported root-authority extension targets a different root backup",
+                        selected=selected_doc_hash,
+                    )
                 )
             continue
         seen_doc_hashes.add(document.doc_hash)
         candidates.append(_MintExtensionCandidate(document=document, envelope=decoded))
     return tuple(sorted(candidates, key=lambda item: item.envelope.header.index))
+
+
+def _mint_extension_trust_error(
+    document: Any,
+    message: str,
+    *,
+    selected: bool,
+) -> str:
+    if not selected:
+        return message
+    return f"selected extension doc_hash {document.doc_hash.hex()} could not be trusted: {message}"
+
+
+def _reject_conflicting_mint_extension_indices(
+    candidates: tuple[_MintExtensionCandidate, ...],
+) -> None:
+    by_index: dict[int, _MintExtensionCandidate] = {}
+    for candidate in candidates:
+        index = candidate.envelope.header.index
+        existing = by_index.get(index)
+        if existing is not None and existing.document.doc_hash != candidate.document.doc_hash:
+            raise ValueError(
+                f"content import contains multiple authenticated extensions for index {index}"
+            )
+        by_index[index] = candidate
 
 
 def _select_mint_extension_candidates(
