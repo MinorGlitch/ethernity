@@ -210,7 +210,7 @@ class TestExtendCommand(unittest.TestCase):
         extend_command._print_extend_summary(result, quiet=False)
 
         summary_rows = build_kv_table.call_args.args[0]
-        self.assertEqual(summary_rows[0], ("Root", "/tmp/output"))
+        self.assertEqual(summary_rows[0], ("Root", str(Path("/tmp/output"))))
 
     @mock.patch("ethernity.cli.features.extend.command.print_completion_panel")
     def test_completion_actions_mentions_reused_root_shards(

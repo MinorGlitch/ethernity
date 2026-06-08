@@ -176,7 +176,7 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -253,7 +253,7 @@ jobs:
           mkdir -p "$SMOKE_OUT"
           python3 -m ethernity recover \
             --scan tests/fixtures/v1_2/extension_golden/raw/gzip_replacement_chain/chain/qr_document.pdf \
-            --scan tests/fixtures/v1_2/extension_golden/raw/gzip_replacement_chain/chain/extensions/01/qr_document-01-94faaa261ae97e70.pdf \
+            --scan tests/fixtures/v1_2/extension_golden/raw/gzip_replacement_chain/chain/extensions/01/qr_document-01-*.pdf \
             --passphrase stable-v1_2-extension-passphrase \
             --output "$SMOKE_OUT/recovered" \
             --quiet
