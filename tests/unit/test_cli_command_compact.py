@@ -153,6 +153,49 @@ class TestCompactCommand(unittest.TestCase):
         compact_command.register(app)
         self.assertGreater(len(app.registered_commands), 0)
 
+    @mock.patch("ethernity.cli.features.compact.command.run_compact_command", return_value=0)
+    @mock.patch(
+        "ethernity.cli.features.compact.command._run_cli", side_effect=lambda func, debug: func()
+    )
+    @mock.patch(
+        "ethernity.cli.features.compact.command.prompt_rebuild_workspace_args",
+        return_value=compact_command.CompactArgs(
+            root_dir="/tmp/root",
+            output_dir="/tmp/out",
+            passphrase="secret",
+        ),
+    )
+    @mock.patch(
+        "ethernity.cli.features.compact.command._resolve_config_and_paper",
+        return_value=("ctx.toml", "LETTER"),
+    )
+    def test_rebuild_command_runs_guided_workspace(
+        self,
+        _resolve_config_and_paper: mock.MagicMock,
+        prompt_rebuild_workspace_args: mock.MagicMock,
+        _run_cli: mock.MagicMock,
+        run_compact_command: mock.MagicMock,
+    ) -> None:
+        ctx = self._ctx(design="forge", quiet=True, debug=True)
+
+        compact_command.rebuild(
+            ctx,
+            config=None,
+            paper=None,
+            design=None,
+            quiet=False,
+            debug=False,
+        )
+
+        prompt_rebuild_workspace_args.assert_called_once_with(
+            config="ctx.toml",
+            paper="LETTER",
+            design="forge",
+            quiet=True,
+        )
+        args = prompt_rebuild_workspace_args.return_value
+        run_compact_command.assert_called_once_with(args, debug=True)
+
 
 class TestCompactCliApp(unittest.TestCase):
     runner = CliRunner()

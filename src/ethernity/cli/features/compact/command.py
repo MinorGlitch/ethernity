@@ -22,6 +22,7 @@ from typing import Annotated
 import typer
 
 from ethernity.cli.features.compact.service import run_compact, validate_compact_source_selection
+from ethernity.cli.features.compact.workspace import prompt_rebuild_workspace_args
 from ethernity.cli.shared.common import (
     _ctx_state,
     _paper_callback,
@@ -51,6 +52,9 @@ _COMPACT_HELP = (
 
 
 def register(app: typer.Typer) -> None:
+    app.command(name="rebuild", help="Rebuild an existing backup set with a guided workspace.")(
+        rebuild
+    )
     app.command(help=_COMPACT_HELP)(compact)
 
 
@@ -120,6 +124,69 @@ def run_compact_command(args: CompactArgs, *, debug: bool = False) -> int:
     _print_compact_summary(result, source=source, quiet=args.quiet)
     _print_completion_actions(result, output_dir=output_dir, quiet=args.quiet)
     return 0
+
+
+def rebuild(
+    ctx: typer.Context,
+    config: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            help="Use this config file.",
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    paper: Annotated[
+        str | None,
+        typer.Option(
+            "--paper",
+            help="Paper size override (A4/Letter).",
+            callback=_paper_callback,
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    design: Annotated[
+        str | None,
+        typer.Option(
+            "--design",
+            help="Template design folder (auto-discovered under templates/).",
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    quiet: Annotated[
+        bool,
+        typer.Option(
+            "--quiet",
+            help="Hide non-error output.",
+            rich_help_panel="Behavior",
+        ),
+    ] = False,
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            help="Show traceback details on failure.",
+            rich_help_panel="Debug",
+        ),
+    ] = False,
+) -> None:
+    state = _ctx_state(ctx)
+    config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
+    quiet_value = quiet or (state.quiet if state is not None else False)
+    debug_value = debug or bool(state and state.debug)
+
+    def _run_guided_rebuild() -> int | None:
+        args = prompt_rebuild_workspace_args(
+            config=config_value,
+            paper=paper_value,
+            design=design or (state.design if state is not None else None),
+            quiet=quiet_value,
+        )
+        if args is None:
+            return 1
+        return run_compact_command(args, debug=debug_value)
+
+    _run_cli(_run_guided_rebuild, debug=debug_value)
 
 
 def compact(

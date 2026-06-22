@@ -48,6 +48,11 @@ class TestCliHelpPanels(unittest.TestCase):
 
     def test_human_command_help_uses_normalized_panel_order(self) -> None:
         cases = {
+            "add": [
+                "Config",
+                "Behavior",
+                "Debug",
+            ],
             "backup": [
                 "Inputs",
                 "Unlock",
@@ -57,12 +62,22 @@ class TestCliHelpPanels(unittest.TestCase):
                 "Advanced",
                 "Debug",
             ],
+            "create": [
+                "Config",
+                "Behavior",
+                "Debug",
+            ],
             "recover": [
                 "Inputs",
                 "Unlock",
                 "Outputs",
                 "Behavior",
                 "Config",
+            ],
+            "restore": [
+                "Config",
+                "Behavior",
+                "Debug",
             ],
             "extend": [
                 "Inputs",
@@ -82,6 +97,15 @@ class TestCliHelpPanels(unittest.TestCase):
                 "Advanced",
                 "Debug",
             ],
+            "rebuild": [
+                "Config",
+                "Behavior",
+                "Debug",
+            ],
+            "reprint-shards": [
+                "Config",
+                "Behavior",
+            ],
             "mint": [
                 "Inputs",
                 "Unlock",
@@ -89,6 +113,10 @@ class TestCliHelpPanels(unittest.TestCase):
                 "Behavior",
                 "Config",
                 "Advanced",
+            ],
+            "print-kit": [
+                "Config",
+                "Behavior",
             ],
         }
 

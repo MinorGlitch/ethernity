@@ -25,8 +25,8 @@ import typer
 from ethernity.cli.features.mint.workflow import (
     _should_use_wizard_for_mint,
     run_mint_command,
-    run_mint_wizard,
 )
+from ethernity.cli.features.mint.workspace import run_reprint_shards_workspace
 from ethernity.cli.shared.common import (
     _ctx_state,
     _paper_callback,
@@ -49,7 +49,64 @@ _MINT_HELP = (
 
 
 def register(app: typer.Typer) -> None:
+    app.command(
+        name="reprint-shards",
+        help="Reprint shard documents with a guided workspace.",
+    )(reprint_shards)
     app.command(help=_MINT_HELP)(mint)
+
+
+def reprint_shards(
+    ctx: typer.Context,
+    config: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            help="Use this config file.",
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    paper: Annotated[
+        str | None,
+        typer.Option(
+            "--paper",
+            help="Paper size override (A4/Letter).",
+            callback=_paper_callback,
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    design: Annotated[
+        str | None,
+        typer.Option(
+            "--design",
+            help="Template design folder (auto-discovered under templates/).",
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    quiet: Annotated[
+        bool,
+        typer.Option(
+            "--quiet",
+            help="Hide non-error output.",
+            rich_help_panel="Behavior",
+        ),
+    ] = False,
+) -> None:
+    state = _ctx_state(ctx)
+    config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
+    design_value = design or (state.design if state is not None else None)
+    quiet_value = quiet or (state.quiet if state is not None else False)
+    debug_value = state.debug if state is not None else False
+    args = MintArgs(
+        config=config_value,
+        paper=paper_value,
+        design=design_value,
+        quiet=quiet_value,
+    )
+    _run_cli(
+        functools.partial(run_reprint_shards_workspace, args, debug=debug_value),
+        debug=debug_value,
+    )
 
 
 def _expand_shard_dir(shard_dir: str | None, *, label: str) -> list[str]:
@@ -382,6 +439,9 @@ def mint(
         quiet=quiet_value,
     )
     if _should_use_wizard_for_mint(args):
-        _run_cli(functools.partial(run_mint_wizard, args, debug=debug_value), debug=debug_value)
+        _run_cli(
+            functools.partial(run_reprint_shards_workspace, args, debug=debug_value),
+            debug=debug_value,
+        )
         return
     _run_cli(functools.partial(run_mint_command, args, debug=debug_value), debug=debug_value)

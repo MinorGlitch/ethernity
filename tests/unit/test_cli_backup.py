@@ -1202,6 +1202,58 @@ class TestCliBackupUx(unittest.TestCase):
         self.assertIs(captured.get("output_dir_existing_parent"), True)
         self.assertEqual(captured.get("shard_threshold"), 4)
 
+    def test_create_command_runs_guided_workspace_with_defaults(self) -> None:
+        captured: dict[str, object] = {}
+
+        def _capture_workspace(**kwargs: object) -> int:
+            args = kwargs["args"]
+            self.assertIsInstance(args, BackupArgs)
+            captured["config_path"] = kwargs["config_path"]
+            captured["paper_size"] = kwargs["paper_size"]
+            captured["quiet"] = kwargs["quiet"]
+            captured["debug_override"] = kwargs["debug_override"]
+            captured["debug_reveal_secrets"] = kwargs["debug_reveal_secrets"]
+            captured["base_dir"] = args.base_dir
+            captured["output_dir"] = args.output_dir
+            captured["shard_threshold"] = args.shard_threshold
+            captured["shard_count"] = args.shard_count
+            return 0
+
+        defaults = CliDefaults(
+            backup=BackupDefaults(
+                base_dir="./vault",
+                output_dir="./out",
+                shard_threshold=2,
+                shard_count=3,
+            ),
+            recover=RecoverDefaults(),
+            ui=UiDefaults(quiet=True),
+            debug=DebugDefaults(max_bytes=2048),
+            runtime=RuntimeDefaults(),
+        )
+
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            with mock.patch("ethernity.cli.bootstrap.app.load_cli_defaults", return_value=defaults):
+                with mock.patch(
+                    "ethernity.cli.features.backup.command.run_create_backup_workspace",
+                    side_effect=_capture_workspace,
+                ):
+                    result = self.runner.invoke(
+                        cli.app,
+                        ["create", "--config", "cfg.toml", "--paper", "A4", "--debug"],
+                    )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(captured["config_path"], "cfg.toml")
+        self.assertEqual(captured["paper_size"], "A4")
+        self.assertTrue(captured["quiet"])
+        self.assertTrue(captured["debug_override"])
+        self.assertFalse(captured["debug_reveal_secrets"])
+        self.assertEqual(captured["base_dir"], "./vault")
+        self.assertEqual(captured["output_dir"], "./out")
+        self.assertEqual(captured["shard_threshold"], 2)
+        self.assertEqual(captured["shard_count"], 3)
+
     def test_backup_review_cancel_returns_code_1(self) -> None:
         input_file = cli.InputFile(
             source_path=Path("input.txt"),

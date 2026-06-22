@@ -18,9 +18,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Sequence
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated
 
 import click
 import typer
@@ -28,23 +26,23 @@ from typer.core import TyperGroup
 
 from ethernity.cli.bootstrap import registry as command_registry
 from ethernity.cli.bootstrap.startup import run_startup
-from ethernity.cli.features.backup.orchestrator import run_wizard
+from ethernity.cli.features.backup.workspace import run_create_backup_workspace
 from ethernity.cli.features.compact.command import run_compact_command
+from ethernity.cli.features.compact.workspace import prompt_rebuild_workspace_args
 from ethernity.cli.features.config.onboarding import (
     FirstRunOnboardingResult,
     run_first_run_config_wizard,
 )
 from ethernity.cli.features.extend.command import run_extend_command
+from ethernity.cli.features.extend.workspace import prompt_add_files_workspace_args
 from ethernity.cli.features.kit.command import _run_kit_render
-from ethernity.cli.features.mint.workflow import run_mint_wizard
-from ethernity.cli.features.recover.orchestrator import run_recover_wizard
+from ethernity.cli.features.kit.workspace import prompt_print_kit_workspace_args
+from ethernity.cli.features.mint.workspace import run_reprint_shards_workspace
+from ethernity.cli.features.recover.workspace import run_restore_workspace
 from ethernity.cli.shared import common as cli_common, ndjson as cli_ndjson, ui_api as ui
-from ethernity.cli.shared.crypto import normalize_doc_hash_hex
-from ethernity.cli.shared.recovery_prompts import prompt_passphrase_unlock_material
-from ethernity.cli.shared.types import BackupArgs, CliContextState, CompactArgs, ExtendArgs
-from ethernity.config import CliDefaults, ExtendDefaults, load_cli_defaults
+from ethernity.cli.shared.types import BackupArgs, CliContextState
+from ethernity.config import CliDefaults, load_cli_defaults
 from ethernity.config.install import DEFAULT_CONFIG_PATH, resolve_api_defaults_config_path
-from ethernity.crypto.sharding import MAX_SHARES
 
 
 def _argv_requests_help(argv: Sequence[str]) -> bool:
@@ -85,31 +83,28 @@ console = ui.console
 console_err = ui.console_err
 empty_mint_args = ui.empty_mint_args
 empty_recover_args = ui.empty_recover_args
-prompt_choice = ui.prompt_choice
 prompt_home_action = ui.prompt_home_action
-prompt_int = ui.prompt_int
-prompt_optional = ui.prompt_optional
-prompt_optional_path_with_picker = ui.prompt_optional_path_with_picker
-prompt_path_with_picker = ui.prompt_path_with_picker
-prompt_paths_with_picker = ui.prompt_paths_with_picker
-prompt_required_secret = ui.prompt_required_secret
-prompt_yes_no = ui.prompt_yes_no
 ui_screen_mode = ui.ui_screen_mode
 
 _DEFAULTS_BOOTSTRAP_SUBCOMMANDS = frozenset(
-    {"api", "backup", "compact", "extend", "recover", "kit", "mint", "render"}
+    {
+        "api",
+        "add",
+        "backup",
+        "compact",
+        "create",
+        "extend",
+        "recover",
+        "kit",
+        "mint",
+        "print-kit",
+        "rebuild",
+        "reprint-shards",
+        "render",
+        "restore",
+    }
 )
 _GLOBAL_OPTIONS_WITH_VALUES = frozenset({"--config", "--paper", "--design", "--debug-max-bytes"})
-
-
-@dataclass(frozen=True)
-class _HomeExtendOutputPolicy:
-    unlock_policy: Literal["self-contained", "reuse-root"]
-    shard_threshold: int | None = None
-    shard_count: int | None = None
-    signing_key_mode: Literal["not-stored", "sharded"] = "not-stored"
-    signing_key_shard_threshold: int | None = None
-    signing_key_shard_count: int | None = None
 
 
 def _subcommand_config_override(argv: Sequence[str]) -> str | None:
@@ -265,417 +260,6 @@ def _home_backup_wizard_args(
         ),
         debug_max_bytes=debug_max_bytes,
         debug_reveal_secrets=debug_reveal_secrets,
-        quiet=quiet,
-    )
-
-
-def _split_existing_paths(paths: Sequence[str]) -> tuple[list[str], list[str]]:
-    """Split validated existing paths into file and directory lists."""
-
-    files: list[str] = []
-    directories: list[str] = []
-    for value in paths:
-        path = Path(value)
-        if path.is_dir():
-            directories.append(value)
-        else:
-            files.append(value)
-    return files, directories
-
-
-def _prompt_home_auth_inputs() -> tuple[str | None, str | None]:
-    if not prompt_yes_no(
-        "Add extra verification data",
-        default=False,
-        help_text=(
-            "Use this only when the backup documents do not already include "
-            "usable verification data."
-        ),
-    ):
-        return None, None
-
-    auth_input_kind = prompt_choice(
-        "How is the extra verification data stored",
-        {
-            "fallback": "Recovery text file",
-            "payloads": "Text line file",
-        },
-        default="payloads",
-        help_text="Choose the file format for the extra verification data you want to supply.",
-    )
-    if auth_input_kind == "fallback":
-        return (
-            prompt_path_with_picker(
-                "Verification recovery text file",
-                kind="file",
-                help_text=(
-                    "Choose the recovery text file that contains the extra verification lines."
-                ),
-                picker_prompt="Select verification recovery text",
-                picker_help_text="Choose the verification recovery text file.",
-            ),
-            None,
-        )
-    return (
-        None,
-        prompt_path_with_picker(
-            "Verification text line file",
-            kind="file",
-            help_text="Choose the text file that contains the extra verification line.",
-            picker_prompt="Select verification text line file",
-            picker_help_text="Choose the verification text line file.",
-        ),
-    )
-
-
-def _prompt_home_extend_args(
-    *,
-    config: str | None,
-    paper: str | None,
-    design: str | None,
-    quiet: bool,
-    extend_defaults: ExtendDefaults | None = None,
-) -> ExtendArgs:
-    source_kind = prompt_choice(
-        "What are you extending from",
-        {
-            "scan": "Printed or scanned backup documents",
-            "folder": "Existing generated backup folder",
-        },
-        default="scan",
-        help_text=(
-            "Choose scans when the printed backup is the source of truth. Use a generated "
-            "folder only when you intentionally kept the original export tree."
-        ),
-    )
-    scan_paths: list[str] | None = None
-    expected_head_doc_hash: str | None = None
-    if source_kind == "scan":
-        root_dir = _prompt_home_extend_scan_output_root()
-        scan_paths = prompt_paths_with_picker(
-            "Backup document scans",
-            kind="path",
-            manual_help_text=(
-                "Enter root and extension PDF/image scan paths, one per line. Blank line to finish."
-            ),
-            empty_message="Choose at least the root backup scan.",
-            picker_prompt="Select backup document scans",
-            picker_help_text="Choose the scanned root and extension backup documents.",
-        )
-        expected_head_doc_hash = _prompt_home_extend_expected_head_doc_hash()
-        allow_stale_head = expected_head_doc_hash is None and _prompt_home_extend_stale_head_ack()
-    else:
-        root_dir = prompt_path_with_picker(
-            "Generated backup folder to append from",
-            kind="dir",
-            help_text=(
-                "Choose this only if you kept the generated backup export tree. "
-                "If you only have paper documents or fresh scans, go back and choose scans."
-            ),
-            picker_prompt="Select generated backup folder",
-            picker_help_text="Choose the existing generated backup folder to append from.",
-        )
-        allow_stale_head = False
-    (
-        passphrase,
-        shard_fallback_files,
-        shard_payloads_file,
-        shard_scan,
-        shard_frames,
-    ) = prompt_passphrase_unlock_material(
-        quiet=quiet,
-        choice_prompt="How do you want to unlock this backup",
-        passphrase_choice_label="I have the passphrase",
-        shard_choice_label="I have printed shard documents",
-        choice_help_text=(
-            "Choose the unlock information for the existing backup before selecting files to add."
-        ),
-        passphrase_prompt="Passphrase",
-        passphrase_help_text="Enter the passphrase for the backup you are updating.",
-    )
-    selected_paths = prompt_paths_with_picker(
-        "Files or folders to add",
-        kind="path",
-        manual_help_text=(
-            "Enter one or more existing file or folder paths to include. Blank line to finish."
-        ),
-        empty_message="Choose at least one file or folder to add to the backup.",
-    )
-    input_files, input_dirs = _split_existing_paths(selected_paths)
-    output_policy = _prompt_home_extend_output_policy(extend_defaults)
-    return ExtendArgs(
-        config=config,
-        paper=paper,
-        design=design,
-        root_dir=root_dir,
-        scan=scan_paths,
-        input=input_files or None,
-        input_dir=input_dirs or None,
-        passphrase=passphrase,
-        shard_fallback_file=shard_fallback_files or None,
-        shard_payloads_file=shard_payloads_file or None,
-        shard_scan=shard_scan or None,
-        shard_frames=shard_frames or None,
-        unlock_policy=output_policy.unlock_policy,
-        shard_threshold=output_policy.shard_threshold,
-        shard_count=output_policy.shard_count,
-        signing_key_mode=output_policy.signing_key_mode,
-        signing_key_shard_threshold=output_policy.signing_key_shard_threshold,
-        signing_key_shard_count=output_policy.signing_key_shard_count,
-        expected_head_doc_hash=expected_head_doc_hash,
-        allow_stale_head=allow_stale_head,
-        quiet=quiet,
-    )
-
-
-def _prompt_home_extend_expected_head_doc_hash() -> str | None:
-    while True:
-        value = prompt_optional(
-            "Trusted latest extension head doc_hash",
-            help_text=(
-                "Paste the latest trusted extension head doc_hash to reject stale scan sets. "
-                "Leave blank only when no trusted head marker is available."
-            ),
-        )
-        if value is None:
-            return None
-        try:
-            return normalize_doc_hash_hex(value, option="expected head doc_hash")
-        except ValueError as exc:
-            console_err.print(f"[error]{exc}[/error]")
-
-
-def _prompt_home_extend_stale_head_ack() -> bool:
-    return prompt_yes_no(
-        "Continue without a trusted latest head hash",
-        default=False,
-        help_text=(
-            "Only continue if these scans are known to be the latest extension chain state. "
-            "Otherwise paste the trusted latest head doc_hash to reject stale scan sets."
-        ),
-    )
-
-
-def _prompt_home_extend_scan_output_root() -> str:
-    while True:
-        root_dir = prompt_optional_path_with_picker(
-            "Output folder for new extension artifacts",
-            kind="dir",
-            allow_new=True,
-            help_text=(
-                "Choose a new or empty folder where extension artifacts will be published. "
-                "The scanned documents remain the source used to authenticate the existing chain."
-            ),
-            picker_prompt="Select output folder",
-            picker_help_text="Choose the folder where the extension artifacts will be written.",
-        )
-        if root_dir:
-            return root_dir
-        console_err.print("[error]Choose an output folder for the extension artifacts.[/error]")
-
-
-def _prompt_home_extend_output_policy(
-    extend_defaults: ExtendDefaults | None,
-) -> _HomeExtendOutputPolicy:
-    default_shard_count = extend_defaults.shard_count if extend_defaults is not None else None
-    default_shard_threshold = (
-        extend_defaults.shard_threshold if extend_defaults is not None else None
-    )
-    mode = prompt_choice(
-        "How should this extension be recoverable",
-        {
-            "extension-shards": "Create extension passphrase shard documents",
-            "reuse-root": "Use the root backup shard documents",
-            "plaintext": "Print the passphrase in the extension recovery document",
-        },
-        default="extension-shards",
-        help_text=(
-            "Choose where the recovery material for this extension should live. "
-            "Extension shards are safest when you are not sure the root shard set is available."
-        ),
-    )
-    if mode == "reuse-root":
-        signing_key_policy = _prompt_home_extend_signing_key_policy(extend_defaults)
-        return _HomeExtendOutputPolicy(unlock_policy="reuse-root", **signing_key_policy)
-    if mode == "plaintext":
-        return _HomeExtendOutputPolicy(unlock_policy="self-contained", shard_count=0)
-
-    shard_count = prompt_int(
-        "Extension shard document count",
-        minimum=1,
-        maximum=MAX_SHARES,
-        help_text=_home_extend_shard_count_help(default_shard_count),
-    )
-    shard_threshold = prompt_int(
-        "Extension shard threshold",
-        minimum=1,
-        maximum=shard_count,
-        help_text=_home_extend_shard_threshold_help(default_shard_threshold, shard_count),
-    )
-    signing_key_policy = _prompt_home_extend_signing_key_policy(extend_defaults)
-    if signing_key_policy["signing_key_mode"] != "sharded":
-        return _HomeExtendOutputPolicy(
-            unlock_policy="self-contained",
-            shard_threshold=shard_threshold,
-            shard_count=shard_count,
-            **signing_key_policy,
-        )
-
-    return _HomeExtendOutputPolicy(
-        unlock_policy="self-contained",
-        shard_threshold=shard_threshold,
-        shard_count=shard_count,
-        **signing_key_policy,
-    )
-
-
-def _prompt_home_extend_signing_key_policy(
-    extend_defaults: ExtendDefaults | None,
-) -> dict[str, Any]:
-    default_signing_key_mode = (
-        extend_defaults.signing_key_mode if extend_defaults is not None else "not-stored"
-    )
-    signing_key_mode = prompt_choice(
-        "Store root/chain signing authority shards for this extension",
-        {
-            "not-stored": "No, do not store signing authority shards",
-            "sharded": "Yes, create root/chain signing authority shard documents",
-        },
-        default=default_signing_key_mode if default_signing_key_mode == "sharded" else "not-stored",
-        help_text=(
-            "These shards can recover the root/chain signing authority, which can authorize "
-            "future extensions if the root signing seed is not available elsewhere."
-        ),
-    )
-    if signing_key_mode != "sharded":
-        return {"signing_key_mode": "not-stored"}
-
-    signing_key_shard_count = prompt_int(
-        "Signing authority shard document count",
-        minimum=1,
-        maximum=MAX_SHARES,
-        help_text=_home_extend_shard_count_help(
-            extend_defaults.signing_key_shard_count if extend_defaults is not None else None
-        ),
-    )
-    signing_key_shard_threshold = prompt_int(
-        "Signing authority shard threshold",
-        minimum=1,
-        maximum=signing_key_shard_count,
-        help_text=_home_extend_shard_threshold_help(
-            extend_defaults.signing_key_shard_threshold if extend_defaults is not None else None,
-            signing_key_shard_count,
-        ),
-    )
-    return {
-        "signing_key_mode": "sharded",
-        "signing_key_shard_threshold": signing_key_shard_threshold,
-        "signing_key_shard_count": signing_key_shard_count,
-    }
-
-
-def _home_extend_shard_count_help(default_count: int | None) -> str:
-    suffix = f" Current configured default is {default_count}." if default_count else ""
-    return f"Choose how many printed shard documents to create (1-{MAX_SHARES}).{suffix}"
-
-
-def _home_extend_shard_threshold_help(default_threshold: int | None, shard_count: int) -> str:
-    suffix = (
-        f" Current configured default is {default_threshold}."
-        if default_threshold is not None and default_threshold <= shard_count
-        else ""
-    )
-    return f"Choose how many of the {shard_count} shard documents are required.{suffix}"
-
-
-def _prompt_home_compact_args(
-    *,
-    config: str | None,
-    paper: str | None,
-    design: str | None,
-    quiet: bool,
-) -> CompactArgs:
-    source_kind = prompt_choice(
-        "What are you rebuilding from",
-        {
-            "scan": "Printed or scanned backup documents",
-            "folder": "Existing generated backup folder",
-        },
-        default="scan",
-        help_text=(
-            "Choose scans when the printed backup is the source of truth. Use a generated "
-            "folder only when you intentionally kept the original export tree."
-        ),
-    )
-    root_dir: str | None = None
-    scan_paths: list[str] | None = None
-    expected_head_doc_hash: str | None = None
-    allow_stale_head = False
-    if source_kind == "scan":
-        scan_paths = prompt_paths_with_picker(
-            "Backup document scans",
-            kind="path",
-            manual_help_text=(
-                "Enter root and extension PDF/image scan paths, one per line. Blank line to finish."
-            ),
-            empty_message="Choose at least the root backup scan.",
-            picker_prompt="Select backup document scans",
-            picker_help_text="Choose the scanned root and extension backup documents.",
-        )
-        expected_head_doc_hash = _prompt_home_extend_expected_head_doc_hash()
-        allow_stale_head = expected_head_doc_hash is None and _prompt_home_extend_stale_head_ack()
-    else:
-        root_dir = prompt_path_with_picker(
-            "Generated backup folder to rebuild",
-            kind="dir",
-            help_text=(
-                "Choose this only if you kept the generated backup export tree. "
-                "If you only have paper documents or fresh scans, go back and choose scans."
-            ),
-            picker_prompt="Select generated backup folder",
-            picker_help_text="Choose the existing generated backup folder to compact.",
-        )
-    output_dir: str | None = None
-    while output_dir is None:
-        output_dir = prompt_optional_path_with_picker(
-            "Output directory",
-            kind="path",
-            allow_new=True,
-            help_text="Choose a new or empty folder where the compacted backup should be written.",
-            picker_prompt="Select existing output path",
-            picker_help_text=(
-                "Choose an existing file or folder, or switch to manual entry for a new path."
-            ),
-        )
-    (
-        passphrase,
-        shard_fallback_files,
-        shard_payloads_file,
-        shard_scan,
-        shard_frames,
-    ) = prompt_passphrase_unlock_material(
-        quiet=quiet,
-        choice_prompt="How do you want to unlock this backup",
-        passphrase_choice_label="I have the passphrase",
-        shard_choice_label="I have printed shard documents",
-        choice_help_text=("Choose the unlock method for the existing backup before compacting it."),
-        passphrase_prompt="Passphrase",
-        passphrase_help_text="Enter the passphrase for the backup you are compacting.",
-    )
-    return CompactArgs(
-        config=config,
-        paper=paper,
-        design=design,
-        root_dir=root_dir,
-        scan=scan_paths,
-        output_dir=output_dir,
-        passphrase=passphrase,
-        shard_fallback_file=shard_fallback_files or None,
-        shard_payloads_file=shard_payloads_file or None,
-        shard_scan=shard_scan or None,
-        shard_frames=shard_frames or None,
-        expected_head_doc_hash=expected_head_doc_hash,
-        allow_stale_head=allow_stale_head,
         quiet=quiet,
     )
 
@@ -858,7 +442,7 @@ def _run_home_screen(
             debug_max_bytes=debug_max_bytes,
             debug_reveal_secrets=debug_reveal_secrets,
         )
-        _run_cli(lambda: run_recover_wizard(recover_args, debug=debug), debug=debug)
+        _run_cli(lambda: run_restore_workspace(recover_args, debug=debug), debug=debug)
         return
 
     if action == "mint":
@@ -868,44 +452,65 @@ def _run_home_screen(
             design=design,
             quiet=quiet,
         )
-        _run_cli(lambda: run_mint_wizard(mint_args, debug=debug), debug=debug)
+        _run_cli(lambda: run_reprint_shards_workspace(mint_args, debug=debug), debug=debug)
         return
 
     if action == "extend":
-        extend_args = _prompt_home_extend_args(
-            config=config_value,
-            paper=paper_value,
-            design=design,
-            quiet=quiet,
-            extend_defaults=state.extend_defaults,
-        )
-        _run_cli(lambda: run_extend_command(extend_args, debug=debug), debug=debug)
+
+        def _run_home_extend() -> int | None:
+            extend_args = prompt_add_files_workspace_args(
+                config=config_value,
+                paper=paper_value,
+                design=design,
+                quiet=quiet,
+                extend_defaults=state.extend_defaults,
+            )
+            if extend_args is None:
+                return 1
+            return run_extend_command(extend_args, debug=debug)
+
+        _run_cli(_run_home_extend, debug=debug)
         return
 
     if action == "compact":
-        compact_args = _prompt_home_compact_args(
-            config=config_value,
-            paper=paper_value,
-            design=design,
-            quiet=quiet,
-        )
-        _run_cli(lambda: run_compact_command(compact_args, debug=debug), debug=debug)
+
+        def _run_home_compact() -> int | None:
+            compact_args = prompt_rebuild_workspace_args(
+                config=config_value,
+                paper=paper_value,
+                design=design,
+                quiet=quiet,
+            )
+            if compact_args is None:
+                return 1
+            return run_compact_command(compact_args, debug=debug)
+
+        _run_cli(_run_home_compact, debug=debug)
         return
 
     if action == "kit":
-        _run_cli(
-            lambda: _run_kit_render(
-                bundle=None,
-                output=None,
-                config_value=config_value,
-                paper_value=paper_value,
-                design_value=design,
-                variant_value="lean",
-                qr_chunk_size=None,
-                quiet_value=quiet,
-            ),
-            debug=debug,
-        )
+
+        def _run_home_kit() -> None | int:
+            kit_args = prompt_print_kit_workspace_args(
+                config=config_value,
+                paper=paper_value,
+                design=design,
+                quiet=quiet,
+            )
+            if kit_args is None:
+                return 1
+            return _run_kit_render(
+                bundle=kit_args.bundle,
+                output=kit_args.output,
+                config_value=kit_args.config,
+                paper_value=kit_args.paper,
+                design_value=kit_args.design,
+                variant_value=kit_args.variant,
+                qr_chunk_size=kit_args.qr_chunk_size,
+                quiet_value=kit_args.quiet,
+            )
+
+        _run_cli(_run_home_kit, debug=debug)
         return
 
     wizard_args = _home_backup_wizard_args(
@@ -918,7 +523,7 @@ def _run_home_screen(
         quiet=quiet,
     )
     _run_cli(
-        lambda: run_wizard(
+        lambda: run_create_backup_workspace(
             debug_override=debug if debug else None,
             debug_max_bytes=debug_max_bytes,
             debug_reveal_secrets=debug_reveal_secrets,

@@ -243,6 +243,46 @@ class TestRecoverCommand(unittest.TestCase):
         recover_command.register(app)
         self.assertGreater(len(app.registered_commands), 0)
 
+    @mock.patch("ethernity.cli.features.recover.command.run_restore_workspace", return_value=0)
+    @mock.patch(
+        "ethernity.cli.features.recover.command._run_cli", side_effect=lambda func, debug: func()
+    )
+    @mock.patch(
+        "ethernity.cli.features.recover.command._resolve_config_and_paper",
+        return_value=("cfg", "A4"),
+    )
+    def test_restore_command_runs_guided_workspace(
+        self,
+        _resolve_config_and_paper: mock.MagicMock,
+        _run_cli: mock.MagicMock,
+        run_restore_workspace: mock.MagicMock,
+    ) -> None:
+        ctx = self._ctx(
+            quiet=True,
+            debug=True,
+            debug_max_bytes=512,
+            debug_reveal_secrets=True,
+            recover_defaults=RecoverDefaults(output="./restored"),
+        )
+
+        recover_command.restore(
+            ctx,
+            config=None,
+            paper=None,
+            quiet=False,
+            debug=False,
+            debug_max_bytes=None,
+        )
+
+        args = run_restore_workspace.call_args.args[0]
+        self.assertEqual(args.config, "cfg")
+        self.assertEqual(args.paper, "A4")
+        self.assertEqual(args.output, "./restored")
+        self.assertEqual(args.debug_max_bytes, 512)
+        self.assertTrue(args.debug_reveal_secrets)
+        self.assertTrue(args.quiet)
+        self.assertTrue(run_restore_workspace.call_args.kwargs["debug"])
+
 
 class TestRecoverFlow(unittest.TestCase):
     @mock.patch("ethernity.cli.features.recover.orchestrator.run_recover_plan", return_value=0)

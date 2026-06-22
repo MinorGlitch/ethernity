@@ -46,6 +46,47 @@ class TestExtendCommand(unittest.TestCase):
         "ethernity.cli.features.extend.command._run_cli", side_effect=lambda func, debug: func()
     )
     @mock.patch(
+        "ethernity.cli.features.extend.command.prompt_add_files_workspace_args",
+        return_value=extend_command.ExtendArgs(root_dir="/tmp/root", input=["updated.txt"]),
+    )
+    @mock.patch(
+        "ethernity.cli.features.extend.command._resolve_config_and_paper",
+        return_value=("ctx.toml", "LETTER"),
+    )
+    def test_add_command_runs_guided_workspace(
+        self,
+        _resolve_config_and_paper: mock.MagicMock,
+        prompt_add_files_workspace_args: mock.MagicMock,
+        _run_cli: mock.MagicMock,
+        run_extend_command: mock.MagicMock,
+    ) -> None:
+        defaults = ExtendDefaults(shard_threshold=2, shard_count=3)
+        ctx = self._ctx(design="forge", quiet=False, debug=True, extend_defaults=defaults)
+
+        extend_command.add(
+            ctx,
+            config=None,
+            paper=None,
+            design=None,
+            quiet=False,
+            debug=False,
+        )
+
+        prompt_add_files_workspace_args.assert_called_once_with(
+            config="ctx.toml",
+            paper="LETTER",
+            design="forge",
+            quiet=False,
+            extend_defaults=defaults,
+        )
+        run_extend_command.assert_called_once()
+        self.assertTrue(run_extend_command.call_args.kwargs["debug"])
+
+    @mock.patch("ethernity.cli.features.extend.command.run_extend_command", return_value=0)
+    @mock.patch(
+        "ethernity.cli.features.extend.command._run_cli", side_effect=lambda func, debug: func()
+    )
+    @mock.patch(
         "ethernity.cli.features.extend.command._resolve_config_and_paper",
         return_value=("ctx.toml", "LETTER"),
     )

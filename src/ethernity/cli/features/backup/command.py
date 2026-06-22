@@ -27,6 +27,7 @@ from ethernity.cli.features.backup.orchestrator import (
     run_backup_command,
     run_wizard,
 )
+from ethernity.cli.features.backup.workspace import run_create_backup_workspace
 from ethernity.cli.shared.common import (
     _ctx_state,
     _paper_callback,
@@ -46,7 +47,107 @@ _BACKUP_HELP = (
 
 
 def register(app: typer.Typer) -> None:
+    app.command(name="create", help="Create a backup with a guided workspace.")(create)
     app.command(help=_BACKUP_HELP)(backup)
+
+
+def create(
+    ctx: typer.Context,
+    config: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            help="Use this config file.",
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    paper: Annotated[
+        str | None,
+        typer.Option(
+            "--paper",
+            help="Paper size override (A4/Letter).",
+            callback=_paper_callback,
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    design: Annotated[
+        str | None,
+        typer.Option(
+            "--design",
+            help="Template design folder (auto-discovered under templates/).",
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    quiet: Annotated[
+        bool,
+        typer.Option(
+            "--quiet",
+            help="Hide non-error output.",
+            rich_help_panel="Behavior",
+        ),
+    ] = False,
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            help="Show plaintext debug details.",
+            rich_help_panel="Debug",
+        ),
+    ] = False,
+    debug_max_bytes: Annotated[
+        int | None,
+        typer.Option(
+            "--debug-max-bytes",
+            help=f"Limit debug dump size (default: {DEBUG_MAX_BYTES_DEFAULT}, 0 = no limit).",
+            rich_help_panel="Debug",
+        ),
+    ] = None,
+) -> None:
+    state = _ctx_state(ctx)
+    config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
+    design_value = design or (state.design if state is not None else None)
+    defaults = state.backup_defaults if state is not None else None
+    if not isinstance(defaults, BackupDefaults):
+        defaults = BackupDefaults()
+
+    debug_value = debug or (state.debug if state is not None else False)
+    debug_max_value = (
+        (state.debug_max_bytes if state is not None else 0)
+        if debug_max_bytes is None
+        else debug_max_bytes
+    )
+    debug_reveal_value = state.debug_reveal_secrets if state is not None else False
+    quiet_value = quiet or (state.quiet if state is not None else False)
+    args = BackupArgs(
+        config=config_value,
+        paper=paper_value,
+        design=design_value,
+        base_dir=defaults.base_dir,
+        output_dir=defaults.output_dir,
+        output_dir_existing_parent=defaults.output_dir is not None,
+        shard_threshold=defaults.shard_threshold,
+        shard_count=defaults.shard_count,
+        signing_key_mode=defaults.signing_key_mode,
+        signing_key_shard_threshold=defaults.signing_key_shard_threshold,
+        signing_key_shard_count=defaults.signing_key_shard_count,
+        debug=debug_value,
+        debug_max_bytes=debug_max_value,
+        debug_reveal_secrets=debug_reveal_value,
+        quiet=quiet_value,
+    )
+    _run_cli(
+        functools.partial(
+            run_create_backup_workspace,
+            debug_override=debug_value if debug_value else None,
+            debug_max_bytes=debug_max_value,
+            debug_reveal_secrets=debug_reveal_value,
+            config_path=config_value,
+            paper_size=paper_value,
+            quiet=quiet_value,
+            args=args,
+        ),
+        debug=debug_value,
+    )
 
 
 def backup(

@@ -114,11 +114,15 @@ class MintArgs:
     design: str | None = None
     fallback_file: str | None = None
     payloads_file: str | None = None
+    frames: list[Frame] | None = None
+    input_label: str | None = None
+    input_detail: str | None = None
     scan: list[str] | None = None
     passphrase: str | None = None
     shard_fallback_file: list[str] | None = None
     shard_payloads_file: list[str] | None = None
     shard_scan: list[str] | None = None
+    shard_frames: list[Frame] | None = None
     auth_fallback_file: str | None = None
     auth_payloads_file: str | None = None
     extension_index: int | None = None
@@ -128,6 +132,7 @@ class MintArgs:
     signing_key_shard_fallback_file: list[str] | None = None
     signing_key_shard_payloads_file: list[str] | None = None
     signing_key_shard_scan: list[str] | None = None
+    signing_key_shard_frames: list[Frame] | None = None
     output_dir: str | None = None
     output_dir_existing_parent: bool = False
     layout_debug_dir: str | None = None

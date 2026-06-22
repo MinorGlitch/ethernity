@@ -140,7 +140,7 @@ class TestMintCommand(unittest.TestCase):
         self.assertEqual(run_mint_command.call_args.kwargs["debug"], True)
 
     @mock.patch("ethernity.cli.features.mint.command.run_mint_command", return_value=0)
-    @mock.patch("ethernity.cli.features.mint.command.run_mint_wizard", return_value=0)
+    @mock.patch("ethernity.cli.features.mint.command.run_reprint_shards_workspace", return_value=0)
     @mock.patch(
         "ethernity.cli.features.mint.command._should_use_wizard_for_mint", return_value=True
     )
@@ -150,27 +150,52 @@ class TestMintCommand(unittest.TestCase):
     @mock.patch(
         "ethernity.cli.features.mint.command._resolve_config_and_paper", return_value=("cfg", "A4")
     )
-    def test_mint_uses_wizard_when_interactive_inputs_are_missing(
+    def test_mint_uses_workspace_when_interactive_inputs_are_missing(
         self,
         _resolve_config_and_paper: mock.MagicMock,
         _run_cli: mock.MagicMock,
         _should_use_wizard_for_mint: mock.MagicMock,
-        run_mint_wizard: mock.MagicMock,
+        run_reprint_shards_workspace: mock.MagicMock,
         run_mint_command: mock.MagicMock,
     ) -> None:
         ctx = self._ctx(quiet=False, debug=True, design="sentinel")
 
         self._call_mint(ctx)
 
-        run_mint_wizard.assert_called_once()
+        run_reprint_shards_workspace.assert_called_once()
         run_mint_command.assert_not_called()
-        args = run_mint_wizard.call_args.args[0]
+        args = run_reprint_shards_workspace.call_args.args[0]
         self.assertIsInstance(args, MintArgs)
         self.assertEqual(args.config, "cfg")
         self.assertEqual(args.paper, "A4")
         self.assertEqual(args.design, "sentinel")
         self.assertTrue(args.output_dir_existing_parent)
-        self.assertEqual(run_mint_wizard.call_args.kwargs["debug"], True)
+        self.assertEqual(run_reprint_shards_workspace.call_args.kwargs["debug"], True)
+
+    @mock.patch("ethernity.cli.features.mint.command.run_reprint_shards_workspace", return_value=0)
+    @mock.patch(
+        "ethernity.cli.features.mint.command._run_cli", side_effect=lambda func, debug: func()
+    )
+    @mock.patch(
+        "ethernity.cli.features.mint.command._resolve_config_and_paper", return_value=("cfg", "A4")
+    )
+    def test_reprint_shards_alias_uses_guided_workspace(
+        self,
+        _resolve_config_and_paper: mock.MagicMock,
+        _run_cli: mock.MagicMock,
+        run_reprint_shards_workspace: mock.MagicMock,
+    ) -> None:
+        ctx = self._ctx(quiet=False, debug=True, design="sentinel")
+
+        mint_command.reprint_shards(cast(Any, ctx))
+
+        run_reprint_shards_workspace.assert_called_once()
+        args = run_reprint_shards_workspace.call_args.args[0]
+        self.assertIsInstance(args, MintArgs)
+        self.assertEqual(args.config, "cfg")
+        self.assertEqual(args.paper, "A4")
+        self.assertEqual(args.design, "sentinel")
+        self.assertEqual(run_reprint_shards_workspace.call_args.kwargs["debug"], True)
 
     def test_register(self) -> None:
         app = typer.Typer()

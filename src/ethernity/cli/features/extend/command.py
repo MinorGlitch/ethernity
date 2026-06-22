@@ -40,6 +40,7 @@ from ethernity.cli.features.extend.service import (
     run_extend,
     validate_prepared_extend_render,
 )
+from ethernity.cli.features.extend.workspace import prompt_add_files_workspace_args
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.common import (
     _ctx_state,
@@ -82,6 +83,7 @@ _EXTEND_HELP = (
 
 
 def register(app: typer.Typer) -> None:
+    app.command(name="add", help="Add files to an existing backup with a guided workspace.")(add)
     app.command(help=_EXTEND_HELP)(extend)
 
 
@@ -268,6 +270,74 @@ def _signing_key_policy_label(policy: SigningKeyStoragePolicy) -> str:
     if isinstance(policy, ExtensionSigningKeyShards):
         return f"root/chain signing authority shards ({policy.threshold} of {policy.share_count})"
     return "not stored in extension artifacts"
+
+
+def add(
+    ctx: typer.Context,
+    config: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            help="Use this config file.",
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    paper: Annotated[
+        str | None,
+        typer.Option(
+            "--paper",
+            help="Paper size override (A4/Letter).",
+            callback=_paper_callback,
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    design: Annotated[
+        str | None,
+        typer.Option(
+            "--design",
+            help="Template design folder (auto-discovered under templates/).",
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    quiet: Annotated[
+        bool,
+        typer.Option(
+            "--quiet",
+            help="Hide non-error output.",
+            rich_help_panel="Behavior",
+        ),
+    ] = False,
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            help="Show traceback details on failure.",
+            rich_help_panel="Debug",
+        ),
+    ] = False,
+) -> None:
+    state = _ctx_state(ctx)
+    config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
+    design_value = design or (state.design if state is not None else None)
+    defaults = state.extend_defaults if state is not None else None
+    if not isinstance(defaults, ExtendDefaults):
+        defaults = ExtendDefaults()
+    quiet_value = quiet or (state.quiet if state is not None else False)
+    debug_value = debug or (state.debug if state is not None else False)
+
+    def _run_guided_add() -> int | None:
+        args = prompt_add_files_workspace_args(
+            config=config_value,
+            paper=paper_value,
+            design=design_value,
+            quiet=quiet_value,
+            extend_defaults=defaults,
+        )
+        if args is None:
+            return 1
+        return run_extend_command(args, debug=debug_value)
+
+    _run_cli(_run_guided_add, debug=debug_value)
 
 
 def extend(

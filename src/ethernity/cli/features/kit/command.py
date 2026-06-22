@@ -23,6 +23,7 @@ from typing import Annotated
 import typer
 
 from ethernity.cli.features.kit.workflow import DEFAULT_KIT_CHUNK_SIZE, render_kit_qr_document
+from ethernity.cli.features.kit.workspace import prompt_print_kit_workspace_args
 from ethernity.cli.shared.common import (
     _ctx_state,
     _paper_callback,
@@ -43,6 +44,9 @@ _KIT_HELP = (
 
 
 def register(app: typer.Typer) -> None:
+    app.command(name="print-kit", help="Print the recovery kit sheet with a guided workspace.")(
+        print_kit
+    )
     app.command(help=_KIT_HELP)(kit)
 
 
@@ -78,6 +82,74 @@ def _run_kit_render(
             "Print this document and store it with your recovery materials.",
         ]
         print_completion_panel("Recovery kit ready", actions, quiet=quiet_value)
+
+
+def print_kit(
+    ctx: typer.Context,
+    config: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            "-c",
+            help="Use a custom TOML configuration file.",
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    paper: Annotated[
+        str | None,
+        typer.Option(
+            "--paper",
+            "-p",
+            help="Paper size override: A4 (default) or Letter.",
+            callback=_paper_callback,
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    design: Annotated[
+        str | None,
+        typer.Option(
+            "--design",
+            help="Template design folder (auto-discovered under templates/).",
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    quiet: Annotated[
+        bool,
+        typer.Option(
+            "--quiet",
+            "-q",
+            help="Suppress progress output.",
+            rich_help_panel="Behavior",
+        ),
+    ] = False,
+) -> None:
+    state = _ctx_state(ctx)
+    config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
+    design_value = design or (state.design if state is not None else None)
+    quiet_value = quiet or (state.quiet if state is not None else False)
+    debug_value = state.debug if state is not None else False
+
+    def _run_guided_print_kit() -> None | int:
+        args = prompt_print_kit_workspace_args(
+            config=config_value,
+            paper=paper_value,
+            design=design_value,
+            quiet=quiet_value,
+        )
+        if args is None:
+            return 1
+        return _run_kit_render(
+            bundle=args.bundle,
+            output=args.output,
+            config_value=args.config,
+            paper_value=args.paper,
+            design_value=args.design,
+            variant_value=args.variant,
+            qr_chunk_size=args.qr_chunk_size,
+            quiet_value=args.quiet,
+        )
+
+    _run_cli(_run_guided_print_kit, debug=debug_value)
 
 
 def kit(

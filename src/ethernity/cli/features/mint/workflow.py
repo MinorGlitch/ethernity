@@ -1175,17 +1175,25 @@ def _load_mint_input_state(
     config = load_app_config(args.config, paper_size=args.paper)
     config = apply_template_design(config, args.design)
     recover_args = _recover_args_from_mint_args(args)
-    frames_result = _frames_from_args(
-        recover_args,
-        allow_unsigned=False,
-        quiet=args.quiet,
-    )
+    frames: list[Frame]
+    input_label: str | None
+    input_detail: str | None
     root_dir: str | None = None
-    if len(frames_result) == 3:
-        frames, input_label, input_detail = frames_result
+    if args.frames:
+        frames = list(args.frames)
+        input_label = args.input_label or "Backup recovery input"
+        input_detail = args.input_detail
     else:
-        frames, input_label, input_detail, detected_root_dir = frames_result
-        root_dir = None if detected_root_dir is None else str(detected_root_dir)
+        frames_result = _frames_from_args(
+            recover_args,
+            allow_unsigned=False,
+            quiet=args.quiet,
+        )
+        if len(frames_result) == 3:
+            frames, input_label, input_detail = frames_result
+        else:
+            frames, input_label, input_detail, detected_root_dir = frames_result
+            root_dir = None if detected_root_dir is None else str(detected_root_dir)
     extra_auth_frames = _extra_auth_frames_from_args(
         recover_args,
         allow_unsigned=False,
@@ -1806,6 +1814,7 @@ def _recover_args_from_mint_args(args: MintArgs) -> RecoverArgs:
         shard_fallback_file=list(args.shard_fallback_file or []),
         shard_payloads_file=list(args.shard_payloads_file or []),
         shard_scan=list(args.shard_scan or []),
+        shard_frames=list(args.shard_frames or []),
         auth_fallback_file=args.auth_fallback_file,
         auth_payloads_file=args.auth_payloads_file,
         extension_index=args.extension_index,
@@ -2257,14 +2266,16 @@ def _mint_from_plan(
 
 
 def _signing_key_shard_frames_from_args(args: MintArgs, *, quiet: bool) -> list[Frame]:
+    signing_key_frames = list(args.signing_key_shard_frames or [])
     fallback_files = list(args.signing_key_shard_fallback_file or [])
     payload_files = list(args.signing_key_shard_payloads_file or [])
     scan_files = list(args.signing_key_shard_scan or [])
     if not fallback_files and not payload_files and not scan_files:
-        return []
+        return signing_key_frames
     temp_args = RecoverArgs(
         shard_fallback_file=fallback_files,
         shard_payloads_file=payload_files,
+        shard_frames=signing_key_frames,
         shard_scan=scan_files,
         quiet=quiet,
     )
