@@ -22,11 +22,7 @@ from typing import Annotated
 
 import typer
 
-from ethernity.cli.features.recover.orchestrator import (
-    _should_use_wizard_for_recover,
-    run_recover_command,
-    run_recover_wizard,
-)
+from ethernity.cli.features.recover.orchestrator import run_recover_command
 from ethernity.cli.features.recover.service import (
     RecoverShardDirError,
     apply_recover_stdin_default,
@@ -341,7 +337,18 @@ def recover(
         debug_reveal_secrets=debug_reveal_value,
         quiet=quiet_value,
     )
-    if _should_use_wizard_for_recover(args):
-        _run_cli(functools.partial(run_recover_wizard, args, debug=debug_value), debug=debug_value)
+    if _should_use_workspace_for_recover(args):
+        _run_cli(
+            functools.partial(run_restore_workspace, args, debug=debug_value),
+            debug=debug_value,
+        )
         return
     _run_cli(functools.partial(run_recover_command, args, debug=debug_value), debug=debug_value)
+
+
+def _should_use_workspace_for_recover(args: RecoverArgs) -> bool:
+    if args.fallback_file or args.payloads_file or args.scan:
+        return False
+    if args.shard_fallback_file or args.shard_payloads_file or args.shard_scan:
+        return False
+    return sys.stdin.isatty() and sys.stdout.isatty()

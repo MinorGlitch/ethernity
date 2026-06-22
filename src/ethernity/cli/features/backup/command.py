@@ -17,16 +17,13 @@
 from __future__ import annotations
 
 import functools
+import sys
 from pathlib import Path
 from typing import Annotated, Literal
 
 import typer
 
-from ethernity.cli.features.backup.orchestrator import (
-    _should_use_wizard_for_backup,
-    run_backup_command,
-    run_wizard,
-)
+from ethernity.cli.features.backup.orchestrator import run_backup_command
 from ethernity.cli.features.backup.workspace import run_create_backup_workspace
 from ethernity.cli.shared.common import (
     _ctx_state,
@@ -404,25 +401,34 @@ def backup(
         assume_yes=assume_yes,
         quiet=quiet_value,
     )
-    if _should_use_wizard_for_backup(args):
+    if not args.input and not args.input_dir:
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            _run_cli(
+                functools.partial(
+                    run_create_backup_workspace,
+                    debug_override=debug_value if debug_value else None,
+                    debug_max_bytes=debug_max_value,
+                    debug_reveal_secrets=debug_reveal_value,
+                    config_path=config_value,
+                    paper_size=paper_value,
+                    quiet=quiet_value,
+                    args=args,
+                ),
+                debug=debug_value,
+            )
+            return
+
         _run_cli(
-            functools.partial(
-                run_wizard,
-                debug_override=debug_value if debug_value else None,
-                debug_max_bytes=debug_max_value,
-                debug_reveal_secrets=debug_reveal_value,
-                config_path=config_value,
-                paper_size=paper_value,
-                quiet=quiet_value,
-                args=args,
-            ),
+            lambda: _raise_backup_input_required(),
             debug=debug_value,
         )
         return
-    if not args.input and not args.input_dir:
-        console_err.print(
-            "Input is required for non-interactive backup. "
-            "Use --input PATH, --input-dir DIR, or --input - for stdin."
-        )
-        raise typer.Exit(code=2)
     _run_cli(functools.partial(run_backup_command, args), debug=debug_value)
+
+
+def _raise_backup_input_required() -> None:
+    console_err.print(
+        "Input is required for non-interactive backup. "
+        "Use --input PATH, --input-dir DIR, or --input - for stdin."
+    )
+    raise typer.Exit(code=2)

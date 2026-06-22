@@ -26,6 +26,7 @@ from unittest import mock
 from typer.testing import CliRunner
 
 from ethernity import cli
+from ethernity.cli.features.backup import command as backup_command
 from ethernity.cli.shared import recovery_kit_index
 from ethernity.cli.shared.io.inputs import _load_input_files
 from ethernity.cli.shared.types import BackupArgs
@@ -1047,6 +1048,70 @@ class TestCliBackupUx(unittest.TestCase):
             result = self.runner.invoke(cli.app, ["backup"])
         self.assertEqual(result.exit_code, 2)
         self.assertIn("--input -", result.output)
+
+    def test_backup_without_inputs_uses_create_workspace_when_interactive(self) -> None:
+        captured: dict[str, object] = {}
+
+        def _capture_workspace(**kwargs):
+            args = kwargs["args"]
+            self.assertIsInstance(args, BackupArgs)
+            captured["config_path"] = kwargs["config_path"]
+            captured["paper_size"] = kwargs["paper_size"]
+            captured["debug_override"] = kwargs["debug_override"]
+            captured["quiet"] = kwargs["quiet"]
+            captured["args"] = args
+            return 0
+
+        with (
+            mock.patch("ethernity.cli.features.backup.command.sys.stdin.isatty", return_value=True),
+            mock.patch(
+                "ethernity.cli.features.backup.command.sys.stdout.isatty", return_value=True
+            ),
+            mock.patch(
+                "ethernity.cli.features.backup.command._run_cli",
+                side_effect=lambda func, debug: func(),
+            ),
+            mock.patch(
+                "ethernity.cli.features.backup.command.run_create_backup_workspace",
+                side_effect=_capture_workspace,
+            ),
+        ):
+            backup_command.backup(
+                mock.Mock(obj=None),
+                input=None,
+                input_dir=None,
+                passphrase=None,
+                passphrase_generate=False,
+                passphrase_words=None,
+                sealed=False,
+                shard_threshold=None,
+                shard_count=None,
+                signing_key_mode=None,
+                signing_key_shard_threshold=None,
+                signing_key_shard_count=None,
+                output_dir=None,
+                assume_yes=False,
+                quiet=True,
+                config="cfg.toml",
+                paper="A4",
+                design=None,
+                qr_chunk_size=None,
+                base_dir=None,
+                layout_debug_dir=None,
+                debug=True,
+                debug_max_bytes=None,
+            )
+
+        self.assertEqual(captured["config_path"], "cfg.toml")
+        self.assertEqual(captured["paper_size"], "A4")
+        self.assertTrue(captured["debug_override"])
+        self.assertTrue(captured["quiet"])
+        args = captured["args"]
+        self.assertIsInstance(args, BackupArgs)
+        self.assertEqual(args.config, "cfg.toml")
+        self.assertEqual(args.paper, "A4")
+        self.assertTrue(args.debug)
+        self.assertTrue(args.quiet)
 
     def test_backup_explicit_stdin_flag_reaches_command(self) -> None:
         captured: dict[str, object] = {}
