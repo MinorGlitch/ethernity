@@ -53,11 +53,22 @@ from ethernity.cli.shared.ui.runtime import (
     wizard_substep,
 )
 from ethernity.cli.shared.ui.state import WizardState, format_hint
+from ethernity.cli.shared.ui.workspace import (
+    WorkspaceSection,
+    WorkspaceStatus,
+    build_workspace_table,
+    first_blocked_section,
+    print_workspace,
+    prompt_workspace_action,
+    workspace_ready,
+)
 
 __all__ = [
     "DEBUG_MAX_BYTES_DEFAULT",
     "HOME_BANNER",
     "THEME",
+    "WorkspaceSection",
+    "WorkspaceStatus",
     "WizardState",
     "console",
     "console_err",
@@ -68,11 +79,14 @@ __all__ = [
     "build_outputs_tree",
     "build_recovered_tree",
     "build_review_table",
+    "build_workspace_table",
     "configure_ui",
     "empty_mint_args",
     "empty_recover_args",
+    "first_blocked_section",
     "format_hint",
     "panel",
+    "print_workspace",
     "print_completion_panel",
     "print_prompt_header",
     "prompt_choice",
@@ -92,6 +106,7 @@ __all__ = [
     "prompt_paths_with_picker",
     "prompt_select_path",
     "prompt_select_paths",
+    "prompt_workspace_action",
     "prompt_yes_no",
     "ui_screen_mode",
     "progress",
@@ -101,4 +116,5 @@ __all__ = [
     "wizard_flow",
     "wizard_stage",
     "wizard_substep",
+    "workspace_ready",
 ]

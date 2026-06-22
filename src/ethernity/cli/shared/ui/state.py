@@ -78,6 +78,7 @@ class UIContext:
     current_substep_help_text: str | None = None
     choice_navigation_hint_seen: bool = False
     last_picker_dir: str = "."
+    picker_dirs: dict[str, str] | None = None
 
 
 def _build_console(*, stderr: bool) -> Console:
