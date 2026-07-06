@@ -36,11 +36,7 @@ from ethernity.render.fallback import (
     fallback_sections_remaining,
     position_fallback_blocks,
 )
-from ethernity.render.geometry import (
-    COORDINATE_EPSILON,
-    groups_from_line_length,
-    line_length_from_groups,
-)
+from ethernity.render.geometry import COORDINATE_EPSILON
 from ethernity.render.layout_policy import (
     adjust_page_fallback_capacity,
     extra_main_first_page_qr_slots,
@@ -336,50 +332,15 @@ def _build_fallback_blocks(
             else:
                 section_lines_capacity += capabilities.recovery_quorumless_continuation_bonus_lines
     if (
-        capabilities.recovery_line_groups_bonus > 0
-        or capabilities.recovery_first_page_bonus_lines_per_extra_section > 0
-        or capabilities.shard_line_groups_bonus > 0
-        or capabilities.signing_key_shard_line_groups_bonus > 0
-        or capabilities.recovery_quorumless_line_groups_bonus > 0
+        normalized_doc_type == DOC_TYPE_RECOVERY
+        and page_idx <= 0
+        and fallback_state.section_idx == 0
+        and fallback_state.token_idx == 0
+        and capabilities.recovery_first_page_bonus_lines_per_extra_section > 0
     ):
-        group_size = next(
-            (section.group_size for section in fallback_sections_data if section.group_size > 0),
-            1,
-        )
-        base_groups = groups_from_line_length(section_line_length, group_size)
-        if normalized_doc_type == DOC_TYPE_RECOVERY:
-            recovery_line_groups_bonus = capabilities.recovery_line_groups_bonus
-            if inputs.recovery_meta is not None and inputs.recovery_meta.quorum_value is None:
-                recovery_line_groups_bonus += capabilities.recovery_quorumless_line_groups_bonus
-            if recovery_line_groups_bonus > 0:
-                section_line_length = line_length_from_groups(
-                    base_groups + recovery_line_groups_bonus,
-                    group_size,
-                )
-            if (
-                page_idx <= 0
-                and fallback_state.section_idx == 0
-                and fallback_state.token_idx == 0
-                and capabilities.recovery_first_page_bonus_lines_per_extra_section > 0
-            ):
-                non_empty_sections = sum(1 for section in fallback_sections_data if section.tokens)
-                if non_empty_sections > 1:
-                    section_lines_capacity += (
-                        capabilities.recovery_first_page_bonus_lines_per_extra_section
-                    )
-        elif normalized_doc_type == DOC_TYPE_SHARD and capabilities.shard_line_groups_bonus > 0:
-            section_line_length = line_length_from_groups(
-                base_groups + capabilities.shard_line_groups_bonus,
-                group_size,
-            )
-        elif (
-            normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD
-            and capabilities.signing_key_shard_line_groups_bonus > 0
-        ):
-            section_line_length = line_length_from_groups(
-                base_groups + capabilities.signing_key_shard_line_groups_bonus,
-                group_size,
-            )
+        non_empty_sections = sum(1 for section in fallback_sections_data if section.tokens)
+        if non_empty_sections > 1:
+            section_lines_capacity += capabilities.recovery_first_page_bonus_lines_per_extra_section
     section_idx_before = fallback_state.section_idx
     token_idx_before = fallback_state.token_idx
     page_fallback_blocks = consume_fallback_blocks(

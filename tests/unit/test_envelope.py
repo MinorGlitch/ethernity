@@ -719,9 +719,11 @@ class TestEnvelope(unittest.TestCase):
             EnvelopeManifest.from_cbor(data)
 
     def test_manifest_rejects_invalid_input_root_label(self) -> None:
-        data = _make_manifest_cbor(input_roots=["dir/name"])
-        with self.assertRaisesRegex(ValueError, "input_root"):
-            EnvelopeManifest.from_cbor(data)
+        for root in ("dir/name", "a\\b", ".", "..", "C:notes", "/abs", "bad\x01"):
+            with self.subTest(root=root):
+                data = _make_manifest_cbor(input_origin="directory", input_roots=[root])
+                with self.assertRaisesRegex(ValueError, "input_root"):
+                    EnvelopeManifest.from_cbor(data)
 
     def test_manifest_accepts_directory_and_mixed_input_origin(self) -> None:
         data = _make_manifest_cbor(input_origin="directory", input_roots=["vault"])
@@ -733,6 +735,10 @@ class TestEnvelope(unittest.TestCase):
         mixed_manifest = EnvelopeManifest.from_cbor(data)
         self.assertEqual(mixed_manifest.input_origin, "mixed")
         self.assertEqual(mixed_manifest.input_roots, ("vault",))
+
+        data = _make_manifest_cbor(input_origin="directory", input_roots=[" vault "])
+        whitespace_manifest = EnvelopeManifest.from_cbor(data)
+        self.assertEqual(whitespace_manifest.input_roots, (" vault ",))
 
     def test_manifest_rejects_file_origin_with_input_roots(self) -> None:
         data = _make_manifest_cbor(input_origin="file", input_roots=["vault"])

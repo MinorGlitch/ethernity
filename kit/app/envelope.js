@@ -233,10 +233,7 @@ function normalizeRootLabel(root) {
   if (typeof root !== "string") {
     throw new Error("manifest input_root must be a non-empty string");
   }
-  const normalized = root.normalize("NFC").trim();
-  if (!normalized) {
-    throw new Error("manifest input_root must be a non-empty string");
-  }
+  const normalized = validateManifestPath(root, "manifest input_root");
   if (normalized.includes("/") || normalized.includes("\\")) {
     throw new Error("manifest input_root must be a leaf label without path separators");
   }

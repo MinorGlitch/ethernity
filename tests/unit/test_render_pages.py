@@ -839,7 +839,7 @@ class TestBuildPages(unittest.TestCase):
 
         with self.assertRaisesRegex(
             ValueError,
-            "fallback capacity exhausted before consuming section data",
+            "fallback capacity exhausted before consuming fallback lines",
         ):
             build_pages(
                 inputs=inputs,
@@ -894,7 +894,7 @@ class TestBuildPages(unittest.TestCase):
 
         with self.assertRaisesRegex(
             ValueError,
-            "fallback capacity exhausted before consuming section data",
+            "fallback capacity exhausted before consuming fallback lines",
         ):
             build_pages(
                 inputs=inputs,
@@ -1407,12 +1407,13 @@ class TestBuildPages(unittest.TestCase):
                 group_size=2,
             ),
         ]
-        layout = replace(
+        baseline_layout = replace(
             _layout(cols=1, rows=1, per_page=1, fallback_lines_per_page=10),
             content_start_y=97.0,
             line_height=1.0,
             line_length=10,
         )
+        bonus_layout = replace(baseline_layout, line_length=25)
 
         with TemporaryDirectory() as temp_dir:
             template_root = Path(temp_dir)
@@ -1441,8 +1442,8 @@ class TestBuildPages(unittest.TestCase):
                     fallback_sections=_fallback_sections(frames[0]),
                 ),
                 spec=_spec(),
-                layout=layout,
-                layout_rest=layout,
+                layout=bonus_layout,
+                layout_rest=bonus_layout,
                 fallback_lines=["L1"],
                 qr_image_builder=lambda idx: f"qr:{idx}",
                 fallback_sections_data=sections,
@@ -1461,8 +1462,8 @@ class TestBuildPages(unittest.TestCase):
                     fallback_sections=_fallback_sections(frames[0]),
                 ),
                 spec=_spec(),
-                layout=layout,
-                layout_rest=layout,
+                layout=baseline_layout,
+                layout_rest=baseline_layout,
                 fallback_lines=["L1"],
                 qr_image_builder=lambda idx: f"qr:{idx}",
                 fallback_sections_data=sections,
@@ -1473,6 +1474,7 @@ class TestBuildPages(unittest.TestCase):
         self.assertGreaterEqual(len(baseline_pages), 2)
         bonus_first_groups = len(bonus_pages[0].fallback_blocks[0].lines[0].split())
         baseline_first_groups = len(baseline_pages[0].fallback_blocks[0].lines[0].split())
+        self.assertEqual(bonus_first_groups, 8)
         self.assertGreater(bonus_first_groups, baseline_first_groups)
 
     def test_recovery_first_page_section_limit_uses_semantic_capability(self) -> None:
