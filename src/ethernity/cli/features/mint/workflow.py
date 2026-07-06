@@ -94,6 +94,7 @@ from ethernity.extensions.chain import (
     reconstruct_authenticated_latest_logical_state,
     validate_authenticated_extension_chain,
 )
+from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.extensions.recovery import (
     decode_imported_extension_link,
     decode_root_manifest,
@@ -747,7 +748,6 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                     with wizard_stage("Quorum", step_number=quorum_step_number, density="dense"):
                         output_state = _resolve_mint_quorums(
                             output_state=output_state,
-                            quiet=quiet,
                         )
                     stage_index += 1
                     continue
@@ -765,7 +765,6 @@ def run_mint_wizard(args: MintArgs, *, debug: bool = False, show_header: bool = 
                     _confirm_mint_review(
                         output_state=output_state,
                         plan=plan,
-                        needs_signing_authority=needs_signing_authority,
                         quiet=quiet,
                     )
                 break
@@ -993,7 +992,6 @@ def _resolve_output_replacement_scope(
 def _resolve_mint_quorums(
     *,
     output_state: _MintWizardOutputState,
-    quiet: bool,
 ) -> _MintWizardOutputState:
     resolved = replace(output_state)
     if (
@@ -1046,7 +1044,6 @@ def _confirm_mint_review(
     *,
     output_state: _MintWizardOutputState,
     plan,
-    needs_signing_authority: bool,
     quiet: bool,
 ) -> None:
     if quiet:
@@ -1372,6 +1369,26 @@ def _inspect_mint_capabilities(
     }
 
 
+def _raise_extension_recovery_api_error(exc: ExtensionRecoveryError) -> None:
+    raise ApiCommandError(code=exc.code, message=str(exc), details=exc.details) from exc
+
+
+def _validate_expected_mint_recovery_head(
+    plan: Any,
+    *,
+    selected_extension_index: int | None,
+    selected_extension_doc_hash: str | None,
+) -> None:
+    try:
+        validate_expected_recovery_head(
+            plan,
+            selected_extension_index=selected_extension_index,
+            selected_extension_doc_hash=selected_extension_doc_hash,
+        )
+    except ExtensionRecoveryError as exc:
+        _raise_extension_recovery_api_error(exc)
+
+
 def _resolve_mint_chain_target(
     plan: Any,
     *,
@@ -1392,7 +1409,7 @@ def _resolve_mint_chain_target(
         else None
     )
     if requested_index == 0:
-        validate_expected_recovery_head(
+        _validate_expected_mint_recovery_head(
             plan,
             selected_extension_index=None,
             selected_extension_doc_hash=None,
@@ -1410,7 +1427,7 @@ def _resolve_mint_chain_target(
     if len(import_documents) <= 1 or auth_payload is None or passphrase is None:
         if explicit_extension_selection:
             _raise_missing_mint_extension_target(requested_index, requested_doc_hash)
-        validate_expected_recovery_head(
+        _validate_expected_mint_recovery_head(
             plan,
             selected_extension_index=None,
             selected_extension_doc_hash=None,
@@ -1434,6 +1451,8 @@ def _resolve_mint_chain_target(
         )
     except ApiCommandError:
         raise
+    except ExtensionRecoveryError as exc:
+        _raise_extension_recovery_api_error(exc)
     except ValueError as exc:
         raise ValueError(f"imported extension chain could not be trusted: {exc}") from exc
 
@@ -1450,7 +1469,7 @@ def _resolve_mint_chain_target(
             )
         if explicit_extension_selection:
             _raise_missing_mint_extension_target(requested_index, requested_doc_hash)
-        validate_expected_recovery_head(
+        _validate_expected_mint_recovery_head(
             plan,
             selected_extension_index=None,
             selected_extension_doc_hash=None,
@@ -1488,7 +1507,7 @@ def _resolve_mint_chain_target(
         except ValueError as exc:
             raise ValueError(f"imported extension chain could not be trusted: {exc}") from exc
     if not decoded_links:
-        validate_expected_recovery_head(
+        _validate_expected_mint_recovery_head(
             plan,
             selected_extension_index=None,
             selected_extension_doc_hash=None,
@@ -1512,7 +1531,7 @@ def _resolve_mint_chain_target(
         raise ValueError(f"imported extension chain could not be trusted: {exc}") from exc
     latest_decoded = decoded_links[-1]
     latest = documents_by_doc_hash[latest_decoded.link.doc_hash]
-    validate_expected_recovery_head(
+    _validate_expected_mint_recovery_head(
         plan,
         selected_extension_index=latest_decoded.link.document.header.index,
         selected_extension_doc_hash=latest.doc_hash.hex(),

@@ -14,10 +14,7 @@
 # You should have received a copy of the GNU General Public License along with this program.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""Curated public helpers for extension build, discovery, staging, and replay.
-
-The package facade intentionally exposes authenticated chain replay helpers only.
-"""
+"""Curated public helpers for extension build, discovery, staging, layout, and replay."""
 
 from ethernity.extensions.build import (
     BuiltExtensionDocument,

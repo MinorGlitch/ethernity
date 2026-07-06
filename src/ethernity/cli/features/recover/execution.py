@@ -22,6 +22,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from ethernity.cli.features.recover.planning import RecoveryPlan
+from ethernity.cli.shared.events import CommandError
 from ethernity.cli.shared.io.outputs import (
     _single_entry_uses_directory_output,
     _write_recovered_outputs,
@@ -30,6 +31,7 @@ from ethernity.cli.shared.ui.debug import print_recover_debug
 from ethernity.cli.shared.ui.summary import format_auth_status, print_recover_summary
 from ethernity.cli.shared.ui_api import print_completion_panel, status
 from ethernity.crypto import decrypt_bytes
+from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.extensions.recovery import (
     recover_chain_entries,
     validate_expected_recovery_head,
@@ -55,26 +57,29 @@ def decrypt_manifest_extract_selection(
 ) -> RecoverDecryptResult:
     """Decrypt a recovery plan and preserve any explicit replay-target metadata."""
 
-    if plan.import_documents:
-        chain = recover_chain_entries(plan, quiet=quiet, debug=debug)
-        return RecoverDecryptResult(
-            manifest=chain.manifest,
-            extracted=list(chain.extracted),
-            selected_extension_index=chain.selected_extension_index,
-            selected_extension_doc_hash=chain.selected_extension_doc_hash,
-        )
+    try:
+        if plan.import_documents:
+            chain = recover_chain_entries(plan, quiet=quiet, debug=debug)
+            return RecoverDecryptResult(
+                manifest=chain.manifest,
+                extracted=list(chain.extracted),
+                selected_extension_index=chain.selected_extension_index,
+                selected_extension_doc_hash=chain.selected_extension_doc_hash,
+            )
 
-    with status("Decrypting and unpacking payload...", quiet=quiet):
-        plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
-        manifest, payload = decode_envelope(plaintext)
-        extracted = extract_payloads(manifest, payload)
-    validate_root_manifest_authority(manifest, plan.auth_payload, doc_hash=plan.doc_hash)
-    validate_expected_recovery_head(
-        plan,
-        selected_extension_index=None,
-        selected_extension_doc_hash=None,
-    )
-    return RecoverDecryptResult(manifest=manifest, extracted=extracted)
+        with status("Decrypting and unpacking payload...", quiet=quiet):
+            plaintext = decrypt_bytes(plan.ciphertext, passphrase=plan.passphrase, debug=debug)
+            manifest, payload = decode_envelope(plaintext)
+            extracted = extract_payloads(manifest, payload)
+        validate_root_manifest_authority(manifest, plan.auth_payload, doc_hash=plan.doc_hash)
+        validate_expected_recovery_head(
+            plan,
+            selected_extension_index=None,
+            selected_extension_doc_hash=None,
+        )
+        return RecoverDecryptResult(manifest=manifest, extracted=extracted)
+    except ExtensionRecoveryError as exc:
+        raise CommandError(code=exc.code, message=str(exc), details=dict(exc.details)) from exc
 
 
 def decrypt_manifest_and_extract(

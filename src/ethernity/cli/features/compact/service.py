@@ -45,6 +45,7 @@ from ethernity.crypto import sharding as sharding_module
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions.discovery import EXTENSIONS_DIR_NAME
+from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.extensions.recovery import recover_chain_entries
 from ethernity.extensions.staging import EXTENSION_CHAIN_LOCK_DIR_NAME
 from ethernity.render.types import RenderLineage
@@ -123,7 +124,9 @@ def _reject_compact_layout_debug_inside_root(
         )
 
 
-def _translate_compact_head_untrusted(exc: ApiCommandError) -> ApiCommandError:
+def _translate_compact_head_untrusted(
+    exc: ApiCommandError | ExtensionRecoveryError,
+) -> ApiCommandError:
     head_label = "requested" if exc.details.get("explicit_selection") else "latest supplied"
     message = f"{head_label} compact head could not be trusted; no checkpoint was created"
     failure_message = exc.details.get("failure_message")
@@ -157,7 +160,7 @@ def _compact_recover_args(args: CompactArgs, root_dir: Path | None) -> RecoverAr
 def _recover_compact_chain(recover_plan, *, quiet: bool):
     try:
         return recover_chain_entries(recover_plan, quiet=quiet, debug=False)
-    except ApiCommandError as exc:
+    except (ApiCommandError, ExtensionRecoveryError) as exc:
         if exc.code != api_codes.RECOVERY_HEAD_UNTRUSTED:
             raise
         raise _translate_compact_head_untrusted(exc) from exc

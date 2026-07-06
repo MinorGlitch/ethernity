@@ -26,9 +26,6 @@ import hmac
 from dataclasses import dataclass
 from typing import Protocol
 
-from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
-from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.crypto import decrypt_bytes
 from ethernity.crypto.signing import (
     AuthPayload,
@@ -38,11 +35,13 @@ from ethernity.crypto.signing import (
 )
 from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import Frame, FrameType
+from ethernity.extensions import errors as extension_errors
 from ethernity.extensions.chain import (
     AuthenticatedExtensionChainLink,
     LogicalFileState,
     reconstruct_authenticated_latest_logical_state,
 )
+from ethernity.extensions.identity import doc_id_and_hash_from_ciphertext
 from ethernity.formats.envelope_codec import decode_any_envelope, extract_payloads
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
 from ethernity.formats.extension_envelope import ExtensionChunkingProfile, ExtensionEnvelope
@@ -370,6 +369,7 @@ def recover_chain_entries(
 def recover_imported_chain_entries(
     plan: RecoveryPlanLike, *, quiet: bool, debug: bool = False
 ) -> ChainRecoveryResult:
+    _ = quiet
     if plan.extension_index is not None and plan.extension_doc_hash is not None:
         raise ValueError("use either --extension-index or --extension-doc-hash, not both")
 
@@ -412,8 +412,8 @@ def recover_imported_chain_entries(
         )
 
     if plan.allow_unsigned:
-        raise ApiCommandError(
-            code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+        raise extension_errors.ExtensionRecoveryError(
+            code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
             message=(
                 "unsigned recovery is not supported for extension replay; "
                 "extension chain recovery requires authenticated extension AUTH"
@@ -427,8 +427,8 @@ def recover_imported_chain_entries(
         )
 
     if plan.auth_payload is None or plan.auth_status != "verified":
-        raise ApiCommandError(
-            code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+        raise extension_errors.ExtensionRecoveryError(
+            code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
             message="extension import recovery requires verified root AUTH",
             details={
                 "stage": "auth",
@@ -444,8 +444,8 @@ def recover_imported_chain_entries(
         doc_hash=plan.doc_hash,
     )
     if root_sign_pub is None:
-        raise ApiCommandError(
-            code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+        raise extension_errors.ExtensionRecoveryError(
+            code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
             message="extension import recovery requires an unsealed root signing authority",
             details={
                 "stage": "auth",
@@ -462,7 +462,6 @@ def recover_imported_chain_entries(
         expected_sign_pub=root_sign_pub,
         requested_index=plan.extension_index,
         requested_doc_hash=plan.extension_doc_hash,
-        quiet=quiet,
         debug=debug,
     )
     selected_links = _select_imported_chain_links(
@@ -537,8 +536,8 @@ def _ensure_expected_head_satisfied(
     validated_head_doc_hash = selected_extension_doc_hash or plan.doc_hash.hex()
     if hmac.compare_digest(expected, validated_head_doc_hash):
         return
-    raise ApiCommandError(
-        code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+    raise extension_errors.ExtensionRecoveryError(
+        code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
         message=(
             "recovery head doc_hash does not match expected head "
             f"{expected}; validated supplied head is {validated_head_doc_hash}"
@@ -575,7 +574,7 @@ def _chain_replay_head_untrusted_error(
     root_manifest: EnvelopeManifest,
     payload: bytes,
     expected_sign_pub: bytes,
-) -> ApiCommandError:
+) -> extension_errors.ExtensionRecoveryError:
     failure, validated_links = locate_replay_failure(
         root_manifest=root_manifest,
         payload=payload,
@@ -594,8 +593,8 @@ def _chain_replay_head_untrusted_error(
     explicit_selection = plan.extension_index is not None or requested_doc_hash is not None
     head_label = "requested" if explicit_selection else "latest supplied"
     failure_message = str(exc)
-    return ApiCommandError(
-        code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+    return extension_errors.ExtensionRecoveryError(
+        code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
         message=f"{head_label} recovery head could not be trusted: {failure_message}",
         details={
             "stage": "replay",
@@ -680,9 +679,9 @@ def _missing_requested_extension_error(
     latest_head_doc_hash: str | None,
     requested_index: int | None,
     requested_doc_hash: str | None,
-) -> ApiCommandError:
-    return ApiCommandError(
-        code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+) -> extension_errors.ExtensionRecoveryError:
+    return extension_errors.ExtensionRecoveryError(
+        code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
         message=message,
         details={
             "stage": "selection",
@@ -708,7 +707,6 @@ def _decode_imported_extension_links(
     expected_sign_pub: bytes,
     requested_index: int | None = None,
     requested_doc_hash: str | None = None,
-    quiet: bool,
     debug: bool,
 ) -> tuple[DecodedExtensionLink, ...]:
     if requested_index is not None and requested_doc_hash is not None:
@@ -722,7 +720,6 @@ def _decode_imported_extension_links(
         expected_sign_pub=expected_sign_pub,
         fail_on_root_authority_errors=requested_index is None and requested_doc_hash is None,
         requested_doc_hash=_requested_extension_doc_hash_bytes(requested_doc_hash),
-        quiet=quiet,
         debug=debug,
     )
     candidates = _select_extension_candidates_for_auth(
@@ -734,7 +731,6 @@ def _decode_imported_extension_links(
     return _authenticate_imported_extension_candidates(
         candidates,
         expected_sign_pub=expected_sign_pub,
-        quiet=quiet,
     )
 
 
@@ -747,7 +743,6 @@ def _decode_imported_extension_candidates(
     expected_sign_pub: bytes,
     fail_on_root_authority_errors: bool,
     requested_doc_hash: bytes | None,
-    quiet: bool,
     debug: bool,
 ) -> tuple[_DecodedExtensionCandidate, ...]:
     candidates: list[_DecodedExtensionCandidate] = []
@@ -756,8 +751,8 @@ def _decode_imported_extension_candidates(
         if document.doc_hash in seen_doc_hashes:
             continue
         if document.doc_id == root_doc_id:
-            raise ApiCommandError(
-                code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+            raise extension_errors.ExtensionRecoveryError(
+                code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
                 message=(
                     "imported extension chain could not be trusted: "
                     "content import contains a document whose doc_id collides with "
@@ -773,7 +768,6 @@ def _decode_imported_extension_candidates(
             auth_payload, auth_status = _resolve_verified_extension_auth(
                 document,
                 expected_sign_pub=expected_sign_pub,
-                quiet=quiet,
             )
         except ValueError as exc:
             if document.doc_hash == requested_doc_hash:
@@ -794,7 +788,6 @@ def _decode_imported_extension_candidates(
                 _raise_selected_extension_candidate_error(
                     document,
                     expected_sign_pub=expected_sign_pub,
-                    quiet=quiet,
                     stage="decode",
                     message=message,
                 )
@@ -802,7 +795,6 @@ def _decode_imported_extension_candidates(
                 _raise_if_document_signed_by_root_authority(
                     document,
                     expected_sign_pub=expected_sign_pub,
-                    quiet=quiet,
                     stage="decode",
                     message=message,
                 )
@@ -813,7 +805,6 @@ def _decode_imported_extension_candidates(
                 _raise_selected_extension_candidate_error(
                     document,
                     expected_sign_pub=expected_sign_pub,
-                    quiet=quiet,
                     stage="decode",
                     message=message,
                 )
@@ -821,7 +812,6 @@ def _decode_imported_extension_candidates(
                 _raise_if_document_signed_by_root_authority(
                     document,
                     expected_sign_pub=expected_sign_pub,
-                    quiet=quiet,
                     stage="decode",
                     message=message,
                 )
@@ -832,7 +822,6 @@ def _decode_imported_extension_candidates(
                 _raise_selected_extension_candidate_error(
                     document,
                     expected_sign_pub=expected_sign_pub,
-                    quiet=quiet,
                     stage="chain",
                     message=message,
                 )
@@ -840,7 +829,6 @@ def _decode_imported_extension_candidates(
                 _raise_if_document_signed_by_root_authority(
                     document,
                     expected_sign_pub=expected_sign_pub,
-                    quiet=quiet,
                     stage="chain",
                     message=message,
                 )
@@ -946,7 +934,6 @@ def _authenticate_imported_extension_candidates(
     candidates: tuple[_DecodedExtensionCandidate, ...],
     *,
     expected_sign_pub: bytes,
-    quiet: bool,
 ) -> tuple[DecodedExtensionLink, ...]:
     links: list[DecodedExtensionLink] = []
     for candidate in candidates:
@@ -973,8 +960,8 @@ def _authenticate_imported_extension_candidates(
         index = link.link.document.header.index
         existing = by_index.get(index)
         if existing is not None and existing.link.doc_hash != link.link.doc_hash:
-            raise ApiCommandError(
-                code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+            raise extension_errors.ExtensionRecoveryError(
+                code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
                 message=(
                     f"content import contains multiple authenticated extensions for index {index}"
                 ),
@@ -988,7 +975,6 @@ def _resolve_verified_extension_auth(
     document: ImportedRecoveryDocument,
     *,
     expected_sign_pub: bytes,
-    quiet: bool,
 ) -> tuple[AuthPayload, str]:
     try:
         auth_payload, auth_status = resolve_required_auth_payload(
@@ -1008,15 +994,15 @@ def _extension_auth_api_error(
     *,
     message: str,
     explicit_selection: bool = False,
-) -> ApiCommandError:
+) -> extension_errors.ExtensionRecoveryError:
     details: dict[str, object] = {
         "stage": "auth",
         "extension_doc_hash": document.doc_hash.hex(),
     }
     if explicit_selection:
         details["explicit_selection"] = True
-    return ApiCommandError(
-        code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+    return extension_errors.ExtensionRecoveryError(
+        code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
         message=message,
         details=details,
     )
@@ -1026,7 +1012,6 @@ def _raise_if_document_signed_by_root_authority(
     document: ImportedRecoveryDocument,
     *,
     expected_sign_pub: bytes,
-    quiet: bool,
     stage: str,
     message: str,
 ) -> None:
@@ -1039,8 +1024,8 @@ def _raise_if_document_signed_by_root_authority(
     except ValueError:
         return
     if auth_payload.sign_pub == expected_sign_pub:
-        raise ApiCommandError(
-            code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+        raise extension_errors.ExtensionRecoveryError(
+            code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
             message=message,
             details={
                 "stage": stage,
@@ -1053,7 +1038,6 @@ def _raise_selected_extension_candidate_error(
     document: ImportedRecoveryDocument,
     *,
     expected_sign_pub: bytes,
-    quiet: bool,
     stage: str,
     message: str,
 ) -> None:
@@ -1072,8 +1056,8 @@ def _raise_selected_extension_candidate_error(
         details["auth_error"] = str(exc)
     else:
         details["root_authority_verified"] = auth_payload.sign_pub == expected_sign_pub
-    raise ApiCommandError(
-        code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+    raise extension_errors.ExtensionRecoveryError(
+        code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
         message=message,
         details=details,
     )
@@ -1087,10 +1071,10 @@ def decode_imported_extension_link(
     quiet: bool,
     debug: bool,
 ) -> DecodedExtensionLink:
+    _ = quiet
     auth_payload, auth_status = _resolve_verified_extension_auth(
         document,
         expected_sign_pub=expected_sign_pub,
-        quiet=quiet,
     )
     plaintext = decrypt_bytes(document.ciphertext, passphrase=passphrase, debug=debug)
     version, decoded = decode_any_envelope(plaintext)
@@ -1230,24 +1214,24 @@ def validate_root_manifest_authority(
 
     if auth_payload is not None:
         if not hmac.compare_digest(auth_payload.doc_hash, doc_hash):
-            raise ApiCommandError(
-                code=api_codes.AUTH_DOC_HASH_MISMATCH,
+            raise extension_errors.ExtensionRecoveryError(
+                code=extension_errors.AUTH_DOC_HASH_MISMATCH,
                 message="root AUTH doc_hash does not match the recovered root ciphertext",
                 details={"stage": "auth"},
             )
         if not verify_auth(
             doc_hash, sign_pub=auth_payload.sign_pub, signature=auth_payload.signature
         ):
-            raise ApiCommandError(
-                code=api_codes.AUTH_SIGNATURE_INVALID,
+            raise extension_errors.ExtensionRecoveryError(
+                code=extension_errors.AUTH_SIGNATURE_INVALID,
                 message="root AUTH signature verification failed",
                 details={"stage": "auth"},
             )
 
     authority = resolve_root_manifest_authority(manifest, auth_payload)
     if authority.mismatch:
-        raise ApiCommandError(
-            code=api_codes.ROOT_AUTHORITY_MISMATCH,
+        raise extension_errors.ExtensionRecoveryError(
+            code=extension_errors.ROOT_AUTHORITY_MISMATCH,
             message="embedded signing seed does not match the verified root AUTH authority",
             details={"stage": "auth"},
         )

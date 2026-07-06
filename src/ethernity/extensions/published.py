@@ -21,8 +21,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import doc_id_from_doc_hash
+from ethernity.extensions import errors as extension_errors
 from ethernity.extensions.chain import (
     LogicalFileState,
     build_chain_available_chunks,
@@ -35,6 +34,7 @@ from ethernity.extensions.discovery import (
     discover_validated_extension_directories,
     payload_main_carriers,
 )
+from ethernity.extensions.identity import doc_id_from_doc_hash
 from ethernity.extensions.recovery import (
     DecodedExtensionLink,
     ImportedRecoveryDocument,
@@ -256,7 +256,7 @@ def inspect_published_extension_chain(
             latest_state=root_state,
             locked_chunking=None,
             refusal=RecoveryHeadTrustRefusal(
-                code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+                code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
                 message="extension replay requires an unsealed root signing authority",
                 details={"stage": "auth", "validated_head_index": 0},
             ),
@@ -272,7 +272,7 @@ def inspect_published_extension_chain(
             latest_state=root_state,
             locked_chunking=None,
             refusal=RecoveryHeadTrustRefusal(
-                code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+                code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
                 message="extension replay requires verified root AUTH",
                 details={
                     "stage": "auth",
@@ -309,7 +309,7 @@ def inspect_published_extension_chain(
                 latest_state=None,
                 locked_chunking=None,
                 refusal=RecoveryHeadTrustRefusal(
-                    code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+                    code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
                     message=str(exc),
                     details={
                         "stage": "auth",
@@ -372,7 +372,7 @@ def inspect_published_extension_chain(
             latest_state=None,
             locked_chunking=None,
             refusal=RecoveryHeadTrustRefusal(
-                code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+                code=extension_errors.RECOVERY_HEAD_UNTRUSTED,
                 message=str(exc),
                 details={
                     "stage": "chain",

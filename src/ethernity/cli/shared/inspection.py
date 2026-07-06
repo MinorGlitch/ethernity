@@ -51,6 +51,14 @@ def blocking_issue_from_exception(
 
     if isinstance(exc, CommandError):
         return blocking_issue(code=exc.code, message=str(exc), details=exc.details)
+    code = getattr(exc, "code", None)
+    details = getattr(exc, "details", None)
+    if isinstance(code, str) and code:
+        return blocking_issue(
+            code=code,
+            message=str(exc),
+            details=details if isinstance(details, Mapping) else {},
+        )
     return blocking_issue(
         code=fallback_code,
         message=str(exc),

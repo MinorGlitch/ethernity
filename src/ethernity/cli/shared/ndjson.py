@@ -64,6 +64,9 @@ def ndjson_session(*, stream: TextIO | None = None) -> Generator[NdjsonEventSink
 def error_code_for_exception(exc: BaseException) -> str:
     if isinstance(exc, ApiCommandError):
         return exc.code
+    code = getattr(exc, "code", None)
+    if isinstance(code, str) and code:
+        return code
     if isinstance(exc, KeyboardInterrupt):
         return api_codes.CANCELLED
     if isinstance(exc, click.Abort):
@@ -86,6 +89,9 @@ def error_code_for_exception(exc: BaseException) -> str:
 def error_details_for_exception(exc: BaseException) -> dict[str, Any]:
     if isinstance(exc, ApiCommandError):
         return dict(exc.details)
+    structured_details = getattr(exc, "details", None)
+    if isinstance(structured_details, dict):
+        return dict(structured_details)
     if isinstance(exc, click.BadParameter):
         details: dict[str, Any] = {}
         if exc.param is not None and exc.param.name is not None:

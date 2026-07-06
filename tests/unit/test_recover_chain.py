@@ -20,11 +20,11 @@ from unittest import mock
 from ethernity.cli.features.recover.planning import RecoveryPlan
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
-from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import InputFile
 from ethernity.crypto.signing import AuthPayload, derive_public_key, encode_auth_payload, sign_auth
 from ethernity.encoding.framing import VERSION, Frame, FrameType
 from ethernity.extensions.build import build_extension_document
+from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.extensions.recovery import (
     ImportedRecoveryDocument,
     decode_imported_extension_link,
@@ -226,7 +226,7 @@ class TestRecoverChain(unittest.TestCase):
                 "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
-            self.assertRaises(ApiCommandError) as caught,
+            self.assertRaises(ExtensionRecoveryError) as caught,
         ):
             recover_chain_entries(plan, quiet=True)
 
@@ -258,7 +258,7 @@ class TestRecoverChain(unittest.TestCase):
                 "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
-            self.assertRaises(ApiCommandError) as caught,
+            self.assertRaises(ExtensionRecoveryError) as caught,
         ):
             recover_chain_entries(plan, quiet=True)
 
@@ -295,7 +295,7 @@ class TestRecoverChain(unittest.TestCase):
                 "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
-            self.assertRaises(ApiCommandError) as caught,
+            self.assertRaises(ExtensionRecoveryError) as caught,
         ):
             recover_chain_entries(plan, quiet=True)
 
@@ -365,7 +365,7 @@ class TestRecoverChain(unittest.TestCase):
                 "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
-            self.assertRaises(ApiCommandError) as caught,
+            self.assertRaises(ExtensionRecoveryError) as caught,
         ):
             recover_chain_entries(plan, quiet=True)
 
@@ -401,7 +401,7 @@ class TestRecoverChain(unittest.TestCase):
                     "extension parent_doc_hash does not match previous document"
                 ),
             ),
-            self.assertRaises(ApiCommandError) as caught,
+            self.assertRaises(ExtensionRecoveryError) as caught,
         ):
             recover_chain_entries(plan, quiet=True)
 
@@ -463,7 +463,7 @@ class TestRecoverChain(unittest.TestCase):
                 "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
-            self.assertRaises(ApiCommandError) as caught,
+            self.assertRaises(ExtensionRecoveryError) as caught,
         ):
             recover_chain_entries(plan, quiet=True)
 
@@ -594,7 +594,7 @@ class TestRecoverChain(unittest.TestCase):
                 "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
-            self.assertRaises(ApiCommandError) as caught,
+            self.assertRaises(ExtensionRecoveryError) as caught,
         ):
             recover_chain_entries(plan, quiet=True)
 
@@ -631,7 +631,7 @@ class TestRecoverChain(unittest.TestCase):
                     "ethernity.extensions.recovery.decrypt_bytes",
                     side_effect=lambda data, *, passphrase, debug=False: data,
                 ),
-                self.assertRaises(ApiCommandError) as caught,
+                self.assertRaises(ExtensionRecoveryError) as caught,
             ):
                 recover_chain_entries(plan, quiet=True)
 
@@ -707,7 +707,7 @@ class TestRecoverChain(unittest.TestCase):
                 "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
-            self.assertRaises(ApiCommandError) as caught,
+            self.assertRaises(ExtensionRecoveryError) as caught,
         ):
             recover_chain_entries(plan, quiet=True)
 
@@ -750,7 +750,7 @@ class TestRecoverChain(unittest.TestCase):
                 "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
-            self.assertRaises(ApiCommandError) as caught,
+            self.assertRaises(ExtensionRecoveryError) as caught,
         ):
             recover_chain_entries(plan, quiet=True)
 
@@ -794,7 +794,7 @@ class TestRecoverChain(unittest.TestCase):
                 "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
-            self.assertRaises(ApiCommandError) as caught,
+            self.assertRaises(ExtensionRecoveryError) as caught,
         ):
             recover_chain_entries(plan, quiet=True)
 
@@ -819,7 +819,7 @@ class TestRecoverChain(unittest.TestCase):
                 "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
-            self.assertRaises(ApiCommandError) as caught,
+            self.assertRaises(ExtensionRecoveryError) as caught,
         ):
             recover_chain_entries(plan, quiet=True)
 
@@ -859,6 +859,7 @@ class TestRecoverChain(unittest.TestCase):
         decrypt_calls: list[bytes] = []
 
         def _decrypt(data: bytes, *, passphrase: str, debug: bool = False) -> bytes:
+            _ = (passphrase, debug)
             decrypt_calls.append(data)
             if data == extension_ciphertext:
                 raise AssertionError("extension body was decrypted before AUTH verification")
@@ -869,7 +870,7 @@ class TestRecoverChain(unittest.TestCase):
                 "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=_decrypt,
             ),
-            self.assertRaises(ApiCommandError) as caught,
+            self.assertRaises(ExtensionRecoveryError) as caught,
         ):
             recover_chain_entries(plan, quiet=True)
 
@@ -906,6 +907,7 @@ class TestRecoverChain(unittest.TestCase):
         decrypt_calls: list[bytes] = []
 
         def _decrypt(data: bytes, *, passphrase: str, debug: bool = False) -> bytes:
+            _ = (passphrase, debug)
             decrypt_calls.append(data)
             if data == extension_ciphertext:
                 raise AssertionError("extension body was decrypted before AUTH verification")
@@ -916,7 +918,7 @@ class TestRecoverChain(unittest.TestCase):
                 "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=_decrypt,
             ),
-            self.assertRaises(ApiCommandError) as caught,
+            self.assertRaises(ExtensionRecoveryError) as caught,
         ):
             recover_chain_entries(plan, quiet=True)
 
@@ -955,6 +957,7 @@ class TestRecoverChain(unittest.TestCase):
         decrypt_calls: list[bytes] = []
 
         def _decrypt(data: bytes, *, passphrase: str, debug: bool = False) -> bytes:
+            _ = (passphrase, debug)
             decrypt_calls.append(data)
             if data == extension_ciphertext:
                 raise AssertionError("extension body was decrypted before AUTH verification")
@@ -965,7 +968,7 @@ class TestRecoverChain(unittest.TestCase):
                 "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=_decrypt,
             ),
-            self.assertRaises(ApiCommandError) as caught,
+            self.assertRaises(ExtensionRecoveryError) as caught,
         ):
             recover_chain_entries(plan, quiet=True)
 
@@ -1031,7 +1034,7 @@ class TestRecoverChain(unittest.TestCase):
                 "ethernity.extensions.recovery.decrypt_bytes",
                 side_effect=lambda data, *, passphrase, debug=False: data,
             ),
-            self.assertRaises(ApiCommandError) as caught,
+            self.assertRaises(ExtensionRecoveryError) as caught,
         ):
             recover_chain_entries(plan, quiet=True)
 
