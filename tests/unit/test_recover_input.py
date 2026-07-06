@@ -32,12 +32,13 @@ from ethernity.cli.features.recover.input_collection import (
 )
 from ethernity.cli.shared.io.frames import (
     _frame_from_payload_text,
-    _frames_from_scan,
     _read_text_lines,
+    frames_from_scan,
 )
 from ethernity.core.bounds import MAX_QR_PAYLOAD_CHARS
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.zbase32 import encode_zbase32
+from ethernity.qr.scan import ScannedQrPayload
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _FIXTURE_PATH = _PROJECT_ROOT / "tests" / "fixtures" / "recovery_parse_vectors.json"
@@ -52,6 +53,10 @@ def _base64_payload_for_main_data(size: int) -> str:
         total=1,
         data=b"x" * size,
     )
+    return base64.b64encode(encode_frame(frame)).decode("ascii").rstrip("=")
+
+
+def _payload_text_for_frame(frame: Frame) -> str:
     return base64.b64encode(encode_frame(frame)).decode("ascii").rstrip("=")
 
 
@@ -89,7 +94,7 @@ class TestRecoverInput(unittest.TestCase):
                 frame_types = [FrameType(frame.frame_type).name for frame in frames]
                 self.assertEqual(frame_types, case["expect_frame_types"])
 
-    def test_payload_collection_rejects_doc_id_mismatch(self) -> None:
+    def test_payload_collection_accepts_multiple_documents(self) -> None:
         state = _PayloadCollectionState(allow_unsigned=True, quiet=True)
         first = Frame(
             version=1,
@@ -108,8 +113,8 @@ class TestRecoverInput(unittest.TestCase):
             data=b"second",
         )
         self.assertTrue(state.ingest(first))
-        self.assertFalse(state.ingest(second))
-        self.assertEqual(len(state.frames), 1)
+        self.assertTrue(state.ingest(second))
+        self.assertEqual(state.frames, [first, second])
 
     def test_payload_collection_requires_auth_when_unsigned_disabled(self) -> None:
         state = _PayloadCollectionState(allow_unsigned=False, quiet=True)
@@ -255,11 +260,16 @@ class TestRecoverInput(unittest.TestCase):
     def test_frames_from_scan_rejects_qr_payload_char_limit_overflow(self) -> None:
         oversized_payload = "A" * (MAX_QR_PAYLOAD_CHARS + 1)
         with mock.patch(
-            "ethernity.cli.shared.io.frames.scan_qr_payloads",
-            return_value=[oversized_payload],
+            "ethernity.cli.shared.io.frames.scan_qr_payloads_with_sources",
+            return_value=[
+                ScannedQrPayload(
+                    data=oversized_payload.encode("utf-8"),
+                    source_path=Path("scan.png"),
+                )
+            ],
         ):
             with self.assertRaisesRegex(ValueError, "MAX_QR_PAYLOAD_CHARS"):
-                _frames_from_scan(["scan.png"])
+                frames_from_scan(["scan.png"])
 
     def test_read_text_lines_rejects_recovery_text_file_size_overflow(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -268,6 +278,23 @@ class TestRecoverInput(unittest.TestCase):
             with mock.patch("ethernity.cli.shared.io.frames.MAX_RECOVERY_TEXT_BYTES", 10):
                 with self.assertRaisesRegex(ValueError, "MAX_RECOVERY_TEXT_BYTES"):
                     _read_text_lines(str(path))
+
+    def test_read_text_lines_rejects_recovery_text_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "recovery.txt"
+            link = Path(tmpdir) / "recovery-link.txt"
+            target.write_text("ok", encoding="utf-8")
+            try:
+                link.symlink_to(target)
+            except (NotImplementedError, OSError):
+                self.skipTest("symlinks are not available")
+            with self.assertRaisesRegex(ValueError, "must not be a symlink"):
+                _read_text_lines(str(link))
+
+    def test_read_text_lines_rejects_recovery_text_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaisesRegex(ValueError, "regular file"):
+                _read_text_lines(tmpdir)
 
     def test_read_text_lines_rejects_recovery_text_stdin_size_overflow(self) -> None:
         with mock.patch("ethernity.cli.shared.io.frames.MAX_RECOVERY_TEXT_BYTES", 10):
@@ -285,12 +312,13 @@ class TestRecoverInput(unittest.TestCase):
 
     def test_payload_collection_next_prompt_transitions(self) -> None:
         state = _PayloadCollectionState(allow_unsigned=False, quiet=True)
-        self.assertEqual(state.next_prompt(), "QR payload")
-        state.main_total = 2
-        state.main_indices = {0}
-        self.assertEqual(state.next_prompt(), "QR payload (2 remaining)")
-        state.main_indices = {0, 1}
-        self.assertEqual(state.next_prompt(), "Auth QR payload (1 remaining)")
+        self.assertEqual(state.next_prompt(), "Backup text line")
+        doc_id = b"\x50" * DOC_ID_LEN
+        state.main_total_by_doc_id[doc_id] = 2
+        state.main_indices_by_doc_id[doc_id] = {0}
+        self.assertEqual(state.next_prompt(), "Backup text line (2 remaining)")
+        state.main_indices_by_doc_id[doc_id] = {0, 1}
+        self.assertEqual(state.next_prompt(), "Verification text line (1 remaining)")
 
     def test_payload_collection_rejects_total_mismatch(self) -> None:
         state = _PayloadCollectionState(allow_unsigned=True, quiet=True)
@@ -350,7 +378,7 @@ class TestRecoverInput(unittest.TestCase):
             self.assertTrue(state.ingest(frame))
             self.assertFalse(state.ingest(frame))
         self.assertTrue(
-            any("Duplicate payload ignored." in str(call) for call in print_mock.call_args_list)
+            any("Duplicate text line ignored." in str(call) for call in print_mock.call_args_list)
         )
 
     def test_payload_collection_rejects_non_main_or_auth_frames(self) -> None:
@@ -402,6 +430,62 @@ class TestRecoverInput(unittest.TestCase):
         self.assertEqual(frames, [frame])
         collect_mock.assert_called_once()
 
+    def test_prompt_text_or_payloads_stdin_prefers_recovery_text_when_selected(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x55" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        with mock.patch(
+            "ethernity.cli.features.recover.input_collection.prompt_required",
+            return_value="fallback block",
+        ):
+            with mock.patch(
+                "ethernity.cli.features.recover.input_collection.collect_fallback_frames",
+                return_value=[frame],
+            ) as collect_mock:
+                frames, label = prompt_text_or_payloads_stdin(
+                    allow_unsigned=True,
+                    quiet=True,
+                    preferred_kind="fallback",
+                )
+        self.assertEqual(label, "Recovery text")
+        self.assertEqual(frames, [frame])
+        collect_mock.assert_called_once()
+
+    def test_prompt_text_or_payloads_stdin_prefers_backup_text_lines_when_selected(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x56" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        with mock.patch(
+            "ethernity.cli.features.recover.input_collection.prompt_required",
+            return_value="payload",
+        ):
+            with mock.patch(
+                "ethernity.cli.features.recover.input_collection._frames_from_payload_lines",
+                return_value=[frame],
+            ):
+                with mock.patch(
+                    "ethernity.cli.features.recover.input_collection.collect_payload_frames",
+                    return_value=[frame],
+                ) as collect_mock:
+                    frames, label = prompt_text_or_payloads_stdin(
+                        allow_unsigned=True,
+                        quiet=True,
+                        preferred_kind="payload",
+                    )
+        self.assertEqual(label, "Backup text lines")
+        self.assertEqual(frames, [frame])
+        self.assertEqual(collect_mock.call_args.kwargs["initial_frames"], [frame])
+
     def test_prompt_text_or_payloads_stdin_uses_payload_flow(self) -> None:
         first_frame = Frame(
             version=1,
@@ -420,8 +504,8 @@ class TestRecoverInput(unittest.TestCase):
                 return_value="payload",
             ):
                 with mock.patch(
-                    "ethernity.cli.features.recover.input_collection._frame_from_payload_text",
-                    return_value=first_frame,
+                    "ethernity.cli.features.recover.input_collection._frames_from_payload_lines",
+                    return_value=[first_frame],
                 ):
                     with mock.patch(
                         "ethernity.cli.features.recover.input_collection.collect_payload_frames",
@@ -431,9 +515,73 @@ class TestRecoverInput(unittest.TestCase):
                             allow_unsigned=True,
                             quiet=True,
                         )
-        self.assertEqual(label, "QR payloads")
+        self.assertEqual(label, "Backup text lines")
         self.assertEqual(frames, [first_frame])
         collect_mock.assert_called_once()
+        self.assertEqual(collect_mock.call_args.kwargs["initial_frames"], [first_frame])
+
+    def test_prompt_text_or_payloads_stdin_preserves_pasted_multi_document_payloads(self) -> None:
+        root_frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x64" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"root",
+        )
+        extension_frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x65" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"extension",
+        )
+        pasted = "\n".join(
+            (
+                _payload_text_for_frame(root_frame),
+                _payload_text_for_frame(extension_frame),
+            )
+        )
+
+        with mock.patch(
+            "ethernity.cli.features.recover.input_collection.prompt_required",
+            return_value=pasted,
+        ):
+            frames, label = prompt_text_or_payloads_stdin(
+                allow_unsigned=True,
+                quiet=True,
+                preferred_kind="payload",
+            )
+
+        self.assertEqual(label, "Backup text lines")
+        self.assertEqual(frames, [root_frame, extension_frame])
+
+    def test_collect_payload_frames_does_not_truncate_initial_multi_document_set(self) -> None:
+        root_frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x66" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"root",
+        )
+        extension_frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x67" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"extension",
+        )
+
+        frames = collect_payload_frames(
+            allow_unsigned=True,
+            quiet=True,
+            initial_frames=[root_frame, extension_frame],
+        )
+
+        self.assertEqual(frames, [root_frame, extension_frame])
 
     def test_collect_fallback_frames_retries_after_invalid_initial_lines(self) -> None:
         frame = Frame(
@@ -467,7 +615,7 @@ class TestRecoverInput(unittest.TestCase):
         self.assertEqual(frames, [frame])
         self.assertTrue(
             any(
-                "Paste fallback recovery text in batches" in str(call)
+                "Paste recovery text one section at a time" in str(call)
                 for call in print_mock.call_args_list
             )
         )
@@ -495,7 +643,10 @@ class TestRecoverInput(unittest.TestCase):
                     frames = collect_payload_frames(allow_unsigned=True, quiet=False)
         self.assertEqual(frames, [frame])
         self.assertTrue(
-            any("Paste one QR payload per line" in str(call) for call in print_mock.call_args_list)
+            any(
+                "Paste one backup text line per line" in str(call)
+                for call in print_mock.call_args_list
+            )
         )
 
     def test_collect_payload_frames_waits_for_auth_when_unsigned_not_allowed(self) -> None:
@@ -542,7 +693,8 @@ class TestRecoverInput(unittest.TestCase):
             data=b"payload",
         )
         with mock.patch(
-            "ethernity.cli.features.recover.input_collection.prompt_choice", return_value="text"
+            "ethernity.cli.features.recover.input_collection.prompt_choice",
+            side_effect=["text", "fallback"],
         ):
             with mock.patch(
                 "ethernity.cli.features.recover.input_collection.prompt_path_with_picker",
@@ -559,6 +711,44 @@ class TestRecoverInput(unittest.TestCase):
         self.assertEqual(label, "Recovery text")
         self.assertEqual(detail, "stdin")
         self.assertEqual(frames, [frame])
+
+    def test_prompt_recovery_input_interactive_uses_payload_file_mode(self) -> None:
+        frame = Frame(
+            version=1,
+            frame_type=FrameType.MAIN_DOCUMENT,
+            doc_id=b"\x60" * DOC_ID_LEN,
+            index=0,
+            total=1,
+            data=b"payload",
+        )
+        with mock.patch(
+            "ethernity.cli.features.recover.input_collection.prompt_choice",
+            side_effect=["text", "payload"],
+        ):
+            with mock.patch(
+                "ethernity.cli.features.recover.input_collection.prompt_path_with_picker",
+                return_value="payloads.txt",
+            ):
+                with mock.patch(
+                    "ethernity.cli.features.recover.input_collection._read_text_lines",
+                    return_value=["payload"],
+                ):
+                    with mock.patch(
+                        "ethernity.cli.features.recover.input_collection.parse_recovery_lines_for_kind",
+                        return_value=([frame], "Backup text lines"),
+                    ) as parse_mock:
+                        with mock.patch(
+                            "ethernity.cli.features.recover.input_collection.status",
+                            return_value=contextlib.nullcontext(),
+                        ):
+                            frames, label, detail = prompt_recovery_input_interactive(
+                                allow_unsigned=True,
+                                quiet=True,
+                            )
+        self.assertEqual(label, "Backup text lines")
+        self.assertEqual(detail, "payloads.txt")
+        self.assertEqual(frames, [frame])
+        self.assertEqual(parse_mock.call_args.kwargs["input_kind"], "payload")
 
     def test_prompt_recovery_input_interactive_uses_scan_path(self) -> None:
         frame = Frame(
@@ -577,7 +767,7 @@ class TestRecoverInput(unittest.TestCase):
                 return_value="scan.png",
             ):
                 with mock.patch(
-                    "ethernity.cli.features.recover.input_collection._recovery_frames_from_scan",
+                    "ethernity.cli.features.recover.input_collection.recovery_frames_from_scan",
                     return_value=[frame],
                 ) as recovery_scan:
                     with mock.patch(
@@ -588,7 +778,7 @@ class TestRecoverInput(unittest.TestCase):
                             allow_unsigned=True,
                             quiet=True,
                         )
-        self.assertEqual(label, "Scan")
+        self.assertEqual(label, "Backup PDF or images")
         self.assertEqual(detail, "scan.png")
         self.assertEqual(frames, [frame])
         recovery_scan.assert_called_once_with(["scan.png"], quiet=True)
@@ -611,7 +801,7 @@ class TestRecoverInput(unittest.TestCase):
                 return_value="backup-dir",
             ):
                 with mock.patch(
-                    "ethernity.cli.features.recover.input_collection._recovery_frames_from_scan",
+                    "ethernity.cli.features.recover.input_collection.recovery_frames_from_scan",
                     return_value=[main],
                 ) as recovery_scan:
                     with mock.patch(
@@ -622,7 +812,7 @@ class TestRecoverInput(unittest.TestCase):
                             allow_unsigned=True,
                             quiet=False,
                         )
-        self.assertEqual(label, "Scan")
+        self.assertEqual(label, "Backup PDF or images")
         self.assertEqual(detail, "backup-dir")
         self.assertEqual(frames, [main])
         recovery_scan.assert_called_once_with(["backup-dir"], quiet=False)
@@ -638,7 +828,7 @@ class TestRecoverInput(unittest.TestCase):
         )
         with mock.patch(
             "ethernity.cli.features.recover.input_collection.prompt_choice",
-            side_effect=["text", "scan"],
+            side_effect=["text", "auto", "scan"],
         ):
             with mock.patch(
                 "ethernity.cli.features.recover.input_collection.prompt_path_with_picker",
@@ -649,7 +839,7 @@ class TestRecoverInput(unittest.TestCase):
                     side_effect=[ValueError("bad"), ["line"]],
                 ):
                     with mock.patch(
-                        "ethernity.cli.features.recover.input_collection._recovery_frames_from_scan",
+                        "ethernity.cli.features.recover.input_collection.recovery_frames_from_scan",
                         return_value=[frame],
                     ):
                         with mock.patch(
@@ -660,7 +850,7 @@ class TestRecoverInput(unittest.TestCase):
                                 allow_unsigned=True,
                                 quiet=True,
                             )
-        self.assertEqual(label, "Scan")
+        self.assertEqual(label, "Backup PDF or images")
         self.assertEqual(detail, "scan.png")
         self.assertEqual(frames, [frame])
 

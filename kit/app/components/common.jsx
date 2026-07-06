@@ -18,7 +18,7 @@
 import { formatBytes } from "../format.js";
 
 export function ActionsRow({ actions, className }) {
-  if (!actions || !actions.length) return null;
+  if (!actions?.length) return null;
   const classes = className ? `row ${className}` : "row";
   return (
     <div class={classes}>

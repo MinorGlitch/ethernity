@@ -30,6 +30,7 @@ from ethernity.cli.shared.events import (
     emit_result,
     event_session,
 )
+from ethernity.cli.shared.inspection import inspect_result_payload
 from ethernity.cli.shared.ndjson import SCHEMA_VERSION, emit_started
 from ethernity.cli.shared.types import MintArgs, MintResult
 
@@ -86,6 +87,12 @@ def _mint_started_args(
     debug: bool,
     operation: str | None = None,
 ) -> dict[str, object]:
+    normalized_extension_doc_hash = (
+        None if args.extension_doc_hash is None else args.extension_doc_hash.strip().lower()
+    )
+    normalized_expected_head_doc_hash = (
+        None if args.expected_head_doc_hash is None else args.expected_head_doc_hash.strip().lower()
+    )
     payload: dict[str, object] = {
         "config": args.config,
         "paper": args.paper,
@@ -99,6 +106,10 @@ def _mint_started_args(
         "shard_scan": list(args.shard_scan or []),
         "auth_fallback_file": args.auth_fallback_file,
         "auth_payloads_file": args.auth_payloads_file,
+        "extension_index": args.extension_index,
+        "extension_doc_hash": normalized_extension_doc_hash,
+        "expected_head_doc_hash": normalized_expected_head_doc_hash,
+        "allow_stale_head": args.allow_stale_head,
         "signing_key_shard_fallback_file": list(args.signing_key_shard_fallback_file or []),
         "signing_key_shard_payloads_file": list(args.signing_key_shard_payloads_file or []),
         "signing_key_shard_scan": list(args.signing_key_shard_scan or []),
@@ -128,6 +139,25 @@ def _has_blocking_issue(
     return any(item.get("code") == code for item in items)
 
 
+def _validated_head_from_blocking_issues(
+    blocking_issues: tuple[dict[str, object], ...] | list[dict[str, object]],
+    *,
+    default_index: int,
+    default_doc_hash: str,
+) -> tuple[int, str]:
+    for issue in reversed(blocking_issues):
+        if issue.get("code") != "RECOVERY_HEAD_UNTRUSTED":
+            continue
+        details = issue.get("details")
+        if not isinstance(details, dict):
+            continue
+        index = details.get("validated_head_index")
+        doc_hash = details.get("validated_head_doc_hash")
+        if isinstance(index, int) and isinstance(doc_hash, str):
+            return index, doc_hash
+    return default_index, default_doc_hash
+
+
 def run_mint_api_command(args: MintArgs, *, debug: bool = False) -> int:
     emit_started(
         command="mint",
@@ -143,6 +173,7 @@ def run_mint_api_command(args: MintArgs, *, debug: bool = False) -> int:
     emit_result(
         command="mint",
         doc_id=result.doc_id.hex(),
+        doc_hash=result.doc_hash.hex(),
         output_dir=result.output_dir,
         artifacts={
             "shard_documents": list(result.shard_paths),
@@ -150,6 +181,21 @@ def run_mint_api_command(args: MintArgs, *, debug: bool = False) -> int:
         },
         signing_key_source=result.signing_key_source,
         notes=list(result.notes),
+        selected_extension_index=result.selected_extension_index,
+        selected_extension_doc_hash=result.selected_extension_doc_hash,
+        expected_head_doc_hash=args.expected_head_doc_hash,
+        validated_head_index=(
+            result.selected_extension_index if result.selected_extension_index is not None else 0
+        ),
+        validated_head_doc_hash=result.selected_extension_doc_hash or result.doc_hash.hex(),
+        freshness_scope=(
+            "supplied_carriers_only"
+            if result.selected_extension_index is not None
+            or args.extension_index is not None
+            or args.extension_doc_hash is not None
+            or args.expected_head_doc_hash is not None
+            else None
+        ),
     )
     return 0
 
@@ -179,42 +225,68 @@ def run_mint_inspect_api_command(args: MintArgs, *, debug: bool = False) -> int:
                 "signing_key_shard_frame_count": inspection.signing_key_frame_count,
             },
         )
+        blocking_issues = [dict(item) for item in inspection.blocking_issues]
+        validated_head_index, validated_head_doc_hash = _validated_head_from_blocking_issues(
+            blocking_issues,
+            default_index=(
+                inspection.selected_extension_index
+                if inspection.selected_extension_index is not None
+                else 0
+            ),
+            default_doc_hash=(
+                inspection.selected_extension_doc_hash or inspection.recovery.doc_hash.hex()
+            ),
+        )
         emit_result(
-            command="mint",
-            operation="inspect",
-            doc_id=inspection.recovery.doc_id.hex(),
-            auth_status=inspection.recovery.auth_status,
-            input_label=inspection.recovery.input_label,
-            input_detail=inspection.recovery.input_detail,
-            source_summary=inspection.source_summary,
-            frame_counts={
-                "main": len(inspection.recovery.main_frames),
-                "auth": len(inspection.recovery.auth_frames),
-                "shard": len(inspection.recovery.shard_frames),
-                "signing_key_shard": inspection.signing_key_frame_count,
-            },
-            unlock={
-                "validated_passphrase_shard_count": (
-                    inspection.recovery.unlock.validated_shard_count
+            **inspect_result_payload(
+                command="mint",
+                source_summary=inspection.source_summary,
+                frame_counts={
+                    "main": len(inspection.recovery.main_frames),
+                    "auth": len(inspection.recovery.auth_frames),
+                    "shard": len(inspection.recovery.shard_frames),
+                    "signing_key_shard": inspection.signing_key_frame_count,
+                },
+                unlock={
+                    "validated_passphrase_shard_count": (
+                        inspection.recovery.unlock.validated_shard_count
+                    ),
+                    "required_passphrase_threshold": (
+                        inspection.recovery.unlock.required_shard_threshold
+                    ),
+                    "satisfied": (
+                        inspection.recovery.unlock.satisfied
+                        and inspection.manifest is not None
+                        and not _has_blocking_issue(blocking_issues, "AUTH_REQUIRED")
+                    ),
+                },
+                blocking_issues=blocking_issues,
+                warnings=list(sink.warning_records),
+                doc_id=inspection.recovery.doc_id.hex(),
+                selected_extension_index=inspection.selected_extension_index,
+                selected_extension_doc_hash=inspection.selected_extension_doc_hash,
+                expected_head_doc_hash=args.expected_head_doc_hash,
+                validated_head_index=validated_head_index,
+                validated_head_doc_hash=validated_head_doc_hash,
+                freshness_scope=(
+                    "supplied_carriers_only"
+                    if inspection.selected_extension_index is not None
+                    or args.extension_index is not None
+                    or args.extension_doc_hash is not None
+                    or args.expected_head_doc_hash is not None
+                    else None
                 ),
-                "required_passphrase_threshold": (
-                    inspection.recovery.unlock.required_shard_threshold
-                ),
-                "satisfied": (
-                    inspection.recovery.unlock.satisfied
-                    and inspection.manifest is not None
-                    and not _has_blocking_issue(list(inspection.blocking_issues), "AUTH_REQUIRED")
-                ),
-            },
-            signing_key={
-                "validated_shard_count": inspection.signing_key_validated_shard_count,
-                "required_threshold": inspection.signing_key_required_threshold,
-                "satisfied": inspection.signing_key_satisfied,
-                "source": inspection.signing_key_source,
-            },
-            mint_capabilities=dict(inspection.mint_capabilities),
-            blocking_issues=[dict(item) for item in inspection.blocking_issues],
-            warnings=list(sink.warning_records),
+                auth_status=inspection.recovery.auth_status,
+                input_label=inspection.recovery.input_label,
+                input_detail=inspection.recovery.input_detail,
+                signing_key={
+                    "validated_shard_count": inspection.signing_key_validated_shard_count,
+                    "required_threshold": inspection.signing_key_required_threshold,
+                    "satisfied": inspection.signing_key_satisfied,
+                    "source": inspection.signing_key_source,
+                },
+                mint_capabilities=dict(inspection.mint_capabilities),
+            )
         )
     return 0
 

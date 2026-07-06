@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from ethernity.cli.shared.log import _warn
 from ethernity.cli.shared.types import BackupArgs
-from ethernity.cli.shared.ui_api import prompt_choice, prompt_int, prompt_yes_no
+from ethernity.cli.shared.ui_api import prompt_choice, prompt_int, prompt_yes_no, wizard_substep
 from ethernity.core.models import ShardingConfig, SigningSeedMode
 from ethernity.crypto import DEFAULT_PASSPHRASE_WORDS, MNEMONIC_WORD_COUNTS
 
@@ -34,11 +34,12 @@ QUORUM_PRESETS = {
 def prompt_passphrase_words() -> int:
     choices = {str(count): f"{count} words" for count in MNEMONIC_WORD_COUNTS}
     default = str(DEFAULT_PASSPHRASE_WORDS)
-    value = prompt_choice(
-        "Passphrase length",
-        choices,
-        default=default,
-    )
+    with wizard_substep("Passphrase length"):
+        value = prompt_choice(
+            "Passphrase length",
+            choices,
+            default=default,
+        )
     return int(value)
 
 
@@ -49,26 +50,28 @@ def _prompt_quorum_choice(
 ) -> ShardingConfig:
     """Single-choice quorum selection with presets."""
     choices = {key: desc for key, (desc, _, _, _) in QUORUM_PRESETS.items()}
-    choice = prompt_choice(
-        title,
-        choices,
-        default="2of3",
-        help_text=help_text,
-    )
+    with wizard_substep("Recovery quorum"):
+        choice = prompt_choice(
+            title,
+            choices,
+            default="2of3",
+            help_text=help_text,
+        )
 
     if choice == "custom":
-        threshold = prompt_int(
-            "Required shards to recover",
-            minimum=1,
-            maximum=255,
-            help_text="Minimum documents needed to reconstruct the passphrase.",
-        )
-        shares = prompt_int(
-            "Total shard documents to create",
-            minimum=threshold,
-            maximum=255,
-            help_text="Total documents created (must be >= required).",
-        )
+        with wizard_substep("Custom quorum"):
+            threshold = prompt_int(
+                "Required shards to recover",
+                minimum=1,
+                maximum=255,
+                help_text="Minimum documents needed to reconstruct the passphrase.",
+            )
+            shares = prompt_int(
+                "Total shard documents to create",
+                minimum=threshold,
+                maximum=255,
+                help_text="Total documents created (must be >= required).",
+            )
         return ShardingConfig(threshold=threshold, shares=shares)
 
     _, threshold, shares, _ = QUORUM_PRESETS[choice]
@@ -90,11 +93,12 @@ def resolve_passphrase_sharding(
             raise ValueError("both --shard-threshold and --shard-count are required")
         if not confirm_existing:
             return ShardingConfig(threshold=threshold, shares=shares)
-        use_existing = prompt_yes_no(
-            f"Use provided quorum ({threshold} of {shares})",
-            default=True,
-            help_text="Choose no to select a different quorum.",
-        )
+        with wizard_substep("Recovery quorum"):
+            use_existing = prompt_yes_no(
+                f"Use provided quorum ({threshold} of {shares})",
+                default=True,
+                help_text="Choose no to select a different quorum.",
+            )
         if use_existing:
             return ShardingConfig(threshold=threshold, shares=shares)
         return _prompt_quorum_choice()
@@ -103,15 +107,18 @@ def resolve_passphrase_sharding(
     if not prompt_when_missing:
         return None
 
-    sharding_choice = prompt_choice(
-        "Passphrase sharding",
-        {
-            "shard": "Split into shard documents (Recommended)",
-            "none": "No sharding (single passphrase)",
-        },
-        default="shard",
-        help_text="Sharding distributes the passphrase across multiple documents for safety.",
-    )
+    with wizard_substep("Passphrase recovery"):
+        sharding_choice = prompt_choice(
+            "Passphrase recovery method",
+            {
+                "shard": "Split into recovery shard documents (recommended)",
+                "none": "Keep one recovery passphrase",
+            },
+            default="shard",
+            help_text=(
+                "Sharding spreads recovery across multiple documents so one lost copy is not fatal."
+            ),
+        )
     if sharding_choice == "none":
         return None
 
@@ -135,15 +142,18 @@ def resolve_signing_seed_mode(
             signing_seed_mode = SigningSeedMode.EMBEDDED
         return signing_seed_mode
     if mode_arg is None:
-        signing_choice = prompt_choice(
-            "Signing key storage",
-            {
-                "embedded": "In main document (Recommended - simpler recovery)",
-                "sharded": "Separate shard documents (more secure)",
-            },
-            default="embedded",
-            help_text="The signing key lets you create new shard documents later.",
-        )
+        with wizard_substep("Signing key"):
+            signing_choice = prompt_choice(
+                "Signing key storage",
+                {
+                    "embedded": "Keep it in the main document (recommended, simpler recovery)",
+                    "sharded": "Store it in separate shard documents",
+                },
+                default="embedded",
+                help_text=(
+                    "The signing key is needed if you want to create new shard documents later."
+                ),
+            )
         signing_seed_mode = SigningSeedMode(signing_choice)
     return signing_seed_mode
 
@@ -170,11 +180,12 @@ def resolve_signing_seed_sharding(
             )
         if not confirm_existing:
             return ShardingConfig(threshold=sk_threshold, shares=sk_count)
-        use_existing = prompt_yes_no(
-            f"Use provided signing-key quorum ({sk_threshold} of {sk_count})",
-            default=True,
-            help_text="Choose no to select a different quorum.",
-        )
+        with wizard_substep("Signing-key quorum"):
+            use_existing = prompt_yes_no(
+                f"Use provided signing-key quorum ({sk_threshold} of {sk_count})",
+                default=True,
+                help_text="Choose no to select a different quorum.",
+            )
         if use_existing:
             return ShardingConfig(threshold=sk_threshold, shares=sk_count)
 
@@ -183,11 +194,14 @@ def resolve_signing_seed_sharding(
 
     # Interactive: simple yes/no for using same quorum
     same_quorum = f"{passphrase_sharding.threshold} of {passphrase_sharding.shares}"
-    use_same = prompt_yes_no(
-        f"Use same quorum for signing-key shards ({same_quorum})",
-        default=True,
-        help_text="Choose no if you want different redundancy for signing keys.",
-    )
+    with wizard_substep("Signing-key quorum"):
+        use_same = prompt_yes_no(
+            f"Use same quorum for signing-key shards ({same_quorum})",
+            default=True,
+            help_text=(
+                "Choose no if you want a different recovery threshold for signing-key shards."
+            ),
+        )
     if use_same:
         return None
 

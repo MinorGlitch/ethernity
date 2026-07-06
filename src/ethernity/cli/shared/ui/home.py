@@ -16,50 +16,72 @@
 
 from __future__ import annotations
 
+import questionary
 from rich.align import Align
-from rich.rule import Rule
+from rich.text import Text
 
 from ethernity.cli.shared.types import MintArgs, RecoverArgs
-from ethernity.cli.shared.ui.prompts import prompt_choice
-from ethernity.cli.shared.ui.renderables import panel
+from ethernity.cli.shared.ui.prompts import prompt_choice_list
 from ethernity.cli.shared.ui.runtime import console
 
-HOME_BANNER = r"""
- _____ _____ _     _____ ____  _      _ _____ ___  _
-/  __//__ __Y \ /|/  __//  __\/ \  /|/ Y__ __\\  \//
-|  \    / \ | |_|||  \  |  \/|| |\ ||| | / \   \  /
-|  /_   | | | | |||  /_ |    /| | \||| | | |   / /
-\____\  \_/ \_/ \|\____\\_/\_\\_/  \|\_/ \_/  /_/
+HOME_BANNER = "ETHERNITY"
 
-"""
+HOME_ACTIONS: list[tuple[str, str] | questionary.Separator | questionary.Choice] = [
+    questionary.Separator("Start"),
+    questionary.Choice(
+        "Create a backup",
+        value="backup",
+        description="Build a new paper backup set from your files.",
+    ),
+    questionary.Choice(
+        "Recover from a backup",
+        value="recover",
+        description="Restore files from an existing backup set.",
+    ),
+    questionary.Separator(" "),
+    questionary.Separator("Maintain"),
+    questionary.Choice(
+        "Add files to a backup",
+        value="extend",
+        description="Append a new extension to a paper or scanned backup set.",
+    ),
+    questionary.Choice(
+        "Rebuild a backup set",
+        value="compact",
+        description="Fold extensions into one fresh backup set.",
+    ),
+    questionary.Choice(
+        "Reprint shard documents",
+        value="mint",
+        description="Generate replacement shard documents from recovery material.",
+    ),
+    questionary.Separator(" "),
+    questionary.Separator("Print"),
+    questionary.Choice(
+        "Print a recovery kit sheet",
+        value="kit",
+        description="Render the printable recovery kit page for offline use.",
+    ),
+]
 
 
 def render_home_banner() -> None:
     """Render the shared Ethernity ASCII banner and subtitle."""
 
-    banner = Align.center(HOME_BANNER.rstrip("\n"))
-    subtitle = Align.center("[subtitle]Secure paper backups and recovery[/subtitle]")
-    console.print(panel("Ethernity", banner, style="accent"))
-    console.print(subtitle)
-    console.print(Rule(style="rule"))
+    banner = Text(HOME_BANNER, style="title")
+    subtitle = Text("Secure paper backups and recovery", style="subtitle")
+    console.print(Align.center(banner, pad=False))
+    console.print(Align.center(subtitle, pad=False))
 
 
 def prompt_home_action(*, quiet: bool) -> str:
     if not quiet:
         render_home_banner()
-    return prompt_choice(
-        "What would you like to do?",
-        {
-            "backup": "Create a new backup PDF.",
-            "recover": "Recover from an existing backup.",
-            "mint": "Mint fresh shard documents from an existing backup.",
-            "kit": "Generate a recovery kit QR document.",
-        },
+    return prompt_choice_list(
+        HOME_ACTIONS,
+        title="Get started",
         default="backup",
-        help_text=(
-            "You can also run `ethernity backup`, `ethernity recover`, `ethernity mint`, "
-            "or `ethernity kit` directly."
-        ),
+        help_text=None,
     )
 
 

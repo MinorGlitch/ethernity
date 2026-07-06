@@ -11,8 +11,10 @@
   },
   "capabilities": {
     "inject_forge_copy": true,
+    "recovery_first_page_single_section": true,
     "repeat_primary_qr_on_shard_continuation": true,
     "advanced_fallback_layout": true,
+    "recovery_kit_index_document": true,
     "recovery_main_section_start_reserved_lines": 1,
     "shard_first_page_estimate_bonus_lines": 1,
     "shard_first_page_bonus_lines": 3,
@@ -23,7 +25,7 @@
       "recovery": {
         "line_height_floor_mm": 5.8,
         "first_page_footer_reserve_mm": 70.2,
-        "continuation_footer_reserve_mm": 0.0,
+        "continuation_footer_reserve_mm": 35.0,
         "meta_baseline_lines": 3,
         "meta_extra_line_mm": 8.0,
         "meta_section_overhead_mm": 12.0,

@@ -29,7 +29,7 @@ from ethernity.render.pdf_render import (
 )
 from ethernity.render.spec import document_spec
 from ethernity.render.template_style import load_template_style
-from ethernity.render.types import RenderInputs
+from ethernity.render.types import FallbackSection, RenderInputs, RenderLineage
 
 _EXPECTED_LAYOUT_SNAPSHOT: dict[str, tuple[int, int, int, int, float, float]] = {
     "archive.main": (23, 13, 6, 9, 4.2, 4.2),
@@ -37,7 +37,7 @@ _EXPECTED_LAYOUT_SNAPSHOT: dict[str, tuple[int, int, int, int, float, float]] = 
     "archive.shard": (10, 14, 9, 9, 4.2, 4.2),
     "archive.signing_key_shard": (10, 14, 9, 9, 4.2, 4.2),
     "forge.main": (24, 14, 6, 9, 4.2, 4.2),
-    "forge.recovery": (25, 40, 6, 9, 5.8, 5.8),
+    "forge.recovery": (25, 34, 6, 9, 5.8, 5.8),
     "forge.shard": (10, 13, 9, 9, 4.8, 4.8),
     "forge.signing_key_shard": (11, 12, 9, 9, 4.2, 4.2),
     "ledger.main": (10, 14, 9, 9, 4.2, 4.2),
@@ -49,7 +49,7 @@ _EXPECTED_LAYOUT_SNAPSHOT: dict[str, tuple[int, int, int, int, float, float]] = 
     "maritime.shard": (10, 14, 9, 9, 4.2, 4.2),
     "maritime.signing_key_shard": (10, 14, 9, 9, 4.2, 4.2),
     "sentinel.main": (24, 14, 6, 9, 4.2, 4.2),
-    "sentinel.recovery": (31, 40, 6, 9, 5.8, 5.8),
+    "sentinel.recovery": (30, 40, 6, 9, 5.8, 5.8),
     "sentinel.shard": (10, 10, 9, 9, 4.8, 4.8),
     "sentinel.signing_key_shard": (17, 11, 9, 9, 4.2, 4.2),
 }
@@ -98,9 +98,10 @@ class TestLayoutSnapshots(unittest.TestCase):
                         output_path="out.pdf",
                         context=context,
                         doc_type=doc_type,
+                        lineage=RenderLineage(kind="root_backup"),
                         render_qr=True,
                         render_fallback=True,
-                        fallback_payload=b"payload",
+                        fallback_sections=(FallbackSection(label=None, frame=frame),),
                         key_lines=["Passphrase:", "one two three four five six"],
                     )
                     spec = document_spec(doc_type, "A4", context)

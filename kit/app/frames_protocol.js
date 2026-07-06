@@ -26,9 +26,11 @@ import {
   FRAME_TYPE_KEY,
   DOC_ID_LEN,
   AUTH_VERSION,
+  LEGACY_SHARD_VERSION,
   SHARD_VERSION,
   SHARD_KEY_PASSPHRASE,
   SHARD_KEY_SIGNING_SEED,
+  SHARD_SET_ID_LEN,
   SIGNING_SEED_LEN,
   MAX_SHARD_SHARES,
   MAX_AUTH_CBOR_BYTES,
@@ -134,7 +136,7 @@ export function decodeFrame(payload) {
 }
 
 export function decodeShardPayload(bytes) {
-  const decoded = decodeCanonicalCbor(bytes, "shard payload");
+  const decoded = decodeCanonicalCbor(bytes, "shard payload", { preserveFloatType: true });
   if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded)) {
     throw new Error("shard payload must be a map");
   }
@@ -164,8 +166,9 @@ export function decodeShardPayload(bytes) {
   const docHash = decoded.hash;
   const signPub = decoded.pub;
   const signature = decoded.sig;
+  const shardSetId = decoded.set_id;
 
-  if (version !== SHARD_VERSION) {
+  if (version !== LEGACY_SHARD_VERSION && version !== SHARD_VERSION) {
     throw new Error(`unsupported shard payload version: ${version}`);
   }
   if (keyType !== SHARD_KEY_PASSPHRASE && keyType !== SHARD_KEY_SIGNING_SEED) {
@@ -224,6 +227,13 @@ export function decodeShardPayload(bytes) {
   if (!(signature instanceof Uint8Array) || signature.length !== 64) {
     throw new Error("shard signature must be 64 bytes");
   }
+  let normalizedShardSetId = null;
+  if (version === SHARD_VERSION) {
+    if (!(shardSetId instanceof Uint8Array) || shardSetId.length !== SHARD_SET_ID_LEN) {
+      throw new Error(`shard set_id must be ${SHARD_SET_ID_LEN} bytes`);
+    }
+    normalizedShardSetId = shardSetId;
+  }
   return {
     version,
     keyType,
@@ -235,11 +245,12 @@ export function decodeShardPayload(bytes) {
     docHash,
     signPub,
     signature,
+    shardSetId: normalizedShardSetId,
   };
 }
 
 export function decodeAuthPayload(bytes) {
-  const decoded = decodeCanonicalCbor(bytes, "auth payload");
+  const decoded = decodeCanonicalCbor(bytes, "auth payload", { preserveFloatType: true });
   if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded)) {
     throw new Error("auth payload must be a map");
   }

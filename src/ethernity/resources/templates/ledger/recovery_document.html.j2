@@ -176,24 +176,23 @@
       color: var(--ink-muted);
       margin-bottom: 0.4mm;
     }
-    .fallback-lines {
-      counter-reset: line var(--line-offset, 0);
-    }
     .fallback-line {
-      position: relative;
+      display: flex;
+      align-items: baseline;
       white-space: pre;
-      padding-left: 8mm;
     }
-    .fallback-line::before {
-      counter-increment: line;
-      content: counter(line, decimal-leading-zero);
-      position: absolute;
-      left: 0;
-      width: 6mm;
+    .fallback-number {
+      flex: 0 0 6mm;
+      margin-right: 2mm;
       text-align: right;
       color: var(--ink-soft);
       letter-spacing: 0.06em;
       font-size: 6.6pt;
+      user-select: none;
+    }
+    .fallback-payload {
+      min-width: 0;
+      white-space: pre;
     }
   </style>
 </head>
@@ -209,7 +208,7 @@
         <div class="meta-item primary">{{ page.page_label }}</div>
         <div class="meta-item mono">Document ID: {{ doc_id }}</div>
         {% if recovery.quorum_value %}
-        <div class="meta-item mono">Shard Quorum: {{ recovery.quorum_value }}</div>
+        <div class="meta-item mono">{{ recovery.quorum_label }}: {{ recovery.quorum_value }}</div>
         {% endif %}
         {% if recovery.signing_pub_lines %}
         <div class="meta-item mono">Signing Pub Key: {{ recovery.signing_pub_lines | join(' ') }}</div>
@@ -240,7 +239,7 @@
           {% if block.title %}<div class="fallback-title">{{ block.title }}</div>{% endif %}
           <div class="fallback-lines" style="--line-offset: {{ block.line_offset }};">
             {% for line in block.lines %}
-            <div class="fallback-line">{{ line }}</div>
+            <div class="fallback-line"><span class="fallback-number" aria-hidden="true">{{ '%02d.' % (block.line_offset + loop.index) }}</span><span class="fallback-payload">{{ line }}</span></div>
             {% endfor %}
           </div>
         </div>

@@ -126,6 +126,14 @@ test("manifest decoder rejects invalid stable-v1 structures", async () => {
       ),
       error: /input_roots must be non-empty/,
     },
+    ...["dir/name", "a\\b", ".", "..", "C:notes", "/abs", "bad\u0001"].map((root) => ({
+      name: `directory rejects invalid root label ${JSON.stringify(root)}`,
+      envelope: buildEnvelope(
+        { ...validManifest(payload), input_origin: "directory", input_roots: [root] },
+        payload,
+      ),
+      error: /manifest input_root/,
+    })),
     {
       name: "path encoding invalid",
       envelope: buildEnvelope({ ...validManifest(payload), path_encoding: "legacy" }, payload),

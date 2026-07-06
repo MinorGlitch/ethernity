@@ -6,12 +6,13 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from tkinter import Menu, TclError, Tk, font as tkfont, ttk
+from types import ModuleType
 from typing import Any
 
-try:
+if sys.platform == "win32":
     import winreg
-except ImportError:  # pragma: no cover - Windows only
-    winreg = None
+else:  # pragma: no cover - Windows only
+    winreg: ModuleType | None = None
 
 from .bootstrap import SRC_ROOT as _SRC_ROOT  # noqa: F401
 

@@ -5,6 +5,10 @@ extend-exclude = [
   "src/ethernity/resources/kit/recovery_kit.bundle.html",
   "src/ethernity/resources/kit/recovery_kit.scanner.bundle.html",
   "src/ethernity/resources/templates/_shared/assets/tailwindcss-playcdn-forms-container-queries.js",
+  "tests/fixtures/v1_2/extension_golden/**/*.bin",
+  "tests/fixtures/v1_2/extension_golden/**/*.json",
+  "tests/fixtures/v1_2/extension_golden/**/*.pdf",
+  "tests/fixtures/v1_2/extension_golden/**/*.txt",
 ]
 
 [default.extend-words]

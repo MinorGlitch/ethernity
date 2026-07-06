@@ -1,0 +1,149 @@
+{
+  "artifact_hashes": {
+    "chain_payloads.bin": "961d095b30d65a81e18376a9de790129903019b403087aad19c8d2aea4303401",
+    "chain_payloads.txt": "8e4576bbe636b1250032560238b3814f1ea0828a9c1ba29d4baf60a66bb6a86c",
+    "extension_01_payloads.bin": "858d2d2654eb27139ff97e5be98f5a5ba2dd288eca7d5c24a41bc54deb80bb2a",
+    "extension_01_payloads.txt": "8e9085efeb9bc6fe45895ae15ec9420110e1b183697ebd4011a119b620116987",
+    "extension_02_payloads.bin": "e796433a5dd3a8dfcd01338d26ed5adac4770e3f427d44be82c8045e55c3d94f",
+    "extension_02_payloads.txt": "db66001fc62389e2c2cfb141838a0fa3608a4df5fd9bc5323f30aa657ab96332",
+    "loose_chain/extension-02-99b923f140e40e6a/qr_document-02-99b923f140e40e6a.pdf": "42689225b7e6a851f672e702d3a7072a4cf0d1c9d8b95e2a408a4de9b1490c94",
+    "loose_chain/extension-02-99b923f140e40e6a/recovery_document-02-99b923f140e40e6a.pdf": "063b2d02eb1c5ecd0d6ea03cfdbc247000ae2f055176d5eec44ef778f0312c08",
+    "loose_chain/extension-02-99b923f140e40e6a/recovery_kit_index-02-99b923f140e40e6a.pdf": "467631ded99c4dbebcb300e44857c78c6b9b92b15632fee9be5e4c9bab897d5f",
+    "loose_scans/phone-root-carrier.pdf": "95488d6209ac49be2bf7852dac11106b26d1b74354b7dc90c76ff41502f24d19",
+    "loose_scans/wallet-extension-one.pdf": "9cec0504e926a8c38ed5f9603c14917f7dd9524947bc44f66f531fc34cdf9615",
+    "root_payloads.bin": "0ec81438a1b5fe9b44ce636814258b47e094078e074f2e847ca2c849c00c416f",
+    "root_payloads.txt": "735e25ad39532180e2e77bdb2578817909f20780d2ebd25f2bebd94af3ad2f09"
+  },
+  "chain_dir": "loose_chain",
+  "checks": [
+    "renamed scan import",
+    "loose extension append layout"
+  ],
+  "document_projection": [
+    {
+      "chunks": [
+        {
+          "chunk_id": "6b5d20438f30325b162fb012f1291f0a162914e7b7d86aa77da76c6e647ef957",
+          "codec": "raw",
+          "decoded_sha256": "6b5d20438f30325b162fb012f1291f0a162914e7b7d86aa77da76c6e647ef957",
+          "raw_len": 28,
+          "stored_len": 28
+        },
+        {
+          "chunk_id": "d86537392247081f588850054e8edca4c67737c10fbcc45f99509d1d2174feac",
+          "codec": "raw",
+          "decoded_sha256": "d86537392247081f588850054e8edca4c67737c10fbcc45f99509d1d2174feac",
+          "raw_len": 29,
+          "stored_len": 29
+        }
+      ],
+      "doc_hash": "99b923f140e40e6adc5235fd8ade18cb3be07b4334bf553406c736b9d0fadddf",
+      "doc_id": "99b923f140e40e6a",
+      "files": [
+        {
+          "path": "alpha.txt",
+          "sha256": "d86537392247081f588850054e8edca4c67737c10fbcc45f99509d1d2174feac",
+          "size": 29
+        },
+        {
+          "path": "beta.txt",
+          "sha256": "6b5d20438f30325b162fb012f1291f0a162914e7b7d86aa77da76c6e647ef957",
+          "size": 28
+        }
+      ],
+      "index": 2,
+      "kind": "extension",
+      "parent_doc_hash": "a0571284dae33611b3b9ac177c896b4555ac31e53908474cbb4a07b98c84fc75",
+      "root_doc_hash": "d664b7393ab4853323391ef288748fb65e945ad466081d1832048d067f003275"
+    },
+    {
+      "chunks": [
+        {
+          "chunk_id": "930c78d2f11e1563239a743bcf3c050ae8781243008b0994459e5da22038f9bd",
+          "codec": "raw",
+          "decoded_sha256": "930c78d2f11e1563239a743bcf3c050ae8781243008b0994459e5da22038f9bd",
+          "raw_len": 28,
+          "stored_len": 28
+        }
+      ],
+      "doc_hash": "a0571284dae33611b3b9ac177c896b4555ac31e53908474cbb4a07b98c84fc75",
+      "doc_id": "a0571284dae33611",
+      "files": [
+        {
+          "path": "alpha.txt",
+          "sha256": "930c78d2f11e1563239a743bcf3c050ae8781243008b0994459e5da22038f9bd",
+          "size": 28
+        }
+      ],
+      "index": 1,
+      "kind": "extension",
+      "parent_doc_hash": "d664b7393ab4853323391ef288748fb65e945ad466081d1832048d067f003275",
+      "root_doc_hash": "d664b7393ab4853323391ef288748fb65e945ad466081d1832048d067f003275"
+    },
+    {
+      "doc_hash": "d664b7393ab4853323391ef288748fb65e945ad466081d1832048d067f003275",
+      "doc_id": "d664b7393ab48533",
+      "files": [
+        {
+          "path": "alpha.txt",
+          "sha256": "f7caa0160638eafa89d8e71664694299b7ba83f6d69139ebdf2865d22a3a22fa",
+          "size": 17
+        }
+      ],
+      "kind": "root",
+      "payload_codec": "raw",
+      "payload_raw_len": null,
+      "sealed": false
+    }
+  ],
+  "extension_doc_hashes": {
+    "extension_01": "a0571284dae33611b3b9ac177c896b4555ac31e53908474cbb4a07b98c84fc75",
+    "extension_02": "99b923f140e40e6adc5235fd8ade18cb3be07b4334bf553406c736b9d0fadddf"
+  },
+  "passphrase": "stable-v1_2-extension-passphrase",
+  "payload_fixtures": {
+    "chain": {
+      "binary": "chain_payloads.bin",
+      "frame_count": 7,
+      "text": "chain_payloads.txt"
+    },
+    "extension_01": {
+      "binary": "extension_01_payloads.bin",
+      "frame_count": 2,
+      "text": "extension_01_payloads.txt"
+    },
+    "extension_02": {
+      "binary": "extension_02_payloads.bin",
+      "frame_count": 3,
+      "text": "extension_02_payloads.txt"
+    },
+    "root": {
+      "binary": "root_payloads.bin",
+      "frame_count": 2,
+      "text": "root_payloads.txt"
+    }
+  },
+  "profile": "raw",
+  "qr_payload_codec": "raw",
+  "root_doc_hash": "d664b7393ab4853323391ef288748fb65e945ad466081d1832048d067f003275",
+  "scan_paths": [
+    "loose_scans/phone-root-carrier.pdf",
+    "loose_scans/wallet-extension-one.pdf",
+    "loose_chain"
+  ],
+  "scenario_id": "loose_scan_append_chain",
+  "shard_fixtures": {},
+  "states": {
+    "extension_01": {
+      "alpha.txt": "930c78d2f11e1563239a743bcf3c050ae8781243008b0994459e5da22038f9bd"
+    },
+    "extension_02": {
+      "alpha.txt": "d86537392247081f588850054e8edca4c67737c10fbcc45f99509d1d2174feac",
+      "beta.txt": "6b5d20438f30325b162fb012f1291f0a162914e7b7d86aa77da76c6e647ef957"
+    },
+    "root": {
+      "alpha.txt": "f7caa0160638eafa89d8e71664694299b7ba83f6d69139ebdf2865d22a3a22fa"
+    }
+  },
+  "version": "1.2.0"
+}

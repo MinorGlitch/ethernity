@@ -10,7 +10,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 try:
-    from tkinterdnd2 import DND_FILES, TkinterDnD  # type: ignore[import-not-found]
+    from tkinterdnd2 import DND_FILES, TkinterDnD
 except ImportError:  # pragma: no cover - optional local dev dependency
     DND_FILES = None
     TkinterDnD = None

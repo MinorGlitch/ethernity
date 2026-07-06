@@ -82,14 +82,14 @@ class TestCliStartup(unittest.TestCase):
                                     )
                 self.assertEqual(result, case["expect_result"])
                 configure_mock.assert_called_once()
-                pw_mock.assert_called_once()
+                pw_mock.assert_not_called()
                 self.assertEqual(init_mock.call_count, case["expect_init_calls"])
                 self.assertEqual(needs_mock.call_count, case["expect_needs_calls"])
                 self.assertEqual(print_mock.call_count, case["expect_print_calls"])
 
     def test_run_startup_debug_and_auto_init_prints_message(self) -> None:
         with mock.patch.object(startup, "configure_ui"):
-            with mock.patch.object(startup, "_ensure_playwright_browsers"):
+            with mock.patch.object(startup, "_ensure_playwright_browsers") as pw_mock:
                 with mock.patch.object(startup, "_enable_rich_debug_traceback") as traceback_mock:
                     with mock.patch.object(startup, "user_config_needs_init", return_value=True):
                         with mock.patch.object(
@@ -105,6 +105,7 @@ class TestCliStartup(unittest.TestCase):
                                 )
         self.assertFalse(result)
         traceback_mock.assert_called_once_with()
+        pw_mock.assert_not_called()
         self.assertEqual(print_mock.call_count, 1)
         self.assertIn("Initialized user config", str(print_mock.call_args[0][0]))
 

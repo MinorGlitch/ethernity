@@ -20,9 +20,16 @@ import { ActionsRow, Field, StatusBlock } from "./common.jsx";
 export function DecryptSection({
   passphrase,
   decryptStatus,
+  extensionTarget,
+  expectedHeadDocHash,
   onPassphraseChange,
+  onExtensionTargetChange,
+  onExpectedHeadDocHashChange,
   onDecrypt,
+  onDecryptRootOnly,
   canDecrypt,
+  canDecryptRootOnly,
+  hasMultipleDocuments,
   isComplete,
   isDecrypting,
   onExtract,
@@ -41,6 +48,17 @@ export function DecryptSection({
         : "Enter your passphrase to unlock.",
     },
   ];
+  if (onDecryptRootOnly) {
+    decryptActions.push({
+      label: isDecrypting ? "Unlocking..." : "Unlock root only",
+      className: "secondary",
+      onClick: onDecryptRootOnly,
+      disabled: !canDecryptRootOnly || isDecrypting,
+      disabledReason: passphrase.trim()
+        ? "Add backup data first (Step 1)."
+        : "Enter your passphrase to unlock.",
+    });
+  }
   const envelopeActions = [
     {
       label: "Extract files",
@@ -71,6 +89,26 @@ export function DecryptSection({
           autoComplete="off"
           spellCheck="false"
         />
+        {hasMultipleDocuments ? (
+          <Field
+            id="extension-target-input"
+            label="Extension target"
+            value={extensionTarget}
+            placeholder="latest, root, index, or doc hash"
+            onInput={onExtensionTargetChange}
+            spellCheck="false"
+          />
+        ) : null}
+        {hasMultipleDocuments ? (
+          <Field
+            id="expected-head-doc-hash-input"
+            label="Expected head"
+            value={expectedHeadDocHash}
+            placeholder="optional latest doc hash"
+            onInput={onExpectedHeadDocHashChange}
+            spellCheck="false"
+          />
+        ) : null}
         <ActionsRow actions={decryptActions} />
       </div>
       <div class="step-section">

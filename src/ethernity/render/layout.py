@@ -23,12 +23,8 @@ from typing import Sequence
 
 from fpdf import FPDF
 
-from ethernity.encoding.chunking import reassemble_payload
-from ethernity.encoding.framing import VERSION, Frame, FrameType, encode_frame
-from ethernity.encoding.zbase32 import encode_zbase32
 from ethernity.render.doc_types import DOC_TYPE_RECOVERY, DOC_TYPE_SHARD, DOC_TYPE_SIGNING_KEY_SHARD
 from ethernity.render.fallback import fallback_lines_from_sections, label_line_height_fallback
-from ethernity.render.fallback_text import format_zbase32_lines
 from ethernity.render.geometry import (
     adjust_rows_for_fallback,
     calc_cells,
@@ -157,38 +153,12 @@ def _build_fallback_lines(
     if not inputs.render_fallback:
         return []
 
-    if inputs.fallback_sections:
-        return fallback_lines_from_sections(
-            inputs.fallback_sections,
-            group_size=group_size,
-            line_length=line_length,
-        )
-
-    fallback_payload = inputs.fallback_payload
-    if fallback_payload is None:
-        first_frame = inputs.frames[0]
-        if int(first_frame.frame_type) == int(FrameType.MAIN_DOCUMENT):
-            fallback_payload = reassemble_payload(
-                inputs.frames,
-                expected_frame_type=FrameType.MAIN_DOCUMENT,
-            )
-        else:
-            if len(inputs.frames) != 1:
-                raise ValueError("non-main fallback rendering expects exactly one frame")
-            fallback_payload = first_frame.data
-    frame = Frame(
-        version=VERSION,
-        frame_type=inputs.frames[0].frame_type,
-        doc_id=inputs.frames[0].doc_id,
-        index=0,
-        total=1,
-        data=fallback_payload,
-    )
-    return format_zbase32_lines(
-        encode_zbase32(encode_frame(frame)),
+    if not inputs.fallback_sections:
+        raise ValueError("fallback_sections are required when render_fallback is enabled")
+    return fallback_lines_from_sections(
+        inputs.fallback_sections,
         group_size=group_size,
         line_length=line_length,
-        line_count=None,
     )
 
 

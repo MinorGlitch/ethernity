@@ -14,6 +14,7 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 import io
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -77,6 +78,19 @@ class TestInputFiles(unittest.TestCase):
             rels = [entry.relative_path for entry in entries]
             self.assertEqual(rels, ["a.txt", "nested/b.txt"])
 
+    def test_directory_input_roots_preserve_leaf_whitespace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_label = " demo" if os.name == "nt" else " demo "
+            root = Path(tmpdir) / root_label
+            root.mkdir()
+            (root / "a.txt").write_bytes(b"A")
+
+            _entries, _base, _input_origin, input_roots = _load_input_files(
+                [], [str(root)], None, allow_stdin=False
+            )
+
+        self.assertEqual(input_roots, [root_label])
+
     def test_duplicate_relative_paths_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "file.txt"
@@ -125,6 +139,66 @@ class TestInputFiles(unittest.TestCase):
             with mock.patch("pathlib.Path.is_dir", return_value=False):
                 with self.assertRaisesRegex(ValueError, "input path is not a file"):
                     _load_input_files([str(path)], [], None, allow_stdin=False)
+
+    def test_rejects_symlinked_input_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            target = root / "target.txt"
+            link = root / "link.txt"
+            target.write_text("secret", encoding="utf-8")
+            try:
+                link.symlink_to(target)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+
+            with self.assertRaisesRegex(ValueError, "input path must not be a symlink"):
+                _load_input_files([str(link)], [], None, allow_stdin=False)
+
+    def test_rejects_symlinked_input_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            target = root / "target"
+            link = root / "link"
+            target.mkdir()
+            try:
+                link.symlink_to(target, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+
+            with self.assertRaisesRegex(ValueError, "input dir must not be a symlink"):
+                _load_input_files([], [str(link)], None, allow_stdin=False)
+
+    def test_rejects_symlinked_file_inside_input_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            input_dir = root / "input"
+            target = root / "outside.txt"
+            link = input_dir / "linked.txt"
+            input_dir.mkdir()
+            target.write_text("outside", encoding="utf-8")
+            try:
+                link.symlink_to(target)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+
+            with self.assertRaisesRegex(ValueError, "input file must not be a symlink"):
+                _load_input_files([], [str(input_dir)], None, allow_stdin=False)
+
+    def test_rejects_symlinked_base_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            target = root / "target"
+            base_link = root / "base-link"
+            file_path = target / "file.txt"
+            target.mkdir()
+            file_path.write_text("data", encoding="utf-8")
+            try:
+                base_link.symlink_to(target, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable: {exc}")
+
+            with self.assertRaisesRegex(ValueError, "base dir must not be a symlink"):
+                _load_input_files([str(file_path)], [], str(base_link), allow_stdin=False)
 
     def test_empty_stdin_rejected(self) -> None:
         with mock.patch("ethernity.cli.shared.io.inputs.sys.stdin", new=io.StringIO("")):
@@ -177,6 +251,108 @@ class TestInputFiles(unittest.TestCase):
                 allow_stdin=False,
             )
         self.assertEqual(sum(len(entry.data) for entry in entries), 5)
+
+    def test_input_file_rejects_size_over_payload_bound_before_read(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "big.bin"
+            file_path.write_bytes(b"abcde")
+            with (
+                mock.patch("ethernity.cli.shared.io.inputs.MAX_DECOMPRESSED_PAYLOAD_BYTES", 4),
+                mock.patch(
+                    "ethernity.cli.shared.io.inputs._read_planned_input_file",
+                    side_effect=AssertionError("should not read"),
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "MAX_DECOMPRESSED_PAYLOAD_BYTES"):
+                    _load_input_files([str(file_path)], [], None, allow_stdin=False)
+
+    def test_input_files_reject_cumulative_size_over_payload_bound_before_read(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = Path(tmpdir) / "one.bin"
+            second = Path(tmpdir) / "two.bin"
+            first.write_bytes(b"abc")
+            second.write_bytes(b"def")
+            with (
+                mock.patch("ethernity.cli.shared.io.inputs.MAX_DECOMPRESSED_PAYLOAD_BYTES", 5),
+                mock.patch(
+                    "ethernity.cli.shared.io.inputs._read_planned_input_file",
+                    side_effect=AssertionError("should not read"),
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "MAX_DECOMPRESSED_PAYLOAD_BYTES"):
+                    _load_input_files(
+                        [str(first), str(second)],
+                        [],
+                        None,
+                        allow_stdin=False,
+                    )
+
+    def test_input_files_reject_manifest_file_count_before_read(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = Path(tmpdir) / "one.bin"
+            second = Path(tmpdir) / "two.bin"
+            first.write_bytes(b"a")
+            second.write_bytes(b"b")
+            with (
+                mock.patch("ethernity.cli.shared.io.inputs.MAX_MANIFEST_FILES", 1),
+                mock.patch(
+                    "ethernity.cli.shared.io.inputs._read_planned_input_file",
+                    side_effect=AssertionError("should not read"),
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "MAX_MANIFEST_FILES"):
+                    _load_input_files(
+                        [str(first), str(second)],
+                        [],
+                        None,
+                        allow_stdin=False,
+                    )
+
+    def test_rejects_input_file_swapped_for_symlink_before_open(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            file_path = root / "input.txt"
+            target = root / "target.txt"
+            file_path.write_text("original", encoding="utf-8")
+            target.write_text("target", encoding="utf-8")
+            real_open = os.open
+
+            def _swap_then_open(path, flags):
+                file_path.unlink()
+                try:
+                    file_path.symlink_to(target)
+                except OSError as exc:
+                    self.skipTest(f"symlinks unavailable: {exc}")
+                return real_open(path, flags)
+
+            with mock.patch("ethernity.cli.shared.io.inputs.os.open", side_effect=_swap_then_open):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "input file must not be a symlink|input file changed while opening",
+                ):
+                    _load_input_files([str(file_path)], [], None, allow_stdin=False)
+
+    def test_stdin_rejects_cumulative_size_over_payload_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "one.bin"
+            file_path.write_bytes(b"abc")
+            with (
+                mock.patch("ethernity.cli.shared.io.inputs.MAX_DECOMPRESSED_PAYLOAD_BYTES", 5),
+                mock.patch("ethernity.cli.shared.io.inputs.sys.stdin", new=io.StringIO("def")),
+            ):
+                with self.assertRaisesRegex(ValueError, "MAX_DECOMPRESSED_PAYLOAD_BYTES"):
+                    _load_input_files([str(file_path), "-"], [], None, allow_stdin=True)
+
+    def test_stdin_counts_toward_manifest_file_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "one.bin"
+            file_path.write_bytes(b"abc")
+            with (
+                mock.patch("ethernity.cli.shared.io.inputs.MAX_MANIFEST_FILES", 1),
+                mock.patch("ethernity.cli.shared.io.inputs.sys.stdin", new=io.StringIO("def")),
+            ):
+                with self.assertRaisesRegex(ValueError, "MAX_MANIFEST_FILES"):
+                    _load_input_files([str(file_path), "-"], [], None, allow_stdin=True)
 
     def test_commonpath_error_reports_different_roots(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

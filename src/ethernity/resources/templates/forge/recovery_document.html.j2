@@ -70,7 +70,7 @@
     {% set forge_header_title = copy.title %}
     {% set forge_header_subtitle = copy.subtitle %}
     {% set forge_header_kicker = '' %}
-    {% set forge_header_classification = 'Manual Entry Only' %}
+    {% set forge_header_classification = copy.lineage_badge if copy.lineage_badge is defined else 'Manual Entry Only' %}
     {% set forge_header_guidance = copy.header_guidance %}
     {% set forge_header_ref = doc_id %}
     {% set forge_header_icon = '' %}
@@ -111,7 +111,7 @@
           {% endif %}
           {% for line in block.lines %}
           <div class="flex items-end gap-3 py-1.5 border-b border-slate-300">
-            <span class="w-10 font-mono text-slate-500 text-right select-none text-sm">{{ '%02d' % (block.line_offset + loop.index) }}.</span>
+            <span class="w-10 font-mono text-slate-500 text-right select-none text-sm" aria-hidden="true">{{ '%02d' % (block.line_offset + loop.index) }}.</span>
             <div class="fallback-payload flex-1 border-b-0 border-black border-dotted h-6 bg-slate-50/50 font-mono text-xs text-slate-800 px-2 py-1 whitespace-nowrap">{{ line }}</div>
           </div>
           {% endfor %}
@@ -131,7 +131,7 @@
       <div class="space-y-4">
         {% if recovery.quorum_value %}
         <div>
-          <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Shard Quorum</label>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">{{ recovery.quorum_label }}</label>
           <div class="border border-slate-400 p-2 bg-slate-50 font-mono text-xs">{{ recovery.quorum_value }}</div>
         </div>
         {% endif %}

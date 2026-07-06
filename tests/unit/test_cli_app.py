@@ -21,8 +21,15 @@ from unittest import mock
 
 import typer
 
-from ethernity.cli.shared.types import CliContextState, RecoverArgs
-from ethernity.config import BackupDefaults, CliDefaults, DebugDefaults, UiDefaults
+from ethernity.cli.features.config.onboarding import FirstRunOnboardingResult
+from ethernity.cli.shared.types import (
+    BackupArgs,
+    CliContextState,
+    CompactArgs,
+    ExtendArgs,
+    RecoverArgs,
+)
+from ethernity.config import BackupDefaults, CliDefaults, DebugDefaults, ExtendDefaults, UiDefaults
 
 app_module = importlib.import_module("ethernity.cli.bootstrap.app")
 
@@ -390,12 +397,15 @@ class TestCliApp(unittest.TestCase):
         print_err.assert_called_once()
         prompt_home_action.assert_not_called()
 
-    @mock.patch("ethernity.cli.bootstrap.app.run_recover_wizard", return_value=0)
+    @mock.patch("ethernity.cli.bootstrap.app.run_restore_workspace", return_value=0)
     @mock.patch("ethernity.cli.bootstrap.app._run_cli", side_effect=lambda func, debug: func())
     @mock.patch("ethernity.cli.bootstrap.app.empty_recover_args", return_value=RecoverArgs())
-    @mock.patch("ethernity.cli.bootstrap.app.prompt_home_action", return_value="recover")
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_home_action")
     @mock.patch("ethernity.cli.bootstrap.app.ui_screen_mode", return_value=contextlib.nullcontext())
-    @mock.patch("ethernity.cli.bootstrap.app.run_first_run_config_wizard", return_value=False)
+    @mock.patch(
+        "ethernity.cli.bootstrap.app.run_first_run_config_wizard",
+        return_value=FirstRunOnboardingResult(applied_defaults=False, launch_action="recover"),
+    )
     @mock.patch("ethernity.cli.bootstrap.app.load_cli_defaults", return_value=CliDefaults())
     @mock.patch("ethernity.cli.bootstrap.app._resolve_config_and_paper", return_value=("cfg", "A4"))
     @mock.patch("ethernity.cli.bootstrap.app.sys.stdout.isatty", return_value=True)
@@ -410,10 +420,10 @@ class TestCliApp(unittest.TestCase):
         _load_cli_defaults: mock.MagicMock,
         _run_first_run_config_wizard: mock.MagicMock,
         ui_screen_mode: mock.MagicMock,
-        _prompt_home_action: mock.MagicMock,
+        prompt_home_action: mock.MagicMock,
         _empty_recover_args: mock.MagicMock,
         _run_cli: mock.MagicMock,
-        run_recover_wizard: mock.MagicMock,
+        run_restore_workspace: mock.MagicMock,
     ) -> None:
         ctx = _Ctx(invoked_subcommand=None)
         app_module.cli(
@@ -430,9 +440,10 @@ class TestCliApp(unittest.TestCase):
             init_config=False,
             version=False,
         )
-        ui_screen_mode.assert_called_once_with(quiet=False)
-        run_recover_wizard.assert_called_once()
-        self.assertTrue(run_recover_wizard.call_args.kwargs["debug"])
+        ui_screen_mode.assert_not_called()
+        prompt_home_action.assert_not_called()
+        run_restore_workspace.assert_called_once()
+        self.assertTrue(run_restore_workspace.call_args.kwargs["debug"])
         _empty_recover_args.assert_called_once_with(
             config="cfg",
             paper="A4",
@@ -441,7 +452,7 @@ class TestCliApp(unittest.TestCase):
             debug_reveal_secrets=True,
         )
 
-    @mock.patch("ethernity.cli.bootstrap.app.run_mint_wizard", return_value=0)
+    @mock.patch("ethernity.cli.bootstrap.app.run_reprint_shards_workspace", return_value=0)
     @mock.patch("ethernity.cli.bootstrap.app._run_cli", side_effect=lambda func, debug: func())
     @mock.patch("ethernity.cli.bootstrap.app.empty_mint_args")
     @mock.patch("ethernity.cli.bootstrap.app.prompt_home_action", return_value="mint")
@@ -464,7 +475,7 @@ class TestCliApp(unittest.TestCase):
         _prompt_home_action: mock.MagicMock,
         empty_mint_args: mock.MagicMock,
         _run_cli: mock.MagicMock,
-        run_mint_wizard: mock.MagicMock,
+        run_reprint_shards_workspace: mock.MagicMock,
     ) -> None:
         ctx = _Ctx(invoked_subcommand=None)
         empty_mint_args.return_value = mock.Mock()
@@ -489,10 +500,113 @@ class TestCliApp(unittest.TestCase):
             design="forge",
             quiet=False,
         )
-        run_mint_wizard.assert_called_once()
-        self.assertTrue(run_mint_wizard.call_args.kwargs["debug"])
+        run_reprint_shards_workspace.assert_called_once()
+        self.assertTrue(run_reprint_shards_workspace.call_args.kwargs["debug"])
 
-    @mock.patch("ethernity.cli.bootstrap.app.run_wizard", return_value=0)
+    @mock.patch("ethernity.cli.bootstrap.app.run_extend_command", return_value=0)
+    @mock.patch("ethernity.cli.bootstrap.app._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_add_files_workspace_args")
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_home_action", return_value="extend")
+    @mock.patch("ethernity.cli.bootstrap.app.ui_screen_mode", return_value=contextlib.nullcontext())
+    @mock.patch("ethernity.cli.bootstrap.app.run_first_run_config_wizard", return_value=False)
+    @mock.patch("ethernity.cli.bootstrap.app.load_cli_defaults", return_value=CliDefaults())
+    @mock.patch("ethernity.cli.bootstrap.app._resolve_config_and_paper", return_value=("cfg", "A4"))
+    @mock.patch("ethernity.cli.bootstrap.app.sys.stdout.isatty", return_value=True)
+    @mock.patch("ethernity.cli.bootstrap.app.sys.stdin.isatty", return_value=True)
+    @mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False)
+    def test_cli_interactive_extend_route(
+        self,
+        _run_startup: mock.MagicMock,
+        _stdin_tty: mock.MagicMock,
+        _stdout_tty: mock.MagicMock,
+        _resolve_config_and_paper: mock.MagicMock,
+        _load_cli_defaults: mock.MagicMock,
+        _run_first_run_config_wizard: mock.MagicMock,
+        ui_screen_mode: mock.MagicMock,
+        _prompt_home_action: mock.MagicMock,
+        prompt_add_files_workspace_args: mock.MagicMock,
+        _run_cli: mock.MagicMock,
+        run_extend_command: mock.MagicMock,
+    ) -> None:
+        ctx = _Ctx(invoked_subcommand=None)
+        extend_args = ExtendArgs(root_dir="/root", input_dir=["/input"], passphrase="secret")
+        prompt_add_files_workspace_args.return_value = extend_args
+        app_module.cli(
+            ctx,
+            config=None,
+            paper=None,
+            design="forge",
+            debug=True,
+            debug_max_bytes=1024,
+            debug_reveal_secrets=False,
+            quiet=False,
+            no_color=False,
+            no_animations=False,
+            init_config=False,
+            version=False,
+        )
+        ui_screen_mode.assert_called_once_with(quiet=False)
+        prompt_add_files_workspace_args.assert_called_once_with(
+            config="cfg",
+            paper="A4",
+            design="forge",
+            quiet=False,
+            extend_defaults=ExtendDefaults(),
+        )
+        run_extend_command.assert_called_once_with(extend_args, debug=True)
+
+    @mock.patch("ethernity.cli.bootstrap.app.run_compact_command", return_value=0)
+    @mock.patch("ethernity.cli.bootstrap.app._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_rebuild_workspace_args")
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_home_action", return_value="compact")
+    @mock.patch("ethernity.cli.bootstrap.app.ui_screen_mode", return_value=contextlib.nullcontext())
+    @mock.patch("ethernity.cli.bootstrap.app.run_first_run_config_wizard", return_value=False)
+    @mock.patch("ethernity.cli.bootstrap.app.load_cli_defaults", return_value=CliDefaults())
+    @mock.patch("ethernity.cli.bootstrap.app._resolve_config_and_paper", return_value=("cfg", "A4"))
+    @mock.patch("ethernity.cli.bootstrap.app.sys.stdout.isatty", return_value=True)
+    @mock.patch("ethernity.cli.bootstrap.app.sys.stdin.isatty", return_value=True)
+    @mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False)
+    def test_cli_interactive_compact_route(
+        self,
+        _run_startup: mock.MagicMock,
+        _stdin_tty: mock.MagicMock,
+        _stdout_tty: mock.MagicMock,
+        _resolve_config_and_paper: mock.MagicMock,
+        _load_cli_defaults: mock.MagicMock,
+        _run_first_run_config_wizard: mock.MagicMock,
+        ui_screen_mode: mock.MagicMock,
+        _prompt_home_action: mock.MagicMock,
+        prompt_rebuild_workspace_args: mock.MagicMock,
+        _run_cli: mock.MagicMock,
+        run_compact_command: mock.MagicMock,
+    ) -> None:
+        ctx = _Ctx(invoked_subcommand=None)
+        compact_args = CompactArgs(root_dir="/root", output_dir="/out", passphrase="secret")
+        prompt_rebuild_workspace_args.return_value = compact_args
+        app_module.cli(
+            ctx,
+            config=None,
+            paper=None,
+            design="forge",
+            debug=False,
+            debug_max_bytes=1024,
+            debug_reveal_secrets=False,
+            quiet=False,
+            no_color=False,
+            no_animations=False,
+            init_config=False,
+            version=False,
+        )
+        ui_screen_mode.assert_called_once_with(quiet=False)
+        prompt_rebuild_workspace_args.assert_called_once_with(
+            config="cfg",
+            paper="A4",
+            design="forge",
+            quiet=False,
+        )
+        run_compact_command.assert_called_once_with(compact_args, debug=False)
+
+    @mock.patch("ethernity.cli.bootstrap.app.run_create_backup_workspace", return_value=0)
     @mock.patch("ethernity.cli.bootstrap.app._run_cli", side_effect=lambda func, debug: func())
     @mock.patch("ethernity.cli.bootstrap.app.prompt_home_action", return_value="backup")
     @mock.patch("ethernity.cli.bootstrap.app.ui_screen_mode", return_value=contextlib.nullcontext())
@@ -513,7 +627,7 @@ class TestCliApp(unittest.TestCase):
         ui_screen_mode: mock.MagicMock,
         _prompt_home_action: mock.MagicMock,
         _run_cli: mock.MagicMock,
-        run_wizard: mock.MagicMock,
+        run_create_backup_workspace: mock.MagicMock,
     ) -> None:
         ctx = _Ctx(invoked_subcommand=None)
         app_module.cli(
@@ -531,11 +645,11 @@ class TestCliApp(unittest.TestCase):
             version=False,
         )
         ui_screen_mode.assert_called_once_with(quiet=False)
-        run_wizard.assert_called_once()
-        self.assertEqual(run_wizard.call_args.kwargs["args"].design, "forge")
-        self.assertTrue(run_wizard.call_args.kwargs["debug_reveal_secrets"])
+        run_create_backup_workspace.assert_called_once()
+        self.assertEqual(run_create_backup_workspace.call_args.kwargs["args"].design, "forge")
+        self.assertTrue(run_create_backup_workspace.call_args.kwargs["debug_reveal_secrets"])
 
-    @mock.patch("ethernity.cli.bootstrap.app.run_wizard", return_value=0)
+    @mock.patch("ethernity.cli.bootstrap.app.run_create_backup_workspace", return_value=0)
     @mock.patch("ethernity.cli.bootstrap.app._run_cli", side_effect=lambda func, debug: func())
     @mock.patch("ethernity.cli.bootstrap.app.prompt_home_action", return_value="backup")
     @mock.patch("ethernity.cli.bootstrap.app.ui_screen_mode", return_value=contextlib.nullcontext())
@@ -554,7 +668,7 @@ class TestCliApp(unittest.TestCase):
         ui_screen_mode: mock.MagicMock,
         _prompt_home_action: mock.MagicMock,
         _run_cli: mock.MagicMock,
-        run_wizard: mock.MagicMock,
+        run_create_backup_workspace: mock.MagicMock,
     ) -> None:
         ctx = _Ctx(invoked_subcommand=None)
         defaults = CliDefaults(
@@ -585,8 +699,9 @@ class TestCliApp(unittest.TestCase):
             )
 
         ui_screen_mode.assert_called_once_with(quiet=False)
-        run_wizard.assert_called_once()
-        wizard_args = run_wizard.call_args.kwargs["args"]
+        run_create_backup_workspace.assert_called_once()
+        wizard_args = run_create_backup_workspace.call_args.kwargs["args"]
+        self.assertIsInstance(wizard_args, BackupArgs)
         self.assertEqual(wizard_args.config, "cfg")
         self.assertEqual(wizard_args.paper, "A4")
         self.assertEqual(wizard_args.design, "forge")
@@ -601,6 +716,7 @@ class TestCliApp(unittest.TestCase):
 
     @mock.patch("ethernity.cli.bootstrap.app._run_kit_render", return_value=None)
     @mock.patch("ethernity.cli.bootstrap.app._run_cli", side_effect=lambda func, debug: func())
+    @mock.patch("ethernity.cli.bootstrap.app.prompt_print_kit_workspace_args")
     @mock.patch("ethernity.cli.bootstrap.app.prompt_home_action", return_value="kit")
     @mock.patch("ethernity.cli.bootstrap.app.ui_screen_mode", return_value=contextlib.nullcontext())
     @mock.patch("ethernity.cli.bootstrap.app.run_first_run_config_wizard", return_value=False)
@@ -619,10 +735,21 @@ class TestCliApp(unittest.TestCase):
         _run_first_run_config_wizard: mock.MagicMock,
         ui_screen_mode: mock.MagicMock,
         _prompt_home_action: mock.MagicMock,
+        prompt_print_kit_workspace_args: mock.MagicMock,
         _run_cli: mock.MagicMock,
         run_kit_render: mock.MagicMock,
     ) -> None:
         ctx = _Ctx(invoked_subcommand=None)
+        prompt_print_kit_workspace_args.return_value = mock.Mock(
+            bundle=None,
+            output=None,
+            config="cfg",
+            paper="A4",
+            design="forge",
+            variant="lean",
+            qr_chunk_size=None,
+            quiet=False,
+        )
         app_module.cli(
             ctx,
             config=None,
@@ -638,6 +765,12 @@ class TestCliApp(unittest.TestCase):
             version=False,
         )
         ui_screen_mode.assert_called_once_with(quiet=False)
+        prompt_print_kit_workspace_args.assert_called_once_with(
+            config="cfg",
+            paper="A4",
+            design="forge",
+            quiet=False,
+        )
         run_kit_render.assert_called_once_with(
             bundle=None,
             output=None,

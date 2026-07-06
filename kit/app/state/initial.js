@@ -15,9 +15,13 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { cloneShardFrames, cloneShardSets } from "../shard_store.js";
+
 export function createBaseState() {
   return {
     revision: 0,
+    documents: new Map(),
+    primaryDocIdHex: null,
     mainFrames: new Map(),
     docIdHex: null,
     total: null,
@@ -25,10 +29,14 @@ export function createBaseState() {
     conflicts: 0,
     ignored: 0,
     errors: 0,
+    shardSets: new Map(),
+    activeShardSetKey: null,
     shardFrames: new Map(),
     shardDocIdHex: null,
+    shardVersion: null,
     shardDocHashHex: null,
     shardSignPubHex: null,
+    shardSetIdHex: null,
     shardThreshold: null,
     shardShares: null,
     shardKeyType: null,
@@ -57,7 +65,10 @@ export function createBaseState() {
     payloadText: "",
     shardPayloadText: "",
     agePassphrase: "",
+    extensionTargetText: "latest",
+    expectedHeadDocHashText: "",
     decryptStatus: { lines: [], type: "" },
+    decryptRequestId: 0,
     isDecrypting: false,
     isAddingFrames: false,
     isAddingShards: false,
@@ -91,10 +102,23 @@ export function bumpError(state, key) {
 }
 
 export function cloneState(state) {
+  const shardSets = cloneShardSets(state.shardSets);
+  const activeShardSet = state.activeShardSetKey ? shardSets.get(state.activeShardSetKey) : null;
   return {
     ...state,
+    documents: new Map(
+      Array.from(state.documents.entries(), ([docIdHex, record]) => [
+        docIdHex,
+        {
+          ...record,
+          docId: record.docId.slice(),
+          mainFrames: new Map(record.mainFrames),
+        },
+      ]),
+    ),
+    shardSets,
     mainFrames: new Map(state.mainFrames),
-    shardFrames: new Map(state.shardFrames),
+    shardFrames: activeShardSet ? activeShardSet.shardFrames : cloneShardFrames(state.shardFrames),
     extractedFiles: state.extractedFiles.slice(),
     frameStatus: { ...state.frameStatus },
     shardStatus: { ...state.shardStatus },

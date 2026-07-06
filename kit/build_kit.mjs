@@ -449,10 +449,10 @@ async function buildBundleVariant(variant) {
   const gzipResult = await gzipBundlePayload(rawBundle, tmpBase);
   const gzPayload = gzipResult.bytes;
   console.log(`[${variant.id}] Gzip compressor: ${gzipResult.method} (${gzPayload.length} bytes)`);
-  const gzBase91 = base91Encode(gzPayload);
-  const gzBase91Safe = gzBase91.replaceAll("</", "<\\/");
+  const payloadBase91 = base91Encode(gzPayload);
+  const payloadBase91Safe = payloadBase91.replaceAll("</", "<\\/");
   const loaderHtml = buildCompressedLoaderHtml({
-    gzBase91Safe,
+    payloadBase91Safe,
     alphabet: BASE91_ALPHABET,
   });
 

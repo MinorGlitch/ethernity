@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Literal
 
 from ethernity.cli.features.recover.execution import (
-    decrypt_manifest_and_extract,
+    decrypt_manifest_extract_selection,
     write_recovered_outputs,
 )
 from ethernity.cli.features.recover.planning import RecoveryPlan, plan_from_args
@@ -35,7 +35,7 @@ from ethernity.cli.shared.events import (
     event_session,
 )
 from ethernity.cli.shared.io.outputs import _single_entry_uses_directory_output
-from ethernity.cli.shared.paths import expanduser_cli_path
+from ethernity.cli.shared.paths import display_parent_path, expanduser_cli_path
 from ethernity.cli.shared.types import RecoverArgs
 from ethernity.cli.shared.ui.debug import print_recover_debug
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
@@ -61,6 +61,11 @@ class RecoverExecutionResult:
     output_path: str
     output_path_kind: Literal["file", "directory", "stdout"]
     single_entry_output_is_directory: bool
+    requested_extension_index: int | None = None
+    requested_extension_doc_hash: str | None = None
+    expected_head_doc_hash: str | None = None
+    selected_extension_index: int | None = None
+    selected_extension_doc_hash: str | None = None
 
 
 def expand_recover_shard_dir(shard_dir: str | None) -> list[str]:
@@ -98,9 +103,10 @@ def apply_recover_stdin_default(
     payloads_file: str | None,
     scan: list[str] | None,
     *,
+    extension_selector_present: bool = False,
     stdin_is_tty: bool,
 ) -> str | None:
-    if fallback_file or payloads_file or (scan or []) or stdin_is_tty:
+    if fallback_file or payloads_file or (scan or []) or extension_selector_present or stdin_is_tty:
         return fallback_file
     return "-"
 
@@ -173,7 +179,9 @@ def execute_recover_plan(
                 emit_artifact(kind="recovered_file", path=written_path, details=file_payload)
 
         emit_phase(phase="decrypt", label="Decrypting and extracting payload")
-        manifest, extracted = decrypt_manifest_and_extract(plan, quiet=quiet, debug=debug)
+        decrypted = decrypt_manifest_extract_selection(plan, quiet=quiet, debug=debug)
+        manifest = decrypted.manifest
+        extracted = list(decrypted.extracted)
         emit_progress(
             phase="decrypt",
             current=1,
@@ -212,6 +220,11 @@ def execute_recover_plan(
             allow_unsigned=plan.allow_unsigned,
             quiet=quiet,
             single_entry_output_is_directory=single_entry_output_is_directory,
+            requested_extension_index=getattr(plan, "extension_index", None),
+            requested_extension_doc_hash=getattr(plan, "extension_doc_hash", None),
+            expected_head_doc_hash=getattr(plan, "expected_head_doc_hash", None),
+            selected_extension_index=decrypted.selected_extension_index,
+            selected_extension_doc_hash=decrypted.selected_extension_doc_hash,
             on_file_written=_on_file_written,
         )
         if written_paths:
@@ -219,7 +232,7 @@ def execute_recover_plan(
                 emitted_output_path = written_paths[0]
                 output_path_kind: Literal["file", "directory", "stdout"] = "file"
             else:
-                emitted_output_path = plan.output_path or str(Path(written_paths[0]).parent)
+                emitted_output_path = plan.output_path or display_parent_path(written_paths[0])
                 output_path_kind = "directory"
         else:
             emitted_output_path = plan.output_path or "-"
@@ -233,6 +246,11 @@ def execute_recover_plan(
             output_path=emitted_output_path,
             output_path_kind=output_path_kind,
             single_entry_output_is_directory=single_entry_output_is_directory,
+            requested_extension_index=getattr(plan, "extension_index", None),
+            requested_extension_doc_hash=getattr(plan, "extension_doc_hash", None),
+            expected_head_doc_hash=getattr(plan, "expected_head_doc_hash", None),
+            selected_extension_index=decrypted.selected_extension_index,
+            selected_extension_doc_hash=decrypted.selected_extension_doc_hash,
         )
 
 

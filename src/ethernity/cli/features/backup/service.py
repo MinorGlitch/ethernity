@@ -32,6 +32,7 @@ from ethernity.cli.shared.plan import _validate_backup_args
 from ethernity.cli.shared.types import BackupArgs, BackupResult, InputFile
 from ethernity.config import AppConfig, apply_template_design, load_app_config
 from ethernity.core.models import DocumentPlan, SigningSeedMode
+from ethernity.render.types import RenderLineage
 
 
 @dataclass(frozen=True)
@@ -118,6 +119,7 @@ def execute_prepared_backup(
             passphrase=prepared.args.passphrase,
             passphrase_words=prepared.args.passphrase_words,
             config=prepared.config,
+            render_lineage=RenderLineage(kind="root_backup"),
             debug=prepared.args.debug,
             debug_max_bytes=prepared.args.debug_max_bytes,
             debug_reveal_secrets=prepared.args.debug_reveal_secrets,

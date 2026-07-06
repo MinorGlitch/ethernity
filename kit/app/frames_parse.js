@@ -39,8 +39,9 @@ function parsePayloadLinesWith(state, text, addFrameFn, errorKey) {
     }
     try {
       const frame = decodeFrame(bytes);
-      addFrameFn(state, frame);
-      added += 1;
+      if (addFrameFn(state, frame)) {
+        added += 1;
+      }
     } catch {
       bumpError(state, errorKey);
     }
@@ -196,16 +197,19 @@ function parseFallbackText(state, text) {
     throw new Error("unexpected content before the first marked fallback section");
   }
   const target = sections.main.length ? sections.main : sections.any;
-  const filtered = filterZBase32Lines(target.join("\n"));
-  if (!filtered.length) {
+  let added = 0;
+  if (target.length) {
+    const filtered = filterZBase32Lines(target.join("\n"));
+    if (!filtered.length) {
+      throw new Error("no fallback lines found");
+    }
+    enforceFallbackLimits(filtered, "main");
+    const bytes = decodeZBase32(filtered.join(""));
+    const frame = decodeFrame(bytes);
+    added = addFrame(state, frame) ? 1 : 0;
+  } else if (!sections.auth.length) {
     throw new Error("no fallback lines found");
   }
-  enforceFallbackLimits(filtered, "main");
-  const bytes = decodeZBase32(filtered.join(""));
-  const frame = decodeFrame(bytes);
-  addFrame(state, frame);
-
-  let added = 1;
   if (sections.auth.length) {
     try {
       const authLines = filterZBase32Lines(sections.auth.join("\n"));
@@ -213,8 +217,9 @@ function parseFallbackText(state, text) {
         enforceFallbackLimits(authLines, "auth");
         const authBytes = decodeZBase32(authLines.join(""));
         const authFrame = decodeFrame(authBytes);
-        addFrame(state, authFrame);
-        added += 1;
+        if (addFrame(state, authFrame)) {
+          added += 1;
+        }
       }
     } catch {
       state.authErrors += 1;
@@ -223,12 +228,14 @@ function parseFallbackText(state, text) {
   return added;
 }
 
+const SHARD_FALLBACK_MARKERS = ["key frame", "shard frame", "shard payload"];
+
 function parseShardFallbackText(state, text) {
   const payloadLines = [];
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
     if (!line) continue;
-    if (detectMarker(line, ["shard frame", "shard payload"])) {
+    if (detectMarker(line, SHARD_FALLBACK_MARKERS)) {
       continue;
     }
     payloadLines.push(line);
@@ -240,8 +247,7 @@ function parseShardFallbackText(state, text) {
   enforceFallbackLimits(filtered, "shard");
   const bytes = decodeZBase32(filtered.join(""));
   const frame = decodeFrame(bytes);
-  addShardFrame(state, frame);
-  return 1;
+  return addShardFrame(state, frame) ? 1 : 0;
 }
 
 function enforceRecoveryTextLimit(text) {
@@ -277,7 +283,7 @@ export function parseAutoShard(state, text) {
   if (!lines.length) {
     throw new Error("no input lines found");
   }
-  if (hasMarker(lines, ["shard frame", "shard payload"])) {
+  if (hasMarker(lines, SHARD_FALLBACK_MARKERS)) {
     return parseShardFallbackText(state, text);
   }
   if (allLinesDecodeShardFrames(lines)) {
@@ -296,8 +302,7 @@ export function parseScannedPayload(state, scanned) {
   if (bytes?.length) {
     try {
       const frame = decodeFrame(bytes);
-      addFrame(state, frame);
-      return 1;
+      return addFrame(state, frame) ? 1 : 0;
     } catch {
       if (!text) {
         bumpError(state, "errors");
@@ -330,8 +335,7 @@ export function parseScannedShard(state, scanned) {
         bumpError(state, "shardErrors");
         return 0;
       }
-      addShardFrame(state, frame);
-      return 1;
+      return addShardFrame(state, frame) ? 1 : 0;
     } catch {
       if (!text) {
         bumpError(state, "shardErrors");

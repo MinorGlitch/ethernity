@@ -30,6 +30,7 @@ from ethernity.encoding.varint import (
     decode_uvarint as _decode_uvarint,
     encode_uvarint as _encode_uvarint,
 )
+from ethernity.formats.envelope_constants import MAGIC, VERSION
 from ethernity.formats.envelope_types import (
     MANIFEST_VERSION,
     SIGNING_SEED_LEN,
@@ -37,10 +38,8 @@ from ethernity.formats.envelope_types import (
     ManifestFile,
     PayloadPart,
 )
+from ethernity.formats.extension_envelope import ExtensionEnvelope
 from ethernity.formats.payload_codec import decode_payload_from_manifest
-
-MAGIC = b"AY"
-VERSION = 1
 
 
 def build_single_file_manifest(
@@ -204,6 +203,36 @@ def decode_envelope(data: bytes) -> tuple[EnvelopeManifest, bytes]:
         raise ValueError("payload length mismatch")
     payload = data[idx:end_payload]
     return manifest, payload
+
+
+def encode_extension_envelope(document: object) -> bytes:
+    """Encode an extension envelope."""
+
+    if not isinstance(document, ExtensionEnvelope):
+        raise ValueError("encode_extension_envelope expects an ExtensionEnvelope document")
+    return document.encode()
+
+
+def decode_extension_envelope(data: bytes) -> object:
+    """Decode an extension envelope."""
+
+    return ExtensionEnvelope.decode(data)
+
+
+def decode_any_envelope(data: bytes) -> tuple[int, object]:
+    """Decode any supported envelope version and return `(version, payload)`."""
+
+    idx = len(MAGIC)
+    if len(data) < idx + 1:
+        raise ValueError("envelope too short")
+    if data[:idx] != MAGIC:
+        raise ValueError("invalid envelope magic")
+    version, _next_idx = _decode_uvarint(data, idx)
+    if version == VERSION:
+        return version, decode_envelope(data)
+    if version == 2:
+        return version, decode_extension_envelope(data)
+    raise ValueError(f"unsupported envelope version: {version}")
 
 
 def extract_payloads(

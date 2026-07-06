@@ -27,13 +27,19 @@ export function decodeCbor(bytes) {
   return result.value;
 }
 
-export function decodeCanonicalCbor(bytes, label) {
-  const typed = decodeCborWithOptions(bytes, { preserveFloatType: true });
+export function decodeCanonicalCbor(bytes, label, options = {}) {
+  const typed = decodeCborWithOptions(bytes, {
+    preserveFloatType: true,
+    preserveMapType: Boolean(options.preserveMapType),
+  });
   const encoded = encodeCbor(typed);
   if (!bytesEqual(encoded, bytes)) {
     throw new Error(
       `${label} must use canonical CBOR encoding (indefinite-length items are not allowed)`,
     );
+  }
+  if (options.preserveFloatType) {
+    return typed;
   }
   return stripCborFloatBoxes(typed);
 }
@@ -64,6 +70,19 @@ function encodeCborItem(value, chunks) {
     chunks.push(encodeMajorLength(4, value.length));
     for (const item of value) {
       encodeCborItem(item, chunks);
+    }
+    return;
+  }
+  if (value instanceof Map) {
+    const entries = [];
+    for (const [key, item] of value.entries()) {
+      entries.push({ keyBytes: encodeCbor(key), value: item });
+    }
+    entries.sort((left, right) => compareBytes(left.keyBytes, right.keyBytes));
+    chunks.push(encodeMajorLength(5, entries.length));
+    for (const entry of entries) {
+      chunks.push(entry.keyBytes);
+      encodeCborItem(entry.value, chunks);
     }
     return;
   }
@@ -124,6 +143,13 @@ function stripCborFloatBoxes(value) {
   }
   if (Array.isArray(value)) {
     return value.map(stripCborFloatBoxes);
+  }
+  if (value instanceof Map) {
+    const out = new Map();
+    for (const [key, item] of value.entries()) {
+      out.set(key, stripCborFloatBoxes(item));
+    }
+    return out;
   }
   if (value instanceof Uint8Array || value === null || typeof value !== "object") {
     return value;
@@ -382,6 +408,17 @@ function decodeCborItem(bytes, offset, options = {}) {
       return { value: arr, offset };
     }
     case 5: {
+      if (options.preserveMapType) {
+        const map = new Map();
+        for (let i = 0; i < length; i += 1) {
+          const keyItem = decodeCborItem(bytes, offset, options);
+          offset = keyItem.offset;
+          const valItem = decodeCborItem(bytes, offset, options);
+          offset = valItem.offset;
+          map.set(keyItem.value, valItem.value);
+        }
+        return { value: map, offset };
+      }
       const obj = {};
       for (let i = 0; i < length; i += 1) {
         const keyItem = decodeCborItem(bytes, offset, options);

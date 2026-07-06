@@ -8,7 +8,8 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 2119.
 
 Scope:
-- Envelope binary container
+- Standalone root envelope binary container (Version 1)
+- Extension envelope binary container (Version 2)
 - Manifest structure and file paths
 - Frame encoding (QR and fallback)
 - Auth and shard payloads
@@ -16,6 +17,7 @@ Scope:
 - Passphrase representation (BIP-39)
 - Shamir secret sharing
 - Path normalization
+- Extension envelope replay, content-import recovery, and compaction
 
 Non-goals:
 - CLI UX and UI
@@ -40,7 +42,10 @@ Used for:
 - Envelope version, manifest length, payload length
 - Frame version, index, total, data length
 
-## 2) Envelope Format
+## 2) Envelope Format (Version 1 Standalone Root)
+
+This section defines the standalone root envelope (`VERSION = 1`). Extension envelopes use
+`VERSION = 2` and are specified separately in Section 19.
 
 Constants:
 - MAGIC: `0x41 0x59` ("AY")
@@ -120,7 +125,9 @@ Manifest requirements (map keys):
   - if `sealed` is false, `seed` MUST be 32 bytes
 - `input_origin`: string in `{"file", "directory", "mixed"}`; `"mixed"` indicates payloads
   sourced from more than one logical root label
-- `input_roots`: list of non-empty UTF-8 strings, each a leaf label (no `/` or `\`)
+- `input_roots`: list of non-empty UTF-8 strings, each a manifest-valid leaf label (no `/` or
+  `\`, no control characters, no `.` or `..` label, no drive-prefix form, and no absolute path
+  form)
 - cross-field consistency:
   - if `input_origin` is `"file"`, `input_roots` MUST be empty
   - if `input_origin` is `"directory"` or `"mixed"`, `input_roots` MUST be non-empty
@@ -330,6 +337,11 @@ Version 1 defines two decoder operation modes:
     CBOR, shard consistency).
   - Decoders MUST clearly label the result as unauthenticated and MUST NOT report auth as verified.
 
+Read-only inspection and projection surfaces MAY be stricter than rescue-mode recovery. They MAY
+refuse unauthenticated, authority-mismatched, or partially decoded extension-chain previews instead
+of presenting a best-effort state, even when explicit rescue-mode recovery could still recover root
+MAIN ciphertext.
+
 ## 8) Auth Payload (FrameType.AUTH data)
 
 Auth payload MUST be a CBOR map:
@@ -521,13 +533,16 @@ Decoding:
   `MAX_RECOVERY_TEXT_BYTES` (Section 17).
 - For each fallback section, decoders MUST apply the following deterministic filtering algorithm:
   1. Split section text into lines using `\n`, `\r\n`, or `\r`.
-  2. For each line, remove all Unicode whitespace code points and ASCII dashes (`-`).
-  3. If the resulting string is empty, discard it.
-  4. The remaining string MUST consist only of z-base-32 alphabet characters
+  2. For each line, decoders MAY remove one leading rendered line label matching
+     `[0-9]{1,4}\.` followed by optional whitespace. Undotted digit prefixes MUST NOT be treated as
+     rendered line labels.
+  3. Remove all Unicode whitespace code points and ASCII dashes (`-`).
+  4. If the resulting string is empty, discard it.
+  5. The remaining string MUST consist only of z-base-32 alphabet characters
      (`ybndrfg8ejkmcpqxot1uwisza345h769`) when compared case-insensitively.
-  5. Normalize the remaining string to lowercase ASCII and append it to the filtered-line list.
-- `MAX_FALLBACK_LINES` counts the number of filtered lines after Step 5.
-- `MAX_FALLBACK_NORMALIZED_CHARS` counts the sum of lengths of all filtered lines after Step 5.
+  6. Normalize the remaining string to lowercase ASCII and append it to the filtered-line list.
+- `MAX_FALLBACK_LINES` counts the number of filtered lines after Step 6.
+- `MAX_FALLBACK_NORMALIZED_CHARS` counts the sum of lengths of all filtered lines after Step 6.
 - Decoders MUST reject any fallback section that exceeds either bound.
 - Decoders MUST decode each filtered line list by concatenating filtered lines in order and applying
   z-base-32 decoding.
@@ -543,18 +558,24 @@ https://philzimmermann.com/docs/human-oriented-base-32-encoding.txt
 ## 12) Version Markers
 
 Version markers:
-- Envelope: MAGIC + VERSION
+- Standalone root envelope: MAGIC + VERSION
+- Extension envelope: MAGIC + VERSION
 - Manifest: MANIFEST_VERSION
 - Frames: MAGIC + VERSION
 - Auth: AUTH_VERSION
 - Shards: SHARD_VERSION
 
-Current version values (stable v1 profile):
-- Envelope VERSION = `1`
+Current version values:
+- Standalone root Envelope VERSION = `1`
+- Extension Envelope VERSION = `2`
+- Extension header schema VERSION = `1`
 - Frame VERSION = `1`
 - MANIFEST_VERSION = `1`
 - AUTH_VERSION = `1`
 - SHARD_VERSION = `2`
+
+Extension chain metadata constants:
+- CHAIN_ID_PERSONALIZATION = `"ETHERNITY-CHAIN-V1"` encoded as ASCII bytes
 
 ### 12.1) Stable v1 Profile Baseline Contract
 
@@ -836,3 +857,518 @@ A conforming decoder MUST reject at least these scenarios:
    strictness in Section 10.
 8. Gzip-coded envelope payloads that include trailing bytes after a valid gzip stream.
 9. Manifest paths that start with a drive-letter prefix (`A:` through `Z:` or `a:` through `z:`).
+
+## 19) Extension Chain Format (Extension Envelope)
+
+The extension envelope is an authenticated append-only document that lives beside a standalone root
+backup. The root backup remains a Version 1 envelope. Each extension is a separately encrypted MAIN
+document whose ciphertext has its own `doc_hash` and `doc_id` under Section 7. On the wire, the
+extension envelope uses outer envelope `VERSION = 2`.
+
+Extension authentication is carried beside the ciphertext, not inside the encrypted extension
+header/body. Extension recovery MUST verify exactly one AUTH payload bound to the extension
+ciphertext `doc_hash` and signed by the selected root-derived signing authority. Published export
+layouts carry this AUTH payload with the extension MAIN transport and may also display it in
+human-readable fallback text; there is no separate extension AUTH artifact filename in the core
+format.
+
+### 19.1) Extension Envelope Binary Layout
+
+Constants:
+- MAGIC: `0x41 0x59` ("AY")
+- VERSION: `2`
+
+Binary layout:
+```text
+MAGIC (2 bytes)
+VERSION (uvarint)
+HEADER_LEN (uvarint)
+HEADER_BYTES (canonical CBOR map; Section 19.2)
+BODY_LEN (uvarint)
+BODY_BYTES (canonical CBOR map; Section 19.3)
+```
+
+Rules:
+- MAGIC MUST equal `0x41 0x59`.
+- VERSION MUST equal `2`.
+- `HEADER_LEN` and `BODY_LEN` MUST use canonical uvarints and MUST match byte boundaries exactly.
+- `HEADER_BYTES` and `BODY_BYTES` MUST each be canonical CBOR and MUST NOT use indefinite-length
+  items.
+- Decoders MUST reject non-canonical uvarints, non-canonical CBOR, truncated header/body sections,
+  or extra bytes after `BODY_BYTES`.
+- `HEADER_BYTES` and `BODY_BYTES` MUST each be `<= MAX_MANIFEST_CBOR_BYTES` (Section 17).
+
+As with Version 1, encoders MUST encrypt the complete extension envelope as a single age message
+and then frame the resulting ciphertext according to Section 6.
+
+Published machine-readable extension carriers MUST also provide one AUTH frame for that ciphertext:
+- the AUTH payload MUST bind to the extension ciphertext `doc_hash`
+- the AUTH payload MUST be encoded as a single-frame AUTH payload
+- the AUTH signature MUST be produced by the root-derived signing authority
+- AUTH carrier transport reuses the existing machine-readable MAIN carrier set; no extra extension
+  AUTH filename is introduced
+
+### 19.2) Extension Header
+
+The extension header MUST be a CBOR map with exactly these integer keys:
+
+```text
+1 -> version
+2 -> index
+4 -> parent_doc_hash
+5 -> root_doc_hash
+7 -> created_at
+10 -> chunking
+11 -> input_origin
+12 -> input_roots
+```
+
+Requirements:
+- `version`: int == `1`
+- `index`: positive int (`>= 1`)
+- `parent_doc_hash`: 32 bytes
+- `root_doc_hash`: 32 bytes
+- `created_at`: int
+- `chunking`: list `[algorithm_id, target_size, min_size, max_size]`
+  - all values MUST be positive ints
+  - `target_size`, `min_size`, and `max_size` MUST each be
+    `>= 4096` and
+    `<= MAX_DECOMPRESSED_PAYLOAD_BYTES`
+  - `min_size <= target_size <= max_size`
+  - `algorithm_id == 1` identifies the extension-envelope FastCDC-style content-defined chunking
+    profile
+  - encoders and replay logic MUST honor the full profile; they MUST NOT treat `target_size` as a
+    fixed-size slicing width
+- `input_origin`: `"file"`, `"directory"`, or `"mixed"`
+- `input_roots`:
+  - each root MUST be a non-empty UTF-8 leaf label that passes manifest path validation as a single
+    segment
+  - roots are NFC-normalized but otherwise preserved exactly; decoders MUST NOT trim leading or
+    trailing whitespace
+  - roots MUST NOT contain `/` or `\\`
+  - roots MUST NOT contain control characters, MUST NOT be `.` or `..`, MUST NOT use absolute path
+    syntax, and MUST NOT use drive-prefix syntax
+  - MUST be empty when `input_origin == "file"`
+  - MUST be non-empty when `input_origin` is `"directory"` or `"mixed"`
+
+Unknown header keys MUST be rejected.
+Header keys `3`, `6`, `8`, and `9` are not part of the Version 2 extension schema and MUST be
+rejected.
+
+### 19.3) Extension Body
+
+The extension body MUST be a CBOR map with exactly these integer keys:
+
+```text
+1 -> files
+2 -> chunks
+```
+
+`files` MUST be a non-empty array of file recipes. `chunks` MUST be an array of newly introduced
+chunk records and MAY be empty. Each chunk record in `chunks` MUST be referenced by at least one file
+recipe in the same extension body.
+
+Unknown body keys MUST be rejected.
+
+#### 19.3.1) File Recipe
+
+Each file recipe MUST be:
+
+```text
+[path, size, sha256, mtime, chunk_refs]
+```
+
+Requirements:
+- `path`: normalized manifest path per Section 16
+- `size`: non-negative int
+- `sha256`: 32 bytes
+- `mtime`: int or null
+- `chunk_refs`: array of chunk references
+  - zero-length files MUST have an empty `chunk_refs` array
+  - non-empty files MUST have a non-empty `chunk_refs` array
+  - the sum of `chunk_ref.uncompressed_len` values MUST equal `size`
+
+Version 2 extension file recipes only describe complete file content for paths carried by the
+extension. They MUST NOT be interpreted as delete, rename, or tombstone records.
+
+Each chunk reference MUST be:
+
+```text
+[chunk_id, uncompressed_len]
+```
+
+Requirements:
+- `chunk_id`: 32 bytes
+- `uncompressed_len`: positive int
+
+Chunking rules:
+- extension-envelope file recipes MUST be derived from content-defined chunking under the locked
+  chain profile
+- virtual root chunk replay MUST use that same locked chunking profile when reconstructing the root
+  chunk source
+
+##### 19.3.1.1) Algorithm 1 FastCDC-Style Chunking
+
+When `chunking[0] == 1`, encoders and replay logic MUST apply this FastCDC-style content-defined
+chunking algorithm independently to each non-empty file payload. Empty file payloads produce no
+chunks.
+
+All integer arithmetic in this subsection is unsigned 64-bit arithmetic modulo `2^64`, unless a
+larger range is explicitly required for byte offsets or sizes. `ROT64(value, shift)` means a 64-bit
+rotate-left where `shift` is first masked with `63`; therefore `ROT64(value, 64) == value`.
+
+The gear table `G` has 256 unsigned 64-bit entries. It is generated once as follows:
+
+```text
+state = 0x9E3779B97F4A7C15
+for byte_value in 0..255:
+    state = state XOR (state >> 12)
+    state = state XOR ((state << 25) mod 2^64)
+    state = state XOR (state >> 27)
+    state = (state * 0x2545F4914F6CDD1D) mod 2^64
+    G[byte_value] = state
+```
+
+For a profile `[1, target_size, min_size, max_size]`, derive masks from `target_size`.
+`round_half_to_even` means rounding to the nearest integer, with exact half-way values rounded to
+the nearest even integer.
+
+```text
+target_bits = max(4, round_half_to_even(log2(max(2, target_size))))
+primary_bits = min(63, target_bits)
+secondary_bits = max(4, target_bits - 2)
+primary_mask = (1 << primary_bits) - 1
+secondary_mask = (1 << secondary_bits) - 1
+```
+
+Each chunk boundary search starts at byte offset `start` with:
+
+```text
+fingerprint = 0
+window_size = 64
+window = 64 zero bytes
+window_count = 0
+window_pos = 0
+```
+
+Because `window_size == 64`, the outgoing byte contribution has rotated through the full 64-bit word
+when it leaves the window. The removal term is therefore `G[outgoing]`.
+
+If `remaining_bytes <= min_size`, the final chunk MUST run to end-of-file. Otherwise:
+
+```text
+min_end = min(total_len, start + min_size)
+target_end = min(total_len, start + target_size)
+max_end = min(total_len, start + max_size)
+
+for index in start..(max_end - 1):
+    incoming = payload[index]
+    if window_count < 64:
+        fingerprint = ROT64(fingerprint, 1) XOR G[incoming]
+        window[window_pos] = incoming
+        window_pos = (window_pos + 1) mod 64
+        window_count = window_count + 1
+    else:
+        outgoing = window[window_pos]
+        window[window_pos] = incoming
+        window_pos = (window_pos + 1) mod 64
+        fingerprint = ROT64(fingerprint, 1) XOR G[outgoing] XOR G[incoming]
+
+    if index + 1 < min_end:
+        continue
+
+    mask = primary_mask if index + 1 < target_end else secondary_mask
+    if (fingerprint AND mask) == 0:
+        cut at index + 1
+        stop searching
+```
+
+If the scan reaches `max_end` without a mask match, the chunk MUST be cut at `max_end`. The next
+boundary search starts at the previous cut offset with a fresh fingerprint and window state.
+
+`chunk_id` is `SHA-256(chunk_bytes)`, where `chunk_bytes` is the exact byte slice between adjacent
+chunk offsets. The same locked profile MUST be used for original extension construction and virtual
+root chunk replay.
+
+Conformance vectors for profile `[1, 16384, 4096, 65536]`:
+
+```text
+input = b""
+chunk_end_offsets = []
+chunk_sha256 = []
+
+input = bytes(range(256)) * 512
+chunk_end_offsets = [65536, 131072]
+chunk_sha256 = [
+    7daca2095d0438260fa849183dfc67faa459fdf4936e1bc91eec6b281b27e4c2,
+    7daca2095d0438260fa849183dfc67faa459fdf4936e1bc91eec6b281b27e4c2,
+]
+
+input = b"".join(sha256(i.to_bytes(4, "big")).digest() for i in range(4096))
+chunk_end_offsets = [18096, 26931, 43917, 62046, 73496, 93396, 110690, 125496, 130017, 131072]
+chunk_sha256 = [
+    2ee1e2166281185f001965a7c45631c880b8732f3f48a3f23d61805da105dda8,
+    eb1e03f0bac68f0171871be76601ab5e8ff1cd0b6ebe65fec952d4008d49d8ba,
+    715518ae12c7f500032a27dd79d7605f65e3b407ee2fe4b069f6deb8234ad476,
+    878633ff4a700041ebd6d4d852aed0215f6710cf6991d4f321a3b2fd2b2be830,
+    782c360b17d0e7cf76562843a8a199572c79e424f914ec72a79b35c2a5953480,
+    da2fa8816f90d81e80df05a7728bc46329dc0d77ea994cf91a21d4a4ae7d5fb1,
+    67b130801247f8d07cd21510e6bc3f37bb5b6a382b68ce9d622e464585647b38,
+    e8b033381f576d7d299a60c4fde4a718d3ebe2d15f6a914d2e5d5188108cc701,
+    eb32376d8f8546f442fac429456036034c22a9cee10c70fd39c3f575abe5696e,
+    dfd9fa02180e25f17871e98fd975ba8145952dc3e48f01b28ba4f1f8bee17df5,
+]
+
+input = ("alpha beta gamma delta\n" * 4096).encode("utf-8")
+chunk_end_offsets = [65536, 94208]
+chunk_sha256 = [
+    bfa07175ee95b43642ae3fbcad382d7ecf5dd7fad2d496933ad68e7f14f803af,
+    d4ffdf00862a1b920325b2fabc25e8621cbb7ce8171803702285b078fd0259c2,
+]
+```
+
+#### 19.3.2) Chunk Record
+
+Each chunk record MUST be:
+
+```text
+[chunk_id, codec, raw_len, data]
+```
+
+Requirements:
+- `chunk_id`: 32 bytes and MUST equal `SHA-256(decoded_chunk_bytes)`
+- `codec`: int
+  - `0` = raw
+  - `1` = gzip
+- `raw_len`: positive int and MUST be `<= MAX_DECOMPRESSED_PAYLOAD_BYTES`
+- `data`: non-empty bytes
+
+Inline chunk bounds:
+- decoders MUST reject an extension when the sum of inline chunk `raw_len` values exceeds
+  `MAX_DECOMPRESSED_PAYLOAD_BYTES`
+- this aggregate bound MUST be checked before decompressing inline chunk data
+
+Raw chunk rules:
+- when `codec == 0`, `len(data)` MUST equal `raw_len`
+
+Gzip chunk rules:
+- when `codec == 1`, decompression MUST produce exactly `raw_len` bytes
+- decoders MUST reject gzip chunk data with trailing bytes, incomplete streams, or output that
+  exceeds `raw_len`
+
+Write-path rules:
+- encoders MAY emit either raw or gzip chunk records per chunk
+- encoders SHOULD emit gzip only when it is smaller than raw for that chunk and still satisfies the
+  extension-envelope validation rules
+
+#### 19.3.3) Ordering and Uniqueness
+
+Requirements:
+- `files` MUST be ordered by normalized `path` in ascending Unicode code point order
+- duplicate `path` values are invalid
+- `chunks` MUST be ordered by raw `chunk_id` bytes in ascending order
+- duplicate `chunk_id` values are invalid
+- `len(files)` MUST be `<= MAX_MANIFEST_FILES` (Section 17)
+
+### 19.4) Extension Chain Rules
+
+A valid extension chain is a standalone root Version 1 backup plus zero or more authenticated
+extension envelopes selected by content-import recovery and ordered by decrypted chain metadata
+(Section 20).
+
+`chain_id` is deterministic chain metadata derived from the authenticated root backup identity:
+
+```text
+chain_id = BLAKE2b-256(CHAIN_ID_PERSONALIZATION || root_doc_hash)
+```
+
+`chain_id` is not an extension header field, is not stored in extension artifacts, and does not
+replace per-link `parent_doc_hash` or `root_doc_hash` validation. Tooling MAY expose `chain_id` as
+informational derived metadata, but validators MUST derive it from authenticated root state and MUST
+NOT trust a caller-supplied or serialized `chain_id` value as evidence of chain membership.
+
+Requirements:
+- every extension ciphertext in one chain MUST decrypt with the same passphrase as the root backup
+- chain validation MUST start from the authenticated root `doc_hash`
+- each extension MUST carry exactly one AUTH payload bound to its ciphertext `doc_hash`
+- in authenticated mode, each extension AUTH payload MUST verify successfully and its `sign_pub`
+  MUST match the root-derived signing authority
+- extension `index` values MUST be sequential from `1`
+- for each link:
+  - `header.index` MUST equal the expected next extension index
+  - `header.root_doc_hash` MUST equal the root backup `doc_hash`
+  - `header.parent_doc_hash` MUST equal the exact previous validated document hash
+- the first validated extension locks the chain chunking profile
+- every later extension in the same chain MUST carry the exact same chunking profile
+- signing authority for extension-local validation is derived from the embedded signing seed of the
+  unsealed root backup; it is not embedded in the extension header
+
+Operational rescue modes that tolerate unsigned or invalid extension AUTH are outside the
+normative authenticated profile described in this section.
+Implementations MUST NOT replay extensions in rescue mode unless they define a separate
+non-authenticated extension profile. The CLI/API profile defined for this release does not expose
+rescue-mode extension replay.
+
+### 19.5) Extension Replay
+
+Replay produces the latest logical file set by starting from the root Version 1 manifest/payload
+and then applying validated extensions in order.
+
+Replay rules:
+- paths omitted from an extension inherit their previous logical state unchanged
+- paths present in an extension replace the previous logical state for that path
+- extensions cannot represent deletes or tombstones; a path that existed in the root or an earlier
+  extension remains recoverable unless a later extension replaces it with new file content
+- each chunk reference MUST resolve to either:
+  - a newly introduced chunk in the current or earlier validated extension, or
+  - a chain-global virtual root chunk, keyed by the `SHA-256` of each re-chunked root chunk byte
+    sequence under the locked chain chunking profile
+- a chunk record carried by the current extension's `chunks` array MUST be newly introduced at
+  that extension index; replay MUST reject it if the same `chunk_id` is already available from the
+  chain-global virtual root chunk source or an earlier validated extension
+- replacing a root path changes latest logical state for that path, but does not remove the
+  corresponding root payload bytes from the chain-global virtual root chunk source
+- replay MUST reject unresolved `chunk_id` references
+- replay MUST reject any reconstructed file whose size or SHA-256 does not match its recipe
+- total reconstructed logical files MUST remain `<= MAX_MANIFEST_FILES`
+- total reconstructed logical bytes MUST remain `<= MAX_DECOMPRESSED_PAYLOAD_BYTES`
+- when replay emits a synthetic Version 1 manifest for recovered or compacted extension state, it
+  MUST identify file provenance with `input_origin == "directory"` and
+  `input_roots == ["reconstructed-state"]`; it MUST NOT inherit root input provenance or the latest
+  extension header scope
+- synthetic replay manifests MUST preserve root chain security fields required for recovery and
+  compaction, including the root sealed/unsealed state and the unsealed root signing seed
+
+## 20) Content-Import Extension Recovery
+
+Extension recovery is content-addressed. Directory names, filenames, file order, and carrier labels
+are not part of extension identity and MUST NOT be required to recover an extension chain.
+
+Import rules:
+- implementations MUST accept a set of scanned or pasted recovery carriers without requiring a
+  particular directory layout or filename convention
+- recursive directory scans of backup-export trees MUST exclude unpublished extension transaction
+  workspaces named `extensions/.staging-*`; carriers in those workspaces are not published by the
+  directory root
+- backup-export tree scans MUST treat extension-like non-canonical top-level entries under
+  `extensions/` as layout errors, including stale extension directory names such as `extension-01`
+  and extension artifact files placed directly under `extensions/`; clearly unrelated clutter MAY be
+  ignored
+- when a caller explicitly selects the root backup head, recursive backup-export scans MUST NOT
+  require canonical published extension carrier files to be readable; implementations MAY ignore
+  published extension carrier contents after enforcing the `extensions/` top-level layout rules
+- MAIN frames MUST be grouped by frame `doc_id`; each group MUST independently reassemble to one
+  ciphertext
+- the authoritative `doc_id` and `doc_hash` MUST be derived from recovered ciphertext
+- AUTH frames MUST be matched by frame `doc_id` and verified against the derived ciphertext
+  `doc_hash`
+- decrypted Version 1 envelopes are root-backup candidates
+- decrypted Version 2 envelopes are extension candidates
+- a recovery session MUST select exactly one root backup, or fail with an ambiguity error
+- extension candidates MUST be authenticated by the root-derived signing authority before replay
+- extension ordering MUST come from decrypted extension-header `index` and ancestry fields, not from
+  filesystem position
+- duplicate authenticated extensions for the same `index` with different `doc_hash` values MUST be
+  rejected as ambiguous
+- content import authenticates only the recovery carriers supplied to the recovery session; without
+  a separate signed freshness source, implementations MUST NOT claim to prove that no later
+  extension exists
+
+Recovery MAY succeed from any complete, authenticated machine-readable MAIN carrier for a document.
+Multiple carrier copies are redundancy, not identity. Implementations MAY provide separate audit
+tooling for checking whether an exported digital folder contains all expected redundant artifacts,
+but such audit rules are outside the recovery format.
+
+Recovery-valid and append-valid are distinct states. A recovery implementation MAY restore content
+from a complete authenticated machine-readable carrier set even when a published export tree is
+missing redundant human-readable artifacts. An implementation that appends from printed/scanned
+backup documents MUST treat the complete authenticated chain carried by those documents as the
+append source and MUST NOT require the original generated export tree. Unless such an implementation
+rehydrates the full canonical export prefix, it MUST publish the new extension documents as a loose
+artifact bundle outside the canonical `extensions/` namespace. It MUST NOT create a canonical-looking
+`extensions/<index>` directory when the earlier canonical prefix is not present. The writable output
+root for a loose scan-mode append MUST be missing or empty before publishing.
+
+An implementation that appends from an existing published export tree MUST require the existing
+published chain head to satisfy the canonical export layout before publishing the next extension.
+For this release profile, a published extension directory is append-valid only when the required
+`qr_document-*` and `recovery_document-*` MAIN artifacts are present and pass publish/discovery
+validation. If shard artifacts are present in the published extension directory, each shard document
+type MUST form a complete set with one declared `share_count` and share indexes `1..share_count`;
+passphrase shards and signing-key shards are validated as independent sets.
+
+Canonical published extension directory names MUST be the decimal extension index with two digits
+for indexes `1..99` (`01`, `02`, ..., `99`) and unpadded decimal for indexes `>= 100`.
+Canonical MAIN artifact filenames MUST use:
+
+```text
+qr_document-<index>-<doc_id>.pdf
+recovery_document-<index>-<doc_id>.pdf
+recovery_kit_index-<index>-<doc_id>.pdf
+```
+
+where `<index>` is the canonical directory index string and `<doc_id>` is the lowercase 16-hex
+document id. Canonical extension shard artifact filenames, when present, MUST use:
+
+```text
+shard-<index>-<doc_id>-<share_index>-of-<share_count>.pdf
+signing-key-shard-<index>-<doc_id>-<share_index>-of-<share_count>.pdf
+```
+
+`share_index` and `share_count` are unpadded positive decimal integers.
+
+For this release profile, `qr_document-*` artifacts are the only machine-readable
+payload-bearing MAIN carriers in a canonical published extension directory. This filename role is an
+export-layout rule, not a recovery-input naming requirement: scan/import MAY accept any user-supplied
+PDF or image filename when the file content contains complete, authenticated machine-readable QR
+payloads. Extension `recovery_document-*` artifacts are human-readable fallback documents for manual
+transcription when QR scanning is unavailable or damaged. Manually typed or transcribed fallback text
+MAY be accepted through explicit text inputs, but implementations MUST NOT extract or parse fallback
+text from PDF or image files as a content-import or chain-replay carrier. Publish implementations
+MUST validate every machine-readable payload-bearing carrier before promotion. Append/discovery
+validation for a published chain head MUST also load the required `recovery_document-*` PDF and
+verify that it is a usable PDF artifact. This recovery-document check establishes the presence of
+the human fallback artifact only; implementations MUST NOT parse or bind visible fallback text from
+PDF or image files for append/discovery identity, content import, or chain replay.
+
+The authoritative extension identity comes from recovered ciphertext, AUTH, and decrypted
+extension-header metadata.
+
+## 21) Selected Recovery, Minting, and Compaction
+
+Selected recovery rules:
+- default recovery from content import MUST fail closed when the latest supplied authenticated
+  extension head cannot be reconstructed, authenticated, or replayed
+- when all imported extensions for the selected root are valid, default recovery MUST replay through
+  the latest supplied authenticated extension
+- recovery MAY select an earlier target by extension `index`
+- when recovery selects a numeric extension `index`, recursive backup-export scans MAY ignore
+  published extension carriers after that index while still enforcing selected-prefix layout rules
+- recovery MAY select an earlier target by authenticated extension `doc_hash`
+- selecting index `0` means root-only recovery without replaying any extension
+
+Shard minting rules:
+- minting shard documents for an imported extension head MUST authenticate ancestry and fully replay
+  the selected root-plus-extension chain before using that head's `doc_id`, `doc_hash`, or AUTH as
+  the shard binding target
+- minting MUST fail closed when the selected extension head cannot be reconstructed,
+  authenticated, or replayed
+
+Compaction rules:
+- compaction MUST fully reconstruct the latest supplied validated logical state of a
+  root-plus-extension chain
+- compaction MUST write that logical state as a fresh standalone Version 1 backup in a separate
+  output directory
+- compaction MUST preserve the chain passphrase exactly; passphrase rotation is not part of this
+  format
+- when compaction unlocks the source with passphrase shard carriers validated against the trusted
+  root signing authority, the compacted checkpoint MUST emit fresh passphrase shard documents with
+  the same threshold and share count; implementations MUST NOT downgrade to a plaintext-passphrase
+  checkpoint because source shard documents are stored outside the scanned backup documents
+- compaction shard policy inheritance MUST be content-first and authenticated: filename prefixes are
+  not policy signals, and unsigned or self-authority shard metadata MUST NOT select the compacted
+  checkpoint shard policy
+- compaction MUST preserve the root sealed/unsealed state
+- if the root is unsealed, compaction MUST preserve the root signing seed exactly
+- if the root is sealed, compaction MUST NOT emit signing-key shard documents
+- compaction MUST NOT mutate or delete the original recovery carriers in place

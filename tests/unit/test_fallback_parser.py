@@ -53,6 +53,15 @@ class TestFilterFallbackLines(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "outside the z-base-32 alphabet"):
             filter_fallback_lines(lines)
 
+    def test_rendered_line_number_prefix_is_ignored(self) -> None:
+        lines = ["01. ybnr fghj kmnp qrst", "12.ybnr fghj kmnp qrst"]
+        filtered = filter_fallback_lines(lines)
+        self.assertEqual(filtered, ["ybnr fghj kmnp qrst", "ybnr fghj kmnp qrst"])
+
+    def test_undotted_numeric_prefix_is_not_treated_as_line_number(self) -> None:
+        with self.assertRaisesRegex(ValueError, "outside the z-base-32 alphabet"):
+            filter_fallback_lines(["01 ybnr fghj"])
+
     def test_empty_lines_ignored(self) -> None:
         lines = ["ybnr fghj kmnp qrst", "", "   ", "ybnr fghj kmnp qrst"]
         filtered = filter_fallback_lines(lines)

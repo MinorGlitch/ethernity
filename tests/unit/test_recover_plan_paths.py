@@ -21,6 +21,7 @@ from unittest import mock
 
 from ethernity.cli.features.recover import planning as recover_plan
 from ethernity.cli.shared.types import RecoverArgs
+from ethernity.encoding.framing import Frame, FrameType
 
 
 def _home_env(home: Path) -> dict[str, str]:
@@ -44,7 +45,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
                     "_frames_from_fallback",
                     return_value=["frame"],
                 ) as fallback_mock:
-                    frames, label, detail = recover_plan._frames_from_args(
+                    frames, label, detail, root_dir = recover_plan._frames_from_args(
                         args,
                         allow_unsigned=False,
                         quiet=True,
@@ -52,6 +53,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
         self.assertEqual(frames, ["frame"])
         self.assertEqual(label, "Recovery text")
         self.assertEqual(detail, str(home / "recovery.txt"))
+        self.assertIsNone(root_dir)
         fallback_mock.assert_called_once_with(
             str(home / "recovery.txt"),
             allow_invalid_auth=False,
@@ -66,18 +68,81 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
             with mock.patch.dict("os.environ", _home_env(home), clear=False):
                 with mock.patch.object(
                     recover_plan,
-                    "_recovery_frames_from_scan",
+                    "recovery_frames_from_scan",
                     return_value=["main", "auth"],
                 ) as scan_mock:
-                    frames, label, detail = recover_plan._frames_from_args(
+                    frames, label, detail, root_dir = recover_plan._frames_from_args(
                         args,
                         allow_unsigned=False,
                         quiet=True,
                     )
         self.assertEqual(frames, ["main", "auth"])
-        self.assertEqual(label, "Scan")
+        self.assertEqual(label, "Backup PDF or images")
         self.assertEqual(detail, str(home / "backup-dir"))
+        self.assertIsNone(root_dir)
         scan_mock.assert_called_once_with([str(home / "backup-dir")], quiet=True)
+
+    def test_frames_from_args_root_only_scan_excludes_extension_carriers(self) -> None:
+        args = RecoverArgs(scan=["~/backup-dir"], extension_index=0)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir) / "home"
+            home.mkdir()
+            with mock.patch.dict("os.environ", _home_env(home), clear=False):
+                with mock.patch.object(
+                    recover_plan,
+                    "recovery_frames_from_scan",
+                    return_value=["root-main", "root-auth"],
+                ) as scan_mock:
+                    frames, label, detail, root_dir = recover_plan._frames_from_args(
+                        args,
+                        allow_unsigned=False,
+                        quiet=True,
+                    )
+
+        self.assertEqual(frames, ["root-main", "root-auth"])
+        self.assertEqual(label, "Backup PDF or images")
+        self.assertEqual(detail, str(home / "backup-dir"))
+        self.assertIsNone(root_dir)
+        scan_mock.assert_called_once_with(
+            [str(home / "backup-dir")],
+            quiet=True,
+            include_extension_carriers=False,
+        )
+
+    def test_frames_from_args_can_mix_scan_with_fallback_text(self) -> None:
+        args = RecoverArgs(fallback_file="~/extension.txt", scan=["~/root.pdf"])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home = Path(tmpdir) / "home"
+            home.mkdir()
+            with mock.patch.dict("os.environ", _home_env(home), clear=False):
+                with mock.patch.object(
+                    recover_plan,
+                    "_frames_from_fallback",
+                    return_value=["extension-main", "extension-auth"],
+                ) as fallback_mock:
+                    with mock.patch.object(
+                        recover_plan,
+                        "recovery_frames_from_scan",
+                        return_value=["root-main", "root-auth"],
+                    ) as scan_mock:
+                        frames, label, detail, root_dir = recover_plan._frames_from_args(
+                            args,
+                            allow_unsigned=False,
+                            quiet=True,
+                        )
+        self.assertEqual(frames, ["extension-main", "extension-auth", "root-main", "root-auth"])
+        self.assertEqual(label, "Recovery inputs")
+        self.assertEqual(
+            detail,
+            f"Recovery text: {home / 'extension.txt'}; Backup PDF or images: {home / 'root.pdf'}",
+        )
+        self.assertIsNone(root_dir)
+        fallback_mock.assert_called_once_with(
+            str(home / "extension.txt"),
+            allow_invalid_auth=False,
+            quiet=True,
+        )
+        scan_mock.assert_called_once_with([str(home / "root.pdf")], quiet=True)
 
     def test_shard_and_auth_path_helpers_expand_user_paths(self) -> None:
         args = RecoverArgs(
@@ -112,7 +177,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
                     ) as shard_payload_mock:
                         with mock.patch.object(
                             recover_plan,
-                            "_shard_frames_from_scan",
+                            "shard_frames_from_scan",
                             return_value=["scan-shard"],
                         ) as shard_scan_mock:
                             shard_frames, shard_fallback, shard_payloads, shard_scan = (
@@ -129,12 +194,52 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
         self.assertEqual(shard_fallback, [str(home / "s1.txt")])
         self.assertEqual(shard_payloads, [str(home / "s2.txt")])
         self.assertEqual(shard_scan, [str(home / "s3.pdf")])
-        shard_fallback_mock.assert_called_once_with(str(home / "s1.txt"), quiet=True)
+        shard_fallback_mock.assert_called_once_with(str(home / "s1.txt"))
         shard_payload_mock.assert_called_once_with(
             str(home / "s2.txt"),
-            label="shard QR payloads",
+            label="shard text lines",
         )
         shard_scan_mock.assert_called_once_with([str(home / "s3.pdf")], quiet=True)
+
+    def test_shard_and_auth_helpers_preserve_preloaded_frames(self) -> None:
+        auth_frame = Frame(
+            version=1,
+            frame_type=FrameType.AUTH,
+            doc_id=b"\x11" * 16,
+            index=0,
+            total=1,
+            data=b"auth",
+        )
+        shard_frame = Frame(
+            version=1,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=b"\x22" * 16,
+            index=0,
+            total=1,
+            data=b"shard",
+        )
+        args = RecoverArgs(
+            auth_frames=[auth_frame],
+            shard_frames=[shard_frame],
+        )
+
+        auth_frames = recover_plan._extra_auth_frames_from_args(
+            args,
+            allow_unsigned=False,
+            quiet=True,
+        )
+        shard_frames, shard_fallback, shard_payloads, shard_scan = (
+            recover_plan._shard_frames_from_args(
+                args,
+                quiet=True,
+            )
+        )
+
+        self.assertEqual(auth_frames, [auth_frame])
+        self.assertEqual(shard_frames, [shard_frame])
+        self.assertEqual(shard_fallback, [])
+        self.assertEqual(shard_payloads, [])
+        self.assertEqual(shard_scan, [])
 
     def test_plan_from_args_expands_output_path(self) -> None:
         args = RecoverArgs(output="~/recovered")
@@ -148,7 +253,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
                         with mock.patch.object(
                             recover_plan,
                             "_frames_from_args",
-                            return_value=(["main"], "QR payloads", "input"),
+                            return_value=(["main"], "QR payloads", "input", None),
                         ):
                             with mock.patch.object(
                                 recover_plan,

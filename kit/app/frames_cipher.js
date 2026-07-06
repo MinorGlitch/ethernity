@@ -17,15 +17,27 @@
 
 import { blake2b256 } from "../lib/blake2b.js";
 import { bytesToHex, hexToBytes } from "../lib/encoding.js";
-import { MAX_CIPHERTEXT_BYTES } from "./constants.js";
+import {
+  DOC_ID_LEN,
+  MAX_CIPHERTEXT_BYTES,
+  MAX_RECOVERY_CIPHERTEXT_BYTES,
+  MAX_RECOVERY_DOCUMENTS,
+} from "./constants.js";
+import {
+  authOnlyDocumentRecords,
+  completeDocumentRecords,
+  incompleteDocumentRecords,
+  primaryDocumentRecord,
+  syncLegacyDocumentFields,
+} from "./document_store.js";
 
-export function reassembleCiphertext(state) {
-  if (state.total === null || state.mainFrames.size !== state.total) {
+export function reassembleCiphertext(source) {
+  if (source.total === null || source.mainFrames.size !== source.total) {
     throw new Error("missing frames");
   }
   const chunks = [];
-  for (let i = 0; i < state.total; i += 1) {
-    const frame = state.mainFrames.get(i);
+  for (let i = 0; i < source.total; i += 1) {
+    const frame = source.mainFrames.get(i);
     if (!frame) throw new Error(`missing frame ${i}`);
     chunks.push(frame.data);
   }
@@ -45,26 +57,119 @@ export function reassembleCiphertext(state) {
 }
 
 export function ensureCiphertextAndHash(state) {
-  if (!state.total || state.mainFrames.size !== state.total) {
+  const primary = primaryDocumentRecord(state);
+  if (!primary) {
+    return ensureDocumentCiphertextAndHash(state);
+  }
+  const docHash = ensureDocumentCiphertextAndHash(primary);
+  syncLegacyDocumentFields(state);
+  return docHash;
+}
+
+export function ensureDocumentCiphertextAndHash(record) {
+  if (!record.total || record.mainFrames.size !== record.total) {
     return null;
   }
-  if (!state.ciphertext) {
-    state.ciphertext = reassembleCiphertext(state);
+  if (!record.ciphertext) {
+    record.ciphertext = reassembleCiphertext(record);
   }
-  if (!state.cipherDocHashHex) {
-    const hash = blake2b256(state.ciphertext);
-    state.cipherDocHashHex = bytesToHex(hash);
+  if (!record.cipherDocHashHex) {
+    const hash = blake2b256(record.ciphertext);
+    enforceDerivedDocId(record, hash);
+    record.cipherDocHashHex = bytesToHex(hash);
     return hash;
   }
-  return hexToBytes(state.cipherDocHashHex);
+  const hash = hexToBytes(record.cipherDocHashHex);
+  enforceDerivedDocId(record, hash);
+  return hash;
 }
 
 export function syncCollectedCiphertext(state) {
-  if (state.total && state.mainFrames.size === state.total) {
+  if (!state.documents.size) {
     try {
-      state.ciphertext = reassembleCiphertext(state);
+      ensureDocumentCiphertextAndHash(state);
     } catch {
       // leave ciphertext unset if reassembly fails
     }
+    return;
+  }
+  for (const record of state.documents.values()) {
+    try {
+      ensureDocumentCiphertextAndHash(record);
+    } catch {
+      // leave ciphertext unset if reassembly fails
+    }
+  }
+  syncLegacyDocumentFields(state);
+}
+
+export function collectedRecoveryDocuments(
+  state,
+  { allowIncomplete = false, allowAuthOnly = false } = {},
+) {
+  const incomplete = incompleteDocumentRecords(state);
+  if (incomplete.length && !allowIncomplete) {
+    const docIds = incomplete.map((record) => record.docIdHex).join(", ");
+    throw new Error(`incomplete backup document(s): ${docIds}`);
+  }
+  const authOnly = authOnlyDocumentRecords(state);
+  if (authOnly.length && !allowAuthOnly) {
+    const docIds = authOnly.map((record) => record.docIdHex).join(", ");
+    throw new Error(`AUTH frame(s) without MAIN document: ${docIds}`);
+  }
+  const documents = [];
+  for (const record of completeDocumentRecords(state)) {
+    const docHash = ensureDocumentCiphertextAndHash(record);
+    const docId = docHash.slice(0, DOC_ID_LEN);
+    documents.push({
+      docId,
+      docIdHex: bytesToHex(docId),
+      docHash,
+      docHashHex: bytesToHex(docHash),
+      ciphertext: record.ciphertext,
+      authPayload: record.authPayload,
+    });
+  }
+  enforceRecoveryDocumentBudget(documents);
+  syncLegacyDocumentFields(state);
+  return documents;
+}
+
+export function enforceRecoveryDocumentBudget(
+  documents,
+  { byteField = "ciphertext", byteLabel = "ciphertext" } = {},
+) {
+  if (documents.length > MAX_RECOVERY_DOCUMENTS) {
+    throw new Error(
+      `collected backup documents exceed MAX_RECOVERY_DOCUMENTS (${MAX_RECOVERY_DOCUMENTS}): ${documents.length}`,
+    );
+  }
+  let totalBytes = 0;
+  for (const document of documents) {
+    const bytes = document[byteField];
+    if (!(bytes instanceof Uint8Array)) {
+      continue;
+    }
+    if (bytes.length > MAX_CIPHERTEXT_BYTES) {
+      throw new Error(
+        `collected ${byteLabel} exceeds MAX_CIPHERTEXT_BYTES (${MAX_CIPHERTEXT_BYTES}): ${bytes.length} bytes`,
+      );
+    }
+    totalBytes += bytes.length;
+  }
+  if (totalBytes > MAX_RECOVERY_CIPHERTEXT_BYTES) {
+    throw new Error(
+      `collected ${byteLabel} exceeds MAX_RECOVERY_CIPHERTEXT_BYTES (${MAX_RECOVERY_CIPHERTEXT_BYTES}): ${totalBytes} bytes`,
+    );
+  }
+}
+
+function enforceDerivedDocId(record, docHash) {
+  if (!record.docIdHex) {
+    return;
+  }
+  const derivedDocId = docHash.slice(0, DOC_ID_LEN);
+  if (bytesToHex(derivedDocId) !== record.docIdHex) {
+    throw new Error("document doc_id does not match derived ciphertext hash");
   }
 }

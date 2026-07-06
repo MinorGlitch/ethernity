@@ -16,16 +16,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, TypeVar, cast
+from typing import Callable, Literal, TypeVar, cast
 
 import questionary
-from rich.padding import Padding
 
 from ethernity.cli.shared.paths import expanduser_cli_path
 from ethernity.cli.shared.ui.prompts_core import (
-    QUESTIONARY_STYLE,
-    _ask_question,
     _resolve_context,
     prompt_choice,
     prompt_choice_list,
@@ -33,39 +31,328 @@ from ethernity.cli.shared.ui.prompts_core import (
     prompt_optional,
     prompt_required,
 )
-from ethernity.cli.shared.ui.state import UIContext, format_hint
+from ethernity.cli.shared.ui.state import UIContext
+
+_DEFAULT_PICKER_ID = "default"
+_PickerAction = Literal[
+    "select",
+    "toggle",
+    "open",
+    "parent",
+    "filter",
+    "clear_filter",
+    "hidden",
+    "done",
+]
 
 
-def _list_picker_entries(
-    directory: str,
-    *,
-    allow_files: bool,
-    allow_dirs: bool,
-    include_hidden: bool,
-) -> list[tuple[str, str]]:
+@dataclass(frozen=True)
+class _PickerEntry:
+    path: Path
+    label: str
+    is_dir: bool
+    selectable: bool
+
+
+@dataclass
+class _PickerState:
+    current_dir: Path
+    allow_files: bool
+    allow_dirs: bool
+    include_hidden: bool
+    filter_text: str | None = None
+    selected: set[str] | None = None
+
+
+def _picker_dirs(context: UIContext) -> dict[str, str]:
+    if context.picker_dirs is None:
+        context.picker_dirs = {}
+    return context.picker_dirs
+
+
+def _picker_dir(context: UIContext, picker_id: str | None) -> str:
+    key = picker_id or _DEFAULT_PICKER_ID
+    return _picker_dirs(context).get(key) or context.last_picker_dir or "."
+
+
+def _remember_picker_dir(context: UIContext, picker_id: str | None, directory: str) -> None:
+    key = picker_id or _DEFAULT_PICKER_ID
+    context.last_picker_dir = directory
+    _picker_dirs(context)[key] = directory
+
+
+def _expanded_path(value: str) -> Path:
+    return Path(expanduser_cli_path(value, preserve_stdin=False) or "")
+
+
+def _resolve_picker_directory(directory: str) -> Path:
     error = validate_path(directory, kind="dir")
     if error:
         raise ValueError(error)
-    root = Path(expanduser_cli_path(directory, preserve_stdin=False) or "")
-    entries: list[tuple[str, str]] = []
-    for entry in sorted(root.iterdir(), key=lambda item: item.name.lower()):
+    return _expanded_path(directory)
+
+
+def _entry_sort_key(path: Path) -> tuple[int, str]:
+    return (0 if path.is_dir() else 1, path.name.lower())
+
+
+def _iter_picker_entries(state: _PickerState) -> list[_PickerEntry]:
+    root = _resolve_picker_directory(str(state.current_dir))
+    filter_text = (state.filter_text or "").strip().lower()
+    entries: list[_PickerEntry] = []
+    for entry in sorted(root.iterdir(), key=_entry_sort_key):
         name = entry.name
-        if not include_hidden and name.startswith("."):
+        if not state.include_hidden and name.startswith("."):
+            continue
+        if filter_text and filter_text not in name.lower():
             continue
         is_dir = entry.is_dir()
         if is_dir:
-            if not allow_dirs:
-                continue
-        else:
-            if not allow_files or not entry.is_file():
-                continue
-        label = f"{name}/" if is_dir else name
-        entries.append((str(entry), label))
-    if not entries:
-        raise ValueError(
-            f"No selectable entries in {root}. Choose another directory or switch to manual entry."
+            entries.append(
+                _PickerEntry(
+                    path=entry,
+                    label=f"{name}/",
+                    is_dir=True,
+                    selectable=state.allow_dirs,
+                )
+            )
+            continue
+        if not state.allow_files or not entry.is_file():
+            continue
+        entries.append(
+            _PickerEntry(
+                path=entry,
+                label=name,
+                is_dir=False,
+                selectable=True,
+            )
         )
     return entries
+
+
+def _choice_value(action: _PickerAction, path: str = "") -> tuple[_PickerAction, str]:
+    return action, path
+
+
+def _selection_marker(path: Path, selected: set[str] | None) -> str:
+    if selected is None:
+        return "  "
+    return "[x]" if str(path) in selected else "[ ]"
+
+
+def _toggle_selection(selected: set[str], path: str) -> None:
+    if path in selected:
+        selected.remove(path)
+    else:
+        selected.add(path)
+
+
+def _picker_title(prompt: str, state: _PickerState) -> str:
+    title = f"{prompt} - {state.current_dir}"
+    if state.filter_text:
+        title = f"{title} (filter: {state.filter_text})"
+    return title
+
+
+def _prompt_filter(state: _PickerState, *, context: UIContext) -> None:
+    value = prompt_optional(
+        "Filter entries",
+        help_text="Type part of a filename or folder name. Leave blank to clear the filter.",
+        context=context,
+    )
+    state.filter_text = value
+
+
+def _apply_browser_action(
+    action: tuple[_PickerAction, str],
+    state: _PickerState,
+    *,
+    context: UIContext,
+) -> str | list[str] | None:
+    selected = state.selected
+    action_name, value = action
+    if action_name == "parent":
+        state.current_dir = state.current_dir.parent
+        return None
+    if action_name == "open":
+        state.current_dir = Path(value)
+        return None
+    if action_name == "filter":
+        _prompt_filter(state, context=context)
+        return None
+    if action_name == "clear_filter":
+        state.filter_text = None
+        return None
+    if action_name == "hidden":
+        state.include_hidden = not state.include_hidden
+        return None
+    if action_name == "toggle":
+        if selected is None:
+            raise ValueError("internal picker error: missing selection basket")
+        _toggle_selection(selected, value)
+        return None
+    if action_name == "done":
+        if selected is None:
+            raise ValueError("internal picker error: missing selection basket")
+        if not selected:
+            context.console_err.print("[error]Select at least one item.[/error]")
+            return None
+        return sorted(selected)
+    if action_name == "select":
+        return value
+    raise ValueError(f"unknown picker action: {action_name}")
+
+
+def _single_picker_choices(
+    state: _PickerState,
+) -> list[tuple[str, str] | questionary.Separator | questionary.Choice]:
+    choices: list[tuple[str, str] | questionary.Separator | questionary.Choice] = []
+    if state.allow_dirs:
+        choices.append(
+            questionary.Choice(
+                "Choose this folder",
+                value=_choice_value("select", str(state.current_dir)),
+                description=str(state.current_dir),
+            )
+        )
+    choices.extend(_navigation_choices(state))
+    entries = _iter_picker_entries(state)
+    if entries:
+        choices.append(questionary.Separator(" "))
+        choices.append(questionary.Separator("Entries"))
+    for entry in entries:
+        if entry.is_dir:
+            choices.append(
+                questionary.Choice(
+                    entry.label,
+                    value=_choice_value("open", str(entry.path)),
+                    description="Open folder",
+                )
+            )
+            continue
+        choices.append(
+            questionary.Choice(
+                entry.label,
+                value=_choice_value("select", str(entry.path)),
+                description=str(entry.path),
+            )
+        )
+    if not entries:
+        choices.append(questionary.Separator("No matching entries"))
+    return choices
+
+
+def _multi_picker_choices(
+    state: _PickerState,
+) -> list[tuple[str, str] | questionary.Separator | questionary.Choice]:
+    selected = state.selected or set()
+    choices: list[tuple[str, str] | questionary.Separator | questionary.Choice] = []
+    if selected:
+        choices.append(
+            questionary.Choice(
+                f"Done ({len(selected)} selected)",
+                value=_choice_value("done"),
+            )
+        )
+        choices.append(questionary.Separator(" "))
+    if state.allow_dirs:
+        marker = _selection_marker(state.current_dir, selected)
+        choices.append(
+            questionary.Choice(
+                f"{marker} Add/remove this folder",
+                value=_choice_value("toggle", str(state.current_dir)),
+                description=str(state.current_dir),
+            )
+        )
+    choices.extend(_navigation_choices(state))
+    entries = _iter_picker_entries(state)
+    if entries:
+        choices.append(questionary.Separator(" "))
+        choices.append(questionary.Separator("Entries"))
+    for entry in entries:
+        marker = _selection_marker(entry.path, selected)
+        if entry.is_dir:
+            choices.append(
+                questionary.Choice(
+                    f"Open {entry.label}",
+                    value=_choice_value("open", str(entry.path)),
+                    description="Open folder",
+                )
+            )
+            if entry.selectable:
+                choices.append(
+                    questionary.Choice(
+                        f"{marker} {entry.label}",
+                        value=_choice_value("toggle", str(entry.path)),
+                        description="Add or remove folder",
+                    )
+                )
+            continue
+        choices.append(
+            questionary.Choice(
+                f"{marker} {entry.label}",
+                value=_choice_value("toggle", str(entry.path)),
+                description=str(entry.path),
+            )
+        )
+    if not entries:
+        choices.append(questionary.Separator("No matching entries"))
+    return choices
+
+
+def _navigation_choices(
+    state: _PickerState,
+) -> list[tuple[str, str] | questionary.Separator | questionary.Choice]:
+    hidden_label = "Hide hidden files" if state.include_hidden else "Show hidden files"
+    filter_label = "Change filter" if state.filter_text else "Search/filter entries"
+    choices: list[tuple[str, str] | questionary.Separator | questionary.Choice] = [
+        questionary.Choice(
+            "Open parent folder",
+            value=_choice_value("parent"),
+            description=str(state.current_dir.parent),
+        ),
+        questionary.Choice(filter_label, value=_choice_value("filter")),
+        questionary.Choice(hidden_label, value=_choice_value("hidden")),
+    ]
+    if state.filter_text:
+        choices.append(questionary.Choice("Clear filter", value=_choice_value("clear_filter")))
+    return choices
+
+
+def _browse_paths(
+    prompt: str,
+    *,
+    directory: str,
+    allow_files: bool,
+    allow_dirs: bool,
+    include_hidden: bool,
+    help_text: str | None,
+    multi: bool,
+    context: UIContext,
+) -> str | list[str]:
+    state = _PickerState(
+        current_dir=_resolve_picker_directory(directory),
+        allow_files=allow_files,
+        allow_dirs=allow_dirs,
+        include_hidden=include_hidden,
+        selected=set() if multi else None,
+    )
+    while True:
+        choices = _multi_picker_choices(state) if multi else _single_picker_choices(state)
+        value = prompt_choice_list(
+            choices,
+            default=None,
+            title=_picker_title(prompt, state),
+            help_text=help_text,
+            context=context,
+        )
+        result = _apply_browser_action(
+            cast(tuple[_PickerAction, str], value),
+            state,
+            context=context,
+        )
+        if result is not None:
+            return result
 
 
 T = TypeVar("T")
@@ -98,10 +385,10 @@ def _run_picker_flow(
     default_mode: str = "select",
     directory_prompt: str,
     directory_help_text: str,
-    picker_help_text: str,
     context: UIContext,
     select_func: Callable[[str], T],
     manual_func: Callable[[], T],
+    picker_id: str | None = None,
 ) -> T:
     while True:
         input_mode = prompt_choice(
@@ -115,24 +402,24 @@ def _run_picker_flow(
             context=context,
         )
         if input_mode == "select":
-            if picker_help_text:
-                context.console.print(Padding(format_hint(picker_help_text), (0, 0, 0, 1)))
             directory = prompt_optional_path(
                 directory_prompt,
                 kind="dir",
                 help_text=directory_help_text,
                 context=context,
             )
-            directory = directory or context.last_picker_dir or "."
+            directory = directory or _picker_dir(context, picker_id)
             try:
                 selected = select_func(directory)
                 _remember_picker_directory(context, selected)
+                _remember_picker_dir(context, picker_id, context.last_picker_dir)
                 return selected
             except ValueError as exc:
                 context.console_err.print(f"[error]{exc}[/error]")
                 continue
         manual_value = manual_func()
         _remember_picker_directory(context, manual_value)
+        _remember_picker_dir(context, picker_id, context.last_picker_dir)
         return manual_value
 
 
@@ -147,37 +434,16 @@ def _prompt_select_entries(
     multi: bool,
     context: UIContext,
 ) -> str | list[str]:
-    entries = _list_picker_entries(
-        directory,
+    return _browse_paths(
+        prompt,
+        directory=directory,
         allow_files=allow_files,
         allow_dirs=allow_dirs,
         include_hidden=include_hidden,
+        help_text=help_text,
+        multi=multi,
+        context=context,
     )
-    if not multi:
-        return prompt_choice_list(
-            entries,
-            default=None,
-            title=prompt,
-            help_text=help_text,
-            context=context,
-        )
-    choices = [questionary.Choice(title=label, value=value) for value, label in entries]
-    while True:
-        if help_text:
-            context.console.print(Padding(format_hint(help_text), (0, 0, 0, 1)))
-        values = _ask_question(
-            questionary.checkbox(
-                prompt,
-                choices=choices,
-                qmark="",
-                style=QUESTIONARY_STYLE,
-            )
-        )
-        if values is None:
-            raise KeyboardInterrupt
-        if values:
-            return list(values)
-        context.console_err.print("[error]Select at least one item.[/error]")
 
 
 def prompt_select_paths(
@@ -241,13 +507,14 @@ def prompt_path_with_picker(
     picker_prompt: str | None = None,
     picker_help_text: str | None = None,
     include_hidden: bool = False,
+    picker_id: str | None = None,
     context: UIContext | None = None,
 ) -> str:
     context = _resolve_context(context)
     if directory_help_text is None:
         directory_help_text = "Pick the folder to list for selection."
     if picker_help_text is None:
-        picker_help_text = "Use arrow keys to choose an entry."
+        picker_help_text = "Use arrow keys, j/k, or Ctrl-N/Ctrl-P to choose an entry."
     if picker_prompt is None:
         picker_prompt = "Select a path"
 
@@ -279,10 +546,10 @@ def prompt_path_with_picker(
         default_mode="select",
         directory_prompt=directory_prompt,
         directory_help_text=directory_help_text,
-        picker_help_text=picker_help_text,
         context=context,
         select_func=_select,
         manual_func=_manual,
+        picker_id=picker_id or prompt,
     )
 
 
@@ -299,13 +566,14 @@ def prompt_optional_path_with_picker(
     picker_prompt: str | None = None,
     picker_help_text: str | None = None,
     include_hidden: bool = False,
+    picker_id: str | None = None,
     context: UIContext | None = None,
 ) -> str | None:
     context = _resolve_context(context)
     if directory_help_text is None:
         directory_help_text = "Pick the folder to list for selection."
     if picker_help_text is None:
-        picker_help_text = "Use arrow keys to choose an entry."
+        picker_help_text = "Use arrow keys, j/k, or Ctrl-N/Ctrl-P to choose an entry."
     if picker_prompt is None:
         picker_prompt = "Select a path"
 
@@ -337,10 +605,10 @@ def prompt_optional_path_with_picker(
         default_mode="manual" if allow_new else "select",
         directory_prompt=directory_prompt,
         directory_help_text=directory_help_text,
-        picker_help_text=picker_help_text,
         context=context,
         select_func=_select,
         manual_func=_manual,
+        picker_id=picker_id or prompt,
     )
 
 
@@ -492,6 +760,7 @@ def prompt_paths_with_picker(
     empty_message: str | None = None,
     stdin_message: str | None = None,
     include_hidden: bool = False,
+    picker_id: str | None = None,
     context: UIContext | None = None,
 ) -> list[str]:
     context = _resolve_context(context)
@@ -532,8 +801,8 @@ def prompt_paths_with_picker(
         default_mode="select",
         directory_prompt=directory_prompt,
         directory_help_text=directory_help_text,
-        picker_help_text=picker_help_text,
         context=context,
         select_func=_select,
         manual_func=_manual,
+        picker_id=picker_id or manual_prompt,
     )

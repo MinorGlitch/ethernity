@@ -74,11 +74,13 @@ class TemplateCapabilities:
     """Boolean and numeric feature toggles for template behavior."""
 
     inject_forge_copy: bool = False
+    recovery_first_page_single_section: bool = False
     repeat_primary_qr_on_shard_continuation: bool = False
     advanced_fallback_layout: bool = False
     extra_main_first_page_qr_slot: bool = False
     uniform_main_qr_capacity: bool = False
     repeat_main_instructions_on_all_pages: bool = False
+    recovery_kit_index_document: bool = False
     main_qr_grid_size_mm: float | None = None
     main_qr_grid_max_cols: int | None = None
     fallback_layout: FallbackLayoutProfile | None = None
@@ -205,11 +207,13 @@ def _parse_capabilities(value: object, *, path: Path) -> TemplateCapabilities:
         allowed_keys=frozenset(
             {
                 "inject_forge_copy",
+                "recovery_first_page_single_section",
                 "repeat_primary_qr_on_shard_continuation",
                 "advanced_fallback_layout",
                 "extra_main_first_page_qr_slot",
                 "uniform_main_qr_capacity",
                 "repeat_main_instructions_on_all_pages",
+                "recovery_kit_index_document",
                 "main_qr_grid_size_mm",
                 "main_qr_grid_max_cols",
                 "fallback_layout",
@@ -258,6 +262,12 @@ def _parse_capabilities(value: object, *, path: Path) -> TemplateCapabilities:
             default=False,
             path=path,
         ),
+        recovery_first_page_single_section=_optional_bool(
+            value,
+            "recovery_first_page_single_section",
+            default=False,
+            path=path,
+        ),
         repeat_primary_qr_on_shard_continuation=_optional_bool(
             value,
             "repeat_primary_qr_on_shard_continuation",
@@ -280,6 +290,12 @@ def _parse_capabilities(value: object, *, path: Path) -> TemplateCapabilities:
         repeat_main_instructions_on_all_pages=_optional_bool(
             value,
             "repeat_main_instructions_on_all_pages",
+            default=False,
+            path=path,
+        ),
+        recovery_kit_index_document=_optional_bool(
+            value,
+            "recovery_kit_index_document",
             default=False,
             path=path,
         ),

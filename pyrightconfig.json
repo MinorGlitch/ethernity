@@ -1,7 +1,7 @@
 {
   "pythonVersion": "3.11",
   "typeCheckingMode": "off",
-  "include": ["src", "tests"],
+  "include": ["src", "tests", "tooling"],
   "exclude": [
     "**/__pycache__",
     ".venv",
@@ -24,6 +24,14 @@
     {
       "root": "tests",
       "extraPaths": ["src"]
+    },
+    {
+      "root": "tooling/document_inspector_app",
+      "extraPaths": ["src", "tooling"]
+    },
+    {
+      "root": "tooling",
+      "extraPaths": ["src", "tooling"]
     }
   ],
   "reportMissingImports": "none",

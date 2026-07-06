@@ -30,6 +30,7 @@ export function FrameCollector({
   onReset,
   onDownloadCipher,
   canDownloadCipher,
+  downloadCipherDisabledReason,
   isComplete,
   isAdding,
 }) {
@@ -103,7 +104,7 @@ export function FrameCollector({
         className: "secondary",
         onClick: onDownloadCipher,
         disabled: !canDownloadCipher,
-        disabledReason: "Add all backup data first.",
+        disabledReason: downloadCipherDisabledReason ?? "Add all backup data first.",
       },
       { label: "Start over", className: "ghost", onClick: onReset },
     ],

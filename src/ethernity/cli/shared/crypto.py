@@ -22,18 +22,35 @@ from ethernity.encoding.framing import DOC_ID_LEN
 
 DOC_HASH_LEN = 32
 
+__all__ = [
+    "DOC_HASH_LEN",
+    "doc_hash_from_ciphertext",
+    "doc_id_and_hash_from_ciphertext",
+    "doc_id_from_doc_hash",
+    "normalize_doc_hash_hex",
+]
 
-def _doc_hash_from_ciphertext(ciphertext: bytes) -> bytes:
+
+def doc_hash_from_ciphertext(ciphertext: bytes) -> bytes:
     return hashlib.blake2b(ciphertext, digest_size=DOC_HASH_LEN).digest()
 
 
-def _doc_id_from_doc_hash(doc_hash: bytes) -> bytes:
+def doc_id_from_doc_hash(doc_hash: bytes) -> bytes:
     if len(doc_hash) != DOC_HASH_LEN:
         raise ValueError(f"doc_hash must be {DOC_HASH_LEN} bytes")
     return doc_hash[:DOC_ID_LEN]
 
 
-def _doc_id_and_hash_from_ciphertext(ciphertext: bytes) -> tuple[bytes, bytes]:
-    doc_hash = _doc_hash_from_ciphertext(ciphertext)
-    doc_id = _doc_id_from_doc_hash(doc_hash)
+def doc_id_and_hash_from_ciphertext(ciphertext: bytes) -> tuple[bytes, bytes]:
+    doc_hash = doc_hash_from_ciphertext(ciphertext)
+    doc_id = doc_id_from_doc_hash(doc_hash)
     return doc_id, doc_hash
+
+
+def normalize_doc_hash_hex(value: str, *, option: str = "doc hash") -> str:
+    normalized = value.strip().lower()
+    if len(normalized) != DOC_HASH_LEN * 2 or any(
+        char not in "0123456789abcdef" for char in normalized
+    ):
+        raise ValueError(f"{option} must be a 32-byte lowercase hex value")
+    return normalized

@@ -19,12 +19,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import questionary
 from rich.console import Console
 
 from ethernity.cli.shared.ui import (
     picker as picker_module,
     prompts as prompts_module,
     prompts_core as prompts_core_module,
+    workspace as workspace_module,
 )
 from ethernity.cli.shared.ui.state import THEME, UIContext
 
@@ -64,15 +66,83 @@ class TestPromptPrimitives(unittest.TestCase):
         question.unsafe_ask.assert_called_once_with()
         question.ask.assert_not_called()
 
-    def test_print_prompt_header_compact_suppresses_repeated_headers(self) -> None:
+    def test_print_prompt_header_screen_mode_keeps_help_text_lightweight(self) -> None:
         context = _context()
+        context.screen_mode = True
         context.compact_prompt_headers = True
+        context.current_stage_title = "Input"
+        context.current_stage_help_text = "Stage hint"
         context.stage_prompt_count = 0
         context.console.print = mock.MagicMock()
         prompts_module.print_prompt_header("First", "hint", context=context)
         prompts_module.print_prompt_header("Second", "hint", context=context)
         self.assertEqual(context.stage_prompt_count, 2)
-        self.assertEqual(context.console.print.call_count, 2)
+        self.assertEqual(context.console.print.call_count, 4)
+        first_prompt = context.console.print.call_args_list[0].args[0]
+        self.assertEqual(getattr(first_prompt, "plain", ""), "First\n")
+
+    @mock.patch("ethernity.cli.shared.ui.prompts_core.clear_screen")
+    def test_print_prompt_header_screen_mode_preserves_first_rendered_home_screen(
+        self,
+        clear_screen: mock.MagicMock,
+    ) -> None:
+        context = _context()
+        context.screen_mode = True
+        context.console.print = mock.MagicMock()
+        prompts_module.print_prompt_header("First", "hint", context=context)
+        clear_screen.assert_not_called()
+        prompts_module.print_prompt_header("Second", "hint", context=context)
+        clear_screen.assert_called_once_with(context=context)
+
+    @mock.patch("ethernity.cli.shared.ui.prompts_core.clear_screen")
+    def test_print_prompt_header_screen_mode_redraws_first_prompt_inside_stage(
+        self,
+        clear_screen: mock.MagicMock,
+    ) -> None:
+        context = _context()
+        context.screen_mode = True
+        context.current_stage_title = "Input"
+        context.console.print = mock.MagicMock()
+        prompts_module.print_prompt_header("First", "hint", context=context)
+        clear_screen.assert_not_called()
+
+    def test_print_prompt_header_screen_mode_uses_stage_title_when_no_help_text(self) -> None:
+        context = _context()
+        context.screen_mode = True
+        context.compact_prompt_headers = True
+        context.current_stage_title = "Input"
+        context.stage_prompt_count = 1
+        context.console.print = mock.MagicMock()
+        prompts_module.print_prompt_header("Second", None, context=context)
+        self.assertEqual(context.stage_prompt_count, 2)
+        printed = [
+            str(call.args[0]) if call.args else "" for call in context.console.print.call_args_list
+        ]
+        self.assertTrue(any("Input" in entry for entry in printed))
+
+    def test_print_prompt_header_screen_mode_renders_dense_substep_context(self) -> None:
+        context = _context()
+        context.screen_mode = True
+        context.compact_prompt_headers = True
+        context.current_stage_title = "Input"
+        context.current_stage_density = "dense"
+        context.current_substep_title = "Choose source"
+        context.current_substep_help_text = "Pick the backup artifact you already have."
+        context.console.print = mock.MagicMock()
+
+        prompts_module.print_prompt_header(
+            "How do you want to provide the backup",
+            None,
+            context=context,
+        )
+
+        printed = [
+            getattr(call.args[0], "plain", str(call.args[0]))
+            for call in context.console.print.call_args_list
+            if call.args
+        ]
+        self.assertTrue(any("Choose source" in entry for entry in printed))
+        self.assertEqual(context.console.print.call_count, 3)
 
     def test_print_prompt_header_non_compact_prints_each_time(self) -> None:
         context = _context()
@@ -183,6 +253,43 @@ class TestPromptPrimitives(unittest.TestCase):
         self.assertGreaterEqual(context.console_err.print.call_count, 4)
 
 
+class TestWorkspacePrompts(unittest.TestCase):
+    @mock.patch("ethernity.cli.shared.ui.workspace.prompt_choice_list", return_value="source")
+    def test_prompt_workspace_action_does_not_duplicate_first_blocker(
+        self,
+        prompt_choice_list: mock.MagicMock,
+    ) -> None:
+        sections = [
+            workspace_module.WorkspaceSection(
+                key="source",
+                title="Source",
+                status="missing",
+                summary="Choose a source.",
+                action_label="Choose source",
+            ),
+            workspace_module.WorkspaceSection(
+                key="unlock",
+                title="Unlock",
+                status="ready",
+                summary="Passphrase provided.",
+                action_label="Edit unlock",
+            ),
+        ]
+
+        result = workspace_module.prompt_workspace_action(
+            "Workspace",
+            sections,
+            proceed_label="Review",
+            context=_context(),
+        )
+
+        self.assertEqual(result, "source")
+        choices = prompt_choice_list.call_args.args[0]
+        values = [getattr(choice, "value", None) for choice in choices]
+        self.assertEqual(values.count("source"), 1)
+        self.assertIn("unlock", values)
+
+
 class TestChoiceAndPickerInternals(unittest.TestCase):
     def test_prompt_choice_list_rejects_empty_choices(self) -> None:
         with self.assertRaisesRegex(ValueError, "list of choices needs to be provided"):
@@ -220,8 +327,29 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
         select_mock.assert_called_once()
         self.assertEqual(select_mock.call_args.kwargs["initial_choice"], "b")
 
+    @mock.patch(
+        "ethernity.cli.shared.ui.prompts_core._select_with_initial_choice",
+        return_value=_Ask(["chosen"]),
+    )
+    def test_prompt_choice_list_hides_inline_question_text_in_screen_mode(
+        self,
+        select_mock: mock.MagicMock,
+    ) -> None:
+        context = _context()
+        context.screen_mode = True
+        prompts_module.prompt_choice_list(
+            [("a", "A")],
+            default="a",
+            title="Pick one",
+            context=context,
+        )
+        self.assertEqual(select_mock.call_args.args[0], "")
+
     def test_questionary_style_highlights_current_choice(self) -> None:
-        self.assertIn(("highlighted", "reverse"), prompts_core_module.QUESTIONARY_STYLE.style_rules)
+        self.assertIn(
+            ("highlighted", "fg:ansicyan bold"),
+            prompts_core_module.QUESTIONARY_STYLE.style_rules,
+        )
         self.assertNotIn(("selected", "reverse"), prompts_core_module.QUESTIONARY_STYLE.style_rules)
 
     @mock.patch(
@@ -235,52 +363,112 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
         prompts_module.prompt_choice_list([("a", "A")], default="missing", context=_context())
         self.assertEqual(select_mock.call_args.kwargs["initial_choice"], "missing")
 
-    def test_list_picker_entries_filters_and_errors(self) -> None:
+    @mock.patch(
+        "ethernity.cli.shared.ui.prompts_core._select_with_initial_choice",
+        side_effect=[_Ask(["chosen"]), _Ask(["chosen"])],
+    )
+    def test_prompt_choice_list_shows_navigation_hint_once_per_screen_mode(
+        self,
+        select_mock: mock.MagicMock,
+    ) -> None:
+        context = _context()
+        context.screen_mode = True
+        prompts_module.prompt_choice_list([("a", "A")], default="a", context=context)
+        prompts_module.prompt_choice_list([("b", "B")], default="b", context=context)
+        self.assertTrue(select_mock.call_args_list[0].kwargs["show_navigation_hint"])
+        self.assertFalse(select_mock.call_args_list[1].kwargs["show_navigation_hint"])
+
+    @mock.patch(
+        "ethernity.cli.shared.ui.prompts_core._select_with_initial_choice",
+        return_value=_Ask(["chosen"]),
+    )
+    def test_prompt_choice_list_preserves_separators(
+        self,
+        select_mock: mock.MagicMock,
+    ) -> None:
+        prompts_module.prompt_choice_list(
+            [questionary.Separator("Start"), ("a", "A")],
+            default="a",
+            context=_context(),
+        )
+        choices = select_mock.call_args.kwargs["choices"]
+        self.assertIsInstance(choices[0], questionary.Separator)
+        self.assertEqual(choices[1].title, "A")
+
+    @mock.patch(
+        "ethernity.cli.shared.ui.prompts_core._select_with_initial_choice",
+        return_value=_Ask(["chosen"]),
+    )
+    def test_prompt_choice_list_preserves_choice_objects(
+        self,
+        select_mock: mock.MagicMock,
+    ) -> None:
+        prompts_module.prompt_choice_list(
+            [questionary.Choice("A", value="a", description="desc")],
+            default="a",
+            context=_context(),
+        )
+        choice = select_mock.call_args.kwargs["choices"][0]
+        self.assertIsInstance(choice, questionary.Choice)
+        self.assertEqual(choice.value, "a")
+        self.assertEqual(choice.description, "desc")
+
+    def test_iter_picker_entries_filters_and_keeps_navigation_dirs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / ".hidden").write_text("x", encoding="utf-8")
             (root / "file.txt").write_text("x", encoding="utf-8")
             (root / "dir").mkdir()
-            entries = picker_module._list_picker_entries(
-                str(root),
-                allow_files=True,
-                allow_dirs=True,
-                include_hidden=False,
-            )
-            values = {label for _, label in entries}
-            self.assertIn("file.txt", values)
-            self.assertIn("dir/", values)
-            self.assertNotIn(".hidden", values)
-
-            with self.assertRaisesRegex(ValueError, "No selectable entries"):
-                picker_module._list_picker_entries(
-                    str(root),
-                    allow_files=False,
-                    allow_dirs=False,
-                    include_hidden=False,
-                )
-
-            with self.assertRaisesRegex(ValueError, "dir not found"):
-                picker_module._list_picker_entries(
-                    str(root / "missing"),
+            entries = picker_module._iter_picker_entries(
+                picker_module._PickerState(
+                    current_dir=root,
                     allow_files=True,
                     allow_dirs=True,
                     include_hidden=False,
                 )
+            )
+            values = {entry.label for entry in entries}
+            self.assertIn("file.txt", values)
+            self.assertIn("dir/", values)
+            self.assertNotIn(".hidden", values)
 
-    def test_list_picker_entries_empty_error_is_actionable(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            with self.assertRaisesRegex(
-                ValueError,
-                "Choose another directory or switch to manual entry",
-            ):
-                picker_module._list_picker_entries(
-                    str(root),
+            dir_only = picker_module._iter_picker_entries(
+                picker_module._PickerState(
+                    current_dir=root,
                     allow_files=False,
                     allow_dirs=False,
                     include_hidden=False,
                 )
+            )
+            self.assertEqual([entry.label for entry in dir_only], ["dir/"])
+            self.assertFalse(dir_only[0].selectable)
+
+            hidden = picker_module._iter_picker_entries(
+                picker_module._PickerState(
+                    current_dir=root,
+                    allow_files=True,
+                    allow_dirs=True,
+                    include_hidden=True,
+                    filter_text="hidden",
+                )
+            )
+            self.assertEqual([entry.label for entry in hidden], [".hidden"])
+
+            with self.assertRaisesRegex(ValueError, "dir not found"):
+                picker_module._resolve_picker_directory(str(root / "missing"))
+
+    def test_iter_picker_entries_empty_directory_returns_no_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            entries = picker_module._iter_picker_entries(
+                picker_module._PickerState(
+                    current_dir=root,
+                    allow_files=False,
+                    allow_dirs=False,
+                    include_hidden=False,
+                )
+            )
+            self.assertEqual(entries, [])
 
     @mock.patch("ethernity.cli.shared.ui.picker.prompt_optional_path", side_effect=[".", ".", "."])
     @mock.patch(
@@ -303,7 +491,6 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
             manual_label="manual",
             directory_prompt="dir",
             directory_help_text="help",
-            picker_help_text="picker",
             context=context,
             select_func=select_func,
             manual_func=manual_func,
@@ -316,7 +503,6 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
             manual_label="manual",
             directory_prompt="dir",
             directory_help_text="help",
-            picker_help_text="picker",
             context=context,
             select_func=select_func,
             manual_func=manual_func,
@@ -340,7 +526,6 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
             manual_label="manual",
             directory_prompt="dir",
             directory_help_text="help",
-            picker_help_text="picker",
             context=context,
             select_func=select_func,
             manual_func=mock.MagicMock(),
@@ -364,7 +549,6 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
             manual_label="manual",
             directory_prompt="dir",
             directory_help_text="help",
-            picker_help_text="picker",
             context=context,
             select_func=select_func,
             manual_func=mock.MagicMock(),
@@ -384,14 +568,13 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
             manual_label="manual",
             directory_prompt="dir",
             directory_help_text="help",
-            picker_help_text="picker",
             context=context,
             select_func=mock.MagicMock(),
             manual_func=manual_func,
         )
         self.assertEqual(Path(context.last_picker_dir), Path("/tmp/manual"))
 
-    @mock.patch("ethernity.cli.shared.ui.picker.prompt_choice_list", return_value="chosen")
+    @mock.patch("ethernity.cli.shared.ui.picker.prompt_choice_list")
     def test_prompt_select_entries_single(
         self,
         prompt_choice_list: mock.MagicMock,
@@ -399,6 +582,7 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "a.txt"
             path.write_text("x", encoding="utf-8")
+            prompt_choice_list.return_value = ("select", str(path))
             value = picker_module._prompt_select_entries(
                 "Pick one",
                 directory=tmp,
@@ -409,31 +593,62 @@ class TestChoiceAndPickerInternals(unittest.TestCase):
                 multi=False,
                 context=_context(),
             )
-        self.assertEqual(value, "chosen")
+        self.assertEqual(value, str(path))
         prompt_choice_list.assert_called_once()
 
-    def test_prompt_select_entries_multi_retries_on_empty(self) -> None:
+    @mock.patch("ethernity.cli.shared.ui.picker.prompt_choice_list")
+    def test_prompt_select_entries_multi_retries_on_empty(
+        self,
+        prompt_choice_list: mock.MagicMock,
+    ) -> None:
         context = _context()
         context.console.print = mock.MagicMock()
         context.console_err.print = mock.MagicMock()
         with tempfile.TemporaryDirectory() as tmp:
-            (Path(tmp) / "a.txt").write_text("x", encoding="utf-8")
-            checkbox = _Ask([[], ["ok"]])
-            with mock.patch(
-                "ethernity.cli.shared.ui.picker.questionary.checkbox", return_value=checkbox
-            ):
-                values = picker_module._prompt_select_entries(
-                    "Pick many",
-                    directory=tmp,
-                    allow_files=True,
-                    allow_dirs=False,
-                    include_hidden=False,
-                    help_text="help",
-                    multi=True,
-                    context=context,
-                )
-        self.assertEqual(values, ["ok"])
+            path = Path(tmp) / "a.txt"
+            path.write_text("x", encoding="utf-8")
+            prompt_choice_list.side_effect = [
+                ("done", ""),
+                ("toggle", str(path)),
+                ("done", ""),
+            ]
+            values = picker_module._prompt_select_entries(
+                "Pick many",
+                directory=tmp,
+                allow_files=True,
+                allow_dirs=False,
+                include_hidden=False,
+                help_text="help",
+                multi=True,
+                context=context,
+            )
+        self.assertEqual(values, [str(path)])
         context.console_err.print.assert_called()
+
+    @mock.patch("ethernity.cli.shared.ui.picker.prompt_choice_list")
+    def test_prompt_select_entries_multi_hides_inline_question_text_in_screen_mode(
+        self,
+        prompt_choice_list: mock.MagicMock,
+    ) -> None:
+        context = _context()
+        context.screen_mode = True
+        context.console.print = mock.MagicMock()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "a.txt"
+            path.write_text("x", encoding="utf-8")
+            prompt_choice_list.side_effect = [("toggle", str(path)), ("done", "")]
+            values = picker_module._prompt_select_entries(
+                "Pick many",
+                directory=tmp,
+                allow_files=True,
+                allow_dirs=False,
+                include_hidden=False,
+                help_text="help",
+                multi=True,
+                context=context,
+            )
+        self.assertEqual(values, [str(path)])
+        self.assertIn("Pick many - ", prompt_choice_list.call_args_list[0].kwargs["title"])
 
     @mock.patch("ethernity.cli.shared.ui.picker._prompt_select_entries", return_value=["a", "b"])
     def test_prompt_select_paths_wrapper(self, _prompt_select_entries: mock.MagicMock) -> None:

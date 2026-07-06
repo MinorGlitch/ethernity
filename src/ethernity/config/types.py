@@ -13,6 +13,8 @@ QrPayloadCodec = Literal["raw", "base64"]
 QrErrorCorrection = Literal["L", "M", "Q", "H"]
 PageSize = Literal["A4", "LETTER"]
 SigningKeyMode = Literal["embedded", "sharded"]
+ExtensionUnlockPolicy = Literal["self-contained", "reuse-root"]
+ExtensionSigningKeyMode = Literal["not-stored", "sharded"]
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,20 @@ class RecoverDefaults:
     """Default CLI values for recover commands."""
 
     output: str | None = None
+
+
+@dataclass(frozen=True)
+class ExtendDefaults:
+    """Default CLI values for extension commands."""
+
+    base_dir: str | None = None
+    unlock_policy: ExtensionUnlockPolicy | None = None
+    shard_threshold: int | None = None
+    shard_count: int | None = None
+    signing_key_mode: ExtensionSigningKeyMode | None = None
+    signing_key_shard_threshold: int | None = None
+    signing_key_shard_count: int | None = None
+    qr_payload_codec: QrPayloadCodec = "raw"
 
 
 @dataclass(frozen=True)
@@ -61,11 +77,21 @@ class RuntimeDefaults:
 
 
 @dataclass(frozen=True)
+class ExtensionChunkingDefaults:
+    """Default content-defined chunking profile for new extension chains."""
+
+    target_size: int = 16 * 1024
+    min_size: int = 4 * 1024
+    max_size: int = 64 * 1024
+
+
+@dataclass(frozen=True)
 class CliDefaults:
     """Grouped defaults for CLI subcommands and UI behavior."""
 
     backup: BackupDefaults = field(default_factory=BackupDefaults)
     recover: RecoverDefaults = field(default_factory=RecoverDefaults)
+    extend: ExtendDefaults = field(default_factory=ExtendDefaults)
     ui: UiDefaults = field(default_factory=UiDefaults)
     debug: DebugDefaults = field(default_factory=DebugDefaults)
     runtime: RuntimeDefaults = field(default_factory=RuntimeDefaults)
@@ -83,4 +109,5 @@ class AppConfig:
     paper_size: str
     qr_config: QrConfig
     qr_chunk_size: int
+    extension_chunking: ExtensionChunkingDefaults = field(default_factory=ExtensionChunkingDefaults)
     cli_defaults: CliDefaults = field(default_factory=CliDefaults)

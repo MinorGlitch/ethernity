@@ -29,6 +29,7 @@ class RecoveryMeta:
     passphrase: str | None = None
     passphrase_lines: tuple[str, ...] = ()
     quorum_value: str | None = None
+    quorum_label: str = "Shard Quorum"
     signing_pub_lines: tuple[str, ...] = ()
 
 
@@ -95,6 +96,7 @@ def build_recovery_meta(
     quorum_threshold: int | None,
     quorum_shares: int | None,
     signing_pub: bytes | None,
+    quorum_label: str = "Shard Quorum",
 ) -> RecoveryMeta:
     if (quorum_threshold is None) != (quorum_shares is None):
         raise ValueError("quorum_threshold and quorum_shares must be provided together")
@@ -113,6 +115,7 @@ def build_recovery_meta(
         passphrase=passphrase,
         passphrase_lines=wrap_passphrase(passphrase) if passphrase else (),
         quorum_value=quorum_value,
+        quorum_label=quorum_label,
         signing_pub_lines=signing_pub_lines,
     )
 

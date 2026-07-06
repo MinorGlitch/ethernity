@@ -1,0 +1,105 @@
+{
+  "artifact_hashes": {
+    "chain/extensions/01/qr_document-01-9df24ac44dbf26e7.pdf": "66e6a6a3ac97f51e6fc2cff76ac36abe98c7820be9a9518669af0cfa42456e26",
+    "chain/extensions/01/recovery_document-01-9df24ac44dbf26e7.pdf": "0613404d506a6a7c71e493c5e39575afc9e0b863ab3d922296ea20c6e51e04d5",
+    "chain/extensions/01/recovery_kit_index-01-9df24ac44dbf26e7.pdf": "c5d631eebec3f44f0c318194cfae844c9b2d843d6699e6c2119d5000a1d2a4c9",
+    "chain/qr_document.pdf": "64ba18c1c48df380d5d0ec13a10f0d3145ca14332cbd19f48c57887778ca1e37",
+    "chain/recovery_document.pdf": "86636c3bb07a80c92c0c5d305a27fa6a5fdd0ec5db3cfb3af6c24a810522a9bc",
+    "chain/recovery_kit_index.pdf": "12f488d02e9539b9135d7a4e9710b67c001d510bce29dea1efb9f560e1d0281e",
+    "chain_payloads.bin": "c7a44551898464c5c5ee2d169a015ee409bd4c831719ce138de220fe2a79980e",
+    "chain_payloads.txt": "a73ed5994818de7dc5418352ff40993fd5386ed0858d3f269d6d305252dda1f1",
+    "extension_01_payloads.bin": "f6578078fae8b8c4c25c91523abe06bcea4db16c48f0891bcde0d9509b609ce8",
+    "extension_01_payloads.txt": "5a4d4ddc9a2a2a800c54e6aace67c98d8fa5d7b8c3afd4d98cb323118b44ad36",
+    "root_payloads.bin": "cea6d6b1d70b76dd6357c1e1f9062b8202a877d2d03bd5acc970933653830f5e",
+    "root_payloads.txt": "976e1678955682d1e975be663d5f1eeca7226acb1e076105577d565e45afde40"
+  },
+  "chain_dir": "chain",
+  "checks": [
+    "frozen v1.0 root compatibility"
+  ],
+  "document_projection": [
+    {
+      "chunks": [
+        {
+          "chunk_id": "701f61ef696ff3daa27444dc114c2e41dab332ec3e3973601b496256aba8f137",
+          "codec": "raw",
+          "decoded_sha256": "701f61ef696ff3daa27444dc114c2e41dab332ec3e3973601b496256aba8f137",
+          "raw_len": 29,
+          "stored_len": 29
+        }
+      ],
+      "doc_hash": "9df24ac44dbf26e7ce2ad2071036ac49cb97165f71567c0242b22ade9e8f3f2a",
+      "doc_id": "9df24ac44dbf26e7",
+      "files": [
+        {
+          "path": "extension_note.txt",
+          "sha256": "701f61ef696ff3daa27444dc114c2e41dab332ec3e3973601b496256aba8f137",
+          "size": 29
+        },
+        {
+          "path": "standalone_secret.txt",
+          "sha256": "ce36ddabb5fdbed1f1e472cc5b61bfb5e0299c2a9adc6d2d0d54412e3251e449",
+          "size": 119
+        }
+      ],
+      "index": 1,
+      "kind": "extension",
+      "parent_doc_hash": "b0ef92fe40cbe3a5df673c11a1c25cb3208577c096ccbe96b79c3b5fea61cabe",
+      "root_doc_hash": "b0ef92fe40cbe3a5df673c11a1c25cb3208577c096ccbe96b79c3b5fea61cabe"
+    },
+    {
+      "doc_hash": "b0ef92fe40cbe3a5df673c11a1c25cb3208577c096ccbe96b79c3b5fea61cabe",
+      "doc_id": "b0ef92fe40cbe3a5",
+      "files": [
+        {
+          "path": "standalone_secret.txt",
+          "sha256": "ce36ddabb5fdbed1f1e472cc5b61bfb5e0299c2a9adc6d2d0d54412e3251e449",
+          "size": 119
+        }
+      ],
+      "kind": "root",
+      "payload_codec": "gzip",
+      "payload_raw_len": 119,
+      "sealed": false
+    }
+  ],
+  "extension_doc_hashes": {
+    "extension_01": "9df24ac44dbf26e7ce2ad2071036ac49cb97165f71567c0242b22ade9e8f3f2a"
+  },
+  "passphrase": "stable-v1-baseline-passphrase",
+  "payload_fixtures": {
+    "chain": {
+      "binary": "chain_payloads.bin",
+      "frame_count": 6,
+      "text": "chain_payloads.txt"
+    },
+    "extension_01": {
+      "binary": "extension_01_payloads.bin",
+      "frame_count": 3,
+      "text": "extension_01_payloads.txt"
+    },
+    "root": {
+      "binary": "root_payloads.bin",
+      "frame_count": 3,
+      "text": "root_payloads.txt"
+    }
+  },
+  "profile": "base64",
+  "qr_payload_codec": "base64",
+  "root_doc_hash": "b0ef92fe40cbe3a5df673c11a1c25cb3208577c096ccbe96b79c3b5fea61cabe",
+  "scan_paths": [
+    "chain"
+  ],
+  "scenario_id": "v1_0_root_plus_v1_2_extension",
+  "shard_fixtures": {},
+  "states": {
+    "extension_01": {
+      "extension_note.txt": "701f61ef696ff3daa27444dc114c2e41dab332ec3e3973601b496256aba8f137",
+      "standalone_secret.txt": "ce36ddabb5fdbed1f1e472cc5b61bfb5e0299c2a9adc6d2d0d54412e3251e449"
+    },
+    "root": {
+      "standalone_secret.txt": "ce36ddabb5fdbed1f1e472cc5b61bfb5e0299c2a9adc6d2d0d54412e3251e449"
+    }
+  },
+  "version": "1.2.0"
+}

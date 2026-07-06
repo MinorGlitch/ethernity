@@ -26,11 +26,19 @@ from typer.core import TyperGroup
 
 from ethernity.cli.bootstrap import registry as command_registry
 from ethernity.cli.bootstrap.startup import run_startup
-from ethernity.cli.features.backup.orchestrator import run_wizard
-from ethernity.cli.features.config.onboarding import run_first_run_config_wizard
+from ethernity.cli.features.backup.workspace import run_create_backup_workspace
+from ethernity.cli.features.compact.command import run_compact_command
+from ethernity.cli.features.compact.workspace import prompt_rebuild_workspace_args
+from ethernity.cli.features.config.onboarding import (
+    FirstRunOnboardingResult,
+    run_first_run_config_wizard,
+)
+from ethernity.cli.features.extend.command import run_extend_command
+from ethernity.cli.features.extend.workspace import prompt_add_files_workspace_args
 from ethernity.cli.features.kit.command import _run_kit_render
-from ethernity.cli.features.mint.workflow import run_mint_wizard
-from ethernity.cli.features.recover.orchestrator import run_recover_wizard
+from ethernity.cli.features.kit.workspace import prompt_print_kit_workspace_args
+from ethernity.cli.features.mint.workspace import run_reprint_shards_workspace
+from ethernity.cli.features.recover.workspace import run_restore_workspace
 from ethernity.cli.shared import common as cli_common, ndjson as cli_ndjson, ui_api as ui
 from ethernity.cli.shared.types import BackupArgs, CliContextState
 from ethernity.config import CliDefaults, load_cli_defaults
@@ -52,7 +60,14 @@ class _HelpAwareTyperGroup(TyperGroup):
         return super().parse_args(ctx, args)
 
 
-app = typer.Typer(add_completion=False, help="Ethernity CLI.", cls=_HelpAwareTyperGroup)
+_HELP_OPTION_NAMES = {"help_option_names": ["-h", "--help"]}
+
+
+app = typer.Typer(
+    help="Ethernity CLI.",
+    cls=_HelpAwareTyperGroup,
+    context_settings=_HELP_OPTION_NAMES,
+)
 
 _get_version = cli_common._get_version
 _paper_callback = cli_common._paper_callback
@@ -71,7 +86,24 @@ empty_recover_args = ui.empty_recover_args
 prompt_home_action = ui.prompt_home_action
 ui_screen_mode = ui.ui_screen_mode
 
-_DEFAULTS_BOOTSTRAP_SUBCOMMANDS = frozenset({"api", "backup", "recover", "kit", "mint", "render"})
+_DEFAULTS_BOOTSTRAP_SUBCOMMANDS = frozenset(
+    {
+        "api",
+        "add",
+        "backup",
+        "compact",
+        "create",
+        "extend",
+        "recover",
+        "kit",
+        "mint",
+        "print-kit",
+        "rebuild",
+        "reprint-shards",
+        "render",
+        "restore",
+    }
+)
 _GLOBAL_OPTIONS_WITH_VALUES = frozenset({"--config", "--paper", "--design", "--debug-max-bytes"})
 
 
@@ -270,10 +302,12 @@ def _run_first_run_onboarding_if_needed(
     config_path: str | None,
     quiet: bool,
     debug: bool,
-) -> None:
+) -> str | None:
     try:
         if _should_run_first_run_onboarding(invoked_subcommand):
-            run_first_run_config_wizard(config_path=config_path, quiet=quiet)
+            result = run_first_run_config_wizard(config_path=config_path, quiet=quiet)
+            if isinstance(result, FirstRunOnboardingResult):
+                return result.launch_action
     except KeyboardInterrupt:
         if debug:
             raise
@@ -284,6 +318,7 @@ def _run_first_run_onboarding_if_needed(
             raise
         console_err.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(code=2) from exc
+    return None
 
 
 def _defaults_bootstrap_config_path(
@@ -369,6 +404,7 @@ def _configure_cli_context(
         no_animations=no_animations,
         backup_defaults=cli_defaults.backup,
         recover_defaults=cli_defaults.recover,
+        extend_defaults=cli_defaults.extend,
     )
 
 
@@ -382,6 +418,7 @@ def _run_home_screen(
     debug_max_bytes: int,
     debug_reveal_secrets: bool,
     quiet: bool,
+    initial_action: str | None = None,
 ) -> None:
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         console_err.print(
@@ -391,8 +428,11 @@ def _run_home_screen(
         raise typer.Exit(code=2)
 
     config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
-    with ui_screen_mode(quiet=quiet):
-        action = prompt_home_action(quiet=quiet)
+    state = ctx.obj if isinstance(ctx.obj, CliContextState) else CliContextState()
+    action = initial_action
+    if action is None:
+        with ui_screen_mode(quiet=quiet):
+            action = prompt_home_action(quiet=quiet)
 
     if action == "recover":
         recover_args = empty_recover_args(
@@ -402,7 +442,7 @@ def _run_home_screen(
             debug_max_bytes=debug_max_bytes,
             debug_reveal_secrets=debug_reveal_secrets,
         )
-        _run_cli(lambda: run_recover_wizard(recover_args, debug=debug), debug=debug)
+        _run_cli(lambda: run_restore_workspace(recover_args, debug=debug), debug=debug)
         return
 
     if action == "mint":
@@ -412,23 +452,66 @@ def _run_home_screen(
             design=design,
             quiet=quiet,
         )
-        _run_cli(lambda: run_mint_wizard(mint_args, debug=debug), debug=debug)
+        _run_cli(lambda: run_reprint_shards_workspace(mint_args, debug=debug), debug=debug)
+        return
+
+    if action == "extend":
+
+        def _run_home_extend() -> int | None:
+            extend_args = prompt_add_files_workspace_args(
+                config=config_value,
+                paper=paper_value,
+                design=design,
+                quiet=quiet,
+                extend_defaults=state.extend_defaults,
+            )
+            if extend_args is None:
+                return 1
+            return run_extend_command(extend_args, debug=debug)
+
+        _run_cli(_run_home_extend, debug=debug)
+        return
+
+    if action == "compact":
+
+        def _run_home_compact() -> int | None:
+            compact_args = prompt_rebuild_workspace_args(
+                config=config_value,
+                paper=paper_value,
+                design=design,
+                quiet=quiet,
+            )
+            if compact_args is None:
+                return 1
+            return run_compact_command(compact_args, debug=debug)
+
+        _run_cli(_run_home_compact, debug=debug)
         return
 
     if action == "kit":
-        _run_cli(
-            lambda: _run_kit_render(
-                bundle=None,
-                output=None,
-                config_value=config_value,
-                paper_value=paper_value,
-                design_value=design,
-                variant_value="lean",
-                qr_chunk_size=None,
-                quiet_value=quiet,
-            ),
-            debug=debug,
-        )
+
+        def _run_home_kit() -> None | int:
+            kit_args = prompt_print_kit_workspace_args(
+                config=config_value,
+                paper=paper_value,
+                design=design,
+                quiet=quiet,
+            )
+            if kit_args is None:
+                return 1
+            _run_kit_render(
+                bundle=kit_args.bundle,
+                output=kit_args.output,
+                config_value=kit_args.config,
+                paper_value=kit_args.paper,
+                design_value=kit_args.design,
+                variant_value=kit_args.variant,
+                qr_chunk_size=kit_args.qr_chunk_size,
+                quiet_value=kit_args.quiet,
+            )
+            return None
+
+        _run_cli(_run_home_kit, debug=debug)
         return
 
     wizard_args = _home_backup_wizard_args(
@@ -441,7 +524,7 @@ def _run_home_screen(
         quiet=quiet,
     )
     _run_cli(
-        lambda: run_wizard(
+        lambda: run_create_backup_workspace(
             debug_override=debug if debug else None,
             debug_max_bytes=debug_max_bytes,
             debug_reveal_secrets=debug_reveal_secrets,
@@ -566,12 +649,14 @@ def cli(
             debug=debug,
             init_config=init_config,
         )
-        _run_first_run_onboarding_if_needed(
+        onboarding_launch_action = _run_first_run_onboarding_if_needed(
             invoked_subcommand=ctx.invoked_subcommand,
             config_path=config,
             quiet=quiet,
             debug=debug,
         )
+    else:
+        onboarding_launch_action = None
 
     explicit_config_path, config_path_for_defaults, api_config_invocation = (
         _defaults_bootstrap_config_path(
@@ -617,6 +702,7 @@ def cli(
             debug_max_bytes=effective_debug_max_bytes,
             debug_reveal_secrets=debug_reveal_secrets,
             quiet=effective_quiet,
+            initial_action=onboarding_launch_action,
         )
 
 

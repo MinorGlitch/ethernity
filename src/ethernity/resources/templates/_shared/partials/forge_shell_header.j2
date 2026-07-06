@@ -24,7 +24,7 @@
 {% set _forge_header_title = forge_header_title if forge_header_title is defined else doc.title %}
 {% set _forge_header_subtitle = forge_header_subtitle if forge_header_subtitle is defined else doc.subtitle %}
 {% set _forge_header_kicker = forge_header_kicker if forge_header_kicker is defined else 'The Forge // Secure Offline Storage' %}
-{% set _forge_header_classification = forge_header_classification if forge_header_classification is defined else 'Offline Processing Required' %}
+{% set _forge_header_classification = forge_header_classification if forge_header_classification is defined else (copy.lineage_badge if copy is defined and copy.lineage_badge is defined else 'Offline Processing Required') %}
 {% set _forge_header_guidance = forge_header_guidance if forge_header_guidance is defined else '' %}
 {% set _forge_header_ref = forge_header_ref if forge_header_ref is defined else doc_id %}
 {% set _forge_header_icon = forge_header_icon if forge_header_icon is defined else 'token' %}

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
+from typing import Literal
 
 from rich.console import Console
 from rich.text import Text
@@ -37,6 +38,7 @@ THEME = Theme(
     {
         "title": "bold cyan",
         "subtitle": "dim",
+        "hint": "white",
         "accent": "cyan",
         "success": "cyan",
         "warning": "yellow",
@@ -46,6 +48,9 @@ THEME = Theme(
         "muted": "dim",
     }
 )
+
+
+StageDensity = Literal["minimal", "dense"]
 
 
 @dataclass
@@ -66,7 +71,14 @@ class UIContext:
     screen_mode: bool = False
     compact_prompt_headers: bool = False
     stage_prompt_count: int = 0
+    current_stage_title: str | None = None
+    current_stage_help_text: str | None = None
+    current_stage_density: StageDensity = "minimal"
+    current_substep_title: str | None = None
+    current_substep_help_text: str | None = None
+    choice_navigation_hint_seen: bool = False
     last_picker_dir: str = "."
+    picker_dirs: dict[str, str] | None = None
 
 
 def _build_console(*, stderr: bool) -> Console:
@@ -91,4 +103,4 @@ def get_context() -> UIContext:
 
 
 def format_hint(help_text: str) -> Text:
-    return Text(help_text, style="dim italic")
+    return Text(help_text, style="hint")

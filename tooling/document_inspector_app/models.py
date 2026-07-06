@@ -39,6 +39,14 @@ class RecoveredSecretRecord:
 
 
 @dataclass(frozen=True)
+class TrustDiagnostic:
+    status: str
+    code: str | None
+    message: str
+    details: dict[str, object]
+
+
+@dataclass(frozen=True)
 class InspectionResult:
     source_label: str
     input_mode: str
@@ -49,11 +57,13 @@ class InspectionResult:
     diagnostics_text: str
     normalized_payload_text: str
     combined_fallback_text: str
-    manifest_text: str
-    manifest_json_text: str | None
+    document_text: str
+    document_json_text: str | None
+    projection_diagnostics_text: str
     frame_records: tuple[FrameRecord, ...]
     files: tuple[FileRecord, ...]
     recovered_secrets: tuple[RecoveredSecretRecord, ...]
+    trust_diagnostic: TrustDiagnostic | None
     report_json: str
 
 
@@ -74,4 +84,5 @@ __all__ = [
     "FrameRecord",
     "InspectionResult",
     "RecoveredSecretRecord",
+    "TrustDiagnostic",
 ]

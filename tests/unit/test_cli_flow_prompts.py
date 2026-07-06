@@ -105,7 +105,7 @@ class TestCliFlowPrompts(unittest.TestCase):
             with self.assertRaisesRegex(
                 ValueError,
                 (
-                    "unable to parse shard recovery text or QR payloads from stdin: "
+                    "unable to parse shard recovery text or shard text lines from stdin: "
                     "fallback detail; payload bad"
                 ),
             ):
@@ -115,7 +115,7 @@ class TestCliFlowPrompts(unittest.TestCase):
         frame_one = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
         frame_two = _build_shard_frame(share_index=2, share=b"\xbb" * 16)
         with (
-            mock.patch.object(prompts, "_frames_from_scan", return_value=[frame_one]),
+            mock.patch.object(prompts, "frames_from_scan", return_value=[frame_one]),
             mock.patch.object(prompts, "_read_text_lines", return_value=["line"]),
             mock.patch.object(
                 prompts, "_frames_from_shard_text_or_payload_lines", return_value=[frame_two]
@@ -125,7 +125,7 @@ class TestCliFlowPrompts(unittest.TestCase):
         self.assertEqual(frames, [frame_one, frame_two])
 
         with (
-            mock.patch.object(prompts, "_frames_from_scan", return_value=[]),
+            mock.patch.object(prompts, "frames_from_scan", return_value=[]),
             mock.patch.object(prompts, "_read_text_lines", return_value=["line"]),
             mock.patch.object(prompts, "_frames_from_shard_text_or_payload_lines", return_value=[]),
         ):
@@ -181,16 +181,16 @@ class TestCliFlowPrompts(unittest.TestCase):
             )
         self.assertEqual(frames, [frame_one])
         prompt_required.assert_called_once_with(
-            "Shard QR payload (0 remaining)",
+            "Shard text line (quorum met)",
             help_text=(
-                "Paste one shard QR payload per line; after quorum you can add more shards from "
-                "the same set."
+                "Paste one shard text line per line; after quorum you can add more printed "
+                "shards from the same set."
             ),
         )
         ingest.assert_called_once_with(
             frame=frame_two,
             state=done_state,
-            label="Shard payloads",
+            label="Printed shard documents",
             key_type=KEY_TYPE_PASSPHRASE,
             stop_at_quorum=False,
         )
@@ -220,12 +220,10 @@ class TestCliFlowPrompts(unittest.TestCase):
             state = _ShardPasteState(frames=[], seen_shares=set(), expected_threshold=1)
             frames = prompts._prompt_shard_payload_paste(state=state)
         self.assertEqual(frames, [])
-        self.assertEqual(
-            prompt_required.call_args_list[0].args[0], "Shard QR payload (1 remaining)"
-        )
+        self.assertEqual(prompt_required.call_args_list[0].args[0], "Shard text line (1 remaining)")
         self.assertTrue(
             any(
-                "Paste one shard QR payload per line" in str(call)
+                "Paste one shard text line per line" in str(call)
                 for call in info_print.call_args_list
             )
         )
@@ -243,7 +241,7 @@ class TestCliFlowPrompts(unittest.TestCase):
             )
         self.assertTrue(
             any(
-                "After quorum, you can add more shards" in str(call)
+                "After quorum, you can add more printed shards" in str(call)
                 for call in info_print.call_args_list
             )
         )
@@ -315,17 +313,17 @@ class TestCliFlowPrompts(unittest.TestCase):
         self.assertEqual(frames, [frame_one])
         prompt_more.assert_called_once_with(
             help_text=(
-                "Paste shard recovery text (headers are ok). "
+                "Paste shard recovery text (headers are fine). "
                 "We'll keep asking until it decodes, then let you add more shards from the same "
                 "set."
             ),
             initial_lines=[],
-            prompt_label="Paste shard recovery text (0 remaining)",
+            prompt_label="Paste shard recovery text (quorum met)",
         )
         ingest.assert_called_once_with(
             frame=frame_two,
             state=done_state,
-            label="Shard documents",
+            label="Printed shard documents",
             key_type=KEY_TYPE_PASSPHRASE,
             stop_at_quorum=False,
         )
@@ -344,7 +342,7 @@ class TestCliFlowPrompts(unittest.TestCase):
         self.assertEqual(len(frames), 2)
         self.assertTrue(
             any(
-                "Paste shard recovery text in batches" in str(call)
+                "Paste shard recovery text one section at a time" in str(call)
                 for call in info_print.call_args_list
             )
         )
@@ -426,6 +424,27 @@ class TestCliFlowPrompts(unittest.TestCase):
         self.assertEqual(paste.call_args.kwargs["initial_frames"], [frame_one])
         err_print.assert_called_once()
 
+        with (
+            mock.patch.object(prompts, "prompt_required", return_value="fallback-text"),
+            mock.patch.object(
+                prompts, "_prompt_shard_fallback_paste", return_value=[frame_one]
+            ) as fallback,
+        ):
+            frames = prompts._prompt_shard_text_or_payloads_stdin(preferred_kind="fallback")
+        self.assertEqual(frames, [frame_one])
+        fallback.assert_called_once()
+
+        with (
+            mock.patch.object(prompts, "prompt_required", return_value="payload"),
+            mock.patch.object(prompts, "_frames_from_payload_lines", return_value=[frame_one]),
+            mock.patch.object(
+                prompts, "_prompt_shard_payload_paste", return_value=[frame_one]
+            ) as payload_paste,
+        ):
+            frames = prompts._prompt_shard_text_or_payloads_stdin(preferred_kind="payload")
+        self.assertEqual(frames, [frame_one])
+        self.assertEqual(payload_paste.call_args.kwargs["initial_frames"], [frame_one])
+
     def test_prompt_shard_inputs_paths(self) -> None:
         frame_one = _build_shard_frame(share_index=1, share=b"\xaa" * 16)
         frame_two = _build_shard_frame(share_index=2, share=b"\xbb" * 16)
@@ -433,12 +452,14 @@ class TestCliFlowPrompts(unittest.TestCase):
 
         with (
             mock.patch.object(prompts, "prompt_paths_with_picker", return_value=["-"]),
+            mock.patch.object(prompts, "prompt_choice", return_value="fallback"),
             mock.patch.object(
                 prompts, "_prompt_shard_text_or_payloads_stdin", return_value=[frame_one]
-            ),
+            ) as shard_stdin,
         ):
             _scan, _text, frames = prompts._prompt_shard_inputs(quiet=True)
         self.assertEqual(frames, [frame_one])
+        self.assertEqual(shard_stdin.call_args.kwargs["preferred_kind"], "fallback")
 
         with (
             mock.patch.object(
@@ -502,6 +523,7 @@ class TestCliFlowPrompts(unittest.TestCase):
                 "prompt_paths_with_picker",
                 side_effect=[["alpha.txt"], ["-"]],
             ),
+            mock.patch.object(prompts, "prompt_choice", return_value="payload"),
             mock.patch.object(
                 prompts,
                 "_frames_from_shard_text_or_payload_files",
@@ -516,7 +538,7 @@ class TestCliFlowPrompts(unittest.TestCase):
                 prompts,
                 "_prompt_shard_text_or_payloads_stdin",
                 return_value=[frame_one, frame_two],
-            ),
+            ) as shard_stdin,
             mock.patch.object(prompts, "status", return_value=contextlib.nullcontext(None)),
         ):
             fallback_files, payload_files, frames = prompts._prompt_shard_inputs(quiet=True)
@@ -524,6 +546,7 @@ class TestCliFlowPrompts(unittest.TestCase):
         self.assertEqual(fallback_files, ["alpha.txt"])
         self.assertEqual(payload_files, [])
         self.assertEqual(frames, [frame_one, frame_two])
+        self.assertEqual(shard_stdin.call_args.kwargs["preferred_kind"], "payload")
 
 
 if __name__ == "__main__":

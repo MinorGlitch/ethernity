@@ -43,28 +43,30 @@ class TestKitCommand(unittest.TestCase):
             doc_id_hex="ab" * 16,
         )
 
-        kit_command._run_kit_render(
-            bundle=None,
-            output=None,
-            config_value=None,
-            paper_value=None,
-            design_value=None,
-            variant_value="lean",
-            qr_chunk_size=None,
-            quiet_value=True,
-        )
-        print_completion_panel.assert_not_called()
+        with mock.patch("ethernity.cli.features.kit.command.ensure_playwright_browsers") as ensure:
+            kit_command._run_kit_render(
+                bundle=None,
+                output=None,
+                config_value=None,
+                paper_value=None,
+                design_value=None,
+                variant_value="lean",
+                qr_chunk_size=None,
+                quiet_value=True,
+            )
+            print_completion_panel.assert_not_called()
 
-        kit_command._run_kit_render(
-            bundle=None,
-            output=None,
-            config_value=None,
-            paper_value=None,
-            design_value=None,
-            variant_value="lean",
-            qr_chunk_size=None,
-            quiet_value=False,
-        )
+            kit_command._run_kit_render(
+                bundle=None,
+                output=None,
+                config_value=None,
+                paper_value=None,
+                design_value=None,
+                variant_value="lean",
+                qr_chunk_size=None,
+                quiet_value=False,
+            )
+        self.assertEqual(ensure.call_args_list, [mock.call(quiet=True), mock.call(quiet=False)])
         print_completion_panel.assert_called_once()
 
     @mock.patch("ethernity.cli.features.kit.command._run_kit_render")
@@ -100,6 +102,59 @@ class TestKitCommand(unittest.TestCase):
             design_value="forge",
             variant_value="lean",
             qr_chunk_size=512,
+            quiet_value=True,
+        )
+
+    @mock.patch("ethernity.cli.features.kit.command._run_kit_render")
+    @mock.patch(
+        "ethernity.cli.features.kit.command._run_cli", side_effect=lambda func, debug: func()
+    )
+    @mock.patch("ethernity.cli.features.kit.command.prompt_print_kit_workspace_args")
+    @mock.patch(
+        "ethernity.cli.features.kit.command._resolve_config_and_paper",
+        return_value=("ctx.toml", "LETTER"),
+    )
+    def test_print_kit_command_runs_guided_workspace(
+        self,
+        _resolve_config_and_paper: mock.MagicMock,
+        prompt_print_kit_workspace_args: mock.MagicMock,
+        _run_cli: mock.MagicMock,
+        run_kit_render: mock.MagicMock,
+    ) -> None:
+        ctx = self._ctx(design="forge", quiet=True, debug=True)
+        prompt_print_kit_workspace_args.return_value = mock.Mock(
+            bundle=Path("bundle.html"),
+            output=Path("out.pdf"),
+            config="ctx.toml",
+            paper="LETTER",
+            design="forge",
+            variant="scanner",
+            qr_chunk_size=256,
+            quiet=True,
+        )
+
+        kit_command.print_kit(
+            ctx,
+            config=None,
+            paper=None,
+            design=None,
+            quiet=False,
+        )
+
+        prompt_print_kit_workspace_args.assert_called_once_with(
+            config="ctx.toml",
+            paper="LETTER",
+            design="forge",
+            quiet=True,
+        )
+        run_kit_render.assert_called_once_with(
+            bundle=Path("bundle.html"),
+            output=Path("out.pdf"),
+            config_value="ctx.toml",
+            paper_value="LETTER",
+            design_value="forge",
+            variant_value="scanner",
+            qr_chunk_size=256,
             quiet_value=True,
         )
 

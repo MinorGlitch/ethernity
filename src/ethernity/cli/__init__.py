@@ -16,30 +16,19 @@
 
 from __future__ import annotations
 
-from ethernity.cli.bootstrap.app import app as app, main as main
+from ethernity.cli.bootstrap.app import app, main
 from ethernity.cli.features.backup.orchestrator import (
-    BackupResult as BackupResult,
-    run_backup as run_backup,
-    run_backup_command as run_backup_command,
-    run_wizard as run_wizard,
+    run_backup,
+    run_backup_command,
+    run_wizard,
 )
-from ethernity.cli.features.mint.workflow import (
-    run_mint_command as run_mint_command,
-    run_mint_wizard as run_mint_wizard,
-)
-from ethernity.cli.features.recover.orchestrator import (
-    run_recover_command as run_recover_command,
-    run_recover_wizard as run_recover_wizard,
-)
-from ethernity.cli.shared.constants import (
-    AUTH_FALLBACK_LABEL as AUTH_FALLBACK_LABEL,
-    MAIN_FALLBACK_LABEL as MAIN_FALLBACK_LABEL,
-)
-from ethernity.cli.shared.types import InputFile as InputFile
-from ethernity.crypto import (
-    decrypt_bytes as decrypt_bytes,
-    encrypt_bytes_with_passphrase as encrypt_bytes_with_passphrase,
-)
+from ethernity.cli.features.compact.service import run_compact
+from ethernity.cli.features.extend.service import run_extend
+from ethernity.cli.features.mint.workflow import run_mint_command, run_mint_wizard
+from ethernity.cli.features.recover.orchestrator import run_recover_command, run_recover_wizard
+from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
+from ethernity.cli.shared.types import BackupResult, InputFile
+from ethernity.crypto import decrypt_bytes as decrypt_bytes, encrypt_bytes_with_passphrase
 
 __all__ = [
     "AUTH_FALLBACK_LABEL",
@@ -52,6 +41,8 @@ __all__ = [
     "main",
     "run_backup",
     "run_backup_command",
+    "run_compact",
+    "run_extend",
     "run_mint_command",
     "run_mint_wizard",
     "run_recover_command",

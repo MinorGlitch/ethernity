@@ -291,12 +291,22 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ matrix.artifact_os }}" == "windows" ]]; then
-            ./dist/ethernity/ethernity.exe --help >/dev/null
-            ./dist/ethernity/ethernity.exe --version
+            BIN="./dist/ethernity/ethernity.exe"
           else
-            ./dist/ethernity/ethernity --help >/dev/null
-            ./dist/ethernity/ethernity --version
+            BIN="./dist/ethernity/ethernity"
           fi
+          "$BIN" --help >/dev/null
+          "$BIN" --version
+          SMOKE_OUT="${RUNNER_TEMP:-/tmp}/ethernity-pyinstaller-smoke"
+          rm -rf "$SMOKE_OUT"
+          mkdir -p "$SMOKE_OUT"
+          "$BIN" recover \
+            --scan tests/fixtures/v1_2/extension_golden/raw/gzip_replacement_chain/chain/qr_document.pdf \
+            --scan tests/fixtures/v1_2/extension_golden/raw/gzip_replacement_chain/chain/extensions/01/qr_document-01-*.pdf \
+            --passphrase stable-v1_2-extension-passphrase \
+            --output "$SMOKE_OUT/recovered" \
+            --quiet
+          test -d "$SMOKE_OUT/recovered"
 
       - name: Package release archive
         env:

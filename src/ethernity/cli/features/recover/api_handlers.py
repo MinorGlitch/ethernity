@@ -18,7 +18,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from ethernity.cli.features.recover.planning import inspect_from_args
+from ethernity.cli.features.recover.planning import (
+    inspect_from_args,
+    plan_from_inspection,
+)
 from ethernity.cli.features.recover.service import execute_recover_plan, prepare_recover_plan
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.events import (
@@ -30,9 +33,18 @@ from ethernity.cli.shared.events import (
     emit_result,
     event_session,
 )
+from ethernity.cli.shared.inspection import (
+    blocking_issue_from_exception,
+    inspect_result_payload,
+)
 from ethernity.cli.shared.ndjson import SCHEMA_VERSION, ApiCommandError, emit_started
 from ethernity.cli.shared.types import RecoverArgs
 from ethernity.crypto import decrypt_bytes
+from ethernity.extensions.recovery import (
+    recover_chain_entries,
+    validate_expected_recovery_head,
+    validate_root_manifest_authority,
+)
 from ethernity.formats.envelope_codec import decode_envelope
 from ethernity.formats.envelope_types import EnvelopeManifest
 
@@ -67,12 +79,53 @@ def _manifest_summary_payload(manifest: EnvelopeManifest) -> dict[str, object]:
     }
 
 
+def _inspect_replay_blocking_issue(exc: Exception) -> dict[str, object]:
+    return blocking_issue_from_exception(
+        exc,
+        fallback_code=api_codes.RECOVERY_HEAD_UNTRUSTED,
+        fallback_details={"stage": "replay"},
+    )
+
+
+def _inspect_decrypt_blocking_issue(exc: Exception) -> dict[str, object]:
+    return blocking_issue_from_exception(
+        exc,
+        fallback_code="UNLOCK_FAILED",
+        fallback_details={"stage": "decrypt"},
+    )
+
+
+def _validated_head_from_blocking_issues(
+    blocking_issues: list[dict[str, object]],
+    *,
+    default_index: int,
+    default_doc_hash: str,
+) -> tuple[int, str]:
+    for issue in reversed(blocking_issues):
+        if issue.get("code") != api_codes.RECOVERY_HEAD_UNTRUSTED:
+            continue
+        details = issue.get("details")
+        if not isinstance(details, dict):
+            continue
+        index = details.get("validated_head_index")
+        doc_hash = details.get("validated_head_doc_hash")
+        if isinstance(index, int) and isinstance(doc_hash, str):
+            return index, doc_hash
+    return default_index, default_doc_hash
+
+
 def _recover_started_args(
     args: RecoverArgs,
     *,
     debug: bool,
     operation: str | None = None,
 ) -> dict[str, object]:
+    normalized_extension_doc_hash = (
+        None if args.extension_doc_hash is None else args.extension_doc_hash.strip().lower()
+    )
+    normalized_expected_head_doc_hash = (
+        None if args.expected_head_doc_hash is None else args.expected_head_doc_hash.strip().lower()
+    )
     payload: dict[str, object] = {
         "config": args.config,
         "paper": args.paper,
@@ -85,7 +138,9 @@ def _recover_started_args(
         "shard_scan": list(args.shard_scan or []),
         "auth_fallback_file": args.auth_fallback_file,
         "auth_payloads_file": args.auth_payloads_file,
-        "allow_unsigned": args.allow_unsigned,
+        "extension_index": args.extension_index,
+        "extension_doc_hash": normalized_extension_doc_hash,
+        "expected_head_doc_hash": normalized_expected_head_doc_hash,
         "quiet": args.quiet,
         "debug": debug,
     }
@@ -131,11 +186,43 @@ def run_recover_api_command(args: RecoverArgs, *, debug: bool = False) -> int:
     )
 
     _emit_recovered_file_artifacts(execution.file_payloads)
+    expected_head_doc_hash = getattr(
+        execution,
+        "expected_head_doc_hash",
+        getattr(execution.plan, "expected_head_doc_hash", None),
+    )
+    requested_extension_index = getattr(execution, "requested_extension_index", None)
+    requested_extension_doc_hash = getattr(execution, "requested_extension_doc_hash", None)
+    validated_head_doc_hash = (
+        execution.selected_extension_doc_hash
+        or getattr(
+            execution.plan,
+            "doc_hash",
+            b"",
+        ).hex()
+    )
     emit_result(
         command="recover",
         output_path=execution.output_path,
         output_path_kind=execution.output_path_kind,
         doc_id=execution.plan.doc_id.hex(),
+        selected_extension_index=execution.selected_extension_index,
+        selected_extension_doc_hash=execution.selected_extension_doc_hash,
+        expected_head_doc_hash=expected_head_doc_hash,
+        validated_head_index=(
+            execution.selected_extension_index
+            if execution.selected_extension_index is not None
+            else 0
+        ),
+        validated_head_doc_hash=validated_head_doc_hash,
+        freshness_scope=(
+            "supplied_carriers_only"
+            if execution.selected_extension_index is not None
+            or requested_extension_index is not None
+            or requested_extension_doc_hash is not None
+            or expected_head_doc_hash is not None
+            else None
+        ),
         auth_status=execution.plan.auth_status,
         input_label=execution.plan.input_label,
         input_detail=execution.plan.input_detail,
@@ -170,15 +257,35 @@ def run_recover_inspect_api_command(args: RecoverArgs, *, debug: bool = False) -
 
         blocking_issues = [dict(item) for item in inspection.blocking_issues]
         source_summary: dict[str, object] | None = None
+        selected_extension_index: int | None = None
+        selected_extension_doc_hash: str | None = None
+        plan = None
         if inspection.unlock.satisfied and inspection.unlock.resolved_passphrase is not None:
             emit_phase(phase="decrypt", label="Decrypting and inspecting payload")
             try:
-                plaintext = decrypt_bytes(
-                    inspection.ciphertext,
-                    passphrase=inspection.unlock.resolved_passphrase,
-                    debug=debug,
-                )
-                manifest, _payload = decode_envelope(plaintext)
+                plan = plan_from_inspection(args, inspection)
+                if plan.import_documents:
+                    chain = recover_chain_entries(plan, quiet=True, debug=debug)
+                    manifest = chain.manifest
+                    selected_extension_index = chain.selected_extension_index
+                    selected_extension_doc_hash = chain.selected_extension_doc_hash
+                else:
+                    plaintext = decrypt_bytes(
+                        inspection.ciphertext,
+                        passphrase=inspection.unlock.resolved_passphrase,
+                        debug=debug,
+                    )
+                    manifest, _payload = decode_envelope(plaintext)
+                    validate_root_manifest_authority(
+                        manifest,
+                        inspection.auth_payload,
+                        doc_hash=inspection.doc_hash,
+                    )
+                    validate_expected_recovery_head(
+                        plan,
+                        selected_extension_index=None,
+                        selected_extension_doc_hash=None,
+                    )
                 source_summary = _manifest_summary_payload(manifest)
                 emit_progress(
                     phase="decrypt",
@@ -191,36 +298,54 @@ def run_recover_inspect_api_command(args: RecoverArgs, *, debug: bool = False) -
                     },
                 )
             except Exception as exc:
-                blocking_issues.append(
-                    {
-                        "code": "UNLOCK_FAILED",
-                        "message": str(exc),
-                        "details": {"stage": "decrypt"},
-                    }
-                )
+                if getattr(plan, "import_documents", ()):
+                    blocking_issues.append(_inspect_replay_blocking_issue(exc))
+                else:
+                    blocking_issues.append(_inspect_decrypt_blocking_issue(exc))
+
+        validated_head_index, validated_head_doc_hash = _validated_head_from_blocking_issues(
+            blocking_issues,
+            default_index=selected_extension_index if selected_extension_index is not None else 0,
+            default_doc_hash=selected_extension_doc_hash or inspection.doc_hash.hex(),
+        )
 
         emit_result(
-            command="recover",
-            operation="inspect",
-            doc_id=inspection.doc_id.hex(),
-            auth_status=inspection.auth_status,
-            input_label=inspection.input_label,
-            input_detail=inspection.input_detail,
-            source_summary=source_summary,
-            frame_counts={
-                "main": len(inspection.main_frames),
-                "auth": len(inspection.auth_frames),
-                "shard": len(inspection.shard_frames),
-            },
-            unlock={
-                "mode": inspection.unlock.mode,
-                "passphrase_provided": inspection.unlock.passphrase_provided,
-                "validated_shard_count": inspection.unlock.validated_shard_count,
-                "required_shard_threshold": inspection.unlock.required_shard_threshold,
-                "satisfied": inspection.unlock.satisfied and source_summary is not None,
-            },
-            blocking_issues=blocking_issues,
-            warnings=list(sink.warning_records),
+            **inspect_result_payload(
+                command="recover",
+                source_summary=source_summary,
+                frame_counts={
+                    "main": len(inspection.main_frames),
+                    "auth": len(inspection.auth_frames),
+                    "shard": len(inspection.shard_frames),
+                },
+                unlock={
+                    "mode": inspection.unlock.mode,
+                    "passphrase_provided": inspection.unlock.passphrase_provided,
+                    "validated_shard_count": inspection.unlock.validated_shard_count,
+                    "required_shard_threshold": inspection.unlock.required_shard_threshold,
+                    "shard_share_count": inspection.unlock.shard_share_count,
+                    "satisfied": inspection.unlock.satisfied and source_summary is not None,
+                },
+                blocking_issues=blocking_issues,
+                warnings=list(sink.warning_records),
+                doc_id=inspection.doc_id.hex(),
+                selected_extension_index=selected_extension_index,
+                selected_extension_doc_hash=selected_extension_doc_hash,
+                expected_head_doc_hash=args.expected_head_doc_hash,
+                validated_head_index=validated_head_index,
+                validated_head_doc_hash=validated_head_doc_hash,
+                freshness_scope=(
+                    "supplied_carriers_only"
+                    if selected_extension_index is not None
+                    or args.extension_index is not None
+                    or args.extension_doc_hash is not None
+                    or args.expected_head_doc_hash is not None
+                    else None
+                ),
+                auth_status=inspection.auth_status,
+                input_label=inspection.input_label,
+                input_detail=inspection.input_detail,
+            )
         )
     return 0
 

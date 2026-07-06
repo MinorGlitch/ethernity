@@ -173,6 +173,20 @@ class TestOutputFiles(unittest.TestCase):
             _write_recovered_outputs(str(out_dir), entries)
             self.assertEqual((out_dir / "payload.bin").read_bytes(), b"single")
 
+    def test_write_recovered_outputs_existing_empty_directory_writes_under_directory(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_dir = Path(tmpdir) / "vault"
+            out_dir.mkdir()
+            entries = [
+                (types.SimpleNamespace(path="dir/a.txt"), b"A"),
+                (types.SimpleNamespace(path="b.txt"), b"B"),
+            ]
+            _write_recovered_outputs(str(out_dir), entries)
+            self.assertEqual((out_dir / "dir" / "a.txt").read_bytes(), b"A")
+            self.assertEqual((out_dir / "b.txt").read_bytes(), b"B")
+
     def test_write_recovered_outputs_multiple_entries_writes_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "recovered"
@@ -184,7 +198,7 @@ class TestOutputFiles(unittest.TestCase):
             self.assertEqual((out_dir / "dir" / "a.txt").read_bytes(), b"A")
             self.assertEqual((out_dir / "b.txt").read_bytes(), b"B")
 
-    def test_write_recovered_outputs_replaces_existing_directory_authoritatively(self) -> None:
+    def test_write_recovered_outputs_rejects_existing_non_empty_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = Path(tmpdir) / "recovered"
             out_dir.mkdir()
@@ -195,11 +209,11 @@ class TestOutputFiles(unittest.TestCase):
                 (types.SimpleNamespace(path="nested/fresh.txt"), b"fresh"),
             ]
 
-            _write_recovered_outputs(str(out_dir), entries)
+            with self.assertRaisesRegex(ValueError, "already exists and is not empty"):
+                _write_recovered_outputs(str(out_dir), entries)
 
-            self.assertFalse((out_dir / "stale.txt").exists())
-            self.assertEqual((out_dir / "kept.txt").read_bytes(), b"new")
-            self.assertEqual((out_dir / "nested" / "fresh.txt").read_bytes(), b"fresh")
+            self.assertEqual((out_dir / "stale.txt").read_text(encoding="utf-8"), "stale")
+            self.assertEqual((out_dir / "kept.txt").read_text(encoding="utf-8"), "old")
 
     def test_write_recovered_outputs_rejects_unsafe_entry_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

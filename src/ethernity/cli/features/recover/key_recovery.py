@@ -17,10 +17,12 @@
 from __future__ import annotations
 
 import hmac
+import sys
 
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.log import _warn
 from ethernity.cli.shared.types import RecoverArgs
+from ethernity.cli.shared.ui_api import prompt_required_secret
 from ethernity.crypto.sharding import (
     KEY_TYPE_PASSPHRASE,
     KEY_TYPE_SIGNING_SEED,
@@ -33,6 +35,14 @@ from ethernity.crypto.sharding import (
 from ethernity.crypto.signing import decode_auth_payload, verify_auth, verify_shard
 from ethernity.encoding.framing import Frame, FrameType
 
+__all__ = [
+    "InsufficientShardError",
+    "passphrase_from_shard_frames",
+    "resolve_auth_payload",
+    "signing_seed_from_shard_frames",
+    "validated_shard_payloads_from_frames",
+]
+
 
 class InsufficientShardError(ValueError):
     """Raised when a shard set is well-formed but under quorum."""
@@ -43,11 +53,13 @@ class InsufficientShardError(ValueError):
         threshold: int,
         provided_count: int,
         secret_label: str,
+        share_count: int | None = None,
         shard_version: int | None = None,
     ) -> None:
         self.threshold = threshold
         self.provided_count = provided_count
         self.secret_label = secret_label
+        self.share_count = share_count
         self.shard_version = shard_version
         super().__init__(f"need at least {threshold} shard(s) to recover {secret_label}")
 
@@ -55,10 +67,15 @@ class InsufficientShardError(ValueError):
 def _resolve_recovery_keys(args: RecoverArgs) -> str:
     if args.passphrase:
         return args.passphrase
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        return prompt_required_secret(
+            "Enter passphrase",
+            help_text="Enter the recovery passphrase for this backup.",
+        )
     raise ValueError("passphrase is required for recovery")
 
 
-def _resolve_auth_payload(
+def resolve_auth_payload(
     auth_frames: list[Frame],
     *,
     doc_id: bytes,
@@ -69,10 +86,7 @@ def _resolve_auth_payload(
 ):
     if not auth_frames:
         if require_auth:
-            raise ValueError(
-                "missing auth payload; use --rescue-mode (or --skip-auth-check) "
-                "to skip verification"
-            )
+            raise ValueError("missing auth payload; provide AUTH input to verify recovery")
         if allow_unsigned:
             _warn(
                 "no auth payload provided; skipping auth verification",
@@ -129,7 +143,7 @@ def _resolve_auth_payload(
     return payload, "verified"
 
 
-def _passphrase_from_shard_frames(
+def passphrase_from_shard_frames(
     frames: list[Frame],
     *,
     expected_doc_id: bytes | None,
@@ -137,7 +151,7 @@ def _passphrase_from_shard_frames(
     expected_sign_pub: bytes | None,
     allow_unsigned: bool,
 ) -> str:
-    share_list = _validated_shard_payloads_from_frames(
+    share_list = validated_shard_payloads_from_frames(
         frames,
         expected_doc_id=expected_doc_id,
         expected_doc_hash=expected_doc_hash,
@@ -149,7 +163,7 @@ def _passphrase_from_shard_frames(
     return recover_passphrase(share_list, verify_signatures=False)
 
 
-def _signing_seed_from_shard_frames(
+def signing_seed_from_shard_frames(
     frames: list[Frame],
     *,
     expected_doc_id: bytes | None,
@@ -157,7 +171,7 @@ def _signing_seed_from_shard_frames(
     expected_sign_pub: bytes | None,
     allow_unsigned: bool,
 ) -> bytes:
-    share_list = _validated_shard_payloads_from_frames(
+    share_list = validated_shard_payloads_from_frames(
         frames,
         expected_doc_id=expected_doc_id,
         expected_doc_hash=expected_doc_hash,
@@ -169,7 +183,7 @@ def _signing_seed_from_shard_frames(
     return recover_signing_seed(share_list, verify_signatures=False)
 
 
-def _validated_shard_payloads_from_frames(
+def validated_shard_payloads_from_frames(
     frames: list[Frame],
     *,
     expected_doc_id: bytes | None,
@@ -238,6 +252,7 @@ def _validated_shard_payloads_from_frames(
             threshold=threshold,
             provided_count=len(share_list),
             secret_label=secret_label,
+            share_count=share_total,
             shard_version=share_list[0].version,
         )
 

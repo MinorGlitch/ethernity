@@ -1,8 +1,16 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.4.8/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.4.11/schema.json",
   "files": {
     "ignoreUnknown": true,
-    "includes": ["app/**/*.js", "app/**/*.jsx", "lib/**/*.js", "tests/**/*.mjs", "build_kit.mjs"]
+    "includes": [
+      "app/**/*.js",
+      "app/**/*.jsx",
+      "lib/**/*.js",
+      "lib/**/*.mjs",
+      "scripts/**/*.mjs",
+      "tests/**/*.mjs",
+      "build_kit.mjs"
+    ]
   },
   "formatter": {
     "enabled": true,

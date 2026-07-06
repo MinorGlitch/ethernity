@@ -37,11 +37,15 @@ from ethernity.config.types import (
     BackupDefaults,
     CliDefaults,
     DebugDefaults,
+    ExtendDefaults,
+    ExtensionChunkingDefaults,
     RecoverDefaults,
     RuntimeDefaults,
     UiDefaults,
 )
+from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES
 from ethernity.encoding.chunking import DEFAULT_CHUNK_SIZE
+from ethernity.formats.extension_envelope import MIN_EXTENSION_CHUNK_SIZE
 from ethernity.qr.codec import QrConfig
 
 _T = TypeVar("_T")
@@ -96,6 +100,9 @@ def load_app_config(path: str | Path | None = None, *, paper_size: str | None = 
     qr_chunk_size = DEFAULT_CHUNK_SIZE if qr_chunk_size_value is None else qr_chunk_size_value
     if qr_chunk_size <= 0:
         raise ValueError("qr.chunk_size must be a positive integer")
+    extension_chunking = _parse_extension_chunking_defaults(
+        _get_nested_dict(data, "extension", "chunking")
+    )
     return AppConfig(
         template_path=template_path,
         recovery_template_path=recovery_path,
@@ -105,6 +112,7 @@ def load_app_config(path: str | Path | None = None, *, paper_size: str | None = 
         paper_size=resolved_paper_size,
         qr_config=qr_config,
         qr_chunk_size=qr_chunk_size,
+        extension_chunking=extension_chunking,
         cli_defaults=cli_defaults,
     )
 
@@ -160,6 +168,7 @@ def _parse_cli_defaults(data: dict[str, object]) -> CliDefaults:
     return CliDefaults(
         backup=_parse_backup_defaults(_get_nested_dict(data, "defaults", "backup")),
         recover=_parse_recover_defaults(_get_nested_dict(data, "defaults", "recover")),
+        extend=_parse_extend_defaults(_get_nested_dict(data, "defaults", "extend")),
         ui=_parse_ui_defaults(_get_dict(data, "ui")),
         debug=_parse_debug_defaults(_get_dict(data, "debug")),
         runtime=_parse_runtime_defaults(_get_dict(data, "runtime")),
@@ -213,6 +222,80 @@ def _parse_recover_defaults(cfg: dict[str, object]) -> RecoverDefaults:
     )
 
 
+def _parse_extend_defaults(cfg: dict[str, object]) -> ExtendDefaults:
+    """Parse `[defaults.extend]` values."""
+
+    defaults = ExtendDefaults(
+        base_dir=_parse_optional_unset_str(cfg.get("base_dir"), field="defaults.extend.base_dir"),
+        unlock_policy=_parse_optional_extension_unlock_policy(
+            cfg.get("unlock_policy"),
+            field="defaults.extend.unlock_policy",
+        ),
+        shard_threshold=_parse_optional_positive_int_or_unset_zero(
+            cfg.get("shard_threshold"),
+            field="defaults.extend.shard_threshold",
+        ),
+        shard_count=_parse_optional_positive_int_or_unset_zero(
+            cfg.get("shard_count"),
+            field="defaults.extend.shard_count",
+        ),
+        signing_key_mode=_parse_optional_extension_signing_key_mode(
+            cfg.get("signing_key_mode"),
+            field="defaults.extend.signing_key_mode",
+        ),
+        signing_key_shard_threshold=_parse_optional_positive_int_or_unset_zero(
+            cfg.get("signing_key_shard_threshold"),
+            field="defaults.extend.signing_key_shard_threshold",
+        ),
+        signing_key_shard_count=_parse_optional_positive_int_or_unset_zero(
+            cfg.get("signing_key_shard_count"),
+            field="defaults.extend.signing_key_shard_count",
+        ),
+        qr_payload_codec=_parse_required_qr_payload_codec(
+            cfg.get("qr_payload_codec", "raw"),
+            field="defaults.extend.qr_payload_codec",
+        ),
+    )
+    _validate_extend_defaults(defaults)
+    return defaults
+
+
+def _validate_extend_defaults(defaults: ExtendDefaults) -> None:
+    """Validate cross-field extension default constraints."""
+
+    if (defaults.shard_threshold is None) != (defaults.shard_count is None):
+        raise ValueError("defaults.extend.shard_threshold and shard_count must be set together")
+    if (
+        defaults.shard_threshold is not None
+        and defaults.shard_count is not None
+        and defaults.shard_count < defaults.shard_threshold
+    ):
+        raise ValueError("defaults.extend.shard_count must be >= shard_threshold")
+    if defaults.unlock_policy == "reuse-root" and (
+        defaults.shard_threshold is not None or defaults.shard_count is not None
+    ):
+        raise ValueError("defaults.extend.unlock_policy='reuse-root' cannot set extension shards")
+
+    signing_threshold = defaults.signing_key_shard_threshold
+    signing_count = defaults.signing_key_shard_count
+    if (signing_threshold is None) != (signing_count is None):
+        raise ValueError(
+            "defaults.extend.signing_key_shard_threshold and signing_key_shard_count "
+            "must be set together"
+        )
+    if signing_threshold is not None or signing_count is not None:
+        if defaults.signing_key_mode != "sharded":
+            raise ValueError(
+                "defaults.extend.signing_key_shard_threshold and signing_key_shard_count "
+                "require signing_key_mode='sharded'"
+            )
+        if signing_threshold is not None and signing_count is not None:
+            if signing_count < signing_threshold:
+                raise ValueError(
+                    "defaults.extend.signing_key_shard_count must be >= signing_key_shard_threshold"
+                )
+
+
 def _parse_ui_defaults(cfg: dict[str, object]) -> UiDefaults:
     """Parse `[ui]` default flags."""
 
@@ -247,6 +330,52 @@ def _parse_runtime_defaults(cfg: dict[str, object]) -> RuntimeDefaults:
             field="runtime.render_jobs",
         ),
     )
+
+
+def _parse_extension_chunking_defaults(cfg: dict[str, object]) -> ExtensionChunkingDefaults:
+    target_size = _parse_optional_strict_positive_int(
+        cfg.get("target_size"),
+        field="extension.chunking.target_size",
+    )
+    min_size = _parse_optional_strict_positive_int(
+        cfg.get("min_size"),
+        field="extension.chunking.min_size",
+    )
+    max_size = _parse_optional_strict_positive_int(
+        cfg.get("max_size"),
+        field="extension.chunking.max_size",
+    )
+    defaults = ExtensionChunkingDefaults()
+    chunking = ExtensionChunkingDefaults(
+        target_size=defaults.target_size if target_size is None else target_size,
+        min_size=defaults.min_size if min_size is None else min_size,
+        max_size=defaults.max_size if max_size is None else max_size,
+    )
+    if chunking.target_size <= 0:
+        raise ValueError("extension.chunking.target_size must be a positive integer")
+    if chunking.min_size <= 0:
+        raise ValueError("extension.chunking.min_size must be a positive integer")
+    if chunking.max_size <= 0:
+        raise ValueError("extension.chunking.max_size must be a positive integer")
+    for field, value in (
+        ("target_size", chunking.target_size),
+        ("min_size", chunking.min_size),
+        ("max_size", chunking.max_size),
+    ):
+        _validate_extension_chunking_size(field=field, value=value)
+    if not chunking.min_size <= chunking.target_size <= chunking.max_size:
+        raise ValueError(
+            "extension.chunking sizes must satisfy min_size <= target_size <= max_size"
+        )
+    return chunking
+
+
+def _validate_extension_chunking_size(*, field: str, value: int) -> None:
+    label = f"extension.chunking.{field}"
+    if value < MIN_EXTENSION_CHUNK_SIZE:
+        raise ValueError(f"{label} must be >= {MIN_EXTENSION_CHUNK_SIZE}")
+    if value > MAX_DECOMPRESSED_PAYLOAD_BYTES:
+        raise ValueError(f"{label} must be <= MAX_DECOMPRESSED_PAYLOAD_BYTES")
 
 
 def _resolve_default_template_design_path(cfg: dict[str, object]) -> Path | None:
@@ -394,6 +523,44 @@ def _parse_optional_signing_key_mode(
     return cast(Literal["embedded", "sharded"], normalized)
 
 
+def _parse_optional_extension_unlock_policy(
+    value: object,
+    *,
+    field: str,
+) -> Literal["self-contained", "reuse-root"] | None:
+    """Parse the optional extension unlock policy."""
+
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be 'self-contained', 'reuse-root', or empty")
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+    if normalized not in {"self-contained", "reuse-root"}:
+        raise ValueError(f"{field} must be 'self-contained', 'reuse-root', or empty")
+    return cast(Literal["self-contained", "reuse-root"], normalized)
+
+
+def _parse_optional_extension_signing_key_mode(
+    value: object,
+    *,
+    field: str,
+) -> Literal["not-stored", "sharded"] | None:
+    """Parse the optional extension signing-key storage mode."""
+
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be 'not-stored', 'sharded', or empty")
+    normalized = value.strip().lower()
+    if not normalized:
+        return None
+    if normalized not in {"not-stored", "sharded"}:
+        raise ValueError(f"{field} must be 'not-stored', 'sharded', or empty")
+    return cast(Literal["not-stored", "sharded"], normalized)
+
+
 def _parse_payload_codec(
     value: object,
     *,
@@ -466,6 +633,18 @@ def _parse_optional_render_jobs(
     if parsed <= 0:
         raise ValueError(f"{field} must be 'auto' or a positive integer")
     return parsed
+
+
+def _parse_optional_strict_positive_int(value: object, *, field: str) -> int | None:
+    """Parse an optional positive TOML integer without scalar coercion."""
+
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{field} must be a positive integer")
+    if value <= 0:
+        raise ValueError(f"{field} must be a positive integer")
+    return value
 
 
 def _parse_int_strict(value: object, *, field: str) -> int:

@@ -60,19 +60,24 @@ def render_html_to_pdf(
     *,
     resources: Mapping[str, tuple[str, bytes]] | None = None,
 ) -> None:
-    """Render HTML to PDF, optionally serving in-memory resources via route hooks."""
+    """Render HTML to PDF while denying all non-allowlisted resource requests."""
 
     output_path = Path(output_path)
+    resource_map = resources or {}
+    blocked_urls: list[str] = []
     browser = _get_browser()
     page = browser.new_page()
     try:
-        if resources:
-            page.route(
-                "https://ethernity.local/**",
-                lambda route, request: _route_resource(route, request, resources),
-            )
+        page.route(
+            "**/*",
+            lambda route, request: _route_resource(route, request, resource_map, blocked_urls),
+        )
         page.set_content(html, wait_until="networkidle")
         page.emulate_media(media="print")
+        if blocked_urls:
+            raise RuntimeError(
+                f"HTML-to-PDF rendering blocked external resource request: {blocked_urls[0]}"
+            )
         page.pdf(
             path=str(output_path),
             print_background=True,
@@ -83,12 +88,18 @@ def render_html_to_pdf(
         page.close()
 
 
-def _route_resource(route, request, resources: Mapping[str, tuple[str, bytes]]) -> None:
-    """Serve an in-memory resource for a Playwright request or return 404."""
+def _route_resource(
+    route,
+    request,
+    resources: Mapping[str, tuple[str, bytes]],
+    blocked_urls: list[str],
+) -> None:
+    """Serve an exact in-memory resource match or block the request."""
 
     entry = resources.get(request.url)
     if entry is None:
-        route.fulfill(status=404, body=b"")
+        blocked_urls.append(request.url)
+        route.abort()
         return
     content_type, body = entry
     route.fulfill(

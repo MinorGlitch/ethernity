@@ -103,7 +103,7 @@ function main() {
   }
 
   process.stdout.write(
-    `parse vectors passed (${payloadCases.length + shardCases.length} case(s))\n`
+    `parse vectors passed (${payloadCases.length + shardCases.length} case(s))\n`,
   );
 }
 

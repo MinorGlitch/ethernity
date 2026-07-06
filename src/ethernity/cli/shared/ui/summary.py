@@ -31,6 +31,58 @@ from ethernity.cli.shared.ui import (
 from ethernity.core.models import DocumentPlan
 
 
+def _recover_target_rows(
+    *,
+    requested_extension_index: int | None,
+    requested_extension_doc_hash: str | None,
+    expected_head_doc_hash: str | None,
+    selected_extension_index: int | None,
+    selected_extension_doc_hash: str | None,
+) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    if requested_extension_index is None and requested_extension_doc_hash is None:
+        if selected_extension_index is not None:
+            rows.append(
+                (
+                    "Replay target",
+                    f"latest supplied authenticated extension {selected_extension_index}",
+                )
+            )
+            if selected_extension_doc_hash is not None:
+                rows.append(("Target doc hash", selected_extension_doc_hash))
+            rows.append(("Freshness scope", "supplied carriers only"))
+        if expected_head_doc_hash is not None:
+            rows.append(("Expected head", expected_head_doc_hash))
+        return rows
+    if requested_extension_index == 0:
+        rows.append(("Replay target", "explicit selection: root backup (extension 0)"))
+        if expected_head_doc_hash is not None:
+            rows.append(("Expected head", expected_head_doc_hash))
+        return rows
+
+    if selected_extension_index is not None:
+        rows.append(("Replay target", f"explicit selection: extension {selected_extension_index}"))
+    else:
+        rows.append(("Replay target", "explicit selection"))
+
+    target_doc_hash = selected_extension_doc_hash or requested_extension_doc_hash
+    if target_doc_hash is not None:
+        rows.append(("Target doc hash", target_doc_hash))
+    if expected_head_doc_hash is not None:
+        rows.append(("Expected head", expected_head_doc_hash))
+    rows.append(("Freshness scope", "supplied carriers only"))
+    return rows
+
+
+def _mint_target_rows(result: MintResult) -> list[tuple[str, str]]:
+    if result.selected_extension_index is None:
+        return [("Mint target", "root backup")]
+    rows = [("Mint target", f"extension {result.selected_extension_index}")]
+    if result.selected_extension_doc_hash is not None:
+        rows.append(("Target doc hash", result.selected_extension_doc_hash))
+    return rows
+
+
 def print_backup_summary(
     result: BackupResult,
     plan: DocumentPlan,
@@ -63,6 +115,11 @@ def print_recover_summary(
     auth_status: str | None,
     quiet: bool,
     single_entry_output_is_directory: bool = False,
+    requested_extension_index: int | None = None,
+    requested_extension_doc_hash: str | None = None,
+    expected_head_doc_hash: str | None = None,
+    selected_extension_index: int | None = None,
+    selected_extension_doc_hash: str | None = None,
 ) -> None:
     if quiet:
         return
@@ -75,6 +132,15 @@ def print_recover_summary(
         rows.append(("Output", "stdout"))
     if auth_status:
         rows.append(("Auth verification", auth_status))
+    rows.extend(
+        _recover_target_rows(
+            requested_extension_index=requested_extension_index,
+            requested_extension_doc_hash=requested_extension_doc_hash,
+            expected_head_doc_hash=expected_head_doc_hash,
+            selected_extension_index=selected_extension_index,
+            selected_extension_doc_hash=selected_extension_doc_hash,
+        )
+    )
     console_err.print(panel("Recovery summary", build_kv_table(rows)))
     tree = build_recovered_tree(
         entries,
@@ -102,6 +168,7 @@ def print_mint_summary(result: MintResult, *, quiet: bool) -> None:
                 [
                     ("Output", result.output_dir),
                     ("Signing authority", result.signing_key_source),
+                    *_mint_target_rows(result),
                 ]
             ),
         )
@@ -114,11 +181,11 @@ def format_auth_status(status: str, *, allow_unsigned: bool) -> str:
     if status == "verified":
         return "verified"
     if status == "skipped":
-        return "skipped (--rescue-mode)"
+        return "skipped (unsigned recovery)"
     if status == "ignored":
-        return "failed (ignored due to --rescue-mode)"
+        return "failed (ignored during unsigned recovery)"
     if status == "invalid":
-        return "invalid (ignored due to --rescue-mode)" if allow_unsigned else "invalid"
+        return "invalid (ignored during unsigned recovery)" if allow_unsigned else "invalid"
     if status == "missing":
-        return "skipped (--rescue-mode)" if allow_unsigned else "missing"
+        return "skipped (unsigned recovery)" if allow_unsigned else "missing"
     return status

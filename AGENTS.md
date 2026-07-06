@@ -59,11 +59,17 @@ conventions and a glob-based, working-tree inventory contract for contributors a
   characters outside the z-base-32 alphabet must be treated as invalid input (reject), not silently
   discarded.
 - Shard version typing: shard payload `version` validation must require a strict integer value
-  (`int == 1`); bool and non-integer numeric values are out of profile and must be rejected.
+  (`int == 1` legacy or `int == 2` current); bool and non-integer numeric values are out of
+  profile and must be rejected. Version 2 shards require `set_id`; version 1 shards remain
+  legacy-readable without `set_id`.
 - Format spec source of truth: `docs/format.md` is the only normative format specification.
 - Format rationale and operations: keep non-normative guidance in `docs/format_notes.md`.
 - Format change ledger: append each format-related delta to `docs/format_changes.md` with
   compatibility and version/profile bump rationale.
+- Format ledger discipline: before adding a new `docs/format_changes.md` entry, verify whether the
+  underlying behavior/spec rule already exists on the release base (for example `master` or the
+  merge-base). If the behavior was introduced only on the current unreleased branch, update the
+  existing branch entry that introduced it instead of adding a second changelog/ledger entry.
 - Format PR discipline: when normative format behavior changes, update spec + implementation + tests
   in the same change.
 
@@ -91,11 +97,13 @@ conventions and a glob-based, working-tree inventory contract for contributors a
   `src/ethernity/render/template_style.py`.
 - Supported capability keys in template style.json files:
   - `inject_forge_copy`
+  - `recovery_first_page_single_section`
   - `repeat_primary_qr_on_shard_continuation`
   - `advanced_fallback_layout`
   - `extra_main_first_page_qr_slot`
   - `uniform_main_qr_capacity`
   - `repeat_main_instructions_on_all_pages`
+  - `recovery_kit_index_document`
   - `main_qr_grid_size_mm`
   - `main_qr_grid_max_cols`
   - `fallback_layout` (requires `recovery`, `shard`, `signing_key_shard` geometry profiles)

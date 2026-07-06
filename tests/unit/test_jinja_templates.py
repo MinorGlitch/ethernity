@@ -24,6 +24,14 @@ from ethernity.render.templating import render_template
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _ETHERNITY_ROOT = _PROJECT_ROOT / "src" / "ethernity"
 _MAIN_SUBTITLE = "Passphrase-protected payload"
+_TEMPLATE_DOC_TYPES = {
+    "main_document.html.j2": "main",
+    "recovery_document.html.j2": "recovery",
+    "kit_document.html.j2": "kit",
+    "kit_index_document.html.j2": "kit_index",
+    "shard_document.html.j2": "shard",
+    "signing_key_shard_document.html.j2": "signing_key_shard",
+}
 
 
 def _page_base(*, page_num: int, page_label: str) -> dict[str, object]:
@@ -69,6 +77,7 @@ def _base_document_context() -> dict[str, object]:
         "doc_id": "deadbeef" * 4,
         "created_timestamp_utc": "2026-01-01 00:00 UTC",
         "ethernity_version": "0.2.2",
+        "lineage": {"kind": "root_backup", "extension_index": None},
         "doc": {"title": "Document", "subtitle": "Subtitle"},
         "instructions": {"label": "Instructions", "lines": ["Line 1", "Line 2"], "scan_hint": None},
         "keys": {"lines": []},
@@ -93,7 +102,10 @@ def _base_document_context() -> dict[str, object]:
 
 
 def _inject_copy(context: dict[str, object], *, template_name: str) -> None:
-    context["copy"] = build_copy_bundle(template_name=template_name, context=context)
+    context["copy"] = build_copy_bundle(
+        doc_type=_TEMPLATE_DOC_TYPES[template_name],
+        context=context,
+    )
 
 
 class TestJinjaTemplates(unittest.TestCase):
@@ -129,6 +141,123 @@ class TestJinjaTemplates(unittest.TestCase):
         rendered = render_template(template_path, context)
 
         self.assertGreaterEqual(rendered.count("Instructions"), 2)
+
+    def test_forge_main_template_shows_extension_classification(self) -> None:
+        template_path = (
+            _ETHERNITY_ROOT / "resources" / "templates" / "forge" / "main_document.html.j2"
+        )
+        context = _base_document_context()
+        context["lineage"] = {"kind": "extension", "extension_index": 2}
+        context["pages"] = [_page_with_qr(page_num=1, page_label="Page 1 / 1")]
+        _inject_copy(context, template_name="main_document.html.j2")
+        context["doc"] = {
+            "title": context["copy"]["title"],
+            "subtitle": context["copy"]["subtitle"],
+        }
+        context["instructions"] = {
+            "label": "Instructions",
+            "lines": ["A", "B"],
+            "scan_hint": "Start at the top-left and follow each row.",
+        }
+
+        rendered = render_template(template_path, context)
+
+        self.assertIn("Extension Main Document", rendered)
+        self.assertIn("Extension 02", rendered)
+
+    def test_archive_recovery_template_shows_checkpoint_badge(self) -> None:
+        template_path = (
+            _ETHERNITY_ROOT / "resources" / "templates" / "archive" / "recovery_document.html.j2"
+        )
+        context = _base_document_context()
+        context["lineage"] = {"kind": "compaction_checkpoint", "extension_index": None}
+        context["pages"] = [_page_base(page_num=1, page_label="Page 1 / 1")]
+        _inject_copy(context, template_name="recovery_document.html.j2")
+        context["doc"] = {
+            "title": context["copy"]["title"],
+            "subtitle": context["copy"]["subtitle"],
+        }
+        context["instructions"] = {
+            "label": "Instructions",
+            "lines": ["A", "B"],
+            "scan_hint": None,
+        }
+
+        rendered = render_template(template_path, context)
+
+        self.assertIn("Compaction Checkpoint", rendered)
+        self.assertIn("Recovery Document", rendered)
+
+    def test_forge_main_template_shows_compaction_checkpoint_classification(self) -> None:
+        template_path = (
+            _ETHERNITY_ROOT / "resources" / "templates" / "forge" / "main_document.html.j2"
+        )
+        context = _base_document_context()
+        context["lineage"] = {"kind": "compaction_checkpoint", "extension_index": None}
+        context["pages"] = [_page_with_qr(page_num=1, page_label="Page 1 / 1")]
+        _inject_copy(context, template_name="main_document.html.j2")
+        context["doc"] = {
+            "title": context["copy"]["title"],
+            "subtitle": context["copy"]["subtitle"],
+        }
+        context["instructions"] = {
+            "label": "Instructions",
+            "lines": ["A", "B"],
+            "scan_hint": "Start at the top-left and follow each row.",
+        }
+
+        rendered = render_template(template_path, context)
+
+        self.assertIn("Compaction Checkpoint Main Document", rendered)
+        self.assertIn("Compaction Checkpoint", rendered)
+
+    def test_archive_shard_template_shows_compaction_checkpoint_copy(self) -> None:
+        template_path = (
+            _ETHERNITY_ROOT / "resources" / "templates" / "archive" / "shard_document.html.j2"
+        )
+        context = _base_document_context()
+        context["lineage"] = {"kind": "compaction_checkpoint", "extension_index": None}
+        context["pages"] = [_page_with_qr(page_num=1, page_label="Page 1 / 1")]
+        _inject_copy(context, template_name="shard_document.html.j2")
+        context["doc"] = {
+            "title": context["copy"]["title"],
+            "subtitle": context["copy"]["subtitle"],
+        }
+        context["instructions"] = {
+            "label": "Instructions",
+            "lines": ["A", "B"],
+            "scan_hint": None,
+        }
+
+        rendered = render_template(template_path, context)
+
+        self.assertIn("Compaction Checkpoint", rendered)
+        self.assertIn("Shard", rendered)
+
+    def test_forge_kit_index_template_shows_compaction_checkpoint_copy(self) -> None:
+        template_path = (
+            _ETHERNITY_ROOT / "resources" / "templates" / "forge" / "kit_index_document.html.j2"
+        )
+        context = _base_document_context()
+        context["lineage"] = {"kind": "compaction_checkpoint", "extension_index": None}
+        context["pages"] = [_page_with_qr(page_num=1, page_label="Page 1 / 1")]
+        _inject_copy(context, template_name="kit_index_document.html.j2")
+        context["doc"] = {
+            "title": context["copy"]["title"],
+            "subtitle": context["copy"]["subtitle"],
+        }
+        context["inventory_rows"] = [
+            {
+                "component_id": "QR-01",
+                "detail": "QR document",
+                "status": "Generated",
+            }
+        ]
+
+        rendered = render_template(template_path, context)
+
+        self.assertIn("Compaction Checkpoint Recovery Kit Index", rendered)
+        self.assertIn("Compaction Checkpoint", rendered)
 
     def _render_sentinel_template(self, template_name: str) -> str:
         template_path = _ETHERNITY_ROOT / "resources" / "templates" / "sentinel" / template_name
@@ -218,7 +347,7 @@ class TestJinjaTemplates(unittest.TestCase):
             ]
             context["shard_threshold"] = 2
             context["doc"] = {
-                "title": "Signing Key Shard"
+                "title": "Signing Authority Shard"
                 if template_name == "signing_key_shard_document.html.j2"
                 else "Shard Document",
                 "subtitle": "Shard 1 of 3",
@@ -313,7 +442,7 @@ class TestJinjaTemplates(unittest.TestCase):
                 }
             ]
             context["doc"] = {
-                "title": "Signing Key Shard"
+                "title": "Signing Authority Shard"
                 if template_name == "signing_key_shard_document.html.j2"
                 else "Shard Document",
                 "subtitle": "Shard 1 of 3",
@@ -889,7 +1018,10 @@ class TestJinjaTemplates(unittest.TestCase):
             "recovery_document.html.j2": ("Recovery Document", "Keys + Text Fallback"),
             "kit_document.html.j2": ("Recovery Kit", "Offline HTML bundle"),
             "shard_document.html.j2": ("Shard Document", "Shard 1 of 3"),
-            "signing_key_shard_document.html.j2": ("Signing Key Shard", "Signing key shard 1 of 3"),
+            "signing_key_shard_document.html.j2": (
+                "Signing Authority Shard",
+                "Signing authority shard 1 of 3",
+            ),
             "kit_index_document.html.j2": ("Recovery Kit Index", "Inventory + Custody Log"),
         }
         renderers = (

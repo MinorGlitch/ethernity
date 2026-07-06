@@ -184,7 +184,7 @@
                   {% endif %}
                   {% for line in block.lines %}
                   <div class="sentinel-fallback-row grid grid-cols-[34px_1fr] gap-2 px-2 items-center border-b border-gray-200 text-[9px] font-mono" style="height: {{ '%.2f'|format(row_height_mm) }}mm">
-                    <span class="text-right pr-1 text-text-secondary-light">{{ '%02d' % (block.line_offset + loop.index) }}.</span>
+                    <span class="text-right pr-1 text-text-secondary-light select-none" aria-hidden="true">{{ '%02d' % (block.line_offset + loop.index) }}.</span>
                     <span class="sentinel-fallback-text fallback-payload tracking-normal whitespace-nowrap">{{ line }}</span>
                   </div>
                   {% set ns.used_rows = ns.used_rows + 1 %}
@@ -211,7 +211,7 @@
           <div class="px-4 pb-4 space-y-2">
             {% if recovery.quorum_value %}
             <div>
-              <p class="text-[10px] font-bold uppercase text-text-secondary-light mb-1">Shard Quorum</p>
+              <p class="text-[10px] font-bold uppercase text-text-secondary-light mb-1">{{ recovery.quorum_label | default('Shard Quorum') }}</p>
               <div class="border border-border-light p-2 font-mono text-xs bg-[#faf8f4]">{{ recovery.quorum_value }}</div>
             </div>
             {% endif %}
@@ -278,7 +278,7 @@
               {% endif %}
               {% for line in block.lines %}
               <div class="sentinel-fallback-row grid grid-cols-[30px_1fr_44px] gap-2 items-center" style="height: {{ '%.2f'|format(row_height_mm) }}mm">
-                <div class="font-mono text-[11px] font-bold text-text-secondary-light text-right pr-1">{{ '%02d' % (block.line_offset + loop.index) }}</div>
+                <div class="font-mono text-[11px] font-bold text-text-secondary-light text-right pr-1 select-none" aria-hidden="true">{{ '%02d' % (block.line_offset + loop.index) }}.</div>
                 <div class="fallback-payload border border-border-light bg-transparent px-2 flex items-center font-mono text-[9px] tracking-tight whitespace-nowrap" style="height: {{ '%.2f'|format(row_height_mm) }}mm"><span class="sentinel-fallback-text fallback-payload">{{ line }}</span></div>
                 <div class="border border-dashed border-border-light bg-[#faf8f4] flex items-center justify-center" style="height: {{ '%.2f'|format(row_height_mm) }}mm">
                   <span class="material-symbols-outlined text-gray-400 text-[14px]">check_circle</span>

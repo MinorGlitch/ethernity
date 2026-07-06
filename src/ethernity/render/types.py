@@ -30,6 +30,20 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
+class RenderLineage:
+    """Render-time lineage metadata for root, extension, compacted, mint, and kit artifacts."""
+
+    kind: Literal[
+        "root_backup",
+        "extension",
+        "compaction_checkpoint",
+        "minted_shard_set",
+        "recovery_kit",
+    ]
+    extension_index: int | None = None
+
+
+@dataclass(frozen=True)
 class FallbackSection:
     """A labeled frame included in fallback text sections."""
 
@@ -46,9 +60,9 @@ class RenderInputs:
     output_path: str | Path
     context: dict[str, object]
     doc_type: str
+    lineage: RenderLineage
     qr_config: QrConfig | None = None
     qr_payloads: Sequence[bytes | str] | None = None
-    fallback_payload: bytes | None = None
     fallback_sections: Sequence[FallbackSection] | None = None
     render_qr: bool = True
     render_fallback: bool = True
@@ -56,6 +70,50 @@ class RenderInputs:
     recovery_meta: "RecoveryMeta | None" = None
     render_jobs: int | Literal["auto"] | None = None
     layout_debug_json_path: str | Path | None = None
+
+    def __post_init__(self) -> None:
+        if self.lineage is None:
+            raise ValueError("render lineage is required")
+        if self.render_fallback and not self.fallback_sections:
+            raise ValueError("fallback_sections are required when render_fallback is enabled")
+
+
+@dataclass(frozen=True)
+class RenderFallbackProof:
+    """Structured proof that fallback section data was consumed by page assembly."""
+
+    section_frame_digests: tuple[str, ...]
+    section_titles: tuple[str, ...]
+    expected_section_count: int
+    emitted_block_count: int
+    emitted_line_count: int
+    consumed_section_count: int
+    fully_consumed: bool
+    emitted_fallback_lines: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RenderArtifactProof:
+    """Structured proof of what a render operation was asked to emit."""
+
+    output_path: str
+    doc_type: str
+    frame_digests: tuple[str, ...]
+    encoded_payload_count: int
+    physical_qr_count: int
+    page_count: int = 0
+    fallback_proof: RenderFallbackProof | None = None
+    qr_payload_digests: tuple[str, ...] = ()
+    physical_qr_payload_indexes: tuple[int, ...] = ()
+    physical_qr_payload_digests: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RenderResult:
+    """Structured render result used by callers that must validate emitted content."""
+
+    fallback_proof: RenderFallbackProof | None = None
+    artifact_proof: RenderArtifactProof | None = None
 
 
 @dataclass(frozen=True)

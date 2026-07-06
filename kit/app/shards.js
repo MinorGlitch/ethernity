@@ -18,7 +18,9 @@
 import { bytesToHex } from "../lib/encoding.js";
 import { recoverSecretFromShards } from "../lib/shamir.js";
 import { SHARD_KEY_PASSPHRASE, SHARD_KEY_SIGNING_SEED, textDecoder } from "./constants.js";
-import { ensureCiphertextAndHash } from "./frames_cipher.js";
+import { completeDocumentRecords } from "./document_store.js";
+import { ensureCiphertextAndHash, ensureDocumentCiphertextAndHash } from "./frames_cipher.js";
+import { activateShardSet, shardSetRecords } from "./shard_store.js";
 import { setStatus } from "./state/initial.js";
 
 function setShardStatus(state, statusPrefix, line, type) {
@@ -27,10 +29,14 @@ function setShardStatus(state, statusPrefix, line, type) {
 }
 
 export function autoRecoverShardSecret(state, statusPrefix = []) {
-  if (!state.shardThreshold || state.shardFrames.size < state.shardThreshold) {
+  clearRecoveredShardSecret(state);
+  const candidates = recoveryCandidates(state);
+  if (!candidates.length) {
     return false;
   }
-  if (!state.shardDocHashHex) {
+  const missingHash = candidates.find(({ record }) => !record.docHashHex);
+  if (missingHash) {
+    activateShardSet(state, missingHash.key);
     setShardStatus(
       state,
       statusPrefix,
@@ -40,14 +46,14 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     return false;
   }
 
-  let cipherHash;
+  let documentBindings;
   try {
-    cipherHash = ensureCiphertextAndHash(state);
+    documentBindings = collectedDocumentBindings(state);
   } catch (err) {
     setShardStatus(state, statusPrefix, `Shard recovery blocked: ${String(err)}`, "error");
     return false;
   }
-  if (!cipherHash) {
+  if (!documentBindings.size) {
     setShardStatus(
       state,
       statusPrefix,
@@ -57,8 +63,14 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     return false;
   }
 
-  const cipherHashHex = bytesToHex(cipherHash);
-  if (cipherHashHex !== state.shardDocHashHex) {
+  const matchingCandidates = candidates
+    .map(({ key, record }) => ({
+      key,
+      record,
+      documentBinding: documentBindings.get(record.docHashHex) ?? null,
+    }))
+    .filter(({ documentBinding }) => documentBinding !== null);
+  if (!matchingCandidates.length) {
     setShardStatus(
       state,
       statusPrefix,
@@ -68,13 +80,72 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     return false;
   }
 
+  const authorityCompatibleCandidates = matchingCandidates.filter(
+    ({ record, documentBinding }) =>
+      !documentBinding.authSignPubHex || record.signPubHex === documentBinding.authSignPubHex,
+  );
+  if (!authorityCompatibleCandidates.length) {
+    activateShardSet(state, matchingCandidates[0].key);
+    setShardStatus(
+      state,
+      statusPrefix,
+      "Shard recovery blocked: shard signing key does not match verified document AUTH.",
+      "error",
+    );
+    return false;
+  }
+
+  const unambiguousCandidates = authorityCompatibleCandidates.filter(
+    ({ record }) => (record.conflicts ?? 0) === 0,
+  );
+  if (!unambiguousCandidates.length) {
+    activateShardSet(state, authorityCompatibleCandidates[0].key);
+    setShardStatus(
+      state,
+      statusPrefix,
+      "Shard recovery blocked: conflicting shard frames for the selected shard set.",
+      "error",
+    );
+    return false;
+  }
+
+  const docIdCompatibleCandidates = unambiguousCandidates.filter(
+    ({ record }) => !record.docIdHex || record.docIdHex === record.docHashHex.slice(0, 16),
+  );
+  if (!docIdCompatibleCandidates.length) {
+    activateShardSet(state, unambiguousCandidates[0].key);
+    setShardStatus(
+      state,
+      statusPrefix,
+      "Shard recovery blocked: shard frame doc_id does not match shard hash.",
+      "error",
+    );
+    return false;
+  }
+
+  const selected = selectRecoveryCandidate(docIdCompatibleCandidates);
+  activateShardSet(state, selected.key);
+  const { record } = selected;
+  const unverified = Array.from(record.shardFrames.values()).filter(
+    (payload) => payload.signatureVerified !== true,
+  );
+  if (unverified.length) {
+    setShardStatus(
+      state,
+      statusPrefix,
+      "Shard recovery blocked: verify shard signatures first.",
+      "warn",
+    );
+    return false;
+  }
+
   try {
-    const shares = Array.from(state.shardFrames.values());
+    const shares = Array.from(record.shardFrames.values());
     const secretBytes = recoverSecretFromShards(shares);
-    if (state.shardKeyType === SHARD_KEY_SIGNING_SEED) {
+    if (record.keyType === SHARD_KEY_SIGNING_SEED) {
       const recoveredHex = bytesToHex(secretBytes);
       state.recoveredShardSecret = recoveredHex;
-    } else if (state.shardKeyType === SHARD_KEY_PASSPHRASE) {
+    } else if (record.keyType === SHARD_KEY_PASSPHRASE) {
       const recoveredText = textDecoder.decode(secretBytes);
       state.recoveredShardSecret = recoveredText;
       if (!state.agePassphrase) {
@@ -89,4 +160,43 @@ export function autoRecoverShardSecret(state, statusPrefix = []) {
     return false;
   }
   return true;
+}
+
+function recoveryCandidates(state) {
+  return shardSetRecords(state).filter(
+    ({ record }) => record.threshold && record.shardFrames.size >= record.threshold,
+  );
+}
+
+function collectedDocumentBindings(state) {
+  if (!state.documents?.size) {
+    const cipherHash = ensureCiphertextAndHash(state);
+    return cipherHash
+      ? new Map([[bytesToHex(cipherHash), { authSignPubHex: verifiedAuthSignPubHex(state) }]])
+      : new Map();
+  }
+  const hashes = new Map();
+  for (const record of completeDocumentRecords(state)) {
+    const hash = ensureDocumentCiphertextAndHash(record);
+    if (hash) {
+      hashes.set(bytesToHex(hash), { authSignPubHex: verifiedAuthSignPubHex(record) });
+    }
+  }
+  return hashes;
+}
+
+function verifiedAuthSignPubHex(record) {
+  return record.authStatus === "verified" && record.authSignPubHex ? record.authSignPubHex : null;
+}
+
+function selectRecoveryCandidate(candidates) {
+  return candidates.find(({ record }) => record.keyType === SHARD_KEY_PASSPHRASE) ?? candidates[0];
+}
+
+function clearRecoveredShardSecret(state) {
+  const previous = state.recoveredShardSecret;
+  state.recoveredShardSecret = "";
+  if (previous && state.agePassphrase === previous) {
+    state.agePassphrase = "";
+  }
 }

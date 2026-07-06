@@ -19,6 +19,7 @@ from ethernity.render.template_model import (
     DocModel,
     FallbackBlockModel,
     InstructionsModel,
+    LineageModel,
     PageModel,
     QrGridModel,
     QrItemModel,
@@ -41,6 +42,7 @@ class TestTemplateModel(unittest.TestCase):
             usable_width_mm=182.0,
             doc_id="deadbeef" * 4,
             created_timestamp_utc="2026-01-01 00:00 UTC",
+            lineage=LineageModel(kind="extension", extension_index=2),
             doc=DocModel(title="Recovery Document", subtitle="Keys + Text Fallback"),
             instructions=InstructionsModel(
                 label="Instructions",
@@ -109,6 +111,7 @@ class TestTemplateModel(unittest.TestCase):
                     "doc_id",
                     "fallback",
                     "instructions",
+                    "lineage",
                     "margin_mm",
                     "page_height_mm",
                     "page_size_css",
@@ -120,6 +123,8 @@ class TestTemplateModel(unittest.TestCase):
             ),
         )
         self.assertEqual(payload["doc"]["title"], "Recovery Document")
+        self.assertEqual(payload["lineage"]["kind"], "extension")
+        self.assertEqual(payload["lineage"]["extension_index"], 2)
         self.assertEqual(payload["instructions"]["lines"], ["A", "B"])
         self.assertEqual(payload["recovery"]["quorum_value"], "2 of 3")
         self.assertEqual(payload["recovery"]["signing_pub_lines"], ["abcd ef01"])

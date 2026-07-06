@@ -1,0 +1,121 @@
+{
+  "artifact_hashes": {
+    "chain/extensions/01/qr_document-01-d4531ebd499ce660.pdf": "8a577ea7e5bc49d3b6a6c84b166c5239858ada4ecb8259a3f93042ff48421f86",
+    "chain/extensions/01/recovery_document-01-d4531ebd499ce660.pdf": "cbda5dfc678c75429e22f5871db183eb1fbb86e4939888c4b38b7dda2dd747ef",
+    "chain/extensions/01/recovery_kit_index-01-d4531ebd499ce660.pdf": "ff0c26a07839e809a24ac0cbbadc13b4862123e63a8d69eace9238b1da88dfc7",
+    "chain/qr_document.pdf": "cedb35cfec0c88830c0dd50c0426ebae0f421c7647eb3e7b37fb33824055e99d",
+    "chain/recovery_document.pdf": "be4816c9bf887c0b172deb6093d93ffdd32d93b9a52734a3d27a6f50d2440abf",
+    "chain/recovery_kit_index.pdf": "cbbfc4b8d9de0330a8350f88b856fba398282d10f940de56d4eba447b950c9dc",
+    "chain_payloads.bin": "05b7d8e0cddd517702ae71e767d080ca7d847a155a75cd6f156e728d5c6d6855",
+    "chain_payloads.txt": "29448a379576fa602ad0311e7487441a69459f7e48e742e4c71dbbc9e052a907",
+    "extension_01_payloads.bin": "9a1c151d51664996c654af7a2c1a7b81594e5cac95b49658ad8fcd8ce82f8d3d",
+    "extension_01_payloads.txt": "252ef162dd1144f5f6dd16679ca33fc7e679b57abc66152611363bb62d157c82",
+    "root_payloads.bin": "4932c7b4b55d3fc4c7103440c36375c81926e88163ac43160f8b5d11e47dd841",
+    "root_payloads.txt": "3beb89d32036f5ae8b8ff4e6601f7ee45e601a31231ee27fc7e78039e38d75ca"
+  },
+  "chain_dir": "chain",
+  "checks": [
+    "gzip-coded root replay",
+    "gzip-coded extension chunks",
+    "replacement, inherited files, and empty files"
+  ],
+  "document_projection": [
+    {
+      "chunks": [
+        {
+          "chunk_id": "babbf29cc292fe9468e94c83e4fbfca1087188b2e60545f3c0c2bfcf7d26462b",
+          "codec": "gzip",
+          "decoded_sha256": "babbf29cc292fe9468e94c83e4fbfca1087188b2e60545f3c0c2bfcf7d26462b",
+          "raw_len": 24576,
+          "stored_len": 154
+        }
+      ],
+      "doc_hash": "d4531ebd499ce660b5a2841846fed12d73f59059a74b008f0f8508cc7de42959",
+      "doc_id": "d4531ebd499ce660",
+      "files": [
+        {
+          "path": "alpha.txt",
+          "sha256": "babbf29cc292fe9468e94c83e4fbfca1087188b2e60545f3c0c2bfcf7d26462b",
+          "size": 24576
+        },
+        {
+          "path": "new-empty.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        }
+      ],
+      "index": 1,
+      "kind": "extension",
+      "parent_doc_hash": "62ac576c1d4d1baa8ce0ef71379d19feb4cfff89006ce81976b4da22b9f0b63a",
+      "root_doc_hash": "62ac576c1d4d1baa8ce0ef71379d19feb4cfff89006ce81976b4da22b9f0b63a"
+    },
+    {
+      "doc_hash": "62ac576c1d4d1baa8ce0ef71379d19feb4cfff89006ce81976b4da22b9f0b63a",
+      "doc_id": "62ac576c1d4d1baa",
+      "files": [
+        {
+          "path": "alpha.txt",
+          "sha256": "6df48911c2f27792bfe360f9dee60f252ddc15af76c2863fdff2f855a1a01ec6",
+          "size": 18432
+        },
+        {
+          "path": "empty-at-root.txt",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "path": "nested/inherited.txt",
+          "sha256": "b96143bf3f9753d0029a5c294d2cfd087031e6e6c56b41f00f3c78985cd550bf",
+          "size": 20
+        }
+      ],
+      "kind": "root",
+      "payload_codec": "gzip",
+      "payload_raw_len": 18452,
+      "sealed": false
+    }
+  ],
+  "extension_doc_hashes": {
+    "extension_01": "d4531ebd499ce660b5a2841846fed12d73f59059a74b008f0f8508cc7de42959"
+  },
+  "passphrase": "stable-v1_2-extension-passphrase",
+  "payload_fixtures": {
+    "chain": {
+      "binary": "chain_payloads.bin",
+      "frame_count": 6,
+      "text": "chain_payloads.txt"
+    },
+    "extension_01": {
+      "binary": "extension_01_payloads.bin",
+      "frame_count": 3,
+      "text": "extension_01_payloads.txt"
+    },
+    "root": {
+      "binary": "root_payloads.bin",
+      "frame_count": 3,
+      "text": "root_payloads.txt"
+    }
+  },
+  "profile": "base64",
+  "qr_payload_codec": "base64",
+  "root_doc_hash": "62ac576c1d4d1baa8ce0ef71379d19feb4cfff89006ce81976b4da22b9f0b63a",
+  "scan_paths": [
+    "chain"
+  ],
+  "scenario_id": "gzip_replacement_chain",
+  "shard_fixtures": {},
+  "states": {
+    "extension_01": {
+      "alpha.txt": "babbf29cc292fe9468e94c83e4fbfca1087188b2e60545f3c0c2bfcf7d26462b",
+      "empty-at-root.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "nested/inherited.txt": "b96143bf3f9753d0029a5c294d2cfd087031e6e6c56b41f00f3c78985cd550bf",
+      "new-empty.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "root": {
+      "alpha.txt": "6df48911c2f27792bfe360f9dee60f252ddc15af76c2863fdff2f855a1a01ec6",
+      "empty-at-root.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "nested/inherited.txt": "b96143bf3f9753d0029a5c294d2cfd087031e6e6c56b41f00f3c78985cd550bf"
+    }
+  },
+  "version": "1.2.0"
+}

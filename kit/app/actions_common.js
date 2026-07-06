@@ -16,6 +16,8 @@
  */
 
 import { bumpError, cloneState, setStatus } from "./state/initial.js";
+import { cloneDocuments } from "./document_store.js";
+import { cloneShardFrames, cloneShardSets } from "./shard_store.js";
 
 export function dispatchState(dispatch, state) {
   dispatch({
@@ -28,8 +30,11 @@ export function dispatchState(dispatch, state) {
         }
         next[key] = state[key];
       }
+      next.documents = cloneDocuments(state.documents);
+      next.shardSets = cloneShardSets(state.shardSets);
+      next.activeShardSetKey = state.activeShardSetKey;
       next.mainFrames = new Map(state.mainFrames);
-      next.shardFrames = new Map(state.shardFrames);
+      next.shardFrames = clonedLegacyShardFrames(state, next.shardSets);
       next.extractedFiles = state.extractedFiles.slice();
       next.frameStatus = { ...state.frameStatus };
       next.shardStatus = { ...state.shardStatus };
@@ -58,18 +63,48 @@ export function cloneLatest(getState) {
 }
 
 export function copyAuthAndCipherFields(target, source) {
+  target.documents = cloneDocuments(source.documents);
+  target.primaryDocIdHex = source.primaryDocIdHex;
+  target.mainFrames = new Map(source.mainFrames);
+  target.total = source.total;
+  target.docIdHex = source.docIdHex;
+  target.authPayload = source.authPayload;
+  target.authDocIdHex = source.authDocIdHex;
+  target.authDocHashHex = source.authDocHashHex;
+  target.authSignPubHex = source.authSignPubHex;
+  target.authSignatureHex = source.authSignatureHex;
   target.authStatus = source.authStatus;
   target.ciphertext = source.ciphertext;
   target.cipherDocHashHex = source.cipherDocHashHex;
 }
 
 export function copyShardAsyncFields(target, source) {
-  target.shardFrames = new Map(source.shardFrames);
+  target.shardSets = cloneShardSets(source.shardSets);
+  target.activeShardSetKey = source.activeShardSetKey;
+  target.shardFrames = clonedLegacyShardFrames(source, target.shardSets);
+  target.shardDocIdHex = source.shardDocIdHex;
+  target.shardVersion = source.shardVersion;
+  target.shardDocHashHex = source.shardDocHashHex;
+  target.shardSignPubHex = source.shardSignPubHex;
+  target.shardSetIdHex = source.shardSetIdHex;
+  target.shardThreshold = source.shardThreshold;
+  target.shardShares = source.shardShares;
+  target.shardKeyType = source.shardKeyType;
+  target.shardSecretLen = source.shardSecretLen;
+  target.shardDuplicates = source.shardDuplicates;
+  target.shardConflicts = source.shardConflicts;
+  target.shardErrors = source.shardErrors;
   target.recoveredShardSecret = source.recoveredShardSecret;
   target.agePassphrase = source.agePassphrase;
   target.shardStatus = { ...source.shardStatus };
+  target.documents = cloneDocuments(source.documents);
   target.ciphertext = source.ciphertext;
   target.cipherDocHashHex = source.cipherDocHashHex;
+}
+
+function clonedLegacyShardFrames(source, clonedShardSets) {
+  const active = source.activeShardSetKey ? clonedShardSets.get(source.activeShardSetKey) : null;
+  return active ? active.shardFrames : cloneShardFrames(source.shardFrames);
 }
 
 export function setLineStatus(state, key, line, type = "") {
@@ -100,6 +135,21 @@ export function clearRecoveredOutput(state) {
 export function clearDecryptedEnvelope(state) {
   state.decryptedEnvelope = null;
   state.decryptedEnvelopeSource = "";
+}
+
+export function clearRecoveryResult(state) {
+  clearRecoveredOutput(state);
+  clearDecryptedEnvelope(state);
+  state.recoveryComplete = false;
+  setStatus(state, "decryptStatus", []);
+}
+
+export function cancelDecryptRequest(state) {
+  if (!state.isDecrypting) {
+    return;
+  }
+  state.isDecrypting = false;
+  state.decryptRequestId += 1;
 }
 
 export function applyExtractResult(state, result) {

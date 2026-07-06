@@ -27,7 +27,7 @@ class TestTemplateStyle(unittest.TestCase):
     def test_builtin_styles_match_expected_values(self) -> None:
         archive = load_template_style(_TEMPLATES_ROOT / "archive" / "recovery_document.html.j2")
         self.assertEqual(archive.name, "archive")
-        self.assertEqual(archive.capabilities.recovery_line_groups_bonus, 5)
+        self.assertEqual(archive.capabilities.recovery_line_groups_bonus, 0)
         self.assertEqual(archive.capabilities.recovery_first_page_bonus_lines, 13)
         self.assertEqual(
             archive.capabilities.recovery_first_page_bonus_lines_per_extra_section,
@@ -49,9 +49,11 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertFalse(ledger.capabilities.advanced_fallback_layout)
         self.assertFalse(ledger.capabilities.extra_main_first_page_qr_slot)
         self.assertFalse(ledger.capabilities.uniform_main_qr_capacity)
+        self.assertFalse(ledger.capabilities.recovery_kit_index_document)
         self.assertIsNone(ledger.capabilities.main_qr_grid_size_mm)
         self.assertIsNone(ledger.capabilities.main_qr_grid_max_cols)
         self.assertIsNone(ledger.capabilities.fallback_layout)
+        self.assertFalse(ledger.capabilities.recovery_first_page_single_section)
 
         maritime = load_template_style(_TEMPLATES_ROOT / "maritime" / "main_document.html.j2")
         self.assertEqual(maritime.name, "maritime")
@@ -61,6 +63,7 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertAlmostEqual(maritime.content_offset.divider_gap_extra_mm, -10.0)
         self.assertEqual(maritime.content_offset.doc_types, frozenset({"recovery"}))
         self.assertTrue(maritime.capabilities.repeat_main_instructions_on_all_pages)
+        self.assertFalse(maritime.capabilities.recovery_kit_index_document)
 
         forge = load_template_style(_TEMPLATES_ROOT / "forge" / "main_document.html.j2")
         self.assertEqual(forge.name, "forge")
@@ -70,9 +73,11 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertAlmostEqual(forge.content_offset.divider_gap_extra_mm, 0.0)
         self.assertEqual(forge.content_offset.doc_types, frozenset())
         self.assertTrue(forge.capabilities.inject_forge_copy)
+        self.assertTrue(forge.capabilities.recovery_first_page_single_section)
         self.assertTrue(forge.capabilities.repeat_primary_qr_on_shard_continuation)
         self.assertTrue(forge.capabilities.advanced_fallback_layout)
         self.assertFalse(forge.capabilities.uniform_main_qr_capacity)
+        self.assertTrue(forge.capabilities.recovery_kit_index_document)
         self.assertEqual(forge.capabilities.recovery_main_section_start_reserved_lines, 1)
         self.assertEqual(forge.capabilities.shard_first_page_estimate_bonus_lines, 1)
         self.assertEqual(forge.capabilities.shard_first_page_bonus_lines, 3)
@@ -84,6 +89,10 @@ class TestTemplateStyle(unittest.TestCase):
             self.assertAlmostEqual(
                 forge.capabilities.fallback_layout.recovery.line_height_floor_mm,
                 5.8,
+            )
+            self.assertAlmostEqual(
+                forge.capabilities.fallback_layout.recovery.continuation_footer_reserve_mm,
+                35.0,
             )
             self.assertAlmostEqual(
                 forge.capabilities.fallback_layout.shard.first_page_payload_zone_height_mm,
@@ -102,13 +111,15 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertAlmostEqual(sentinel.content_offset.divider_gap_extra_mm, 0.0)
         self.assertEqual(sentinel.content_offset.doc_types, frozenset())
         self.assertFalse(sentinel.capabilities.inject_forge_copy)
+        self.assertFalse(sentinel.capabilities.recovery_first_page_single_section)
         self.assertTrue(sentinel.capabilities.repeat_primary_qr_on_shard_continuation)
         self.assertTrue(sentinel.capabilities.advanced_fallback_layout)
         self.assertTrue(sentinel.capabilities.extra_main_first_page_qr_slot)
         self.assertFalse(sentinel.capabilities.uniform_main_qr_capacity)
+        self.assertTrue(sentinel.capabilities.recovery_kit_index_document)
         self.assertEqual(sentinel.capabilities.recovery_quorumless_line_groups_bonus, 1)
-        self.assertEqual(sentinel.capabilities.recovery_quorumless_first_page_bonus_lines, 5)
-        self.assertEqual(sentinel.capabilities.recovery_quorumless_continuation_bonus_lines, 2)
+        self.assertEqual(sentinel.capabilities.recovery_quorumless_first_page_bonus_lines, 0)
+        self.assertEqual(sentinel.capabilities.recovery_quorumless_continuation_bonus_lines, 0)
         self.assertEqual(sentinel.capabilities.signing_key_shard_line_groups_bonus, 3)
         self.assertIsNotNone(sentinel.capabilities.fallback_layout)
         if sentinel.capabilities.fallback_layout is not None:
@@ -147,11 +158,13 @@ class TestTemplateStyle(unittest.TestCase):
             (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
             style = load_template_style(template_dir / "main_document.html.j2")
             self.assertFalse(style.capabilities.inject_forge_copy)
+            self.assertFalse(style.capabilities.recovery_first_page_single_section)
             self.assertFalse(style.capabilities.repeat_primary_qr_on_shard_continuation)
             self.assertFalse(style.capabilities.advanced_fallback_layout)
             self.assertFalse(style.capabilities.extra_main_first_page_qr_slot)
             self.assertFalse(style.capabilities.uniform_main_qr_capacity)
             self.assertFalse(style.capabilities.repeat_main_instructions_on_all_pages)
+            self.assertFalse(style.capabilities.recovery_kit_index_document)
             self.assertIsNone(style.capabilities.main_qr_grid_size_mm)
             self.assertIsNone(style.capabilities.main_qr_grid_max_cols)
             self.assertIsNone(style.capabilities.fallback_layout)
@@ -224,6 +237,7 @@ class TestTemplateStyle(unittest.TestCase):
             self.assertTrue(style.capabilities.advanced_fallback_layout)
             self.assertFalse(style.capabilities.extra_main_first_page_qr_slot)
             self.assertFalse(style.capabilities.uniform_main_qr_capacity)
+            self.assertFalse(style.capabilities.recovery_kit_index_document)
             self.assertIsNone(style.capabilities.main_qr_grid_size_mm)
             self.assertIsNone(style.capabilities.main_qr_grid_max_cols)
             self.assertIsNotNone(style.capabilities.fallback_layout)

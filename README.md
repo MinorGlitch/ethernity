@@ -11,164 +11,40 @@
   <img src="images/readme_logo.png" alt="Ethernity logo" width="320">
   <h1 align="center">Ethernity</h1>
   <p align="center">
-    Secure, offline-recoverable backups with printable QR documents and a browser recovery kit.
+    Encrypted paper backups for small, high-value files.
     <br />
-    <a href="docs/format.md"><strong>Format spec</strong></a>
+    <a href="https://github.com/MinorGlitch/ethernity/wiki/Getting-Started"><strong>Getting Started</strong></a>
     &middot;
-    <a href="docs/format_notes.md"><strong>Format notes</strong></a>
+    <a href="https://github.com/MinorGlitch/ethernity/wiki/Backup-Workflow"><strong>Backup Workflow</strong></a>
     &middot;
-    <a href="docs/format_changes.md"><strong>Format changes</strong></a>
+    <a href="https://github.com/MinorGlitch/ethernity/wiki/Recovery-Workflow"><strong>Recovery Workflow</strong></a>
     &middot;
-    <a href="SECURITY.md"><strong>Security policy</strong></a>
-    <br />
-    <a href="https://github.com/MinorGlitch/ethernity/issues">Issues</a>
+    <a href="docs/format.md"><strong>Format Spec</strong></a>
     &middot;
-    <a href="https://github.com/MinorGlitch/ethernity/issues/new?labels=bug">Report Bug</a>
-    &middot;
-    <a href="https://github.com/MinorGlitch/ethernity/issues/new?labels=enhancement">Request Feature</a>
+    <a href="SECURITY.md"><strong>Security Policy</strong></a>
   </p>
 </div>
 
-## Table of Contents
+## What It Does
 
-- [Status](#status)
-- [What Is Ethernity?](#what-is-ethernity)
-- [What Ethernity Supports](#what-ethernity-supports)
-- [How Much Data Can I Store? (Quick Guide)](#how-much-data-can-i-store-quick-guide)
-- [Who It's For / Not For](#who-its-for--not-for)
-- [Document Previews](#document-previews)
-- [Quick Start](#quick-start)
-- [First Backup](#first-backup)
-- [First Recovery](#first-recovery)
-- [Troubleshooting (Quick Fixes)](#troubleshooting-quick-fixes)
-- [Workflow Playbooks](#workflow-playbooks)
-- [Security at a Glance](#security-at-a-glance)
-- [How Recovery Inputs Work](#how-recovery-inputs-work)
-- [Command Cheatsheet](#command-cheatsheet)
-- [Release Artifacts](#release-artifacts)
-- [Development Quickstart](#development-quickstart)
-- [Contributing](#contributing)
-- [Credits](#credits)
-- [Star History](#star-history)
-- [License](#license)
+Ethernity turns a small file or directory into encrypted recovery documents you can print, store,
+scan, and recover without network access.
 
-## Status
+A backup can include:
 
-- Good news: Ethernity is now stable.
-- Backups and recovery artifacts follow the baseline in `docs/format.md`.
-- Future stable releases guarantee backward compatibility for existing backups and recovery
-  artifacts.
-- Please still treat Ethernity as one layer in your strategy: run recovery drills and keep an
-  independent backup.
+- `qr_document.pdf`: QR codes for machine recovery
+- `recovery_document.pdf`: fallback text for manual recovery
+- passphrase shard PDFs for quorum recovery
+- signing-key shard PDFs for extension and mint workflows
+- a browser recovery kit QR document
 
-## What Is Ethernity?
+Use Ethernity for seed phrases, small key bundles, critical config files, and recovery packets that
+need a paper path. Use a normal backup system for large archives, sync, and frequent background
+snapshots.
 
-Ethernity is a Python CLI that turns sensitive files into encrypted, printable recovery artifacts.
-The output combines machine-readable QR payloads with human-readable fallback text,
-so you can recover data offline even if scanning fails.
+## Install
 
-A bundled browser recovery kit can reconstruct and decrypt backups locally,
-without calling cloud services or online APIs.
-This is designed for high-friction, low-dependency recovery scenarios where physical media matters.
-
-Ethernity is opinionated around verifiability:
-formats are documented, payload structures are explicit, and release artifacts include provenance material.
-
-## What Ethernity Supports
-
-Core capabilities you can rely on today:
-
-- **Backup workflows**
-  - encrypt single files or directory inputs into recovery artifacts
-  - produce printable QR and recovery documents for offline custody
-  - support manifest payload codecs `raw` and `gzip`
-  - optional passphrase sharding with configurable threshold/quorum
-  - optional signing-key sharding with independent threshold/quorum controls
-- **Recovery workflows**
-  - recover from scanned artifacts (`--scan` supports image, PDF, or directory sources)
-  - recover from fallback text (`--fallback-file`) when scan quality is poor
-  - recover from exported QR payload text (`--payloads-file`)
-  - decode QR transport payloads in raw bytes (binary) or unpadded base64 mode
-  - include shard/auth inputs via fallback text files, payload files, or shard directories
-- **Recovery kit workflows**
-  - generate recovery-kit PDF output from the CLI (`ethernity kit`)
-  - use bundled browser recovery kits (lean and scanner variants) for local reconstruction/decryption
-- **Operational controls**
-  - supported template designs (`archive`, `forge`, `ledger`, `maritime`, `sentinel`)
-  - A4/Letter paper targeting and deterministic render layout
-  - documented format baseline and release-provenance verification guidance
-
-## How Much Data Can I Store? (Quick Guide)
-
-Most templates use a 3x4 first-page grid (11 MAIN + 1 AUTH).
-**One-page only:** this section describes first-page fit, not total backup capacity.
-
-Baseline one-page capacity at defaults (`error = M`, QR transport `raw`):
-
-| Preferred chunk size | One-page baseline capacity (incompressible profile) |
-| --- | --- |
-| 768 B | 8,063 B (7.87 KiB) |
-| 1,536 B | 16,510 B (16.12 KiB) |
-
-Advanced combinations with fixed QR version (`version = 33`, auto-scaling disabled):
-
-This comparison isolates `raw` vs `base64` QR transport impact with QR error correction `M`.
-All rows below use payload codec `gzip`.
-
-| Preferred chunk size | QR transport codec | Max original input (incompressible profile) | Max original input (moderately compressible JSON-like profile) |
-| --- | --- | --- | --- |
-| 768 B | raw | 8,020 B (7.83 KiB) | 73,624 B (71.90 KiB) |
-| 768 B | base64 | 8,020 B (7.83 KiB) | 73,624 B (71.90 KiB) |
-| 1,536 B | raw | 16,462 B (16.08 KiB) | 152,798 B (149.22 KiB) |
-| 1,536 B | base64 | 12,783 B (12.48 KiB) | 118,198 B (115.43 KiB) |
-
-If you raise QR error correction to `Q` or `H`, one-page capacity drops further.
-The JSON-like profile is a practical middle ground; highly repetitive synthetic text can compress much
-more, while incompressible binary data compresses little or not at all.
-
-## Who It's For / Not For
-
-Ethernity is a good fit if you need:
-
-- offline-capable secret recovery workflows
-- printable artifacts for long-term or distributed physical custody
-- threshold-shared recovery for multi-party control
-- auditable data handling steps instead of black-box cloud backup behavior
-
-Ethernity is usually not a good fit if you need:
-
-- always-on background synchronization
-- turnkey, no-maintenance backup infrastructure
-- centralized managed recovery operated by a third-party service
-
-## Document Previews
-
-Rendered examples from the Sentinel design on A4 paper.
-These are first-page previews of the generated PDFs.
-
-<p align="center">
-  <img src="images/readme/sentinel_main_preview.png" alt="Sentinel main document preview (first page)" width="24%">
-  <img src="images/readme/sentinel_shard_preview.png" alt="Sentinel shard document preview (first page)" width="24%">
-  <img src="images/readme/sentinel_kit_preview.png" alt="Sentinel recovery kit preview (first page)" width="24%">
-  <img src="images/readme/sentinel_fallback_preview.png" alt="Sentinel fallback document preview (first page)" width="24%">
-</p>
-
-Classic template previews (Maritime):
-
-<p align="center">
-  <img src="images/readme/maritime_main_preview.png" alt="Maritime main document preview (first page)" width="24%">
-  <img src="images/readme/maritime_shard_preview.png" alt="Maritime shard document preview (first page)" width="24%">
-  <img src="images/readme/maritime_kit_preview.png" alt="Maritime recovery kit preview (first page)" width="24%">
-  <img src="images/readme/maritime_fallback_preview.png" alt="Maritime fallback document preview (first page)" width="24%">
-</p>
-
-## Quick Start
-
-Fastest path: install, run one backup, run one recovery, then confirm outputs match.
-
-### 1) macOS and Linux
-
-Homebrew works on both macOS and Linux and is the easiest place to start:
+macOS and Linux:
 
 ```sh
 brew tap minorglitch/tap
@@ -176,17 +52,14 @@ brew install ethernity
 ethernity --help
 ```
 
-If you prefer a Python-managed install, `pipx` also works on both macOS and Linux:
+Python-managed install:
 
 ```sh
 pipx install ethernity-paper
 ethernity --help
 ```
 
-### 2) Windows
-
-Use the PowerShell installer. It resolves the latest Windows release, downloads it, installs it
-into your user profile, and updates your user `PATH`.
+Windows PowerShell:
 
 ```powershell
 $ProgressPreference = 'SilentlyContinue'
@@ -195,233 +68,218 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 ethernity --help
 ```
 
-For manual signed artifact downloads and verification, use
-[Wiki: Release Artifacts](https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts).
+Verify release archives with [Release Artifacts](https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts)
+before you run a downloaded binary.
 
-### 3) Alternative: Install via pip
+## First Drill
 
-Use this when you want Ethernity inside an existing Python environment.
-
-`pip` is acceptable inside an existing Python environment:
+Run this with test data before you protect anything real:
 
 ```sh
-pip install ethernity-paper
-ethernity --help
+printf "ethernity test payload\n" > payload.txt
+
+ethernity backup \
+  --input ./payload.txt \
+  --output-dir ./backup-demo \
+  --passphrase "ethernity test passphrase"
+
+ethernity recover \
+  --scan ./backup-demo \
+  --passphrase "ethernity test passphrase" \
+  --output ./restored.txt
+
+cmp ./payload.txt ./restored.txt
 ```
 
-### 4) Install from Source (Development or Audit)
+`cmp` prints nothing when the restored file matches. On Windows, use:
+
+```powershell
+fc.exe /b .\payload.txt .\restored.txt
+```
+
+## Pick A Workflow
+
+| Need | Command | Result |
+| --- | --- | --- |
+| Create a backup set | `backup` | writes QR, fallback, and optional shard PDFs |
+| Restore data | `recover` | restores from scans, payload text, or fallback text |
+| Add changes to an unsealed backup | `extend` | writes a new generation under `extensions/` |
+| Flatten root plus extensions | `compact` | writes a fresh standalone backup |
+| Issue new shard PDFs | `mint` | writes replacement or fresh shard documents |
+| Print the browser recovery kit | `kit` | writes a QR PDF for the offline kit |
+
+Other useful commands:
 
 ```sh
-git clone https://github.com/MinorGlitch/ethernity.git
-cd ethernity
-uv sync --extra dev --extra build
-uv run ethernity --help
+ethernity config --onboard
+ethernity render envelope-c6 --format pdf --output ./envelope_c6.pdf
+ethernity api inspect recover --scan ./backup-demo --passphrase "ethernity test passphrase"
 ```
 
-### First Backup
+Use `ethernity <command> --help` for flags.
 
-Create a backup:
+## When Files Change
+
+Create the root backup once:
 
 ```sh
-ethernity backup --input ./secrets.txt --output-dir ./backup-demo
+ethernity backup \
+  --input-dir ./docs \
+  --output-dir ./backup-root \
+  --passphrase "example passphrase"
 ```
 
-Common outputs:
-
-| File | Purpose |
-| --- | --- |
-| `qr_document.pdf` | primary scan source for payload recovery |
-| `recovery_document.pdf` | fallback text and metadata recovery path |
-| `shard-*-N-of-K.pdf` (optional) | threshold shard artifacts when sharding enabled |
-| `signing-key-shard-*-N-of-K.pdf` (optional) | separate signing-key shard artifacts |
-
-### First Recovery
-
-Recover from scans:
+Preview an extension:
 
 ```sh
-ethernity recover --scan ./backup-demo --output ./restored.bin
+ethernity extend \
+  --root-dir ./backup-root \
+  --input-dir ./docs \
+  --base-dir ./docs \
+  --passphrase "example passphrase" \
+  --dry-run
 ```
 
-For fallback-text and shard-driven recovery paths, use playbooks C and D below.
+Publish the extension:
 
-### Generate Recovery Kit
+```sh
+ethernity extend \
+  --root-dir ./backup-root \
+  --input-dir ./docs \
+  --base-dir ./docs \
+  --passphrase "example passphrase" \
+  --shard-count 0
+```
+
+`extend` needs an explicit recovery policy. Choose extension shards with
+`--shard-threshold N --shard-count K`, reuse root shards with `--unlock-policy reuse-root`, or use
+`--shard-count 0` when your policy allows plaintext passphrase fallback text.
+
+Recover the latest state:
+
+```sh
+ethernity recover \
+  --scan ./backup-root \
+  --passphrase "example passphrase" \
+  --output ./restored-docs
+```
+
+Compact the chain when you want a new standalone set:
+
+```sh
+ethernity compact \
+  --root-dir ./backup-root \
+  --output-dir ./backup-compacted \
+  --passphrase "example passphrase"
+```
+
+For the full operator flow, read
+[Extension Workflow](https://github.com/MinorGlitch/ethernity/wiki/Extension-Workflow).
+
+## Custody Basics
+
+- Start with test data.
+- Store QR documents, recovery documents, and shards in separate places.
+- Keep one independent backup path outside Ethernity.
+- Test the minimum shard quorum during recovery drills.
+- Run a recovery drill before you trust a procedure.
+
+Ethernity gives you recoverable artifacts. Your custody plan protects the passphrase, printed
+pages, shard holders, and recovery environment.
+
+## Recovery Kit
+
+The browser recovery kit gives you an offline HTML recovery surface.
 
 ```sh
 ethernity kit --output ./recovery_kit_qr.pdf
+ethernity kit --variant scanner --output ./recovery_kit_scanner_qr.pdf
 ```
 
-### Quick End-to-End Verification
+Use the default kit for file and paste workflows. Use the scanner variant when the browser should
+handle camera input.
 
-```sh
-# 1) Create sample input
-printf '{"vault":"demo"}\n' > vault-export.json
+## Document Preview
 
-# 2) Backup
-ethernity backup --input ./vault-export.json --output-dir ./demo-backup
+Sentinel preview pages from the generated PDF set:
 
-# 3) Recover from scans
-ethernity recover --scan ./demo-backup --output ./vault-export.recovered.json
+<p align="center">
+  <img src="images/readme/sentinel_main_preview.png" alt="Sentinel main document preview" width="24%">
+  <img src="images/readme/sentinel_shard_preview.png" alt="Sentinel shard document preview" width="24%">
+  <img src="images/readme/sentinel_kit_preview.png" alt="Sentinel recovery kit preview" width="24%">
+  <img src="images/readme/sentinel_fallback_preview.png" alt="Sentinel fallback document preview" width="24%">
+</p>
 
-# 4) Validate payload equality (macOS/Linux)
-cmp ./vault-export.json ./vault-export.recovered.json
-```
+Supported designs: `archive`, `forge`, `ledger`, `maritime`, `sentinel`.
 
-```powershell
-# 4) Validate payload equality (Windows PowerShell)
-fc.exe /b .\vault-export.json .\vault-export.recovered.json
-```
+Use [Template Gallery](https://github.com/MinorGlitch/ethernity/wiki/Template-Gallery) to compare
+them.
 
-Expected result: `cmp` (or `fc /b`) reports no differences and recovered JSON is byte-identical.
+## Docs
 
-## Troubleshooting (Quick Fixes)
+Operator guides:
 
-Use the wiki troubleshooting guide for onboarding and recovery issues:
-- [Wiki: Troubleshooting](https://github.com/MinorGlitch/ethernity/wiki/Troubleshooting)
+- [Getting Started](https://github.com/MinorGlitch/ethernity/wiki/Getting-Started)
+- [Backup Workflow](https://github.com/MinorGlitch/ethernity/wiki/Backup-Workflow)
+- [Extension Workflow](https://github.com/MinorGlitch/ethernity/wiki/Extension-Workflow)
+- [Recovery Workflow](https://github.com/MinorGlitch/ethernity/wiki/Recovery-Workflow)
+- [Command Cheatsheet](https://github.com/MinorGlitch/ethernity/wiki/Command-Cheatsheet)
+- [Troubleshooting](https://github.com/MinorGlitch/ethernity/wiki/Troubleshooting)
+- [Release Artifacts](https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts)
 
-For release verification and artifact provenance details, use:
-- [Wiki: Release Artifacts](https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts)
+Reference docs:
 
-## Workflow Playbooks
+- [docs/format.md](docs/format.md): backup format specification
+- [docs/format_notes.md](docs/format_notes.md): rationale and operations notes
+- [docs/format_changes.md](docs/format_changes.md): compatibility ledger
+- [docs/cli_api.md](docs/cli_api.md): NDJSON API contract
+- [SECURITY.md](SECURITY.md): security policy
 
-Runbook templates and operator checklists now live in the wiki:
-- [Wiki: Backup Workflow](https://github.com/MinorGlitch/ethernity/wiki/Backup-Workflow)
-- [Wiki: Recovery Workflow](https://github.com/MinorGlitch/ethernity/wiki/Recovery-Workflow)
-
-Use the README Quick Start above for the shortest install/backup/recovery path, then adopt a wiki
-playbook for your actual operating procedure.
-
-## Security at a Glance
-
-Ethernity helps protect against:
-
-- data loss in low-connectivity or offline-only scenarios
-- accidental corruption through frame-level validation and integrity checks
-- single-holder compromise when threshold sharding is used correctly
-
-Ethernity does not protect against:
-
-- compromised endpoints at backup or recovery time
-- weak, reused, or leaked passphrases
-- policy failures in shard custody distribution
-- operational mistakes that skip recovery drills
-
-Hard warning:
-
-- do not treat generated artifacts as magically safe by default
-- security outcome depends on custody controls, passphrase quality, and tested runbooks
-
-Read full policy and reporting guidance in [`SECURITY.md`](SECURITY.md).
-
-For format-level guarantees and bounds, use:
-
-- [`docs/format.md`](docs/format.md)
-- [`docs/format_notes.md`](docs/format_notes.md)
-
-## How Recovery Inputs Work
-
-Data-flow diagrams, input-mode guidance, and recovery path selection tips now live in the wiki:
-- [Wiki: Backup Workflow](https://github.com/MinorGlitch/ethernity/wiki/Backup-Workflow)
-- [Wiki: Recovery Workflow](https://github.com/MinorGlitch/ethernity/wiki/Recovery-Workflow)
-
-## Command Cheatsheet
-
-Detailed command tables, config examples, and operator defaults moved to:
-- [Wiki: Command Cheatsheet](https://github.com/MinorGlitch/ethernity/wiki/Command-Cheatsheet)
-
-Quick references:
-- `ethernity --help`
-- `ethernity backup --help`
-- `ethernity recover --help`
-- `ethernity kit --help`
-
-## Release Artifacts
-
-Release packaging, verification, and provenance guidance is maintained in the wiki:
-[Wiki: Release Artifacts](https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts).
-
-## Development Quickstart
+## Development
 
 ```sh
 git clone https://github.com/MinorGlitch/ethernity.git
 cd ethernity
 uv sync --extra dev --extra build
 uv run playwright install chromium
+uv run ethernity --help
 ```
 
 Core checks:
 
 ```sh
-uv run pre-commit run --all-files
 uv run ruff check src tests
 uv run ruff format --check src tests
 uv run mypy src
-uv run pyright
-uv run check-jsonschema --check-metaschema docs/cli_api.schema.json
-uv run typos .
 uv run pytest tests/unit tests/integration -q
 cd kit
 npm ci
-npm run lint
-npm run format:check
 npm test
-# Requires libdeflate-gzip (for example: apt install libdeflate-tools)
 node build_kit.mjs
-cd ..
 ```
 
-This rebuild emits both recovery kit variants:
-- `src/ethernity/resources/kit/recovery_kit.bundle.html` (lean, default)
-- `src/ethernity/resources/kit/recovery_kit.scanner.bundle.html` (jsQR scanner variant)
-
-Use [`CONTRIBUTING.md`](CONTRIBUTING.md) for workflow policy, expectations, and quality gates.
-
-## Contributing
-
-Contributions are welcome via fork + pull request. Prefer focused PRs with tests/docs updates when
-behavior changes.
-
-Before opening a PR, read [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md), and [`AGENTS.md`](AGENTS.md).
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## Credits
 
-Ethernity was heavily inspired by [Paperback](https://github.com/cyphar/paperback) by cyphar.
+Ethernity was inspired by [Paperback](https://github.com/cyphar/paperback) by cyphar.
 
-Worth checking out:
+Mention: [Rememory](https://github.com/eljojo/rememory). Ethernity does not use Rememory code or
+assets.
 
-- [Rememory](https://github.com/eljojo/rememory) by eljojo
+Ethernity uses these libraries:
 
-Core open-source building blocks include:
-
-- [age](https://github.com/FiloSottile/age) via [pyrage](https://github.com/str4d/rage), plus
-  [PyCryptodome](https://github.com/Legrandin/pycryptodome) and
-  [cbor2](https://github.com/agronholm/cbor2)
-- [Typer](https://github.com/fastapi/typer), [Rich](https://github.com/Textualize/rich), and
-  [Questionary](https://github.com/tmbo/questionary)
-- [fpdf2](https://github.com/py-pdf/fpdf2), [Jinja2](https://github.com/pallets/jinja), and
-  [Playwright](https://playwright.dev/python/)
-- [Segno](https://github.com/heuer/segno), [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp),
-  [jsQR](https://github.com/cozmo/jsQR), [@noble/ciphers](https://github.com/paulmillr/noble-ciphers),
-  and [@noble/hashes](https://github.com/paulmillr/noble-hashes)
-
-Standards and verification ecosystem acknowledgements:
-
-- [age v1 format](https://age-encryption.org/v1),
-  [BIP-39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki),
-  [RFC 8949 (CBOR)](https://www.rfc-editor.org/rfc/rfc8949),
-  [Unicode TR15](https://unicode.org/reports/tr15/),
-  [z-base-32 reference](https://philzimmermann.com/docs/human-oriented-base-32-encoding.txt), and
-  Shamir's secret sharing paper (1979)
-- [Sigstore](https://www.sigstore.dev/) and [Cosign](https://github.com/sigstore/cosign) for
-  artifact verification workflows
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=MinorGlitch/ethernity&type=Date)](https://star-history.com/#MinorGlitch/ethernity&Date)
+- [age](https://github.com/FiloSottile/age) via [pyrage](https://github.com/str4d/rage)
+- [PyCryptodome](https://github.com/Legrandin/pycryptodome)
+- [Typer](https://github.com/fastapi/typer)
+- [Rich](https://github.com/Textualize/rich)
+- [Questionary](https://github.com/tmbo/questionary)
+- [Playwright](https://playwright.dev/python/)
 
 ## License
 
-GPLv3 or later. See [`LICENSE`](LICENSE) for full terms.
+GPLv3 or later. See [LICENSE](LICENSE).
+
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 [contributors-shield]: https://img.shields.io/github/contributors/MinorGlitch/ethernity.svg?style=for-the-badge

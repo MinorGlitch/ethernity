@@ -57,6 +57,15 @@ class TestCliTyper(unittest.TestCase):
                 for expected in case["contains"]:
                     self.assertIn(expected, output)
 
+    def test_root_help_surfaces_shell_completion_options(self) -> None:
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            result = self.runner.invoke(app, ["--help"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        output = _strip_ansi(result.output)
+        self.assertIn("--install-completion", output)
+        self.assertIn("--show-completion", output)
+
     def test_root_no_subcommand_non_tty_references_help(self) -> None:
         with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             with mock.patch("ethernity.cli.bootstrap.app.sys.stdin.isatty", return_value=False):
@@ -80,6 +89,18 @@ class TestCliTyper(unittest.TestCase):
             result = self.runner.invoke(app, ["backup", "--help"])
         self.assertEqual(result.exit_code, 0)
         run_startup.assert_not_called()
+
+    def test_config_print_path_does_not_ensure_playwright(self) -> None:
+        with mock.patch(
+            "ethernity.cli.bootstrap.startup.user_config_needs_init", return_value=False
+        ):
+            with mock.patch(
+                "ethernity.cli.bootstrap.startup._ensure_playwright_browsers"
+            ) as ensure:
+                result = self.runner.invoke(app, ["config", "--print-path"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        ensure.assert_not_called()
 
     def test_backup_help_does_not_initialize_user_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

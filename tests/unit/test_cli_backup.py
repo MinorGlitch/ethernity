@@ -26,6 +26,8 @@ from unittest import mock
 from typer.testing import CliRunner
 
 from ethernity import cli
+from ethernity.cli.features.backup import command as backup_command
+from ethernity.cli.shared import recovery_kit_index
 from ethernity.cli.shared.io.inputs import _load_input_files
 from ethernity.cli.shared.types import BackupArgs
 from ethernity.config import (
@@ -43,9 +45,33 @@ from ethernity.core.models import DocumentPlan, ShardingConfig, SigningSeedMode
 from ethernity.encoding.framing import Frame
 from ethernity.formats import envelope_codec as envelope_codec_module
 from ethernity.render.recovery_meta import RecoveryMeta
+from tests.unit.render_test_helpers import patch_render_frames_to_pdf
 
 _BACKUP_ORCHESTRATOR_MODULE = "ethernity.cli.features.backup.orchestrator"
 _UNSET = object()
+
+
+def _write_template_style(template_dir: Path, *, recovery_kit_index_document: bool) -> None:
+    capability = "true" if recovery_kit_index_document else "false"
+    (template_dir / "style.json").write_text(
+        f"""{{
+  "name": "forge",
+  "header": {{
+    "meta_row_gap_mm": 1.2,
+    "stack_gap_mm": 1.0,
+    "divider_thickness_mm": 0.5
+  }},
+  "content_offset": {{
+    "divider_gap_extra_mm": 0.0,
+    "doc_types": []
+  }},
+  "capabilities": {{
+    "recovery_kit_index_document": {capability}
+  }}
+}}
+""",
+        encoding="utf-8",
+    )
 
 
 class _CaptureBuild:
@@ -80,7 +106,7 @@ def _run_backup_with_plan(
                 "ethernity.formats.envelope_codec.build_manifest_and_payload",
                 side_effect=capture_build,
             ):
-                with mock.patch("ethernity.render.render_frames_to_pdf"):
+                with patch_render_frames_to_pdf():
                     with mock.patch(
                         "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                         return_value=(b"ciphertext", "auto-pass"),
@@ -223,7 +249,7 @@ class TestCliBackup(unittest.TestCase):
                                 "ethernity.cli.features.backup.execution.choose_frame_chunk_size",
                                 return_value=256,
                             ):
-                                with mock.patch("ethernity.render.render_frames_to_pdf"):
+                                with patch_render_frames_to_pdf():
                                     if expect_error:
                                         with self.assertRaisesRegex(
                                             ValueError, "MAX_CIPHERTEXT_BYTES"
@@ -252,6 +278,32 @@ class TestCliBackup(unittest.TestCase):
                                         )
                                         chunk_mock.assert_called_once()
 
+    def test_run_backup_sets_root_backup_lineage_on_render_inputs(self) -> None:
+        config = load_app_config(path=DEFAULT_CONFIG_PATH)
+        plan = DocumentPlan(version=1, sealed=False, sharding=None)
+        input_file = cli.InputFile(
+            source_path=Path("input.bin"),
+            relative_path="input.bin",
+            data=b"payload",
+            mtime=None,
+        )
+        rendered_inputs: list[object] = []
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_dir = Path(tmpdir) / "out"
+            with patch_render_frames_to_pdf(rendered_inputs):
+                cli.run_backup(
+                    input_files=[input_file],
+                    base_dir=None,
+                    output_dir=str(output_dir),
+                    plan=plan,
+                    passphrase="manual-pass",
+                    config=config,
+                )
+
+        self.assertGreaterEqual(len(rendered_inputs), 2)
+        self.assertTrue(all(inputs.lineage.kind == "root_backup" for inputs in rendered_inputs))
+
     def test_run_backup_warns_when_chunk_size_reduced(self) -> None:
         config = load_app_config(path=DEFAULT_CONFIG_PATH)
         config = replace(config, qr_chunk_size=1024)
@@ -278,7 +330,7 @@ class TestCliBackup(unittest.TestCase):
                     return_value=512,
                 ):
                     with mock.patch("ethernity.cli.features.backup.execution._warn") as warn_mock:
-                        with mock.patch("ethernity.render.render_frames_to_pdf"):
+                        with patch_render_frames_to_pdf():
                             cli.run_backup(
                                 input_files=[input_file],
                                 base_dir=None,
@@ -320,7 +372,7 @@ class TestCliBackup(unittest.TestCase):
                     return_value=1024,
                 ):
                     with mock.patch("ethernity.cli.features.backup.execution._warn") as warn_mock:
-                        with mock.patch("ethernity.render.render_frames_to_pdf"):
+                        with patch_render_frames_to_pdf():
                             cli.run_backup(
                                 input_files=[input_file],
                                 base_dir=None,
@@ -360,8 +412,7 @@ class TestCliBackup(unittest.TestCase):
                 "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                 return_value=(b"ciphertext", "auto-pass"),
             ) as encrypt_mock:
-                with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
-                    render_mock.side_effect = lambda inputs: calls.append(inputs)
+                with patch_render_frames_to_pdf(calls):
                     result = cli.run_backup(
                         input_files=[input_file],
                         base_dir=None,
@@ -405,21 +456,18 @@ class TestCliBackup(unittest.TestCase):
             output_dir = Path(tmpdir) / "out"
             templates_dir = Path(tmpdir) / "templates"
             templates_dir.mkdir(parents=True, exist_ok=True)
+            _write_template_style(templates_dir, recovery_kit_index_document=True)
             kit_template = templates_dir / "kit_document.html.j2"
             kit_template.write_text("{{ doc.title }}", encoding="utf-8")
             kit_index_template = templates_dir / "kit_index_document.html.j2"
-            kit_index_template.write_text(
-                "kit_index_inventory_artifacts_v3 {{ doc.title }}",
-                encoding="utf-8",
-            )
+            kit_index_template.write_text("{{ doc.title }}", encoding="utf-8")
             config = replace(config, kit_template_path=kit_template)
 
             with mock.patch(
                 "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                 return_value=(b"ciphertext", "auto-pass"),
             ):
-                with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
-                    render_mock.side_effect = lambda inputs: calls.append(inputs)
+                with patch_render_frames_to_pdf(calls):
                     result = cli.run_backup(
                         input_files=[input_file],
                         base_dir=None,
@@ -434,6 +482,9 @@ class TestCliBackup(unittest.TestCase):
         self.assertEqual(len(calls), 3)
         self.assertEqual(Path(calls[2].template_path).name, "kit_index_document.html.j2")
         self.assertEqual(calls[2].doc_type, "kit_index")
+        self.assertEqual(tuple(calls[2].frames), ())
+        self.assertEqual(tuple(calls[2].qr_payloads or ()), ())
+        self.assertFalse(calls[2].render_qr)
         self.assertFalse(calls[2].render_fallback)
         inventory_rows = calls[2].context["inventory_rows"]
         self.assertEqual(
@@ -467,22 +518,20 @@ class TestCliBackup(unittest.TestCase):
             templates_root = Path(tmpdir) / "package-templates"
             package_design_dir = templates_root / "forge"
             package_design_dir.mkdir(parents=True, exist_ok=True)
+            _write_template_style(package_design_dir, recovery_kit_index_document=True)
             packaged_kit_index = package_design_dir / "kit_index_document.html.j2"
-            packaged_kit_index.write_text(
-                "kit_index_inventory_artifacts_v3 {{ doc.title }}",
-                encoding="utf-8",
-            )
+            packaged_kit_index.write_text("{{ doc.title }}", encoding="utf-8")
 
-            with mock.patch(
-                "ethernity.cli.features.backup.execution.TEMPLATES_RESOURCE_ROOT",
+            with mock.patch.object(
+                recovery_kit_index,
+                "TEMPLATES_RESOURCE_ROOT",
                 templates_root,
             ):
                 with mock.patch(
                     "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                     return_value=(b"ciphertext", "auto-pass"),
                 ):
-                    with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
-                        render_mock.side_effect = lambda inputs: calls.append(inputs)
+                    with patch_render_frames_to_pdf(calls):
                         result = cli.run_backup(
                             input_files=[input_file],
                             base_dir=None,
@@ -529,22 +578,20 @@ class TestCliBackup(unittest.TestCase):
             templates_root = Path(tmpdir) / "package-templates"
             package_design_dir = templates_root / "forge"
             package_design_dir.mkdir(parents=True, exist_ok=True)
+            _write_template_style(package_design_dir, recovery_kit_index_document=True)
             packaged_kit_index = package_design_dir / "kit_index_document.html.j2"
-            packaged_kit_index.write_text(
-                "kit_index_inventory_artifacts_v3 {{ doc.title }}",
-                encoding="utf-8",
-            )
+            packaged_kit_index.write_text("{{ doc.title }}", encoding="utf-8")
 
-            with mock.patch(
-                "ethernity.cli.features.backup.execution.TEMPLATES_RESOURCE_ROOT",
+            with mock.patch.object(
+                recovery_kit_index,
+                "TEMPLATES_RESOURCE_ROOT",
                 templates_root,
             ):
                 with mock.patch(
                     "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                     return_value=(b"ciphertext", "auto-pass"),
                 ):
-                    with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
-                        render_mock.side_effect = lambda inputs: calls.append(inputs)
+                    with patch_render_frames_to_pdf(calls):
                         result = cli.run_backup(
                             input_files=[input_file],
                             base_dir=None,
@@ -584,16 +631,16 @@ class TestCliBackup(unittest.TestCase):
             config = replace(config, kit_template_path=kit_template)
 
             templates_root = Path(tmpdir) / "package-templates"
-            with mock.patch(
-                "ethernity.cli.features.backup.execution.TEMPLATES_RESOURCE_ROOT",
+            with mock.patch.object(
+                recovery_kit_index,
+                "TEMPLATES_RESOURCE_ROOT",
                 templates_root,
             ):
                 with mock.patch(
                     "ethernity.cli.features.backup.execution.encrypt_bytes_with_passphrase",
                     return_value=(b"ciphertext", "auto-pass"),
                 ):
-                    with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
-                        render_mock.side_effect = lambda inputs: calls.append(inputs)
+                    with patch_render_frames_to_pdf(calls):
                         result = cli.run_backup(
                             input_files=[input_file],
                             base_dir=None,
@@ -630,13 +677,11 @@ class TestCliBackup(unittest.TestCase):
             output_dir = Path(tmpdir) / "out"
             templates_dir = Path(tmpdir) / "templates"
             templates_dir.mkdir(parents=True, exist_ok=True)
+            _write_template_style(templates_dir, recovery_kit_index_document=True)
             kit_template = templates_dir / "kit_document.html.j2"
             kit_template.write_text("{{ doc.title }}", encoding="utf-8")
             kit_index_template = templates_dir / "kit_index_document.html.j2"
-            kit_index_template.write_text(
-                "kit_index_inventory_artifacts_v3 {{ doc.title }}",
-                encoding="utf-8",
-            )
+            kit_index_template.write_text("{{ doc.title }}", encoding="utf-8")
             config = replace(config, kit_template_path=kit_template)
 
             with mock.patch(
@@ -655,8 +700,7 @@ class TestCliBackup(unittest.TestCase):
                             "ethernity.crypto.sharding.encode_shard_payload",
                             return_value=b"shard",
                         ):
-                            with mock.patch("ethernity.render.render_frames_to_pdf") as render_mock:
-                                render_mock.side_effect = lambda inputs: calls.append(inputs)
+                            with patch_render_frames_to_pdf(calls):
                                 cli.run_backup(
                                     input_files=[input_file],
                                     base_dir=None,
@@ -717,7 +761,7 @@ class TestCliBackup(unittest.TestCase):
                             "ethernity.crypto.sharding.encode_shard_payload",
                             return_value=b"shard",
                         ):
-                            with mock.patch("ethernity.render.render_frames_to_pdf"):
+                            with patch_render_frames_to_pdf():
                                 result = cli.run_backup(
                                     input_files=[input_file],
                                     base_dir=None,
@@ -776,7 +820,7 @@ class TestCliBackup(unittest.TestCase):
                             "ethernity.crypto.sharding.split_passphrase",
                             return_value=[],
                         ):
-                            with mock.patch("ethernity.render.render_frames_to_pdf"):
+                            with patch_render_frames_to_pdf():
                                 cli.run_backup(
                                     input_files=[input_file],
                                     base_dir=None,
@@ -864,7 +908,7 @@ class TestCliBackup(unittest.TestCase):
                                     "ethernity.crypto.sharding.encode_shard_payload",
                                     return_value=b"shard",
                                 ):
-                                    with mock.patch("ethernity.render.render_frames_to_pdf"):
+                                    with patch_render_frames_to_pdf():
                                         result = cli.run_backup(
                                             input_files=[input_file],
                                             base_dir=None,
@@ -1005,6 +1049,70 @@ class TestCliBackupUx(unittest.TestCase):
         self.assertEqual(result.exit_code, 2)
         self.assertIn("--input -", result.output)
 
+    def test_backup_without_inputs_uses_create_workspace_when_interactive(self) -> None:
+        captured: dict[str, object] = {}
+
+        def _capture_workspace(**kwargs):
+            args = kwargs["args"]
+            self.assertIsInstance(args, BackupArgs)
+            captured["config_path"] = kwargs["config_path"]
+            captured["paper_size"] = kwargs["paper_size"]
+            captured["debug_override"] = kwargs["debug_override"]
+            captured["quiet"] = kwargs["quiet"]
+            captured["args"] = args
+            return 0
+
+        with (
+            mock.patch("ethernity.cli.features.backup.command.sys.stdin.isatty", return_value=True),
+            mock.patch(
+                "ethernity.cli.features.backup.command.sys.stdout.isatty", return_value=True
+            ),
+            mock.patch(
+                "ethernity.cli.features.backup.command._run_cli",
+                side_effect=lambda func, debug: func(),
+            ),
+            mock.patch(
+                "ethernity.cli.features.backup.command.run_create_backup_workspace",
+                side_effect=_capture_workspace,
+            ),
+        ):
+            backup_command.backup(
+                mock.Mock(obj=None),
+                input=None,
+                input_dir=None,
+                passphrase=None,
+                passphrase_generate=False,
+                passphrase_words=None,
+                sealed=False,
+                shard_threshold=None,
+                shard_count=None,
+                signing_key_mode=None,
+                signing_key_shard_threshold=None,
+                signing_key_shard_count=None,
+                output_dir=None,
+                assume_yes=False,
+                quiet=True,
+                config="cfg.toml",
+                paper="A4",
+                design=None,
+                qr_chunk_size=None,
+                base_dir=None,
+                layout_debug_dir=None,
+                debug=True,
+                debug_max_bytes=None,
+            )
+
+        self.assertEqual(captured["config_path"], "cfg.toml")
+        self.assertEqual(captured["paper_size"], "A4")
+        self.assertTrue(captured["debug_override"])
+        self.assertTrue(captured["quiet"])
+        args = captured["args"]
+        self.assertIsInstance(args, BackupArgs)
+        self.assertEqual(args.config, "cfg.toml")
+        self.assertEqual(args.paper, "A4")
+        self.assertTrue(args.debug)
+        self.assertTrue(args.quiet)
+
     def test_backup_explicit_stdin_flag_reaches_command(self) -> None:
         captured: dict[str, object] = {}
 
@@ -1014,15 +1122,19 @@ class TestCliBackupUx(unittest.TestCase):
 
         with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             with mock.patch(
-                "ethernity.cli.features.backup.command.run_backup_command",
-                side_effect=_capture_args,
-            ):
-                result = self.runner.invoke(
-                    cli.app,
-                    ["backup", "--input", "-"],
-                    input="payload",
-                )
+                "ethernity.cli.features.backup.command.ensure_playwright_browsers"
+            ) as ensure:
+                with mock.patch(
+                    "ethernity.cli.features.backup.command.run_backup_command",
+                    side_effect=_capture_args,
+                ):
+                    result = self.runner.invoke(
+                        cli.app,
+                        ["backup", "--input", "-"],
+                        input="payload",
+                    )
         self.assertEqual(result.exit_code, 0, result.output)
+        ensure.assert_called_once_with(quiet=False)
         self.assertEqual(captured.get("input"), ["-"])
 
     def test_backup_qr_chunk_size_flag_reaches_command(self) -> None:
@@ -1158,6 +1270,58 @@ class TestCliBackupUx(unittest.TestCase):
         self.assertEqual(captured.get("output_dir"), "./cli-out")
         self.assertIs(captured.get("output_dir_existing_parent"), True)
         self.assertEqual(captured.get("shard_threshold"), 4)
+
+    def test_create_command_runs_guided_workspace_with_defaults(self) -> None:
+        captured: dict[str, object] = {}
+
+        def _capture_workspace(**kwargs: object) -> int:
+            args = kwargs["args"]
+            self.assertIsInstance(args, BackupArgs)
+            captured["config_path"] = kwargs["config_path"]
+            captured["paper_size"] = kwargs["paper_size"]
+            captured["quiet"] = kwargs["quiet"]
+            captured["debug_override"] = kwargs["debug_override"]
+            captured["debug_reveal_secrets"] = kwargs["debug_reveal_secrets"]
+            captured["base_dir"] = args.base_dir
+            captured["output_dir"] = args.output_dir
+            captured["shard_threshold"] = args.shard_threshold
+            captured["shard_count"] = args.shard_count
+            return 0
+
+        defaults = CliDefaults(
+            backup=BackupDefaults(
+                base_dir="./vault",
+                output_dir="./out",
+                shard_threshold=2,
+                shard_count=3,
+            ),
+            recover=RecoverDefaults(),
+            ui=UiDefaults(quiet=True),
+            debug=DebugDefaults(max_bytes=2048),
+            runtime=RuntimeDefaults(),
+        )
+
+        with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
+            with mock.patch("ethernity.cli.bootstrap.app.load_cli_defaults", return_value=defaults):
+                with mock.patch(
+                    "ethernity.cli.features.backup.command.run_create_backup_workspace",
+                    side_effect=_capture_workspace,
+                ):
+                    result = self.runner.invoke(
+                        cli.app,
+                        ["create", "--config", "cfg.toml", "--paper", "A4", "--debug"],
+                    )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(captured["config_path"], "cfg.toml")
+        self.assertEqual(captured["paper_size"], "A4")
+        self.assertTrue(captured["quiet"])
+        self.assertTrue(captured["debug_override"])
+        self.assertFalse(captured["debug_reveal_secrets"])
+        self.assertEqual(captured["base_dir"], "./vault")
+        self.assertEqual(captured["output_dir"], "./out")
+        self.assertEqual(captured["shard_threshold"], 2)
+        self.assertEqual(captured["shard_count"], 3)
 
     def test_backup_review_cancel_returns_code_1(self) -> None:
         input_file = cli.InputFile(
@@ -1533,6 +1697,133 @@ class TestCliBackupUx(unittest.TestCase):
         self.assertIsNone(recovery_args.signing_key_mode)
         self.assertIsNone(recovery_args.signing_key_shard_threshold)
         self.assertIsNone(recovery_args.signing_key_shard_count)
+
+    def test_backup_wizard_offers_to_save_defaults_after_success(self) -> None:
+        input_file = cli.InputFile(
+            source_path=Path("input.txt"),
+            relative_path="input.txt",
+            data=b"payload",
+            mtime=None,
+        )
+        backup_result = cli.BackupResult(
+            doc_id=b"\x11" * 16,
+            qr_path="/tmp/out/qr_document.pdf",
+            recovery_path="/tmp/out/recovery_document.pdf",
+            shard_paths=(),
+            signing_key_shard_paths=(),
+            passphrase_used="pass",
+        )
+        config = load_app_config(path=DEFAULT_CONFIG_PATH)
+
+        with contextlib.ExitStack() as stack:
+            handles = _enter_backup_wizard_patches(
+                stack,
+                input_file=input_file,
+                onboarding_fields=frozenset(),
+                prompt_yes_no=True,
+                run_backup_result=backup_result,
+                include_print_summary=True,
+                include_print_actions=True,
+                include_wizard_flow=True,
+                include_wizard_stage=True,
+                include_console_print=True,
+            )
+            handles["load_app_config"].return_value = config
+            handles["apply_template_design"].return_value = config
+            handles["prompt_yes_no"].side_effect = [True]
+            handles["_prompt_inputs"].return_value = (
+                [input_file],
+                None,
+                "/tmp/saved-out",
+                "file",
+                [],
+            )
+            handles["_prompt_recovery_options"].return_value = (
+                False,
+                False,
+                SigningSeedMode.SHARDED,
+                ShardingConfig(threshold=2, shares=3),
+                ShardingConfig(threshold=1, shares=2),
+            )
+            handles["apply_first_run_defaults"] = stack.enter_context(
+                _patch_backup_orchestrator(
+                    "apply_first_run_defaults",
+                    return_value=Path("/tmp/config.toml"),
+                )
+            )
+            handles["mark_first_run_onboarding_complete"] = stack.enter_context(
+                _patch_backup_orchestrator("mark_first_run_onboarding_complete")
+            )
+
+            result = cli.run_wizard(
+                quiet=False,
+                args=BackupArgs(assume_yes=True, quiet=False),
+            )
+
+        self.assertEqual(result, 0)
+        handles["prompt_yes_no"].assert_called_once()
+        handles["apply_first_run_defaults"].assert_called_once()
+        apply_kwargs = handles["apply_first_run_defaults"].call_args.kwargs
+        self.assertEqual(apply_kwargs["page_size"], config.paper_size)
+        self.assertEqual(apply_kwargs["backup_output_dir"], "/tmp/saved-out")
+        self.assertEqual(apply_kwargs["shard_threshold"], 2)
+        self.assertEqual(apply_kwargs["shard_count"], 3)
+        self.assertEqual(apply_kwargs["signing_key_mode"], "sharded")
+        self.assertEqual(apply_kwargs["signing_key_shard_threshold"], 1)
+        self.assertEqual(apply_kwargs["signing_key_shard_count"], 2)
+        handles["mark_first_run_onboarding_complete"].assert_called_once()
+        self.assertEqual(
+            handles["mark_first_run_onboarding_complete"].call_args.kwargs["configured_fields"],
+            {"template_design", "page_size", "backup_output_dir", "sharding"},
+        )
+
+    def test_backup_wizard_skips_save_defaults_prompt_when_backup_defaults_already_configured(
+        self,
+    ) -> None:
+        input_file = cli.InputFile(
+            source_path=Path("input.txt"),
+            relative_path="input.txt",
+            data=b"payload",
+            mtime=None,
+        )
+        backup_result = cli.BackupResult(
+            doc_id=b"\x11" * 16,
+            qr_path="/tmp/out/qr_document.pdf",
+            recovery_path="/tmp/out/recovery_document.pdf",
+            shard_paths=(),
+            signing_key_shard_paths=(),
+            passphrase_used="pass",
+        )
+        config = load_app_config(path=DEFAULT_CONFIG_PATH)
+
+        with contextlib.ExitStack() as stack:
+            handles = _enter_backup_wizard_patches(
+                stack,
+                input_file=input_file,
+                onboarding_fields=frozenset(
+                    {"template_design", "page_size", "backup_output_dir", "sharding"}
+                ),
+                prompt_backup_setup_mode=True,
+                run_backup_result=backup_result,
+                include_print_summary=True,
+                include_print_actions=True,
+                include_wizard_flow=True,
+                include_wizard_stage=True,
+                include_console_print=True,
+            )
+            handles["load_app_config"].return_value = config
+            handles["apply_template_design"].return_value = config
+            handles["apply_first_run_defaults"] = stack.enter_context(
+                _patch_backup_orchestrator("apply_first_run_defaults")
+            )
+
+            result = cli.run_wizard(
+                quiet=False,
+                args=BackupArgs(assume_yes=True, quiet=False),
+            )
+
+        self.assertEqual(result, 0)
+        handles["apply_first_run_defaults"].assert_not_called()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,664 @@
+#!/usr/bin/env python3
+# Copyright (C) 2026 Alex Stoyanov
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with this program.
+# If not, see <https://www.gnu.org/licenses/>.
+
+"""Latest-state compaction helpers for root-plus-extension chains."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
+from pathlib import Path
+
+from ethernity.cli.features.backup.execution import run_backup
+from ethernity.cli.features.backup.planning import plan_from_args as plan_backup_from_args
+from ethernity.cli.features.backup.service import apply_qr_chunk_size_override
+from ethernity.cli.features.recover.key_recovery import (
+    InsufficientShardError,
+    validated_shard_payloads_from_frames,
+)
+from ethernity.cli.features.recover.planning import plan_from_args as plan_recover_from_args
+from ethernity.cli.shared import api_codes
+from ethernity.cli.shared.crypto import doc_id_from_doc_hash
+from ethernity.cli.shared.io.frames import frames_from_scan
+from ethernity.cli.shared.ndjson import ApiCommandError
+from ethernity.cli.shared.root_shard_policy import (
+    has_potential_root_shard_frames,
+    root_level_key_frames_from_scan,
+    root_shard_quorum_from_frames,
+)
+from ethernity.cli.shared.types import BackupArgs, BackupResult, CompactArgs, InputFile, RecoverArgs
+from ethernity.config import apply_template_design, load_app_config
+from ethernity.crypto import sharding as sharding_module
+from ethernity.crypto.signing import derive_public_key
+from ethernity.encoding.framing import Frame, FrameType
+from ethernity.extensions.discovery import EXTENSIONS_DIR_NAME
+from ethernity.extensions.errors import ExtensionRecoveryError
+from ethernity.extensions.recovery import recover_chain_entries
+from ethernity.extensions.staging import EXTENSION_CHAIN_LOCK_DIR_NAME
+from ethernity.render.types import RenderLineage
+
+
+@dataclass(frozen=True)
+class _RootPublishPolicy:
+    passphrase_shard_threshold: int | None
+    passphrase_shard_count: int
+    signing_key_shard_threshold: int | None
+    signing_key_shard_count: int
+
+
+@dataclass(frozen=True)
+class _CompactSourceHead:
+    root_doc_id: bytes
+    root_doc_hash: bytes
+    selected_extension_index: int | None
+    selected_extension_doc_hash: str | None
+
+
+def _validated_compact_root_dir(root_dir_value: str | None) -> Path:
+    if not root_dir_value:
+        raise ValueError("compact requires --scan or root_dir")
+    root_dir = Path(root_dir_value).expanduser()
+    if root_dir.is_symlink():
+        raise ValueError(f"generated backup folder must not be a symlink: {root_dir_value}")
+    if not root_dir.exists():
+        raise ValueError(
+            f"generated backup folder not found: {root_dir_value}. Check --root-dir or use --scan."
+        )
+    if not root_dir.is_dir():
+        raise ValueError(f"--root-dir must be a directory: {root_dir_value}")
+    return root_dir
+
+
+def validate_compact_source_selection(args: CompactArgs) -> None:
+    """Validate that compact has exactly one source mode."""
+
+    has_root_dir = bool(args.root_dir)
+    has_scan = bool(args.scan)
+    if has_root_dir and has_scan:
+        raise ValueError("use either --root-dir or --scan for compact, not both")
+    if not has_root_dir and not has_scan:
+        raise ValueError("compact requires --scan or root_dir")
+    if has_scan and args.expected_head_doc_hash is None and not args.allow_stale_head:
+        raise ValueError(
+            "scan-mode compact cannot prove the supplied recovery set is the latest chain state; "
+            "provide --expected-head-doc-hash or pass --allow-stale-head to acknowledge this risk"
+        )
+
+
+def _reject_compact_output_inside_root(root_dir: Path, output_dir_value: str) -> None:
+    output_dir = Path(output_dir_value).expanduser()
+    root_resolved = root_dir.resolve(strict=False)
+    output_resolved = output_dir.resolve(strict=False)
+    if output_resolved == root_resolved or output_resolved.is_relative_to(root_resolved):
+        raise ValueError(
+            "compact output directory must not be the source generated folder or inside it: "
+            f"{output_dir_value}"
+        )
+
+
+def _reject_compact_layout_debug_inside_root(
+    root_dir: Path, layout_debug_dir_value: str | None
+) -> None:
+    if layout_debug_dir_value is None or not layout_debug_dir_value.strip():
+        return
+    debug_dir = Path(layout_debug_dir_value).expanduser()
+    root_resolved = root_dir.resolve(strict=False)
+    debug_resolved = debug_dir.resolve(strict=False)
+    if debug_resolved == root_resolved or debug_resolved.is_relative_to(root_resolved):
+        raise ValueError(
+            "compact layout debug directory must not be the source generated folder "
+            f"or inside it: {layout_debug_dir_value}"
+        )
+
+
+def _translate_compact_head_untrusted(
+    exc: ApiCommandError | ExtensionRecoveryError,
+) -> ApiCommandError:
+    head_label = "requested" if exc.details.get("explicit_selection") else "latest supplied"
+    message = f"{head_label} compact head could not be trusted; no checkpoint was created"
+    failure_message = exc.details.get("failure_message")
+    if isinstance(failure_message, str) and failure_message:
+        message = f"{message}: {failure_message}"
+    details = dict(exc.details)
+    details["checkpoint_created"] = False
+    return ApiCommandError(code=exc.code, message=message, details=details)
+
+
+def _compact_recover_args(args: CompactArgs, root_dir: Path | None) -> RecoverArgs:
+    scan = list(args.scan or [])
+    if not scan and root_dir is not None:
+        scan = [str(root_dir)]
+    return RecoverArgs(
+        scan=scan,
+        passphrase=args.passphrase,
+        shard_fallback_file=args.shard_fallback_file,
+        shard_payloads_file=args.shard_payloads_file,
+        shard_scan=args.shard_scan,
+        shard_frames=args.shard_frames,
+        auth_fallback_file=args.auth_fallback_file,
+        auth_payloads_file=args.auth_payloads_file,
+        auth_frames=args.auth_frames,
+        expected_head_doc_hash=args.expected_head_doc_hash,
+        allow_unsigned=False,
+        quiet=args.quiet,
+    )
+
+
+def _recover_compact_chain(recover_plan, *, quiet: bool):
+    try:
+        return recover_chain_entries(recover_plan, quiet=quiet, debug=False)
+    except (ApiCommandError, ExtensionRecoveryError) as exc:
+        if exc.code != api_codes.RECOVERY_HEAD_UNTRUSTED:
+            raise
+        raise _translate_compact_head_untrusted(exc) from exc
+
+
+def _compact_source_head(recover_plan, chain) -> _CompactSourceHead:
+    return _CompactSourceHead(
+        root_doc_id=recover_plan.doc_id,
+        root_doc_hash=recover_plan.doc_hash,
+        selected_extension_index=getattr(chain, "selected_extension_index", None),
+        selected_extension_doc_hash=getattr(chain, "selected_extension_doc_hash", None),
+    )
+
+
+def _validate_compact_source_head_for_promotion(
+    *,
+    args: CompactArgs,
+    root_dir: Path | None,
+    expected: _CompactSourceHead,
+) -> None:
+    current_plan = plan_recover_from_args(_compact_recover_args(args, root_dir))
+    current_chain = _recover_compact_chain(current_plan, quiet=args.quiet)
+    current = _compact_source_head(current_plan, current_chain)
+    mismatches: dict[str, object] = {}
+    for field in (
+        "root_doc_id",
+        "root_doc_hash",
+        "selected_extension_index",
+        "selected_extension_doc_hash",
+    ):
+        expected_value = getattr(expected, field)
+        current_value = getattr(current, field)
+        if expected_value != current_value:
+            mismatches[field] = {
+                "expected": _compact_head_value(expected_value),
+                "actual": _compact_head_value(current_value),
+            }
+    if mismatches:
+        raise ApiCommandError(
+            code=api_codes.CHAIN_INVALID,
+            message=(
+                "source extension chain changed before compact checkpoint promotion; "
+                "no checkpoint was created"
+            ),
+            details={
+                "stage": "publish_head",
+                "checkpoint_created": False,
+                "mismatches": mismatches,
+            },
+        )
+
+
+def _compact_head_value(value: object) -> object:
+    return value.hex() if isinstance(value, bytes) else value
+
+
+def _compact_source_chain_lock_dir(root_dir: Path | None) -> Path | None:
+    if root_dir is None:
+        return None
+    return root_dir / EXTENSIONS_DIR_NAME / EXTENSION_CHAIN_LOCK_DIR_NAME
+
+
+def _prepare_compact_source_chain_lock(root_dir: Path | None) -> None:
+    if root_dir is None:
+        return
+    extensions_dir = root_dir / EXTENSIONS_DIR_NAME
+    if extensions_dir.is_symlink():
+        raise ApiCommandError(
+            code=api_codes.INVALID_INPUT,
+            message="extensions path must not be a symlink",
+            details={"stage": "publish_head", "root_dir": str(root_dir)},
+        )
+    if extensions_dir.exists() and not extensions_dir.is_dir():
+        raise ApiCommandError(
+            code=api_codes.INVALID_INPUT,
+            message="extensions path must be a directory",
+            details={"stage": "publish_head", "root_dir": str(root_dir)},
+        )
+    extensions_dir.mkdir(mode=0o700, exist_ok=True)
+
+
+def _infer_root_publish_policy(
+    *,
+    root_dir: str | None,
+    source_scan: Sequence[str] = (),
+    root_doc_id_hex: str | None,
+    root_doc_hash: bytes,
+    sign_pub: bytes | None,
+    passphrase_shard_frames: Sequence[Frame] = (),
+    signing_key_shard_frames: Sequence[Frame] = (),
+    require_quorum: bool = True,
+    quiet: bool,
+) -> _RootPublishPolicy:
+    root_level_frames: tuple[Frame, ...] = ()
+    if root_dir:
+        root_path = Path(root_dir).expanduser()
+        if root_path.is_symlink():
+            raise ApiCommandError(
+                code="RUNTIME_ERROR",
+                message="root backup directory must not be a symlink",
+            )
+        if root_path.exists() and not root_path.is_dir():
+            raise ApiCommandError(
+                code="RUNTIME_ERROR",
+                message=f"root backup directory must be a directory: {root_dir}",
+            )
+        root_level_frames = _root_level_key_frames_for_policy(root_path, quiet=quiet)
+    if source_scan:
+        root_level_frames = (
+            *root_level_frames,
+            *_root_level_key_frames_from_source_scan(source_scan, quiet=quiet),
+        )
+    root_doc_id = bytes.fromhex(root_doc_id_hex) if root_doc_id_hex else None
+    policy_frames = (
+        *root_level_frames,
+        *tuple(passphrase_shard_frames),
+        *tuple(signing_key_shard_frames),
+    )
+    if sign_pub is None:
+        if has_potential_root_shard_frames(
+            policy_frames,
+            expected_doc_id=root_doc_id,
+            expected_doc_hash=root_doc_hash,
+        ):
+            raise ApiCommandError(
+                code=api_codes.COMPACT_INVALID_POLICY,
+                message=(
+                    "compact cannot inherit root shard policy without a verified "
+                    "root signing authority"
+                ),
+                details={"stage": "root_shard_policy"},
+            )
+        return _RootPublishPolicy(
+            passphrase_shard_threshold=None,
+            passphrase_shard_count=0,
+            signing_key_shard_threshold=None,
+            signing_key_shard_count=0,
+        )
+    if root_doc_id is None:
+        raise ApiCommandError(
+            code=api_codes.COMPACT_INVALID_POLICY,
+            message="compact cannot inherit root shard policy without a root document id",
+            details={"stage": "root_shard_policy"},
+        )
+    passphrase_threshold, passphrase_count = _infer_root_quorum(
+        policy_frames,
+        expected_doc_id=root_doc_id,
+        expected_doc_hash=root_doc_hash,
+        sign_pub=sign_pub,
+        require_quorum=require_quorum,
+        key_type=sharding_module.KEY_TYPE_PASSPHRASE,
+        secret_label="passphrase",
+    )
+    signing_key_threshold, signing_key_count = _infer_root_quorum(
+        policy_frames,
+        expected_doc_id=root_doc_id,
+        expected_doc_hash=root_doc_hash,
+        sign_pub=sign_pub,
+        require_quorum=require_quorum,
+        key_type=sharding_module.KEY_TYPE_SIGNING_SEED,
+        secret_label="signing key",
+    )
+    return _RootPublishPolicy(
+        passphrase_shard_threshold=passphrase_threshold,
+        passphrase_shard_count=passphrase_count,
+        signing_key_shard_threshold=signing_key_threshold,
+        signing_key_shard_count=signing_key_count,
+    )
+
+
+def _infer_root_quorum(
+    frames: Sequence[Frame],
+    *,
+    expected_doc_id: bytes,
+    expected_doc_hash: bytes,
+    sign_pub: bytes,
+    require_quorum: bool = True,
+    key_type: str,
+    secret_label: str,
+) -> tuple[int | None, int]:
+    if not frames:
+        return None, 0
+    try:
+        return root_shard_quorum_from_frames(
+            frames,
+            expected_doc_id=expected_doc_id,
+            expected_doc_hash=expected_doc_hash,
+            sign_pub=sign_pub,
+            key_type=key_type,
+            secret_label=secret_label,
+            require_quorum=require_quorum,
+        )
+    except InsufficientShardError as exc:
+        raise ApiCommandError(
+            code=api_codes.COMPACT_INVALID_POLICY,
+            message=(
+                f"root {secret_label} shards are under quorum; "
+                f"need at least {exc.threshold}, found {exc.provided_count}"
+            ),
+        ) from exc
+    except ValueError as exc:
+        raise ApiCommandError(
+            code=api_codes.COMPACT_INVALID_POLICY,
+            message=str(exc),
+            details={"stage": "root_shard_policy"},
+        ) from exc
+
+
+def _root_level_key_frames_for_policy(root_path: Path, *, quiet: bool) -> tuple[Frame, ...]:
+    try:
+        return root_level_key_frames_from_scan(root_path, quiet=quiet)
+    except ValueError as exc:
+        raise ApiCommandError(
+            code=api_codes.COMPACT_INVALID_POLICY,
+            message=str(exc),
+            details={"stage": "root_shard_policy"},
+        ) from exc
+
+
+def _root_level_key_frames_from_source_scan(
+    source_scan: Sequence[str],
+    *,
+    quiet: bool,
+) -> tuple[Frame, ...]:
+    _ = quiet
+    try:
+        frames = frames_from_scan(list(source_scan))
+    except ValueError as exc:
+        raise ApiCommandError(
+            code=api_codes.COMPACT_INVALID_POLICY,
+            message=f"root shard policy scan failed: {exc}",
+            details={"stage": "root_shard_policy"},
+        ) from exc
+    return tuple(frame for frame in frames if frame.frame_type == FrameType.KEY_DOCUMENT)
+
+
+def run_compact(args: CompactArgs) -> BackupResult:
+    validate_compact_source_selection(args)
+    root_dir = None if args.scan else _validated_compact_root_dir(args.root_dir)
+    if not args.output_dir:
+        raise ValueError("compact requires output_dir")
+    if root_dir is not None:
+        _reject_compact_output_inside_root(root_dir, args.output_dir)
+        _reject_compact_layout_debug_inside_root(root_dir, args.layout_debug_dir)
+
+    recover_plan = plan_recover_from_args(_compact_recover_args(args, root_dir))
+    chain = _recover_compact_chain(recover_plan, quiet=args.quiet)
+    source_head = _compact_source_head(recover_plan, chain)
+    manifest = chain.manifest
+
+    sign_pub = (
+        derive_public_key(manifest.signing_seed)
+        if manifest.signing_seed is not None
+        else (recover_plan.auth_payload.sign_pub if recover_plan.auth_payload is not None else None)
+    )
+    selected_extension_doc_hash = getattr(chain, "selected_extension_doc_hash", None)
+    unlock_passphrase_frames = _passphrase_shard_frames_for_selected_head(
+        recover_plan.shard_frames,
+        root_doc_id=recover_plan.doc_id,
+        root_doc_hash=recover_plan.doc_hash,
+        selected_extension_doc_hash=selected_extension_doc_hash,
+    )
+    unlock_doc_hash = (
+        bytes.fromhex(selected_extension_doc_hash)
+        if selected_extension_doc_hash
+        else recover_plan.doc_hash
+    )
+    unlock_doc_id = (
+        doc_id_from_doc_hash(unlock_doc_hash)
+        if selected_extension_doc_hash
+        else recover_plan.doc_id
+    )
+    unlock_passphrase_policy = _infer_passphrase_shard_policy_from_frames(
+        unlock_passphrase_frames,
+        sign_pub=sign_pub,
+        expected_doc_id=unlock_doc_id,
+        expected_doc_hash=unlock_doc_hash,
+    )
+
+    inherited = _infer_root_publish_policy(
+        root_dir=str(root_dir) if root_dir is not None else None,
+        source_scan=tuple(args.scan or ()),
+        root_doc_id_hex=recover_plan.doc_id.hex(),
+        root_doc_hash=recover_plan.doc_hash,
+        sign_pub=sign_pub,
+        passphrase_shard_frames=_passphrase_shard_frames_for_doc(
+            recover_plan.shard_frames,
+            expected_doc_id=recover_plan.doc_id,
+            expected_doc_hash=recover_plan.doc_hash,
+        ),
+        quiet=args.quiet,
+    )
+    if unlock_passphrase_policy is not None:
+        inherited = _RootPublishPolicy(
+            passphrase_shard_threshold=unlock_passphrase_policy[0],
+            passphrase_shard_count=unlock_passphrase_policy[1],
+            signing_key_shard_threshold=inherited.signing_key_shard_threshold,
+            signing_key_shard_count=inherited.signing_key_shard_count,
+        )
+    if (
+        not manifest.sealed
+        and inherited.signing_key_shard_count > 0
+        and (inherited.passphrase_shard_count <= 0 or inherited.passphrase_shard_threshold is None)
+    ):
+        raise ValueError(
+            "root backup signing-key shards require passphrase shards; "
+            "compact cannot preserve an invalid shard policy"
+        )
+    backup_args = BackupArgs(
+        config=args.config,
+        paper=args.paper,
+        design=args.design,
+        output_dir=args.output_dir,
+        output_dir_existing_parent=True,
+        layout_debug_dir=args.layout_debug_dir,
+        qr_chunk_size=args.qr_chunk_size,
+        passphrase=recover_plan.passphrase,
+        sealed=manifest.sealed,
+        shard_threshold=inherited.passphrase_shard_threshold,
+        shard_count=inherited.passphrase_shard_count or None,
+        signing_key_mode=(
+            "sharded"
+            if not manifest.sealed and inherited.signing_key_shard_count > 0
+            else "embedded"
+        ),
+        signing_key_shard_threshold=(
+            inherited.signing_key_shard_threshold if not manifest.sealed else None
+        ),
+        signing_key_shard_count=inherited.signing_key_shard_count if not manifest.sealed else None,
+        quiet=args.quiet,
+    )
+    config = load_app_config(backup_args.config, paper_size=backup_args.paper)
+    config = apply_template_design(config, backup_args.design)
+    config = apply_qr_chunk_size_override(config, backup_args.qr_chunk_size)
+    backup_plan = plan_backup_from_args(backup_args)
+    input_files = [
+        InputFile(
+            source_path=None,
+            relative_path=entry.path,
+            data=data,
+            mtime=entry.mtime,
+        )
+        for entry, data in chain.extracted
+    ]
+    promote_lock_dir = _compact_source_chain_lock_dir(root_dir)
+    prepare_promotion = (
+        (lambda: _prepare_compact_source_chain_lock(root_dir)) if root_dir is not None else None
+    )
+    result = run_backup(
+        input_files=input_files,
+        base_dir=None,
+        output_dir=backup_args.output_dir,
+        output_dir_existing_parent=backup_args.output_dir_existing_parent,
+        layout_debug_dir=backup_args.layout_debug_dir,
+        input_origin=manifest.input_origin,
+        input_roots=list(manifest.input_roots),
+        plan=backup_plan,
+        passphrase=backup_args.passphrase,
+        config=config,
+        signing_seed_override=None if manifest.sealed else manifest.signing_seed,
+        render_lineage=RenderLineage(kind="compaction_checkpoint"),
+        promote_lock_dir=promote_lock_dir,
+        prepare_promotion=prepare_promotion,
+        validate_promotion=lambda: _validate_compact_source_head_for_promotion(
+            args=args,
+            root_dir=root_dir,
+            expected=source_head,
+        ),
+        quiet=args.quiet,
+    )
+    return replace(
+        result,
+        source_head_index=source_head.selected_extension_index or 0,
+        source_head_doc_hash=source_head.selected_extension_doc_hash or recover_plan.doc_hash.hex(),
+        expected_head_doc_hash=args.expected_head_doc_hash,
+        freshness_scope=(
+            "supplied_carriers_only"
+            if source_head.selected_extension_index is not None
+            or args.expected_head_doc_hash is not None
+            else None
+        ),
+    )
+
+
+def _passphrase_shard_frames_for_doc(
+    frames: Sequence[Frame],
+    *,
+    expected_doc_id: bytes,
+    expected_doc_hash: bytes,
+) -> tuple[Frame, ...]:
+    return _passphrase_shard_frames_for_document(
+        frames,
+        expected_doc_id=expected_doc_id,
+        expected_doc_hash=expected_doc_hash,
+    )
+
+
+def _passphrase_shard_frames_for_selected_head(
+    frames: Sequence[Frame],
+    *,
+    root_doc_id: bytes,
+    root_doc_hash: bytes,
+    selected_extension_doc_hash: str | None,
+) -> tuple[Frame, ...]:
+    if selected_extension_doc_hash:
+        selected_doc_hash = bytes.fromhex(selected_extension_doc_hash)
+        return _passphrase_shard_frames_for_document(
+            frames,
+            expected_doc_id=doc_id_from_doc_hash(selected_doc_hash),
+            expected_doc_hash=selected_doc_hash,
+            strict_doc_id=True,
+        )
+    return _passphrase_shard_frames_for_document(
+        frames,
+        expected_doc_id=root_doc_id,
+        expected_doc_hash=root_doc_hash,
+    )
+
+
+def _passphrase_shard_frames_for_document(
+    frames: Sequence[Frame],
+    *,
+    expected_doc_id: bytes | None,
+    expected_doc_hash: bytes,
+    strict_doc_id: bool = False,
+) -> tuple[Frame, ...]:
+    selected: list[Frame] = []
+    for frame in frames:
+        if frame.frame_type != FrameType.KEY_DOCUMENT:
+            continue
+        try:
+            payload = sharding_module.decode_shard_payload(frame.data)
+        except ValueError:
+            continue
+        if payload.key_type != sharding_module.KEY_TYPE_PASSPHRASE:
+            continue
+        if payload.doc_hash != expected_doc_hash:
+            continue
+        if expected_doc_id is not None and frame.doc_id != expected_doc_id:
+            if strict_doc_id:
+                raise ApiCommandError(
+                    code=api_codes.COMPACT_INVALID_POLICY,
+                    message="source passphrase shard frame doc_id does not match selected document",
+                    details={"stage": "source_shard_policy"},
+                )
+            continue
+        selected.append(frame)
+    return tuple(selected)
+
+
+def _infer_passphrase_shard_policy_from_frames(
+    frames: Sequence[Frame],
+    *,
+    sign_pub: bytes | None,
+    expected_doc_id: bytes | None = None,
+    expected_doc_hash: bytes | None = None,
+) -> tuple[int, int] | None:
+    passphrase_frames: list[Frame] = []
+    for frame in frames:
+        if frame.frame_type != FrameType.KEY_DOCUMENT:
+            continue
+        try:
+            payload = sharding_module.decode_shard_payload(frame.data)
+        except ValueError:
+            continue
+        if payload.key_type == sharding_module.KEY_TYPE_PASSPHRASE:
+            passphrase_frames.append(frame)
+    if not passphrase_frames:
+        return None
+    if sign_pub is None:
+        raise ApiCommandError(
+            code=api_codes.COMPACT_INVALID_POLICY,
+            message=(
+                "compact cannot inherit source passphrase shard policy without a verified "
+                "root signing authority"
+            ),
+            details={"stage": "source_shard_policy"},
+        )
+
+    try:
+        shares = validated_shard_payloads_from_frames(
+            passphrase_frames,
+            expected_doc_id=expected_doc_id,
+            expected_doc_hash=expected_doc_hash,
+            expected_sign_pub=sign_pub,
+            allow_unsigned=False,
+            key_type=sharding_module.KEY_TYPE_PASSPHRASE,
+            secret_label="passphrase",
+        )
+    except InsufficientShardError as exc:
+        if exc.share_count is not None:
+            return exc.threshold, exc.share_count
+        raise ApiCommandError(
+            code=api_codes.COMPACT_INVALID_POLICY,
+            message=(
+                "source passphrase shards are under quorum; "
+                f"need at least {exc.threshold}, found {exc.provided_count}"
+            ),
+        ) from exc
+    first = shares[0]
+    return first.threshold, first.share_count

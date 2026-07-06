@@ -111,6 +111,13 @@ class RecoveryModel:
     passphrase_lines: tuple[str, ...]
     quorum_value: str | None
     signing_pub_lines: tuple[str, ...]
+    quorum_label: str = "Shard Quorum"
+
+
+@dataclass(frozen=True)
+class LineageModel:
+    kind: str
+    extension_index: int | None
 
 
 @dataclass(frozen=True)
@@ -122,6 +129,7 @@ class TemplateContext:
     usable_width_mm: float
     doc_id: str
     created_timestamp_utc: str
+    lineage: LineageModel
     doc: DocModel
     instructions: InstructionsModel
     pages: tuple[PageModel, ...]
@@ -137,6 +145,7 @@ class TemplateContext:
             "usable_width_mm": self.usable_width_mm,
             "doc_id": self.doc_id,
             "created_timestamp_utc": self.created_timestamp_utc,
+            "lineage": self._serialize_lineage(self.lineage),
             "doc": self._serialize_doc(self.doc),
             "instructions": self._serialize_instructions(self.instructions),
             "fallback": {"width_mm": self.fallback_width_mm},
@@ -154,6 +163,13 @@ class TemplateContext:
         }
 
     @staticmethod
+    def _serialize_lineage(lineage: LineageModel) -> dict[str, object]:
+        return {
+            "kind": lineage.kind,
+            "extension_index": lineage.extension_index,
+        }
+
+    @staticmethod
     def _serialize_instructions(instructions: InstructionsModel) -> dict[str, object]:
         return {
             "label": instructions.label,
@@ -167,6 +183,7 @@ class TemplateContext:
             "passphrase": recovery.passphrase,
             "passphrase_lines": list(recovery.passphrase_lines),
             "quorum_value": recovery.quorum_value,
+            "quorum_label": recovery.quorum_label,
             "signing_pub_lines": list(recovery.signing_pub_lines),
         }
 
@@ -249,6 +266,7 @@ __all__ = [
     "DocModel",
     "FallbackBlockModel",
     "InstructionsModel",
+    "LineageModel",
     "PageModel",
     "QrOutlineModel",
     "QrSequenceLabelModel",

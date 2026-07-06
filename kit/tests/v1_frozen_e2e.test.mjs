@@ -10,6 +10,7 @@ import { addPayloads, addShardPayloads } from "../app/actions_collect.js";
 import { extractFiles } from "../app/envelope.js";
 import { ensureCiphertextAndHash } from "../app/frames_cipher.js";
 import { parseAutoPayload, parseAutoShard } from "../app/frames_parse.js";
+import { verifyCollectedShardSignatures } from "../app/shard_auth.js";
 import { autoRecoverShardSecret } from "../app/shards.js";
 import { createInitialState } from "../app/state/initial.js";
 import { initialState, reducer } from "../app/state/reducer.js";
@@ -48,6 +49,9 @@ async function restoreScenario(scenarioPath) {
     const shardAdded = parseAutoShard(state, shardPayloadText);
     assert.equal(shardAdded, snapshot.shard_payload_count);
     assert.equal(state.shardFrames.size, snapshot.shard_payload_count);
+    const shardSignatures = await verifyCollectedShardSignatures(state);
+    assert.equal(shardSignatures.invalid, 0);
+    assert.equal(shardSignatures.verified, snapshot.shard_payload_count);
     assert.equal(autoRecoverShardSecret(state), true);
     assert.equal(state.agePassphrase, snapshot.passphrase);
   } else {

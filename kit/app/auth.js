@@ -15,84 +15,135 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { concatBytes, bytesToHex } from "../lib/encoding.js";
+import { ed25519 } from "@noble/curves/ed25519.js";
+
+import { bytesEqual, bytesToHex, concatBytes } from "../lib/encoding.js";
 import { encodeCbor } from "../lib/cbor.js";
 import { AUTH_DOMAIN, AUTH_VERSION, textEncoder } from "./constants.js";
-import { ensureCiphertextAndHash } from "./frames_cipher.js";
+import { syncLegacyDocumentFields } from "./document_store.js";
+import { ensureDocumentCiphertextAndHash } from "./frames_cipher.js";
 
-let authStatusPending = false;
+let authStatusQueue = Promise.resolve();
 
-async function verifyAuthSignature(docHash, signPub, signature) {
+export function deriveSigningPublicKey(signingSeed) {
+  return ed25519.getPublicKey(signingSeed);
+}
+
+export async function verifyAuthSignature(docHash, signPub, signature) {
+  const message = authSignatureMessage(docHash, signPub);
   const cryptoApi = globalThis.crypto;
-  if (!cryptoApi || !cryptoApi.subtle || !cryptoApi.subtle.importKey) {
-    return null;
+  if (!cryptoApi?.subtle?.importKey) {
+    return verifyAuthSignaturePortable(signature, message, signPub);
   }
   try {
     const key = await cryptoApi.subtle.importKey("raw", signPub, { name: "Ed25519" }, false, [
       "verify",
     ]);
-    const signedPayload = { version: AUTH_VERSION, hash: docHash, pub: signPub };
-    const signedBytes = encodeCbor(signedPayload);
-    const message = concatBytes(textEncoder.encode(AUTH_DOMAIN), signedBytes);
     const ok = await cryptoApi.subtle.verify("Ed25519", key, signature, message);
     return ok;
+  } catch (_err) {
+    return verifyAuthSignaturePortable(signature, message, signPub);
+  }
+}
+
+function authSignatureMessage(docHash, signPub) {
+  const signedPayload = { version: AUTH_VERSION, hash: docHash, pub: signPub };
+  const signedBytes = encodeCbor(signedPayload);
+  return concatBytes(textEncoder.encode(AUTH_DOMAIN), signedBytes);
+}
+
+function verifyAuthSignaturePortable(signature, message, signPub) {
+  try {
+    return ed25519.verify(signature, message, signPub, { zip215: false });
   } catch (_err) {
     return null;
   }
 }
 
 export async function updateAuthStatus(state) {
-  if (authStatusPending) {
+  const run = authStatusQueue.then(
+    () => updateAuthStatusNow(state),
+    () => updateAuthStatusNow(state),
+  );
+  authStatusQueue = run.catch(() => {});
+  await run;
+}
+
+async function updateAuthStatusNow(state) {
+  if (state.documents?.size) {
+    for (const record of state.documents.values()) {
+      await updateDocumentAuthStatus(record);
+    }
+    syncLegacyDocumentFields(state);
     return;
   }
-  authStatusPending = true;
-  try {
-    if (!state.authPayload) {
-      state.authStatus = "missing";
+  await updateDocumentAuthStatus(state);
+}
+
+export async function updateDocumentAuthStatus(record) {
+  if (!record.authPayload) {
+    if (record.authErrors > 0 && record.authStatus === "invalid payload") {
       return;
     }
-    if (state.authConflicts > 0) {
-      state.authStatus = "conflict";
-      return;
-    }
-    if (state.authErrors > 0 && state.authStatus === "invalid payload") {
-      return;
-    }
-    if (state.docIdHex && state.authDocIdHex && state.docIdHex !== state.authDocIdHex) {
-      state.authStatus = "doc_id mismatch";
-      return;
-    }
-    let docHash;
-    try {
-      docHash = ensureCiphertextAndHash(state);
-    } catch {
-      state.authStatus = "ciphertext error";
-      return;
-    }
-    if (!docHash) {
-      state.authStatus = "waiting for main frames";
-      return;
-    }
-    const docHashHex = bytesToHex(docHash);
-    if (state.authDocHashHex && state.authDocHashHex !== docHashHex) {
-      state.authStatus = "doc_hash mismatch";
-      return;
-    }
-    const verified = await verifyAuthSignature(
-      docHash,
-      state.authPayload.signPub,
-      state.authPayload.signature,
-    );
-    if (verified === true) {
-      state.authStatus = "verified";
-      return;
-    }
-    if (verified === false) {
-      state.authStatus = "invalid signature";
-      return;
-    }
-    state.authStatus = "doc_hash matches; signature not verified";
-  } finally {
-    authStatusPending = false;
+    record.authStatus = "missing";
+    return;
   }
+  if (record.authConflicts > 0) {
+    record.authStatus = "conflict";
+    return;
+  }
+  if (record.authErrors > 0 && record.authStatus === "invalid payload") {
+    return;
+  }
+  let docHash;
+  try {
+    docHash = ensureDocumentCiphertextAndHash(record);
+  } catch {
+    record.authStatus = "ciphertext error";
+    return;
+  }
+  if (!docHash) {
+    record.authStatus = "waiting for main frames";
+    return;
+  }
+  const docHashHex = bytesToHex(docHash);
+  if (record.authDocHashHex && record.authDocHashHex !== docHashHex) {
+    record.authStatus = "doc_hash mismatch";
+    return;
+  }
+  const verified = await verifyAuthSignature(
+    docHash,
+    record.authPayload.signPub,
+    record.authPayload.signature,
+  );
+  if (verified === true) {
+    record.authStatus = "verified";
+    return;
+  }
+  if (verified === false) {
+    record.authStatus = "invalid signature";
+    return;
+  }
+  record.authStatus = "doc_hash matches; signature not verified";
+}
+
+export async function requireVerifiedAuthPayload(document, expectedSignPub = null) {
+  const payload = document.authPayload;
+  if (!payload) {
+    throw new Error("missing AUTH payload");
+  }
+  if (!bytesEqual(payload.docHash, document.docHash)) {
+    throw new Error("AUTH doc_hash does not match ciphertext");
+  }
+  if (expectedSignPub && !bytesEqual(payload.signPub, expectedSignPub)) {
+    throw new Error("AUTH signing key does not match root authority");
+  }
+  const verified = await verifyAuthSignature(document.docHash, payload.signPub, payload.signature);
+  if (verified === null) {
+    throw new Error("this browser cannot verify extension signatures");
+  }
+  if (!verified) {
+    throw new Error("AUTH signature is invalid");
+  }
+  return payload;
 }

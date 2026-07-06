@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 from ethernity.cli.features.backup.execution import run_backup as _run_backup
 from ethernity.cli.features.backup.planning import build_document_plan
@@ -36,7 +37,11 @@ from ethernity.cli.features.backup.wizard import (
     resolve_signing_seed_sharding,
 )
 from ethernity.cli.shared.io.inputs import _load_input_files
+from ethernity.cli.shared.paths import display_parent_path
 from ethernity.cli.shared.plan import _validate_backup_args, _validate_passphrase_words
+from ethernity.cli.shared.recovery_kit_index import (
+    resolve_recovery_kit_index_template_path,
+)
 from ethernity.cli.shared.types import BackupArgs, BackupResult, InputFile
 from ethernity.cli.shared.ui.summary import print_backup_summary
 from ethernity.cli.shared.ui_api import (
@@ -56,6 +61,7 @@ from ethernity.cli.shared.ui_api import (
     ui_screen_mode,
     wizard_flow,
     wizard_stage,
+    wizard_substep,
 )
 from ethernity.config import (
     DEFAULT_PAPER_SIZE,
@@ -65,20 +71,32 @@ from ethernity.config import (
     ONBOARDING_FIELD_SHARDING,
     ONBOARDING_FIELD_TEMPLATE_DESIGN,
     AppConfig,
+    PageSize as ConfigPageSize,
+    QrErrorCorrection as ConfigQrErrorCorrection,
+    SigningKeyMode as ConfigSigningKeyMode,
+    apply_first_run_defaults,
     apply_template_design,
     first_run_onboarding_configured_fields,
     list_template_designs,
     load_app_config,
+    mark_first_run_onboarding_complete,
 )
-from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
 from ethernity.core.models import DocumentPlan, ShardingConfig, SigningSeedMode
 from ethernity.formats import (
     envelope_codec as envelope_codec_module,
     payload_codec as payload_codec_module,
 )
 from ethernity.formats.envelope_types import SIGNING_SEED_LEN, PayloadPart
+from ethernity.render.types import RenderLineage
 
-_KIT_INDEX_TEMPLATE_MARKER = "kit_index_inventory_artifacts_v3"
+_BACKUP_WIZARD_SAVEABLE_FIELDS = frozenset(
+    {
+        ONBOARDING_FIELD_TEMPLATE_DESIGN,
+        ONBOARDING_FIELD_PAGE_SIZE,
+        ONBOARDING_FIELD_BACKUP_OUTPUT_DIR,
+        ONBOARDING_FIELD_SHARDING,
+    }
+)
 
 
 def _format_backup_input_error(exc: Exception) -> str:
@@ -107,20 +125,23 @@ def _prompt_encryption(
     passphrase_words = args.passphrase_words if args is not None else None
 
     if passphrase is not None:
-        entered = prompt_optional_secret(
-            "Enter passphrase",
-            help_text="Leave blank to keep the passphrase provided via flags.",
-        )
+        with wizard_substep("Passphrase"):
+            entered = prompt_optional_secret(
+                "Enter passphrase",
+                help_text="Leave blank to keep the passphrase provided via flags.",
+            )
         if entered is not None:
             passphrase = entered
     else:
         help_text = "Leave blank to auto-generate a strong passphrase."
         if passphrase_generate:
             help_text = "Leave blank to auto-generate a strong passphrase (as requested)."
-        passphrase = prompt_optional_secret("Enter passphrase", help_text=help_text)
+        with wizard_substep("Passphrase"):
+            passphrase = prompt_optional_secret("Enter passphrase", help_text=help_text)
         if passphrase is None:
             if passphrase_words is None:
-                passphrase_words = prompt_passphrase_words()
+                with wizard_substep("Passphrase length"):
+                    passphrase_words = prompt_passphrase_words()
             else:
                 _validate_passphrase_words(passphrase_words)
 
@@ -146,6 +167,29 @@ def _prompt_recovery_options(
 
     Returns (sealed, debug, signing_seed_mode, sharding, signing_seed_sharding).
     """
+    if _should_offer_recommended_recovery_setup(args, prompt_sharding_when_missing):
+        with wizard_substep("Recovery setup"):
+            recovery_setup = prompt_choice(
+                "Recovery setup",
+                {
+                    "recommended": "Use the recommended recovery setup",
+                    "custom": "Customize recovery setup",
+                },
+                default="recommended",
+                help_text=(
+                    "Recommended setup creates 3 recovery shards, needs any 2, keeps the backup "
+                    "unsealed, and stores the signing key in the main document."
+                ),
+            )
+        if recovery_setup == "recommended":
+            return (
+                False,
+                bool(debug_override),
+                SigningSeedMode.EMBEDDED,
+                ShardingConfig(threshold=2, shares=3),
+                None,
+            )
+
     sharding = resolve_passphrase_sharding(
         args=args,
         confirm_existing=confirm_existing_quorums,
@@ -157,18 +201,24 @@ def _prompt_recovery_options(
     elif args is not None and args.sealed:
         sealed = True
     else:
-        sealed = prompt_yes_no(
-            "Seal backup (disallow new shards)",
-            default=False,
-            help_text="Sealed backups prevent creating new shard docs later.",
-        )
+        with wizard_substep("Backup policy"):
+            sealed = prompt_yes_no(
+                "Seal backup (disallow extensions and new shards)",
+                default=False,
+                help_text=(
+                    "Sealed backups cannot be extended or used to create new shard docs later."
+                ),
+            )
 
     if debug_override is None:
-        debug = prompt_yes_no(
-            "Show pre-encryption debug output",
-            default=False,
-            help_text="Includes plaintext details; use only for troubleshooting.",
-        )
+        with wizard_substep("Debug"):
+            debug = prompt_yes_no(
+                "Show sensitive debug details before encryption",
+                default=False,
+                help_text=(
+                    "This can reveal plaintext details. Use it only for local troubleshooting."
+                ),
+            )
     else:
         debug = debug_override
 
@@ -192,6 +242,24 @@ def _prompt_recovery_options(
     return sealed, debug, signing_seed_mode, sharding, signing_seed_sharding
 
 
+def _should_offer_recommended_recovery_setup(
+    args: BackupArgs | None,
+    prompt_sharding_when_missing: bool,
+) -> bool:
+    if not prompt_sharding_when_missing or args is None:
+        return args is None and prompt_sharding_when_missing
+    return not any(
+        (
+            args.sealed,
+            args.shard_threshold is not None,
+            args.shard_count is not None,
+            args.signing_key_mode is not None,
+            args.signing_key_shard_threshold is not None,
+            args.signing_key_shard_count is not None,
+        )
+    )
+
+
 def _prompt_layout(
     config_path: str | None,
     paper_size: str | None,
@@ -206,19 +274,21 @@ def _prompt_layout(
             "letter": "Letter",
             "custom": "Custom config file (TOML)",
         }
-        layout_choice = prompt_choice(
-            "Paper size",
-            layout_choices,
-            default=DEFAULT_PAPER_SIZE.lower(),
-            help_text="Choose a paper size or select a custom TOML config.",
-        )
-        if layout_choice == "custom":
-            config_path = prompt_path_with_picker(
-                "Config file path",
-                kind="file",
-                help_text="Provide a TOML config file.",
-                picker_prompt="Select a config file",
+        with wizard_substep("Paper"):
+            layout_choice = prompt_choice(
+                "Choose paper size",
+                layout_choices,
+                default=DEFAULT_PAPER_SIZE.lower(),
+                help_text="Choose a paper size or select a custom TOML config.",
             )
+        if layout_choice == "custom":
+            with wizard_substep("Config file"):
+                config_path = prompt_path_with_picker(
+                    "Config file path",
+                    kind="file",
+                    help_text="Provide a TOML config file.",
+                    picker_prompt="Select a config file",
+                )
         else:
             paper = layout_choice.upper()
     elif paper:
@@ -271,12 +341,15 @@ def _prompt_design(args: BackupArgs | None, *, prompt_when_unset: bool = True) -
         name: "sentinel (recommended)" if name.lower() == "sentinel" else name
         for name in design_names
     }
-    return prompt_choice(
-        "Template design",
-        choices,
-        default=default,
-        help_text="Design folders are discovered from packaged templates (copied to user config).",
-    )
+    with wizard_substep("Design"):
+        return prompt_choice(
+            "Choose print design",
+            choices,
+            default=default,
+            help_text=(
+                "Design folders are discovered from packaged templates (copied to user config)."
+            ),
+        )
 
 
 def _prompt_backup_setup_mode(*, offer_quick: bool) -> bool:
@@ -284,18 +357,19 @@ def _prompt_backup_setup_mode(*, offer_quick: bool) -> bool:
 
     if not offer_quick:
         return False
-    mode = prompt_choice(
-        "Backup setup mode",
-        {
-            "quick": "Quick run (use saved onboarding defaults)",
-            "advanced": "Advanced (review all backup options)",
-        },
-        default="quick",
-        help_text=(
-            "Quick mode skips prompts for options configured during onboarding. "
-            "Choose Advanced to customize everything for this run."
-        ),
-    )
+    with wizard_substep("Setup"):
+        mode = prompt_choice(
+            "How much setup do you want",
+            {
+                "quick": "Use saved defaults where possible",
+                "advanced": "Review every backup option",
+            },
+            default="quick",
+            help_text=(
+                "Quick mode skips prompts for settings already saved during onboarding. "
+                "Choose the full review if this backup needs custom settings."
+            ),
+        )
     return mode == "quick"
 
 
@@ -311,15 +385,16 @@ def _prompt_inputs(
     Returns (input_files, resolved_base, output_dir, input_origin, input_roots).
     """
     while True:
-        input_values = prompt_paths_with_picker(
-            "Input paths (files or directories, blank to finish)",
-            picker_prompt="Select files or folders",
-            kind="path",
-            manual_help_text="Enter file or directory paths; blank line to finish.",
-            picker_help_text="Use space to toggle, Enter to confirm.",
-            empty_message="At least one input path is required.",
-            stdin_message="Stdin input is not supported in the wizard.",
-        )
+        with wizard_substep("Choose files"):
+            input_values = prompt_paths_with_picker(
+                "Input paths (files or directories, blank to finish)",
+                picker_prompt="Select files or folders",
+                kind="path",
+                manual_help_text="Enter file or directory paths; blank line to finish.",
+                picker_help_text="Use space to toggle, Enter to confirm.",
+                empty_message="At least one input path is required.",
+                stdin_message="Stdin input is not supported in the wizard.",
+            )
         base_dir = args.base_dir if args is not None else None
         output_dir = args.output_dir if args is not None else None
         if show_output_prompt:
@@ -327,12 +402,13 @@ def _prompt_inputs(
                 "Press Enter to keep the saved default output directory, or enter a different "
                 "folder for this run."
                 if output_dir
-                else "Creates a backup-<id> folder in current directory."
+                else "Leave blank to create a backup-<id> folder in the current directory."
             )
-            selected_output_dir = prompt_optional(
-                "Output folder (press Enter for default)",
-                help_text=output_help,
-            )
+            with wizard_substep("Output folder"):
+                selected_output_dir = prompt_optional(
+                    "Output folder",
+                    help_text=output_help,
+                )
             if selected_output_dir is not None:
                 output_dir = selected_output_dir
 
@@ -397,22 +473,22 @@ def _build_review_rows(
         elif plan.signing_seed_mode == SigningSeedMode.EMBEDDED:
             signing_label = "embedded in main document"
         else:
-            signing_label = "separate signing-key shard documents"
-        review_rows.append(("Signing key handling", signing_label))
+            signing_label = "separate signing authority shard documents"
+        review_rows.append(("Signing authority handling", signing_label))
         if plan.signing_seed_mode == SigningSeedMode.SHARDED:
             if plan.signing_seed_sharding:
                 signing_seed_sharding = plan.signing_seed_sharding
                 review_rows.append(
                     (
-                        "Signing-key shards",
+                        "Signing authority shards",
                         f"{signing_seed_sharding.threshold} of {signing_seed_sharding.shares}",
                     )
                 )
             else:
-                review_rows.append(("Signing-key shards", "same as passphrase"))
+                review_rows.append(("Signing authority shards", "same as passphrase"))
     else:
         review_rows.append(("Sharding", "disabled"))
-        review_rows.append(("Signing key handling", "not applicable"))
+        review_rows.append(("Signing authority handling", "not applicable"))
 
     review_rows.append(("Sealed", "yes" if plan.sealed else "no"))
     review_rows.append(("Inputs", None))
@@ -438,7 +514,7 @@ def _build_review_rows(
     review_rows.append(("Debug output", "enabled" if debug else "disabled"))
     review_rows.append(("QR template", str(config.template_path)))
     review_rows.append(("Recovery template", str(config.recovery_template_path)))
-    kit_index_template = _resolve_kit_index_template_path(config)
+    kit_index_template = resolve_recovery_kit_index_template_path(config)
     if kit_index_template is not None:
         review_rows.append(("Recovery kit index template", str(kit_index_template)))
     if plan.sharding is not None:
@@ -449,7 +525,7 @@ def _build_review_rows(
         and plan.signing_seed_mode == SigningSeedMode.SHARDED
     ):
         review_rows.append(
-            ("Signing-key shard template", str(config.signing_key_shard_template_path))
+            ("Signing authority shard template", str(config.signing_key_shard_template_path))
         )
     return review_rows
 
@@ -511,39 +587,14 @@ def _build_payload_review_details(
     return codec_label, ratio_label
 
 
-def _resolve_kit_index_template_path(config: AppConfig) -> Path | None:
-    """Return the kit index template path candidate for the active design."""
-
-    kit_template_path = config.kit_template_path
-    candidate = kit_template_path.with_name("kit_index_document.html.j2")
-    if candidate.is_file() and _is_compatible_kit_index_template(candidate):
-        return candidate
-    package_candidate = (
-        TEMPLATES_RESOURCE_ROOT / kit_template_path.parent.name / "kit_index_document.html.j2"
-    )
-    if package_candidate.is_file() and _is_compatible_kit_index_template(package_candidate):
-        return package_candidate
-    return None
-
-
-def _is_compatible_kit_index_template(path: Path) -> bool:
-    """Return whether a kit index template has the expected marker."""
-
-    try:
-        content = path.read_text(encoding="utf-8")
-    except OSError:
-        return False
-    return _KIT_INDEX_TEMPLATE_MARKER in content
-
-
 def _print_completion_actions(result: BackupResult, quiet: bool) -> None:
     """Print the completion panel with next actions."""
     if quiet:
         return
-    output_dir = str(Path(result.qr_path).parent)
+    output_dir = display_parent_path(result.qr_path)
     actions = [
         f"Saved to {output_dir}",
-        "Print the QR document and store it securely.",
+        "Print the main document and store it securely.",
         "Store the recovery document separately.",
     ]
     if result.kit_index_path:
@@ -552,10 +603,82 @@ def _print_completion_actions(result: BackupResult, quiet: bool) -> None:
         actions.append(f"Store {len(result.shard_paths)} shard documents in different locations.")
     if result.signing_key_shard_paths:
         actions.append(
-            f"Store {len(result.signing_key_shard_paths)} signing-key shard documents separately."
+            f"Store {len(result.signing_key_shard_paths)} signing authority shard documents "
+            "separately."
         )
     actions.append("Run `ethernity recover` to verify the backup.")
     print_completion_panel("Backup complete", actions, quiet=quiet)
+
+
+def _active_design_name(config: AppConfig) -> str:
+    return config.template_path.parent.name
+
+
+def _persist_backup_defaults_from_wizard(
+    *,
+    config_path: str | None,
+    config: AppConfig,
+    plan: DocumentPlan,
+    output_dir: str | None,
+    configured_fields: frozenset[str],
+) -> None:
+    backup_defaults = config.cli_defaults.backup
+    signing_key_mode: ConfigSigningKeyMode | None = (
+        None if plan.sharding is None else plan.signing_seed_mode.value
+    )
+    apply_first_run_defaults(
+        config_path,
+        design=_active_design_name(config),
+        payload_codec=backup_defaults.payload_codec,
+        qr_payload_codec=backup_defaults.qr_payload_codec,
+        qr_error_correction=cast(ConfigQrErrorCorrection, config.qr_config.error),
+        page_size=cast(ConfigPageSize, config.paper_size),
+        backup_output_dir=output_dir,
+        qr_chunk_size=config.qr_chunk_size,
+        shard_threshold=plan.sharding.threshold if plan.sharding is not None else None,
+        shard_count=plan.sharding.shares if plan.sharding is not None else None,
+        signing_key_mode=signing_key_mode,
+        signing_key_shard_threshold=(
+            plan.signing_seed_sharding.threshold if plan.signing_seed_sharding is not None else None
+        ),
+        signing_key_shard_count=(
+            plan.signing_seed_sharding.shares if plan.signing_seed_sharding is not None else None
+        ),
+    )
+    mark_first_run_onboarding_complete(
+        configured_fields=set(configured_fields | _BACKUP_WIZARD_SAVEABLE_FIELDS)
+    )
+
+
+def _maybe_save_backup_defaults(
+    *,
+    config_path: str | None,
+    config: AppConfig,
+    plan: DocumentPlan,
+    output_dir: str | None,
+    quiet: bool,
+    configured_fields: frozenset[str],
+) -> None:
+    if quiet or configured_fields.issuperset(_BACKUP_WIZARD_SAVEABLE_FIELDS):
+        return
+    should_save = prompt_yes_no(
+        "Save these backup choices for future runs",
+        default=True,
+        help_text=(
+            "This saves the layout and recovery settings you just used. Use "
+            "`ethernity config --onboard` any time to review or save more defaults."
+        ),
+    )
+    if not should_save:
+        return
+    _persist_backup_defaults_from_wizard(
+        config_path=config_path,
+        config=config,
+        plan=plan,
+        output_dir=output_dir,
+        configured_fields=configured_fields,
+    )
+    console.print("[success]Saved these backup defaults for future runs.[/success]")
 
 
 def run_wizard(
@@ -588,10 +711,10 @@ def run_wizard(
     with ui_screen_mode(quiet=quiet):
         with wizard_flow(name="Backup", total_steps=5, quiet=quiet):
             if not quiet:
-                console.print("[title]Ethernity backup wizard[/title]")
-                console.print("[subtitle]Guided setup for backup documents.[/subtitle]")
+                console.print("[title]Create backup[/title]")
                 console.print(
-                    "[subtitle]Defaults favor recovery (2-of-3 shards, unsealed).[/subtitle]"
+                    "[subtitle]Default choices favor easier recovery (2-of-3 shards, unsealed)."
+                    "[/subtitle]"
                 )
             quick_mode = False
             passphrase: str | None = None
@@ -621,7 +744,7 @@ def run_wizard(
 
             while stage_index < 5:
                 if stage_index == 0:
-                    with wizard_stage("Encryption", step_number=1):
+                    with wizard_stage("Encryption", step_number=1, density="dense"):
                         quick_mode = _prompt_backup_setup_mode(
                             offer_quick=offer_quick_mode and not quiet
                         )
@@ -641,7 +764,7 @@ def run_wizard(
                 )
 
                 if stage_index == 1:
-                    with wizard_stage("Recovery", step_number=2):
+                    with wizard_stage("Recovery", step_number=2, density="dense"):
                         recovery_args = working_args
                         if not use_saved_sharding:
                             recovery_args = replace(
@@ -676,7 +799,7 @@ def run_wizard(
                     continue
 
                 if stage_index == 2:
-                    with wizard_stage("Layout", step_number=3):
+                    with wizard_stage("Layout", step_number=3, density="dense"):
                         config_path, paper = _prompt_layout(
                             config_path,
                             paper_size,
@@ -693,7 +816,7 @@ def run_wizard(
                     continue
 
                 if stage_index == 3:
-                    with wizard_stage("Inputs", step_number=4):
+                    with wizard_stage("Inputs", step_number=4, density="dense"):
                         input_files, resolved_base, output_dir, input_origin, input_roots = (
                             _prompt_inputs(
                                 working_args,
@@ -736,9 +859,9 @@ def run_wizard(
                 with wizard_stage("Review", step_number=5):
                     console.print(panel("Review", build_review_table(review_rows)))
                     if not assume_yes and not prompt_yes_no(
-                        "Proceed with backup",
+                        "Create backup documents",
                         default=True,
-                        help_text="Select no to cancel.",
+                        help_text="Select no to go back without writing anything.",
                     ):
                         console.print("Backup cancelled.")
                         return 1
@@ -783,6 +906,14 @@ def run_wizard(
             )
             print_backup_summary(result, plan, passphrase, quiet=quiet)
             _print_completion_actions(result, quiet)
+            _maybe_save_backup_defaults(
+                config_path=config_path,
+                config=config,
+                plan=plan,
+                output_dir=output_dir,
+                quiet=quiet,
+                configured_fields=configured_fields,
+            )
     return 0
 
 
@@ -845,6 +976,7 @@ def run_backup(
         passphrase=passphrase,
         passphrase_words=passphrase_words,
         config=config,
+        render_lineage=RenderLineage(kind="root_backup"),
         debug=debug,
         debug_max_bytes=debug_max_bytes,
         debug_reveal_secrets=debug_reveal_secrets,

@@ -31,6 +31,7 @@ from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
 from ethernity.qr.codec import QrConfig, make_qr
 from ethernity.render import render_frames_to_pdf
 from ethernity.render.service import RenderService
+from ethernity.render.types import RenderLineage
 
 DEFAULT_KIT_BUNDLE_NAME = "recovery_kit.bundle.html"
 SCANNER_KIT_BUNDLE_NAME = "recovery_kit.scanner.bundle.html"
@@ -101,6 +102,7 @@ def render_kit_qr_document(
         output,
         qr_payloads=qr_payloads,
         context=render_service.base_context(),
+        lineage=RenderLineage(kind="recovery_kit"),
     )
 
     with status("Rendering recovery kit QR document...", quiet=quiet):

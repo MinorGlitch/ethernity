@@ -22,16 +22,13 @@ from typing import Annotated
 
 import typer
 
-from ethernity.cli.features.recover.orchestrator import (
-    _should_use_wizard_for_recover,
-    run_recover_command,
-    run_recover_wizard,
-)
+from ethernity.cli.features.recover.orchestrator import run_recover_command
 from ethernity.cli.features.recover.service import (
     RecoverShardDirError,
     apply_recover_stdin_default,
     expand_recover_shard_dir,
 )
+from ethernity.cli.features.recover.workspace import run_restore_workspace
 from ethernity.cli.shared.common import (
     _ctx_state,
     _paper_callback,
@@ -39,6 +36,7 @@ from ethernity.cli.shared.common import (
     _run_cli,
 )
 from ethernity.cli.shared.types import RecoverArgs
+from ethernity.cli.shared.ui_api import DEBUG_MAX_BYTES_DEFAULT
 from ethernity.config import RecoverDefaults
 
 
@@ -50,17 +48,92 @@ def _expand_shard_dir(shard_dir: str | None) -> list[str]:
 
 
 def register(app: typer.Typer) -> None:
+    app.command(name="restore", help="Restore files from a backup with a guided workspace.")(
+        restore
+    )
     app.command(
         help=(
             "Recover data from QR payloads or recovery text (fallback).\n\n"
             "Examples:\n"
             "  ethernity recover --scan ./scans\n"
-            "  ethernity recover --scan qr_document.pdf --shard-scan shard-01.pdf "
+            "  ethernity recover --scan ./phone-scans --shard-scan shard-01.pdf "
             "--shard-scan shard-02.pdf --output recovered.bin\n"
             "  ethernity recover --fallback-file recovery.txt --output recovered.bin\n"
             "  ethernity recover --payloads-file qr_payloads.txt\n"
+            "  ethernity recover --scan ./backup-root --extension-index 0\n"
+            "  ethernity recover --scan ./backup-root --extension-doc-hash <64-hex-hash>\n"
+            "  ethernity recover --scan ./backup-root --expected-head-doc-hash <64-hex-hash>\n"
         )
     )(recover)
+
+
+def restore(
+    ctx: typer.Context,
+    config: Annotated[
+        str | None,
+        typer.Option(
+            "--config",
+            help="Use this config file.",
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    paper: Annotated[
+        str | None,
+        typer.Option(
+            "--paper",
+            help="Paper size override (A4/Letter).",
+            callback=_paper_callback,
+            rich_help_panel="Config",
+        ),
+    ] = None,
+    quiet: Annotated[
+        bool,
+        typer.Option(
+            "--quiet",
+            help="Hide non-error output.",
+            rich_help_panel="Behavior",
+        ),
+    ] = False,
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            help="Show plaintext debug details.",
+            rich_help_panel="Debug",
+        ),
+    ] = False,
+    debug_max_bytes: Annotated[
+        int | None,
+        typer.Option(
+            "--debug-max-bytes",
+            help=f"Limit debug dump size (default: {DEBUG_MAX_BYTES_DEFAULT}, 0 = no limit).",
+            rich_help_panel="Debug",
+        ),
+    ] = None,
+) -> None:
+    state = _ctx_state(ctx)
+    config_value, paper_value = _resolve_config_and_paper(ctx, config, paper)
+    quiet_value = quiet or (state.quiet if state is not None else False)
+    debug_value = debug or (state.debug if state is not None else False)
+    defaults = state.recover_defaults if state is not None else None
+    if not isinstance(defaults, RecoverDefaults):
+        defaults = RecoverDefaults()
+    debug_max_value = (
+        (state.debug_max_bytes if state is not None else 0)
+        if debug_max_bytes is None
+        else debug_max_bytes
+    )
+    debug_reveal_value = state.debug_reveal_secrets if state is not None else False
+    args = RecoverArgs(
+        config=config_value,
+        paper=paper_value,
+        output=defaults.output,
+        allow_unsigned=False,
+        debug_max_bytes=debug_max_value,
+        debug_reveal_secrets=debug_reveal_value,
+        quiet=quiet_value,
+    )
+    _run_cli(functools.partial(run_restore_workspace, args, debug=debug_value), debug=debug_value)
 
 
 def recover(
@@ -90,12 +163,38 @@ def recover(
             rich_help_panel="Inputs",
         ),
     ] = None,
+    extension_index: Annotated[
+        int | None,
+        typer.Option(
+            "--extension-index",
+            help="Recover through a specific extension index (0 = root only).",
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
+    extension_doc_hash: Annotated[
+        str | None,
+        typer.Option(
+            "--extension-doc-hash",
+            help=(
+                "Recover through the extension whose authenticated doc hash matches this hex value."
+            ),
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
+    expected_head_doc_hash: Annotated[
+        str | None,
+        typer.Option(
+            "--expected-head-doc-hash",
+            help="Require the validated recovery head to match this 32-byte doc hash.",
+            rich_help_panel="Inputs",
+        ),
+    ] = None,
     passphrase: Annotated[
         str | None,
         typer.Option(
             "--passphrase",
             help="Passphrase to decrypt with.",
-            rich_help_panel="Keys",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     shard_fallback_file: Annotated[
@@ -103,7 +202,7 @@ def recover(
         typer.Option(
             "--shard-fallback-file",
             help="Shard recovery text file (repeatable).",
-            rich_help_panel="Inputs",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     shard_dir: Annotated[
@@ -111,7 +210,7 @@ def recover(
         typer.Option(
             "--shard-dir",
             help="Directory containing shard text files (auto-discovers *.txt files).",
-            rich_help_panel="Inputs",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     shard_payloads_file: Annotated[
@@ -119,7 +218,7 @@ def recover(
         typer.Option(
             "--shard-payloads-file",
             help="Shard QR payload file (repeatable).",
-            rich_help_panel="Inputs",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     shard_scan: Annotated[
@@ -127,7 +226,7 @@ def recover(
         typer.Option(
             "--shard-scan",
             help="Shard scan path (image/PDF/dir, repeatable).",
-            rich_help_panel="Inputs",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     auth_fallback_file: Annotated[
@@ -135,7 +234,7 @@ def recover(
         typer.Option(
             "--auth-fallback-file",
             help="Auth recovery text (fallback, z-base-32, use - for stdin).",
-            rich_help_panel="Inputs",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     auth_payloads_file: Annotated[
@@ -143,7 +242,7 @@ def recover(
         typer.Option(
             "--auth-payloads-file",
             help="Auth QR payloads (one per line).",
-            rich_help_panel="Inputs",
+            rich_help_panel="Unlock",
         ),
     ] = None,
     output: Annotated[
@@ -155,21 +254,9 @@ def recover(
                 "Output file/dir (default: stdout for single-file recovery; "
                 "multi-file recovery requires --output directory)."
             ),
-            rich_help_panel="Output",
+            rich_help_panel="Outputs",
         ),
     ] = None,
-    allow_unsigned: Annotated[
-        bool,
-        typer.Option(
-            "--rescue-mode",
-            "--skip-auth-check",
-            help=(
-                "Enable rescue mode and continue without authentication verification "
-                "(legacy alias: --skip-auth-check)."
-            ),
-            rich_help_panel="Verification",
-        ),
-    ] = False,
     assume_yes: Annotated[
         bool,
         typer.Option(
@@ -220,6 +307,7 @@ def recover(
         fallback_file,
         payloads_file,
         list(scan or []),
+        extension_selector_present=(extension_index is not None or extension_doc_hash is not None),
         stdin_is_tty=sys.stdin.isatty(),
     )
 
@@ -239,14 +327,28 @@ def recover(
         shard_scan=list(shard_scan or []),
         auth_fallback_file=auth_fallback_file,
         auth_payloads_file=auth_payloads_file,
+        extension_index=extension_index,
+        extension_doc_hash=extension_doc_hash,
+        expected_head_doc_hash=expected_head_doc_hash,
         output=output_value,
-        allow_unsigned=allow_unsigned,
+        allow_unsigned=False,
         assume_yes=assume_yes,
         debug_max_bytes=debug_max_value,
         debug_reveal_secrets=debug_reveal_value,
         quiet=quiet_value,
     )
-    if _should_use_wizard_for_recover(args):
-        _run_cli(functools.partial(run_recover_wizard, args, debug=debug_value), debug=debug_value)
+    if _should_use_workspace_for_recover(args):
+        _run_cli(
+            functools.partial(run_restore_workspace, args, debug=debug_value),
+            debug=debug_value,
+        )
         return
     _run_cli(functools.partial(run_recover_command, args, debug=debug_value), debug=debug_value)
+
+
+def _should_use_workspace_for_recover(args: RecoverArgs) -> bool:
+    if args.fallback_file or args.payloads_file or args.scan:
+        return False
+    if args.shard_fallback_file or args.shard_payloads_file or args.shard_scan:
+        return False
+    return sys.stdin.isatty() and sys.stdout.isatty()

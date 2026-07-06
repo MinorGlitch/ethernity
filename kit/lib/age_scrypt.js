@@ -119,7 +119,7 @@ function parseHeaderScrypt(fileBytes) {
   }
   const body = flatten(bodyLines);
   const macLine = readAsciiLine(fileBytes, offset);
-  if (!macLine || !macLine.text.startsWith("--- ")) {
+  if (!macLine?.text.startsWith("--- ")) {
     throw new Error("invalid header");
   }
   const mac = decodeBase64NoPad(macLine.text.slice(4));
@@ -161,7 +161,9 @@ function unwrapScrypt(passphrase, saltText, logNText, body) {
   const labelAndSalt = new Uint8Array(LABEL_SCRYPT.length + 16);
   labelAndSalt.set(LABEL_SCRYPT);
   labelAndSalt.set(salt, LABEL_SCRYPT.length);
-  const key = scrypt(passphrase, labelAndSalt, { N: 2 ** logN, r: 8, p: 1, dkLen: 32 });
+  const scryptCost = 2 ** logN;
+  const maxmem = 128 * 8 * (scryptCost + 2);
+  const key = scrypt(passphrase, labelAndSalt, { N: scryptCost, r: 8, p: 1, dkLen: 32, maxmem });
   return decryptFileKey(body, key);
 }
 

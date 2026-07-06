@@ -150,7 +150,7 @@ def adjust_layout_fallback_capacity(
             include_recovery_metadata_footer=include_recovery_metadata_footer,
         )
         available = max(0.0, page_h - margin - content_start_y - reserve_mm)
-        effective_lines = max(1, int(available // max(effective_line_height, 0.1)))
+        effective_lines = max(0, int(available // max(effective_line_height, 0.1)))
         return effective_line_height, effective_lines
 
     if normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD:
@@ -163,7 +163,7 @@ def adjust_layout_fallback_capacity(
             if include_instructions
             else signing_key_shard_profile.continuation_payload_zone_height_mm
         )
-        effective_lines = max(1, int(zone_mm // max(effective_line_height, 0.1)))
+        effective_lines = max(0, int(zone_mm // max(effective_line_height, 0.1)))
         return effective_line_height, effective_lines
 
     if normalized_doc_type == DOC_TYPE_SHARD:
@@ -174,7 +174,7 @@ def adjust_layout_fallback_capacity(
             if include_instructions
             else shard_profile.continuation_payload_zone_height_mm
         )
-        effective_lines = max(1, int(zone_mm // max(effective_line_height, 0.1)))
+        effective_lines = max(0, int(zone_mm // max(effective_line_height, 0.1)))
         return effective_line_height, effective_lines
 
     return line_height, fallback_lines_per_page_val
@@ -207,7 +207,7 @@ def adjust_page_fallback_capacity(
             if page_idx <= 0
             else signing_key_shard_profile.continuation_payload_zone_height_mm
         )
-        zone_lines = max(1, int(zone_mm // line_height))
+        zone_lines = max(0, int(zone_mm // line_height))
         return min(lines_capacity, zone_lines)
 
     if normalized_doc_type == DOC_TYPE_SHARD:
@@ -218,7 +218,7 @@ def adjust_page_fallback_capacity(
             if page_idx <= 0
             else shard_profile.continuation_payload_zone_height_mm
         )
-        zone_lines = max(1, int(zone_mm // line_height))
+        zone_lines = max(0, int(zone_mm // line_height))
         return min(lines_capacity, zone_lines)
 
     if normalized_doc_type == DOC_TYPE_RECOVERY:
@@ -233,7 +233,7 @@ def adjust_page_fallback_capacity(
             0.0,
             page_layout.page_h - page_layout.margin - page_layout.content_start_y - reserve_mm,
         )
-        zone_lines = max(1, int(available // line_height))
+        zone_lines = max(0, int(available // line_height))
         return min(lines_capacity, zone_lines)
 
     return lines_capacity

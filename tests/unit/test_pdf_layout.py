@@ -20,7 +20,7 @@ from pathlib import Path
 from fpdf import FPDF
 
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
-from ethernity.render import RenderInputs
+from ethernity.render import FallbackSection, RenderInputs, RenderLineage
 from ethernity.render.geometry import (
     fallback_lines_per_page,
     fallback_lines_per_page_text_only,
@@ -91,6 +91,21 @@ def _build_spec(*, line_count: int, line_height: float) -> DocumentSpec:
     )
 
 
+def _fallback_sections(
+    frame: Frame,
+    *,
+    payload: bytes | None = None,
+    label: str | None = None,
+) -> tuple[FallbackSection, ...]:
+    fallback_frame = replace(
+        frame,
+        index=0,
+        total=1,
+        data=frame.data if payload is None else payload,
+    )
+    return (FallbackSection(label=label, frame=fallback_frame),)
+
+
 class TestPdfLayout(unittest.TestCase):
     def test_main_first_page_capacity_remains_3x4_across_styles(self) -> None:
         frames = [
@@ -128,6 +143,7 @@ class TestPdfLayout(unittest.TestCase):
                     output_path="out.pdf",
                     context=context,
                     doc_type="main",
+                    lineage=RenderLineage(kind="root_backup"),
                     render_fallback=False,
                 )
                 spec = document_spec("main", "A4", context)
@@ -227,10 +243,11 @@ class TestPdfLayout(unittest.TestCase):
                     output_path="out.pdf",
                     context=context,
                     doc_type="recovery",
+                    lineage=RenderLineage(kind="root_backup"),
                     render_qr=False,
                     render_fallback=True,
                     key_lines=key_lines,
-                    fallback_payload=b"recovery payload",
+                    fallback_sections=_fallback_sections(frame, payload=b"recovery payload"),
                 )
                 spec = document_spec("recovery", "A4", context)
                 recovery_meta = build_recovery_meta(
@@ -311,6 +328,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frames[0].doc_id.hex()},
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_fallback=False,
         )
         spec = _build_spec(line_count=6, line_height=3.5)
@@ -346,6 +364,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frames[0].doc_id.hex()},
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_fallback=False,
         )
         spec = _build_spec(line_count=6, line_height=3.5)
@@ -381,6 +400,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frames[0].doc_id.hex()},
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_fallback=False,
         )
         spec = _build_spec(line_count=6, line_height=3.5)
@@ -422,6 +442,7 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context=context,
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_fallback=False,
         )
         spec = document_spec("main", "A4", context)
@@ -482,7 +503,9 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frames[0].doc_id.hex()},
             doc_type="main",
+            lineage=RenderLineage(kind="root_backup"),
             render_fallback=True,
+            fallback_sections=_fallback_sections(frames[0]),
         )
         spec = _build_spec(line_count=4, line_height=10)
         pdf = FPDF(unit="mm", format=(100, 100))
@@ -515,9 +538,10 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
-            fallback_payload=b"recovery payload",
+            fallback_sections=_fallback_sections(frame, payload=b"recovery payload"),
         )
         spec = _build_spec(line_count=6, line_height=4.2)
         pdf = FPDF(unit="mm", format=(100, 100))
@@ -550,9 +574,10 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
-            fallback_payload=b"recovery payload",
+            fallback_sections=_fallback_sections(frame, payload=b"recovery payload"),
         )
         spec = _build_spec(line_count=6, line_height=4.2)
         pdf = FPDF(unit="mm", format=(100, 100))
@@ -602,9 +627,10 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
-            fallback_payload=b"recovery payload",
+            fallback_sections=_fallback_sections(frame, payload=b"recovery payload"),
         )
         spec = _build_spec(line_count=6, line_height=4.2)
         pdf = FPDF(unit="mm", format=(100, 100))
@@ -649,9 +675,10 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex(), "paper_size": "A4"},
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
-            fallback_payload=b"payload",
+            fallback_sections=_fallback_sections(frame, payload=b"payload"),
         )
         spec = document_spec("recovery", "A4", inputs.context)
         pdf = FPDF(unit="mm", format="A4")
@@ -705,9 +732,10 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context=base_context,
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
-            fallback_payload=b"payload",
+            fallback_sections=_fallback_sections(frame, payload=b"payload"),
         )
         sentinel_inputs = RenderInputs(
             frames=[frame],
@@ -723,9 +751,10 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context=base_context,
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
-            fallback_payload=b"payload",
+            fallback_sections=_fallback_sections(frame, payload=b"payload"),
         )
 
         forge_layout, _ = compute_layout(
@@ -777,9 +806,10 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context=base_context,
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
-            fallback_payload=b"payload",
+            fallback_sections=_fallback_sections(frame, payload=b"payload"),
         )
 
         default_meta_layout, _ = compute_layout(
@@ -840,9 +870,10 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex(), "paper_size": "A4"},
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
-            fallback_payload=b"payload",
+            fallback_sections=_fallback_sections(frame, payload=b"payload"),
         )
         spec_base = document_spec("recovery", "A4", inputs.context)
         pdf = FPDF(unit="mm", format="A4")
@@ -934,9 +965,10 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="recovery",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=False,
             render_fallback=True,
-            fallback_payload=b"recovery payload",
+            fallback_sections=_fallback_sections(frame, payload=b"recovery payload"),
         )
         spec = _build_spec(line_count=6, line_height=4.2)
         pdf = FPDF(unit="mm", format=(100, 100))
@@ -990,9 +1022,10 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
-            fallback_payload=b"shard payload",
+            fallback_sections=_fallback_sections(frame, payload=b"shard payload"),
         )
         spec = _build_spec(line_count=6, line_height=3.5)
         pdf = FPDF(unit="mm", format=(100, 100))
@@ -1027,9 +1060,10 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
-            fallback_payload=b"shard payload",
+            fallback_sections=_fallback_sections(frame, payload=b"shard payload"),
         )
         forge_layout, _ = compute_layout(
             forge_inputs,
@@ -1054,9 +1088,10 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
-            fallback_payload=b"shard payload",
+            fallback_sections=_fallback_sections(frame, payload=b"shard payload"),
         )
         sentinel_layout, _ = compute_layout(
             sentinel_inputs,
@@ -1095,9 +1130,10 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
-            fallback_payload=b"shard payload",
+            fallback_sections=_fallback_sections(frame, payload=b"shard payload"),
         )
         spec = _build_spec(line_count=6, line_height=3.5)
         pdf = FPDF(unit="mm", format=(100, 100))
@@ -1139,9 +1175,10 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
-            fallback_payload=b"shard payload",
+            fallback_sections=_fallback_sections(frame, payload=b"shard payload"),
         )
         spec = _build_spec(line_count=6, line_height=3.5)
         pdf = FPDF(unit="mm", format=(100, 100))
@@ -1189,9 +1226,10 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="signing_key_shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
-            fallback_payload=b"signing payload",
+            fallback_sections=_fallback_sections(frame, payload=b"signing payload"),
         )
         spec = _build_spec(line_count=6, line_height=3.5)
         pdf = FPDF(unit="mm", format=(100, 100))
@@ -1226,9 +1264,10 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="signing_key_shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
-            fallback_payload=b"signing payload",
+            fallback_sections=_fallback_sections(frame, payload=b"signing payload"),
         )
         forge_layout, _ = compute_layout(
             forge_inputs,
@@ -1253,9 +1292,10 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="signing_key_shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
-            fallback_payload=b"signing payload",
+            fallback_sections=_fallback_sections(frame, payload=b"signing payload"),
         )
         sentinel_layout, _ = compute_layout(
             sentinel_inputs,
@@ -1294,9 +1334,10 @@ class TestPdfLayout(unittest.TestCase):
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="signing_key_shard",
+            lineage=RenderLineage(kind="root_backup"),
             render_qr=True,
             render_fallback=True,
-            fallback_payload=b"signing payload",
+            fallback_sections=_fallback_sections(frame, payload=b"signing payload"),
         )
         spec = _build_spec(line_count=6, line_height=3.5)
         pdf = FPDF(unit="mm", format=(100, 100))

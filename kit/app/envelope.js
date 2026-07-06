@@ -18,8 +18,10 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import { decodeCanonicalCbor } from "../lib/cbor.js";
+import { crc32 } from "../lib/crc32.js";
 import { bytesEqual, readUvarint } from "../lib/encoding.js";
 import { validateManifestPath } from "../lib/path_validation.js";
+import { validateSingleGzipMember } from "./extension_envelope.js";
 import {
   ENVELOPE_MAGIC,
   ENVELOPE_VERSION,
@@ -34,14 +36,18 @@ import {
 const PAYLOAD_CODEC_RAW = "raw";
 const PAYLOAD_CODEC_GZIP = "gzip";
 
-function decodeEnvelope(bytes) {
+export function readEnvelopeVersion(bytes) {
   if (bytes.length < 2) throw new Error("envelope too short");
   if (bytes[0] !== ENVELOPE_MAGIC[0] || bytes[1] !== ENVELOPE_MAGIC[1]) {
     throw new Error("invalid envelope magic");
   }
+  return readUvarint(bytes, 2).value;
+}
+
+function decodeEnvelope(bytes) {
+  const version = readEnvelopeVersion(bytes);
   let idx = 2;
   const versionRes = readUvarint(bytes, idx);
-  const version = versionRes.value;
   idx = versionRes.offset;
   if (version !== ENVELOPE_VERSION) throw new Error(`unsupported envelope version: ${version}`);
 
@@ -227,10 +233,7 @@ function normalizeRootLabel(root) {
   if (typeof root !== "string") {
     throw new Error("manifest input_root must be a non-empty string");
   }
-  const normalized = root.normalize("NFC").trim();
-  if (!normalized) {
-    throw new Error("manifest input_root must be a non-empty string");
-  }
+  const normalized = validateManifestPath(root, "manifest input_root");
   if (normalized.includes("/") || normalized.includes("\\")) {
     throw new Error("manifest input_root must be a leaf label without path separators");
   }
@@ -319,6 +322,20 @@ async function gunzipBytesBounded(bytes, maxLength) {
   if (typeof DecompressionStream !== "function") {
     throw new Error("gzip payload requires DecompressionStream support");
   }
+  let gzipTrailer;
+  try {
+    gzipTrailer = validateSingleGzipMember(bytes, maxLength);
+  } catch (err) {
+    if (err instanceof Error) {
+      throw new Error(
+        err.message
+          .replaceAll("gzip chunk", "gzip payload")
+          .replaceAll("decoded chunk", "decoded payload")
+          .replaceAll("raw_len", "manifest payload_raw_len"),
+      );
+    }
+    throw err;
+  }
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
   const reader = stream.getReader();
   const chunks = [];
@@ -361,6 +378,9 @@ async function gunzipBytesBounded(bytes, maxLength) {
     decoded.set(chunk, offset);
     offset += chunk.length;
   }
+  if (crc32(decoded) !== gzipTrailer.crc32) {
+    throw new Error("invalid gzip payload");
+  }
   return decoded;
 }
 
@@ -401,7 +421,13 @@ export async function extractFiles(envelopeBytes) {
     if (!bytesEqual(digest, entry.sha)) {
       throw new Error(`sha256 mismatch for ${entry.path}`);
     }
-    files.push({ path: entry.path, data });
+    files.push({
+      path: entry.path,
+      size: entry.size,
+      sha: entry.sha,
+      mtime: entry.mtime,
+      data,
+    });
     offset = end;
   }
   if (offset !== normalizedPayload.length) {

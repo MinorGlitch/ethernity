@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 
-@dataclass(frozen=True)
+@dataclass
 class CommandError(ValueError):
     code: str
     message: str
@@ -39,10 +39,15 @@ class EventSink(Protocol):
 
 
 _ACTIVE_SINK: ContextVar[EventSink | None] = ContextVar("event_sink", default=None)
+_STARTED_EMITTED: ContextVar[bool] = ContextVar("event_started_emitted", default=False)
 
 
 def active_event_sink() -> EventSink | None:
     return _ACTIVE_SINK.get()
+
+
+def started_event_emitted() -> bool:
+    return _STARTED_EMITTED.get()
 
 
 @contextmanager
@@ -50,10 +55,14 @@ def event_session(sink: EventSink | None) -> Generator[EventSink | None, None, N
     if sink is None:
         yield active_event_sink()
         return
+    reset_started = active_event_sink() is None
     token = _ACTIVE_SINK.set(sink)
+    started_token = _STARTED_EMITTED.set(False) if reset_started else None
     try:
         yield sink
     finally:
+        if started_token is not None:
+            _STARTED_EMITTED.reset(started_token)
         _ACTIVE_SINK.reset(token)
 
 
@@ -81,6 +90,9 @@ def emit_event(event_type: str, **payload: Any) -> None:
 
 
 def emit_started(*, command: str, args: dict[str, Any], schema_version: int) -> None:
+    if active_event_sink() is None or started_event_emitted():
+        return
+    _STARTED_EMITTED.set(True)
     emit_event("started", command=command, schema_version=schema_version, args=args)
 
 
@@ -137,4 +149,5 @@ __all__ = [
     "emit_started",
     "emit_warning",
     "event_session",
+    "started_event_emitted",
 ]

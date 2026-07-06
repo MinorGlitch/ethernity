@@ -36,11 +36,7 @@ from ethernity.render.fallback import (
     fallback_sections_remaining,
     position_fallback_blocks,
 )
-from ethernity.render.geometry import (
-    COORDINATE_EPSILON,
-    groups_from_line_length,
-    line_length_from_groups,
-)
+from ethernity.render.geometry import COORDINATE_EPSILON
 from ethernity.render.layout_policy import (
     adjust_page_fallback_capacity,
     extra_main_first_page_qr_slots,
@@ -257,12 +253,8 @@ def _build_fallback_blocks(
     inputs: RenderInputs,
     page_layout: Layout,
     page_idx: int,
-    fallback_lines: list[str],
     fallback_sections_data: list[FallbackSectionData] | None,
     fallback_state: FallbackConsumerState | None,
-    fallback_first: int,
-    fallback_rest: int,
-    fallback_line_offset: int,
     qr_rows_for_page: int,
     recovery_meta_lines_extra: int,
     capabilities: TemplateCapabilities,
@@ -271,11 +263,11 @@ def _build_fallback_blocks(
     if not inputs.render_fallback:
         return (), 0
 
-    has_fallback = bool(fallback_lines)
-    if fallback_sections_data and fallback_state:
-        has_fallback = fallback_sections_remaining(fallback_sections_data, fallback_state)
-
-    if not has_fallback:
+    if not (
+        fallback_sections_data
+        and fallback_state
+        and fallback_sections_remaining(fallback_sections_data, fallback_state)
+    ):
         return (), 0
 
     if inputs.render_qr:
@@ -301,151 +293,75 @@ def _build_fallback_blocks(
     )
 
     page_fallback_blocks: list[FallbackBlock] = []
-    if fallback_sections_data and fallback_state:
-        normalized_doc_type = inputs.doc_type.strip().lower()
-        if lines_capacity <= 0:
-            raise ValueError(
-                "fallback capacity exhausted before consuming section data: "
-                f"page={page_idx + 1}, doc_type={inputs.doc_type!r}, "
-                f"line_height_mm={line_height:.3f}, available_height_mm={available_height:.3f}"
-            )
-        restrict_recovery_first_page_to_first_section = (
-            page_idx <= 0
-            and normalized_doc_type == DOC_TYPE_RECOVERY
-            and capabilities.inject_forge_copy
+    normalized_doc_type = inputs.doc_type.strip().lower()
+    if lines_capacity <= 0:
+        raise ValueError(
+            "fallback capacity exhausted before consuming section data: "
+            f"page={page_idx + 1}, doc_type={inputs.doc_type!r}, "
+            f"line_height_mm={line_height:.3f}, available_height_mm={available_height:.3f}"
         )
-        section_lines_capacity = lines_capacity
-        section_line_length = page_layout.line_length
-        if normalized_doc_type == DOC_TYPE_SHARD and page_idx <= 0:
-            section_lines_capacity += capabilities.shard_first_page_bonus_lines
-        if normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD and page_idx <= 0:
-            section_lines_capacity += capabilities.signing_key_shard_first_page_bonus_lines
-        if normalized_doc_type == DOC_TYPE_RECOVERY:
-            if page_idx <= 0:
-                section_lines_capacity += capabilities.recovery_first_page_bonus_lines
-            else:
-                section_lines_capacity += capabilities.recovery_continuation_bonus_lines
-            if (
-                page_idx > 0
-                and fallback_state.section_idx == 1
-                and fallback_state.token_idx == 0
-                and capabilities.recovery_main_section_start_reserved_lines > 0
-            ):
-                section_lines_capacity = max(
-                    0,
-                    section_lines_capacity
-                    - capabilities.recovery_main_section_start_reserved_lines,
-                )
-            if inputs.recovery_meta is not None and inputs.recovery_meta.quorum_value is None:
-                if page_idx <= 0:
-                    section_lines_capacity += (
-                        capabilities.recovery_quorumless_first_page_bonus_lines
-                    )
-                else:
-                    section_lines_capacity += (
-                        capabilities.recovery_quorumless_continuation_bonus_lines
-                    )
-        if (
-            capabilities.recovery_line_groups_bonus > 0
-            or capabilities.recovery_first_page_bonus_lines_per_extra_section > 0
-            or capabilities.shard_line_groups_bonus > 0
-            or capabilities.signing_key_shard_line_groups_bonus > 0
-            or capabilities.recovery_quorumless_line_groups_bonus > 0
-        ):
-            group_size = next(
-                (
-                    section.group_size
-                    for section in fallback_sections_data
-                    if section.group_size > 0
-                ),
-                1,
-            )
-            base_groups = groups_from_line_length(section_line_length, group_size)
-            if normalized_doc_type == DOC_TYPE_RECOVERY:
-                recovery_line_groups_bonus = capabilities.recovery_line_groups_bonus
-                if inputs.recovery_meta is not None and inputs.recovery_meta.quorum_value is None:
-                    recovery_line_groups_bonus += capabilities.recovery_quorumless_line_groups_bonus
-                if recovery_line_groups_bonus > 0:
-                    section_line_length = line_length_from_groups(
-                        base_groups + recovery_line_groups_bonus,
-                        group_size,
-                    )
-                if (
-                    page_idx <= 0
-                    and fallback_state.section_idx == 0
-                    and fallback_state.token_idx == 0
-                    and capabilities.recovery_first_page_bonus_lines_per_extra_section > 0
-                ):
-                    non_empty_sections = sum(
-                        1 for section in fallback_sections_data if section.tokens
-                    )
-                    if non_empty_sections > 1:
-                        section_lines_capacity += (
-                            capabilities.recovery_first_page_bonus_lines_per_extra_section
-                        )
-            elif normalized_doc_type == DOC_TYPE_SHARD and capabilities.shard_line_groups_bonus > 0:
-                section_line_length = line_length_from_groups(
-                    base_groups + capabilities.shard_line_groups_bonus,
-                    group_size,
-                )
-            elif (
-                normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD
-                and capabilities.signing_key_shard_line_groups_bonus > 0
-            ):
-                section_line_length = line_length_from_groups(
-                    base_groups + capabilities.signing_key_shard_line_groups_bonus,
-                    group_size,
-                )
-        section_idx_before = fallback_state.section_idx
-        token_idx_before = fallback_state.token_idx
-        page_fallback_blocks = consume_fallback_blocks(
-            fallback_sections_data,
-            fallback_state,
-            section_lines_capacity,
-            line_length=section_line_length,
-            stop_after_current_section=restrict_recovery_first_page_to_first_section,
-        )
-        has_remaining_after = fallback_sections_remaining(fallback_sections_data, fallback_state)
-        no_progress = (
-            fallback_state.section_idx == section_idx_before
-            and fallback_state.token_idx == token_idx_before
-        )
-        if has_remaining_after and not page_fallback_blocks and no_progress:
-            raise ValueError(
-                "fallback capacity exhausted before consuming section data: "
-                f"page={page_idx + 1}, doc_type={inputs.doc_type!r}, "
-                f"line_capacity={section_lines_capacity}, "
-                f"line_height_mm={line_height:.3f}, available_height_mm={available_height:.3f}"
-            )
-    else:
-        start = fallback_line_offset
+    restrict_recovery_first_page_to_first_section = (
+        page_idx <= 0
+        and normalized_doc_type == DOC_TYPE_RECOVERY
+        and capabilities.recovery_first_page_single_section
+    )
+    section_lines_capacity = lines_capacity
+    section_line_length = page_layout.line_length
+    if normalized_doc_type == DOC_TYPE_SHARD and page_idx <= 0:
+        section_lines_capacity += capabilities.shard_first_page_bonus_lines
+    if normalized_doc_type == DOC_TYPE_SIGNING_KEY_SHARD and page_idx <= 0:
+        section_lines_capacity += capabilities.signing_key_shard_first_page_bonus_lines
+    if normalized_doc_type == DOC_TYPE_RECOVERY:
         if page_idx <= 0:
-            page_capacity = min(fallback_first, lines_capacity)
+            section_lines_capacity += capabilities.recovery_first_page_bonus_lines
         else:
-            if start < len(fallback_lines) and fallback_rest <= 0:
-                raise ValueError(
-                    "fallback continuation capacity exhausted before consuming fallback lines: "
-                    f"doc_type={inputs.doc_type!r}, continuation_capacity={fallback_rest}, "
-                    f"remaining_lines={len(fallback_lines) - start}"
-                )
-            page_capacity = lines_capacity
-        end = start + max(0, page_capacity)
-        page_fallback_lines = fallback_lines[start:end]
-        if start < len(fallback_lines) and lines_capacity <= 0:
-            raise ValueError(
-                "fallback capacity exhausted before consuming fallback lines: "
-                f"page={page_idx + 1}, doc_type={inputs.doc_type!r}, "
-                f"line_height_mm={line_height:.3f}, available_height_mm={available_height:.3f}"
+            section_lines_capacity += capabilities.recovery_continuation_bonus_lines
+        if (
+            page_idx > 0
+            and fallback_state.section_idx == 1
+            and fallback_state.token_idx == 0
+            and capabilities.recovery_main_section_start_reserved_lines > 0
+        ):
+            section_lines_capacity = max(
+                0,
+                section_lines_capacity - capabilities.recovery_main_section_start_reserved_lines,
             )
-        if page_fallback_lines:
-            page_fallback_blocks = [
-                FallbackBlock(
-                    title=None,
-                    lines=list(page_fallback_lines),
-                    gap_lines=0,
-                    line_offset=start,
-                )
-            ]
+        if inputs.recovery_meta is not None and inputs.recovery_meta.quorum_value is None:
+            if page_idx <= 0:
+                section_lines_capacity += capabilities.recovery_quorumless_first_page_bonus_lines
+            else:
+                section_lines_capacity += capabilities.recovery_quorumless_continuation_bonus_lines
+    if (
+        normalized_doc_type == DOC_TYPE_RECOVERY
+        and page_idx <= 0
+        and fallback_state.section_idx == 0
+        and fallback_state.token_idx == 0
+        and capabilities.recovery_first_page_bonus_lines_per_extra_section > 0
+    ):
+        non_empty_sections = sum(1 for section in fallback_sections_data if section.tokens)
+        if non_empty_sections > 1:
+            section_lines_capacity += capabilities.recovery_first_page_bonus_lines_per_extra_section
+    section_idx_before = fallback_state.section_idx
+    token_idx_before = fallback_state.token_idx
+    page_fallback_blocks = consume_fallback_blocks(
+        fallback_sections_data,
+        fallback_state,
+        section_lines_capacity,
+        line_length=section_line_length,
+        stop_after_current_section=restrict_recovery_first_page_to_first_section,
+    )
+    has_remaining_after = fallback_sections_remaining(fallback_sections_data, fallback_state)
+    no_progress = (
+        fallback_state.section_idx == section_idx_before
+        and fallback_state.token_idx == token_idx_before
+    )
+    if has_remaining_after and not page_fallback_blocks and no_progress:
+        raise ValueError(
+            "fallback capacity exhausted before consuming section data: "
+            f"page={page_idx + 1}, doc_type={inputs.doc_type!r}, "
+            f"line_capacity={section_lines_capacity}, "
+            f"line_height_mm={line_height:.3f}, available_height_mm={available_height:.3f}"
+        )
 
     if page_fallback_blocks:
         position_fallback_blocks(page_fallback_blocks, fallback_y, available_height, line_height)
@@ -477,13 +393,16 @@ def build_pages(
     fallback_state: FallbackConsumerState | None,
 ) -> list[PageModel]:
     """Build page data models for document rendering."""
+    if inputs.render_fallback and (fallback_sections_data is None or fallback_state is None):
+        raise ValueError("fallback section data is required when render_fallback is enabled")
+
     capabilities = resolve_layout_capabilities(inputs)
     first_page_qr_slots_extra = extra_main_first_page_qr_slots(
         capabilities=capabilities,
         doc_type=inputs.doc_type,
         page_idx=0,
     )
-    total_pages, fallback_first, fallback_rest = _calculate_total_pages(
+    total_pages, _, _ = _calculate_total_pages(
         inputs,
         layout,
         layout_rest,
@@ -499,7 +418,6 @@ def build_pages(
     )
     pages: list[PageModel] = []
     page_idx = 0
-    fallback_line_offset = 0
     while True:
         has_remaining_section_fallback = (
             inputs.render_fallback
@@ -507,16 +425,7 @@ def build_pages(
             and fallback_state is not None
             and fallback_sections_remaining(fallback_sections_data, fallback_state)
         )
-        has_remaining_line_fallback = (
-            inputs.render_fallback
-            and fallback_sections_data is None
-            and fallback_line_offset < len(fallback_lines)
-        )
-        if (
-            page_idx >= total_pages
-            and not has_remaining_section_fallback
-            and not has_remaining_line_fallback
-        ):
+        if page_idx >= total_pages and not has_remaining_section_fallback:
             break
 
         page_num = page_idx + 1
@@ -562,21 +471,12 @@ def build_pages(
             inputs,
             page_layout,
             page_idx,
-            fallback_lines,
             fallback_sections_data,
             fallback_state,
-            fallback_first,
-            fallback_rest,
-            fallback_line_offset,
             qr_rows_for_page=qr_grid.rows if qr_grid else 0,
             recovery_meta_lines_extra=int(spec.header.meta_lines_extra),
             capabilities=capabilities,
         )
-        if fallback_sections_data is None and page_fallback_blocks:
-            fallback_line_offset = max(
-                fallback_line_offset,
-                max(block.line_offset + len(block.lines) for block in page_fallback_blocks),
-            )
 
         pages.append(
             PageModel(

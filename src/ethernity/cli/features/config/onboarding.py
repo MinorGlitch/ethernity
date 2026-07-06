@@ -54,6 +54,8 @@ QrPayloadCodec = Literal["raw", "base64"]
 QrErrorCorrection = Literal["L", "M", "Q", "H"]
 PageSize = Literal["A4", "LETTER"]
 SigningKeyMode = Literal["embedded", "sharded"]
+FirstRunLaunchAction = Literal["backup", "recover"]
+FirstRunEntryChoice = Literal["backup", "recover", "configure", "skip"]
 
 _DESIGN_DESCRIPTIONS = {
     "archive": "clean archival look",
@@ -67,12 +69,18 @@ _FIRST_RUN_CONFIGURED_FIELDS = {
     ONBOARDING_FIELD_TEMPLATE_DESIGN,
     ONBOARDING_FIELD_PAGE_SIZE,
     ONBOARDING_FIELD_BACKUP_OUTPUT_DIR,
+    ONBOARDING_FIELD_SHARDING,
+}
+_FIRST_RUN_ADVANCED_CONFIGURED_FIELDS = {
     ONBOARDING_FIELD_QR_CHUNK_SIZE,
     ONBOARDING_FIELD_QR_ERROR_CORRECTION,
-    ONBOARDING_FIELD_SHARDING,
     ONBOARDING_FIELD_PAYLOAD_CODEC,
     ONBOARDING_FIELD_QR_PAYLOAD_CODEC,
 }
+_DEFAULT_QR_PAYLOAD_CODEC: QrPayloadCodec = "raw"
+_DEFAULT_QR_ERROR_CORRECTION: QrErrorCorrection = "M"
+_DEFAULT_PAYLOAD_CODEC: PayloadCodec = "auto"
+_DEFAULT_QR_CHUNK_SIZE = 768
 
 
 def _preferred_design_order(names: list[str]) -> list[str]:
@@ -97,6 +105,13 @@ class FirstRunSelections:
     shard_threshold: int | None
     shard_count: int | None
     signing_key_mode: SigningKeyMode | None
+    advanced_defaults_configured: bool = False
+
+
+@dataclass(frozen=True)
+class FirstRunOnboardingResult:
+    applied_defaults: bool
+    launch_action: FirstRunLaunchAction | None = None
 
 
 def run_first_run_config_wizard(
@@ -104,52 +119,87 @@ def run_first_run_config_wizard(
     config_path: str | None,
     quiet: bool,
     force: bool = False,
-) -> bool:
-    """Prompt for first-run defaults and persist selections.
-
-    Returns ``True`` when preferences are applied, otherwise ``False``.
-    """
+) -> FirstRunOnboardingResult:
+    """Run first-run onboarding and return any direct-launch action."""
 
     if not force and not first_run_onboarding_needed():
-        return False
+        return FirstRunOnboardingResult(applied_defaults=False)
 
     if not quiet:
         clear_screen()
 
-    with wizard_flow(name="First run setup", total_steps=2, quiet=quiet):
-        with wizard_stage("Welcome"):
-            if not quiet:
-                render_home_banner()
-                console.print("[title]Welcome to Ethernity[/title]")
-                console.print(
-                    "[subtitle]This one-time setup chooses default backup preferences.[/subtitle]"
-                )
-                console.print(
-                    "[subtitle]Command flags still override these defaults "
-                    "whenever needed.[/subtitle]"
-                )
-            should_configure = prompt_yes_no(
-                "Configure defaults now",
-                default=True,
-                help_text=(
-                    "Recommended. This takes about 30 seconds and you can rerun it later with "
-                    "`ethernity config --onboard`."
-                ),
-            )
-            if not should_configure:
-                mark_first_run_onboarding_complete()
-                if not quiet:
-                    console.print("[dim]Keeping current config defaults unchanged.[/dim]")
-                return False
+    if force:
+        return _run_defaults_setup_wizard(config_path=config_path, quiet=quiet)
 
+    with wizard_flow(name="Get started", total_steps=1, quiet=quiet):
+        with wizard_stage("Welcome"):
+            entry_choice = _prompt_first_run_entry_choice(quiet=quiet)
+
+    if entry_choice == "configure":
+        return _run_defaults_setup_wizard(config_path=config_path, quiet=quiet)
+
+    mark_first_run_onboarding_complete()
+    if entry_choice in {"backup", "recover"}:
+        if not quiet:
+            console.print(
+                "[dim]You can save backup defaults later with `ethernity config --onboard`.[/dim]"
+            )
+        return FirstRunOnboardingResult(
+            applied_defaults=False,
+            launch_action=cast(FirstRunLaunchAction, entry_choice),
+        )
+
+    if not quiet:
+        console.print("[dim]Keeping current config defaults unchanged.[/dim]")
+    return FirstRunOnboardingResult(applied_defaults=False)
+
+
+def _prompt_first_run_entry_choice(*, quiet: bool) -> FirstRunEntryChoice:
+    if not quiet:
+        render_home_banner()
+        console.print("[title]Welcome[/title]")
+        console.print(
+            "[subtitle]Start with the job you need now. "
+            "You can save backup defaults in about a minute.[/subtitle]"
+        )
+    selected = prompt_choice(
+        "What are you trying to do today?",
+        {
+            "backup": "Create a backup",
+            "recover": "Recover from a backup",
+            "configure": "Save backup defaults first",
+            "skip": "Skip setup for now",
+        },
+        default="backup",
+        help_text=(
+            "Start a guided task now, or save default backup settings first. You can come back "
+            "later with `ethernity config --onboard`."
+        ),
+    )
+    return cast(FirstRunEntryChoice, selected)
+
+
+def _run_defaults_setup_wizard(
+    *,
+    config_path: str | None,
+    quiet: bool,
+) -> FirstRunOnboardingResult:
+    with wizard_flow(name="Default setup", total_steps=2, quiet=quiet):
+        with wizard_stage("Essentials"):
+            if not quiet:
+                console.print("[title]Backup defaults[/title]")
+                console.print(
+                    "[subtitle]These choices cover most first backups. "
+                    "Change QR settings only if you know you need something different.[/subtitle]"
+                )
             selections = FirstRunSelections(
                 design=_prompt_design(),
-                qr_payload_codec=_prompt_qr_payload_codec(),
-                qr_error_correction=_prompt_qr_error_correction(),
-                payload_codec=_prompt_payload_codec(),
+                qr_payload_codec=_DEFAULT_QR_PAYLOAD_CODEC,
+                qr_error_correction=_DEFAULT_QR_ERROR_CORRECTION,
+                payload_codec=_DEFAULT_PAYLOAD_CODEC,
                 page_size=_prompt_page_size(),
                 backup_output_dir=_prompt_backup_output_dir(),
-                qr_chunk_size=_prompt_qr_chunk_size(),
+                qr_chunk_size=_DEFAULT_QR_CHUNK_SIZE,
                 shard_threshold=None,
                 shard_count=None,
                 signing_key_mode=None,
@@ -171,6 +221,27 @@ def run_first_run_config_wizard(
                 shard_count=shard_count,
                 signing_key_mode=signing_key_mode,
             )
+            if prompt_yes_no(
+                "Change QR and compression settings",
+                default=False,
+                help_text=(
+                    "Leave this off to use the recommended settings: raw QR text, M error "
+                    "correction, auto compression, and 768 bytes per QR code."
+                ),
+            ):
+                selections = FirstRunSelections(
+                    design=selections.design,
+                    qr_payload_codec=_prompt_qr_payload_codec(),
+                    qr_error_correction=_prompt_qr_error_correction(),
+                    payload_codec=_prompt_payload_codec(),
+                    page_size=selections.page_size,
+                    backup_output_dir=selections.backup_output_dir,
+                    qr_chunk_size=_prompt_qr_chunk_size(),
+                    shard_threshold=selections.shard_threshold,
+                    shard_count=selections.shard_count,
+                    signing_key_mode=selections.signing_key_mode,
+                    advanced_defaults_configured=True,
+                )
 
         with wizard_stage("Review"):
             review_rows = [
@@ -178,15 +249,15 @@ def run_first_run_config_wizard(
                 ("Template design", selections.design),
                 ("Paper size", selections.page_size),
                 (
-                    "Backup output dir",
+                    "Default backup folder",
                     selections.backup_output_dir or "unset (default backup-<doc_id>)",
                 ),
-                ("QR payload codec", selections.qr_payload_codec),
-                ("QR error correction", selections.qr_error_correction),
-                ("Payload codec", selections.payload_codec),
-                ("QR chunk size", f"{selections.qr_chunk_size} bytes"),
                 (
-                    "Passphrase sharding",
+                    "QR and compression settings",
+                    ("customized" if selections.advanced_defaults_configured else "recommended"),
+                ),
+                (
+                    "Passphrase recovery method",
                     (
                         f"{selections.shard_threshold} of {selections.shard_count}"
                         if selections.shard_threshold is not None
@@ -195,7 +266,7 @@ def run_first_run_config_wizard(
                     ),
                 ),
                 (
-                    "Signing key handling",
+                    "Signing key storage",
                     (
                         "same sharding as passphrase"
                         if selections.signing_key_mode == "sharded"
@@ -206,14 +277,21 @@ def run_first_run_config_wizard(
                         )
                     ),
                 ),
-                ("Applies to", "default backup/recovery runs"),
+                ("Used for", "default backup and recovery runs"),
             ]
-            console.print(panel("First-run defaults", build_review_table(review_rows)))
+            if selections.advanced_defaults_configured:
+                review_rows[4:4] = [
+                    ("QR text format", selections.qr_payload_codec),
+                    ("QR error correction", selections.qr_error_correction),
+                    ("Backup compression", selections.payload_codec),
+                    ("QR data size", f"{selections.qr_chunk_size} bytes"),
+                ]
+            console.print(panel("Saved defaults", build_review_table(review_rows)))
             apply_defaults = prompt_yes_no(
-                "Apply these defaults",
+                "Save these defaults",
                 default=True,
                 help_text=(
-                    "Select no to keep current config unchanged. You can rerun with "
+                    "Select no to keep your current settings. You can rerun with "
                     "`ethernity config --onboard`."
                 ),
             )
@@ -234,12 +312,13 @@ def run_first_run_config_wizard(
         )
         if not quiet:
             console.print(f"[success]Defaults saved to {path}[/success]")
-        mark_first_run_onboarding_complete(configured_fields=_FIRST_RUN_CONFIGURED_FIELDS)
-    else:
-        if not quiet:
-            console.print("[dim]No changes written.[/dim]")
-        mark_first_run_onboarding_complete()
-    return apply_defaults
+        mark_first_run_onboarding_complete(configured_fields=_configured_fields_for(selections))
+        return FirstRunOnboardingResult(applied_defaults=True)
+
+    if not quiet:
+        console.print("[dim]No defaults were saved.[/dim]")
+    mark_first_run_onboarding_complete()
+    return FirstRunOnboardingResult(applied_defaults=False)
 
 
 def _prompt_design() -> str:
@@ -257,12 +336,12 @@ def _prompt_design() -> str:
         for name in names
     }
     return prompt_choice(
-        "Default template design",
+        "Default print design",
         choices,
         default=default,
         help_text=(
-            "Used for backup, recovery, shard, signing-key shard, and kit templates. "
-            "You can still override per command using --design."
+            "Used for new backup, recovery, and shard documents. "
+            "You can still override it with --design."
         ),
     )
 
@@ -273,13 +352,10 @@ def _prompt_qr_payload_codec() -> QrPayloadCodec:
         "base64": "base64 (ASCII-safe text payloads, larger)",
     }
     selected = prompt_choice(
-        "QR payload codec",
+        "QR text format",
         choices,
-        default="raw",
-        help_text=(
-            "Choose how QR bytes are represented. raw is usually denser; base64 is useful for "
-            "strict text-only toolchains."
-        ),
+        default=_DEFAULT_QR_PAYLOAD_CODEC,
+        help_text=("Leave this on raw unless another tool needs base64 text."),
     )
     return "base64" if selected == "base64" else "raw"
 
@@ -294,7 +370,7 @@ def _prompt_qr_error_correction() -> QrErrorCorrection:
     selected = prompt_choice(
         "QR error correction",
         choices,
-        default="M",
+        default=_DEFAULT_QR_ERROR_CORRECTION,
         help_text=(
             "Higher levels survive more print/scan damage but fit less data per QR code. "
             "M is a good default for most backups."
@@ -312,12 +388,12 @@ def _prompt_payload_codec() -> PayloadCodec:
         "raw": "raw (never compress, fastest)",
     }
     selected = prompt_choice(
-        "Backup payload codec",
+        "Backup compression",
         choices,
-        default="auto",
+        default=_DEFAULT_PAYLOAD_CODEC,
         help_text=(
-            "Controls pre-encryption payload encoding. auto usually gives the best size/speed "
-            "balance."
+            "Controls whether the backup is compressed before encryption. "
+            "auto usually gives the best size and speed balance."
         ),
     )
     if selected == "gzip":
@@ -333,7 +409,7 @@ def _prompt_page_size() -> PageSize:
         "LETTER": "Letter (US/Canada)",
     }
     selected = prompt_choice(
-        "Default paper size",
+        "Paper size",
         choices,
         default="A4",
         help_text="Used for PDF rendering defaults. You can still override with --paper.",
@@ -343,17 +419,14 @@ def _prompt_page_size() -> PageSize:
 
 def _prompt_backup_output_dir() -> str | None:
     return prompt_optional(
-        "Default backup output directory (optional)",
-        help_text=(
-            "Leave empty to use the current behavior (creates backup-<doc_id> in your current "
-            "directory)."
-        ),
+        "Default backup folder (optional)",
+        help_text=("Leave empty to create a new backup-<doc_id> folder in the current directory."),
     )
 
 
 def _prompt_qr_chunk_size() -> int:
     preset = prompt_choice(
-        "Preferred QR chunk size",
+        "QR data size",
         {
             "768": "768 bytes (recommended default)",
             "256": "256 bytes (highest scan margin)",
@@ -364,10 +437,10 @@ def _prompt_qr_chunk_size() -> int:
             "2048": "2048 bytes (fewest QR codes, least scan margin)",
             "custom": "Custom value",
         },
-        default="768",
+        default=str(_DEFAULT_QR_CHUNK_SIZE),
         help_text=(
-            "Smaller chunk sizes create more QR codes but are easier to scan on lower quality "
-            "devices."
+            "Smaller sizes create more QR codes, but they are easier to scan on lower-quality "
+            "printers and cameras."
         ),
     )
     if preset != "custom":
@@ -382,16 +455,16 @@ def _prompt_qr_chunk_size() -> int:
 
 def _prompt_sharding_defaults() -> tuple[int | None, int | None, SigningKeyMode | None]:
     mode = prompt_choice(
-        "Default passphrase sharding",
+        "Passphrase recovery method",
         {
-            "none": "Disabled (single recovery passphrase)",
-            "2of3": "2 of 3 shards (recommended)",
+            "none": "Keep one recovery passphrase",
+            "2of3": "Split into 3 recovery shards, need any 2 (recommended)",
             "custom": "Custom threshold/count",
         },
-        default="none",
+        default="2of3",
         help_text=(
-            "Sharding splits the recovery passphrase across multiple shard documents. "
-            "Any threshold number of shards can recover the passphrase."
+            "This splits the recovery passphrase across multiple documents. "
+            "In the recommended setup, any 2 of 3 can recover the backup."
         ),
     )
     if mode == "none":
@@ -415,16 +488,24 @@ def _prompt_sharding_defaults() -> tuple[int | None, int | None, SigningKeyMode 
         )
 
     signing_choice = prompt_choice(
-        "When sharding is enabled, how should the signing key be stored?",
+        "If you split the passphrase, where should the signing key go?",
         {
             "embedded": "Embedded in main document (recommended)",
             "sharded": "Sharded using the same threshold/count",
         },
         default="embedded",
         help_text=(
-            "Embedded keeps fewer documents. Sharded signing keys require shard documents for "
-            "signature verification and recovery metadata."
+            "Embedded keeps the number of printed documents lower. "
+            "Sharded signing keys require extra shard documents for future verification and "
+            "recovery metadata."
         ),
     )
     signing_mode: SigningKeyMode = "sharded" if signing_choice == "sharded" else "embedded"
     return threshold, count, signing_mode
+
+
+def _configured_fields_for(selections: FirstRunSelections) -> set[str]:
+    configured = set(_FIRST_RUN_CONFIGURED_FIELDS)
+    if selections.advanced_defaults_configured:
+        configured.update(_FIRST_RUN_ADVANCED_CONFIGURED_FIELDS)
+    return configured

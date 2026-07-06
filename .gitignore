@@ -17,6 +17,7 @@ ENV/
 # Testing
 .hypothesis/
 .pytest_cache/
+.playwright-mcp/
 .coverage
 .coverage.*
 htmlcov/
@@ -34,7 +35,7 @@ htmlcov/
 # Node tooling
 node_modules/
 
-# Kit build outputs (dev only, canonical bundle is in src/ethernity/kit/)
+# Kit build outputs (dev only, canonical bundle is in src/ethernity/resources/kit/)
 kit/dist/
 backup-*/
 generated_backups/

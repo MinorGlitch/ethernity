@@ -34,6 +34,21 @@ def _frame(frame_type: FrameType, *, doc_id: bytes | None = None, data: bytes = 
     )
 
 
+def _decrypt_result(
+    manifest: object,
+    extracted: list[tuple[object, bytes]],
+    *,
+    selected_extension_index: int | None = None,
+    selected_extension_doc_hash: str | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        manifest=manifest,
+        extracted=extracted,
+        selected_extension_index=selected_extension_index,
+        selected_extension_doc_hash=selected_extension_doc_hash,
+    )
+
+
 class TestPromptRecoveryInput(unittest.TestCase):
     @mock.patch("ethernity.cli.features.recover.wizard.collect_fallback_frames")
     @mock.patch("ethernity.cli.features.recover.wizard.sys.stdin.isatty", return_value=True)
@@ -107,7 +122,7 @@ class TestPromptRecoveryInput(unittest.TestCase):
 
     @mock.patch("ethernity.cli.features.recover.wizard.collect_payload_frames")
     @mock.patch("ethernity.cli.features.recover.wizard.sys.stdin.isatty", return_value=True)
-    def test_payload_stdin_interactive_collects_payloads(
+    def test_payload_stdin_interactive_collects_backup_text_lines(
         self,
         _stdin_tty: mock.MagicMock,
         collect_payload_frames: mock.MagicMock,
@@ -122,7 +137,7 @@ class TestPromptRecoveryInput(unittest.TestCase):
         )
 
         self.assertEqual(frames, [main])
-        self.assertEqual((label, detail), ("QR payloads", "stdin"))
+        self.assertEqual((label, detail), ("Backup text lines", "stdin"))
         collect_payload_frames.assert_called_once_with(allow_unsigned=True, quiet=False)
 
     @mock.patch("ethernity.cli.features.recover.wizard._frames_from_payloads")
@@ -144,10 +159,10 @@ class TestPromptRecoveryInput(unittest.TestCase):
         )
 
         self.assertEqual(frames, [main])
-        self.assertEqual((label, detail), ("QR payloads", "payloads.txt"))
+        self.assertEqual((label, detail), ("Backup text lines", "payloads.txt"))
         frames_from_payloads.assert_called_once_with("payloads.txt", label="frame")
 
-    @mock.patch("ethernity.cli.features.recover.wizard._recovery_frames_from_scan")
+    @mock.patch("ethernity.cli.features.recover.wizard.recovery_frames_from_scan")
     @mock.patch(
         "ethernity.cli.features.recover.wizard.status", return_value=contextlib.nullcontext(None)
     )
@@ -166,8 +181,60 @@ class TestPromptRecoveryInput(unittest.TestCase):
         )
 
         self.assertEqual(frames, [main])
-        self.assertEqual((label, detail), ("Scan", "a.png, b.png"))
+        self.assertEqual((label, detail), ("Backup PDF or images", "a.png, b.png"))
         recovery_frames_from_scan.assert_called_once_with(["a.png", "b.png"], quiet=False)
+
+    @mock.patch("ethernity.cli.features.recover.wizard.recovery_frames_from_scan")
+    @mock.patch(
+        "ethernity.cli.features.recover.wizard.status", return_value=contextlib.nullcontext(None)
+    )
+    def test_root_only_scan_path_excludes_extension_carriers(
+        self,
+        _status: mock.MagicMock,
+        recovery_frames_from_scan: mock.MagicMock,
+    ) -> None:
+        main = _frame(FrameType.MAIN_DOCUMENT)
+        recovery_frames_from_scan.return_value = [main]
+
+        frames, label, detail = wizard._prompt_recovery_input(
+            RecoverArgs(scan=["backup-root"], extension_index=0),
+            allow_unsigned=False,
+            quiet=True,
+        )
+
+        self.assertEqual(frames, [main])
+        self.assertEqual((label, detail), ("Backup PDF or images", "backup-root"))
+        recovery_frames_from_scan.assert_called_once_with(
+            ["backup-root"],
+            quiet=True,
+            include_extension_carriers=False,
+        )
+
+    @mock.patch("ethernity.cli.features.recover.wizard.recovery_frames_from_scan")
+    @mock.patch(
+        "ethernity.cli.features.recover.wizard.status", return_value=contextlib.nullcontext(None)
+    )
+    def test_selected_extension_scan_path_bounds_extension_carriers(
+        self,
+        _status: mock.MagicMock,
+        recovery_frames_from_scan: mock.MagicMock,
+    ) -> None:
+        main = _frame(FrameType.MAIN_DOCUMENT)
+        recovery_frames_from_scan.return_value = [main]
+
+        frames, label, detail = wizard._prompt_recovery_input(
+            RecoverArgs(scan=["backup-root"], extension_index=1),
+            allow_unsigned=False,
+            quiet=True,
+        )
+
+        self.assertEqual(frames, [main])
+        self.assertEqual((label, detail), ("Backup PDF or images", "backup-root"))
+        recovery_frames_from_scan.assert_called_once_with(
+            ["backup-root"],
+            quiet=True,
+            extension_carrier_max_index=1,
+        )
 
     @mock.patch("ethernity.cli.features.recover.wizard.prompt_recovery_input_interactive")
     def test_interactive_prompt_fallback_when_no_input_flags(
@@ -187,44 +254,90 @@ class TestPromptRecoveryInput(unittest.TestCase):
         self.assertEqual((label, detail), ("Recovery text", "stdin"))
         prompt_recovery_input_interactive.assert_called_once_with(allow_unsigned=True, quiet=True)
 
+    @mock.patch("ethernity.cli.features.recover.wizard.prompt_recovery_input_interactive")
+    def test_interactive_scan_prompt_persists_scan_path(
+        self,
+        prompt_recovery_input_interactive: mock.MagicMock,
+    ) -> None:
+        main = _frame(FrameType.MAIN_DOCUMENT)
+        args = RecoverArgs(extension_index=1)
+        prompt_recovery_input_interactive.return_value = (
+            [main],
+            "Backup PDF or images",
+            "/tmp/root",
+        )
 
-class TestPromptKeyMaterial(unittest.TestCase):
-    def test_pre_supplied_passphrase_is_preserved(self) -> None:
-        result = wizard._prompt_key_material(
-            RecoverArgs(passphrase="secret"),
+        frames, label, detail = wizard._prompt_recovery_input(
+            args,
+            allow_unsigned=False,
             quiet=True,
         )
-        self.assertEqual(result, ("secret", [], [], []))
+
+        self.assertEqual(frames, [main])
+        self.assertEqual((label, detail), ("Backup PDF or images", "/tmp/root"))
+        self.assertEqual(args.scan, ["/tmp/root"])
+
+
+class TestPromptKeyMaterial(unittest.TestCase):
+    @mock.patch(
+        "ethernity.cli.features.recover.wizard.prompt_passphrase_unlock_material",
+        return_value=("secret", [], [], [], []),
+    )
+    def test_pre_supplied_passphrase_is_routed_through_unlock_review(
+        self,
+        prompt_passphrase_unlock_material: mock.MagicMock,
+    ) -> None:
+        result = wizard._prompt_key_material(RecoverArgs(passphrase="secret"), quiet=True)
+
+        self.assertEqual(result, ("secret", [], [], [], []))
+        prompt_passphrase_unlock_material.assert_called_once_with(
+            quiet=True,
+            passphrase="secret",
+            shard_fallback_files=None,
+            shard_payloads_file=None,
+            shard_scan=None,
+            collect_all_shards=False,
+            allow_existing_review=True,
+        )
 
     @mock.patch(
-        "ethernity.cli.features.recover.wizard.prompt_required_secret", return_value="entered-pass"
+        "ethernity.cli.features.recover.wizard.prompt_passphrase_unlock_material",
+        return_value=("entered-pass", [], [], [], []),
     )
-    @mock.patch("ethernity.cli.features.recover.wizard.prompt_choice", return_value="passphrase")
     def test_prompt_choice_passphrase_branch(
         self,
-        prompt_choice: mock.MagicMock,
-        prompt_required_secret: mock.MagicMock,
+        prompt_passphrase_unlock_material: mock.MagicMock,
     ) -> None:
         result = wizard._prompt_key_material(RecoverArgs(), quiet=False)
-        self.assertEqual(result, ("entered-pass", [], [], []))
-        prompt_choice.assert_called_once()
-        prompt_required_secret.assert_called_once()
+        self.assertEqual(result, ("entered-pass", [], [], [], []))
+        prompt_passphrase_unlock_material.assert_called_once()
 
-    @mock.patch("ethernity.cli.features.recover.wizard._prompt_shard_inputs")
-    @mock.patch("ethernity.cli.features.recover.wizard.prompt_choice", return_value="shards")
+    @mock.patch(
+        "ethernity.cli.features.recover.wizard.prompt_passphrase_unlock_material",
+        return_value=(
+            None,
+            ["shards.txt"],
+            ["shards.payload"],
+            ["scan.pdf"],
+            [_frame(FrameType.KEY_DOCUMENT)],
+        ),
+    )
     def test_prompt_choice_shards_branch(
         self,
-        prompt_choice: mock.MagicMock,
-        prompt_shard_inputs: mock.MagicMock,
+        prompt_passphrase_unlock_material: mock.MagicMock,
     ) -> None:
-        shard = _frame(FrameType.KEY_DOCUMENT)
-        prompt_shard_inputs.return_value = (["shards.txt"], ["shards.payload"], [shard])
-
         result = wizard._prompt_key_material(RecoverArgs(), quiet=True)
-
-        self.assertEqual(result, (None, ["shards.txt"], ["shards.payload"], [shard]))
-        prompt_choice.assert_called_once()
-        prompt_shard_inputs.assert_called_once_with(quiet=True, stop_at_quorum=True)
+        self.assertEqual(
+            result,
+            (
+                None,
+                ["shards.txt"],
+                ["shards.payload"],
+                ["scan.pdf"],
+                [_frame(FrameType.KEY_DOCUMENT)],
+            ),
+        )
+        prompt_passphrase_unlock_material.assert_called_once()
 
 
 class TestRecoveryWizardHelpers(unittest.TestCase):
@@ -237,7 +350,7 @@ class TestRecoveryWizardHelpers(unittest.TestCase):
     ) -> None:
         shard = _frame(FrameType.KEY_DOCUMENT)
 
-        result = wizard._load_shard_frames(["shard.txt"], [], [shard], quiet=True)
+        result = wizard._load_shard_frames(["shard.txt"], [], [], [shard], quiet=True)
 
         self.assertEqual(result, [shard])
         frame_from_fallback.assert_not_called()
@@ -248,21 +361,25 @@ class TestRecoveryWizardHelpers(unittest.TestCase):
             shard_frames=(_frame(FrameType.KEY_DOCUMENT),),
             auth_status="missing",
             allow_unsigned=True,
-            input_label="Scan",
+            input_label="Backup PDF or images",
             input_detail="a.png",
             main_frames=(_frame(FrameType.MAIN_DOCUMENT), _frame(FrameType.MAIN_DOCUMENT)),
             auth_frames=(),
             shard_fallback_files=("a.txt",),
             shard_payloads_file=("b.txt",),
             shard_scan=(),
+            import_documents=(),
+            extension_index=None,
+            extension_doc_hash=None,
+            expected_head_doc_hash=None,
         )
 
         rows = wizard._build_recovery_review_rows(plan, RecoverArgs(output="out-dir"))
-        self.assertIn(("Key material", "shard documents"), rows)
+        self.assertIn(("Unlock method", "printed shard documents"), rows)
         self.assertIn(("Allow unsigned", "yes"), rows)
-        self.assertIn(("Input source", "Scan: a.png"), rows)
-        self.assertIn(("Main QR payloads", "2"), rows)
-        self.assertIn(("Auth QR payloads", "none"), rows)
+        self.assertIn(("Input source", "Backup PDF or images: a.png"), rows)
+        self.assertIn(("Backup text lines", "2"), rows)
+        self.assertIn(("Verification text lines", "none"), rows)
 
     def test_build_review_rows_passphrase_defaults(self) -> None:
         plan = SimpleNamespace(
@@ -275,12 +392,72 @@ class TestRecoveryWizardHelpers(unittest.TestCase):
             auth_frames=(_frame(FrameType.AUTH),),
             shard_fallback_files=(),
             shard_payloads_file=(),
+            import_documents=(),
+            extension_index=None,
+            extension_doc_hash=None,
+            expected_head_doc_hash=None,
         )
 
         rows = wizard._build_recovery_review_rows(plan, RecoverArgs(output=None))
-        self.assertIn(("Key material", "passphrase"), rows)
+        self.assertIn(("Unlock method", "passphrase"), rows)
         self.assertIn(("Output target", "prompt after recovery"), rows)
-        self.assertIn(("Auth QR payloads", "1"), rows)
+        self.assertIn(("Verification text lines", "1"), rows)
+
+    def test_build_review_rows_names_default_latest_supplied_extension_target(self) -> None:
+        plan = SimpleNamespace(
+            shard_frames=(),
+            auth_status="verified",
+            allow_unsigned=False,
+            input_label="Backup PDF or images",
+            input_detail="/tmp/root",
+            main_frames=(_frame(FrameType.MAIN_DOCUMENT),),
+            auth_frames=(_frame(FrameType.AUTH),),
+            shard_fallback_files=(),
+            shard_payloads_file=(),
+            shard_scan=(),
+            import_documents=(object(), object()),
+            extension_index=None,
+            extension_doc_hash=None,
+            expected_head_doc_hash=None,
+        )
+
+        rows = wizard._build_recovery_review_rows(plan, RecoverArgs(output=None))
+
+        self.assertIn(
+            (
+                "Replay target",
+                "latest supplied authenticated extension (default; verified after decrypt)",
+            ),
+            rows,
+        )
+        self.assertIn(("Freshness scope", "supplied carriers only"), rows)
+
+    def test_build_review_rows_names_root_only_and_expected_head(self) -> None:
+        expected_hash = "ab" * 32
+        plan = SimpleNamespace(
+            shard_frames=(),
+            auth_status="verified",
+            allow_unsigned=False,
+            input_label="Backup PDF or images",
+            input_detail="/tmp/root",
+            main_frames=(_frame(FrameType.MAIN_DOCUMENT),),
+            auth_frames=(_frame(FrameType.AUTH),),
+            shard_fallback_files=(),
+            shard_payloads_file=(),
+            shard_scan=(),
+            import_documents=(object(), object()),
+            extension_index=0,
+            extension_doc_hash=None,
+            expected_head_doc_hash=expected_hash,
+        )
+
+        rows = wizard._build_recovery_review_rows(
+            plan,
+            RecoverArgs(extension_index=0, expected_head_doc_hash=expected_hash),
+        )
+
+        self.assertIn(("Replay target", "root backup only (extension 0)"), rows)
+        self.assertIn(("Expected head", expected_hash), rows)
 
     @mock.patch("ethernity.cli.features.recover.wizard._auth_frames_from_payloads")
     @mock.patch("ethernity.cli.features.recover.wizard._auth_frames_from_fallback")
@@ -318,7 +495,7 @@ class TestRecoveryWizardHelpers(unittest.TestCase):
             )
 
     def test_load_shard_frames_returns_empty_when_nothing_supplied(self) -> None:
-        self.assertEqual(wizard._load_shard_frames([], [], extra_frames=None, quiet=True), [])
+        self.assertEqual(wizard._load_shard_frames([], [], [], extra_frames=None, quiet=True), [])
 
     @mock.patch("ethernity.cli.features.recover.wizard._frame_from_fallback")
     @mock.patch(
@@ -332,10 +509,10 @@ class TestRecoveryWizardHelpers(unittest.TestCase):
         shard = _frame(FrameType.KEY_DOCUMENT)
         frame_from_fallback.return_value = shard
 
-        frames = wizard._load_shard_frames(["shards.txt"], [], extra_frames=[], quiet=False)
+        frames = wizard._load_shard_frames(["shards.txt"], [], [], extra_frames=[], quiet=False)
 
         self.assertEqual(frames, [shard])
-        frame_from_fallback.assert_called_once_with("shards.txt", quiet=False)
+        frame_from_fallback.assert_called_once_with("shards.txt")
 
     @mock.patch(
         "ethernity.cli.features.recover.wizard._frame_from_fallback",
@@ -350,7 +527,7 @@ class TestRecoveryWizardHelpers(unittest.TestCase):
         _frame_from_fallback: mock.MagicMock,
     ) -> None:
         with self.assertRaisesRegex(ValueError, "Shard recovery text is incomplete or invalid"):
-            wizard._load_shard_frames(["shards.txt"], [], extra_frames=None, quiet=True)
+            wizard._load_shard_frames(["shards.txt"], [], [], extra_frames=None, quiet=True)
 
     @mock.patch("ethernity.cli.features.recover.wizard._frames_from_payloads", return_value=[])
     @mock.patch(
@@ -362,7 +539,7 @@ class TestRecoveryWizardHelpers(unittest.TestCase):
         _frames_from_payloads: mock.MagicMock,
     ) -> None:
         with self.assertRaisesRegex(ValueError, "No valid shard data found"):
-            wizard._load_shard_frames([], ["shards.txt"], extra_frames=[], quiet=True)
+            wizard._load_shard_frames([], ["shards.txt"], [], extra_frames=[], quiet=True)
 
 
 class TestRunRecoverWizard(unittest.TestCase):
@@ -371,7 +548,7 @@ class TestRunRecoverWizard(unittest.TestCase):
     @mock.patch("ethernity.cli.features.recover.wizard._warn")
     @mock.patch("ethernity.cli.features.recover.wizard.sys.stdout.isatty", return_value=False)
     @mock.patch("ethernity.cli.features.recover.wizard.sys.stdin.isatty", return_value=False)
-    def test_noninteractive_assigns_stdin_fallback_and_warns_unsigned(
+    def test_noninteractive_executes_prepared_plan_and_warns_unsigned(
         self,
         _stdin_tty: mock.MagicMock,
         _stdout_tty: mock.MagicMock,
@@ -386,7 +563,7 @@ class TestRunRecoverWizard(unittest.TestCase):
         result = wizard.run_recover_wizard(args, debug=True)
 
         self.assertEqual(result, 0)
-        self.assertEqual(args.fallback_file, "-")
+        self.assertIsNone(args.fallback_file)
         warn_mock.assert_called_once()
         write_plan_outputs.assert_called_once_with(
             plan,
@@ -406,7 +583,7 @@ class TestRunRecoverWizard(unittest.TestCase):
     @mock.patch("ethernity.cli.features.recover.wizard._load_shard_frames", return_value=[])
     @mock.patch(
         "ethernity.cli.features.recover.wizard._prompt_key_material",
-        return_value=("pass", [], [], []),
+        return_value=("pass", [], [], [], []),
     )
     @mock.patch("ethernity.cli.features.recover.wizard._load_extra_auth_frames", return_value=[])
     @mock.patch("ethernity.cli.features.recover.wizard._prompt_recovery_input")
@@ -459,7 +636,70 @@ class TestRunRecoverWizard(unittest.TestCase):
     @mock.patch("ethernity.cli.features.recover.wizard._load_shard_frames", return_value=[])
     @mock.patch(
         "ethernity.cli.features.recover.wizard._prompt_key_material",
-        return_value=("pass", [], [], []),
+        return_value=("pass", [], [], [], []),
+    )
+    @mock.patch("ethernity.cli.features.recover.wizard._load_extra_auth_frames", return_value=[])
+    @mock.patch("ethernity.cli.features.recover.wizard._prompt_recovery_input")
+    @mock.patch("ethernity.cli.features.recover.wizard.resolve_recover_config")
+    @mock.patch("ethernity.cli.features.recover.wizard.validate_recover_args")
+    @mock.patch("ethernity.cli.features.recover.wizard.sys.stdout.isatty", return_value=True)
+    @mock.patch("ethernity.cli.features.recover.wizard.sys.stdin.isatty", return_value=True)
+    def test_interactive_recovery_preserves_extension_selectors(
+        self,
+        _stdin_tty: mock.MagicMock,
+        _stdout_tty: mock.MagicMock,
+        _validate_recover_args: mock.MagicMock,
+        _resolve_recover_config: mock.MagicMock,
+        prompt_recovery_input: mock.MagicMock,
+        _load_extra_auth_frames: mock.MagicMock,
+        _prompt_key_material: mock.MagicMock,
+        _load_shard_frames: mock.MagicMock,
+        build_recovery_plan: mock.MagicMock,
+        _build_recovery_review_rows: mock.MagicMock,
+        _prompt_yes_no: mock.MagicMock,
+        console_print: mock.MagicMock,
+    ) -> None:
+        main = _frame(FrameType.MAIN_DOCUMENT)
+        prompt_recovery_input.return_value = ([main], "Backup PDF or images", "/tmp/root")
+        build_recovery_plan.return_value = SimpleNamespace(
+            allow_unsigned=False,
+            shard_frames=(),
+            auth_status="verified",
+            input_label="Backup PDF or images",
+            input_detail="/tmp/root",
+            main_frames=(main,),
+            auth_frames=(),
+            doc_id=main.doc_id,
+        )
+
+        result = wizard.run_recover_wizard(
+            RecoverArgs(
+                scan=["/tmp/root"],
+                extension_index=1,
+                quiet=False,
+                assume_yes=False,
+            ),
+            show_header=False,
+        )
+
+        self.assertEqual(result, 1)
+        self.assertIn(mock.call("Recovery cancelled."), console_print.mock_calls)
+        _, kwargs = build_recovery_plan.call_args
+        self.assertIsNone(kwargs["root_dir"])
+        self.assertEqual(kwargs["extension_index"], 1)
+        self.assertIsNone(kwargs["extension_doc_hash"])
+
+    @mock.patch("ethernity.cli.features.recover.wizard.console.print")
+    @mock.patch("ethernity.cli.features.recover.wizard.prompt_yes_no", return_value=False)
+    @mock.patch(
+        "ethernity.cli.features.recover.wizard._build_recovery_review_rows",
+        return_value=[("A", "B")],
+    )
+    @mock.patch("ethernity.cli.features.recover.wizard.build_recovery_plan")
+    @mock.patch("ethernity.cli.features.recover.wizard._load_shard_frames", return_value=[])
+    @mock.patch(
+        "ethernity.cli.features.recover.wizard._prompt_key_material",
+        return_value=("pass", [], [], [], []),
     )
     @mock.patch("ethernity.cli.features.recover.wizard._load_extra_auth_frames", return_value=[])
     @mock.patch("ethernity.cli.features.recover.wizard._prompt_recovery_input")
@@ -503,9 +743,73 @@ class TestRunRecoverWizard(unittest.TestCase):
         prompt_yes_no.assert_called_once()
         self.assertIn(mock.call("Recovery cancelled."), console_print.mock_calls)
 
+    @mock.patch("ethernity.cli.features.recover.wizard.console.print")
+    @mock.patch("ethernity.cli.features.recover.wizard.prompt_yes_no", return_value=False)
+    @mock.patch("ethernity.cli.features.recover.wizard.prompt_choice", return_value="keys")
+    @mock.patch(
+        "ethernity.cli.features.recover.wizard._build_recovery_review_rows",
+        return_value=[("A", "B")],
+    )
+    @mock.patch("ethernity.cli.features.recover.wizard.build_recovery_plan")
+    @mock.patch("ethernity.cli.features.recover.wizard._load_shard_frames", return_value=[])
+    @mock.patch("ethernity.cli.features.recover.wizard._prompt_key_material")
+    @mock.patch("ethernity.cli.features.recover.wizard._load_extra_auth_frames", return_value=[])
+    @mock.patch(
+        "ethernity.cli.features.recover.wizard._prompt_recovery_input",
+        return_value=([_frame(FrameType.MAIN_DOCUMENT)], "Recovery text", "stdin"),
+    )
+    @mock.patch("ethernity.cli.features.recover.wizard.resolve_recover_config")
+    @mock.patch("ethernity.cli.features.recover.wizard.validate_recover_args")
+    @mock.patch("ethernity.cli.features.recover.wizard.sys.stdout.isatty", return_value=True)
+    @mock.patch("ethernity.cli.features.recover.wizard.sys.stdin.isatty", return_value=True)
+    def test_interactive_plan_failure_reprompts_keys_instead_of_exiting(
+        self,
+        _stdin_tty: mock.MagicMock,
+        _stdout_tty: mock.MagicMock,
+        _validate_recover_args: mock.MagicMock,
+        _resolve_recover_config: mock.MagicMock,
+        _prompt_recovery_input: mock.MagicMock,
+        _load_extra_auth_frames: mock.MagicMock,
+        prompt_key_material: mock.MagicMock,
+        _load_shard_frames: mock.MagicMock,
+        build_recovery_plan: mock.MagicMock,
+        _build_recovery_review_rows: mock.MagicMock,
+        prompt_choice: mock.MagicMock,
+        prompt_yes_no: mock.MagicMock,
+        console_print: mock.MagicMock,
+    ) -> None:
+        main = _frame(FrameType.MAIN_DOCUMENT)
+        prompt_key_material.side_effect = [
+            ("bad-pass", [], [], [], []),
+            ("good-pass", [], [], [], []),
+        ]
+        build_recovery_plan.side_effect = [
+            ValueError("passphrase is required for recovery"),
+            SimpleNamespace(
+                allow_unsigned=False,
+                shard_frames=(),
+                auth_status="verified",
+                input_label="Recovery text",
+                input_detail="stdin",
+                main_frames=(main,),
+                auth_frames=(),
+                doc_id=main.doc_id,
+            ),
+        ]
+
+        result = wizard.run_recover_wizard(
+            RecoverArgs(quiet=False, assume_yes=False), show_header=False
+        )
+
+        self.assertEqual(result, 1)
+        self.assertEqual(prompt_key_material.call_count, 2)
+        prompt_choice.assert_called_once()
+        prompt_yes_no.assert_called_once()
+        self.assertIn(mock.call("Recovery cancelled."), console_print.mock_calls)
+
     @mock.patch("ethernity.cli.features.recover.wizard.write_recovered_outputs")
     @mock.patch("ethernity.cli.features.recover.wizard._resolve_recover_output", return_value="out")
-    @mock.patch("ethernity.cli.features.recover.wizard.decrypt_manifest_and_extract")
+    @mock.patch("ethernity.cli.features.recover.wizard.decrypt_manifest_extract_selection")
     @mock.patch("ethernity.cli.features.recover.wizard.prompt_yes_no", side_effect=[True, False])
     @mock.patch(
         "ethernity.cli.features.recover.wizard._build_recovery_review_rows",
@@ -515,7 +819,7 @@ class TestRunRecoverWizard(unittest.TestCase):
     @mock.patch("ethernity.cli.features.recover.wizard._load_shard_frames", return_value=[])
     @mock.patch(
         "ethernity.cli.features.recover.wizard._prompt_key_material",
-        return_value=("pass", [], [], []),
+        return_value=("pass", [], [], [], []),
     )
     @mock.patch("ethernity.cli.features.recover.wizard._load_extra_auth_frames", return_value=[])
     @mock.patch(
@@ -554,7 +858,7 @@ class TestRunRecoverWizard(unittest.TestCase):
             auth_frames=(),
             doc_id=main.doc_id,
         )
-        decrypt_manifest_and_extract.return_value = (
+        decrypt_manifest_and_extract.return_value = _decrypt_result(
             SimpleNamespace(input_origin="file", input_roots=()),
             [(SimpleNamespace(path="a.txt"), b"x")],
         )
@@ -568,8 +872,84 @@ class TestRunRecoverWizard(unittest.TestCase):
 
     @mock.patch("ethernity.cli.features.recover.wizard.write_recovered_outputs")
     @mock.patch("ethernity.cli.features.recover.wizard._resolve_recover_output", return_value="out")
+    @mock.patch("ethernity.cli.features.recover.wizard.decrypt_manifest_extract_selection")
+    @mock.patch(
+        "ethernity.cli.features.recover.wizard.prompt_yes_no",
+        side_effect=[True, True, False],
+    )
+    @mock.patch("ethernity.cli.features.recover.wizard.prompt_choice", return_value="keys")
+    @mock.patch(
+        "ethernity.cli.features.recover.wizard._build_recovery_review_rows",
+        return_value=[("A", "B")],
+    )
+    @mock.patch("ethernity.cli.features.recover.wizard.build_recovery_plan")
+    @mock.patch("ethernity.cli.features.recover.wizard._load_shard_frames", return_value=[])
+    @mock.patch("ethernity.cli.features.recover.wizard._prompt_key_material")
+    @mock.patch("ethernity.cli.features.recover.wizard._load_extra_auth_frames", return_value=[])
+    @mock.patch(
+        "ethernity.cli.features.recover.wizard._prompt_recovery_input",
+        return_value=([_frame(FrameType.MAIN_DOCUMENT)], "Recovery text", "stdin"),
+    )
+    @mock.patch("ethernity.cli.features.recover.wizard.resolve_recover_config")
+    @mock.patch("ethernity.cli.features.recover.wizard.validate_recover_args")
+    @mock.patch("ethernity.cli.features.recover.wizard.sys.stdout.isatty", return_value=True)
+    @mock.patch("ethernity.cli.features.recover.wizard.sys.stdin.isatty", return_value=True)
+    def test_interactive_decrypt_failure_reprompts_keys_instead_of_exiting(
+        self,
+        _stdin_tty: mock.MagicMock,
+        _stdout_tty: mock.MagicMock,
+        _validate_recover_args: mock.MagicMock,
+        _resolve_recover_config: mock.MagicMock,
+        _prompt_recovery_input: mock.MagicMock,
+        _load_extra_auth_frames: mock.MagicMock,
+        prompt_key_material: mock.MagicMock,
+        _load_shard_frames: mock.MagicMock,
+        build_recovery_plan: mock.MagicMock,
+        _build_recovery_review_rows: mock.MagicMock,
+        prompt_choice: mock.MagicMock,
+        _prompt_yes_no: mock.MagicMock,
+        decrypt_manifest_and_extract: mock.MagicMock,
+        _resolve_recover_output: mock.MagicMock,
+        write_recovered_outputs: mock.MagicMock,
+    ) -> None:
+        main = _frame(FrameType.MAIN_DOCUMENT)
+        plan = SimpleNamespace(
+            allow_unsigned=False,
+            shard_frames=(),
+            auth_status="verified",
+            input_label="Recovery text",
+            input_detail="stdin",
+            main_frames=(main,),
+            auth_frames=(),
+            doc_id=main.doc_id,
+        )
+        prompt_key_material.side_effect = [
+            ("bad-pass", [], [], [], []),
+            ("good-pass", [], [], [], []),
+        ]
+        build_recovery_plan.return_value = plan
+        decrypt_manifest_and_extract.side_effect = [
+            ValueError("decryption failed"),
+            _decrypt_result(
+                SimpleNamespace(input_origin="file", input_roots=()),
+                [(SimpleNamespace(path="a.txt"), b"x")],
+            ),
+        ]
+
+        result = wizard.run_recover_wizard(
+            RecoverArgs(quiet=False, assume_yes=False), show_header=False
+        )
+
+        self.assertEqual(result, 1)
+        self.assertEqual(prompt_key_material.call_count, 2)
+        prompt_choice.assert_called_once()
+        self.assertEqual(decrypt_manifest_and_extract.call_count, 2)
+        write_recovered_outputs.assert_not_called()
+
+    @mock.patch("ethernity.cli.features.recover.wizard.write_recovered_outputs")
+    @mock.patch("ethernity.cli.features.recover.wizard._resolve_recover_output", return_value="out")
     @mock.patch("ethernity.cli.features.recover.wizard.print_recover_debug")
-    @mock.patch("ethernity.cli.features.recover.wizard.decrypt_manifest_and_extract")
+    @mock.patch("ethernity.cli.features.recover.wizard.decrypt_manifest_extract_selection")
     @mock.patch("ethernity.cli.features.recover.wizard.prompt_yes_no", side_effect=[True, True])
     @mock.patch(
         "ethernity.cli.features.recover.wizard._build_recovery_review_rows",
@@ -579,7 +959,7 @@ class TestRunRecoverWizard(unittest.TestCase):
     @mock.patch("ethernity.cli.features.recover.wizard._load_shard_frames", return_value=[])
     @mock.patch(
         "ethernity.cli.features.recover.wizard._prompt_key_material",
-        return_value=("pass", [], [], []),
+        return_value=("pass", [], [], [], []),
     )
     @mock.patch("ethernity.cli.features.recover.wizard._load_extra_auth_frames", return_value=[])
     @mock.patch(
@@ -623,16 +1003,27 @@ class TestRunRecoverWizard(unittest.TestCase):
             main_frames=(main,),
             auth_frames=(),
             doc_id=main.doc_id,
+            extension_index=1,
+            extension_doc_hash=None,
+            expected_head_doc_hash="ab" * 32,
         )
         build_recovery_plan.return_value = plan
         extracted = [(SimpleNamespace(path="a.txt"), b"x")]
-        decrypt_manifest_and_extract.return_value = (
+        decrypt_manifest_and_extract.return_value = _decrypt_result(
             SimpleNamespace(input_origin="mixed", input_roots=("vault",)),
             extracted,
+            selected_extension_index=1,
+            selected_extension_doc_hash="ab" * 32,
         )
 
         result = wizard.run_recover_wizard(
-            RecoverArgs(quiet=False, assume_yes=False), show_header=False
+            RecoverArgs(
+                quiet=False,
+                assume_yes=False,
+                extension_index=1,
+                expected_head_doc_hash="ab" * 32,
+            ),
+            show_header=False,
         )
 
         self.assertEqual(result, 0)
@@ -652,13 +1043,18 @@ class TestRunRecoverWizard(unittest.TestCase):
             allow_unsigned=False,
             quiet=False,
             single_entry_output_is_directory=True,
+            requested_extension_index=1,
+            requested_extension_doc_hash=None,
+            expected_head_doc_hash="ab" * 32,
+            selected_extension_index=1,
+            selected_extension_doc_hash="ab" * 32,
         )
         print_recover_debug.assert_not_called()
 
     @mock.patch("ethernity.cli.features.recover.wizard.write_recovered_outputs")
     @mock.patch("ethernity.cli.features.recover.wizard._resolve_recover_output", return_value="out")
     @mock.patch("ethernity.cli.features.recover.wizard.print_recover_debug")
-    @mock.patch("ethernity.cli.features.recover.wizard.decrypt_manifest_and_extract")
+    @mock.patch("ethernity.cli.features.recover.wizard.decrypt_manifest_extract_selection")
     @mock.patch("ethernity.cli.features.recover.wizard.prompt_yes_no", side_effect=[True, True])
     @mock.patch(
         "ethernity.cli.features.recover.wizard._build_recovery_review_rows",
@@ -668,7 +1064,7 @@ class TestRunRecoverWizard(unittest.TestCase):
     @mock.patch("ethernity.cli.features.recover.wizard._load_shard_frames", return_value=[])
     @mock.patch(
         "ethernity.cli.features.recover.wizard._prompt_key_material",
-        return_value=("pass", [], [], []),
+        return_value=("pass", [], [], [], []),
     )
     @mock.patch("ethernity.cli.features.recover.wizard._load_extra_auth_frames", return_value=[])
     @mock.patch(
@@ -709,11 +1105,14 @@ class TestRunRecoverWizard(unittest.TestCase):
             doc_id=main.doc_id,
             ciphertext=b"cipher",
             passphrase="secret",
+            extension_index=None,
+            extension_doc_hash=None,
+            expected_head_doc_hash=None,
         )
         build_recovery_plan.return_value = plan
         extracted = [(SimpleNamespace(path="a.txt"), b"x")]
         manifest = SimpleNamespace(input_origin="file", input_roots=())
-        decrypt_manifest_and_extract.return_value = (manifest, extracted)
+        decrypt_manifest_and_extract.return_value = _decrypt_result(manifest, extracted)
 
         result = wizard.run_recover_wizard(
             RecoverArgs(
@@ -743,7 +1142,7 @@ class TestRunRecoverWizard(unittest.TestCase):
 class TestWritePlanOutputs(unittest.TestCase):
     @mock.patch("ethernity.cli.features.recover.wizard.print_recover_debug")
     @mock.patch("ethernity.cli.features.recover.wizard.write_recovered_outputs")
-    @mock.patch("ethernity.cli.features.recover.wizard.decrypt_manifest_and_extract")
+    @mock.patch("ethernity.cli.features.recover.wizard.decrypt_manifest_extract_selection")
     def test_write_plan_outputs_success(
         self,
         decrypt_manifest_and_extract: mock.MagicMock,
@@ -759,7 +1158,12 @@ class TestWritePlanOutputs(unittest.TestCase):
         )
         extracted = [(SimpleNamespace(path="x"), b"y")]
         manifest = SimpleNamespace(input_origin="directory")
-        decrypt_manifest_and_extract.return_value = (manifest, extracted)
+        decrypt_manifest_and_extract.return_value = _decrypt_result(
+            manifest,
+            extracted,
+            selected_extension_index=1,
+            selected_extension_doc_hash="cd" * 32,
+        )
 
         result = wizard.write_plan_outputs(plan, quiet=True, debug=True)
 
@@ -783,6 +1187,11 @@ class TestWritePlanOutputs(unittest.TestCase):
             allow_unsigned=False,
             quiet=True,
             single_entry_output_is_directory=True,
+            requested_extension_index=None,
+            requested_extension_doc_hash=None,
+            expected_head_doc_hash=None,
+            selected_extension_index=1,
+            selected_extension_doc_hash="cd" * 32,
         )
 
 

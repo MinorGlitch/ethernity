@@ -1,0 +1,156 @@
+{
+  "artifact_hashes": {
+    "chain/extensions/01/qr_document-01-58752209cece0921.pdf": "231e8e031b43277e3b3dd7c0f93e2d9d0da3a8302bf91bcda35c43a894843eca",
+    "chain/extensions/01/recovery_document-01-58752209cece0921.pdf": "c53c85a99555f2c395ffdcc19b98b7d65cae72832ea31344594e227aeeb85719",
+    "chain/extensions/01/recovery_kit_index-01-58752209cece0921.pdf": "7daeba63ae58a8ec8f85f3c20cd64262e30b46828daa6d6e230a0e8c969b9325",
+    "chain/extensions/02/qr_document-02-0827e609fb6cec30.pdf": "7724e37d40a35e2bf1e6349a20e2b49f440eec6f3b84a838099e16f7c0634872",
+    "chain/extensions/02/recovery_document-02-0827e609fb6cec30.pdf": "3201e5ee1513c1039ea1ec2a63f26a5977a56c22d0a1de931be43a7ddd4386cd",
+    "chain/extensions/02/recovery_kit_index-02-0827e609fb6cec30.pdf": "6c1d5d72a7258430ed3e565c2e98b81aa4ade93da4eeb6da01eab53f88db202a",
+    "chain/qr_document.pdf": "92163381d6278bf609597777a3c072302c4dde3dcd0b127700682daf6a27bb9e",
+    "chain/recovery_document.pdf": "a04599e0e01de114f751655f8a591b0daa92ba1015c442c823118265a6bb1f49",
+    "chain/recovery_kit_index.pdf": "7786aec01c6cae1f3f8cf163f6bf3c721986aa888e7907b23f7e54020e945352",
+    "chain_payloads.bin": "e0091f828405a53cef1042c979fdca7fd377427a5d691bc145531e277419cf50",
+    "chain_payloads.txt": "de2c33b001e9fe169996b82061f315bae661b1f3b31e25154e2e245253b26c34",
+    "extension_01_payloads.bin": "7bfb909f0557aa4056b98176ddd60c397d5f87b023fdcb9f2fb548aaeb37e0ec",
+    "extension_01_payloads.txt": "bf3b9e63453fce34d20604876d4e13cd34b369beb97b1a31c87c7333ed086675",
+    "extension_02_payloads.bin": "9b0fd7f1682f0c7a2b142148d9bd525937ad235cc6c161e8c60ce606a06790ae",
+    "extension_02_payloads.txt": "58904348c10c8cbdfa16444952a9f0f1c53007029f21dd315aaab080fa14fead",
+    "root_payloads.bin": "66dad69710481c64f6b3f9133cea441dff43fad901e9162e390bdb2753a8933e",
+    "root_payloads.txt": "5781938a6528ddee9eb5c11481b0eb273a4d41724769f35258213ac963cdd093"
+  },
+  "chain_dir": "chain",
+  "checks": [
+    "40 KiB raw root",
+    "20 KiB and 28 KiB raw extension updates",
+    "latest, index, and doc-hash selection"
+  ],
+  "document_projection": [
+    {
+      "chunks": [
+        {
+          "chunk_id": "2df9f040d1ba60031f4cbc065f644271996394846c24dd11a157bf14435d353e",
+          "codec": "raw",
+          "decoded_sha256": "2df9f040d1ba60031f4cbc065f644271996394846c24dd11a157bf14435d353e",
+          "raw_len": 5578,
+          "stored_len": 5578
+        },
+        {
+          "chunk_id": "d0774bf9972761a234007dde340c069ced4f13846ed8f6b466a3264fb6f6eee1",
+          "codec": "raw",
+          "decoded_sha256": "d0774bf9972761a234007dde340c069ced4f13846ed8f6b466a3264fb6f6eee1",
+          "raw_len": 23094,
+          "stored_len": 23094
+        }
+      ],
+      "doc_hash": "0827e609fb6cec304b958ea9298371ced06120e20e6c433d42ea4c0fb8005e0d",
+      "doc_id": "0827e609fb6cec30",
+      "files": [
+        {
+          "path": "extension-two-28672.bin",
+          "sha256": "c1c50168ddb2caa8eada9bc83123721f9bbcb89991b7845350e7c93458c972d9",
+          "size": 28672
+        }
+      ],
+      "index": 2,
+      "kind": "extension",
+      "parent_doc_hash": "58752209cece0921007f6a6685db93609d124e4b877bba8f97b57e85f036a0d4",
+      "root_doc_hash": "7103f652d1c124e57ada88ca5196fcfa8d3c66037aad3ddbd92cbd6ab89bd2c9"
+    },
+    {
+      "chunks": [
+        {
+          "chunk_id": "cce75deca61f0451437dc1bbf40b5aad5889aee9d2cdf758eed921480da917db",
+          "codec": "raw",
+          "decoded_sha256": "cce75deca61f0451437dc1bbf40b5aad5889aee9d2cdf758eed921480da917db",
+          "raw_len": 17097,
+          "stored_len": 17097
+        },
+        {
+          "chunk_id": "f1e67ebb46e76859fd6ca65cdaf524c4c1f744322967bad7cc4c85819b77ebc0",
+          "codec": "raw",
+          "decoded_sha256": "f1e67ebb46e76859fd6ca65cdaf524c4c1f744322967bad7cc4c85819b77ebc0",
+          "raw_len": 3383,
+          "stored_len": 3383
+        }
+      ],
+      "doc_hash": "58752209cece0921007f6a6685db93609d124e4b877bba8f97b57e85f036a0d4",
+      "doc_id": "58752209cece0921",
+      "files": [
+        {
+          "path": "extension-one-20480.bin",
+          "sha256": "38aae6f10a719e844f1828384e3a686006584a9b5df87490e34a3f18ded593d6",
+          "size": 20480
+        }
+      ],
+      "index": 1,
+      "kind": "extension",
+      "parent_doc_hash": "7103f652d1c124e57ada88ca5196fcfa8d3c66037aad3ddbd92cbd6ab89bd2c9",
+      "root_doc_hash": "7103f652d1c124e57ada88ca5196fcfa8d3c66037aad3ddbd92cbd6ab89bd2c9"
+    },
+    {
+      "doc_hash": "7103f652d1c124e57ada88ca5196fcfa8d3c66037aad3ddbd92cbd6ab89bd2c9",
+      "doc_id": "7103f652d1c124e5",
+      "files": [
+        {
+          "path": "root-40960.bin",
+          "sha256": "dd1e22dc0d18a2f0a85c70e3e12204787808daf4daa193ff610901eb5ec5596f",
+          "size": 40960
+        }
+      ],
+      "kind": "root",
+      "payload_codec": "raw",
+      "payload_raw_len": null,
+      "sealed": false
+    }
+  ],
+  "extension_doc_hashes": {
+    "extension_01": "58752209cece0921007f6a6685db93609d124e4b877bba8f97b57e85f036a0d4",
+    "extension_02": "0827e609fb6cec304b958ea9298371ced06120e20e6c433d42ea4c0fb8005e0d"
+  },
+  "passphrase": "stable-v1_2-extension-passphrase",
+  "payload_fixtures": {
+    "chain": {
+      "binary": "chain_payloads.bin",
+      "frame_count": 184,
+      "text": "chain_payloads.txt"
+    },
+    "extension_01": {
+      "binary": "extension_01_payloads.bin",
+      "frame_count": 43,
+      "text": "extension_01_payloads.txt"
+    },
+    "extension_02": {
+      "binary": "extension_02_payloads.bin",
+      "frame_count": 59,
+      "text": "extension_02_payloads.txt"
+    },
+    "root": {
+      "binary": "root_payloads.bin",
+      "frame_count": 82,
+      "text": "root_payloads.txt"
+    }
+  },
+  "profile": "raw",
+  "qr_payload_codec": "raw",
+  "root_doc_hash": "7103f652d1c124e57ada88ca5196fcfa8d3c66037aad3ddbd92cbd6ab89bd2c9",
+  "scan_paths": [
+    "chain"
+  ],
+  "scenario_id": "large_raw_two_extension_chain",
+  "shard_fixtures": {},
+  "states": {
+    "extension_01": {
+      "extension-one-20480.bin": "38aae6f10a719e844f1828384e3a686006584a9b5df87490e34a3f18ded593d6",
+      "root-40960.bin": "dd1e22dc0d18a2f0a85c70e3e12204787808daf4daa193ff610901eb5ec5596f"
+    },
+    "extension_02": {
+      "extension-one-20480.bin": "38aae6f10a719e844f1828384e3a686006584a9b5df87490e34a3f18ded593d6",
+      "extension-two-28672.bin": "c1c50168ddb2caa8eada9bc83123721f9bbcb89991b7845350e7c93458c972d9",
+      "root-40960.bin": "dd1e22dc0d18a2f0a85c70e3e12204787808daf4daa193ff610901eb5ec5596f"
+    },
+    "root": {
+      "root-40960.bin": "dd1e22dc0d18a2f0a85c70e3e12204787808daf4daa193ff610901eb5ec5596f"
+    }
+  },
+  "version": "1.2.0"
+}

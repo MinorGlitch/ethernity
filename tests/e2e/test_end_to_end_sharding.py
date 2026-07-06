@@ -23,7 +23,7 @@ from ethernity.cli.shared.types import RecoverArgs
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.crypto.sharding import encode_shard_payload, split_passphrase
-from ethernity.crypto.signing import encode_auth_payload, generate_signing_keypair, sign_auth
+from ethernity.crypto.signing import derive_public_key, encode_auth_payload, sign_auth
 from ethernity.encoding.chunking import chunk_payload
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import encode_qr_payload
@@ -62,7 +62,8 @@ class TestEndToEndSharding(unittest.TestCase):
             ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
             doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
             doc_id = doc_hash[:DOC_ID_LEN]
-            sign_priv, sign_pub = generate_signing_keypair()
+            sign_priv = TEST_SIGNING_SEED
+            sign_pub = derive_public_key(sign_priv)
             auth_frame = _auth_frame(
                 doc_id=doc_id,
                 doc_hash=doc_hash,
@@ -141,7 +142,8 @@ class TestEndToEndSharding(unittest.TestCase):
             ciphertext, passphrase = encrypt_bytes_with_passphrase(envelope, passphrase=None)
             doc_hash = hashlib.blake2b(ciphertext, digest_size=32).digest()
             doc_id = doc_hash[:DOC_ID_LEN]
-            sign_priv, sign_pub = generate_signing_keypair()
+            sign_priv = TEST_SIGNING_SEED
+            sign_pub = derive_public_key(sign_priv)
             auth_frame = _auth_frame(
                 doc_id=doc_id,
                 doc_hash=doc_hash,

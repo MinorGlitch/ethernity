@@ -24,7 +24,6 @@ from dataclasses import dataclass
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
 from ethernity.core.validation import (
     normalize_manifest_path,
-    normalize_path,
     require_bool,
     require_bytes,
     require_dict,
@@ -511,10 +510,7 @@ def _validate_path_prefixes(value: object) -> tuple[str, ...]:
 def _normalize_root_label(value: object) -> str:
     """Normalize and validate a manifest input root label."""
 
-    root = normalize_path(value, label="manifest input_root")
-    root = root.strip()
-    if not root:
-        raise ValueError("manifest input_root must be a non-empty string")
+    root = normalize_manifest_path(value, label="manifest input_root")
     if "/" in root or "\\" in root:
         raise ValueError("manifest input_root must be a leaf label without path separators")
     return root

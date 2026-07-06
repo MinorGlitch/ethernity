@@ -1,14 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { ed25519 } from "@noble/curves/ed25519.js";
+
 import {
+  AUTH_DOMAIN,
+  AUTH_VERSION,
+  FRAME_TYPE_AUTH,
   FRAME_TYPE_KEY,
   FRAME_TYPE_MAIN,
+  LEGACY_SHARD_VERSION,
   MAX_CIPHERTEXT_BYTES,
   MAX_QR_PAYLOAD_CHARS,
   SHARD_KEY_PASSPHRASE,
   SHARD_KEY_SIGNING_SEED,
+  SHARD_VERSION,
+  textEncoder,
 } from "../app/constants.js";
+import { updateAuthStatus } from "../app/auth.js";
 import {
   detectMarker,
   parseAutoPayload,
@@ -16,6 +25,8 @@ import {
   parseAutoShard,
   parseScannedShard,
 } from "../app/frames_parse.js";
+import { decodeShardPayload } from "../app/frames_protocol.js";
+import { verifyCollectedShardSignatures } from "../app/shard_auth.js";
 import { listMissing } from "../app/frame_list.js";
 import {
   ensureCiphertextAndHash,
@@ -30,6 +41,7 @@ import { bytesToHex, hexToBytes } from "../lib/encoding.js";
 import { recoverSecretFromShards } from "../lib/shamir.js";
 import {
   buildFrame,
+  concatBytes,
   encodeZBase32,
   ensureAtob,
   mutateFrameCrc,
@@ -45,8 +57,14 @@ const FIXTURE_SHARES = {
   share2: "5a67deac6678005323ba45d1d1757dc1ca5bc36a016ebc24581b4735de627622",
   share3: "ceee014b637696c1aaf1de8d097977dbb9c0906fb6ed5505c72c52af31534d33",
 };
+const PYTHON_V2_SHARD_PAYLOAD_B64 =
+  "q2NwdWJYINBKsjJ0K7SrOhNovUYV5ObQIkq3GgFrr4UgozLJd4c3Y3NpZ1hAWEsoTiqBNQb1DQfDrPstJfpOx3jJSN6LP/6YcgXY7OgAqttX4s1XA7c/DNsSsZbcuOzWEzdcZtLDYK22blOXAmRoYXNoWCBh7fSa0XckEjDu2bnOknmko8L07PQlig3lPwQaE0885GR0eXBlanBhc3NwaHJhc2Vlc2hhcmVYIOf9voVpa7vkuGboNLlhY2he9jZk2eqHRvlCeZrvMTsRZmxlbmd0aBgbZnNldF9pZFAAESIzRFVmd4iZqrvM3e7/Z3ZlcnNpb24CaXRocmVzaG9sZAJrc2hhcmVfY291bnQDa3NoYXJlX2luZGV4AQ==";
+const PYTHON_V2_SHARD_SET_ID_HEX = "00112233445566778899aabbccddeeff";
+const AUTH_SEED = new Uint8Array(32).fill(0x42);
+const AUTH_SIGN_PUB = ed25519.getPublicKey(AUTH_SEED);
 
 function shardPayload({
+  version = LEGACY_SHARD_VERSION,
   keyType = SHARD_KEY_PASSPHRASE,
   threshold = 2,
   shareCount = 3,
@@ -56,9 +74,10 @@ function shardPayload({
   docHash = hexToBytes(FIXTURE_SHARES.docHashHex),
   signPub = new Uint8Array(32),
   signature = new Uint8Array(64),
+  shardSetId = null,
 }) {
-  return {
-    version: 1,
+  const payload = {
+    version,
     type: keyType,
     threshold,
     share_count: shareCount,
@@ -69,11 +88,50 @@ function shardPayload({
     pub: signPub,
     sig: signature,
   };
+  if (shardSetId) {
+    payload.set_id = shardSetId;
+  }
+  return payload;
+}
+
+function signAuthPayload(docHash, signPub = AUTH_SIGN_PUB, signingSeed = AUTH_SEED) {
+  const signedPayload = { version: AUTH_VERSION, hash: docHash, pub: signPub };
+  const signedBytes = encodeCbor(signedPayload);
+  return ed25519.sign(concatBytes([textEncoder.encode(AUTH_DOMAIN), signedBytes]), signingSeed);
+}
+
+function addAuthenticatedDocument(state, ciphertext, signPub = AUTH_SIGN_PUB) {
+  const docHash = blake2b256(ciphertext);
+  const docId = docHash.slice(0, 8);
+  parseScannedPayload(state, {
+    bytes: buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      docId,
+      data: ciphertext,
+    }),
+  });
+  parseScannedPayload(state, {
+    bytes: buildFrame({
+      frameType: FRAME_TYPE_AUTH,
+      docId,
+      data: encodeCbor({
+        version: 1,
+        hash: docHash,
+        pub: signPub,
+        sig: signAuthPayload(docHash, signPub),
+      }),
+    }),
+  });
+  return { docHash, docId };
+}
+
+function bytesFromBase64(value) {
+  return Uint8Array.from(Buffer.from(value, "base64"));
 }
 
 test("parseAutoPayload handles frame state transitions and hash caching", () => {
   const state = createInitialState();
-  const docId = Uint8Array.of(9, 9, 9, 9, 9, 9, 9, 9);
+  const docId = blake2b256(Uint8Array.of(1, 2, 6)).slice(0, 8);
 
   const main0 = toUnpaddedBase64(
     buildFrame({
@@ -122,14 +180,15 @@ test("parseAutoPayload handles frame state transitions and hash caching", () => 
   );
 
   assert.equal(parseAutoPayload(state, main0), 1);
-  assert.equal(parseAutoPayload(state, main0Dup), 1);
-  assert.equal(parseAutoPayload(state, main0Conflict), 1);
+  assert.equal(parseAutoPayload(state, main0Dup), 0);
+  assert.equal(parseAutoPayload(state, main0Conflict), 0);
   assert.equal(parseAutoPayload(state, foreignDoc), 1);
-  assert.equal(parseAutoPayload(state, keyFrame), 1);
+  assert.equal(parseAutoPayload(state, keyFrame), 0);
 
   assert.equal(state.duplicates, 1);
   assert.equal(state.conflicts, 1);
-  assert.equal(state.ignored, 2);
+  assert.equal(state.ignored, 1);
+  assert.equal(state.documents.size, 2);
   assert.deepEqual(listMissing(state.total, state.mainFrames), [1]);
 
   const main1 = toUnpaddedBase64(
@@ -140,6 +199,24 @@ test("parseAutoPayload handles frame state transitions and hash caching", () => 
   const secondHash = ensureCiphertextAndHash(state);
   assert.ok(firstHash instanceof Uint8Array);
   assert.deepEqual(Array.from(firstHash), Array.from(secondHash));
+});
+
+test("updateAuthStatus preserves invalid AUTH payload state", async () => {
+  const state = createInitialState();
+  const ciphertext = Uint8Array.of(1, 2, 9);
+  const docHash = blake2b256(ciphertext);
+  const docId = docHash.slice(0, 8);
+  parseScannedPayload(state, {
+    bytes: buildFrame({ frameType: FRAME_TYPE_MAIN, docId, data: ciphertext }),
+  });
+  parseScannedPayload(state, {
+    bytes: buildFrame({ frameType: FRAME_TYPE_AUTH, docId, data: Uint8Array.of(1, 2, 3) }),
+  });
+
+  await updateAuthStatus(state);
+
+  assert.equal(state.documents.get(bytesToHex(docId)).authStatus, "invalid payload");
+  assert.equal(state.authStatus, "invalid payload");
 });
 
 test("parseScannedPayload accepts raw frame bytes above text payload char limits", () => {
@@ -208,6 +285,28 @@ test("parseAutoPayload supports fallback sections and handles invalid auth fallb
   assert.equal(added, 1);
   assert.equal(state.mainFrames.size, 1);
   assert.equal(state.authErrors, 1);
+});
+
+test("parseAutoPayload accepts AUTH-only marked fallback sections", () => {
+  const state = createInitialState();
+  const docId = Uint8Array.of(8, 8, 8, 8, 8, 8, 8, 8);
+  const authFrame = buildFrame({
+    frameType: FRAME_TYPE_AUTH,
+    docId,
+    data: encodeCbor({
+      version: AUTH_VERSION,
+      hash: new Uint8Array(32).fill(0x11),
+      pub: AUTH_SIGN_PUB,
+      sig: new Uint8Array(64).fill(0x22),
+    }),
+  });
+  const text = ["Auth Frame:", encodeZBase32(authFrame)].join("\n");
+
+  const added = parseAutoPayload(state, text);
+  assert.equal(added, 1);
+  assert.equal(state.mainFrames.size, 0);
+  assert.equal(state.documents.get(bytesToHex(docId)).authPayload.version, AUTH_VERSION);
+  assert.equal(state.authErrors, 0);
 });
 
 test("detectMarker only matches explicit fallback headers", () => {
@@ -300,16 +399,21 @@ test("parseAutoShard handles duplicates, conflicts, and fallback", () => {
   });
 
   assert.equal(parseAutoShard(state, toUnpaddedBase64(first)), 1);
-  assert.equal(parseAutoShard(state, toUnpaddedBase64(duplicate)), 1);
-  assert.equal(parseAutoShard(state, toUnpaddedBase64(conflictSameIndex)), 1);
+  assert.equal(parseAutoShard(state, toUnpaddedBase64(duplicate)), 0);
+  assert.equal(parseAutoShard(state, toUnpaddedBase64(conflictSameIndex)), 0);
   assert.equal(parseAutoShard(state, toUnpaddedBase64(conflictDoc)), 1);
+  assert.equal(state.shardSets.size, 2);
   assert.equal(state.shardFrames.size, 1);
   assert.equal(state.shardDuplicates, 1);
-  assert.equal(state.shardConflicts, 2);
+  assert.equal(state.shardConflicts, 1);
 
   const fallbackState = createInitialState();
   const fallbackText = ["Shard Frame:", encodeZBase32(first)].join("\n");
   assert.equal(parseAutoShard(fallbackState, fallbackText), 1);
+
+  const keyFallbackState = createInitialState();
+  const keyFallbackText = ["Key Frame:", encodeZBase32(first)].join("\n");
+  assert.equal(parseAutoShard(keyFallbackState, keyFallbackText), 1);
 
   assert.throws(
     () => parseAutoShard(createInitialState(), "Shard Frame:\nnot-zbase32!!!"),
@@ -317,16 +421,89 @@ test("parseAutoShard handles duplicates, conflicts, and fallback", () => {
   );
 });
 
-test("parseScannedShard replaces same-share shards when signature differs", () => {
+test("decodeShardPayload supports legacy v1 shards and ignores legacy set_id", () => {
+  const payload = decodeShardPayload(
+    encodeCbor(
+      shardPayload({
+        version: LEGACY_SHARD_VERSION,
+        shardSetId: hexToBytes(PYTHON_V2_SHARD_SET_ID_HEX),
+      }),
+    ),
+  );
+
+  assert.equal(payload.version, LEGACY_SHARD_VERSION);
+  assert.equal(payload.shardSetId, null);
+});
+
+test("decodeShardPayload accepts Python v2 shard payload and requires set_id", () => {
+  const payload = decodeShardPayload(bytesFromBase64(PYTHON_V2_SHARD_PAYLOAD_B64));
+
+  assert.equal(payload.version, SHARD_VERSION);
+  assert.equal(payload.keyType, SHARD_KEY_PASSPHRASE);
+  assert.equal(payload.threshold, 2);
+  assert.equal(payload.shareCount, 3);
+  assert.equal(payload.shareIndex, 1);
+  assert.equal(bytesToHex(payload.shardSetId), PYTHON_V2_SHARD_SET_ID_HEX);
+
+  assert.throws(
+    () => decodeShardPayload(encodeCbor(shardPayload({ version: SHARD_VERSION }))),
+    /shard set_id must be 16 bytes/,
+  );
+});
+
+test("verifyCollectedShardSignatures binds Python v2 signatures to set_id", async () => {
+  const payload = decodeShardPayload(bytesFromBase64(PYTHON_V2_SHARD_PAYLOAD_B64));
+  const state = createInitialState();
+  state.shardFrames.set(payload.shareIndex, payload);
+
+  const result = await verifyCollectedShardSignatures(state);
+  assert.equal(result.unavailable, false);
+  assert.equal(result.verified, 1);
+  assert.equal(result.invalid, 0);
+
+  const tamperedSetId = payload.shardSetId.slice();
+  tamperedSetId[0] ^= 0xff;
+  const tamperedState = createInitialState();
+  tamperedState.shardFrames.set(payload.shareIndex, { ...payload, shardSetId: tamperedSetId });
+
+  const tamperedResult = await verifyCollectedShardSignatures(tamperedState);
+  assert.equal(tamperedResult.unavailable, false);
+  assert.equal(tamperedResult.verified, 0);
+  assert.equal(tamperedResult.invalid, 1);
+  assert.equal(tamperedState.shardFrames.size, 0);
+});
+
+test("verifyCollectedShardSignatures uses portable verification when WebCrypto is unavailable", async () => {
+  const original = globalThis.crypto;
+  const payload = decodeShardPayload(bytesFromBase64(PYTHON_V2_SHARD_PAYLOAD_B64));
+  const state = createInitialState();
+  state.shardFrames.set(payload.shareIndex, payload);
+
+  try {
+    delete globalThis.crypto;
+    const result = await verifyCollectedShardSignatures(state);
+    assert.equal(result.unavailable, false);
+    assert.equal(result.verified, 1);
+    assert.equal(result.invalid, 0);
+    assert.equal(state.shardFrames.get(payload.shareIndex).signatureVerified, true);
+  } finally {
+    if (original) {
+      globalThis.crypto = original;
+    }
+  }
+});
+
+test("parseScannedShard keeps same-share shards when signature differs", () => {
   const state = createInitialState();
   const docId = Uint8Array.of(4, 4, 4, 4, 4, 4, 4, 4);
+  const firstSignature = new Uint8Array(64);
   const first = buildFrame({
     frameType: FRAME_TYPE_KEY,
     data: encodeCbor(
       shardPayload({
         shareIndex: 1,
         shareHex: FIXTURE_SHARES.share1,
-        signature: new Uint8Array(64),
+        signature: firstSignature,
       }),
     ),
     docId,
@@ -345,9 +522,253 @@ test("parseScannedShard replaces same-share shards when signature differs", () =
   });
 
   assert.equal(parseScannedShard(state, { bytes: first }), 1);
-  assert.equal(parseScannedShard(state, { bytes: second }), 1);
+  assert.equal(parseScannedShard(state, { bytes: second }), 0);
   assert.equal(state.shardConflicts, 1);
-  assert.deepEqual(state.shardFrames.get(1).signature, secondSignature);
+  assert.deepEqual(state.shardFrames.get(1).signature, firstSignature);
+});
+
+test("shard recovery matches extension-bound shards after root-first scans", () => {
+  const state = createInitialState();
+  const rootCipher = Uint8Array.of(1, 2, 3);
+  const extensionCipher = Uint8Array.of(4, 5, 6);
+  const rootHash = blake2b256(rootCipher);
+  const extensionHash = blake2b256(extensionCipher);
+  parseScannedPayload(state, {
+    bytes: buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      docId: rootHash.slice(0, 8),
+      data: rootCipher,
+    }),
+  });
+  parseScannedPayload(state, {
+    bytes: buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      docId: extensionHash.slice(0, 8),
+      data: extensionCipher,
+    }),
+  });
+  for (const [shareIndex, shareHex] of [
+    [1, FIXTURE_SHARES.share1],
+    [2, FIXTURE_SHARES.share2],
+  ]) {
+    parseScannedShard(state, {
+      bytes: buildFrame({
+        frameType: FRAME_TYPE_KEY,
+        docId: extensionHash.slice(0, 8),
+        data: encodeCbor(shardPayload({ shareIndex, shareHex, docHash: extensionHash })),
+      }),
+    });
+  }
+  for (const record of state.shardSets.values()) {
+    for (const payload of record.shardFrames.values()) {
+      payload.signatureVerified = true;
+    }
+  }
+
+  assert.equal(state.shardConflicts, 0);
+  assert.equal(autoRecoverShardSecret(state), true);
+  assert.equal(state.recoveredShardSecret, FIXTURE_PASSPHRASE);
+  assert.equal(state.agePassphrase, FIXTURE_PASSPHRASE);
+});
+
+test("shard recovery rejects shards outside verified non-primary document authority", async () => {
+  const state = createInitialState();
+  addAuthenticatedDocument(state, Uint8Array.of(1, 2, 3));
+  const { docHash, docId } = addAuthenticatedDocument(state, Uint8Array.of(4, 5, 6));
+  await updateAuthStatus(state);
+  assert.equal(state.authStatus, "verified");
+  assert.equal(state.documents.get(bytesToHex(docId)).authStatus, "verified");
+
+  for (const [shareIndex, shareHex] of [
+    [1, FIXTURE_SHARES.share1],
+    [2, FIXTURE_SHARES.share2],
+  ]) {
+    parseScannedShard(state, {
+      bytes: buildFrame({
+        frameType: FRAME_TYPE_KEY,
+        docId: docHash.slice(0, 8),
+        data: encodeCbor(shardPayload({ shareIndex, shareHex, docHash })),
+      }),
+    });
+  }
+  for (const shardRecord of state.shardSets.values()) {
+    for (const payload of shardRecord.shardFrames.values()) {
+      payload.signatureVerified = true;
+    }
+  }
+
+  assert.equal(autoRecoverShardSecret(state), false);
+  assert.equal(state.shardStatus.type, "error");
+  assert.match(
+    state.shardStatus.lines.join("\n"),
+    /signing key does not match verified document AUTH/,
+  );
+});
+
+test("shard recovery clears a recovered secret when later AUTH rejects authority", () => {
+  const state = createInitialState();
+  const cipher = Uint8Array.of(8, 7, 6);
+  const docHash = blake2b256(cipher);
+  parseScannedPayload(state, {
+    bytes: buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      docId: docHash.slice(0, 8),
+      data: cipher,
+    }),
+  });
+  for (const [shareIndex, shareHex] of [
+    [1, FIXTURE_SHARES.share1],
+    [2, FIXTURE_SHARES.share2],
+  ]) {
+    parseScannedShard(state, {
+      bytes: buildFrame({
+        frameType: FRAME_TYPE_KEY,
+        docId: docHash.slice(0, 8),
+        data: encodeCbor(shardPayload({ shareIndex, shareHex, docHash })),
+      }),
+    });
+  }
+  for (const record of state.shardSets.values()) {
+    for (const payload of record.shardFrames.values()) {
+      payload.signatureVerified = true;
+    }
+  }
+
+  assert.equal(autoRecoverShardSecret(state), true);
+  assert.equal(state.recoveredShardSecret, FIXTURE_PASSPHRASE);
+  assert.equal(state.agePassphrase, FIXTURE_PASSPHRASE);
+
+  const record = state.documents.get(bytesToHex(docHash.slice(0, 8)));
+  record.authStatus = "verified";
+  record.authSignPubHex = bytesToHex(AUTH_SIGN_PUB);
+
+  assert.equal(autoRecoverShardSecret(state), false);
+  assert.equal(state.recoveredShardSecret, "");
+  assert.equal(state.agePassphrase, "");
+  assert.match(
+    state.shardStatus.lines.join("\n"),
+    /signing key does not match verified document AUTH/,
+  );
+});
+
+test("shard recovery ignores a wrong-authority set when a valid set is available", () => {
+  const state = createInitialState();
+  const cipher = Uint8Array.of(6, 5, 4);
+  const docHash = blake2b256(cipher);
+  parseScannedPayload(state, {
+    bytes: buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      docId: docHash.slice(0, 8),
+      data: cipher,
+    }),
+  });
+  const record = state.documents.get(bytesToHex(docHash.slice(0, 8)));
+  record.authStatus = "verified";
+  record.authSignPubHex = bytesToHex(AUTH_SIGN_PUB);
+
+  const wrongSignPub = new Uint8Array(32).fill(9);
+  for (const signPub of [wrongSignPub, AUTH_SIGN_PUB]) {
+    for (const [shareIndex, shareHex] of [
+      [1, FIXTURE_SHARES.share1],
+      [2, FIXTURE_SHARES.share2],
+    ]) {
+      parseScannedShard(state, {
+        bytes: buildFrame({
+          frameType: FRAME_TYPE_KEY,
+          docId: docHash.slice(0, 8),
+          data: encodeCbor(shardPayload({ shareIndex, shareHex, docHash, signPub })),
+        }),
+      });
+    }
+  }
+  assert.equal(state.shardSets.size, 2);
+  for (const shardRecord of state.shardSets.values()) {
+    for (const payload of shardRecord.shardFrames.values()) {
+      payload.signatureVerified = true;
+    }
+  }
+
+  assert.equal(autoRecoverShardSecret(state), true);
+  assert.equal(state.recoveredShardSecret, FIXTURE_PASSPHRASE);
+  assert.equal(state.shardSignPubHex, bytesToHex(AUTH_SIGN_PUB));
+});
+
+test("shard recovery blocks same-set shard conflicts", () => {
+  const state = createInitialState();
+  const cipher = Uint8Array.of(8, 8, 8);
+  const docHash = blake2b256(cipher);
+  parseScannedPayload(state, {
+    bytes: buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      docId: docHash.slice(0, 8),
+      data: cipher,
+    }),
+  });
+  for (const [shareIndex, shareHex] of [
+    [1, FIXTURE_SHARES.share1],
+    [2, FIXTURE_SHARES.share2],
+    [1, FIXTURE_SHARES.share3],
+  ]) {
+    parseScannedShard(state, {
+      bytes: buildFrame({
+        frameType: FRAME_TYPE_KEY,
+        docId: docHash.slice(0, 8),
+        data: encodeCbor(shardPayload({ shareIndex, shareHex, docHash })),
+      }),
+    });
+  }
+  for (const shardRecord of state.shardSets.values()) {
+    for (const payload of shardRecord.shardFrames.values()) {
+      payload.signatureVerified = true;
+    }
+  }
+
+  assert.equal(autoRecoverShardSecret(state), false);
+  assert.equal(state.shardStatus.type, "error");
+  assert.match(state.shardStatus.lines.join("\n"), /conflicting shard frames/);
+});
+
+test("shard recovery matches reused root shards after extension-first scans", () => {
+  const state = createInitialState();
+  const rootCipher = Uint8Array.of(7, 8, 9);
+  const extensionCipher = Uint8Array.of(10, 11, 12);
+  const rootHash = blake2b256(rootCipher);
+  const extensionHash = blake2b256(extensionCipher);
+  parseScannedPayload(state, {
+    bytes: buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      docId: extensionHash.slice(0, 8),
+      data: extensionCipher,
+    }),
+  });
+  parseScannedPayload(state, {
+    bytes: buildFrame({
+      frameType: FRAME_TYPE_MAIN,
+      docId: rootHash.slice(0, 8),
+      data: rootCipher,
+    }),
+  });
+  for (const [shareIndex, shareHex] of [
+    [1, FIXTURE_SHARES.share1],
+    [2, FIXTURE_SHARES.share2],
+  ]) {
+    parseScannedShard(state, {
+      bytes: buildFrame({
+        frameType: FRAME_TYPE_KEY,
+        docId: rootHash.slice(0, 8),
+        data: encodeCbor(shardPayload({ shareIndex, shareHex, docHash: rootHash })),
+      }),
+    });
+  }
+  for (const record of state.shardSets.values()) {
+    for (const payload of record.shardFrames.values()) {
+      payload.signatureVerified = true;
+    }
+  }
+
+  assert.equal(state.shardConflicts, 0);
+  assert.equal(autoRecoverShardSecret(state), true);
+  assert.equal(state.recoveredShardSecret, FIXTURE_PASSPHRASE);
 });
 
 test("ciphertext helpers enforce limits and missing frames", () => {
@@ -407,6 +828,22 @@ test("recoverSecretFromShards reconstructs known passphrase and rejects mismatch
       ]),
     /multiple of block size/,
   );
+  assert.throws(
+    () =>
+      recoverSecretFromShards([
+        {
+          ...makeShare(1, FIXTURE_SHARES.share1),
+          version: SHARD_VERSION,
+          shardSetId: hexToBytes("00".repeat(16)),
+        },
+        {
+          ...makeShare(2, FIXTURE_SHARES.share2),
+          version: SHARD_VERSION,
+          shardSetId: hexToBytes("11".repeat(16)),
+        },
+      ]),
+    /different shard sets/,
+  );
 });
 
 test("autoRecoverShardSecret enforces gating and supports both secret types", () => {
@@ -462,6 +899,12 @@ test("autoRecoverShardSecret enforces gating and supports both secret types", ()
     secretLen: FIXTURE_PASSPHRASE.length,
     share: hexToBytes(FIXTURE_SHARES.share2),
   });
+  assert.equal(autoRecoverShardSecret(passphraseState), false);
+  assert.equal(passphraseState.shardStatus.type, "warn");
+  assert.match(passphraseState.shardStatus.lines.join("\n"), /verify shard signatures first/);
+  for (const payload of passphraseState.shardFrames.values()) {
+    payload.signatureVerified = true;
+  }
   assert.equal(autoRecoverShardSecret(passphraseState), true);
   assert.equal(passphraseState.recoveredShardSecret, FIXTURE_PASSPHRASE);
   assert.equal(passphraseState.agePassphrase, FIXTURE_PASSPHRASE);
@@ -480,6 +923,7 @@ test("autoRecoverShardSecret enforces gating and supports both secret types", ()
     shareIndex: 1,
     secretLen: 32,
     share: seed,
+    signatureVerified: true,
   });
   assert.equal(autoRecoverShardSecret(signingState), true);
   assert.equal(signingState.recoveredShardSecret, bytesToHex(seed));

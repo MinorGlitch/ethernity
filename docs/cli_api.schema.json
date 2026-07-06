@@ -35,6 +35,8 @@
       "type": "string",
       "enum": [
         "backup",
+        "compact",
+        "extend",
         "mint",
         "recover",
         "config"
@@ -51,10 +53,12 @@
         "shard",
         "mint",
         "render",
+        "compact",
         "decrypt",
         "write",
         "load",
-        "validate"
+        "validate",
+        "publish"
       ]
     },
     "artifactKind": {
@@ -79,6 +83,28 @@
         "ignored"
       ]
     },
+    "docIdHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "nullableDocIdHex": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "docHashHex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nullableDocHashHex": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
     "metadataObject": {
       "type": "object",
       "additionalProperties": true
@@ -89,10 +115,19 @@
           "$ref": "#/$defs/backupStartedEvent"
         },
         {
+          "$ref": "#/$defs/compactStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/extendStartedEvent"
+        },
+        {
           "$ref": "#/$defs/recoverStartedEvent"
         },
         {
           "$ref": "#/$defs/inspectRecoverStartedEvent"
+        },
+        {
+          "$ref": "#/$defs/inspectExtendStartedEvent"
         },
         {
           "$ref": "#/$defs/mintStartedEvent"
@@ -289,6 +324,204 @@
         }
       }
     },
+    "extendArtifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "qr_document",
+        "recovery_document",
+        "recovery_kit_index",
+        "shard_documents",
+        "signing_key_shard_documents"
+      ],
+      "properties": {
+        "qr_document": {
+          "$ref": "#/$defs/pathString"
+        },
+        "recovery_document": {
+          "$ref": "#/$defs/pathString"
+        },
+        "recovery_kit_index": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "shard_documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "signing_key_shard_documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        }
+      }
+    },
+    "extendSelectedScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "files",
+        "directories",
+        "base_dir",
+        "file_count",
+        "total_bytes",
+        "input_origin",
+        "input_roots"
+      ],
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "directories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "base_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "file_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "input_origin": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "file",
+            "directory",
+            "mixed",
+            null
+          ]
+        },
+        "input_roots": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "nullableExtendSelectedScope": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/extendSelectedScope"
+        }
+      ]
+    },
+    "extendDiffSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "new_paths",
+        "changed_paths",
+        "unchanged_paths",
+        "missing_paths",
+        "new_count",
+        "changed_count",
+        "unchanged_count",
+        "missing_count"
+      ],
+      "properties": {
+        "new_paths": {
+          "$ref": "#/$defs/extendPathList"
+        },
+        "changed_paths": {
+          "$ref": "#/$defs/extendPathList"
+        },
+        "unchanged_paths": {
+          "$ref": "#/$defs/extendPathList"
+        },
+        "missing_paths": {
+          "$ref": "#/$defs/extendPathList"
+        },
+        "new_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "changed_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unchanged_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missing_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "nullableExtendDiffSummary": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/extendDiffSummary"
+        }
+      ]
+    },
+    "extendPathList": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "extendChunkReuse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reused_chunks",
+        "new_chunks"
+      ],
+      "properties": {
+        "reused_chunks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "new_chunks": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "nullableExtendChunkReuse": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/extendChunkReuse"
+        }
+      ]
+    },
     "backupPlan": {
       "type": "object",
       "additionalProperties": false,
@@ -309,14 +542,14 @@
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
         },
         "shard_count": {
           "type": [
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
         },
         "signing_key_mode": {
           "type": "string",
@@ -330,14 +563,14 @@
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
         },
         "signing_key_shard_count": {
           "type": [
             "integer",
             "null"
           ],
-          "minimum": 1
+          "minimum": 0
         }
       }
     },
@@ -368,8 +601,7 @@
           "const": "backup"
         },
         "doc_id": {
-          "type": "string",
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/docIdHex"
         },
         "output_dir": {
           "$ref": "#/$defs/pathString"
@@ -404,6 +636,174 @@
         },
         "plan": {
           "$ref": "#/$defs/backupPlan"
+        }
+      }
+    },
+    "compactResultEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "ok",
+        "command",
+        "doc_id",
+        "root_dir",
+        "source_scan",
+        "output_dir",
+        "artifacts",
+        "expected_head_doc_hash",
+        "validated_head_index",
+        "validated_head_doc_hash",
+        "freshness_scope"
+      ],
+      "properties": {
+        "type": {
+          "const": "result"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "compact"
+        },
+        "doc_id": {
+          "$ref": "#/$defs/docIdHex"
+        },
+        "root_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "source_scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "output_dir": {
+          "$ref": "#/$defs/pathString"
+        },
+        "artifacts": {
+          "$ref": "#/$defs/backupArtifacts"
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "validated_head_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "validated_head_doc_hash": {
+          "$ref": "#/$defs/docHashHex"
+        },
+        "freshness_scope": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "supplied_carriers_only",
+            null
+          ]
+        }
+      }
+    },
+    "extendResultEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "ok",
+        "command",
+        "index",
+        "doc_id",
+        "doc_hash",
+        "root_doc_id",
+        "root_doc_hash",
+        "chain_id",
+        "parent_head_index",
+        "parent_head_doc_hash",
+        "expected_head_doc_hash",
+        "freshness_scope",
+        "extension_dir",
+        "artifacts",
+        "selected_scope",
+        "diff_summary",
+        "resolved_policy",
+        "chunk_reuse",
+        "extension_bytes"
+      ],
+      "properties": {
+        "type": {
+          "const": "result"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "extend"
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "doc_id": {
+          "$ref": "#/$defs/docIdHex"
+        },
+        "doc_hash": {
+          "$ref": "#/$defs/docHashHex"
+        },
+        "root_doc_id": {
+          "$ref": "#/$defs/docIdHex"
+        },
+        "root_doc_hash": {
+          "$ref": "#/$defs/docHashHex"
+        },
+        "chain_id": {
+          "$ref": "#/$defs/docHashHex"
+        },
+        "parent_head_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "parent_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "freshness_scope": {
+          "type": "string",
+          "enum": [
+            "supplied_carriers_only"
+          ]
+        },
+        "extension_dir": {
+          "$ref": "#/$defs/pathString"
+        },
+        "artifacts": {
+          "$ref": "#/$defs/extendArtifacts"
+        },
+        "selected_scope": {
+          "$ref": "#/$defs/extendSelectedScope"
+        },
+        "diff_summary": {
+          "$ref": "#/$defs/extendDiffSummary"
+        },
+        "resolved_policy": {
+          "$ref": "#/$defs/extendResolvedPolicyPreview"
+        },
+        "chunk_reuse": {
+          "$ref": "#/$defs/extendChunkReuse"
+        },
+        "extension_bytes": {
+          "type": "integer",
+          "minimum": 1
         }
       }
     },
@@ -444,17 +844,58 @@
         },
         "payload_codec": {
           "type": "string",
-          "minLength": 1
+          "enum": [
+            "raw",
+            "gzip"
+          ]
         },
         "payload_raw_len": {
-          "type": "integer",
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0
         },
         "file_count": {
           "type": "integer",
           "minimum": 0
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "payload_codec": {
+                "const": "raw"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload_raw_len": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "payload_codec": {
+                "const": "gzip"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "payload_raw_len": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        }
+      ]
     },
     "recoverFile": {
       "type": "object",
@@ -591,6 +1032,7 @@
         "passphrase_provided",
         "validated_shard_count",
         "required_shard_threshold",
+        "shard_share_count",
         "satisfied"
       ],
       "properties": {
@@ -610,6 +1052,13 @@
           "minimum": 0
         },
         "required_shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "shard_share_count": {
           "type": [
             "integer",
             "null"
@@ -705,6 +1154,12 @@
         "output_path",
         "output_path_kind",
         "doc_id",
+        "selected_extension_index",
+        "selected_extension_doc_hash",
+        "expected_head_doc_hash",
+        "validated_head_index",
+        "validated_head_doc_hash",
+        "freshness_scope",
         "auth_status",
         "input_label",
         "input_detail",
@@ -732,8 +1187,41 @@
           ]
         },
         "doc_id": {
-          "type": "string",
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/docIdHex"
+        },
+        "selected_extension_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "selected_extension_doc_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "validated_head_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "validated_head_doc_hash": {
+          "$ref": "#/$defs/docHashHex"
+        },
+        "freshness_scope": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "supplied_carriers_only",
+            null
+          ]
         },
         "auth_status": {
           "$ref": "#/$defs/authStatus"
@@ -766,6 +1254,12 @@
         "command",
         "operation",
         "doc_id",
+        "selected_extension_index",
+        "selected_extension_doc_hash",
+        "expected_head_doc_hash",
+        "validated_head_index",
+        "validated_head_doc_hash",
+        "freshness_scope",
         "auth_status",
         "input_label",
         "input_detail",
@@ -789,8 +1283,41 @@
           "const": "inspect"
         },
         "doc_id": {
-          "type": "string",
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/docIdHex"
+        },
+        "selected_extension_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "selected_extension_doc_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "validated_head_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "validated_head_doc_hash": {
+          "$ref": "#/$defs/docHashHex"
+        },
+        "freshness_scope": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "supplied_carriers_only",
+            null
+          ]
         },
         "auth_status": {
           "$ref": "#/$defs/authStatus"
@@ -829,16 +1356,382 @@
         }
       }
     },
+    "inspectExtendStartedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "command",
+        "schema_version",
+        "args"
+      ],
+      "properties": {
+        "type": {
+          "const": "started"
+        },
+        "command": {
+          "const": "extend"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "args": {
+          "$ref": "#/$defs/inspectExtendStartedArgs"
+        }
+      }
+    },
+    "inspectExtendResultEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "ok",
+        "command",
+        "operation",
+        "doc_id",
+        "input_label",
+        "input_detail",
+        "input_kind",
+        "source_summary",
+        "frame_counts",
+        "root_doc_id",
+        "root_doc_hash",
+        "chain_id",
+        "auth_status",
+        "unlock",
+        "discovered_extension_dirs",
+        "validated_head_index",
+        "validated_head_doc_hash",
+        "expected_head_doc_hash",
+        "freshness_scope",
+        "validated_head_auth_status",
+        "validated_head_root_authority_verified",
+        "available_extensions",
+        "ancestry_valid",
+        "signing_authority",
+        "selected_scope",
+        "diff_summary",
+        "resolved_policy",
+        "chunk_reuse",
+        "estimated_extension_bytes",
+        "blocking_issues",
+        "warnings"
+      ],
+      "properties": {
+        "type": {
+          "const": "result"
+        },
+        "ok": {
+          "const": true
+        },
+        "command": {
+          "const": "extend"
+        },
+        "operation": {
+          "const": "inspect"
+        },
+        "doc_id": {
+          "$ref": "#/$defs/nullableDocIdHex"
+        },
+        "input_label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_detail": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_kind": {
+          "type": "string",
+          "enum": [
+            "standalone_root",
+            "extended_root",
+            "scanned_chain"
+          ]
+        },
+        "source_summary": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "frame_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "main",
+            "auth",
+            "shard"
+          ],
+          "properties": {
+            "main": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "auth": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "shard": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "root_doc_id": {
+          "$ref": "#/$defs/nullableDocIdHex"
+        },
+        "root_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "chain_id": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "auth_status": {
+          "$ref": "#/$defs/authStatus"
+        },
+        "unlock": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "passphrase_provided",
+            "validated_shard_count",
+            "required_shard_threshold",
+            "shard_share_count",
+            "satisfied"
+          ],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "minLength": 1
+            },
+            "passphrase_provided": {
+              "type": "boolean"
+            },
+            "validated_shard_count": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "required_shard_threshold": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "shard_share_count": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "satisfied": {
+              "type": "boolean"
+            }
+          }
+        },
+        "discovered_extension_dirs": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "validated_head_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "validated_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "freshness_scope": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "supplied_carriers_only",
+            null
+          ]
+        },
+        "validated_head_auth_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "validated_head_root_authority_verified": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "available_extensions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "index",
+              "dir_name",
+              "doc_id",
+              "doc_hash"
+            ],
+            "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "dir_name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "doc_id": {
+                "$ref": "#/$defs/docIdHex"
+              },
+              "doc_hash": {
+                "$ref": "#/$defs/docHashHex"
+              },
+              "auth_status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "root_authority_verified": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "ancestry_valid": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "signing_authority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "available",
+            "satisfied",
+            "source"
+          ],
+          "properties": {
+            "available": {
+              "type": "boolean"
+            },
+            "satisfied": {
+              "type": "boolean"
+            },
+            "source": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "selected_scope": {
+          "$ref": "#/$defs/nullableExtendSelectedScope"
+        },
+        "diff_summary": {
+          "$ref": "#/$defs/nullableExtendDiffSummary"
+        },
+        "resolved_policy": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "passphrase",
+            "signing_key",
+            "recovery_kit_index",
+            "qr_chunk_size",
+            "layout_debug_dir"
+          ],
+          "properties": {
+            "passphrase": {
+              "$ref": "#/$defs/extendPassphrasePolicyPreview"
+            },
+            "signing_key": {
+              "$ref": "#/$defs/extendSigningKeyPolicyPreview"
+            },
+            "recovery_kit_index": {
+              "type": "boolean"
+            },
+            "qr_chunk_size": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "layout_debug_dir": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            }
+          }
+        },
+        "chunk_reuse": {
+          "$ref": "#/$defs/nullableExtendChunkReuse"
+        },
+        "estimated_extension_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "blocking_issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/blockingIssue"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/warningRecord"
+          }
+        }
+      }
+    },
     "resultEvent": {
       "oneOf": [
         {
           "$ref": "#/$defs/backupResultEvent"
         },
         {
+          "$ref": "#/$defs/compactResultEvent"
+        },
+        {
+          "$ref": "#/$defs/extendResultEvent"
+        },
+        {
           "$ref": "#/$defs/recoverResultEvent"
         },
         {
           "$ref": "#/$defs/inspectRecoverResultEvent"
+        },
+        {
+          "$ref": "#/$defs/inspectExtendResultEvent"
         },
         {
           "$ref": "#/$defs/mintResultEvent"
@@ -867,6 +1760,39 @@
         "SIGNING_KEY_SHARD_DIR_NOT_FOUND",
         "SIGNING_KEY_SHARD_DIR_INVALID",
         "SIGNING_KEY_SHARD_DIR_EMPTY",
+        "EXTENSION_INPUT_REQUIRED",
+        "EXTENSION_INVALID_POLICY",
+        "EXTENSION_NO_CHANGES",
+        "EXTENSION_MAIN_CARRIER_INVALID",
+        "EXTENSION_SHARD_CARRIER_INVALID",
+        "EXTENSION_TOO_LARGE",
+        "COMPACT_INVALID_POLICY",
+        "RECOVERY_HEAD_UNTRUSTED",
+        "AUTH_PAYLOAD_MISSING",
+        "AUTH_PAYLOAD_MULTIPLE",
+        "AUTH_PAYLOAD_DOC_ID_MISMATCH",
+        "AUTH_PAYLOAD_FRAME_INVALID",
+        "AUTH_PAYLOAD_INVALID",
+        "AUTH_DOC_HASH_MISMATCH",
+        "AUTH_SIGNATURE_INVALID",
+        "PASSPHRASE_SHARDS_UNDER_QUORUM",
+        "PASSPHRASE_SHARDS_INVALID",
+        "PASSPHRASE_INVALID",
+        "PASSPHRASE_REQUIRED",
+        "AUTH_REQUIRED",
+        "UNLOCK_FAILED",
+        "SIGNING_KEY_SHARDS_REQUIRED",
+        "SIGNING_KEY_SHARDS_UNDER_QUORUM",
+        "SIGNING_KEY_SHARDS_INVALID",
+        "PASSPHRASE_REPLACEMENT_NOT_READY",
+        "SIGNING_KEY_REPLACEMENT_NOT_READY",
+        "ROOT_AUTHORITY_MISMATCH",
+        "ROOT_SHARD_POLICY_INVALID",
+        "EXTENSION_LAYOUT_INVALID",
+        "EXTENSION_PUBLISH_TARGET_INVALID",
+        "SEALED_ROOT_NOT_EXTENDABLE",
+        "CHAIN_INVALID",
+        "DELETE_NOT_SUPPORTED",
         "CANCELLED",
         "NOT_FOUND",
         "PERMISSION_DENIED",
@@ -931,7 +1857,19 @@
         "SIGNING_KEY_SHARDS_UNDER_QUORUM",
         "SIGNING_KEY_SHARDS_INVALID",
         "PASSPHRASE_REPLACEMENT_NOT_READY",
-        "SIGNING_KEY_REPLACEMENT_NOT_READY"
+        "SIGNING_KEY_REPLACEMENT_NOT_READY",
+        "ROOT_AUTHORITY_MISMATCH",
+        "ROOT_SHARD_POLICY_INVALID",
+        "EXTENSION_INPUT_REQUIRED",
+        "RECOVERY_HEAD_UNTRUSTED",
+        "EXTENSION_LAYOUT_INVALID",
+        "EXTENSION_PUBLISH_TARGET_INVALID",
+        "EXTENSION_INVALID_POLICY",
+        "EXTENSION_NO_CHANGES",
+        "EXTENSION_TOO_LARGE",
+        "SEALED_ROOT_NOT_EXTENDABLE",
+        "CHAIN_INVALID",
+        "DELETE_NOT_SUPPORTED"
       ]
     },
     "blockingIssueCode": {
@@ -1097,6 +2035,138 @@
         }
       }
     },
+    "compactStartedArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config",
+        "paper",
+        "design",
+        "root_dir",
+        "scan",
+        "output_dir",
+        "shard_fallback_file",
+        "shard_payloads_file",
+        "shard_scan",
+        "auth_fallback_file",
+        "auth_payloads_file",
+        "expected_head_doc_hash",
+        "allow_stale_head",
+        "layout_debug_dir",
+        "qr_chunk_size",
+        "has_passphrase",
+        "quiet",
+        "debug"
+      ],
+      "properties": {
+        "config": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "paper": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A4",
+            "LETTER",
+            null
+          ]
+        },
+        "design": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "root_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "output_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "shard_fallback_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_payloads_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "auth_fallback_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "auth_payloads_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "allow_stale_head": {
+          "type": "boolean"
+        },
+        "layout_debug_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "qr_chunk_size": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "has_passphrase": {
+          "type": "boolean"
+        },
+        "quiet": {
+          "type": "boolean"
+        },
+        "debug": {
+          "type": "boolean"
+        }
+      }
+    },
     "recoverStartedArgs": {
       "type": "object",
       "additionalProperties": false,
@@ -1112,8 +2182,10 @@
         "shard_scan",
         "auth_fallback_file",
         "auth_payloads_file",
+        "extension_index",
+        "extension_doc_hash",
+        "expected_head_doc_hash",
         "output",
-        "allow_unsigned",
         "quiet",
         "debug"
       ],
@@ -1185,15 +2257,29 @@
           ],
           "minLength": 1
         },
+        "extension_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "extension_doc_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
         "output": {
           "type": [
             "string",
             "null"
           ],
           "minLength": 1
-        },
-        "allow_unsigned": {
-          "type": "boolean"
         },
         "quiet": {
           "type": "boolean"
@@ -1225,7 +2311,9 @@
         "shard_scan",
         "auth_fallback_file",
         "auth_payloads_file",
-        "allow_unsigned",
+        "extension_index",
+        "extension_doc_hash",
+        "expected_head_doc_hash",
         "quiet",
         "debug"
       ],
@@ -1306,7 +2394,429 @@
           ],
           "minLength": 1
         },
-        "allow_unsigned": {
+        "extension_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "extension_doc_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "quiet": {
+          "type": "boolean"
+        },
+        "debug": {
+          "type": "boolean"
+        }
+      }
+    },
+    "inspectExtendStartedArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config",
+        "paper",
+        "design",
+        "root_dir",
+        "scan",
+        "input",
+        "input_dir",
+        "base_dir",
+        "layout_debug_dir",
+        "qr_chunk_size",
+        "shard_fallback_file",
+        "shard_payloads_file",
+        "shard_scan",
+        "has_passphrase",
+        "unlock_policy",
+        "shard_threshold",
+        "shard_count",
+        "signing_key_mode",
+        "signing_key_shard_threshold",
+        "signing_key_shard_count",
+        "expected_head_doc_hash",
+        "allow_stale_head",
+        "quiet",
+        "debug",
+        "operation"
+      ],
+      "properties": {
+        "config": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "paper": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A4",
+            "LETTER",
+            null
+          ]
+        },
+        "design": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "root_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "input": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "input_dir": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "base_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "layout_debug_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "qr_chunk_size": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "shard_fallback_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_payloads_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "has_passphrase": {
+          "type": "boolean"
+        },
+        "unlock_policy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "self-contained",
+            "reuse-root",
+            null
+          ]
+        },
+        "shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 255
+        },
+        "shard_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 255
+        },
+        "signing_key_mode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "not-stored",
+            "sharded",
+            null
+          ]
+        },
+        "signing_key_shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 255
+        },
+        "signing_key_shard_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 255
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "allow_stale_head": {
+          "type": "boolean"
+        },
+        "quiet": {
+          "type": "boolean"
+        },
+        "debug": {
+          "type": "boolean"
+        },
+        "operation": {
+          "const": "inspect"
+        }
+      }
+    },
+    "extendStartedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "command",
+        "schema_version",
+        "args"
+      ],
+      "properties": {
+        "type": {
+          "const": "started"
+        },
+        "command": {
+          "const": "extend"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "args": {
+          "$ref": "#/$defs/extendStartedArgs"
+        }
+      }
+    },
+    "extendStartedArgs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config",
+        "paper",
+        "design",
+        "root_dir",
+        "scan",
+        "input",
+        "input_dir",
+        "base_dir",
+        "layout_debug_dir",
+        "qr_chunk_size",
+        "has_passphrase",
+        "shard_fallback_file",
+        "shard_payloads_file",
+        "shard_scan",
+        "unlock_policy",
+        "shard_threshold",
+        "shard_count",
+        "signing_key_mode",
+        "signing_key_shard_threshold",
+        "signing_key_shard_count",
+        "expected_head_doc_hash",
+        "allow_stale_head",
+        "quiet",
+        "debug"
+      ],
+      "properties": {
+        "config": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "paper": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "A4",
+            "LETTER",
+            null
+          ]
+        },
+        "design": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "root_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "input": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "input_dir": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "base_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "layout_debug_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "qr_chunk_size": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "has_passphrase": {
+          "type": "boolean"
+        },
+        "shard_fallback_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_payloads_file": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "shard_scan": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pathString"
+          }
+        },
+        "unlock_policy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "self-contained",
+            "reuse-root",
+            null
+          ]
+        },
+        "shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 255
+        },
+        "shard_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 255
+        },
+        "signing_key_mode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "not-stored",
+            "sharded",
+            null
+          ]
+        },
+        "signing_key_shard_threshold": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 255
+        },
+        "signing_key_shard_count": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 255
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "allow_stale_head": {
           "type": "boolean"
         },
         "quiet": {
@@ -1333,6 +2843,10 @@
         "shard_scan",
         "auth_fallback_file",
         "auth_payloads_file",
+        "extension_index",
+        "extension_doc_hash",
+        "expected_head_doc_hash",
+        "allow_stale_head",
         "signing_key_shard_fallback_file",
         "signing_key_shard_payloads_file",
         "signing_key_shard_scan",
@@ -1430,6 +2944,26 @@
           ],
           "minLength": 1
         },
+        "extension_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "extension_doc_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "allow_stale_head": {
+          "type": "boolean"
+        },
         "signing_key_shard_fallback_file": {
           "type": "array",
           "items": {
@@ -1466,37 +3000,43 @@
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "shard_count": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "signing_key_shard_threshold": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "signing_key_shard_count": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "passphrase_replacement_count": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "signing_key_replacement_count": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "mint_passphrase_shards": {
           "type": "boolean"
@@ -1529,6 +3069,10 @@
         "shard_scan",
         "auth_fallback_file",
         "auth_payloads_file",
+        "extension_index",
+        "extension_doc_hash",
+        "expected_head_doc_hash",
+        "allow_stale_head",
         "signing_key_shard_fallback_file",
         "signing_key_shard_payloads_file",
         "signing_key_shard_scan",
@@ -1627,6 +3171,26 @@
           ],
           "minLength": 1
         },
+        "extension_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "extension_doc_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "allow_stale_head": {
+          "type": "boolean"
+        },
         "signing_key_shard_fallback_file": {
           "type": "array",
           "items": {
@@ -1649,37 +3213,43 @@
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "shard_count": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "signing_key_shard_threshold": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "signing_key_shard_count": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "passphrase_replacement_count": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "signing_key_replacement_count": {
           "type": [
             "integer",
             "null"
-          ]
+          ],
+          "minimum": 1
         },
         "mint_passphrase_shards": {
           "type": "boolean"
@@ -1716,6 +3286,30 @@
         },
         "args": {
           "$ref": "#/$defs/backupStartedArgs"
+        }
+      }
+    },
+    "compactStartedEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "schema_version",
+        "command",
+        "args"
+      ],
+      "properties": {
+        "type": {
+          "const": "started"
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "command": {
+          "const": "compact"
+        },
+        "args": {
+          "$ref": "#/$defs/compactStartedArgs"
         }
       }
     },
@@ -1845,10 +3439,17 @@
         "ok",
         "command",
         "doc_id",
+        "doc_hash",
         "output_dir",
         "artifacts",
         "signing_key_source",
-        "notes"
+        "notes",
+        "selected_extension_index",
+        "selected_extension_doc_hash",
+        "expected_head_doc_hash",
+        "validated_head_index",
+        "validated_head_doc_hash",
+        "freshness_scope"
       ],
       "properties": {
         "type": {
@@ -1861,8 +3462,10 @@
           "const": "mint"
         },
         "doc_id": {
-          "type": "string",
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/docIdHex"
+        },
+        "doc_hash": {
+          "$ref": "#/$defs/docHashHex"
         },
         "output_dir": {
           "$ref": "#/$defs/pathString"
@@ -1880,6 +3483,36 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "selected_extension_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "selected_extension_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "validated_head_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "validated_head_doc_hash": {
+          "$ref": "#/$defs/docHashHex"
+        },
+        "freshness_scope": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "supplied_carriers_only",
+            null
+          ]
         }
       }
     },
@@ -1892,6 +3525,12 @@
         "command",
         "operation",
         "doc_id",
+        "selected_extension_index",
+        "selected_extension_doc_hash",
+        "expected_head_doc_hash",
+        "validated_head_index",
+        "validated_head_doc_hash",
+        "freshness_scope",
         "auth_status",
         "input_label",
         "input_detail",
@@ -1917,8 +3556,41 @@
           "const": "inspect"
         },
         "doc_id": {
-          "type": "string",
-          "pattern": "^[0-9a-f]+$"
+          "$ref": "#/$defs/docIdHex"
+        },
+        "selected_extension_index": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "selected_extension_doc_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expected_head_doc_hash": {
+          "$ref": "#/$defs/nullableDocHashHex"
+        },
+        "validated_head_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "validated_head_doc_hash": {
+          "$ref": "#/$defs/docHashHex"
+        },
+        "freshness_scope": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "supplied_carriers_only",
+            null
+          ]
         },
         "auth_status": {
           "$ref": "#/$defs/authStatus"
@@ -1962,6 +3634,138 @@
           }
         }
       }
+    },
+    "extendPassphrasePolicyPreview": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "threshold",
+            "share_count"
+          ],
+          "properties": {
+            "mode": {
+              "const": "plaintext"
+            },
+            "threshold": {
+              "type": "null"
+            },
+            "share_count": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "threshold",
+            "share_count"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "extension-shards",
+                "reuse-root-shards"
+              ]
+            },
+            "threshold": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 255
+            },
+            "share_count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 255
+            }
+          }
+        }
+      ]
+    },
+    "extendResolvedPolicyPreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "passphrase",
+        "signing_key",
+        "recovery_kit_index",
+        "qr_chunk_size",
+        "layout_debug_dir"
+      ],
+      "properties": {
+        "passphrase": {
+          "$ref": "#/$defs/extendPassphrasePolicyPreview"
+        },
+        "signing_key": {
+          "$ref": "#/$defs/extendSigningKeyPolicyPreview"
+        },
+        "recovery_kit_index": {
+          "type": "boolean"
+        },
+        "qr_chunk_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "layout_debug_dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "extendSigningKeyPolicyPreview": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "threshold",
+            "share_count"
+          ],
+          "properties": {
+            "mode": {
+              "const": "not-stored"
+            },
+            "threshold": {
+              "type": "null"
+            },
+            "share_count": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "threshold",
+            "share_count"
+          ],
+          "properties": {
+            "mode": {
+              "const": "extension-shards"
+            },
+            "threshold": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 255
+            },
+            "share_count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 255
+            }
+          }
+        }
+      ]
     },
     "configOperation": {
       "type": "string",
@@ -2050,6 +3854,7 @@
         "templates",
         "page",
         "qr",
+        "extension",
         "defaults",
         "ui",
         "debug",
@@ -2148,12 +3953,48 @@
             }
           }
         },
+        "extension": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "chunking"
+          ],
+          "properties": {
+            "chunking": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "target_size",
+                "min_size",
+                "max_size"
+              ],
+              "properties": {
+                "target_size": {
+                  "type": "integer",
+                  "minimum": 4096,
+                  "maximum": 67108864
+                },
+                "min_size": {
+                  "type": "integer",
+                  "minimum": 4096,
+                  "maximum": 67108864
+                },
+                "max_size": {
+                  "type": "integer",
+                  "minimum": 4096,
+                  "maximum": 67108864
+                }
+              }
+            }
+          }
+        },
         "defaults": {
           "type": "object",
           "additionalProperties": false,
           "required": [
             "backup",
-            "recover"
+            "recover",
+            "extend"
           ],
           "properties": {
             "backup": {
@@ -2252,6 +4093,82 @@
                   "minLength": 1
                 }
               }
+            },
+            "extend": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "base_dir",
+                "unlock_policy",
+                "shard_threshold",
+                "shard_count",
+                "signing_key_mode",
+                "signing_key_shard_threshold",
+                "signing_key_shard_count",
+                "qr_payload_codec"
+              ],
+              "properties": {
+                "base_dir": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1
+                },
+                "unlock_policy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "self-contained",
+                    "reuse-root",
+                    null
+                  ]
+                },
+                "shard_threshold": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "shard_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "signing_key_mode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "not-stored",
+                    "sharded",
+                    null
+                  ]
+                },
+                "signing_key_shard_threshold": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "signing_key_shard_count": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "qr_payload_codec": {
+                  "type": "string",
+                  "enum": [
+                    "raw",
+                    "base64"
+                  ]
+                }
+              }
             }
           }
         },
@@ -2329,6 +4246,8 @@
         "payload_codecs",
         "qr_payload_codecs",
         "signing_key_modes",
+        "extension_unlock_policies",
+        "extension_signing_key_modes",
         "onboarding_fields"
       ],
       "properties": {
@@ -2388,6 +4307,26 @@
             "type": "string",
             "enum": [
               "embedded",
+              "sharded"
+            ]
+          }
+        },
+        "extension_unlock_policies": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "self-contained",
+              "reuse-root"
+            ]
+          }
+        },
+        "extension_signing_key_modes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "not-stored",
               "sharded"
             ]
           }

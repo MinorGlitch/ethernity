@@ -26,6 +26,7 @@ from ethernity.cli.shared.types import InputFile
 from ethernity.cli.shared.ui import debug as debug_module
 from ethernity.core.models import DocumentPlan, ShardingConfig
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
+from ethernity.render.recovery_lines import append_signing_key_lines
 
 
 class TestUIDebugHelpers(unittest.TestCase):
@@ -75,7 +76,7 @@ class TestUIDebugHelpers(unittest.TestCase):
         sign_pub = b"\x11" * 32
 
         sealed_lines: list[str] = []
-        debug_module._append_signing_key_lines(
+        append_signing_key_lines(
             sealed_lines,
             sign_pub=sign_pub,
             sealed=True,
@@ -84,7 +85,7 @@ class TestUIDebugHelpers(unittest.TestCase):
         self.assertIn("Signing private key not stored (sealed backup).", sealed_lines)
 
         stored_lines: list[str] = []
-        debug_module._append_signing_key_lines(
+        append_signing_key_lines(
             stored_lines,
             sign_pub=sign_pub,
             sealed=False,
@@ -95,7 +96,7 @@ class TestUIDebugHelpers(unittest.TestCase):
         self.assertIn("Signing private key stored in separate shard documents.", stored_lines)
 
         absent_lines: list[str] = []
-        debug_module._append_signing_key_lines(
+        append_signing_key_lines(
             absent_lines,
             sign_pub=sign_pub,
             sealed=False,

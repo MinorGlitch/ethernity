@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { gzipSync } from "node:zlib";
 
 import { sha256 } from "@noble/hashes/sha2.js";
 
@@ -174,6 +175,28 @@ test("extractFiles supports stable-v1 prefix_table manifest entries", async () =
   );
 });
 
+test("extractFiles rejects gzip payloads with trailing members", async () => {
+  const data = new Uint8Array([1, 2, 3]);
+  const manifest = {
+    version: 1,
+    created: 1_700_000_000,
+    sealed: true,
+    seed: null,
+    input_origin: "file",
+    input_roots: [],
+    payload_codec: "gzip",
+    payload_raw_len: data.length,
+    path_encoding: "direct",
+    files: buildDirectManifestEntries([{ path: "a.txt", data }]),
+  };
+  const payload = concatBytes([gzipSync(data), gzipSync(new Uint8Array())]);
+
+  await assert.rejects(
+    () => extractFiles(buildEnvelope(manifest, payload)),
+    /gzip payload contains trailing data/,
+  );
+});
+
 test("extractFiles rejects legacy map-style file entries", async () => {
   const data = new Uint8Array([7]);
   const manifest = {
@@ -243,7 +266,7 @@ test("parseAutoPayload rejects non-canonical AUTH CBOR payload", () => {
   const state = createInitialState();
 
   const added = parseAutoPayload(state, toUnpaddedBase64(frame));
-  assert.equal(added, 1);
+  assert.equal(added, 0);
   assert.equal(state.authErrors, 1);
   assert.equal(state.authPayload, null);
 });
@@ -265,7 +288,7 @@ test("parseAutoShard rejects structurally invalid shard payload share lengths", 
   const state = createInitialState();
 
   const added = parseAutoShard(state, toUnpaddedBase64(frame));
-  assert.equal(added, 1);
+  assert.equal(added, 0);
   assert.equal(state.shardErrors, 1);
   assert.equal(state.shardFrames.size, 0);
 });
@@ -287,7 +310,7 @@ test("parseAutoShard rejects shard payloads above MAX_SHARD_SHARES", () => {
   const state = createInitialState();
 
   const added = parseAutoShard(state, toUnpaddedBase64(frame));
-  assert.equal(added, 1);
+  assert.equal(added, 0);
   assert.equal(state.shardErrors, 1);
   assert.equal(state.shardFrames.size, 0);
 });
@@ -309,7 +332,7 @@ test("parseAutoShard rejects non-32-byte signing-seed shard payloads", () => {
   const state = createInitialState();
 
   const added = parseAutoShard(state, toUnpaddedBase64(frame));
-  assert.equal(added, 1);
+  assert.equal(added, 0);
   assert.equal(state.shardErrors, 1);
   assert.equal(state.shardFrames.size, 0);
 });
@@ -332,7 +355,7 @@ test("parseAutoShard rejects non-canonical shard CBOR payload", () => {
   const state = createInitialState();
 
   const added = parseAutoShard(state, toUnpaddedBase64(frame));
-  assert.equal(added, 1);
+  assert.equal(added, 0);
   assert.equal(state.shardErrors, 1);
   assert.equal(state.shardFrames.size, 0);
 });

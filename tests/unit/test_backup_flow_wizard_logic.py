@@ -23,10 +23,34 @@ from pathlib import Path
 from unittest import mock
 
 from ethernity.cli.features.backup import orchestrator as backup
+from ethernity.cli.shared import recovery_kit_index
 from ethernity.cli.shared.types import BackupArgs, BackupResult, InputFile
 from ethernity.config import BackupDefaults, load_app_config
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.core.models import DocumentPlan, ShardingConfig, SigningSeedMode
+
+
+def _write_template_style(template_dir: Path, *, recovery_kit_index_document: bool) -> None:
+    capability = "true" if recovery_kit_index_document else "false"
+    (template_dir / "style.json").write_text(
+        f"""{{
+  "name": "forge",
+  "header": {{
+    "meta_row_gap_mm": 1.2,
+    "stack_gap_mm": 1.0,
+    "divider_thickness_mm": 0.5
+  }},
+  "content_offset": {{
+    "divider_gap_extra_mm": 0.0,
+    "doc_types": []
+  }},
+  "capabilities": {{
+    "recovery_kit_index_document": {capability}
+  }}
+}}
+""",
+        encoding="utf-8",
+    )
 
 
 class TestBackupFlowWizardLogic(unittest.TestCase):
@@ -84,13 +108,29 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
         prompt_words.assert_not_called()
 
     def test_prompt_recovery_options_branches(self) -> None:
+        with mock.patch.object(backup, "prompt_choice", return_value="recommended"):
+            sealed, debug, mode, sharding, signing_seed_sharding = backup._prompt_recovery_options(
+                BackupArgs(),
+                debug_override=None,
+                quiet=True,
+            )
+        self.assertFalse(sealed)
+        self.assertFalse(debug)
+        self.assertEqual(mode, SigningSeedMode.EMBEDDED)
+        self.assertEqual(sharding, ShardingConfig(threshold=2, shares=3))
+        self.assertIsNone(signing_seed_sharding)
+
         no_shard_args = BackupArgs(sealed=True)
-        with mock.patch.object(backup, "resolve_passphrase_sharding", return_value=None):
+        with (
+            mock.patch.object(backup, "resolve_passphrase_sharding", return_value=None),
+            mock.patch.object(backup, "prompt_choice") as recovery_setup_choice,
+        ):
             sealed, debug, mode, sharding, signing_seed_sharding = backup._prompt_recovery_options(
                 no_shard_args,
                 debug_override=True,
                 quiet=True,
             )
+        recovery_setup_choice.assert_not_called()
         self.assertTrue(sealed)
         self.assertTrue(debug)
         self.assertEqual(mode, SigningSeedMode.EMBEDDED)
@@ -100,6 +140,7 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
         sharding = ShardingConfig(threshold=2, shares=3)
         sharded_args = BackupArgs(sealed=False)
         with (
+            mock.patch.object(backup, "prompt_choice", return_value="custom"),
             mock.patch.object(backup, "resolve_passphrase_sharding", return_value=sharding),
             mock.patch.object(backup, "prompt_yes_no", side_effect=[True, False]),
             mock.patch.object(
@@ -233,7 +274,9 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
             template_path = Path(tmpdir) / "kit_index_document.html.j2"
             template_path.write_text("x", encoding="utf-8")
             with mock.patch.object(
-                backup, "_resolve_kit_index_template_path", return_value=template_path
+                backup,
+                "resolve_recovery_kit_index_template_path",
+                return_value=template_path,
             ):
                 rows = backup._build_review_rows(
                     passphrase=None,
@@ -249,7 +292,7 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
                     debug=False,
                 )
         self.assertIn(("Sharding", "disabled"), rows)
-        self.assertIn(("Signing key handling", "not applicable"), rows)
+        self.assertIn(("Signing authority handling", "not applicable"), rows)
         self.assertIn(("Recovery kit index template", str(template_path)), rows)
 
         sharded_plan = DocumentPlan(
@@ -273,11 +316,15 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
             debug=True,
         )
         self.assertIn(("Sharding", "2 of 3"), rows)
-        self.assertIn(("Signing key handling", "separate signing-key shard documents"), rows)
-        self.assertIn(("Signing-key shards", "same as passphrase"), rows)
+        self.assertIn(
+            ("Signing authority handling", "separate signing authority shard documents"),
+            rows,
+        )
+        self.assertIn(("Signing authority shards", "same as passphrase"), rows)
         self.assertIn(("Shard template", str(config.shard_template_path)), rows)
         self.assertIn(
-            ("Signing-key shard template", str(config.signing_key_shard_template_path)), rows
+            ("Signing authority shard template", str(config.signing_key_shard_template_path)),
+            rows,
         )
 
         sealed_sharded_plan = DocumentPlan(
@@ -300,8 +347,8 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
             config=config,
             debug=False,
         )
-        self.assertIn(("Signing key handling", "not stored (sealed backup)"), rows)
-        self.assertIn(("Signing-key shards", "1 of 2"), rows)
+        self.assertIn(("Signing authority handling", "not stored (sealed backup)"), rows)
+        self.assertIn(("Signing authority shards", "1 of 2"), rows)
 
     def test_build_review_rows_shows_gzip_compression_ratio_when_used(self) -> None:
         input_files = [
@@ -466,31 +513,79 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
     def test_resolve_kit_index_template_path_and_compatibility(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            design_dir = root / "user" / "forge"
-            design_dir.mkdir(parents=True, exist_ok=True)
-            kit_template = design_dir / "kit_document.html.j2"
+            compatible_design_dir = root / "user-supported" / "forge"
+            compatible_design_dir.mkdir(parents=True, exist_ok=True)
+            _write_template_style(
+                compatible_design_dir,
+                recovery_kit_index_document=True,
+            )
+            kit_template = compatible_design_dir / "kit_document.html.j2"
             kit_template.write_text("kit", encoding="utf-8")
-            compatible = design_dir / "kit_index_document.html.j2"
-            compatible.write_text("kit_index_inventory_artifacts_v3", encoding="utf-8")
+            compatible = compatible_design_dir / "kit_index_document.html.j2"
+            compatible.write_text("{{ doc.title }}", encoding="utf-8")
 
             config = replace(
                 load_app_config(path=DEFAULT_CONFIG_PATH), kit_template_path=kit_template
             )
-            with mock.patch.object(backup, "TEMPLATES_RESOURCE_ROOT", root / "pkg-templates"):
-                self.assertEqual(backup._resolve_kit_index_template_path(config), compatible)
+            with mock.patch.object(
+                recovery_kit_index,
+                "TEMPLATES_RESOURCE_ROOT",
+                root / "pkg-templates",
+            ):
+                self.assertEqual(
+                    recovery_kit_index.resolve_recovery_kit_index_template_path(config),
+                    compatible,
+                )
 
-            compatible.write_text("incompatible", encoding="utf-8")
+            stale_design_dir = root / "user-stale" / "forge"
+            stale_design_dir.mkdir(parents=True, exist_ok=True)
+            _write_template_style(stale_design_dir, recovery_kit_index_document=False)
+            stale_kit_template = stale_design_dir / "kit_document.html.j2"
+            stale_kit_template.write_text("kit", encoding="utf-8")
+            stale_candidate = stale_design_dir / "kit_index_document.html.j2"
+            stale_candidate.write_text("{{ doc.title }}", encoding="utf-8")
+            stale_config = replace(
+                load_app_config(path=DEFAULT_CONFIG_PATH),
+                kit_template_path=stale_kit_template,
+            )
             package_candidate = root / "pkg-templates" / "forge" / "kit_index_document.html.j2"
             package_candidate.parent.mkdir(parents=True, exist_ok=True)
-            package_candidate.write_text("kit_index_inventory_artifacts_v3", encoding="utf-8")
-            with mock.patch.object(backup, "TEMPLATES_RESOURCE_ROOT", root / "pkg-templates"):
-                self.assertEqual(backup._resolve_kit_index_template_path(config), package_candidate)
+            _write_template_style(
+                package_candidate.parent,
+                recovery_kit_index_document=True,
+            )
+            package_candidate.write_text("{{ doc.title }}", encoding="utf-8")
+            with mock.patch.object(
+                recovery_kit_index,
+                "TEMPLATES_RESOURCE_ROOT",
+                root / "pkg-templates",
+            ):
+                self.assertEqual(
+                    recovery_kit_index.resolve_recovery_kit_index_template_path(stale_config),
+                    package_candidate,
+                )
 
-            package_candidate.write_text("incompatible", encoding="utf-8")
-            with mock.patch.object(backup, "TEMPLATES_RESOURCE_ROOT", root / "pkg-templates"):
-                self.assertIsNone(backup._resolve_kit_index_template_path(config))
+            unsupported_package = (
+                root / "pkg-templates-unsupported" / "forge" / "kit_index_document.html.j2"
+            )
+            unsupported_package.parent.mkdir(parents=True, exist_ok=True)
+            _write_template_style(
+                unsupported_package.parent,
+                recovery_kit_index_document=False,
+            )
+            unsupported_package.write_text("{{ doc.title }}", encoding="utf-8")
+            with mock.patch.object(
+                recovery_kit_index,
+                "TEMPLATES_RESOURCE_ROOT",
+                root / "pkg-templates-unsupported",
+            ):
+                self.assertIsNone(
+                    recovery_kit_index.resolve_recovery_kit_index_template_path(stale_config)
+                )
 
-            self.assertFalse(backup._is_compatible_kit_index_template(root / "missing.html.j2"))
+            self.assertFalse(
+                recovery_kit_index.supports_recovery_kit_index_template(root / "missing.html.j2")
+            )
 
     def test_print_completion_actions_paths(self) -> None:
         result = BackupResult(
@@ -508,7 +603,7 @@ class TestBackupFlowWizardLogic(unittest.TestCase):
         actions = completion_panel.call_args.args[1]
         self.assertIn("Store the recovery kit index separately.", actions)
         self.assertIn("Store 2 shard documents in different locations.", actions)
-        self.assertIn("Store 1 signing-key shard documents separately.", actions)
+        self.assertIn("Store 1 signing authority shard documents separately.", actions)
 
         with mock.patch.object(backup, "print_completion_panel") as completion_panel:
             backup._print_completion_actions(result, quiet=True)

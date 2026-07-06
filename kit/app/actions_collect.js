@@ -16,6 +16,8 @@
  */
 
 import {
+  cancelDecryptRequest,
+  clearRecoveryResult,
   copyAuthAndCipherFields,
   copyShardAsyncFields,
   dispatchPatch,
@@ -35,6 +37,14 @@ import { verifyCollectedShardSignatures } from "./shard_auth.js";
 import { autoRecoverShardSecret } from "./shards.js";
 import { cloneState, setStatus } from "./state/initial.js";
 
+const RECOVERY_INPUT_FIELDS = new Set([
+  "payloadText",
+  "shardPayloadText",
+  "agePassphrase",
+  "extensionTargetText",
+  "expectedHeadDocHashText",
+]);
+
 function parsedMainAccepted(base, before, added) {
   return (
     added > 0 &&
@@ -51,9 +61,7 @@ async function runMainAsyncFollowups(dispatch, base) {
   const targetRevision = base.revision + 1;
   await updateAuthStatus(work);
   syncCollectedCiphertext(work);
-  if (!work.recoveredShardSecret) {
-    autoRecoverShardSecret(work);
-  }
+  await verifyAndRecoverShardSecret(work);
   dispatch({
     type: "MUTATE_STATE",
     baseRevision: targetRevision,
@@ -194,9 +202,40 @@ function shardTextStatus(parsed, added, failed) {
   };
 }
 
-async function runShardAsyncFollowups(dispatch, parsed, baseStatusLines, baseStatusType = "") {
+async function runShardAsyncFollowups(
+  dispatch,
+  getState,
+  parsed,
+  baseStatusLines,
+  baseStatusType = "",
+) {
   const work = cloneState(parsed);
-  const targetRevision = parsed.revision + 1;
+  await updateAuthStatus(work);
+  syncCollectedCiphertext(work);
+  await verifyAndRecoverShardSecret(work, baseStatusLines, baseStatusType);
+  const latest = cloneState(getState());
+  if (!shardAsyncTargetStillCurrent(latest, parsed)) {
+    return;
+  }
+  dispatch({
+    type: "MUTATE_STATE",
+    baseRevision: latest.revision,
+    mutate(next) {
+      copyAuthAndCipherFields(next, work);
+      copyShardAsyncFields(next, work);
+    },
+  });
+}
+
+function shardAsyncTargetStillCurrent(latest, parsed) {
+  return (
+    latest.isAddingShards &&
+    latest.shardPayloadText === parsed.shardPayloadText &&
+    latest.agePassphrase === parsed.agePassphrase
+  );
+}
+
+async function verifyAndRecoverShardSecret(work, baseStatusLines = [], baseStatusType = "") {
   const signatureLines = [];
   let signatureType = "";
   try {
@@ -226,20 +265,28 @@ async function runShardAsyncFollowups(dispatch, parsed, baseStatusLines, baseSta
     (work.shardStatus.lines.length !== previousShardStatus.lines.length ||
       work.shardStatus.lines.some((line, index) => line !== previousShardStatus.lines[index]) ||
       work.shardStatus.type !== previousShardStatus.type);
-  if (!recovered && !shardStatusOverridden) {
+  if (!recovered && !shardStatusOverridden && combinedLines.length) {
     setStatus(work, "shardStatus", combinedLines, signatureType || baseStatusType);
   }
-  dispatch({
-    type: "MUTATE_STATE",
-    baseRevision: targetRevision,
-    mutate(next) {
-      copyShardAsyncFields(next, work);
-    },
-  });
+  return recovered;
 }
 
 export function updateField(dispatch, getState, key, value) {
-  dispatchPatch(dispatch, getState, { [key]: value });
+  const current = getState();
+  const patch = { [key]: value };
+  if (RECOVERY_INPUT_FIELDS.has(key) && current[key] !== value) {
+    patch.extractedFiles = [];
+    patch.decryptedEnvelope = null;
+    patch.decryptedEnvelopeSource = "";
+    patch.recoveryComplete = false;
+    patch.extractStatus = { lines: [], type: "" };
+    patch.decryptStatus = { lines: [], type: "" };
+  }
+  if (current.isDecrypting && RECOVERY_INPUT_FIELDS.has(key)) {
+    patch.isDecrypting = false;
+    patch.decryptRequestId = current.decryptRequestId + 1;
+  }
+  dispatchPatch(dispatch, getState, patch);
 }
 
 export function resetAll(dispatch) {
@@ -257,6 +304,10 @@ export async function addPayloads(dispatch, getState) {
     authConflicts: base.authConflicts,
   };
   const { added, failed } = parseTextWithErrors(base, base.payloadText, parseAutoPayload, "errors");
+  if (added > 0 || failed) {
+    cancelDecryptRequest(base);
+    clearRecoveryResult(base);
+  }
   const fullyAccepted = parsedMainAccepted(base, before, added);
   if (fullyAccepted) {
     base.payloadText = "";
@@ -285,6 +336,17 @@ export async function addScannedPayload(dispatch, getState, scanned) {
     authConflicts: base.authConflicts,
   };
   const added = parseScannedPayload(base, scanned);
+  if (
+    added > 0 ||
+    base.errors > before.errors ||
+    base.conflicts > before.conflicts ||
+    base.ignored > before.ignored ||
+    base.authErrors > before.authErrors ||
+    base.authConflicts > before.authConflicts
+  ) {
+    cancelDecryptRequest(base);
+    clearRecoveryResult(base);
+  }
   const fullyAccepted = parsedMainAccepted(base, before, added);
   if (fullyAccepted) {
     base.payloadText = "";
@@ -315,6 +377,10 @@ export async function addShardPayloads(dispatch, getState) {
     parseAutoShard,
     "shardErrors",
   );
+  if (added > 0 || failed) {
+    cancelDecryptRequest(parsed);
+    clearRecoveryResult(parsed);
+  }
   const fullyAccepted = parsedShardAccepted(parsed, before, added);
   if (fullyAccepted) {
     parsed.shardPayloadText = "";
@@ -325,7 +391,7 @@ export async function addShardPayloads(dispatch, getState) {
   setStatus(parsed, "shardStatus", baseStatusLines, shardStatus.type);
   dispatchState(dispatch, parsed);
   try {
-    await runShardAsyncFollowups(dispatch, parsed, baseStatusLines, shardStatus.type);
+    await runShardAsyncFollowups(dispatch, getState, parsed, baseStatusLines, shardStatus.type);
   } finally {
     const latest = cloneState(getState());
     latest.isAddingShards = false;
@@ -341,6 +407,14 @@ export async function addScannedShardPayload(dispatch, getState, scanned) {
     shardConflicts: parsed.shardConflicts,
   };
   const added = parseScannedShard(parsed, scanned);
+  if (
+    added > 0 ||
+    parsed.shardErrors > before.shardErrors ||
+    parsed.shardConflicts > before.shardConflicts
+  ) {
+    cancelDecryptRequest(parsed);
+    clearRecoveryResult(parsed);
+  }
   const fullyAccepted = parsedShardAccepted(parsed, before, added);
   if (fullyAccepted) {
     parsed.shardPayloadText = "";
@@ -351,7 +425,7 @@ export async function addScannedShardPayload(dispatch, getState, scanned) {
   setStatus(parsed, "shardStatus", baseStatusLines, shardStatus.type);
   dispatchState(dispatch, parsed);
   try {
-    await runShardAsyncFollowups(dispatch, parsed, baseStatusLines, shardStatus.type);
+    await runShardAsyncFollowups(dispatch, getState, parsed, baseStatusLines, shardStatus.type);
   } finally {
     const latest = cloneState(getState());
     latest.isAddingShards = false;

@@ -20,7 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from ethernity.config import BackupDefaults, RecoverDefaults
+from ethernity.config import BackupDefaults, ExtendDefaults, RecoverDefaults
+from ethernity.encoding.framing import Frame
 
 
 @dataclass(frozen=True)
@@ -40,6 +41,10 @@ class BackupResult:
     signing_key_shard_paths: tuple[str, ...]
     passphrase_used: str | None
     kit_index_path: str | None = None
+    source_head_index: int | None = None
+    source_head_doc_hash: str | None = None
+    expected_head_doc_hash: str | None = None
+    freshness_scope: str | None = None
 
 
 @dataclass
@@ -85,8 +90,13 @@ class RecoverArgs:
     shard_fallback_file: list[str] | None = None
     shard_payloads_file: list[str] | None = None
     shard_scan: list[str] | None = None
+    shard_frames: list[Frame] | None = None
     auth_fallback_file: str | None = None
     auth_payloads_file: str | None = None
+    auth_frames: list[Frame] | None = None
+    extension_index: int | None = None
+    extension_doc_hash: str | None = None
+    expected_head_doc_hash: str | None = None
     output: str | None = None
     allow_unsigned: bool = False
     assume_yes: bool = False
@@ -104,16 +114,25 @@ class MintArgs:
     design: str | None = None
     fallback_file: str | None = None
     payloads_file: str | None = None
+    frames: list[Frame] | None = None
+    input_label: str | None = None
+    input_detail: str | None = None
     scan: list[str] | None = None
     passphrase: str | None = None
     shard_fallback_file: list[str] | None = None
     shard_payloads_file: list[str] | None = None
     shard_scan: list[str] | None = None
+    shard_frames: list[Frame] | None = None
     auth_fallback_file: str | None = None
     auth_payloads_file: str | None = None
+    extension_index: int | None = None
+    extension_doc_hash: str | None = None
+    expected_head_doc_hash: str | None = None
+    allow_stale_head: bool = False
     signing_key_shard_fallback_file: list[str] | None = None
     signing_key_shard_payloads_file: list[str] | None = None
     signing_key_shard_scan: list[str] | None = None
+    signing_key_shard_frames: list[Frame] | None = None
     output_dir: str | None = None
     output_dir_existing_parent: bool = False
     layout_debug_dir: str | None = None
@@ -131,11 +150,69 @@ class MintArgs:
 @dataclass(frozen=True)
 class MintResult:
     doc_id: bytes
+    doc_hash: bytes
     output_dir: str
     shard_paths: tuple[str, ...]
     signing_key_shard_paths: tuple[str, ...]
     signing_key_source: str
     notes: tuple[str, ...] = ()
+    selected_extension_index: int | None = None
+    selected_extension_doc_hash: str | None = None
+
+
+@dataclass
+class ExtendArgs:
+    """Typed container for extend/inspect-extend command arguments."""
+
+    config: str | None = None
+    paper: str | None = None
+    design: str | None = None
+    root_dir: str | None = None
+    scan: list[str] | None = None
+    input: list[str] | None = None
+    input_dir: list[str] | None = None
+    base_dir: str | None = None
+    layout_debug_dir: str | None = None
+    qr_chunk_size: int | None = None
+    passphrase: str | None = None
+    shard_fallback_file: list[str] | None = None
+    shard_payloads_file: list[str] | None = None
+    shard_scan: list[str] | None = None
+    shard_frames: list[Frame] | None = None
+    unlock_policy: Literal["self-contained", "reuse-root"] | None = None
+    shard_threshold: int | None = None
+    shard_count: int | None = None
+    signing_key_mode: Literal["not-stored", "sharded"] | None = None
+    signing_key_shard_threshold: int | None = None
+    signing_key_shard_count: int | None = None
+    expected_head_doc_hash: str | None = None
+    allow_stale_head: bool = False
+    quiet: bool = False
+
+
+@dataclass
+class CompactArgs:
+    """Typed container for compact command arguments."""
+
+    config: str | None = None
+    paper: str | None = None
+    design: str | None = None
+    root_dir: str | None = None
+    scan: list[str] | None = None
+    output_dir: str | None = None
+    shard_fallback_file: list[str] | None = None
+    shard_payloads_file: list[str] | None = None
+    shard_scan: list[str] | None = None
+    shard_frames: list[Frame] | None = None
+    auth_fallback_file: str | None = None
+    auth_payloads_file: str | None = None
+    auth_frames: list[Frame] | None = None
+    layout_debug_dir: str | None = None
+    qr_chunk_size: int | None = None
+    passphrase: str | None = None
+    expected_head_doc_hash: str | None = None
+    allow_stale_head: bool = False
+    quiet: bool = False
 
 
 @dataclass
@@ -169,3 +246,4 @@ class CliContextState:
     no_animations: bool = False
     backup_defaults: BackupDefaults = field(default_factory=BackupDefaults)
     recover_defaults: RecoverDefaults = field(default_factory=RecoverDefaults)
+    extend_defaults: ExtendDefaults = field(default_factory=ExtendDefaults)
