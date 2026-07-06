@@ -512,7 +512,7 @@ class TestRecoveryWizardHelpers(unittest.TestCase):
         frames = wizard._load_shard_frames(["shards.txt"], [], [], extra_frames=[], quiet=False)
 
         self.assertEqual(frames, [shard])
-        frame_from_fallback.assert_called_once_with("shards.txt", quiet=False)
+        frame_from_fallback.assert_called_once_with("shards.txt")
 
     @mock.patch(
         "ethernity.cli.features.recover.wizard._frame_from_fallback",

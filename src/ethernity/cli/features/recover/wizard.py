@@ -521,7 +521,7 @@ def _load_shard_frames(
         with status(f"Reading {total_files} shard file(s)...", quiet=quiet):
             for path in shard_fallback_files:
                 try:
-                    shard_frames.append(_frame_from_fallback(path, quiet=quiet))
+                    shard_frames.append(_frame_from_fallback(path))
                 except ValueError as exc:
                     raise ValueError(
                         format_fallback_error(exc, context="Shard recovery text")

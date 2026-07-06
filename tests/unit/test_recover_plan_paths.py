@@ -194,7 +194,7 @@ class TestRecoverPlanPathNormalization(unittest.TestCase):
         self.assertEqual(shard_fallback, [str(home / "s1.txt")])
         self.assertEqual(shard_payloads, [str(home / "s2.txt")])
         self.assertEqual(shard_scan, [str(home / "s3.pdf")])
-        shard_fallback_mock.assert_called_once_with(str(home / "s1.txt"), quiet=True)
+        shard_fallback_mock.assert_called_once_with(str(home / "s1.txt"))
         shard_payload_mock.assert_called_once_with(
             str(home / "s2.txt"),
             label="shard text lines",

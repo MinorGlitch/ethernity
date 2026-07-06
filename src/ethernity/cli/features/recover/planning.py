@@ -1363,7 +1363,7 @@ def _shard_frames_from_args(
     shard_frames: list[Frame] = list(args.shard_frames or [])
     for path in shard_fallback_files:
         try:
-            shard_frames.append(_frame_from_fallback(path, quiet=quiet))
+            shard_frames.append(_frame_from_fallback(path))
         except ValueError as exc:
             raise ValueError(format_fallback_error(exc, context="Shard recovery text")) from exc
     for path in shard_payloads_file:

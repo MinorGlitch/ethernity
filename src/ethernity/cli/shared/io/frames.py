@@ -214,7 +214,7 @@ def _read_stdin_text_with_limit() -> str:
     return "".join(chunks_text)
 
 
-def _frame_from_fallback(path: str, *, quiet: bool = False) -> Frame:
+def _frame_from_fallback(path: str) -> Frame:
     """Decode a single fallback file into one frame."""
 
     lines = _read_text_lines(path)
@@ -228,8 +228,8 @@ def _frame_from_fallback(path: str, *, quiet: bool = False) -> Frame:
         if len(populated_sections) != 1:
             raise ValueError("expected exactly one marked fallback section in shard recovery text")
         section_name, section_lines = populated_sections[0]
-        return _frame_from_fallback_lines(section_lines, label=section_name, quiet=quiet)
-    return _frame_from_fallback_lines(lines, label="fallback", quiet=quiet)
+        return _frame_from_fallback_lines(section_lines, label=section_name)
+    return _frame_from_fallback_lines(lines, label="fallback")
 
 
 def _parse_fallback_section(
@@ -242,7 +242,7 @@ def _parse_fallback_section(
 ) -> Frame | None:
     """Parse a specific section from fallback lines, returning None if invalid and allowed."""
     if not _contains_fallback_markers(lines):
-        return _frame_from_fallback_lines(lines, label=section_key, quiet=quiet)
+        return _frame_from_fallback_lines(lines, label=section_key)
 
     sections = _split_fallback_sections(lines)
     section_lines = sections.get(section_key)
@@ -251,7 +251,7 @@ def _parse_fallback_section(
         raise ValueError(missing_error)
 
     try:
-        return _frame_from_fallback_lines(section_lines, label=section_key, quiet=quiet)
+        return _frame_from_fallback_lines(section_lines, label=section_key)
     except ValueError as exc:
         if allow_invalid:
             _warn(
@@ -273,16 +273,16 @@ def _frames_from_fallback_lines(
     """Decode fallback lines into MAIN and optional AUTH frames."""
 
     if not _contains_fallback_markers(lines):
-        return [_frame_from_fallback_lines(lines, label="fallback", quiet=quiet)]
+        return [_frame_from_fallback_lines(lines, label="fallback")]
 
     sections = _split_fallback_sections(lines)
     if not sections["main"]:
         raise ValueError("missing MAIN fallback section; include the MAIN section from recovery")
 
-    frames: list[Frame] = [_frame_from_fallback_lines(sections["main"], label="main", quiet=quiet)]
+    frames: list[Frame] = [_frame_from_fallback_lines(sections["main"], label="main")]
     if sections["auth"]:
         try:
-            frames.append(_frame_from_fallback_lines(sections["auth"], label="auth", quiet=quiet))
+            frames.append(_frame_from_fallback_lines(sections["auth"], label="auth"))
         except ValueError as exc:
             if allow_invalid_auth:
                 _warn(
@@ -382,7 +382,7 @@ def _auth_frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bo
     )
 
 
-def _frame_from_fallback_lines(lines: list[str], *, label: str, quiet: bool = False) -> Frame:
+def _frame_from_fallback_lines(lines: list[str], *, label: str) -> Frame:
     """Decode one fallback frame from lines."""
 
     return _parse_fallback_frame(lines, label=label)
@@ -430,14 +430,12 @@ def _auth_frames_from_payloads(path: str) -> list[Frame]:
 def _frames_from_shard_inputs(
     fallback_files: list[str],
     frame_files: list[str],
-    *,
-    quiet: bool = False,
 ) -> list[Frame]:
     """Load shard frames from fallback files and payload files."""
 
     frames: list[Frame] = []
     for path in fallback_files:
-        frames.append(_frame_from_fallback(path, quiet=quiet))
+        frames.append(_frame_from_fallback(path))
     for path in frame_files:
         frames.extend(_frames_from_payloads(path, label="shard QR payloads"))
     return frames

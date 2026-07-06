@@ -379,7 +379,6 @@ def _iter_scan_files(
             for name in dirnames
             if _keep_scan_dir(
                 root_path / name,
-                scan_root=directory,
                 include_extension_carriers=include_extension_carriers,
                 extension_carrier_max_index=extension_carrier_max_index,
             )
@@ -406,7 +405,6 @@ def _iter_scan_files(
 def _keep_scan_dir(
     path: Path,
     *,
-    scan_root: Path,
     include_extension_carriers: bool,
     extension_carrier_max_index: int | None,
 ) -> bool:

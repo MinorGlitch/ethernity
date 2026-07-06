@@ -303,12 +303,12 @@ def _select_with_initial_choice(
     def _cancel(event):
         event.app.exit(exception=KeyboardInterrupt, style="class:aborting")
 
-    def move_cursor_down(event):
+    def move_cursor_down(_event):
         ic.select_next()
         while not ic.is_selection_valid():
             ic.select_next()
 
-    def move_cursor_up(event):
+    def move_cursor_up(_event):
         ic.select_previous()
         while not ic.is_selection_valid():
             ic.select_previous()

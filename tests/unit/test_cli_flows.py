@@ -21,6 +21,9 @@ from ethernity.cli.features.backup.execution import (
     _create_auth_frame,
     _prepare_envelope,
 )
+from ethernity.cli.features.recover.execution import decrypt_and_extract
+from ethernity.cli.features.recover.planning import RecoveryPlan
+from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
 from ethernity.core.models import DocumentPlan
 from ethernity.crypto import decrypt_bytes, encrypt_bytes_with_passphrase
@@ -30,7 +33,12 @@ from ethernity.crypto.signing import (
     verify_auth,
 )
 from ethernity.encoding.framing import DOC_ID_LEN, FrameType
-from ethernity.formats.envelope_codec import decode_envelope, extract_payloads
+from ethernity.formats.envelope_codec import (
+    build_manifest_and_payload,
+    decode_envelope,
+    encode_envelope,
+    extract_payloads,
+)
 from ethernity.formats.envelope_types import PAYLOAD_CODEC_GZIP, PAYLOAD_CODEC_RAW, PayloadPart
 
 
@@ -191,15 +199,6 @@ class TestRecoverFlow(unittest.TestCase):
 
     def test_decrypt_and_extract_integration(self) -> None:
         """Test decrypt_and_extract with real encryption using full RecoveryPlan."""
-        from ethernity.cli.features.recover.execution import decrypt_and_extract
-        from ethernity.cli.features.recover.planning import RecoveryPlan
-        from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
-        from ethernity.crypto import encrypt_bytes_with_passphrase
-        from ethernity.formats.envelope_codec import (
-            build_manifest_and_payload,
-            encode_envelope,
-        )
-
         # Create test data
         payload = b"test recovery content"
         parts = [PayloadPart(path="recovered.txt", data=payload, mtime=None)]

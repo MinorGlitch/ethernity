@@ -133,7 +133,7 @@ class TestFramesIo(unittest.TestCase):
             ) as parse_mock:
                 parsed = _frame_from_fallback("fallback.txt")
         self.assertEqual(parsed, frame)
-        parse_mock.assert_called_once_with(["line"], label="fallback", quiet=False)
+        parse_mock.assert_called_once_with(["line"], label="fallback")
 
     def test_frame_from_fallback_strips_single_marked_shard_section(self) -> None:
         frame = self._frame(frame_type=FrameType.KEY_DOCUMENT)
@@ -147,7 +147,7 @@ class TestFramesIo(unittest.TestCase):
             ) as parse_mock:
                 parsed = _frame_from_fallback("fallback.txt")
         self.assertEqual(parsed, frame)
-        parse_mock.assert_called_once_with(["line"], label="key", quiet=False)
+        parse_mock.assert_called_once_with(["line"], label="key")
 
     def test_frame_from_fallback_rejects_multiple_marked_sections(self) -> None:
         with mock.patch(
@@ -174,7 +174,7 @@ class TestFramesIo(unittest.TestCase):
                     missing_error="missing",
                 )
         self.assertEqual(parsed, frame)
-        parse_mock.assert_called_once_with(["line"], label="auth", quiet=True)
+        parse_mock.assert_called_once_with(["line"], label="auth")
 
     def test_parse_fallback_section_requires_requested_marker_section(self) -> None:
         with mock.patch(
@@ -372,7 +372,7 @@ class TestFramesIo(unittest.TestCase):
                     ["payloads.txt"],
                 )
         self.assertEqual(frames, [fallback_frame, payload_frame])
-        fallback_mock.assert_called_once_with("fallback.txt", quiet=False)
+        fallback_mock.assert_called_once_with("fallback.txt")
         payload_mock.assert_called_once_with("payloads.txt", label="shard QR payloads")
 
     def test_frames_from_scan_reports_scan_failures(self) -> None:

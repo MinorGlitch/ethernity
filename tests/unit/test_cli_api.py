@@ -3876,7 +3876,7 @@ class TestCliApi(unittest.TestCase):
         output_path = "/tmp/recovered.bin"
         captured: dict[str, object] = {}
 
-        def _capture_execute(plan, **kwargs):
+        def _capture_execute(_plan, **kwargs):
             captured["debug_max_bytes"] = kwargs["debug_max_bytes"]
             captured["debug_reveal_secrets"] = kwargs["debug_reveal_secrets"]
             captured["quiet"] = kwargs["quiet"]

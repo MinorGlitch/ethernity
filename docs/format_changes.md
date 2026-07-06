@@ -176,8 +176,9 @@ Use this template for each change entry:
 - Implementation refs:
   - `src/ethernity/crypto/signing.py`
   - `src/ethernity/crypto/sharding.py`
-  - `src/ethernity/cli/keys/recover_keys.py`
-  - `src/ethernity/cli/flows/prompts.py`
+  - `src/ethernity/cli/features/recover/key_recovery.py`
+  - `src/ethernity/cli/shared/recovery_prompts.py`
+  - `src/ethernity/cli/features/mint/workflow.py`
 - Test refs:
   - `tests/unit/test_signing.py`
   - `tests/unit/test_sharding.py`

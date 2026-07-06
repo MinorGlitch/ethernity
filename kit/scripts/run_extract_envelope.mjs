@@ -17,7 +17,7 @@ async function main() {
   const envelopePath = path.resolve(input);
   const envelopeBytes = new Uint8Array(fs.readFileSync(envelopePath));
   const result = await extractFiles(envelopeBytes);
-  const files = result.files.map(file => ({
+  const files = result.files.map((file) => ({
     path: file.path,
     data_base64: Buffer.from(file.data).toString("base64"),
   }));

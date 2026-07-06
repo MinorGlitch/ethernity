@@ -451,7 +451,6 @@ def _resolve_extend_state_after_root_inspection(
                                 discovered_extension_dirs,
                                 input_kind,
                             ) = _reconstruct_extension_state(
-                                root_dir=root_dir,
                                 manifest=manifest,
                                 payload=payload,
                                 root_doc_hash=root_inspection.doc_hash,
@@ -1056,7 +1055,7 @@ def _shard_frames_from_extend_args(
     shard_frames: list[Frame] = list(args.shard_frames or [])
     for path in shard_fallback_files:
         try:
-            shard_frames.append(_frame_from_fallback(path, quiet=quiet))
+            shard_frames.append(_frame_from_fallback(path))
         except ValueError as exc:
             raise ValueError(format_fallback_error(exc, context="Shard recovery text")) from exc
     for path in shard_payloads_file:
@@ -1213,7 +1212,6 @@ def _sorted_chunk_items(chunk_map: dict[bytes, bytes]) -> tuple[tuple[bytes, byt
 
 def _reconstruct_extension_state(
     *,
-    root_dir: Path,
     manifest: EnvelopeManifest,
     payload: bytes,
     root_doc_hash: bytes,
