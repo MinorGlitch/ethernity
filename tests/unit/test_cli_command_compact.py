@@ -123,8 +123,10 @@ class TestCompactCommand(unittest.TestCase):
     @mock.patch("ethernity.cli.features.compact.command._print_completion_actions")
     @mock.patch("ethernity.cli.features.compact.command._print_compact_summary")
     @mock.patch("ethernity.cli.features.compact.command.run_compact")
+    @mock.patch("ethernity.cli.features.compact.command.ensure_playwright_browsers")
     def test_run_compact_command_prints_summary(
         self,
+        ensure_playwright_browsers: mock.MagicMock,
         run_compact: mock.MagicMock,
         print_compact_summary: mock.MagicMock,
         print_completion_actions: mock.MagicMock,
@@ -145,6 +147,7 @@ class TestCompactCommand(unittest.TestCase):
         )
 
         self.assertEqual(exit_code, 0)
+        ensure_playwright_browsers.assert_called_once_with(quiet=False)
         print_compact_summary.assert_called_once_with(result, source="/tmp/root", quiet=False)
         print_completion_actions.assert_called_once_with(result, output_dir="/tmp/out", quiet=False)
 

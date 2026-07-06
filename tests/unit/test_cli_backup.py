@@ -1122,15 +1122,19 @@ class TestCliBackupUx(unittest.TestCase):
 
         with mock.patch("ethernity.cli.bootstrap.app.run_startup", return_value=False):
             with mock.patch(
-                "ethernity.cli.features.backup.command.run_backup_command",
-                side_effect=_capture_args,
-            ):
-                result = self.runner.invoke(
-                    cli.app,
-                    ["backup", "--input", "-"],
-                    input="payload",
-                )
+                "ethernity.cli.features.backup.command.ensure_playwright_browsers"
+            ) as ensure:
+                with mock.patch(
+                    "ethernity.cli.features.backup.command.run_backup_command",
+                    side_effect=_capture_args,
+                ):
+                    result = self.runner.invoke(
+                        cli.app,
+                        ["backup", "--input", "-"],
+                        input="payload",
+                    )
         self.assertEqual(result.exit_code, 0, result.output)
+        ensure.assert_called_once_with(quiet=False)
         self.assertEqual(captured.get("input"), ["-"])
 
     def test_backup_qr_chunk_size_flag_reaches_command(self) -> None:

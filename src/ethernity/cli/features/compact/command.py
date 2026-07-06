@@ -21,6 +21,7 @@ from typing import Annotated
 
 import typer
 
+from ethernity.cli.bootstrap.startup import ensure_playwright_browsers
 from ethernity.cli.features.compact.service import run_compact, validate_compact_source_selection
 from ethernity.cli.features.compact.workspace import prompt_rebuild_workspace_args
 from ethernity.cli.shared.common import (
@@ -118,6 +119,7 @@ def _print_completion_actions(
 
 def run_compact_command(args: CompactArgs, *, debug: bool = False) -> int:
     _ = debug
+    ensure_playwright_browsers(quiet=args.quiet)
     result = run_compact(args)
     output_dir = display_parent_path(result.qr_path)
     source = ", ".join(args.scan or []) if args.scan else args.root_dir or ""

@@ -90,6 +90,18 @@ class TestCliTyper(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         run_startup.assert_not_called()
 
+    def test_config_print_path_does_not_ensure_playwright(self) -> None:
+        with mock.patch(
+            "ethernity.cli.bootstrap.startup.user_config_needs_init", return_value=False
+        ):
+            with mock.patch(
+                "ethernity.cli.bootstrap.startup._ensure_playwright_browsers"
+            ) as ensure:
+                result = self.runner.invoke(app, ["config", "--print-path"])
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        ensure.assert_not_called()
+
     def test_backup_help_does_not_initialize_user_config(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             result = self.runner.invoke(

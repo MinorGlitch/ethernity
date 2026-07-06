@@ -23,6 +23,7 @@ from typing import Annotated, Literal
 
 import typer
 
+from ethernity.cli.bootstrap.startup import ensure_playwright_browsers
 from ethernity.cli.features.backup.orchestrator import run_backup_command
 from ethernity.cli.features.backup.workspace import run_create_backup_workspace
 from ethernity.cli.shared.common import (
@@ -423,7 +424,12 @@ def backup(
             debug=debug_value,
         )
         return
-    _run_cli(functools.partial(run_backup_command, args), debug=debug_value)
+
+    def _run_backup() -> int:
+        ensure_playwright_browsers(quiet=quiet_value)
+        return run_backup_command(args)
+
+    _run_cli(_run_backup, debug=debug_value)
 
 
 def _raise_backup_input_required() -> None:

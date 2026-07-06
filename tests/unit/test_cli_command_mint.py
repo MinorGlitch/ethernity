@@ -94,8 +94,10 @@ class TestMintCommand(unittest.TestCase):
     @mock.patch(
         "ethernity.cli.features.mint.command._resolve_config_and_paper", return_value=("cfg", "A4")
     )
+    @mock.patch("ethernity.cli.features.mint.command.ensure_playwright_browsers")
     def test_mint_merges_input_dirs_and_context(
         self,
+        ensure_playwright_browsers: mock.MagicMock,
         _resolve_config_and_paper: mock.MagicMock,
         expand_shard_dir: mock.MagicMock,
         _run_cli: mock.MagicMock,
@@ -137,6 +139,7 @@ class TestMintCommand(unittest.TestCase):
         self.assertTrue(args.output_dir_existing_parent)
         self.assertEqual(args.passphrase_replacement_count, 1)
         self.assertEqual(args.signing_key_replacement_count, 2)
+        ensure_playwright_browsers.assert_called_once_with(quiet=False)
         self.assertEqual(run_mint_command.call_args.kwargs["debug"], True)
 
     @mock.patch("ethernity.cli.features.mint.command.run_mint_command", return_value=0)

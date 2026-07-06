@@ -22,7 +22,7 @@ from unittest import mock
 import questionary
 from rich.console import Console
 
-from ethernity.cli.shared import ui as ui_module
+from ethernity.cli.shared import ui as ui_module, ui_api
 from ethernity.cli.shared.ui import renderables as ui_renderables, runtime as ui_runtime
 from ethernity.cli.shared.ui.state import (
     THEME,
@@ -33,6 +33,11 @@ from ethernity.cli.shared.ui.state import (
     isatty,
 )
 from ethernity.cli.shared.ui.summary import format_auth_status
+
+
+class TestUiFacade(unittest.TestCase):
+    def test_ui_api_exports_match_ui_facade(self) -> None:
+        self.assertEqual(set(ui_api.__all__), set(ui_module.__all__))
 
 
 class TestIsatty(unittest.TestCase):

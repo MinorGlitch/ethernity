@@ -22,6 +22,7 @@ from typing import Annotated, Literal
 
 import typer
 
+from ethernity.cli.bootstrap.startup import ensure_playwright_browsers
 from ethernity.cli.features.extend.models import (
     EXTENSION_TOO_LARGE,
     ExtensionPassphraseShards,
@@ -164,6 +165,7 @@ def _print_completion_actions(result: PublishedExtensionResult, *, quiet: bool) 
 
 def run_extend_command(args: ExtendArgs, *, debug: bool = False) -> int:
     _ = debug
+    ensure_playwright_browsers(quiet=args.quiet)
     result = run_extend(args)
     _print_extend_summary(result, quiet=args.quiet)
     _print_completion_actions(result, quiet=args.quiet)

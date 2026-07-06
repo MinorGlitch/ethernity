@@ -22,6 +22,7 @@ import sys
 from dataclasses import dataclass, field
 from typing import Literal
 
+from ethernity.cli.bootstrap.startup import ensure_playwright_browsers
 from ethernity.cli.features.mint.workflow import (
     MAX_SHARDS,
     MintInspectionState,
@@ -120,6 +121,7 @@ def run_reprint_shards_workspace(args: MintArgs, *, debug: bool = False) -> int:
     """Run the reprint-shards workspace or execute directly when non-interactive."""
 
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        ensure_playwright_browsers(quiet=args.quiet)
         return run_mint_command(args, debug=debug)
 
     state = _initial_state(args)
@@ -163,6 +165,7 @@ def run_reprint_shards_workspace(args: MintArgs, *, debug: bool = False) -> int:
 
                     final_args = _review_args(state, debug=debug)
                     if final_args is not None:
+                        ensure_playwright_browsers(quiet=state.quiet)
                         return run_mint_command(final_args, debug=debug)
 
 

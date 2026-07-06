@@ -53,7 +53,6 @@ def run_startup(
     configure_ui(no_color=no_color, no_animations=no_animations)
     if debug:
         _enable_rich_debug_traceback()
-    _ensure_playwright_browsers(quiet=quiet)
     if init_config:
         config_dir = init_user_config()
         console.print(f"User config ready at {config_dir}")

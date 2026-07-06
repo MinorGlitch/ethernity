@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from ethernity.cli.bootstrap.startup import ensure_playwright_browsers
 from ethernity.cli.features.backup.orchestrator import (
     _apply_qr_chunk_size_override,
     _build_review_rows,
@@ -455,6 +456,7 @@ def _review_and_run(
     ):
         console.print("Backup cancelled.")
         return 1
+    ensure_playwright_browsers(quiet=state.quiet)
     result = _run_backup_from_state(state, plan)
     print_backup_summary(result, plan, state.passphrase, quiet=state.quiet)
     _print_completion_actions(result, state.quiet)

@@ -80,17 +80,21 @@ class TestRenderCommand(unittest.TestCase):
             logo = Path(tmp) / "logo.png"
             logo.write_bytes(b"\x89PNG")
             ctx = self._ctx(debug=True, quiet=False)
-            render_module.render(
-                ctx,
-                target="envelope-c6",
-                orientation="portrait",
-                format="pdf",
-                output=Path("out.pdf"),
-                logo=logo,
-            )
+            with mock.patch(
+                "ethernity.cli.features.render.command.ensure_playwright_browsers"
+            ) as ensure:
+                render_module.render(
+                    ctx,
+                    target="envelope-c6",
+                    orientation="portrait",
+                    format="pdf",
+                    output=Path("out.pdf"),
+                    logo=logo,
+                )
 
         _run_cli.assert_called_once()
         self.assertTrue(_run_cli.call_args.kwargs["debug"])
+        ensure.assert_called_once_with(quiet=False)
         render_template.assert_called_once()
         template_context = render_template.call_args.args[1]
         self.assertEqual(template_context["logo_src"], "data:image/png;base64,AA==")
@@ -130,16 +134,20 @@ class TestRenderCommand(unittest.TestCase):
         print_mock: mock.MagicMock,
     ) -> None:
         ctx = self._ctx(debug=False, quiet=False)
-        render_module.render(
-            ctx,
-            target="envelope-c6",
-            orientation="portrait",
-            format="pdf",
-            output=Path("~/out.pdf"),
-            logo=None,
-        )
+        with mock.patch(
+            "ethernity.cli.features.render.command.ensure_playwright_browsers"
+        ) as ensure:
+            render_module.render(
+                ctx,
+                target="envelope-c6",
+                orientation="portrait",
+                format="pdf",
+                output=Path("~/out.pdf"),
+                logo=None,
+            )
 
         expanduser_cli_path.assert_called_once_with(Path("~/out.pdf"), preserve_stdin=False)
+        ensure.assert_called_once_with(quiet=False)
         render_html_to_pdf.assert_called_once_with("<html />", Path("/tmp/expanded.pdf"))
         render_envelope_docx.assert_not_called()
         print_mock.assert_called_once_with(str(Path("/tmp/expanded.pdf")))
@@ -170,15 +178,19 @@ class TestRenderCommand(unittest.TestCase):
         with mock.patch(
             "ethernity.cli.features.render.command.Path.cwd", return_value=Path("/tmp")
         ):
-            render_module.render(
-                ctx,
-                target="envelope-c5",
-                orientation="landscape",
-                format="docx",
-                output=None,
-                logo=None,
-            )
+            with mock.patch(
+                "ethernity.cli.features.render.command.ensure_playwright_browsers"
+            ) as ensure:
+                render_module.render(
+                    ctx,
+                    target="envelope-c5",
+                    orientation="landscape",
+                    format="docx",
+                    output=None,
+                    logo=None,
+                )
 
+        ensure.assert_not_called()
         render_html_to_pdf.assert_not_called()
         render_envelope_docx.assert_called_once_with(
             Path("/tmp/envelope-c5.docx"),

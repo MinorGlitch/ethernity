@@ -22,6 +22,7 @@ from typing import Annotated
 
 import typer
 
+from ethernity.cli.bootstrap.startup import ensure_playwright_browsers
 from ethernity.cli.features.mint.workflow import (
     _should_use_wizard_for_mint,
     run_mint_command,
@@ -444,4 +445,9 @@ def mint(
             debug=debug_value,
         )
         return
-    _run_cli(functools.partial(run_mint_command, args, debug=debug_value), debug=debug_value)
+
+    def _run_mint() -> int:
+        ensure_playwright_browsers(quiet=quiet_value)
+        return run_mint_command(args, debug=debug_value)
+
+    _run_cli(_run_mint, debug=debug_value)

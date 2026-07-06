@@ -193,8 +193,10 @@ class TestExtendCommand(unittest.TestCase):
     @mock.patch("ethernity.cli.features.extend.command._print_completion_actions")
     @mock.patch("ethernity.cli.features.extend.command._print_extend_summary")
     @mock.patch("ethernity.cli.features.extend.command.run_extend")
+    @mock.patch("ethernity.cli.features.extend.command.ensure_playwright_browsers")
     def test_run_extend_command_prints_summary(
         self,
+        ensure_playwright_browsers: mock.MagicMock,
         run_extend: mock.MagicMock,
         print_extend_summary: mock.MagicMock,
         print_completion_actions: mock.MagicMock,
@@ -217,6 +219,7 @@ class TestExtendCommand(unittest.TestCase):
         )
 
         self.assertEqual(exit_code, 0)
+        ensure_playwright_browsers.assert_called_once_with(quiet=False)
         print_extend_summary.assert_called_once_with(result, quiet=False)
         print_completion_actions.assert_called_once_with(result, quiet=False)
 

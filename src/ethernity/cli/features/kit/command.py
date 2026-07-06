@@ -22,6 +22,7 @@ from typing import Annotated
 
 import typer
 
+from ethernity.cli.bootstrap.startup import ensure_playwright_browsers
 from ethernity.cli.features.kit.workflow import DEFAULT_KIT_CHUNK_SIZE, render_kit_qr_document
 from ethernity.cli.features.kit.workspace import prompt_print_kit_workspace_args
 from ethernity.cli.shared.common import (
@@ -61,6 +62,7 @@ def _run_kit_render(
     qr_chunk_size: int | None,
     quiet_value: bool,
 ) -> None:
+    ensure_playwright_browsers(quiet=quiet_value)
     result = render_kit_qr_document(
         bundle_path=bundle,
         output_path=output,
@@ -138,7 +140,7 @@ def print_kit(
         )
         if args is None:
             return 1
-        return _run_kit_render(
+        _run_kit_render(
             bundle=args.bundle,
             output=args.output,
             config_value=args.config,
@@ -148,6 +150,7 @@ def print_kit(
             qr_chunk_size=args.qr_chunk_size,
             quiet_value=args.quiet,
         )
+        return None
 
     _run_cli(_run_guided_print_kit, debug=debug_value)
 

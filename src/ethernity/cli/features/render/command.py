@@ -23,6 +23,7 @@ from typing import Annotated, Literal
 
 import typer
 
+from ethernity.cli.bootstrap.startup import ensure_playwright_browsers
 from ethernity.cli.shared.common import _ctx_state, _run_cli
 from ethernity.cli.shared.paths import expanduser_cli_path
 from ethernity.cli.shared.ui_api import console
@@ -115,6 +116,7 @@ def render(
         page_width_mm, page_height_mm = envelope_page_size_mm(kind, orientation)
 
         if format == "pdf":
+            ensure_playwright_browsers(quiet=quiet_value)
             context: dict[str, object] = {}
             if logo is not None:
                 context["logo_src"] = _data_uri_for_path(logo)

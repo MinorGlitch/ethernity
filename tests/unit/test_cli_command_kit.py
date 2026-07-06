@@ -43,28 +43,30 @@ class TestKitCommand(unittest.TestCase):
             doc_id_hex="ab" * 16,
         )
 
-        kit_command._run_kit_render(
-            bundle=None,
-            output=None,
-            config_value=None,
-            paper_value=None,
-            design_value=None,
-            variant_value="lean",
-            qr_chunk_size=None,
-            quiet_value=True,
-        )
-        print_completion_panel.assert_not_called()
+        with mock.patch("ethernity.cli.features.kit.command.ensure_playwright_browsers") as ensure:
+            kit_command._run_kit_render(
+                bundle=None,
+                output=None,
+                config_value=None,
+                paper_value=None,
+                design_value=None,
+                variant_value="lean",
+                qr_chunk_size=None,
+                quiet_value=True,
+            )
+            print_completion_panel.assert_not_called()
 
-        kit_command._run_kit_render(
-            bundle=None,
-            output=None,
-            config_value=None,
-            paper_value=None,
-            design_value=None,
-            variant_value="lean",
-            qr_chunk_size=None,
-            quiet_value=False,
-        )
+            kit_command._run_kit_render(
+                bundle=None,
+                output=None,
+                config_value=None,
+                paper_value=None,
+                design_value=None,
+                variant_value="lean",
+                qr_chunk_size=None,
+                quiet_value=False,
+            )
+        self.assertEqual(ensure.call_args_list, [mock.call(quiet=True), mock.call(quiet=False)])
         print_completion_panel.assert_called_once()
 
     @mock.patch("ethernity.cli.features.kit.command._run_kit_render")

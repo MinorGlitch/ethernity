@@ -499,7 +499,7 @@ def _run_home_screen(
             )
             if kit_args is None:
                 return 1
-            return _run_kit_render(
+            _run_kit_render(
                 bundle=kit_args.bundle,
                 output=kit_args.output,
                 config_value=kit_args.config,
@@ -509,6 +509,7 @@ def _run_home_screen(
                 qr_chunk_size=kit_args.qr_chunk_size,
                 quiet_value=kit_args.quiet,
             )
+            return None
 
         _run_cli(_run_home_kit, debug=debug)
         return
