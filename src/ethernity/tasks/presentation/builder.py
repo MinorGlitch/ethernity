@@ -40,7 +40,7 @@ def build_task_presentation(
     return TaskPresentation(
         task_key=task_key,
         title=title,
-        ready_count=sum(1 for section in validation.sections if section.status == "ready"),
+        ready_count=_ready_section_count(task_key, validation),
         total_count=max(len(validation.sections), 1),
         workspace_groups=groups,
         outcome=OutcomePresentation(
@@ -99,6 +99,11 @@ def _primary_action(primary_label: str, validation: TaskValidation) -> Workspace
         else:
             action_label = section.title
     return WorkspaceAction("primary", f"Fix: {action_label}", enabled=True)
+
+
+def _ready_section_count(task_key: PresentationTaskKey, validation: TaskValidation) -> int:
+    ready_statuses = {"ready"} if task_key == "doctor" else {"ready", "warning"}
+    return sum(1 for section in validation.sections if section.status in ready_statuses)
 
 
 __all__ = ["build_task_presentation", "workspace_groups"]

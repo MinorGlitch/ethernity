@@ -347,7 +347,7 @@ class BackupTaskState(BaseModel):
             issues.append(
                 TaskIssue(
                     code="BACKUP_SIGNING_KEY_SHARDS_REQUIRE_RECOVERY_DOCS",
-                    message="Signing key sharding requires recovery documents.",
+                    message="Signing key sharding requires recovery sheets.",
                     severity="error",
                     section="recovery",
                 )

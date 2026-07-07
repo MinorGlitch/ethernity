@@ -15,6 +15,9 @@ def replace_recovery_groups(
     state: ReplaceRecoveryDocsTaskState,
     sections: dict[str, TaskSection],
 ) -> tuple[WorkspaceGroup, ...]:
+    source_status = sections["source"]
+    if source_status.status == "ready" and sections["freshness"].status != "ready":
+        source_status = sections["freshness"]
     return (
         WorkspaceGroup(
             key="source",
@@ -43,6 +46,8 @@ def replace_recovery_groups(
             empty_label=(
                 "No backup loaded yet. Load scans, paste recovery text, or choose payload files."
             ),
+            status=source_status.status,
+            status_summary=source_status.summary,
         ),
         WorkspaceGroup(
             key="unlock",
@@ -63,6 +68,8 @@ def replace_recovery_groups(
                 ),
             ),
             actions=(WorkspaceAction("workspace-replace-unlock", "Set unlock method..."),),
+            status=sections["unlock"].status,
+            status_summary=sections["unlock"].summary,
         ),
         WorkspaceGroup(
             key="recovery",
@@ -95,6 +102,39 @@ def replace_recovery_groups(
                 WorkspaceAction("workspace-replace-recovery", "Change recovery method..."),
                 WorkspaceAction("workspace-replace-passphrase-count", "Set passphrase sheets..."),
             ),
+            status=sections["recovery"].status,
+            status_summary=sections["recovery"].summary,
+        ),
+        WorkspaceGroup(
+            key="output",
+            title="Save replacement sheets to",
+            kind="layout",
+            values=(
+                WorkspaceValue(
+                    "output",
+                    "Save documents to",
+                    section_value(sections["output"]).value,
+                ),
+                WorkspaceValue(
+                    "safety",
+                    "Safety",
+                    "Existing backup files are not deleted or modified.",
+                ),
+            ),
+            actions=(WorkspaceAction("workspace-replace-output", "Choose output folder..."),),
+            status=sections["output"].status,
+            status_summary=sections["output"].summary,
+        ),
+        WorkspaceGroup(
+            key="layout",
+            title="Print options",
+            kind="layout",
+            values=(
+                WorkspaceValue("paper", "Paper size", state.paper_size),
+                WorkspaceValue("design", "Print design", state.design),
+            ),
+            status=sections["layout"].status,
+            status_summary=sections["layout"].summary,
         ),
         WorkspaceGroup(
             key="signing-key-recovery",
@@ -142,18 +182,8 @@ def replace_recovery_groups(
                 WorkspaceAction("workspace-replace-signing-key-count", "Set signing sheets..."),
                 WorkspaceAction("workspace-replace-signing-key-payloads", "Load key payloads..."),
             ),
-        ),
-        WorkspaceGroup(
-            key="output",
-            title="Save replacement sheets to",
-            kind="layout",
-            values=(
-                section_value(sections["output"]),
-                WorkspaceValue("freshness", "Freshness", sections["freshness"].summary),
-                WorkspaceValue("paper", "Paper size", state.paper_size),
-                WorkspaceValue("design", "Print design", state.design),
-            ),
-            actions=(WorkspaceAction("workspace-replace-output", "Choose output folder..."),),
+            status=sections["signature"].status,
+            status_summary=sections["signature"].summary,
         ),
     )
 

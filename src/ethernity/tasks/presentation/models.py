@@ -66,6 +66,8 @@ class WorkspaceGroup:
     choices: tuple[WorkspaceChoice, ...] = ()
     actions: tuple[WorkspaceAction, ...] = ()
     empty_label: str = ""
+    status: str = "ready"
+    status_summary: str = ""
 
 
 @dataclass(frozen=True)

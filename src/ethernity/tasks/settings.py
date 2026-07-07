@@ -81,11 +81,11 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
     SettingDescriptor(
         "qr_error",
         ("qr", "error"),
-        "QR",
-        "Error correction",
+        "Advanced QR and payload settings",
+        "QR error correction",
         "enum",
         "Change",
-        "QR error correction level",
+        "How much QR damage can be corrected. Default is recommended.",
         "M",
         "qr_error_correction",
         "M",
@@ -93,98 +93,98 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
     SettingDescriptor(
         "qr_chunk_size",
         ("qr", "chunk_size"),
-        "QR",
-        "Chunk size",
+        "Advanced QR and payload settings",
+        "QR density",
         "int",
         "Change",
-        "Preferred ciphertext bytes per QR frame",
+        "Bytes per QR code. Higher values use fewer pages but can be harder to scan.",
         512,
         placeholder="512",
     ),
     SettingDescriptor(
         "extension_chunk_target",
         ("extension", "chunking", "target_size"),
-        "Extension Chunking",
-        "Target size",
+        "Advanced QR and payload settings",
+        "Extension chunk target size",
         "int",
         "Change",
-        "Target content-defined chunk size for new extension chains",
+        "Target chunk size in bytes for add-files updates.",
         16384,
         placeholder="16384",
     ),
     SettingDescriptor(
         "extension_chunk_min",
         ("extension", "chunking", "min_size"),
-        "Extension Chunking",
-        "Minimum size",
+        "Advanced QR and payload settings",
+        "Extension chunk minimum size",
         "int",
         "Change",
-        "Minimum content-defined chunk size for new extension chains",
+        "Minimum chunk size in bytes for add-files updates.",
         4096,
         placeholder="4096",
     ),
     SettingDescriptor(
         "extension_chunk_max",
         ("extension", "chunking", "max_size"),
-        "Extension Chunking",
-        "Maximum size",
+        "Advanced QR and payload settings",
+        "Extension chunk maximum size",
         "int",
         "Change",
-        "Maximum content-defined chunk size for new extension chains",
+        "Maximum chunk size in bytes for add-files updates.",
         65536,
         placeholder="65536",
     ),
     SettingDescriptor(
         "backup_base_dir",
         ("defaults", "backup", "base_dir"),
-        "Backup Defaults",
+        "Backup defaults",
         "Input base folder",
         "path",
-        "Choose",
-        "Default folder for backup inputs",
+        "Choose folder...",
+        "Default folder that backup paths are made relative to.",
         None,
     ),
     SettingDescriptor(
         "backup_output_dir",
         ("defaults", "backup", "output_dir"),
-        "Backup Defaults",
-        "Output folder",
+        "Backup defaults",
+        "Save backup documents to",
         "save_path",
-        "Choose",
-        "Default folder where backup documents are saved",
+        "Choose folder...",
+        "Default folder where backup documents are saved.",
         None,
         placeholder="backup-out",
     ),
     SettingDescriptor(
         "backup_shard_threshold",
         ("defaults", "backup", "shard_threshold"),
-        "Backup Defaults",
-        "Recovery threshold",
+        "Recovery defaults",
+        "Required backup recovery sheets",
         "optional_int",
         "Change",
-        "Default recovery document threshold",
+        "How many backup recovery sheets are required to restore.",
         None,
         placeholder="2",
     ),
     SettingDescriptor(
         "backup_shard_count",
         ("defaults", "backup", "shard_count"),
-        "Backup Defaults",
-        "Recovery documents",
+        "Recovery defaults",
+        "Backup recovery sheets",
         "optional_int",
         "Change",
-        "Default recovery document count",
+        "How many backup recovery sheets are created.",
         None,
         placeholder="3",
     ),
     SettingDescriptor(
         "backup_signing_key_mode",
         ("defaults", "backup", "signing_key_mode"),
-        "Backup Defaults",
+        "Security defaults",
         "Signing key mode",
         "enum",
         "Change",
-        "Default signing key storage mode",
+        "Default signing key storage. Embedded signing is recommended.",
         None,
         "signing_key_modes",
         "embedded",
@@ -192,33 +192,33 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
     SettingDescriptor(
         "backup_signing_key_shard_threshold",
         ("defaults", "backup", "signing_key_shard_threshold"),
-        "Backup Defaults",
-        "Signing key threshold",
+        "Security defaults",
+        "Required signing-key sheets",
         "optional_int",
         "Change",
-        "Default signing key shard threshold",
+        "How many signing-key recovery sheets are required.",
         None,
         placeholder="2",
     ),
     SettingDescriptor(
         "backup_signing_key_shard_count",
         ("defaults", "backup", "signing_key_shard_count"),
-        "Backup Defaults",
-        "Signing key shards",
+        "Security defaults",
+        "Signing-key recovery sheets",
         "optional_int",
         "Change",
-        "Default signing key shard count",
+        "How many signing-key recovery sheets are created.",
         None,
         placeholder="3",
     ),
     SettingDescriptor(
         "backup_payload_codec",
         ("defaults", "backup", "payload_codec"),
-        "Backup Defaults",
-        "Payload codec",
+        "Advanced QR and payload settings",
+        "Backup compression",
         "enum",
         "Change",
-        "Default backup payload codec",
+        "Default backup compression. Automatic is recommended.",
         "auto",
         "payload_codecs",
         "auto",
@@ -226,11 +226,11 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
     SettingDescriptor(
         "backup_qr_payload_codec",
         ("defaults", "backup", "qr_payload_codec"),
-        "Backup Defaults",
-        "QR payload codec",
+        "Advanced QR and payload settings",
+        "Backup QR encoding",
         "enum",
         "Change",
-        "Default QR payload codec for backup documents",
+        "Default QR encoding for backup documents.",
         "raw",
         "qr_payload_codecs",
         "raw",
@@ -238,32 +238,32 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
     SettingDescriptor(
         "recover_output",
         ("defaults", "recover", "output"),
-        "Restore Defaults",
-        "Restore output",
+        "Recovery defaults",
+        "Restore files to",
         "save_path",
-        "Choose",
-        "Default restore output path",
+        "Choose folder...",
+        "Default folder where recovered files are written.",
         None,
         placeholder="recovered",
     ),
     SettingDescriptor(
         "extend_base_dir",
         ("defaults", "extend", "base_dir"),
-        "Add Files Defaults",
-        "Input base folder",
+        "Backup defaults",
+        "Add-files base folder",
         "path",
-        "Choose",
-        "Default folder for added files",
+        "Choose folder...",
+        "Default folder that added file paths are made relative to.",
         None,
     ),
     SettingDescriptor(
         "extend_unlock_policy",
         ("defaults", "extend", "unlock_policy"),
-        "Add Files Defaults",
+        "Recovery defaults",
         "Unlock policy",
         "enum",
         "Change",
-        "Default unlock policy for backup updates",
+        "Self-contained updates include enough recovery data for that update.",
         None,
         "extension_unlock_policies",
         "self-contained",
@@ -271,33 +271,33 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
     SettingDescriptor(
         "extend_shard_threshold",
         ("defaults", "extend", "shard_threshold"),
-        "Add Files Defaults",
-        "Recovery threshold",
+        "Recovery defaults",
+        "Required update recovery sheets",
         "optional_int",
         "Change",
-        "Default extension recovery threshold",
+        "How many update recovery sheets are required.",
         None,
         placeholder="2",
     ),
     SettingDescriptor(
         "extend_shard_count",
         ("defaults", "extend", "shard_count"),
-        "Add Files Defaults",
-        "Recovery documents",
+        "Recovery defaults",
+        "Update recovery sheets",
         "optional_int",
         "Change",
-        "Default extension recovery document count",
+        "How many update recovery sheets are created.",
         None,
         placeholder="3",
     ),
     SettingDescriptor(
         "extend_signing_key_mode",
         ("defaults", "extend", "signing_key_mode"),
-        "Add Files Defaults",
+        "Security defaults",
         "Signing key mode",
         "enum",
         "Change",
-        "Default signing key storage for backup updates",
+        "Default signing key storage for backup updates.",
         None,
         "extension_signing_key_modes",
         "not-stored",
@@ -305,33 +305,33 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
     SettingDescriptor(
         "extend_signing_key_shard_threshold",
         ("defaults", "extend", "signing_key_shard_threshold"),
-        "Add Files Defaults",
-        "Signing key threshold",
+        "Security defaults",
+        "Required update signing-key sheets",
         "optional_int",
         "Change",
-        "Default extension signing key shard threshold",
+        "How many update signing-key recovery sheets are required.",
         None,
         placeholder="2",
     ),
     SettingDescriptor(
         "extend_signing_key_shard_count",
         ("defaults", "extend", "signing_key_shard_count"),
-        "Add Files Defaults",
-        "Signing key shards",
+        "Security defaults",
+        "Update signing-key recovery sheets",
         "optional_int",
         "Change",
-        "Default extension signing key shard count",
+        "How many update signing-key recovery sheets are created.",
         None,
         placeholder="3",
     ),
     SettingDescriptor(
         "extend_qr_payload_codec",
         ("defaults", "extend", "qr_payload_codec"),
-        "Add Files Defaults",
-        "QR payload codec",
+        "Advanced QR and payload settings",
+        "Update QR encoding",
         "enum",
         "Change",
-        "Default QR payload codec for backup updates",
+        "Default QR encoding for backup updates.",
         "raw",
         "qr_payload_codecs",
         "raw",
@@ -339,7 +339,7 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
     SettingDescriptor(
         "ui_quiet",
         ("ui", "quiet"),
-        "Terminal UI",
+        "Advanced QR and payload settings",
         "Quiet output",
         "bool",
         "Toggle",
@@ -349,7 +349,7 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
     SettingDescriptor(
         "ui_no_color",
         ("ui", "no_color"),
-        "Terminal UI",
+        "Advanced QR and payload settings",
         "No color",
         "bool",
         "Toggle",
@@ -359,7 +359,7 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
     SettingDescriptor(
         "ui_no_animations",
         ("ui", "no_animations"),
-        "Terminal UI",
+        "Advanced QR and payload settings",
         "No animations",
         "bool",
         "Toggle",
@@ -369,7 +369,7 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
     SettingDescriptor(
         "debug_max_bytes",
         ("debug", "max_bytes"),
-        "Internals",
+        "Advanced QR and payload settings",
         "Preview bytes",
         "optional_int",
         "Change",
@@ -380,7 +380,7 @@ SETTING_DESCRIPTORS: tuple[SettingDescriptor, ...] = (
     SettingDescriptor(
         "runtime_render_jobs",
         ("runtime", "render_jobs"),
-        "Runtime",
+        "Advanced QR and payload settings",
         "Render jobs",
         "render_jobs",
         "Change",
@@ -399,6 +399,7 @@ class SettingsTaskState(BaseModel):
     config_path: Path | None = None
     values: dict[str, object] = Field(default_factory=dict)
     options: dict[str, tuple[str, ...]] = Field(default_factory=dict)
+    save_status: str = "Saved just now"
 
     @classmethod
     def from_current(cls, config_path: Path | None = None) -> SettingsTaskState:
@@ -454,15 +455,38 @@ class SettingsTaskState(BaseModel):
         if descriptor is not None:
             self.set_setting_value(key, descriptor.default)
 
+    def setting_is_default(self, key: str) -> bool:
+        descriptor = self.descriptor(key)
+        if descriptor is None:
+            return True
+        return self.setting_value(key) == descriptor.default
+
+    def reset_group(self, group: str) -> bool:
+        matched = False
+        for descriptor in SETTING_DESCRIPTORS:
+            if descriptor.group != group:
+                continue
+            self.clear_setting(descriptor.key)
+            matched = True
+        return matched
+
+    def reset_all(self) -> None:
+        for descriptor in SETTING_DESCRIPTORS:
+            self.clear_setting(descriptor.key)
+
     def display_value(self, key: str) -> str:
         descriptor = self.descriptor(key)
         value = self.setting_value(key)
         if descriptor is None:
             return ""
         if value is None or value == "":
-            return "Ask each time" if descriptor.kind in {"path", "save_path"} else "Default"
+            if descriptor.kind in {"path", "save_path"}:
+                return "Ask every time"
+            return "Using saved default"
         if descriptor.kind == "bool":
             return "On" if value is True else "Off"
+        if str(value) == "auto":
+            return "Automatic, based on selected files"
         return str(value)
 
     def edit_value(self, key: str) -> str:
@@ -505,7 +529,7 @@ class SettingsTaskState(BaseModel):
 
     def preview(self) -> TaskPreview:
         return TaskPreview(
-            title="Saved automatically",
+            title=self.save_status,
             items=(PreviewItem(label="Config file", detail=self._config_summary()),),
         )
 

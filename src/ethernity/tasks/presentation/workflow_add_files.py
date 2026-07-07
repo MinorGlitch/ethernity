@@ -19,6 +19,9 @@ def add_files_groups(
     state: AddFilesTaskState,
     sections: dict[str, TaskSection],
 ) -> tuple[WorkspaceGroup, ...]:
+    backup_status = sections["backup"]
+    if backup_status.status == "ready" and sections["source"].status != "ready":
+        backup_status = sections["source"]
     return (
         WorkspaceGroup(
             key="backup",
@@ -39,6 +42,8 @@ def add_files_groups(
                     enabled=bool(state.source_paths),
                 ),
             ),
+            status=backup_status.status,
+            status_summary=backup_status.summary,
         ),
         WorkspaceGroup(
             key="files",
@@ -47,6 +52,8 @@ def add_files_groups(
             values=path_values("file", (*state.input_paths, *state.input_dirs)),
             actions=(WorkspaceAction("workspace-add-files-files", "Choose files..."),),
             empty_label="No files selected yet. Choose at least one file or folder.",
+            status=sections["files"].status,
+            status_summary=sections["files"].summary,
         ),
         WorkspaceGroup(
             key="unlock",
@@ -67,6 +74,16 @@ def add_files_groups(
                 ),
             ),
             actions=(WorkspaceAction("workspace-add-files-unlock", "Set unlock method..."),),
+            status=sections["unlock"].status,
+            status_summary=sections["unlock"].summary,
+        ),
+        WorkspaceGroup(
+            key="output",
+            title="Save updated backup documents to",
+            kind="output",
+            values=(section_value(sections["output"]),),
+            status=sections["output"].status,
+            status_summary=sections["output"].summary,
         ),
         WorkspaceGroup(
             key="options",
@@ -76,6 +93,7 @@ def add_files_groups(
                 WorkspaceValue("paper", "Paper size", state.paper_size),
                 WorkspaceValue("design", "Print design", state.design),
             ),
+            status_summary=f"{state.paper_size} {state.design}",
         ),
         WorkspaceGroup(
             key="advanced",
@@ -110,6 +128,8 @@ def add_files_groups(
                 WorkspaceAction("workspace-add-files-base-dir", "Choose base folder..."),
                 WorkspaceAction("workspace-add-files-qr-chunk-size", "Set QR density..."),
             ),
+            status=sections["advanced"].status,
+            status_summary=sections["advanced"].summary,
         ),
     )
 
@@ -144,4 +164,4 @@ def add_files_signing_key_summary(state: AddFilesTaskState) -> str:
             f"Sharded, any {state.signing_key_recovery_threshold} "
             f"of {state.signing_key_recovery_count}"
         )
-        return "Sharded signing key"
+    return "Sharded signing key"

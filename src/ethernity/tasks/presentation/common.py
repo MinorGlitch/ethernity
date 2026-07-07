@@ -75,7 +75,7 @@ def middle_truncate_path(path: Path | str, *, max_chars: int = 56) -> str:
     if text == home:
         text = "~"
     elif text.startswith(f"{home}/"):
-        text = f"~/{text[len(home) + 1:]}"
+        text = f"~/{text[len(home) + 1 :]}"
     if len(text) <= max_chars:
         return text
 

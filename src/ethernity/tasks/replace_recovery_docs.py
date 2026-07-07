@@ -128,6 +128,20 @@ class ReplaceRecoveryDocsTaskState(BaseModel):
                 action_label="Choose output folder...",
             ),
             TaskSection(
+                key="layout",
+                title="Print options",
+                status="ready",
+                summary=f"{self.paper_size} {self.design}",
+                action_label="Change print options",
+            ),
+            TaskSection(
+                key="signature",
+                title="Signature",
+                status="ready" if self._creates_signing_key_recovery() else "warning",
+                summary=self._signing_key_section_summary(),
+                action_label="Change signature options",
+            ),
+            TaskSection(
                 key="recovery",
                 title="New recovery method",
                 status="ready",
@@ -186,7 +200,7 @@ class ReplaceRecoveryDocsTaskState(BaseModel):
                 TaskIssue(
                     code="REPLACE_RECOVERY_SIGNING_KEY_QUORUM_REQUIRED",
                     message="Set both signing key recovery threshold and document count.",
-                    section="recovery",
+                    section="signature",
                 )
             )
         if not self.mint_passphrase_recovery and not self._creates_signing_key_recovery():
@@ -211,7 +225,7 @@ class ReplaceRecoveryDocsTaskState(BaseModel):
             issues.append(
                 TaskIssue(
                     code="REPLACE_RECOVERY_PASSPHRASE_REPLACEMENT_INPUT_REQUIRED",
-                    message="Passphrase replacement count requires existing recovery documents.",
+                    message="Passphrase replacement count requires existing recovery sheets.",
                     section="unlock",
                 )
             )
@@ -226,7 +240,7 @@ class ReplaceRecoveryDocsTaskState(BaseModel):
                         "Signing key replacement count requires existing signing-key "
                         "recovery payloads."
                     ),
-                    section="recovery",
+                    section="signature",
                 )
             )
         return TaskValidation(sections=self.sections(), issues=tuple(issues))
@@ -236,6 +250,11 @@ class ReplaceRecoveryDocsTaskState(BaseModel):
             PreviewItem(label="Existing backup", detail=self._source_summary()),
             PreviewItem(label="Unlock method", detail=self._unlock_summary()),
             PreviewItem(label="Output folder", detail=str(self.output_dir or "missing")),
+            PreviewItem(
+                label="Existing files",
+                detail="Existing backup files are not deleted or modified.",
+            ),
+            PreviewItem(label="Print layout", detail=f"{self.paper_size} {self.design}"),
         ]
         if self.mint_passphrase_recovery:
             if self.passphrase_replacement_count is not None:
@@ -360,24 +379,27 @@ class ReplaceRecoveryDocsTaskState(BaseModel):
 
     def _signing_key_recovery_summary(self) -> str:
         if self.signing_key_replacement_count is not None:
-            return f"{self.signing_key_replacement_count} replacement document(s)"
+            return f"{self.signing_key_replacement_count} replacement sheet(s)"
         threshold = self.signing_key_recovery_threshold or self.recovery_threshold
         count = self.signing_key_recovery_count or self.recovery_document_count
         return f"need any {threshold} of {count}"
 
+    def _signing_key_section_summary(self) -> str:
+        if not self._creates_signing_key_recovery():
+            return "Warning: signing-key recovery sheets will not be created."
+        return self._signing_key_recovery_summary()
+
     def passphrase_recovery_summary(self) -> str:
         if not self.mint_passphrase_recovery:
-            return "Do not create passphrase recovery documents"
+            return "Do not create passphrase recovery sheets"
         if self.passphrase_replacement_count is not None:
-            return f"Replace {self.passphrase_replacement_count} existing document(s)"
-        return (
-            f"Create {self.recovery_document_count} document(s), need any {self.recovery_threshold}"
-        )
+            return f"Replace {self.passphrase_replacement_count} existing sheet(s)"
+        return f"Create {self.recovery_document_count} sheet(s), need any {self.recovery_threshold}"
 
     def signing_key_recovery_payloads_summary(self) -> str:
         if not self.signing_key_recovery_payload_files:
-            return "No signing key payloads selected"
-        return f"{len(self.signing_key_recovery_payload_files)} signing key payload file(s)"
+            return "No signing-key payload files selected"
+        return f"{len(self.signing_key_recovery_payload_files)} signing-key payload file(s)"
 
     def _source_summary(self) -> str:
         sources = len(self.source_paths)

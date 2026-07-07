@@ -129,6 +129,13 @@ class AddFilesTaskState(BaseModel):
                 action_label="Set unlock method...",
             ),
             TaskSection(
+                key="output",
+                title="Save updated backup documents to",
+                status="ready" if self.backup_folder is not None else "missing",
+                summary=self._output_summary(),
+                action_label="Choose backup folder...",
+            ),
+            TaskSection(
                 key="advanced",
                 title="Advanced update options",
                 status="ready" if not self._advanced_issues() else "missing",
@@ -189,6 +196,7 @@ class AddFilesTaskState(BaseModel):
             PreviewItem(label="Existing backup", detail=str(self.backup_folder or "missing")),
             PreviewItem(label="Files to add", detail=self._input_summary()),
             PreviewItem(label="Unlock method", detail=self._unlock_summary()),
+            PreviewItem(label="Output location", detail=self._output_summary()),
             PreviewItem(label="Recovery sheets", detail=self._recovery_documents_summary()),
             PreviewItem(label="Signing key", detail=self._signing_key_summary()),
             PreviewItem(label="New update documents", detail="main, recovery, and any sheets"),
@@ -297,6 +305,11 @@ class AddFilesTaskState(BaseModel):
             return f"{len(self.recovery_payload_files)} recovery payload file(s)"
         return "Choose passphrase or recovery sheets"
 
+    def _output_summary(self) -> str:
+        if self.backup_folder is None:
+            return "No destination selected. Updates are saved in the existing backup folder."
+        return f"Updates will be saved in {self.backup_folder}"
+
     def _advanced_summary(self) -> str:
         parts = [
             self.unlock_policy.replace("-", " "),
@@ -346,8 +359,7 @@ class AddFilesTaskState(BaseModel):
                 TaskIssue(
                     code="ADD_FILES_REUSE_ROOT_RECOVERY_OVERRIDE",
                     message=(
-                        "Reuse root recovery cannot be combined with new recovery "
-                        "document settings."
+                        "Reuse root recovery cannot be combined with new recovery sheet settings."
                     ),
                     section="advanced",
                 )
@@ -356,7 +368,7 @@ class AddFilesTaskState(BaseModel):
             issues.append(
                 TaskIssue(
                     code="ADD_FILES_RECOVERY_THRESHOLD_WITHOUT_DOCUMENTS",
-                    message="Clear the recovery threshold or create recovery documents.",
+                    message="Clear the recovery threshold or create recovery sheets.",
                     section="advanced",
                 )
             )
@@ -369,7 +381,7 @@ class AddFilesTaskState(BaseModel):
             issues.append(
                 TaskIssue(
                     code="ADD_FILES_RECOVERY_QUORUM_INVALID",
-                    message="Recovery threshold cannot be greater than recovery document count.",
+                    message="Recovery threshold cannot be greater than recovery sheet count.",
                     section="advanced",
                 )
             )
@@ -400,7 +412,7 @@ class AddFilesTaskState(BaseModel):
             issues.append(
                 TaskIssue(
                     code="ADD_FILES_SIGNING_KEY_REQUIRES_RECOVERY_DOCS",
-                    message="Signing-key shards require passphrase recovery documents.",
+                    message="Signing-key shards require passphrase recovery sheets.",
                     section="advanced",
                 )
             )

@@ -78,7 +78,7 @@ class RebuildTaskState(BaseModel):
             ),
             TaskSection(
                 key="freshness",
-                title="Freshness",
+                title="Rebuild options",
                 status=self._freshness_status(),
                 summary=self._freshness_summary(),
                 action_label="Confirm source",
@@ -93,6 +93,20 @@ class RebuildTaskState(BaseModel):
                     else "No output folder selected."
                 ),
                 action_label="Choose output folder...",
+            ),
+            TaskSection(
+                key="layout",
+                title="Print options",
+                status="ready",
+                summary=f"{self.paper_size} {self.design}",
+                action_label="Change print options",
+            ),
+            TaskSection(
+                key="advanced",
+                title="Advanced",
+                status="blocked" if self._advanced_issues() else "ready",
+                summary=self._advanced_summary(),
+                action_label="Review advanced options",
             ),
         )
 
@@ -133,14 +147,7 @@ class RebuildTaskState(BaseModel):
                     section="output",
                 )
             )
-        if self.auth_text_file is not None and self.auth_payloads_file is not None:
-            issues.append(
-                TaskIssue(
-                    code="REBUILD_AUTH_MATERIAL_CONFLICT",
-                    message="Use authentication text or authentication payloads, not both.",
-                    section="unlock",
-                )
-            )
+        issues.extend(self._advanced_issues())
         return TaskValidation(sections=self.sections(), issues=tuple(issues))
 
     def preview(self) -> TaskPreview:
@@ -154,8 +161,14 @@ class RebuildTaskState(BaseModel):
         items = [
             PreviewItem(label="Existing backup", detail=self._source_summary()),
             PreviewItem(label="Unlock method", detail=self._unlock_summary()),
+            PreviewItem(label="Rebuild options", detail=self._freshness_summary()),
             PreviewItem(label="Trust source", detail=self._auth_material_summary()),
             PreviewItem(label="Output folder", detail=str(self.output_dir or "missing")),
+            PreviewItem(
+                label="Existing files",
+                detail="Existing backup files are not deleted or modified.",
+            ),
+            PreviewItem(label="Print layout", detail=f"{self.paper_size} {self.design}"),
             PreviewItem(label="New backup documents", detail="main, recovery, and shards"),
         ]
         if self.qr_chunk_size is not None:
@@ -252,6 +265,25 @@ class RebuildTaskState(BaseModel):
         if self.auth_payloads_file is not None:
             return f"Trust payload files: {self.auth_payloads_file}"
         return "From loaded backup"
+
+    def _advanced_summary(self) -> str:
+        parts = [self._auth_material_summary()]
+        if self.qr_chunk_size is not None:
+            parts.append(f"QR density: {self.qr_chunk_size} bytes")
+        else:
+            parts.append("QR density: using saved default")
+        return ", ".join(parts)
+
+    def _advanced_issues(self) -> tuple[TaskIssue, ...]:
+        if self.auth_text_file is not None and self.auth_payloads_file is not None:
+            return (
+                TaskIssue(
+                    code="REBUILD_AUTH_MATERIAL_CONFLICT",
+                    message="Use authentication text or authentication payloads, not both.",
+                    section="advanced",
+                ),
+            )
+        return ()
 
     def _freshness_status(self) -> TaskSectionStatus:
         if not self.source_paths:

@@ -45,6 +45,8 @@ def rebuild_groups(
                 ),
             ),
             empty_label="No backup loaded yet. Choose a backup folder or load scanned pages.",
+            status=sections["source"].status,
+            status_summary=sections["source"].summary,
         ),
         WorkspaceGroup(
             key="unlock",
@@ -65,14 +67,49 @@ def rebuild_groups(
                 ),
             ),
             actions=(WorkspaceAction("workspace-rebuild-unlock", "Set unlock method..."),),
+            status=sections["unlock"].status,
+            status_summary=sections["unlock"].summary,
+        ),
+        WorkspaceGroup(
+            key="options",
+            title="Rebuild options",
+            kind="layout",
+            values=(
+                WorkspaceValue("freshness", "Version included", sections["freshness"].summary),
+                WorkspaceValue(
+                    "safety",
+                    "Safety",
+                    "Existing backup files are not deleted or modified.",
+                ),
+            ),
+            status=sections["freshness"].status,
+            status_summary=sections["freshness"].summary,
         ),
         WorkspaceGroup(
             key="output",
             title="Save rebuilt backup documents to",
             kind="layout",
+            values=(section_value(sections["output"]),),
+            actions=(WorkspaceAction("workspace-rebuild-output", "Choose output folder..."),),
+            status=sections["output"].status,
+            status_summary=sections["output"].summary,
+        ),
+        WorkspaceGroup(
+            key="layout",
+            title="Print options",
+            kind="layout",
             values=(
-                section_value(sections["output"]),
-                WorkspaceValue("freshness", "Freshness", sections["freshness"].summary),
+                WorkspaceValue("paper", "Paper size", state.paper_size),
+                WorkspaceValue("design", "Print design", state.design),
+            ),
+            status=sections["layout"].status,
+            status_summary=sections["layout"].summary,
+        ),
+        WorkspaceGroup(
+            key="advanced",
+            title="Advanced",
+            kind="fields",
+            values=(
                 WorkspaceValue(
                     "auth-material",
                     "Trust source",
@@ -83,12 +120,9 @@ def rebuild_groups(
                     "QR density",
                     qr_chunk_size_summary(state.qr_chunk_size),
                 ),
-                WorkspaceValue("paper", "Paper size", state.paper_size),
-                WorkspaceValue("design", "Print design", state.design),
             ),
-            actions=(
-                WorkspaceAction("workspace-rebuild-output", "Choose output folder..."),
-                WorkspaceAction("workspace-rebuild-qr-chunk-size", "Set QR density..."),
-            ),
+            actions=(WorkspaceAction("workspace-rebuild-qr-chunk-size", "Set QR density..."),),
+            status=sections["advanced"].status,
+            status_summary=sections["advanced"].summary,
         ),
     )

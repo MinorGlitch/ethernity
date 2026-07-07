@@ -27,6 +27,8 @@ def backup_groups(
             values=path_values("file", (*state.input_paths, *state.input_dirs)),
             actions=(WorkspaceAction("workspace-backup-files", "Choose files..."),),
             empty_label="No files selected yet. Choose at least one file or folder.",
+            status=sections["files"].status,
+            status_summary=sections["files"].summary,
         ),
         WorkspaceGroup(
             key="recovery",
@@ -50,17 +52,28 @@ def backup_groups(
                     state.recovery_method == "custom_shards",
                 ),
             ),
+            status=sections["recovery"].status,
+            status_summary=sections["recovery"].summary,
         ),
         WorkspaceGroup(
             key="destination",
             title="Save backup documents to",
             kind="layout",
+            values=(section_value(sections["output"]),),
+            actions=(WorkspaceAction("workspace-backup-output", "Choose output folder..."),),
+            status=sections["output"].status,
+            status_summary=sections["output"].summary,
+        ),
+        WorkspaceGroup(
+            key="layout",
+            title="Print options",
+            kind="layout",
             values=(
-                section_value(sections["output"]),
                 WorkspaceValue("paper", "Paper size", state.paper_size),
                 WorkspaceValue("design", "Print design", state.design),
             ),
-            actions=(WorkspaceAction("workspace-backup-output", "Choose output folder..."),),
+            status=sections["layout"].status,
+            status_summary=sections["layout"].summary,
         ),
         WorkspaceGroup(
             key="advanced",
@@ -95,6 +108,8 @@ def backup_groups(
                 WorkspaceAction("workspace-backup-qr-chunk-size", "Set QR density..."),
                 WorkspaceAction("workspace-backup-signing-key-shards", "Set key sheets..."),
             ),
+            status=sections["advanced"].status,
+            status_summary=sections["advanced"].summary,
         ),
     )
 

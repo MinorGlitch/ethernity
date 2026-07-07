@@ -38,6 +38,8 @@ def restore_groups(
             empty_label=(
                 "No backup loaded yet. Load scans, paste recovery text, or choose payload files."
             ),
+            status=sections["source"].status,
+            status_summary=sections["source"].summary,
         ),
         WorkspaceGroup(
             key="unlock",
@@ -58,6 +60,8 @@ def restore_groups(
                 ),
             ),
             actions=(WorkspaceAction("workspace-restore-unlock", "Set unlock method..."),),
+            status=sections["unlock"].status,
+            status_summary=sections["unlock"].summary,
         ),
         WorkspaceGroup(
             key="target",
@@ -77,6 +81,8 @@ def restore_groups(
                 WorkspaceAction("workspace-restore-target", "Set version/update..."),
                 WorkspaceAction("workspace-restore-target-fingerprint", "Show fingerprint..."),
             ),
+            status=sections["target"].status,
+            status_summary=sections["target"].summary,
         ),
         WorkspaceGroup(
             key="authentication",
@@ -96,6 +102,11 @@ def restore_groups(
                     auth_material_summary(state.auth_text_file, state.auth_payloads_file),
                 ),
             ),
+            status_summary=(
+                "Allow unsigned legacy recovery"
+                if state.allow_unsigned
+                else "Require trusted signature"
+            ),
         ),
         WorkspaceGroup(
             key="output",
@@ -103,5 +114,7 @@ def restore_groups(
             kind="output",
             values=(section_value(sections["output"]),),
             actions=(WorkspaceAction("workspace-restore-output", "Choose restore folder..."),),
+            status=sections["output"].status,
+            status_summary=sections["output"].summary,
         ),
     )
