@@ -21,6 +21,7 @@ test("scannerHookPathForMode selects the jsqr hook path for scanner builds", () 
 
 test("default kit scanner runtime import targets the jsqr hook", () => {
   const packageJson = JSON.parse(readFileSync(resolve(testDir, "..", "package.json"), "utf8"));
+  assert.equal(packageJson.imports["#kit-scanner-panel"], "./app/components/QrScannerPanel.jsx");
   assert.equal(
     packageJson.imports["#kit-scanner-runtime"],
     "./app/hooks/useQrScannerRuntime_jsqr.js",

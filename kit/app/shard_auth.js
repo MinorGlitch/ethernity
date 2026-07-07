@@ -15,9 +15,8 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { ed25519 } from "@noble/curves/ed25519.js";
-
 import { encodeCbor } from "../lib/cbor.js";
+import { verifySigningSignature } from "../lib/ed25519.js";
 import { concatBytes } from "../lib/encoding.js";
 import { SHARD_DOMAIN, SHARD_VERSION, textEncoder } from "./constants.js";
 import { shardSetRecords, syncLegacyShardFields } from "./shard_store.js";
@@ -63,7 +62,7 @@ function shardSignatureMessage(payload) {
 
 function verifyShardSignaturePortable(signature, message, signPub) {
   try {
-    return ed25519.verify(signature, message, signPub, { zip215: false });
+    return verifySigningSignature(signature, message, signPub);
   } catch {
     return false;
   }

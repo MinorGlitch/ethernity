@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { gzipSync } from "node:zlib";
 
-import { ed25519 } from "@noble/curves/ed25519.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import {
@@ -43,6 +42,7 @@ import {
 } from "../app/state/selectors.js";
 import { encodeCbor } from "../lib/cbor.js";
 import { blake2b256 } from "../lib/blake2b.js";
+import { signSigningMessage } from "../lib/ed25519.js";
 import { bytesToHex } from "../lib/encoding.js";
 import { buildFrame, concatBytes, encodeUvarint } from "./test_helpers.mjs";
 
@@ -320,7 +320,10 @@ function verifiedSignature(docHash, signPub, signature) {
 function signAuthPayload(docHash, signPub = ROOT_SIGN_PUB, signingSeed = ROOT_SIGNING_SEED) {
   const signedPayload = { version: AUTH_VERSION, hash: docHash, pub: signPub };
   const signedBytes = encodeCbor(signedPayload);
-  return ed25519.sign(concatBytes([textEncoder.encode(AUTH_DOMAIN), signedBytes]), signingSeed);
+  return signSigningMessage(
+    concatBytes([textEncoder.encode(AUTH_DOMAIN), signedBytes]),
+    signingSeed,
+  );
 }
 
 function chunkOffsetsAndHashes(chunks) {

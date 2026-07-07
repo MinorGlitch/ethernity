@@ -24,6 +24,8 @@ from unittest import mock
 from ethernity.cli.features.kit import workflow as kit_module
 from ethernity.qr.codec import QrConfig
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 
 def _home_env(home: Path) -> dict[str, str]:
     env = {"HOME": str(home), "USERPROFILE": str(home)}
@@ -71,8 +73,8 @@ class TestKitFlowHelpers(unittest.TestCase):
     def test_build_kit_qr_payloads_validates_each_payload_qr(self) -> None:
         with (
             mock.patch(
-                "ethernity.cli.features.kit.workflow._extract_kit_bundle_loader_payload",
-                return_value="p",
+                "ethernity.cli.features.kit.workflow._extract_kit_bundle_loader_metadata",
+                return_value=kit_module.KitBundleLoaderMetadata(payload="p", compression="gzip"),
             ),
             mock.patch(
                 "ethernity.cli.features.kit.workflow._split_kit_payload_chunks",
@@ -93,8 +95,8 @@ class TestKitFlowHelpers(unittest.TestCase):
     def test_build_kit_qr_payloads_rejects_chunk_that_does_not_fit(self) -> None:
         with (
             mock.patch(
-                "ethernity.cli.features.kit.workflow._extract_kit_bundle_loader_payload",
-                return_value="p",
+                "ethernity.cli.features.kit.workflow._extract_kit_bundle_loader_metadata",
+                return_value=kit_module.KitBundleLoaderMetadata(payload="p", compression="gzip"),
             ),
             mock.patch(
                 "ethernity.cli.features.kit.workflow._split_kit_payload_chunks",
@@ -125,38 +127,13 @@ class TestKitFlowHelpers(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "cannot encode any payload bytes"):
                 kit_module._max_qr_payload_bytes(b"x", QrConfig())
 
-    def test_load_kit_bundle_custom_success_and_errors(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            bundle_path = Path(tmp) / "bundle.html"
-            bundle_path.write_bytes(b"bundle")
-            self.assertEqual(kit_module._load_kit_bundle(str(bundle_path)), b"bundle")
-
-        with self.assertRaisesRegex(ValueError, "bundle file not found"):
-            kit_module._load_kit_bundle("/definitely/missing.bundle.html")
-
-        with tempfile.TemporaryDirectory() as tmp:
-            bundle_path = Path(tmp) / "bundle.html"
-            bundle_path.write_bytes(b"bundle")
-            with mock.patch("pathlib.Path.read_bytes", side_effect=OSError("denied")):
-                with self.assertRaisesRegex(ValueError, "unable to read bundle file"):
-                    kit_module._load_kit_bundle(str(bundle_path))
-
-    def test_load_kit_bundle_custom_expands_user_path(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp) / "home"
-            home.mkdir()
-            bundle_path = home / "bundle.html"
-            bundle_path.write_bytes(b"bundle")
-            with mock.patch.dict("os.environ", _home_env(home), clear=False):
-                self.assertEqual(kit_module._load_kit_bundle("~/bundle.html"), b"bundle")
-
     def test_load_kit_bundle_package_and_dev_fallback(self) -> None:
         fake_package = mock.Mock()
         fake_join = mock.Mock()
         fake_join.read_bytes.return_value = b"pkg"
         fake_package.joinpath.return_value = fake_join
         with mock.patch("ethernity.cli.features.kit.workflow.files", return_value=fake_package):
-            self.assertEqual(kit_module._load_kit_bundle(None), b"pkg")
+            self.assertEqual(kit_module._load_kit_bundle(), b"pkg")
             fake_package.joinpath.assert_called_with("kit", kit_module.DEFAULT_KIT_BUNDLE_NAME)
 
         fake_package_scanner = mock.Mock()
@@ -166,7 +143,7 @@ class TestKitFlowHelpers(unittest.TestCase):
         with mock.patch(
             "ethernity.cli.features.kit.workflow.files", return_value=fake_package_scanner
         ):
-            self.assertEqual(kit_module._load_kit_bundle(None, variant="scanner"), b"scanner-pkg")
+            self.assertEqual(kit_module._load_kit_bundle(variant="scanner"), b"scanner-pkg")
             fake_package_scanner.joinpath.assert_called_with(
                 "kit", kit_module.SCANNER_KIT_BUNDLE_NAME
             )
@@ -183,7 +160,7 @@ class TestKitFlowHelpers(unittest.TestCase):
                 with mock.patch(
                     "ethernity.cli.features.kit.workflow._DEV_KIT_DIST_ROOT", dev_dist_root
                 ):
-                    self.assertEqual(kit_module._load_kit_bundle(None), b"dev")
+                    self.assertEqual(kit_module._load_kit_bundle(), b"dev")
 
             scanner_candidate = dev_dist_root / kit_module.SCANNER_KIT_BUNDLE_NAME
             scanner_candidate.write_bytes(b"scanner-dev")
@@ -193,9 +170,7 @@ class TestKitFlowHelpers(unittest.TestCase):
                 with mock.patch(
                     "ethernity.cli.features.kit.workflow._DEV_KIT_DIST_ROOT", dev_dist_root
                 ):
-                    self.assertEqual(
-                        kit_module._load_kit_bundle(None, variant="scanner"), b"scanner-dev"
-                    )
+                    self.assertEqual(kit_module._load_kit_bundle(variant="scanner"), b"scanner-dev")
             scanner_candidate.unlink()
 
             candidate.unlink()
@@ -206,11 +181,11 @@ class TestKitFlowHelpers(unittest.TestCase):
                     "ethernity.cli.features.kit.workflow._DEV_KIT_DIST_ROOT", dev_dist_root
                 ):
                     with self.assertRaisesRegex(FileNotFoundError, "Recovery kit bundle not found"):
-                        kit_module._load_kit_bundle(None)
+                        kit_module._load_kit_bundle()
 
     def test_load_kit_bundle_rejects_invalid_variant(self) -> None:
         with self.assertRaisesRegex(ValueError, "variant must be 'lean' or 'scanner'"):
-            kit_module._load_kit_bundle(None, variant="weird")
+            kit_module._load_kit_bundle(variant="weird")
 
     def test_extract_kit_bundle_loader_payload_accepts_js_string_variants(self) -> None:
         let_bundle = b"<script>let p = 'abc\\u003cdef';</script>"
@@ -218,6 +193,41 @@ class TestKitFlowHelpers(unittest.TestCase):
 
         self.assertEqual(kit_module._extract_kit_bundle_loader_payload(let_bundle), "abc<def")
         self.assertEqual(kit_module._extract_kit_bundle_loader_payload(var_bundle), "abc<def")
+
+    def test_extract_kit_bundle_loader_metadata_preserves_brotli_compression(self) -> None:
+        bundle = b'<script>const p="abc";const f="brotli";</script>'
+
+        metadata = kit_module._extract_kit_bundle_loader_metadata(bundle)
+        shell = kit_module._kit_shell_payload(chunk_count=1, compression=metadata.compression)
+
+        self.assertEqual(metadata.payload, "abc")
+        self.assertEqual(metadata.compression, "brotli")
+        self.assertIn(b'const f="brotli"', shell)
+        self.assertIn(b"new DecompressionStream(f)", shell)
+
+    def test_extract_kit_bundle_loader_metadata_accepts_minified_comma_declarations(
+        self,
+    ) -> None:
+        bundle = (
+            b'<script>(async()=>{const p="abc",a="alphabet",f="brotli",h="fallback"})()</script>'
+        )
+
+        metadata = kit_module._extract_kit_bundle_loader_metadata(bundle)
+
+        self.assertEqual(metadata.payload, "abc")
+        self.assertEqual(metadata.compression, "brotli")
+
+    def test_extract_kit_bundle_loader_metadata_accepts_generated_bundles(self) -> None:
+        bundle_paths = [
+            _PROJECT_ROOT / "src/ethernity/resources/kit/recovery_kit.bundle.html",
+            _PROJECT_ROOT / "src/ethernity/resources/kit/recovery_kit.scanner.bundle.html",
+        ]
+
+        for bundle_path in bundle_paths:
+            metadata = kit_module._extract_kit_bundle_loader_metadata(bundle_path.read_bytes())
+
+            self.assertGreater(len(metadata.payload), 1000)
+            self.assertEqual(metadata.compression, "brotli")
 
 
 class TestRenderKitDocument(unittest.TestCase):
@@ -234,12 +244,12 @@ class TestRenderKitDocument(unittest.TestCase):
     @mock.patch(
         "ethernity.cli.features.kit.workflow._load_kit_bundle", return_value=b"bundle-bytes"
     )
-    @mock.patch("ethernity.cli.features.kit.workflow.apply_template_design")
+    @mock.patch("ethernity.cli.features.kit.workflow.apply_render_style")
     @mock.patch("ethernity.cli.features.kit.workflow.load_app_config")
     def test_render_kit_qr_document_auto_chunk_size(
         self,
         load_app_config: mock.MagicMock,
-        apply_template_design: mock.MagicMock,
+        apply_render_style: mock.MagicMock,
         _load_kit_bundle: mock.MagicMock,
         _max_qr_payload_bytes: mock.MagicMock,
         _build_kit_qr_payloads: mock.MagicMock,
@@ -249,14 +259,13 @@ class TestRenderKitDocument(unittest.TestCase):
     ) -> None:
         config = SimpleNamespace(qr_config=QrConfig())
         load_app_config.return_value = config
-        apply_template_design.return_value = config
+        apply_render_style.return_value = config
         render_service = mock.Mock()
         render_service.base_context.return_value = {"ctx": True}
         render_service.kit_inputs.return_value = "inputs"
         render_service_cls.return_value = render_service
 
         result = kit_module.render_kit_qr_document(
-            bundle_path=None,
             output_path="kit.pdf",
             config_path=None,
             paper_size="A4",
@@ -285,12 +294,12 @@ class TestRenderKitDocument(unittest.TestCase):
     @mock.patch(
         "ethernity.cli.features.kit.workflow._load_kit_bundle", return_value=b"bundle-bytes"
     )
-    @mock.patch("ethernity.cli.features.kit.workflow.apply_template_design")
+    @mock.patch("ethernity.cli.features.kit.workflow.apply_render_style")
     @mock.patch("ethernity.cli.features.kit.workflow.load_app_config")
     def test_render_kit_qr_document_explicit_chunk_size(
         self,
         load_app_config: mock.MagicMock,
-        apply_template_design: mock.MagicMock,
+        apply_render_style: mock.MagicMock,
         _load_kit_bundle: mock.MagicMock,
         build_kit_qr_payloads: mock.MagicMock,
         _status: mock.MagicMock,
@@ -299,14 +308,13 @@ class TestRenderKitDocument(unittest.TestCase):
     ) -> None:
         config = SimpleNamespace(qr_config=QrConfig())
         load_app_config.return_value = config
-        apply_template_design.return_value = config
+        apply_render_style.return_value = config
         render_service = mock.Mock()
         render_service.base_context.return_value = {}
         render_service.kit_inputs.return_value = "inputs"
         render_service_cls.return_value = render_service
 
         result = kit_module.render_kit_qr_document(
-            bundle_path=None,
             output_path=None,
             config_path="cfg.toml",
             paper_size=None,
@@ -334,12 +342,12 @@ class TestRenderKitDocument(unittest.TestCase):
     @mock.patch(
         "ethernity.cli.features.kit.workflow._load_kit_bundle", return_value=b"bundle-bytes"
     )
-    @mock.patch("ethernity.cli.features.kit.workflow.apply_template_design")
+    @mock.patch("ethernity.cli.features.kit.workflow.apply_render_style")
     @mock.patch("ethernity.cli.features.kit.workflow.load_app_config")
     def test_render_kit_qr_document_expands_output_path(
         self,
         load_app_config: mock.MagicMock,
-        apply_template_design: mock.MagicMock,
+        apply_render_style: mock.MagicMock,
         _load_kit_bundle: mock.MagicMock,
         _build_kit_qr_payloads: mock.MagicMock,
         _status: mock.MagicMock,
@@ -348,7 +356,7 @@ class TestRenderKitDocument(unittest.TestCase):
     ) -> None:
         config = SimpleNamespace(qr_config=QrConfig())
         load_app_config.return_value = config
-        apply_template_design.return_value = config
+        apply_render_style.return_value = config
         render_service = mock.Mock()
         render_service.base_context.return_value = {}
         render_service.kit_inputs.return_value = "inputs"
@@ -358,7 +366,6 @@ class TestRenderKitDocument(unittest.TestCase):
             home.mkdir()
             with mock.patch.dict("os.environ", _home_env(home), clear=False):
                 result = kit_module.render_kit_qr_document(
-                    bundle_path=None,
                     output_path="~/kit.pdf",
                     config_path=None,
                     paper_size=None,
@@ -381,12 +388,12 @@ class TestRenderKitDocument(unittest.TestCase):
     @mock.patch(
         "ethernity.cli.features.kit.workflow._load_kit_bundle", return_value=b"bundle-bytes"
     )
-    @mock.patch("ethernity.cli.features.kit.workflow.apply_template_design")
+    @mock.patch("ethernity.cli.features.kit.workflow.apply_render_style")
     @mock.patch("ethernity.cli.features.kit.workflow.load_app_config")
     def test_render_kit_qr_document_explicit_chunk_size_uses_requested_size(
         self,
         load_app_config: mock.MagicMock,
-        apply_template_design: mock.MagicMock,
+        apply_render_style: mock.MagicMock,
         _load_kit_bundle: mock.MagicMock,
         build_kit_qr_payloads: mock.MagicMock,
         _status: mock.MagicMock,
@@ -395,7 +402,7 @@ class TestRenderKitDocument(unittest.TestCase):
     ) -> None:
         config = SimpleNamespace(qr_config=QrConfig())
         load_app_config.return_value = config
-        apply_template_design.return_value = config
+        apply_render_style.return_value = config
         render_service = mock.Mock()
         render_service.base_context.return_value = {}
         render_service.kit_inputs.return_value = "inputs"
@@ -403,7 +410,6 @@ class TestRenderKitDocument(unittest.TestCase):
 
         huge = kit_module._MAX_QR_PROBE_BYTES * 100
         kit_module.render_kit_qr_document(
-            bundle_path=None,
             output_path=None,
             config_path=None,
             paper_size=None,
@@ -417,21 +423,20 @@ class TestRenderKitDocument(unittest.TestCase):
         render_frames_to_pdf.assert_called_once_with("inputs")
 
     @mock.patch("ethernity.cli.features.kit.workflow._load_kit_bundle")
-    @mock.patch("ethernity.cli.features.kit.workflow.apply_template_design")
+    @mock.patch("ethernity.cli.features.kit.workflow.apply_render_style")
     @mock.patch("ethernity.cli.features.kit.workflow.load_app_config")
-    def test_render_kit_qr_document_rejects_invalid_variant_even_with_bundle(
+    def test_render_kit_qr_document_rejects_invalid_variant_before_loading_bundle(
         self,
         load_app_config: mock.MagicMock,
-        apply_template_design: mock.MagicMock,
+        apply_render_style: mock.MagicMock,
         load_kit_bundle: mock.MagicMock,
     ) -> None:
         config = SimpleNamespace(qr_config=QrConfig())
         load_app_config.return_value = config
-        apply_template_design.return_value = config
+        apply_render_style.return_value = config
 
         with self.assertRaisesRegex(ValueError, "variant must be 'lean' or 'scanner'"):
             kit_module.render_kit_qr_document(
-                bundle_path="custom.html",
                 output_path=None,
                 config_path=None,
                 paper_size=None,

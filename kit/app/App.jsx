@@ -38,6 +38,7 @@ import { FrameCollector } from "./components/FrameCollector.jsx";
 import { RecoveredFiles } from "./components/RecoveredFiles.jsx";
 import { ShardCollector } from "./components/ShardCollector.jsx";
 import { StepShell } from "./components/StepShell.jsx";
+import { SCANNER_ENABLED } from "#kit-scanner-panel";
 import { initialState, reducer } from "./state/reducer.js";
 import {
   selectActionState,
@@ -209,7 +210,12 @@ export function App() {
         </section>
       ) : null}
       <section class="workspace">
-        <StepShell title="Collect backup" summary="Paste backup text or scan QR payloads.">
+        <StepShell
+          title="Collect backup"
+          summary={
+            SCANNER_ENABLED ? "Paste backup text or scan QR payloads." : "Paste backup text."
+          }
+        >
           <FrameCollector
             payloadText={state.payloadText}
             frameStatus={state.frameStatus}

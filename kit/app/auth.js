@@ -15,10 +15,9 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { ed25519 } from "@noble/curves/ed25519.js";
-
 import { bytesEqual, bytesToHex, concatBytes } from "../lib/encoding.js";
 import { encodeCbor } from "../lib/cbor.js";
+import { getSigningPublicKey, verifySigningSignature } from "../lib/ed25519.js";
 import { AUTH_DOMAIN, AUTH_VERSION, textEncoder } from "./constants.js";
 import { syncLegacyDocumentFields } from "./document_store.js";
 import { ensureDocumentCiphertextAndHash } from "./frames_cipher.js";
@@ -26,7 +25,7 @@ import { ensureDocumentCiphertextAndHash } from "./frames_cipher.js";
 let authStatusQueue = Promise.resolve();
 
 export function deriveSigningPublicKey(signingSeed) {
-  return ed25519.getPublicKey(signingSeed);
+  return getSigningPublicKey(signingSeed);
 }
 
 export async function verifyAuthSignature(docHash, signPub, signature) {
@@ -54,7 +53,7 @@ function authSignatureMessage(docHash, signPub) {
 
 function verifyAuthSignaturePortable(signature, message, signPub) {
   try {
-    return ed25519.verify(signature, message, signPub, { zip215: false });
+    return verifySigningSignature(signature, message, signPub);
   } catch (_err) {
     return null;
   }

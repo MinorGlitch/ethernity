@@ -18,10 +18,9 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 
 import { decodeCanonicalCbor } from "../lib/cbor.js";
-import { crc32 } from "../lib/crc32.js";
 import { bytesEqual, readUvarint } from "../lib/encoding.js";
 import { validateManifestPath } from "../lib/path_validation.js";
-import { validateSingleGzipMember } from "./extension_envelope.js";
+import { gunzipBytesBounded } from "./extension_envelope.js";
 import {
   ENVELOPE_MAGIC,
   ENVELOPE_VERSION,
@@ -35,6 +34,13 @@ import {
 
 const PAYLOAD_CODEC_RAW = "raw";
 const PAYLOAD_CODEC_GZIP = "gzip";
+const GZIP_PAYLOAD_MESSAGES = [
+  "gzip payload requires DecompressionStream support",
+  "gzip payload contains trailing data",
+  "decoded payload exceeds manifest payload_raw_len",
+  "decoded payload length does not match manifest payload_raw_len",
+  "invalid gzip payload",
+];
 
 export function readEnvelopeVersion(bytes) {
   if (bytes.length < 2) throw new Error("envelope too short");
@@ -318,72 +324,6 @@ function buildManifestEntry({ path, size, sha, mtime }) {
   return { path: normalizedPath, size, sha, mtime };
 }
 
-async function gunzipBytesBounded(bytes, maxLength) {
-  if (typeof DecompressionStream !== "function") {
-    throw new Error("gzip payload requires DecompressionStream support");
-  }
-  let gzipTrailer;
-  try {
-    gzipTrailer = validateSingleGzipMember(bytes, maxLength);
-  } catch (err) {
-    if (err instanceof Error) {
-      throw new Error(
-        err.message
-          .replaceAll("gzip chunk", "gzip payload")
-          .replaceAll("decoded chunk", "decoded payload")
-          .replaceAll("raw_len", "manifest payload_raw_len"),
-      );
-    }
-    throw err;
-  }
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
-  const reader = stream.getReader();
-  const chunks = [];
-  let total = 0;
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) {
-        break;
-      }
-      if (!(value instanceof Uint8Array)) {
-        continue;
-      }
-      total += value.length;
-      if (total > maxLength) {
-        throw new Error("decoded payload exceeds manifest payload_raw_len");
-      }
-      chunks.push(value);
-    }
-  } catch (err) {
-    try {
-      await reader.cancel();
-    } catch {
-      // Ignore cancellation failures while surfacing the primary decode error.
-    }
-    if (
-      err instanceof Error &&
-      err.message === "decoded payload exceeds manifest payload_raw_len"
-    ) {
-      throw err;
-    }
-    throw new Error("invalid gzip payload");
-  } finally {
-    reader.releaseLock();
-  }
-
-  const decoded = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    decoded.set(chunk, offset);
-    offset += chunk.length;
-  }
-  if (crc32(decoded) !== gzipTrailer.crc32) {
-    throw new Error("invalid gzip payload");
-  }
-  return decoded;
-}
-
 async function decodePayloadFromManifest(parsedManifest, payload) {
   if (parsedManifest.payloadCodec === PAYLOAD_CODEC_RAW) {
     return payload;
@@ -400,7 +340,7 @@ async function decodePayloadFromManifest(parsedManifest, payload) {
       `manifest payload_raw_len exceeds MAX_DECOMPRESSED_PAYLOAD_BYTES (${MAX_DECOMPRESSED_PAYLOAD_BYTES}): ${expectedLen}`,
     );
   }
-  const decoded = await gunzipBytesBounded(payload, expectedLen);
+  const decoded = await gunzipBytesBounded(payload, expectedLen, GZIP_PAYLOAD_MESSAGES);
   if (decoded.length !== expectedLen) {
     throw new Error("decoded payload length does not match manifest payload_raw_len");
   }

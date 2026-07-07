@@ -20,13 +20,20 @@ import ast
 import hashlib
 import json
 import re
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 
+from rich.console import Console
+from rich.live import Live
+from rich.spinner import Spinner
+from rich.text import Text
+
 from ethernity.cli.shared.paths import expanduser_cli_path
-from ethernity.cli.shared.ui_api import status
-from ethernity.config import apply_template_design, load_app_config
+from ethernity.config import apply_render_style, load_app_config
 from ethernity.encoding.framing import DOC_ID_LEN, VERSION, Frame, FrameType
 from ethernity.qr.codec import QrConfig, make_qr
 from ethernity.render import render_frames_to_pdf
@@ -38,14 +45,39 @@ SCANNER_KIT_BUNDLE_NAME = "recovery_kit.scanner.bundle.html"
 DEFAULT_KIT_OUTPUT = "recovery_kit_qr.pdf"
 DEFAULT_KIT_CHUNK_SIZE = 1200
 _MAX_QR_PROBE_BYTES = 4000
-_BUNDLE_PAYLOAD_RE = re.compile(
-    r"""\b(?:const|let|var)\s+p\s*=\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*;"""
-)
+_JS_IDENTIFIER_RE = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*")
 _KIT_CHUNK_ARRAY = "_k"
 _BASE91_ALPHABET = (
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~"'
+    "!#$%&'()*+,-./0123456789:;=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~"
 )
+_SUPPORTED_KIT_BUNDLE_COMPRESSIONS = {"gzip", "brotli"}
 _DEV_KIT_DIST_ROOT = Path(__file__).resolve().parents[5] / "kit" / "dist"
+
+
+def _isatty(raw: object, fallback: object) -> bool:
+    if raw is not None:
+        try:
+            return bool(raw.isatty())  # type: ignore[attr-defined]
+        except (OSError, ValueError, AttributeError):
+            return False
+    return bool(getattr(fallback, "isatty", lambda: False)())
+
+
+_CONSOLE = Console(force_terminal=_isatty(sys.__stdout__, sys.stdout))
+
+
+@contextmanager
+def status(message: str, *, quiet: bool = False) -> Iterator[Live | None]:
+    if quiet:
+        yield None
+        return
+    if not _isatty(sys.__stdout__, sys.stdout):
+        _CONSOLE.print(message)
+        yield None
+        return
+    spinner = Spinner("dots", text=Text(message))
+    with Live(spinner, console=_CONSOLE, transient=False, refresh_per_second=12) as live:
+        yield live
 
 
 @dataclass(frozen=True)
@@ -57,9 +89,14 @@ class KitResult:
     doc_id_hex: str
 
 
+@dataclass(frozen=True)
+class KitBundleLoaderMetadata:
+    payload: str
+    compression: str
+
+
 def render_kit_qr_document(
     *,
-    bundle_path: str | Path | None,
     output_path: str | Path | None,
     config_path: str | Path | None,
     paper_size: str | None,
@@ -70,8 +107,8 @@ def render_kit_qr_document(
 ) -> KitResult:
     variant = _normalize_kit_variant(variant)
     config = load_app_config(config_path, paper_size=paper_size)
-    config = apply_template_design(config, design)
-    bundle_bytes = _load_kit_bundle(bundle_path, variant=variant)
+    config = apply_render_style(config, design)
+    bundle_bytes = _load_kit_bundle(variant=variant)
     qr_config = config.qr_config
 
     if chunk_size is None:
@@ -131,20 +168,8 @@ def _default_kit_bundle_name(variant: str) -> str:
     return DEFAULT_KIT_BUNDLE_NAME
 
 
-def _load_kit_bundle(bundle_path: str | Path | None, *, variant: str = "lean") -> bytes:
-    """Load the recovery kit bundle from the specified path or default locations."""
-    if bundle_path:
-        path = Path(expanduser_cli_path(bundle_path, preserve_stdin=False) or "")
-        try:
-            return path.read_bytes()
-        except FileNotFoundError as exc:
-            raise ValueError(
-                f"bundle file not found: {path}. Check --bundle path or omit --bundle."
-            ) from exc
-        except OSError as exc:
-            raise ValueError(
-                f"unable to read bundle file: {path}. Check --bundle path and permissions."
-            ) from exc
+def _load_kit_bundle(*, variant: str = "lean") -> bytes:
+    """Load the built-in recovery kit bundle from package or development build output."""
     # Primary: load from installed package resources (src/ethernity/resources/kit/)
     bundle_name = _default_kit_bundle_name(variant)
     try:
@@ -156,30 +181,101 @@ def _load_kit_bundle(bundle_path: str | Path | None, *, variant: str = "lean") -
     if candidate.exists():
         return candidate.read_bytes()
     raise FileNotFoundError(
-        "Recovery kit bundle not found. Reinstall the package or specify "
-        "a custom bundle with --bundle."
+        "Recovery kit bundle not found. Reinstall the package or rebuild the bundled kit assets."
     )
 
 
-def _extract_kit_bundle_loader_payload(bundle_bytes: bytes) -> str:
+def _skip_js_string(source: str, offset: int) -> int:
+    quote = source[offset]
+    index = offset + 1
+    while index < len(source):
+        char = source[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == quote:
+            return index + 1
+        index += 1
+    return index
+
+
+def _skip_js_space(source: str, offset: int) -> int:
+    index = offset
+    while index < len(source) and source[index].isspace():
+        index += 1
+    return index
+
+
+def _extract_loader_string_literal(source: str, name: str) -> str | None:
+    index = 0
+    while index < len(source):
+        char = source[index]
+        if char in {'"', "'"}:
+            index = _skip_js_string(source, index)
+            continue
+        if char == "/" and source[index : index + 2] == "//":
+            newline = source.find("\n", index + 2)
+            index = len(source) if newline < 0 else newline + 1
+            continue
+        if char == "/" and source[index : index + 2] == "/*":
+            end = source.find("*/", index + 2)
+            index = len(source) if end < 0 else end + 2
+            continue
+        match = _JS_IDENTIFIER_RE.match(source, index)
+        if match is None:
+            index += 1
+            continue
+        identifier = match.group(0)
+        index = match.end()
+        if identifier != name:
+            continue
+        assign_index = _skip_js_space(source, index)
+        if assign_index >= len(source) or source[assign_index] != "=":
+            continue
+        value_index = _skip_js_space(source, assign_index + 1)
+        if value_index < len(source) and source[value_index] in {'"', "'"}:
+            return source[value_index : _skip_js_string(source, value_index)]
+    return None
+
+
+def _parse_loader_string_literal(literal: str, field: str) -> str:
+    try:
+        value = ast.literal_eval(literal)
+    except (SyntaxError, ValueError) as exc:
+        raise ValueError(
+            f"unsupported recovery kit bundle format: {field} is not a string"
+        ) from exc
+    if not isinstance(value, str):
+        raise ValueError(f"unsupported recovery kit bundle format: {field} is not a string")
+    return value
+
+
+def _extract_kit_bundle_loader_metadata(bundle_bytes: bytes) -> KitBundleLoaderMetadata:
     try:
         bundle_text = bundle_bytes.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ValueError("recovery kit bundle is not valid UTF-8 HTML") from exc
-    match = _BUNDLE_PAYLOAD_RE.search(bundle_text)
-    if match is None:
+    payload_literal = _extract_loader_string_literal(bundle_text, "p")
+    if payload_literal is None:
         raise ValueError(
             "unsupported recovery kit bundle format: embedded loader payload was not found"
         )
-    try:
-        payload = ast.literal_eval(match.group(1))
-    except (SyntaxError, ValueError) as exc:
+    payload = _parse_loader_string_literal(payload_literal, "loader payload")
+    compression = "gzip"
+    compression_literal = _extract_loader_string_literal(bundle_text, "f")
+    if compression_literal is not None:
+        compression = _parse_loader_string_literal(
+            compression_literal, "loader compression"
+        ).lower()
+    if compression not in _SUPPORTED_KIT_BUNDLE_COMPRESSIONS:
         raise ValueError(
-            "unsupported recovery kit bundle format: loader payload is not a string"
-        ) from exc
-    if not isinstance(payload, str):
-        raise ValueError("unsupported recovery kit bundle format: loader payload is not a string")
-    return payload
+            "unsupported recovery kit bundle format: loader compression must be gzip or brotli"
+        )
+    return KitBundleLoaderMetadata(payload=payload, compression=compression)
+
+
+def _extract_kit_bundle_loader_payload(bundle_bytes: bytes) -> str:
+    return _extract_kit_bundle_loader_metadata(bundle_bytes).payload
 
 
 def _kit_chunk_script(chunk: str) -> bytes:
@@ -222,11 +318,15 @@ def _split_kit_payload_chunks(payload: str, chunk_payload_size: int) -> list[byt
     return chunks
 
 
-def _kit_shell_payload(*, chunk_count: int) -> bytes:
+def _kit_shell_payload(*, chunk_count: int, compression: str = "gzip") -> bytes:
+    if compression not in _SUPPORTED_KIT_BUNDLE_COMPRESSIONS:
+        raise ValueError("compression must be gzip or brotli")
     alphabet_json = json.dumps(_BASE91_ALPHABET)
+    compression_json = json.dumps(compression)
     script = (
         "(function(){"
         f"globalThis.{_KIT_CHUNK_ARRAY}=globalThis.{_KIT_CHUNK_ARRAY}||[];"
+        f"const f={compression_json};"
         "const m=t=>{if(document.body)document.body.textContent=t;else document.write(t)};"
         "addEventListener('load',async()=>{"
         f"const n={chunk_count};const k=globalThis.{_KIT_CHUNK_ARRAY};"
@@ -236,13 +336,13 @@ def _kit_shell_payload(*, chunk_count: int) -> bytes:
         "if(typeof k[i]!=='string'){m(`Missing chunk ${i+1}/${n}`);return}}"
         "const p=k.join('');"
         "if(!('DecompressionStream'in window)){"
-        "m('Browser lacks gzip support');return}"
+        "m('Browser lacks '+f+' support');return}"
         f"const a={alphabet_json};"
         "const d=t=>{let b=0,n=0,v=-1,o=[];"
         "for(let i=0;i<t.length;i++){const c=a.indexOf(t[i]);if(c===-1)continue;"
         "if(v<0){v=c;continue}v+=c*91;b|=v<<n;n+=(v&8191)>88?13:14;while(n>7){o.push(b&255);b>>=8;n-=8}v=-1}"
         "if(v>=0)o.push((b|v<<n)&255);return new Uint8Array(o)};"
-        "const b=d(p);const ds=new DecompressionStream('gzip');"
+        "const b=d(p);const ds=new DecompressionStream(f);"
         "const s=new Blob([b]).stream().pipeThrough(ds);const t=await new Response(s).text();"
         "document.open();document.write(t);document.close()"
         "});})();"
@@ -255,9 +355,9 @@ def _kit_shell_payload(*, chunk_count: int) -> bytes:
 
 
 def _build_kit_qr_payloads(bundle_bytes: bytes, chunk_size: int, config: QrConfig) -> list[bytes]:
-    payload = _extract_kit_bundle_loader_payload(bundle_bytes)
-    payload_chunks = _split_kit_payload_chunks(payload, chunk_size)
-    shell = _kit_shell_payload(chunk_count=len(payload_chunks))
+    metadata = _extract_kit_bundle_loader_metadata(bundle_bytes)
+    payload_chunks = _split_kit_payload_chunks(metadata.payload, chunk_size)
+    shell = _kit_shell_payload(chunk_count=len(payload_chunks), compression=metadata.compression)
     if not _fits_qr_payload(shell, config):
         raise ValueError(
             "QR settings cannot encode the recovery kit shell QR. "

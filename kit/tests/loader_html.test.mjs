@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
-import { gzipSync } from "node:zlib";
+import { brotliCompressSync, gzipSync } from "node:zlib";
 
 import { buildCompressedLoaderHtml, buildUnsupportedLoaderHtml } from "../lib/loader_html.js";
 
@@ -44,6 +44,169 @@ function extractLoaderScript(html) {
   return match[1];
 }
 
+class NodeStub {
+  constructor(type, text = "") {
+    this.type = type;
+    this.text = text;
+    this.children = [];
+    this.attributes = new Map();
+    this.style = {};
+    this.className = "";
+    this.id = "";
+    this.value = "";
+    this.scrollLeft = 0;
+    this.scrollTop = 0;
+    this.listeners = {};
+  }
+
+  appendChild(child) {
+    this.children.push(child);
+    child.parentNode = this;
+    return child;
+  }
+
+  replaceChildren(...nodes) {
+    this.children = [];
+    for (const node of nodes) {
+      this.appendChild(node);
+    }
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+    if (name === "id") {
+      this.id = String(value);
+    }
+  }
+
+  addEventListener(name, handler) {
+    this.listeners[name] ??= [];
+    this.listeners[name].push(handler);
+  }
+
+  removeEventListener() {}
+
+  contains(node) {
+    return node === this || this.children.some((child) => child.contains?.(node));
+  }
+
+  querySelector(selector) {
+    return selector.startsWith("#") ? this.findById(selector.slice(1)) : null;
+  }
+
+  findById(id) {
+    if (this.id === id) {
+      return this;
+    }
+    for (const child of this.children) {
+      const found = child.findById?.(id);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }
+
+  focus() {}
+
+  get textContent() {
+    if (this.type === "#text") {
+      return this.text;
+    }
+    return this.children.map((child) => child.textContent ?? "").join("");
+  }
+}
+
+async function renderRawKitHtml(rawHtml) {
+  const root = new NodeStub("div");
+  root.id = "app";
+  const document = {
+    activeElement: null,
+    getElementById(id) {
+      return id === "app" ? root : null;
+    },
+    createDocumentFragment() {
+      return new NodeStub("#fragment");
+    },
+    createTextNode(text) {
+      return new NodeStub("#text", text);
+    },
+    createElement(type) {
+      return new NodeStub(type);
+    },
+  };
+
+  vm.runInNewContext(extractLoaderScript(rawHtml), {
+    ArrayBuffer,
+    Blob,
+    CSS: { escape: (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&") },
+    DataView,
+    DecompressionStream,
+    HTMLElement: NodeStub,
+    Map,
+    Promise,
+    Response,
+    Set,
+    TextDecoder,
+    TextEncoder,
+    URL: {
+      createObjectURL() {
+        return "blob:kit-test";
+      },
+      revokeObjectURL() {},
+    },
+    Uint8Array,
+    clearTimeout,
+    console,
+    crypto: globalThis.crypto,
+    document,
+    navigator: {
+      mediaDevices: {
+        async getUserMedia() {
+          return { getTracks: () => [] };
+        },
+      },
+      onLine: false,
+    },
+    queueMicrotask,
+    setTimeout,
+    window: {
+      addEventListener() {},
+      clearTimeout,
+      isSecureContext: true,
+      removeEventListener() {},
+      setTimeout,
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  return root.textContent;
+}
+
+async function decodeGeneratedBundleHtml(html) {
+  const written = [];
+  const document = {
+    open() {
+      written.length = 0;
+    },
+    write(value) {
+      written.push(value);
+    },
+    close() {},
+  };
+
+  await vm.runInNewContext(extractLoaderScript(html), {
+    Blob,
+    DecompressionStream,
+    Response,
+    Uint8Array,
+    document,
+    window: { DecompressionStream },
+  });
+
+  return written.join("");
+}
+
 test("buildUnsupportedLoaderHtml renders an explicit recovery fallback page", () => {
   const html = buildUnsupportedLoaderHtml();
 
@@ -51,16 +214,32 @@ test("buildUnsupportedLoaderHtml renders an explicit recovery fallback page", ()
   assert.match(html, /DecompressionStream is unavailable/);
 });
 
-test("buildCompressedLoaderHtml renders fallback content when DecompressionStream is unavailable", () => {
+test("buildCompressedLoaderHtml renders fallback content when DecompressionStream is unavailable", async () => {
   const html = buildCompressedLoaderHtml({
     payloadBase91Safe: "abc123",
     alphabet: "abc123",
   });
+  const written = [];
+  const document = {
+    open() {
+      written.length = 0;
+    },
+    write(value) {
+      written.push(value);
+    },
+    close() {},
+  };
 
-  assert.match(html, /renderFallback\(\);return;/);
-  assert.match(html, /document\.write\(fallback\)/);
-  assert.match(html, /DecompressionStream is unavailable/);
-  assert.doesNotMatch(html, /DecompressionStream"\)in window\)\)return/);
+  await vm.runInNewContext(extractLoaderScript(html), {
+    Blob,
+    Response,
+    Uint8Array,
+    document,
+    window: {},
+  });
+
+  assert.match(written.join(""), /Recovery kit cannot open here/);
+  assert.match(written.join(""), /DecompressionStream is unavailable/);
 });
 
 test("buildCompressedLoaderHtml rejects missing loader payload inputs", () => {
@@ -121,7 +300,41 @@ test("buildCompressedLoaderHtml decodes and renders gzip payload", async () => {
   assert.equal(written.join(""), sourceHtml);
 });
 
-test("committed recovery kit bundles decode to extension-capable UI", async () => {
+test("buildCompressedLoaderHtml decodes and renders brotli payload", async () => {
+  const sourceHtml = "<!doctype html><p>ok</p>";
+  const payloadBase91Safe = base91Encode(brotliCompressSync(Buffer.from(sourceHtml))).replaceAll(
+    "</",
+    "<\\/",
+  );
+  const html = buildCompressedLoaderHtml({
+    payloadBase91Safe,
+    alphabet: BASE91_ALPHABET,
+    compression: "brotli",
+  });
+  const written = [];
+  const document = {
+    open() {
+      written.length = 0;
+    },
+    write(value) {
+      written.push(value);
+    },
+    close() {},
+  };
+
+  await vm.runInNewContext(extractLoaderScript(html), {
+    Blob,
+    DecompressionStream,
+    Response,
+    Uint8Array,
+    document,
+    window: { DecompressionStream },
+  });
+
+  assert.equal(written.join(""), sourceHtml);
+});
+
+test("generated recovery kit bundles decode to extension-capable UI", async () => {
   const bundlePaths = [
     "../../src/ethernity/resources/kit/recovery_kit.bundle.html",
     "../../src/ethernity/resources/kit/recovery_kit.scanner.bundle.html",
@@ -153,5 +366,21 @@ test("committed recovery kit bundles decode to extension-capable UI", async () =
     assert.match(decoded, /Extension target/);
     assert.match(decoded, /Unlock root only/);
     assert.match(decoded, /latest, root, index, or doc hash/);
+  }
+});
+
+test("generated raw recovery kit bundles boot the app shell", async () => {
+  const bundlePaths = [
+    "../../src/ethernity/resources/kit/recovery_kit.bundle.html",
+    "../../src/ethernity/resources/kit/recovery_kit.scanner.bundle.html",
+  ];
+
+  for (const bundlePath of bundlePaths) {
+    const html = await readFile(new URL(bundlePath, import.meta.url), "utf8");
+    const rendered = await renderRawKitHtml(await decodeGeneratedBundleHtml(html));
+
+    assert.match(rendered, /Recovery Kit/);
+    assert.match(rendered, /Collect backup/);
+    assert.match(rendered, /Status/);
   }
 });

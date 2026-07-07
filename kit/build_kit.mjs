@@ -20,18 +20,121 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { brotliCompressSync, constants as zlibConstants } from "node:zlib";
+
+import { minify as terserMinify } from "terser";
 
 import { scannerHookPathForMode, selectedVariants } from "./lib/build_variants.mjs";
 import { buildCompressedLoaderHtml } from "./lib/loader_html.js";
+// 91 printable ASCII chars excluding double quote, backslash, and less-than.
+// This keeps Base91 density while avoiding JS string and </script> escaping overhead.
 const BASE91_ALPHABET =
-  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~"';
+  "!#$%&'()*+,-./0123456789:;=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_`abcdefghijklmnopqrstuvwxyz{|}~";
+const DEFAULT_KIT_COMPRESSION = "brotli";
+const DEFAULT_KIT_PROPERTY_MANGLE = "true";
 const STYLE_TAG_RE = /<style\b[^>]*>([\s\S]*?)<\/style>/i;
+const SCANNER_ONLY_CSS_RE =
+  /\s*\/\* ETHERNITY_SCANNER_CSS_START \*\/[\s\S]*?\/\* ETHERNITY_SCANNER_CSS_END \*\//gu;
 const CSS_CLASS_RE = /\.([A-Za-z_-][A-Za-z0-9_-]*)/g;
 const CLASS_TOKEN_RE = /[a-z0-9_-]+/g;
 const CLASS_VALUE_RE = /^[a-z0-9 _-]+$/;
 const PRESERVE_CLASS_TOKENS = new Set(["ok", "warn", "error", "progress", "idle"]);
 const CLASS_TOKEN_FIRST = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const CLASS_TOKEN_NEXT = `${CLASS_TOKEN_FIRST}0123456789`;
+const IDENTIFIER_LIKE_PROPERTY_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+const PROPERTY_MANGLE_RESERVED = [
+  "accept",
+  "aria-atomic",
+  "aria-label",
+  "aria-live",
+  "autofocus",
+  "capture",
+  "checked",
+  "children",
+  "class",
+  "className",
+  "colSpan",
+  "cols",
+  "currentTarget",
+  "disabled",
+  "download",
+  "files",
+  "for",
+  "hidden",
+  "href",
+  "htmlFor",
+  "id",
+  "key",
+  "multiple",
+  "name",
+  "onBlur",
+  "onChange",
+  "onClick",
+  "onError",
+  "onFocus",
+  "onInput",
+  "onKeyDown",
+  "onKeyUp",
+  "onLoad",
+  "onSubmit",
+  "placeholder",
+  "preventScroll",
+  "readOnly",
+  "ref",
+  "required",
+  "role",
+  "rows",
+  "scrollLeft",
+  "scrollTop",
+  "selected",
+  "selectionDirection",
+  "selectionEnd",
+  "selectionStart",
+  "style",
+  "tabIndex",
+  "target",
+  "title",
+  "type",
+  "value",
+  "auth",
+  "chunk_id",
+  "chunk_refs",
+  "codec",
+  "created",
+  "data",
+  "doc_hash",
+  "doc_hash_hex",
+  "doc_id",
+  "doc_id_hex",
+  "entries",
+  "files",
+  "hash",
+  "index",
+  "input_origin",
+  "input_roots",
+  "length",
+  "manifest",
+  "mtime",
+  "path",
+  "path_encoding",
+  "path_prefixes",
+  "payload_codec",
+  "payload_raw_len",
+  "pub",
+  "raw_len",
+  "sealed",
+  "seed",
+  "set_id",
+  "sha",
+  "share",
+  "share_count",
+  "share_index",
+  "sign_pub",
+  "signature",
+  "size",
+  "threshold",
+  "version",
+];
 
 function base91Encode(bytes) {
   let buffer = 0;
@@ -301,6 +404,13 @@ function minifyClassNames(html, js) {
   return { html: updatedHtml, js: updatedJs };
 }
 
+function htmlForBundleVariant(source, variant) {
+  if (variant.scannerMode === "jsqr") {
+    return source;
+  }
+  return source.replace(SCANNER_ONLY_CSS_RE, "");
+}
+
 function canonicalizeGzipHeader(gzBytes) {
   if (gzBytes.length < 10) return gzBytes;
   // RFC 1952 mtime + OS bytes are informational; normalize for deterministic output.
@@ -353,6 +463,130 @@ async function gzipBundlePayload(rawBundle, tmpBase) {
   return { bytes: libdeflateBytes, method: "libdeflate" };
 }
 
+function brotliBundlePayload(rawBundle) {
+  const input = Buffer.from(rawBundle, "utf8");
+  const bytes = brotliCompressSync(input, {
+    params: {
+      [zlibConstants.BROTLI_PARAM_MODE]: zlibConstants.BROTLI_MODE_TEXT,
+      [zlibConstants.BROTLI_PARAM_QUALITY]: 11,
+      [zlibConstants.BROTLI_PARAM_SIZE_HINT]: input.length,
+    },
+  });
+  return { bytes: new Uint8Array(bytes), method: "node:brotli-q11" };
+}
+
+function compressedBundleName(bundleName, compression, { defaultCompression, hasMultiple }) {
+  if (!hasMultiple || compression === defaultCompression) {
+    return bundleName;
+  }
+  return bundleName.replace(/\.bundle\.html$/u, `.${compression}.bundle.html`);
+}
+
+function selectedCompressions(requested = DEFAULT_KIT_COMPRESSION) {
+  const normalized = requested.toLowerCase();
+  if (normalized === "both") {
+    return [DEFAULT_KIT_COMPRESSION, "gzip"];
+  }
+  if (normalized === "gzip" || normalized === "brotli") {
+    return [normalized];
+  }
+  throw new Error("ETHERNITY_KIT_COMPRESSION must be one of: gzip, brotli, both");
+}
+
+function propertyManglingEnabled(requested = DEFAULT_KIT_PROPERTY_MANGLE) {
+  const normalized = requested.toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+  throw new Error("ETHERNITY_KIT_MANGLE_PROPERTIES must be one of: true, false");
+}
+
+function readStaticStringLiteralValue(source, start) {
+  const quote = source[start];
+  let value = "";
+  let i = start + 1;
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === "\\") {
+      return { value: null, end: skipStringLiteral(source, i + 2, quote) };
+    }
+    if (ch === quote) {
+      return { value, end: i + 1 };
+    }
+    value += ch;
+    i += 1;
+  }
+  return { value: null, end: i };
+}
+
+function skipStringLiteral(source, start, quote) {
+  let i = start;
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === "\\") {
+      i += 2;
+      continue;
+    }
+    if (ch === quote) {
+      return i + 1;
+    }
+    i += 1;
+  }
+  return i;
+}
+
+function collectIdentifierLikeStringLiterals(source) {
+  const names = new Set();
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === "'" || ch === '"') {
+      const parsed = readStaticStringLiteralValue(source, i);
+      if (parsed.value && IDENTIFIER_LIKE_PROPERTY_RE.test(parsed.value)) {
+        names.add(parsed.value);
+      }
+      i = parsed.end;
+      continue;
+    }
+    i += 1;
+  }
+  return names;
+}
+
+function propertyMangleReservedNames(source) {
+  return Array.from(
+    new Set([...PROPERTY_MANGLE_RESERVED, ...collectIdentifierLikeStringLiterals(source)]),
+  ).sort();
+}
+
+async function minifyJsBundle(source, outputPath) {
+  const mangle = { toplevel: true };
+  if (propertyManglingEnabled(process.env.ETHERNITY_KIT_MANGLE_PROPERTIES)) {
+    mangle.properties = {
+      keep_quoted: true,
+      reserved: propertyMangleReservedNames(source),
+    };
+  }
+  const result = await terserMinify(source, {
+    compress: {
+      passes: 3,
+      toplevel: true,
+    },
+    ecma: 2020,
+    mangle,
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (!result.code) {
+    throw new Error("terser produced no JavaScript output");
+  }
+  await writeFile(outputPath, result.code, "utf8");
+}
+
 async function ensureTrailingNewline(path) {
   const text = await readFile(path, "utf8");
   if (!text.endsWith("\n")) {
@@ -371,8 +605,11 @@ const microactIndexPath = resolve(kitDir, "lib", "microact", "index.js");
 const microactHooksPath = resolve(kitDir, "lib", "microact", "hooks.js");
 const microactJsxRuntimePath = resolve(kitDir, "lib", "microact", "jsx-runtime.js");
 const scannerRuntimeImport = "#kit-scanner-runtime";
+const scannerPanelImport = "#kit-scanner-panel";
 const scannerHookLeanPath = resolve(kitDir, "app", "hooks", "useQrScannerRuntime.js");
 const scannerHookJsqrPath = resolve(kitDir, "app", "hooks", "useQrScannerRuntime_jsqr.js");
+const scannerPanelFullPath = resolve(kitDir, "app", "components", "QrScannerPanel.jsx");
+const scannerPanelNonePath = resolve(kitDir, "app", "components", "QrScannerPanel_none.jsx");
 
 await mkdir(distDir, { recursive: true });
 await mkdir(packageDir, { recursive: true });
@@ -380,8 +617,6 @@ await mkdir(packageDir, { recursive: true });
 async function buildBundleVariant(variant) {
   const rawBundleName = variant.bundleName.replace(/\.html$/, ".raw.html");
   const rawOutputPath = resolve(distDir, rawBundleName);
-  const outputPath = resolve(distDir, variant.bundleName);
-  const packagePath = resolve(packageDir, variant.bundleName);
   const tmpBase = resolve(tmpdir(), `ethernity-kit-${variant.id}-${Date.now()}`);
   const tmpOut = `${tmpBase}.min.js`;
   const scannerHookPath = scannerHookPathForMode(
@@ -389,6 +624,8 @@ async function buildBundleVariant(variant) {
     scannerHookLeanPath,
     scannerHookJsqrPath,
   );
+  const scannerPanelPath =
+    variant.scannerMode === "jsqr" ? scannerPanelFullPath : scannerPanelNonePath;
 
   const esbuildArgs = [
     entryPoint,
@@ -407,6 +644,7 @@ async function buildBundleVariant(variant) {
     `--alias:microact/jsx-runtime=${microactJsxRuntimePath}`,
     `--alias:microact/jsx-dev-runtime=${microactJsxRuntimePath}`,
     `--alias:${scannerRuntimeImport}=${scannerHookPath}`,
+    `--alias:${scannerPanelImport}=${scannerPanelPath}`,
     `--outfile=${tmpOut}`,
   ];
   const result = spawnSync("npx", ["--no-install", "esbuild", ...esbuildArgs], {
@@ -416,8 +654,11 @@ async function buildBundleVariant(variant) {
     process.exit(result.status ?? 1);
   }
 
-  const minified = await readFile(tmpOut, "utf8");
-  const minifiedClasses = minifyClassNames(html, minified);
+  const terserOut = `${tmpBase}.terser.js`;
+  await minifyJsBundle(await readFile(tmpOut, "utf8"), terserOut);
+  const minified = await readFile(terserOut, "utf8");
+  const variantHtml = htmlForBundleVariant(html, variant);
+  const minifiedClasses = minifyClassNames(variantHtml, minified);
   const inlined = minifiedClasses.html
     .replace(scriptTagRe, "")
     .replace("</body>", () => `<script>${minifiedClasses.js}</script>\n</body>`);
@@ -446,37 +687,53 @@ async function buildBundleVariant(variant) {
   }
 
   const rawBundle = await readFile(rawOutputPath, "utf8");
-  const gzipResult = await gzipBundlePayload(rawBundle, tmpBase);
-  const gzPayload = gzipResult.bytes;
-  console.log(`[${variant.id}] Gzip compressor: ${gzipResult.method} (${gzPayload.length} bytes)`);
-  const payloadBase91 = base91Encode(gzPayload);
-  const payloadBase91Safe = payloadBase91.replaceAll("</", "<\\/");
-  const loaderHtml = buildCompressedLoaderHtml({
-    payloadBase91Safe,
-    alphabet: BASE91_ALPHABET,
-  });
-
-  const tmpLoader = `${tmpBase}.loader.html`;
-  await writeFile(tmpLoader, loaderHtml, "utf8");
-  const loaderMinArgs = [...htmlMinArgs];
-  loaderMinArgs[loaderMinArgs.length - 2] = outputPath;
-  loaderMinArgs[loaderMinArgs.length - 1] = tmpLoader;
-  const loaderResult = spawnSync(
-    "npx",
-    ["--no-install", "html-minifier-terser", ...loaderMinArgs],
-    { stdio: "inherit" },
+  const compressions = selectedCompressions(
+    process.env.ETHERNITY_KIT_COMPRESSION ?? DEFAULT_KIT_COMPRESSION,
   );
-  if (loaderResult.status !== 0) {
-    process.exit(loaderResult.status ?? 1);
+  for (const compression of compressions) {
+    const compressed =
+      compression === "gzip"
+        ? await gzipBundlePayload(rawBundle, tmpBase)
+        : brotliBundlePayload(rawBundle);
+    console.log(
+      `[${variant.id}] ${compression} compressor: ${compressed.method} (${compressed.bytes.length} bytes)`,
+    );
+    const payloadBase91 = base91Encode(compressed.bytes);
+    const payloadBase91Safe = payloadBase91.replaceAll("</", "<\\/");
+    const loaderHtml = buildCompressedLoaderHtml({
+      payloadBase91Safe,
+      alphabet: BASE91_ALPHABET,
+      compression,
+    });
+
+    const targetBundleName = compressedBundleName(variant.bundleName, compression, {
+      defaultCompression: DEFAULT_KIT_COMPRESSION,
+      hasMultiple: compressions.length > 1,
+    });
+    const targetOutputPath = resolve(distDir, targetBundleName);
+    const targetPackagePath = resolve(packageDir, targetBundleName);
+    const tmpLoader = `${tmpBase}.${compression}.loader.html`;
+    await writeFile(tmpLoader, loaderHtml, "utf8");
+    const loaderMinArgs = [...htmlMinArgs];
+    loaderMinArgs[loaderMinArgs.length - 2] = targetOutputPath;
+    loaderMinArgs[loaderMinArgs.length - 1] = tmpLoader;
+    const loaderResult = spawnSync(
+      "npx",
+      ["--no-install", "html-minifier-terser", ...loaderMinArgs],
+      { stdio: "inherit" },
+    );
+    if (loaderResult.status !== 0) {
+      process.exit(loaderResult.status ?? 1);
+    }
+
+    await ensureTrailingNewline(targetOutputPath);
+    await copyFile(targetOutputPath, targetPackagePath);
+    console.log(`[${variant.id}] Wrote ${targetOutputPath}`);
+    console.log(`[${variant.id}] Wrote ${targetPackagePath}`);
   }
 
   await ensureTrailingNewline(rawOutputPath);
-  await ensureTrailingNewline(outputPath);
-  await copyFile(outputPath, packagePath);
-
   console.log(`[${variant.id}] Wrote ${rawOutputPath}`);
-  console.log(`[${variant.id}] Wrote ${outputPath}`);
-  console.log(`[${variant.id}] Wrote ${packagePath}`);
 }
 
 for (const variant of selectedVariants(process.env.ETHERNITY_KIT_VARIANTS ?? "both")) {

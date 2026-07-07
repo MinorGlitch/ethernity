@@ -17,6 +17,8 @@
 
 import { useQrScannerRuntime } from "#kit-scanner-runtime";
 
+export const SCANNER_ENABLED = true;
+
 export function QrScannerPanel({ onScanPayload }) {
   const { active, status, supported, scanCount, videoRef, startScanner, stopScanner } =
     useQrScannerRuntime(onScanPayload);

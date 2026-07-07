@@ -40,6 +40,13 @@ const ROLLING_WINDOW_SIZE = 64;
 const MIN_MASK_BITS = 4;
 const MIN_EXTENSION_CHUNK_SIZE = 4 * 1024;
 const GEAR_TABLE = buildGearTable();
+const GZIP_CHUNK_MESSAGES = [
+  "gzip extension chunks require DecompressionStream support",
+  "gzip chunk contains trailing data",
+  "decoded chunk exceeds raw_len",
+  "decoded chunk length does not match raw_len",
+  "invalid gzip chunk",
+];
 const LENGTH_EXTRA_BITS = [
   0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0,
 ];
@@ -510,11 +517,11 @@ async function decodeChunkData(chunk) {
   return decoded;
 }
 
-async function gunzipBytesBounded(bytes, expectedLen) {
+export async function gunzipBytesBounded(bytes, expectedLen, messages = GZIP_CHUNK_MESSAGES) {
   if (typeof DecompressionStream !== "function") {
-    throw new Error("gzip extension chunks require DecompressionStream support");
+    throw new Error(messages[0]);
   }
-  const gzipTrailer = validateSingleGzipMember(bytes, expectedLen);
+  const gzipTrailer = validateSingleGzipMember(bytes, expectedLen, messages);
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
   const reader = stream.getReader();
   const chunks = [];
@@ -526,7 +533,7 @@ async function gunzipBytesBounded(bytes, expectedLen) {
       if (!(value instanceof Uint8Array)) continue;
       total += value.length;
       if (total > expectedLen) {
-        throw new Error("decoded chunk exceeds raw_len");
+        throw new Error(messages[2]);
       }
       chunks.push(value);
     }
@@ -536,35 +543,35 @@ async function gunzipBytesBounded(bytes, expectedLen) {
     } catch {
       // Ignore cancellation failures while surfacing the primary decode error.
     }
-    if (err instanceof Error && err.message === "decoded chunk exceeds raw_len") {
+    if (err instanceof Error && err.message === messages[2]) {
       throw err;
     }
-    throw new Error("invalid gzip chunk");
+    throw new Error(messages[4]);
   } finally {
     reader.releaseLock();
   }
   const decoded = concatByteParts(chunks);
   if (decoded.length !== expectedLen) {
-    throw new Error("decoded chunk length does not match raw_len");
+    throw new Error(messages[3]);
   }
   if (crc32(decoded) !== gzipTrailer.crc32) {
-    throw new Error("invalid gzip chunk");
+    throw new Error(messages[4]);
   }
   return decoded;
 }
 
-export function validateSingleGzipMember(bytes, expectedLen) {
+function validateSingleGzipMember(bytes, expectedLen, messages) {
   const dataStart = gzipDeflateDataStart(bytes);
   const trailerStart = deflateStreamEndOffset(bytes, dataStart);
   if (trailerStart + 8 !== bytes.length) {
-    throw new Error("gzip chunk contains trailing data");
+    throw new Error(messages[1]);
   }
   const expectedSize = readLittleUint32(bytes, trailerStart + 4);
   if (expectedSize > expectedLen) {
-    throw new Error("decoded chunk exceeds raw_len");
+    throw new Error(messages[2]);
   }
   if (expectedSize !== expectedLen) {
-    throw new Error("decoded chunk length does not match raw_len");
+    throw new Error(messages[3]);
   }
   return { crc32: readLittleUint32(bytes, trailerStart) };
 }
