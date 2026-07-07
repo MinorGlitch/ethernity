@@ -40,7 +40,7 @@ from ethernity.cli.shared.root_shard_policy import (
     root_shard_quorum_from_frames,
 )
 from ethernity.cli.shared.types import BackupArgs, BackupResult, CompactArgs, InputFile, RecoverArgs
-from ethernity.config import apply_template_design, load_app_config
+from ethernity.config import apply_render_style, load_app_config
 from ethernity.crypto import sharding as sharding_module
 from ethernity.crypto.signing import derive_public_key
 from ethernity.encoding.framing import Frame, FrameType
@@ -493,7 +493,7 @@ def run_compact(args: CompactArgs) -> BackupResult:
         quiet=args.quiet,
     )
     config = load_app_config(backup_args.config, paper_size=backup_args.paper)
-    config = apply_template_design(config, backup_args.design)
+    config = apply_render_style(config, backup_args.design)
     config = apply_qr_chunk_size_override(config, backup_args.qr_chunk_size)
     backup_plan = plan_backup_from_args(backup_args)
     input_files = [

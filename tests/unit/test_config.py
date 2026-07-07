@@ -18,13 +18,9 @@ import unittest
 from pathlib import Path
 
 from ethernity.config import (
-    DEFAULT_KIT_TEMPLATE_PATH,
     DEFAULT_PAPER_SIZE,
-    DEFAULT_RECOVERY_TEMPLATE_PATH,
-    DEFAULT_SHARD_TEMPLATE_PATH,
-    DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
-    DEFAULT_TEMPLATE_PATH,
-    apply_template_design,
+    DEFAULT_RENDER_STYLE,
+    apply_render_style,
     load_app_config,
     load_cli_defaults,
 )
@@ -48,11 +44,11 @@ class TestConfig(unittest.TestCase):
 size = "A4"
 
 [qr]
-scale = "6"
-border = 2.0
-version = "3"
+scale = 6
+border = 2
+version = 3
 mask = 2
-micro = "true"
+micro = true
 boost_error = false
 dark = [1, 2, 3]
 light = [4, 5, 6, 7]
@@ -62,13 +58,7 @@ light = [4, 5, 6, 7]
             path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             config = load_app_config(path=path)
 
-        self.assertEqual(config.template_path, DEFAULT_TEMPLATE_PATH)
-        self.assertEqual(config.recovery_template_path, DEFAULT_RECOVERY_TEMPLATE_PATH)
-        self.assertEqual(config.shard_template_path, DEFAULT_SHARD_TEMPLATE_PATH)
-        self.assertEqual(
-            config.signing_key_shard_template_path,
-            DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
-        )
+        self.assertEqual(config.design_name, DEFAULT_RENDER_STYLE)
         self.assertEqual(config.paper_size, DEFAULT_PAPER_SIZE)
         self.assertEqual(config.qr_config.scale, 6)
         self.assertEqual(config.qr_config.border, 2)
@@ -95,7 +85,7 @@ size = "A4"
             config = load_app_config(path=path)
 
         self.assertEqual(config.paper_size, "A4")
-        self.assertEqual(config.template_path, DEFAULT_TEMPLATE_PATH)
+        self.assertEqual(config.design_name, DEFAULT_RENDER_STYLE)
         self.assertEqual(config.qr_chunk_size, DEFAULT_CHUNK_SIZE)
 
     def test_load_app_config_empty_file(self) -> None:
@@ -120,13 +110,14 @@ size = "Letter"
             path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             config = load_app_config(path=path)
 
-        self.assertEqual(config.paper_size, "Letter")
+        self.assertEqual(config.paper_size, "LETTER")
         # QR config should have defaults
         self.assertIsNotNone(config.qr_config)
 
     def test_load_app_config_various_paper_sizes(self) -> None:
-        """Test loading config with various paper sizes."""
-        for paper_size in ["A4", "Letter", "Legal", "A3", "A5"]:
+        """Test loading config with supported paper sizes."""
+        cases = (("A4", "A4"), ("Letter", "LETTER"), ("LETTER", "LETTER"))
+        for paper_size, expected in cases:
             toml = f"""
 [page]
 size = "{paper_size}"
@@ -135,7 +126,19 @@ size = "{paper_size}"
                 path = Path(tmpdir) / "config.toml"
                 path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
                 config = load_app_config(path=path)
-            self.assertEqual(config.paper_size, paper_size)
+            self.assertEqual(config.paper_size, expected)
+
+    def test_load_app_config_rejects_unsupported_paper_sizes(self) -> None:
+        for paper_size in ["Legal", "A3", "A5"]:
+            toml = f"""
+[page]
+size = "{paper_size}"
+"""
+            with self.subTest(paper_size=paper_size), tempfile.TemporaryDirectory() as tmpdir:
+                path = Path(tmpdir) / "config.toml"
+                path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "page.size must be one of: A4, LETTER"):
+                    load_app_config(path=path)
 
     def test_load_app_config_qr_boundary_values(self) -> None:
         """Test QR config with boundary values."""
@@ -168,6 +171,28 @@ chunk_size = 0
             path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             with self.assertRaises(ValueError):
                 load_app_config(path=path)
+
+    def test_load_app_config_rejects_coerced_qr_scalars(self) -> None:
+        cases = (
+            ("scale", '"6"', "qr.scale must be an integer"),
+            ("border", "2.0", "qr.border must be an integer"),
+            ("version", '"3"', "qr.version must be an integer"),
+            ("chunk_size", '"512"', "qr.chunk_size must be an integer"),
+        )
+        for field, value, expected_error in cases:
+            with self.subTest(field=field, value=value), tempfile.TemporaryDirectory() as tmpdir:
+                path = Path(tmpdir) / "config.toml"
+                path.write_text(
+                    self._with_required_qr_payload_codec(
+                        f"""
+[qr]
+{field} = {value}
+"""
+                    ),
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(ValueError, expected_error):
+                    load_app_config(path=path)
 
     def test_load_app_config_parses_extension_chunking(self) -> None:
         toml = """
@@ -283,7 +308,7 @@ mask = 7
         self.assertEqual(config.qr_config.version, 40)
         self.assertEqual(config.qr_config.mask, 7)
 
-    def test_load_app_config_template_names_per_section(self) -> None:
+    def test_load_app_config_ignores_removed_template_sections(self) -> None:
         toml = """
 [template]
 name = "sentinel"
@@ -305,104 +330,76 @@ name = "sentinel"
             path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             config = load_app_config(path=path)
 
-        self.assertEqual(config.template_path.parent.name, "sentinel")
-        self.assertEqual(config.recovery_template_path.parent.name, "sentinel")
-        self.assertEqual(config.shard_template_path.parent.name, "sentinel")
-        self.assertEqual(config.signing_key_shard_template_path.parent.name, "maritime")
-        self.assertEqual(config.kit_template_path.parent.name, "sentinel")
-        self.assertEqual(config.template_path.name, DEFAULT_TEMPLATE_PATH.name)
-        self.assertEqual(config.recovery_template_path.name, DEFAULT_RECOVERY_TEMPLATE_PATH.name)
-        self.assertEqual(config.shard_template_path.name, DEFAULT_SHARD_TEMPLATE_PATH.name)
-        self.assertEqual(
-            config.signing_key_shard_template_path.name,
-            DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH.name,
-        )
-        self.assertEqual(config.kit_template_path.name, DEFAULT_KIT_TEMPLATE_PATH.name)
+        self.assertEqual(config.design_name, DEFAULT_RENDER_STYLE)
 
-    def test_load_app_config_template_default_name_fallback(self) -> None:
+    def test_load_app_config_reads_single_render_style(self) -> None:
         toml = """
-[templates]
-default_name = "forge"
-
-[signing_key_shard_template]
-name = "maritime"
+[render]
+style = "forge"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
             path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             config = load_app_config(path=path)
 
-        self.assertEqual(config.template_path.parent.name, "forge")
-        self.assertEqual(config.recovery_template_path.parent.name, "forge")
-        self.assertEqual(config.shard_template_path.parent.name, "forge")
-        self.assertEqual(config.kit_template_path.parent.name, "forge")
-        self.assertEqual(config.signing_key_shard_template_path.parent.name, "maritime")
+        self.assertEqual(config.design_name, "forge")
 
-    def test_load_app_config_rejects_legacy_template_path_key(self) -> None:
+    def test_load_app_config_ignores_removed_legacy_render_key(self) -> None:
         toml = """
 [template]
-path = "templates/ledger/main_document.html.j2"
+path = "templates/ledger/legacy-template.html"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
             path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "template.path is unsupported"):
-                load_app_config(path=path)
+            config = load_app_config(path=path)
+        self.assertEqual(config.design_name, DEFAULT_RENDER_STYLE)
 
-    def test_load_app_config_rejects_blank_template_name(self) -> None:
+    def test_load_app_config_rejects_blank_render_style(self) -> None:
         toml = """
-[template]
-name = "   "
+[render]
+style = "   "
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
             path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "template.name must be a non-empty string"):
+            with self.assertRaisesRegex(ValueError, "render.style must be a non-empty string"):
                 load_app_config(path=path)
 
-    def test_load_app_config_rejects_unknown_template_name(self) -> None:
+    def test_load_app_config_rejects_unknown_render_style(self) -> None:
         toml = """
-[template]
-name = "does-not-exist"
+[render]
+style = "does-not-exist"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
             path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "unknown template design"):
+            with self.assertRaisesRegex(ValueError, "unknown render style"):
                 load_app_config(path=path)
 
-    def test_load_app_config_rejects_invalid_default_name(self) -> None:
+    def test_load_app_config_rejects_invalid_render_style(self) -> None:
         toml = """
-[templates]
-default_name = 123
+[render]
+style = 123
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
             path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
-            with self.assertRaisesRegex(
-                ValueError, "templates.default_name must be a non-empty string"
-            ):
+            with self.assertRaisesRegex(ValueError, "render.style must be a non-empty string"):
                 load_app_config(path=path)
 
-    def test_apply_template_design_overrides_name_resolved_templates(self) -> None:
+    def test_apply_render_style_overrides_render_style(self) -> None:
         toml = """
-[templates]
-default_name = "sentinel"
-
-[signing_key_shard_template]
-name = "maritime"
+[render]
+style = "sentinel"
 """
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "config.toml"
             path.write_text(self._with_required_qr_payload_codec(toml), encoding="utf-8")
             config = load_app_config(path=path)
 
-        overridden = apply_template_design(config, "forge")
-        self.assertEqual(overridden.template_path.parent.name, "forge")
-        self.assertEqual(overridden.recovery_template_path.parent.name, "forge")
-        self.assertEqual(overridden.shard_template_path.parent.name, "forge")
-        self.assertEqual(overridden.signing_key_shard_template_path.parent.name, "forge")
-        self.assertEqual(overridden.kit_template_path.parent.name, "forge")
+        overridden = apply_render_style(config, "forge")
+        self.assertEqual(overridden.design_name, "forge")
 
     def test_load_app_config_color_tuples(self) -> None:
         """Test loading config with RGB color tuples."""

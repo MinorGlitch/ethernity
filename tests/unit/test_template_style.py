@@ -25,7 +25,7 @@ _TEMPLATES_ROOT = _PROJECT_ROOT / "src" / "ethernity" / "resources" / "templates
 
 class TestTemplateStyle(unittest.TestCase):
     def test_builtin_styles_match_expected_values(self) -> None:
-        archive = load_template_style(_TEMPLATES_ROOT / "archive" / "recovery_document.html.j2")
+        archive = load_template_style(_TEMPLATES_ROOT / "archive")
         self.assertEqual(archive.name, "archive")
         self.assertEqual(archive.capabilities.recovery_line_groups_bonus, 0)
         self.assertEqual(archive.capabilities.recovery_first_page_bonus_lines, 13)
@@ -37,7 +37,7 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertEqual(archive.capabilities.shard_line_groups_bonus, 10)
         self.assertEqual(archive.capabilities.signing_key_shard_line_groups_bonus, 10)
 
-        ledger = load_template_style(_TEMPLATES_ROOT / "ledger" / "main_document.html.j2")
+        ledger = load_template_style(_TEMPLATES_ROOT / "ledger")
         self.assertEqual(ledger.name, "ledger")
         self.assertAlmostEqual(ledger.header.meta_row_gap_mm, 1.2)
         self.assertAlmostEqual(ledger.header.stack_gap_mm, 0.0)
@@ -55,7 +55,7 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertIsNone(ledger.capabilities.fallback_layout)
         self.assertFalse(ledger.capabilities.recovery_first_page_single_section)
 
-        maritime = load_template_style(_TEMPLATES_ROOT / "maritime" / "main_document.html.j2")
+        maritime = load_template_style(_TEMPLATES_ROOT / "maritime")
         self.assertEqual(maritime.name, "maritime")
         self.assertAlmostEqual(maritime.header.meta_row_gap_mm, 1.2)
         self.assertAlmostEqual(maritime.header.stack_gap_mm, 1.6)
@@ -65,7 +65,7 @@ class TestTemplateStyle(unittest.TestCase):
         self.assertTrue(maritime.capabilities.repeat_main_instructions_on_all_pages)
         self.assertFalse(maritime.capabilities.recovery_kit_index_document)
 
-        forge = load_template_style(_TEMPLATES_ROOT / "forge" / "main_document.html.j2")
+        forge = load_template_style(_TEMPLATES_ROOT / "forge")
         self.assertEqual(forge.name, "forge")
         self.assertAlmostEqual(forge.header.meta_row_gap_mm, 1.2)
         self.assertAlmostEqual(forge.header.stack_gap_mm, 1.2)
@@ -103,7 +103,7 @@ class TestTemplateStyle(unittest.TestCase):
                 37.8,
             )
 
-        sentinel = load_template_style(_TEMPLATES_ROOT / "sentinel" / "main_document.html.j2")
+        sentinel = load_template_style(_TEMPLATES_ROOT / "sentinel")
         self.assertEqual(sentinel.name, "sentinel")
         self.assertAlmostEqual(sentinel.header.meta_row_gap_mm, 1.2)
         self.assertAlmostEqual(sentinel.header.stack_gap_mm, 1.2)
@@ -155,8 +155,7 @@ class TestTemplateStyle(unittest.TestCase):
 """,
                 encoding="utf-8",
             )
-            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
-            style = load_template_style(template_dir / "main_document.html.j2")
+            style = load_template_style(template_dir)
             self.assertFalse(style.capabilities.inject_forge_copy)
             self.assertFalse(style.capabilities.recovery_first_page_single_section)
             self.assertFalse(style.capabilities.repeat_primary_qr_on_shard_continuation)
@@ -230,8 +229,7 @@ class TestTemplateStyle(unittest.TestCase):
 """,
                 encoding="utf-8",
             )
-            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
-            style = load_template_style(template_dir / "main_document.html.j2")
+            style = load_template_style(template_dir)
             self.assertFalse(style.capabilities.inject_forge_copy)
             self.assertTrue(style.capabilities.repeat_primary_qr_on_shard_continuation)
             self.assertTrue(style.capabilities.advanced_fallback_layout)
@@ -264,9 +262,8 @@ class TestTemplateStyle(unittest.TestCase):
 """,
                 encoding="utf-8",
             )
-            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "unknown key\\(s\\) in template style"):
-                load_template_style(template_dir / "main_document.html.j2")
+                load_template_style(template_dir)
 
     def test_style_rejects_unknown_capability_keys(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -291,9 +288,8 @@ class TestTemplateStyle(unittest.TestCase):
 """,
                 encoding="utf-8",
             )
-            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "unknown key\\(s\\) in capabilities"):
-                load_template_style(template_dir / "main_document.html.j2")
+                load_template_style(template_dir)
 
     def test_style_rejects_non_bool_capability_values(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -317,12 +313,11 @@ class TestTemplateStyle(unittest.TestCase):
 """,
                 encoding="utf-8",
             )
-            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
             with self.assertRaisesRegex(
                 ValueError,
                 "missing or invalid 'repeat_primary_qr_on_shard_continuation' boolean",
             ):
-                load_template_style(template_dir / "main_document.html.j2")
+                load_template_style(template_dir)
 
     def test_style_rejects_removed_legacy_capability_keys(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -346,12 +341,11 @@ class TestTemplateStyle(unittest.TestCase):
 """,
                 encoding="utf-8",
             )
-            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
             with self.assertRaisesRegex(
                 ValueError,
                 "legacy capability keys removed: wide_recovery_fallback_lines",
             ):
-                load_template_style(template_dir / "main_document.html.j2")
+                load_template_style(template_dir)
 
     def test_style_rejects_invalid_main_qr_grid_capability_values(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -376,12 +370,11 @@ class TestTemplateStyle(unittest.TestCase):
 """,
                 encoding="utf-8",
             )
-            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
             with self.assertRaisesRegex(
                 ValueError,
                 "missing or invalid 'main_qr_grid_size_mm' positive number",
             ):
-                load_template_style(template_dir / "main_document.html.j2")
+                load_template_style(template_dir)
 
     def test_style_rejects_boolean_where_number_required(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -402,12 +395,11 @@ class TestTemplateStyle(unittest.TestCase):
 """,
                 encoding="utf-8",
             )
-            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
             with self.assertRaisesRegex(
                 ValueError,
                 "missing or invalid 'meta_row_gap_mm' number",
             ):
-                load_template_style(template_dir / "main_document.html.j2")
+                load_template_style(template_dir)
 
     def test_style_rejects_negative_recovery_continuation_footer_reserve(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -453,12 +445,11 @@ class TestTemplateStyle(unittest.TestCase):
 """,
                 encoding="utf-8",
             )
-            (template_dir / "main_document.html.j2").write_text("", encoding="utf-8")
             with self.assertRaisesRegex(
                 ValueError,
                 "missing or invalid 'continuation_footer_reserve_mm' non-negative number",
             ):
-                load_template_style(template_dir / "main_document.html.j2")
+                load_template_style(template_dir)
 
 
 if __name__ == "__main__":

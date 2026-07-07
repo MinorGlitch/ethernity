@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Literal
 
 from ethernity.qr.codec import QrConfig
@@ -101,11 +100,7 @@ class CliDefaults:
 class AppConfig:
     """Resolved application configuration used by runtime services."""
 
-    template_path: Path
-    recovery_template_path: Path
-    shard_template_path: Path
-    signing_key_shard_template_path: Path
-    kit_template_path: Path
+    design_name: str
     paper_size: str
     qr_config: QrConfig
     qr_chunk_size: int

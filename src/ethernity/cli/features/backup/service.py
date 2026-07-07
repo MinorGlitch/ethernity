@@ -30,7 +30,7 @@ from ethernity.cli.shared.io.inputs import _load_input_files
 from ethernity.cli.shared.log import _warn
 from ethernity.cli.shared.plan import _validate_backup_args
 from ethernity.cli.shared.types import BackupArgs, BackupResult, InputFile
-from ethernity.config import AppConfig, apply_template_design, load_app_config
+from ethernity.config import AppConfig, apply_render_style, load_app_config
 from ethernity.core.models import DocumentPlan, SigningSeedMode
 from ethernity.render.types import RenderLineage
 
@@ -63,7 +63,7 @@ def prepare_backup_run(
     with event_session(event_sink):
         emit_phase(phase="plan", label="Resolving backup configuration")
         config = load_app_config(args.config, paper_size=args.paper)
-        config = apply_template_design(config, args.design)
+        config = apply_render_style(config, args.design)
         config = apply_qr_chunk_size_override(config, args.qr_chunk_size)
         _validate_backup_args(args)
         plan = plan_from_args(args)

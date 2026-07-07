@@ -17,40 +17,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
 from pypdf import PdfReader
 
-from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
 from ethernity.encoding.framing import DOC_ID_LEN, Frame, FrameType
 from ethernity.render import RenderInputs, RenderLineage, render_frames_to_pdf
-from tests.test_support import ensure_playwright_browsers
-
-
-def _template_path(design: str, name: str) -> Path:
-    return TEMPLATES_RESOURCE_ROOT / design / name
-
-
-def _playwright_ready() -> bool:
-    if sync_playwright is None:
-        return False
-    try:
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.launch()
-            browser.close()
-        return True
-    except Exception:
-        return False
 
 
 class TestPdfPageCount(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        ensure_playwright_browsers()
-
     def test_multi_page_output(self) -> None:
-        if not _playwright_ready():
-            self.skipTest("playwright not available")
-
         doc_id = b"\x77" * DOC_ID_LEN
         frames = [
             Frame(
@@ -67,12 +41,10 @@ class TestPdfPageCount(unittest.TestCase):
             "paper_size": "A4",
         }
 
-        template_path = _template_path("ledger", "main_document.html.j2")
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / "out.pdf"
             inputs = RenderInputs(
                 frames=frames,
-                template_path=template_path,
                 output_path=output_path,
                 context=context,
                 doc_type="main",

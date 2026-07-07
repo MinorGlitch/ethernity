@@ -21,16 +21,21 @@ from __future__ import annotations
 import tomllib
 from dataclasses import replace
 from pathlib import Path
-from typing import Callable, Literal, TypeVar, cast
+from typing import Literal, cast
 
-from ethernity.config.install import resolve_config_path, resolve_template_design_path
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
+
+from ethernity.config.install import resolve_config_path, resolve_render_style_path
 from ethernity.config.paths import (
-    DEFAULT_KIT_TEMPLATE_PATH,
     DEFAULT_PAPER_SIZE,
-    DEFAULT_RECOVERY_TEMPLATE_PATH,
-    DEFAULT_SHARD_TEMPLATE_PATH,
-    DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
-    DEFAULT_TEMPLATE_PATH,
+    DEFAULT_RENDER_STYLE,
 )
 from ethernity.config.types import (
     AppConfig,
@@ -48,67 +53,186 @@ from ethernity.encoding.chunking import DEFAULT_CHUNK_SIZE
 from ethernity.formats.extension_envelope import MIN_EXTENSION_CHUNK_SIZE
 from ethernity.qr.codec import QrConfig
 
-_T = TypeVar("_T")
+_QR_ERROR_LEVELS = frozenset({"L", "M", "Q", "H"})
+_PAGE_SIZES = frozenset({"A4", "LETTER"})
+
+
+class _QrSectionData(BaseModel):
+    """Pydantic boundary model for `[qr]` TOML values."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    error: str = "Q"
+    scale: int = 4
+    border: int = 4
+    kind: str = "png"
+    dark: str | tuple[int, int, int] | tuple[int, int, int, int] | None = None
+    light: str | tuple[int, int, int] | tuple[int, int, int, int] | None = None
+    version: int | None = None
+    mask: int | None = None
+    micro: bool | None = None
+    boost_error: bool = True
+    chunk_size: int | None = None
+
+    @field_validator("error", mode="before")
+    @classmethod
+    def _validate_error(cls, value: object) -> str:
+        if not isinstance(value, str) or value not in _QR_ERROR_LEVELS:
+            raise ValueError("qr.error must be one of: L, M, Q, H")
+        return value
+
+    @field_validator("scale", mode="before")
+    @classmethod
+    def _validate_scale(cls, value: object) -> int:
+        parsed = _require_int(value, field="qr.scale")
+        if parsed <= 0:
+            raise ValueError("qr.scale must be a positive integer")
+        return parsed
+
+    @field_validator("border", mode="before")
+    @classmethod
+    def _validate_border(cls, value: object) -> int:
+        parsed = _require_int(value, field="qr.border")
+        if parsed < 0:
+            raise ValueError("qr.border must be a non-negative integer")
+        return parsed
+
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _validate_kind(cls, value: object) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("qr.kind must be a non-empty string")
+        return value
+
+    @field_validator("dark", "light", mode="before")
+    @classmethod
+    def _validate_color(
+        cls,
+        value: object,
+        info: ValidationInfo,
+    ) -> str | tuple[int, int, int] | tuple[int, int, int, int] | None:
+        field_name = info.field_name or "color"
+        return _parse_color(value, field=f"qr.{field_name}")
+
+    @field_validator("version", mode="before")
+    @classmethod
+    def _validate_version(cls, value: object) -> int | None:
+        if value is None:
+            return None
+        parsed = _require_int(value, field="qr.version")
+        if parsed < 1 or parsed > 40:
+            raise ValueError("qr.version must be between 1 and 40")
+        return parsed
+
+    @field_validator("mask", mode="before")
+    @classmethod
+    def _validate_mask(cls, value: object) -> int | None:
+        if value is None:
+            return None
+        parsed = _require_int(value, field="qr.mask")
+        if parsed < 0 or parsed > 7:
+            raise ValueError("qr.mask must be between 0 and 7")
+        return parsed
+
+    @field_validator("micro", mode="before")
+    @classmethod
+    def _validate_micro(cls, value: object) -> bool | None:
+        if value is None:
+            return None
+        return _require_bool(value, field="qr.micro")
+
+    @field_validator("boost_error", mode="before")
+    @classmethod
+    def _validate_boost_error(cls, value: object) -> bool:
+        return _require_bool(value, field="qr.boost_error")
+
+    @field_validator("chunk_size", mode="before")
+    @classmethod
+    def _validate_chunk_size(cls, value: object) -> int | None:
+        if value is None:
+            return None
+        parsed = _require_int(value, field="qr.chunk_size")
+        if parsed <= 0:
+            raise ValueError("qr.chunk_size must be a positive integer")
+        return parsed
+
+    def to_qr_config(self) -> QrConfig:
+        return QrConfig(
+            error=self.error,
+            scale=self.scale,
+            border=self.border,
+            kind=self.kind,
+            dark=self.dark,
+            light=self.light,
+            version=self.version,
+            mask=self.mask,
+            micro=self.micro,
+            boost_error=self.boost_error,
+        )
+
+
+class _ExtensionChunkingData(BaseModel):
+    """Pydantic boundary model for `[extension.chunking]` TOML values."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    target_size: int | None = None
+    min_size: int | None = None
+    max_size: int | None = None
+
+    @field_validator("target_size", "min_size", "max_size", mode="before")
+    @classmethod
+    def _validate_size(cls, value: object, info: ValidationInfo) -> int | None:
+        field_name = info.field_name or "value"
+        label = f"extension.chunking.{field_name}"
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"{label} must be a positive integer")
+        if value <= 0:
+            raise ValueError(f"{label} must be a positive integer")
+        _validate_extension_chunking_size(field=field_name, value=value)
+        return value
+
+    @model_validator(mode="after")
+    def _validate_order(self) -> _ExtensionChunkingData:
+        chunking = self.to_public()
+        if not chunking.min_size <= chunking.target_size <= chunking.max_size:
+            raise ValueError(
+                "extension.chunking sizes must satisfy min_size <= target_size <= max_size"
+            )
+        return self
+
+    def to_public(self) -> ExtensionChunkingDefaults:
+        defaults = ExtensionChunkingDefaults()
+        return ExtensionChunkingDefaults(
+            target_size=defaults.target_size if self.target_size is None else self.target_size,
+            min_size=defaults.min_size if self.min_size is None else self.min_size,
+            max_size=defaults.max_size if self.max_size is None else self.max_size,
+        )
 
 
 def load_app_config(path: str | Path | None = None, *, paper_size: str | None = None) -> AppConfig:
-    """Load app configuration and apply defaults and template resolution."""
+    """Load app configuration and apply defaults and render-style resolution."""
 
     config_path = resolve_config_path(path)
     data = _load_toml(config_path)
     cli_defaults = _parse_cli_defaults(data)
-    templates_cfg = _get_dict(data, "templates")
-    default_design_path = _resolve_default_template_design_path(templates_cfg)
-    template_path = _resolve_template_section_path(
-        data,
-        section="template",
-        default_template_path=DEFAULT_TEMPLATE_PATH,
-        default_design_path=default_design_path,
-    )
-    recovery_path = _resolve_template_section_path(
-        data,
-        section="recovery_template",
-        default_template_path=DEFAULT_RECOVERY_TEMPLATE_PATH,
-        default_design_path=default_design_path,
-    )
-    shard_path = _resolve_template_section_path(
-        data,
-        section="shard_template",
-        default_template_path=DEFAULT_SHARD_TEMPLATE_PATH,
-        default_design_path=default_design_path,
-    )
-    signing_key_shard_path = _resolve_template_section_path(
-        data,
-        section="signing_key_shard_template",
-        default_template_path=DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH,
-        default_design_path=default_design_path,
-    )
-    kit_path = _resolve_template_section_path(
-        data,
-        section="kit_template",
-        default_template_path=DEFAULT_KIT_TEMPLATE_PATH,
-        default_design_path=default_design_path,
-    )
-
+    design_name = _resolve_render_style(_get_dict(data, "render"))
     page_cfg = _get_dict(data, "page")
-    resolved_paper_size = (
-        paper_size or _parse_optional_str(page_cfg.get("size")) or DEFAULT_PAPER_SIZE
+    resolved_paper_size = _resolve_page_size(
+        override=paper_size,
+        configured=page_cfg.get("size"),
     )
     qr_section = _get_dict(data, "qr")
-    qr_config = build_qr_config(qr_section)
-    qr_chunk_size_value = _parse_optional_int(qr_section.get("chunk_size"))
-    qr_chunk_size = DEFAULT_CHUNK_SIZE if qr_chunk_size_value is None else qr_chunk_size_value
-    if qr_chunk_size <= 0:
-        raise ValueError("qr.chunk_size must be a positive integer")
+    qr_data = _parse_qr_section(qr_section)
+    qr_config = qr_data.to_qr_config()
+    qr_chunk_size = DEFAULT_CHUNK_SIZE if qr_data.chunk_size is None else qr_data.chunk_size
     extension_chunking = _parse_extension_chunking_defaults(
         _get_nested_dict(data, "extension", "chunking")
     )
     return AppConfig(
-        template_path=template_path,
-        recovery_template_path=recovery_path,
-        shard_template_path=shard_path,
-        signing_key_shard_template_path=signing_key_shard_path,
-        kit_template_path=kit_path,
+        design_name=design_name,
         paper_size=resolved_paper_size,
         qr_config=qr_config,
         qr_chunk_size=qr_chunk_size,
@@ -125,41 +249,53 @@ def load_cli_defaults(path: str | Path | None = None) -> CliDefaults:
     return _parse_cli_defaults(data)
 
 
-def apply_template_design(config: AppConfig, design: str | None) -> AppConfig:
-    """Override template paths in a config with a resolved design name."""
+def apply_render_style(config: AppConfig, style: str | None) -> AppConfig:
+    """Override the configured built-in render style."""
 
-    if not design:
+    if not style:
         return config
-    design_path = resolve_template_design_path(design)
-    return replace(
-        config,
-        template_path=design_path / DEFAULT_TEMPLATE_PATH.name,
-        recovery_template_path=design_path / DEFAULT_RECOVERY_TEMPLATE_PATH.name,
-        shard_template_path=design_path / DEFAULT_SHARD_TEMPLATE_PATH.name,
-        signing_key_shard_template_path=(
-            design_path / DEFAULT_SIGNING_KEY_SHARD_TEMPLATE_PATH.name
-        ),
-        kit_template_path=design_path / DEFAULT_KIT_TEMPLATE_PATH.name,
-    )
+    _ = resolve_render_style_path(style)
+    return replace(config, design_name=style.strip().lower())
+
+
+def _parse_qr_section(cfg: dict[str, object]) -> _QrSectionData:
+    try:
+        return _QrSectionData.model_validate(cfg)
+    except ValidationError as exc:
+        raise ValueError(_first_pydantic_value_error(exc)) from exc
+
+
+def _resolve_page_size(*, override: str | None, configured: object) -> str:
+    if override is not None:
+        return _parse_page_size(override, field="paper_size")
+    if configured is None:
+        return DEFAULT_PAPER_SIZE
+    return _parse_page_size(configured, field="page.size")
+
+
+def _parse_page_size(value: object, *, field: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be one of: A4, LETTER")
+    normalized = value.strip().upper()
+    if normalized not in _PAGE_SIZES:
+        raise ValueError(f"{field} must be one of: A4, LETTER")
+    return normalized
+
+
+def _resolve_render_style(cfg: dict[str, object]) -> str:
+    """Resolve the single user-facing built-in render style setting."""
+
+    style = _parse_optional_style_name(cfg.get("style"), field="render.style")
+    if style is None:
+        return DEFAULT_RENDER_STYLE
+    _ = _resolve_style_path(style, field="render.style")
+    return style.strip().lower()
 
 
 def build_qr_config(cfg: dict[str, object] | None = None) -> QrConfig:
     """Build QR rendering config from a parsed TOML section."""
 
-    cfg = cfg or {}
-    boost_error = _parse_optional_bool(cfg.get("boost_error"), field="qr.boost_error")
-    return QrConfig(
-        error=str(cfg.get("error", "Q")),
-        scale=_parse_int(cfg.get("scale"), default=4),
-        border=_parse_int(cfg.get("border"), default=4),
-        kind=str(cfg.get("kind", "png")),
-        dark=_parse_color(cfg.get("dark"), field="qr.dark"),
-        light=_parse_color(cfg.get("light"), field="qr.light"),
-        version=_parse_optional_int(cfg.get("version")),
-        mask=_parse_optional_int(cfg.get("mask")),
-        micro=_parse_optional_bool(cfg.get("micro"), field="qr.micro"),
-        boost_error=True if boost_error is None else boost_error,
-    )
+    return _parse_qr_section(cfg or {}).to_qr_config()
 
 
 def _parse_cli_defaults(data: dict[str, object]) -> CliDefaults:
@@ -333,41 +469,10 @@ def _parse_runtime_defaults(cfg: dict[str, object]) -> RuntimeDefaults:
 
 
 def _parse_extension_chunking_defaults(cfg: dict[str, object]) -> ExtensionChunkingDefaults:
-    target_size = _parse_optional_strict_positive_int(
-        cfg.get("target_size"),
-        field="extension.chunking.target_size",
-    )
-    min_size = _parse_optional_strict_positive_int(
-        cfg.get("min_size"),
-        field="extension.chunking.min_size",
-    )
-    max_size = _parse_optional_strict_positive_int(
-        cfg.get("max_size"),
-        field="extension.chunking.max_size",
-    )
-    defaults = ExtensionChunkingDefaults()
-    chunking = ExtensionChunkingDefaults(
-        target_size=defaults.target_size if target_size is None else target_size,
-        min_size=defaults.min_size if min_size is None else min_size,
-        max_size=defaults.max_size if max_size is None else max_size,
-    )
-    if chunking.target_size <= 0:
-        raise ValueError("extension.chunking.target_size must be a positive integer")
-    if chunking.min_size <= 0:
-        raise ValueError("extension.chunking.min_size must be a positive integer")
-    if chunking.max_size <= 0:
-        raise ValueError("extension.chunking.max_size must be a positive integer")
-    for field, value in (
-        ("target_size", chunking.target_size),
-        ("min_size", chunking.min_size),
-        ("max_size", chunking.max_size),
-    ):
-        _validate_extension_chunking_size(field=field, value=value)
-    if not chunking.min_size <= chunking.target_size <= chunking.max_size:
-        raise ValueError(
-            "extension.chunking sizes must satisfy min_size <= target_size <= max_size"
-        )
-    return chunking
+    try:
+        return _ExtensionChunkingData.model_validate(cfg).to_public()
+    except ValidationError as exc:
+        raise ValueError(_first_pydantic_value_error(exc)) from exc
 
 
 def _validate_extension_chunking_size(*, field: str, value: int) -> None:
@@ -378,55 +483,25 @@ def _validate_extension_chunking_size(*, field: str, value: int) -> None:
         raise ValueError(f"{label} must be <= MAX_DECOMPRESSED_PAYLOAD_BYTES")
 
 
-def _resolve_default_template_design_path(cfg: dict[str, object]) -> Path | None:
-    """Resolve the default template design path from `[templates]`."""
-
-    design = _parse_optional_template_name(cfg.get("default_name"), field="templates.default_name")
-    if design is None:
-        return None
-    return _resolve_design_path(design, field="templates.default_name")
-
-
-def _resolve_template_section_path(
-    data: dict[str, object],
-    *,
-    section: str,
-    default_template_path: Path,
-    default_design_path: Path | None,
-) -> Path:
-    """Resolve a template file path for a config section."""
-
-    cfg = _get_dict(data, section)
-    _reject_legacy_template_path(cfg, section=section)
-    design_name = _parse_optional_template_name(cfg.get("name"), field=f"{section}.name")
-    if design_name is None:
-        if default_design_path is None:
-            return default_template_path
-        return default_design_path / default_template_path.name
-    design_path = _resolve_design_path(design_name, field=f"{section}.name")
-    return design_path / default_template_path.name
+def _first_pydantic_value_error(exc: ValidationError) -> str:
+    first_error = exc.errors()[0]
+    context_error = first_error.get("ctx", {}).get("error")
+    if isinstance(context_error, ValueError):
+        return str(context_error)
+    return str(exc)
 
 
-def _reject_legacy_template_path(cfg: dict[str, object], *, section: str) -> None:
-    """Reject deprecated template path overrides in favor of design names."""
-
-    if "path" in cfg:
-        raise ValueError(
-            f'{section}.path is unsupported in this build; use {section}.name = "<design>"'
-        )
-
-
-def _resolve_design_path(design: str, *, field: str) -> Path:
-    """Resolve a design path and rewrite errors with config field context."""
+def _resolve_style_path(style: str, *, field: str) -> Path:
+    """Resolve a render style and rewrite errors with config field context."""
 
     try:
-        return resolve_template_design_path(design)
+        return resolve_render_style_path(style)
     except ValueError as exc:
         raise ValueError(f"{field}: {exc}") from exc
 
 
-def _parse_optional_template_name(value: object, *, field: str) -> str | None:
-    """Parse an optional template design name, rejecting blank strings."""
+def _parse_optional_style_name(value: object, *, field: str) -> str | None:
+    """Parse an optional render style name, rejecting blank strings."""
 
     if value is None:
         return None
@@ -484,24 +559,11 @@ def _parse_optional_unset_str(value: object, *, field: str) -> str | None:
 
 
 def _parse_bool(value: object, *, field: str, default: bool) -> bool:
-    """Parse a strict boolean-like config value with a default."""
+    """Parse a TOML boolean config value with a default."""
 
     if value is None:
         return default
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, int):
-        if value in (0, 1):
-            return bool(value)
-        raise ValueError(f"{field} must be a boolean")
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"1", "true", "yes", "on"}:
-            return True
-        if normalized in {"0", "false", "no", "off"}:
-            return False
-        raise ValueError(f"{field} must be a boolean")
-    raise ValueError(f"{field} must be a boolean")
+    return _require_bool(value, field=field)
 
 
 def _parse_optional_signing_key_mode(
@@ -635,38 +697,22 @@ def _parse_optional_render_jobs(
     return parsed
 
 
-def _parse_optional_strict_positive_int(value: object, *, field: str) -> int | None:
-    """Parse an optional positive TOML integer without scalar coercion."""
+def _parse_int_strict(value: object, *, field: str) -> int:
+    """Parse a TOML integer field without scalar coercion."""
 
-    if value is None:
-        return None
+    return _require_int(value, field=field)
+
+
+def _require_int(value: object, *, field: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{field} must be a positive integer")
-    if value <= 0:
-        raise ValueError(f"{field} must be a positive integer")
+        raise ValueError(f"{field} must be an integer")
     return value
 
 
-def _parse_int_strict(value: object, *, field: str) -> int:
-    """Parse an integer field without silently accepting booleans."""
-
-    if isinstance(value, bool):
-        raise ValueError(f"{field} must be an integer")
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        if not value.is_integer():
-            raise ValueError(f"{field} must be an integer")
-        return int(value)
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            raise ValueError(f"{field} must be an integer")
-        try:
-            return int(text)
-        except ValueError as exc:
-            raise ValueError(f"{field} must be an integer") from exc
-    raise ValueError(f"{field} must be an integer")
+def _require_bool(value: object, *, field: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{field} must be a boolean")
+    return value
 
 
 def _parse_color(
@@ -693,57 +739,3 @@ def _parse_color(
             return channels
         return cast(tuple[int, int, int, int], channels)
     raise ValueError(f"{field} must be a color string or RGB/RGBA tuple")
-
-
-def _parse_int(value: object, *, default: int) -> int:
-    """Parse an integer-like value or return the provided default."""
-
-    return _parse_number(value, cast=int, default=default)
-
-
-def _parse_optional_int(value: object) -> int | None:
-    """Parse an optional integer-like value."""
-
-    return _parse_optional_number(value, cast=int, label="integer")
-
-
-def _parse_optional_str(value: object) -> str | None:
-    """Return a string value or `None` for unsupported types."""
-
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return value
-    return None
-
-
-def _parse_optional_bool(value: object, *, field: str) -> bool | None:
-    """Parse an optional boolean value and reject invalid coercions."""
-
-    if value is None:
-        return None
-    return _parse_bool(value, field=field, default=False)
-
-
-def _parse_number(value: object, *, cast: Callable[[int | float | str], _T], default: _T) -> _T:
-    """Cast scalar config values with a fallback default."""
-
-    if isinstance(value, (int, float, str)):
-        return cast(value)
-    return default
-
-
-def _parse_optional_number(
-    value: object,
-    *,
-    cast: Callable[[int | float | str], _T],
-    default: _T | None = None,
-    label: str,
-) -> _T | None:
-    """Cast optional scalar config values and reject unsupported container types."""
-
-    if value is None:
-        return default
-    if isinstance(value, (int, float, str)):
-        return cast(value)
-    raise ValueError(f"expected {label} value")

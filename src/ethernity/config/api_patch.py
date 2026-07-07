@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import copy
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -33,13 +32,13 @@ from ethernity.config.install import (
     first_run_onboarding_configured_fields,
     first_run_onboarding_marker_path,
     first_run_onboarding_needed,
-    list_template_designs,
+    list_render_styles,
     mark_first_run_onboarding_complete,
     resolve_config_snapshot_path,
     resolve_writable_config_path,
 )
 from ethernity.config.load import _load_toml, load_app_config, load_cli_defaults
-from ethernity.config.paths import DEFAULT_CONFIG_PATH, DEFAULT_TEMPLATE_STYLE
+from ethernity.config.paths import DEFAULT_CONFIG_PATH, DEFAULT_RENDER_STYLE
 from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES
 from ethernity.formats.extension_envelope import MIN_EXTENSION_CHUNK_SIZE
 
@@ -207,23 +206,13 @@ def _snapshot_from_path(path: Path, *, source: ConfigTargetSource) -> ApiConfigS
     )
 
 
-def _raw_default_design(raw: dict[str, object]) -> str:
-    templates = raw.get("templates")
-    if isinstance(templates, dict):
-        value = templates.get("default_name")
+def _raw_render_style(raw: dict[str, object]) -> str:
+    render = raw.get("render")
+    if isinstance(render, dict):
+        value = render.get("style")
         if isinstance(value, str) and value.strip():
             return value.strip()
-    return DEFAULT_TEMPLATE_STYLE
-
-
-def _raw_section_design(raw: dict[str, object], *, section: str) -> str | None:
-    section_data = raw.get(section)
-    if not isinstance(section_data, dict):
-        return None
-    value = section_data.get("name")
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return None
+    return DEFAULT_RENDER_STYLE
 
 
 def _snapshot_onboarding(*, source: ConfigTargetSource) -> dict[str, object]:
@@ -261,17 +250,7 @@ def _snapshot_values_from_loaded(
     cli_defaults,
 ) -> dict[str, object]:
     return {
-        "templates": {
-            "default_name": _raw_default_design(raw),
-            "template_name": _raw_section_design(raw, section="template"),
-            "recovery_template_name": _raw_section_design(raw, section="recovery_template"),
-            "shard_template_name": _raw_section_design(raw, section="shard_template"),
-            "signing_key_shard_template_name": _raw_section_design(
-                raw,
-                section="signing_key_shard_template",
-            ),
-            "kit_template_name": _raw_section_design(raw, section="kit_template"),
-        },
+        "render": {"style": config.design_name},
         "page": {"size": config.paper_size},
         "qr": {"error": config.qr_config.error, "chunk_size": config.qr_chunk_size},
         "extension": {
@@ -317,7 +296,7 @@ def _snapshot_values_from_loaded(
 
 def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
     values = copy.deepcopy(_default_snapshot_values())
-    templates = cast(dict[str, object], values["templates"])
+    render = cast(dict[str, object], values["render"])
     page = cast(dict[str, object], values["page"])
     qr = cast(dict[str, object], values["qr"])
     extension = cast(dict[str, object], values["extension"])
@@ -330,16 +309,9 @@ def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
     debug = cast(dict[str, object], values["debug"])
     runtime = cast(dict[str, object], values["runtime"])
 
-    templates["default_name"] = _raw_default_design(raw)
-    templates["template_name"] = _raw_section_design(raw, section="template")
-    templates["recovery_template_name"] = _raw_section_design(raw, section="recovery_template")
-    templates["shard_template_name"] = _raw_section_design(raw, section="shard_template")
-    templates["signing_key_shard_template_name"] = _raw_section_design(
-        raw,
-        section="signing_key_shard_template",
-    )
-    templates["kit_template_name"] = _raw_section_design(raw, section="kit_template")
+    render["style"] = _raw_render_style(raw)
 
+    render_table = _raw_table(raw, "render")
     page_table = _raw_table(raw, "page")
     qr_table = _raw_table(raw, "qr")
     extension_chunking_table = _raw_table(_raw_table(raw, "extension"), "chunking")
@@ -351,6 +323,7 @@ def _snapshot_values_from_raw(raw: dict[str, object]) -> dict[str, object]:
     runtime_table = _raw_table(raw, "runtime")
     default_extension_chunking = dict(extension_chunking)
 
+    render["style"] = _coerce_design_name(render_table.get("style"), fallback=render["style"])
     page["size"] = _coerce_enum(page_table.get("size"), allowed=_PAGE_SIZES, fallback=page["size"])
     qr["error"] = _coerce_enum(
         qr_table.get("error"), allowed=_QR_ERROR_LEVELS, fallback=qr["error"]
@@ -474,6 +447,13 @@ def _coerce_enum(value: object, *, allowed: tuple[str, ...], fallback: object) -
     return normalized if normalized in allowed else fallback
 
 
+def _coerce_design_name(value: object, *, fallback: object) -> object:
+    if not isinstance(value, str):
+        return fallback
+    normalized = value.strip().lower()
+    return normalized if normalized in list_render_styles() else fallback
+
+
 def _coerce_optional_enum(value: object, *, allowed: tuple[str, ...], fallback: object) -> object:
     if value is None:
         return fallback
@@ -497,7 +477,7 @@ def _coerce_optional_string(value: object, *, fallback: object) -> object:
         return fallback
     if not isinstance(value, str):
         return fallback
-    normalized = value.strip()
+    normalized = value.strip().lower()
     return normalized or None
 
 
@@ -521,7 +501,7 @@ def _coerce_render_jobs(value: object, *, fallback: object) -> object:
 
 def _config_options() -> dict[str, object]:
     return {
-        "template_designs": sorted(list_template_designs().keys()),
+        "render_styles": sorted(list_render_styles().keys()),
         "page_sizes": list(_PAGE_SIZES),
         "qr_error_correction": list(_QR_ERROR_LEVELS),
         "payload_codecs": list(_PAYLOAD_CODECS),
@@ -573,7 +553,7 @@ def _merge_values_patch(
 
 
 def _validate_config_values(values: dict[str, object]) -> dict[str, object]:
-    templates = _expect_section(values, "templates")
+    render = _expect_section(values, "render")
     page = _expect_section(values, "page")
     qr = _expect_section(values, "qr")
     extension = _expect_section(values, "extension")
@@ -586,28 +566,7 @@ def _validate_config_values(values: dict[str, object]) -> dict[str, object]:
     debug = _expect_section(values, "debug")
     runtime = _expect_section(values, "runtime")
 
-    template_design = _validate_design_name(
-        templates.get("default_name"), field="values.templates.default_name"
-    )
-    template_name = _validate_optional_design_name(
-        templates.get("template_name"), field="values.templates.template_name"
-    )
-    recovery_template_name = _validate_optional_design_name(
-        templates.get("recovery_template_name"),
-        field="values.templates.recovery_template_name",
-    )
-    shard_template_name = _validate_optional_design_name(
-        templates.get("shard_template_name"),
-        field="values.templates.shard_template_name",
-    )
-    signing_key_shard_template_name = _validate_optional_design_name(
-        templates.get("signing_key_shard_template_name"),
-        field="values.templates.signing_key_shard_template_name",
-    )
-    kit_template_name = _validate_optional_design_name(
-        templates.get("kit_template_name"),
-        field="values.templates.kit_template_name",
-    )
+    render_style = _validate_design_name(render.get("style"), field="values.render.style")
     page_size = _validate_enum(page.get("size"), field="values.page.size", allowed=_PAGE_SIZES)
     qr_error = _validate_enum(qr.get("error"), field="values.qr.error", allowed=_QR_ERROR_LEVELS)
     qr_chunk_size = _validate_positive_int(qr.get("chunk_size"), field="values.qr.chunk_size")
@@ -801,14 +760,7 @@ def _validate_config_values(values: dict[str, object]) -> dict[str, object]:
     )
 
     return {
-        "templates": {
-            "default_name": template_design,
-            "template_name": template_name,
-            "recovery_template_name": recovery_template_name,
-            "shard_template_name": shard_template_name,
-            "signing_key_shard_template_name": signing_key_shard_template_name,
-            "kit_template_name": kit_template_name,
-        },
+        "render": {"style": render_style},
         "page": {
             "size": page_size,
         },
@@ -914,22 +866,14 @@ def _validate_design_name(value: object, *, field: str) -> str:
             message=f"{field} must be a non-empty string",
             details={"field": field},
         )
-    normalized = value.strip()
-    if normalized not in list_template_designs():
+    normalized = value.strip().lower()
+    if normalized not in list_render_styles():
         raise ConfigPatchError(
             code="CONFIG_INVALID_VALUE",
             message=f"{field} must be a supported design name",
             details={"field": field, "value": value},
         )
     return normalized
-
-
-def _validate_optional_design_name(value: object, *, field: str) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, str) and not value.strip():
-        return None
-    return _validate_design_name(value, field=field)
 
 
 def _validate_enum(value: object, *, field: str, allowed: tuple[str, ...]) -> str:
@@ -1056,7 +1000,7 @@ def _apply_values_to_text(original: str, values: dict[str, object]) -> str:
     line_ending = "\r\n" if "\r\n" in original else "\n"
     updated = original
 
-    templates = cast(dict[str, object], values["templates"])
+    render = cast(dict[str, object], values["render"])
     page = cast(dict[str, object], values["page"])
     qr = cast(dict[str, object], values["qr"])
     extension = cast(dict[str, object], values["extension"])
@@ -1069,40 +1013,8 @@ def _apply_values_to_text(original: str, values: dict[str, object]) -> str:
     debug = cast(dict[str, object], values["debug"])
     runtime = cast(dict[str, object], values["runtime"])
 
-    design = cast(str, templates["default_name"])
-    updated = _upsert_table_key(
-        updated, table="templates", key="default_name", value=_toml_quote(design)
-    )
-    updated = _write_optional_design_key(
-        updated,
-        table="template",
-        key="name",
-        value=cast(str | None, templates["template_name"]),
-    )
-    updated = _write_optional_design_key(
-        updated,
-        table="recovery_template",
-        key="name",
-        value=cast(str | None, templates["recovery_template_name"]),
-    )
-    updated = _write_optional_design_key(
-        updated,
-        table="shard_template",
-        key="name",
-        value=cast(str | None, templates["shard_template_name"]),
-    )
-    updated = _write_optional_design_key(
-        updated,
-        table="signing_key_shard_template",
-        key="name",
-        value=cast(str | None, templates["signing_key_shard_template_name"]),
-    )
-    updated = _write_optional_design_key(
-        updated,
-        table="kit_template",
-        key="name",
-        value=cast(str | None, templates["kit_template_name"]),
-    )
+    style = cast(str, render["style"])
+    updated = _upsert_table_key(updated, table="render", key="style", value=_toml_quote(style))
 
     updated = _upsert_table_key(
         updated,
@@ -1295,54 +1207,6 @@ def _apply_values_to_text(original: str, values: dict[str, object]) -> str:
     if not updated.endswith(("\n", "\r\n")):
         updated += line_ending
     return updated
-
-
-def _write_optional_design_key(text: str, *, table: str, key: str, value: str | None) -> str:
-    if value is None:
-        return _delete_table_key(text, table=table, key=key)
-    return _upsert_table_key(text, table=table, key=key, value=_toml_quote(value))
-
-
-def _delete_table_key(text: str, *, table: str, key: str) -> str:
-    line_ending = "\r\n" if "\r\n" in text else "\n"
-    lines = text.splitlines()
-
-    dotted_key = f"{table}.{key}"
-    dotted_key_pattern = re.compile(rf"^\s*{re.escape(dotted_key)}\s*=.*$")
-    for index, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("#") or stripped.startswith(";"):
-            continue
-        if dotted_key_pattern.match(line) is not None:
-            del lines[index]
-            return line_ending.join(lines) + line_ending
-
-    table_index: int | None = None
-    table_end = len(lines)
-    for index, line in enumerate(lines):
-        header_name = _table_header_name(line)
-        if header_name is None:
-            continue
-        if table_index is None and header_name == table:
-            table_index = index
-            continue
-        if table_index is not None:
-            table_end = index
-            break
-
-    if table_index is None:
-        return line_ending.join(lines) + line_ending
-
-    key_pattern = re.compile(rf"^\s*{re.escape(key)}\s*=.*$")
-    for index in range(table_index + 1, table_end):
-        line = lines[index]
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or stripped.startswith(";"):
-            continue
-        if key_pattern.match(line) is not None:
-            del lines[index]
-            return line_ending.join(lines) + line_ending
-    return line_ending.join(lines) + line_ending
 
 
 def _table_header_name(line: str) -> str | None:

@@ -22,7 +22,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
-from ethernity.cli.features.recover.input_collection import (
+from ethernity.cli.features.recover.constants import (
     RECOVERY_QR_TEXT_LABEL,
     RECOVERY_SCAN_LABEL,
 )
@@ -100,7 +100,7 @@ class RecoveryPlan:
 
 @dataclass(frozen=True)
 class RecoveryUnlockStatus:
-    """Unlock readiness for API inspection flows."""
+    """Unlock readiness for structured recovery inspection flows."""
 
     mode: Literal["missing", "passphrase", "shards"]
     passphrase_provided: bool
@@ -114,7 +114,7 @@ class RecoveryUnlockStatus:
 
 @dataclass(frozen=True)
 class RecoveryInspection:
-    """Best-effort recovery inspection state used by API inspect flows."""
+    """Best-effort recovery inspection state used before materializing a recovery plan."""
 
     ciphertext: bytes
     doc_id: bytes
@@ -363,7 +363,7 @@ def plan_from_args(args: RecoverArgs) -> RecoveryPlan:
 
 
 def plan_from_inspection(args: RecoverArgs, inspection: RecoveryInspection) -> RecoveryPlan:
-    """Build a full recovery plan from an already-materialized API inspection."""
+    """Build a full recovery plan from an already-materialized inspection."""
 
     validate_recover_args(args)
     resolve_recover_config(args)

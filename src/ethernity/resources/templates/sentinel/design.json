@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "name": "sentinel",
+  "style": "style.json",
+  "documents": [
+    "main",
+    "recovery",
+    "shard",
+    "signing_key_shard",
+    "kit",
+    "kit_index"
+  ]
+}

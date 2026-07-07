@@ -56,11 +56,11 @@ class RenderInputs:
     """Inputs consumed by the render pipeline for a single output document."""
 
     frames: Sequence[Frame]
-    template_path: str | Path
     output_path: str | Path
     context: dict[str, object]
     doc_type: str
     lineage: RenderLineage
+    design_name: str = "sentinel"
     qr_config: QrConfig | None = None
     qr_payloads: Sequence[bytes | str] | None = None
     fallback_sections: Sequence[FallbackSection] | None = None
@@ -109,11 +109,74 @@ class RenderArtifactProof:
 
 
 @dataclass(frozen=True)
+class RenderRectProof:
+    """A measured rectangle in millimeters for render-layout proofs."""
+
+    x_mm: float
+    y_mm: float
+    width_mm: float
+    height_mm: float
+
+    @property
+    def right_mm(self) -> float:
+        return self.x_mm + self.width_mm
+
+    @property
+    def bottom_mm(self) -> float:
+        return self.y_mm + self.height_mm
+
+
+@dataclass(frozen=True)
+class RenderComponentLayoutProof:
+    """Structured proof for one measured component placement."""
+
+    component_id: str
+    rect: RenderRectProof
+    used_rect: RenderRectProof | None = None
+    overflow: bool = False
+    component_type: str | None = None
+    policy: str | None = None
+    line_count: int | None = None
+    overflow_line_count: int | None = None
+    font_size_pt: float | None = None
+
+
+@dataclass(frozen=True)
+class RenderPageLayoutProof:
+    """Structured proof for one measured PDF page."""
+
+    page_number: int
+    rect: RenderRectProof
+    component_ids: tuple[str, ...]
+    overflow_component_ids: tuple[str, ...]
+    out_of_bounds_component_ids: tuple[str, ...]
+    components: tuple[RenderComponentLayoutProof, ...]
+
+    @property
+    def overflow(self) -> bool:
+        return bool(self.overflow_component_ids or self.out_of_bounds_component_ids)
+
+
+@dataclass(frozen=True)
+class RenderLayoutProof:
+    """Structured proof of measured page geometry for a render operation."""
+
+    backend: str
+    page_count: int
+    pages: tuple[RenderPageLayoutProof, ...]
+
+    @property
+    def overflow(self) -> bool:
+        return any(page.overflow for page in self.pages)
+
+
+@dataclass(frozen=True)
 class RenderResult:
     """Structured render result used by callers that must validate emitted content."""
 
     fallback_proof: RenderFallbackProof | None = None
     artifact_proof: RenderArtifactProof | None = None
+    layout_proof: RenderLayoutProof | None = None
 
 
 @dataclass(frozen=True)

@@ -85,11 +85,11 @@ def build_kit_index_inputs(
     output_path = plan.artifacts.recovery_kit_index_path
     if output_path is None:
         return None
-    template_path = runtime.kit_index_template_path
-    if template_path is None:
+    kit_index_style = runtime.kit_index_style
+    if kit_index_style is None:
         raise ApiCommandError(
             code="RUNTIME_ERROR",
-            message="recovery_kit_index output was planned without a compatible template",
+            message="recovery_kit_index output was planned without a compatible style",
         )
     inventory_rows = [
         {
@@ -121,7 +121,7 @@ def build_kit_index_inputs(
     return render_service.kit_index_inputs(
         output_path,
         context=context,
-        template_path=template_path,
+        design_name=kit_index_style,
         qr_chunk_count=len(qr_frames),
         layout_debug_json_path=layout_debug_json_path(
             runtime.layout_debug_dir,
@@ -151,7 +151,6 @@ def render_extension_shard(
     doc_id: bytes,
     output_path: Any,
     render_service: RenderService,
-    template_path: Any,
     qr_payload_codec: Any,
     layout_debug_dir: str | None,
     stem: str,
@@ -175,7 +174,6 @@ def render_extension_shard(
         shard_total=shard.share_count,
         shard_threshold=shard.threshold,
         qr_payloads=render_service.build_qr_payloads([shard_frame], codec=qr_payload_codec),
-        template_path=template_path,
         doc_type=doc_type,
         layout_debug_json_path=layout_debug_json_path(layout_debug_dir, stem),
         lineage=lineage,

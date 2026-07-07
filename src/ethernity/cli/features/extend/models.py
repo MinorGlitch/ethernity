@@ -204,11 +204,11 @@ class ResolvedExtendRuntime:
     passphrase: PassphraseStoragePolicy
     signing_key: SigningKeyStoragePolicy
     sign_pub: bytes
-    kit_index_template_path: Path | None
+    kit_index_style: str | None
 
     def to_publish_policy(self) -> ExtensionPublishPolicy:
         return publish_policy_from_storage(
-            require_recovery_kit_index=self.kit_index_template_path is not None,
+            require_recovery_kit_index=self.kit_index_style is not None,
             passphrase=self.passphrase,
             signing_key=self.signing_key,
         )

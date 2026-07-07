@@ -187,7 +187,7 @@ def _resolve_scanned_publish_root_dir(root_dir: str | Path) -> Path:
 def resolve_extend_state(args: ExtendArgs) -> ResolvedExtendState:
     """Inspect extension state from supplied carriers and a writable publish root."""
 
-    root_dir_arg = require_extend_root_dir(args, command_name="ethernity api inspect extend")
+    root_dir_arg = require_extend_root_dir(args, command_name="extension task")
     try:
         root_dir = (
             _resolve_scanned_publish_root_dir(root_dir_arg)

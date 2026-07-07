@@ -37,8 +37,11 @@ from ethernity.cli.shared.events import (
 from ethernity.cli.shared.io.outputs import _single_entry_uses_directory_output
 from ethernity.cli.shared.paths import display_parent_path, expanduser_cli_path
 from ethernity.cli.shared.types import RecoverArgs
-from ethernity.cli.shared.ui.debug import print_recover_debug
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
+
+
+def print_recover_debug(**_: object) -> None:
+    return
 
 
 @dataclass(frozen=True)

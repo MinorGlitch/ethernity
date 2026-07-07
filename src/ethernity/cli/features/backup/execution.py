@@ -18,11 +18,18 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
+from typing import Iterator
 
+from rich.console import Console
+from rich.live import Live
 from rich.progress import Progress
+from rich.spinner import Spinner
+from rich.text import Text
 
 from ethernity import render as render_module
 from ethernity.cli.shared import api_codes
@@ -37,11 +44,9 @@ from ethernity.cli.shared.io.outputs import (
 from ethernity.cli.shared.log import _warn
 from ethernity.cli.shared.recovery_kit_index import (
     build_recovery_kit_index_inventory_rows,
-    resolve_recovery_kit_index_template_path,
+    resolve_recovery_kit_index_style,
 )
 from ethernity.cli.shared.types import BackupResult, InputFile
-from ethernity.cli.shared.ui.debug import _normalize_debug_max_bytes, print_backup_debug
-from ethernity.cli.shared.ui_api import progress, status
 from ethernity.config import AppConfig
 from ethernity.core.bounds import MAX_CIPHERTEXT_BYTES
 from ethernity.core.models import DocumentPlan, SigningSeedMode
@@ -78,6 +83,52 @@ from ethernity.render.recovery_lines import append_signing_key_lines
 from ethernity.render.recovery_meta import build_recovery_meta
 from ethernity.render.service import RenderService
 from ethernity.render.types import RenderInputs, RenderLineage, RenderResult
+
+
+def _isatty(raw: object, fallback: object) -> bool:
+    if raw is not None:
+        try:
+            return bool(raw.isatty())  # type: ignore[attr-defined]
+        except (OSError, ValueError, AttributeError):
+            return False
+    return bool(getattr(fallback, "isatty", lambda: False)())
+
+
+console = Console(force_terminal=_isatty(sys.__stdout__, sys.stdout))
+
+
+@contextmanager
+def status(message: str, *, quiet: bool = False) -> Iterator[Live | None]:
+    if quiet:
+        yield None
+        return
+    if not _isatty(sys.__stdout__, sys.stdout):
+        console.print(message)
+        yield None
+        return
+    spinner = Spinner("dots", text=Text(message))
+    with Live(spinner, console=console, transient=False, refresh_per_second=12) as live:
+        yield live
+
+
+@contextmanager
+def progress(*, quiet: bool = False) -> Iterator[Progress | None]:
+    if quiet:
+        yield None
+        return
+    progress_bar = Progress(
+        console=console,
+        transient=True,
+        disable=not _isatty(sys.__stdout__, sys.stdout),
+    )
+    with progress_bar:
+        yield progress_bar
+
+
+def _normalize_debug_max_bytes(value: int | None) -> int | None:
+    if value is None or value <= 0:
+        return None
+    return value
 
 
 def _layout_debug_json_path(layout_debug_dir: str | None, stem: str) -> str | None:
@@ -158,7 +209,6 @@ def _render_shard(
     output_dir: str,
     render_service: RenderService,
     filename_prefix: str,
-    template_path: str | Path,
     doc_type: str | None = None,
     layout_debug_json_path: str | None = None,
     qr_payload_codec: QrPayloadCodec = QR_PAYLOAD_CODEC_RAW,
@@ -184,7 +234,6 @@ def _render_shard(
         shard_total=shard.share_count,
         shard_threshold=shard.threshold,
         qr_payloads=render_service.build_qr_payloads([shard_frame], codec=qr_payload_codec),
-        template_path=template_path,
         doc_type=doc_type,
         layout_debug_json_path=layout_debug_json_path,
         lineage=lineage,
@@ -461,7 +510,6 @@ def _render_with_progress(
                 output_dir=output_dir,
                 render_service=render_service,
                 filename_prefix="shard",
-                template_path=config.shard_template_path,
                 layout_debug_json_path=_layout_debug_json_path(
                     layout_debug_dir,
                     f"shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
@@ -490,7 +538,6 @@ def _render_with_progress(
                 output_dir=output_dir,
                 render_service=render_service,
                 filename_prefix="signing-key-shard",
-                template_path=config.signing_key_shard_template_path,
                 doc_type=DOC_TYPE_SIGNING_KEY_SHARD,
                 layout_debug_json_path=_layout_debug_json_path(
                     layout_debug_dir,
@@ -602,7 +649,6 @@ def _render_without_progress(
                     output_dir=output_dir,
                     render_service=render_service,
                     filename_prefix="shard",
-                    template_path=config.shard_template_path,
                     layout_debug_json_path=_layout_debug_json_path(
                         layout_debug_dir,
                         f"shard-{shard.share_index:02d}-of-{shard.share_count:02d}",
@@ -627,7 +673,6 @@ def _render_without_progress(
                     output_dir=output_dir,
                     render_service=render_service,
                     filename_prefix="signing-key-shard",
-                    template_path=config.signing_key_shard_template_path,
                     doc_type=DOC_TYPE_SIGNING_KEY_SHARD,
                     layout_debug_json_path=_layout_debug_json_path(
                         layout_debug_dir,
@@ -717,6 +762,8 @@ def run_backup(
         )
 
     if debug:
+        from ethernity.cli.shared.ui.debug import print_backup_debug
+
         print_backup_debug(
             payload=payload,
             input_files=input_files,
@@ -839,9 +886,9 @@ def run_backup(
     output_dir_path = Path(staging_output_dir)
     qr_path = str(output_dir_path / "qr_document.pdf")
     recovery_path = str(output_dir_path / "recovery_document.pdf")
-    kit_index_template = resolve_recovery_kit_index_template_path(config)
+    kit_index_style = resolve_recovery_kit_index_style(config)
     kit_index_path = None
-    if kit_index_template is not None:
+    if kit_index_style is not None:
         kit_index_path = str(output_dir_path / "recovery_kit_index.pdf")
     layout_debug_dir = resolve_layout_debug_dir(
         layout_debug_dir,
@@ -876,12 +923,12 @@ def run_backup(
         render_service.kit_index_inputs(
             kit_index_path,
             context=kit_index_context,
-            template_path=kit_index_template,
+            design_name=kit_index_style,
             qr_chunk_count=len(qr_frames),
             layout_debug_json_path=_layout_debug_json_path(layout_debug_dir, "recovery_kit_index"),
             lineage=lineage,
         )
-        if kit_index_template is not None and kit_index_path is not None
+        if kit_index_style is not None and kit_index_path is not None
         else None
     )
 

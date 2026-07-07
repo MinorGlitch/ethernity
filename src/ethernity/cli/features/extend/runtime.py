@@ -23,9 +23,9 @@ from pathlib import Path
 from ethernity.cli.features.extend.root_shards import published_root_passphrase_shard_policy
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.ndjson import ApiCommandError
-from ethernity.cli.shared.recovery_kit_index import resolve_recovery_kit_index_template_path
+from ethernity.cli.shared.recovery_kit_index import resolve_recovery_kit_index_style
 from ethernity.cli.shared.types import ExtendArgs
-from ethernity.config import ExtendDefaults, apply_template_design, load_app_config
+from ethernity.config import ExtendDefaults, apply_render_style, load_app_config
 from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.crypto.signing import derive_public_key
 from ethernity.render.layout_debug import (
@@ -260,7 +260,7 @@ def resolve_extend_runtime(
 ) -> ResolvedExtendRuntime:
     """Resolve config, validated unlock shard policy, and render settings."""
 
-    config = apply_template_design(
+    config = apply_render_style(
         load_app_config(prepared.args.config, paper_size=prepared.args.paper),
         prepared.args.design,
     )
@@ -275,8 +275,8 @@ def resolve_extend_runtime(
             root_passphrase_shard_count=root_passphrase_shard_count,
         )
     )
-    kit_index_template_path = resolve_recovery_kit_index_template_path(config)
-    require_recovery_kit_index = kit_index_template_path is not None
+    kit_index_style = resolve_recovery_kit_index_style(config)
+    require_recovery_kit_index = kit_index_style is not None
     policy = resolve_extend_policy(
         args=prepared.args,
         defaults=config.cli_defaults.extend,
@@ -309,7 +309,7 @@ def resolve_extend_runtime(
         passphrase=policy.passphrase,
         signing_key=policy.signing_key,
         sign_pub=sign_pub,
-        kit_index_template_path=kit_index_template_path,
+        kit_index_style=kit_index_style,
     )
 
 

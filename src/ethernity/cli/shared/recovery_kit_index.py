@@ -18,39 +18,27 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from ethernity.config import AppConfig
-from ethernity.config.paths import TEMPLATES_RESOURCE_ROOT
 from ethernity.crypto.sharding import ShardPayload
+from ethernity.render.designs import load_design_manifest_by_name
+from ethernity.render.doc_types import DOC_TYPE_KIT_INDEX
 from ethernity.render.template_style import load_template_style
 
-KIT_INDEX_TEMPLATE_NAME = "kit_index_document.html.j2"
 
+def supports_recovery_kit_index_style(style: str) -> bool:
+    """Return whether a built-in style supports recovery-kit index rendering."""
 
-def supports_recovery_kit_index_template(path: Path) -> bool:
-    """Return whether a template's design opts into recovery-kit index rendering."""
-
-    if not path.is_file():
+    manifest = load_design_manifest_by_name(style)
+    if not manifest.supports_doc_type(DOC_TYPE_KIT_INDEX):
         return False
-    return load_template_style(path).capabilities.recovery_kit_index_document
+    return load_template_style(style).capabilities.recovery_kit_index_document
 
 
-def resolve_recovery_kit_index_template_path(config: AppConfig) -> Path | None:
-    """Resolve an optional compatible recovery-kit index template for the active design."""
+def resolve_recovery_kit_index_style(config: AppConfig) -> str | None:
+    """Resolve the active style when it supports recovery-kit index rendering."""
 
-    kit_template_path = Path(config.kit_template_path)
-    candidate = kit_template_path.with_name(KIT_INDEX_TEMPLATE_NAME)
-    package_candidate = (
-        TEMPLATES_RESOURCE_ROOT / kit_template_path.parent.name / KIT_INDEX_TEMPLATE_NAME
-    )
-
-    if supports_recovery_kit_index_template(candidate):
-        return candidate
-
-    if supports_recovery_kit_index_template(package_candidate):
-        return package_candidate
-
+    if supports_recovery_kit_index_style(config.design_name):
+        return config.design_name
     return None
 
 
@@ -99,8 +87,7 @@ def build_recovery_kit_index_inventory_rows(
 
 
 __all__ = [
-    "KIT_INDEX_TEMPLATE_NAME",
     "build_recovery_kit_index_inventory_rows",
-    "resolve_recovery_kit_index_template_path",
-    "supports_recovery_kit_index_template",
+    "resolve_recovery_kit_index_style",
+    "supports_recovery_kit_index_style",
 ]

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "name": "maritime",
+  "style": "style.json",
+  "documents": [
+    "main",
+    "recovery",
+    "shard",
+    "signing_key_shard",
+    "kit"
+  ]
+}

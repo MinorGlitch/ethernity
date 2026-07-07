@@ -51,7 +51,7 @@ class TestRenderProofs(unittest.TestCase):
         )
         inputs = RenderInputs(
             frames=(frame,),
-            template_path="/tmp/template.html.j2",
+            design_name="sentinel",
             output_path="/tmp/out.pdf",
             context={},
             doc_type="main",
@@ -86,7 +86,7 @@ class TestRenderProofs(unittest.TestCase):
         )
         inputs = RenderInputs(
             frames=(frame,),
-            template_path="/tmp/template.html.j2",
+            design_name="sentinel",
             output_path="/tmp/out.pdf",
             context={},
             doc_type="main",
@@ -135,7 +135,7 @@ class TestRenderProofs(unittest.TestCase):
         payload_digests = tuple(_qr_payload_digest_for_frame(frame) for frame in frames)
         inputs = RenderInputs(
             frames=frames,
-            template_path="/tmp/template.html.j2",
+            design_name="sentinel",
             output_path="/tmp/out.pdf",
             context={},
             doc_type="main",
@@ -174,7 +174,7 @@ class TestRenderProofs(unittest.TestCase):
         payload_digest = _qr_payload_digest_for_frame(frame)
         inputs = RenderInputs(
             frames=(frame,),
-            template_path="/tmp/template.html.j2",
+            design_name="sentinel",
             output_path="/tmp/out.pdf",
             context={},
             doc_type="shard",
@@ -209,7 +209,7 @@ class TestRenderProofs(unittest.TestCase):
         )
         inputs = RenderInputs(
             frames=(frame,),
-            template_path="/tmp/template.html.j2",
+            design_name="sentinel",
             output_path="/tmp/out.pdf",
             context={},
             doc_type="recovery",
@@ -245,7 +245,7 @@ class TestRenderProofs(unittest.TestCase):
         )
         inputs = RenderInputs(
             frames=(frame,),
-            template_path="/tmp/template.html.j2",
+            design_name="sentinel",
             output_path="/tmp/out.pdf",
             context={},
             doc_type="recovery",

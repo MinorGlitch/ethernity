@@ -15,7 +15,6 @@
 
 import unittest
 from dataclasses import replace
-from pathlib import Path
 
 from fpdf import FPDF
 
@@ -128,18 +127,9 @@ class TestPdfLayout(unittest.TestCase):
 
         for design in ("ledger", "maritime"):
             with self.subTest(design=design):
-                template_path = (
-                    Path(__file__).resolve().parents[2]
-                    / "src"
-                    / "ethernity"
-                    / "resources"
-                    / "templates"
-                    / design
-                    / "main_document.html.j2"
-                )
                 inputs = RenderInputs(
                     frames=frames,
-                    template_path=template_path,
+                    design_name=design,
                     output_path="out.pdf",
                     context=context,
                     doc_type="main",
@@ -147,7 +137,7 @@ class TestPdfLayout(unittest.TestCase):
                     render_fallback=False,
                 )
                 spec = document_spec("main", "A4", context)
-                style = load_template_style(template_path)
+                style = load_template_style(design)
                 spec = replace(
                     spec,
                     header=replace(
@@ -203,105 +193,6 @@ class TestPdfLayout(unittest.TestCase):
             )
         )
 
-    def test_recovery_text_layout_smoke_across_styles(self) -> None:
-        frame = Frame(
-            version=1,
-            frame_type=FrameType.MAIN_DOCUMENT,
-            doc_id=b"\x66" * DOC_ID_LEN,
-            index=0,
-            total=1,
-            data=b"payload",
-        )
-        context = {
-            "doc_id": frame.doc_id.hex(),
-            "paper_size": "A4",
-            "created_timestamp_utc": "2026-01-01 00:00 UTC",
-        }
-        key_lines = [
-            "Passphrase:",
-            "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu",
-            "Recover with 3 of 5 shard documents.",
-            "Signing public key (hex):",
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        ]
-        pdf = FPDF(unit="mm", format="A4")
-
-        for design in ("ledger", "maritime"):
-            with self.subTest(design=design):
-                template_path = (
-                    Path(__file__).resolve().parents[2]
-                    / "src"
-                    / "ethernity"
-                    / "resources"
-                    / "templates"
-                    / design
-                    / "recovery_document.html.j2"
-                )
-                inputs = RenderInputs(
-                    frames=[frame],
-                    template_path=template_path,
-                    output_path="out.pdf",
-                    context=context,
-                    doc_type="recovery",
-                    lineage=RenderLineage(kind="root_backup"),
-                    render_qr=False,
-                    render_fallback=True,
-                    key_lines=key_lines,
-                    fallback_sections=_fallback_sections(frame, payload=b"recovery payload"),
-                )
-                spec = document_spec("recovery", "A4", context)
-                recovery_meta = build_recovery_meta(
-                    passphrase="alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu",
-                    quorum_threshold=3,
-                    quorum_shares=5,
-                    signing_pub=bytes.fromhex(
-                        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-                    ),
-                )
-                style = load_template_style(template_path)
-                spec = replace(
-                    spec,
-                    header=replace(
-                        spec.header,
-                        meta_lines_extra=recovery_meta_lines_extra(recovery_meta),
-                        meta_row_gap_mm=float(style.header.meta_row_gap_mm),
-                        stack_gap_mm=float(style.header.stack_gap_mm),
-                        divider_thickness_mm=float(style.header.divider_thickness_mm),
-                    ),
-                )
-                divider_gap_extra_mm = float(style.content_offset.divider_gap_extra_mm)
-                if divider_gap_extra_mm and "recovery" in style.content_offset.doc_types:
-                    spec = replace(
-                        spec,
-                        header=replace(
-                            spec.header,
-                            divider_gap_mm=float(spec.header.divider_gap_mm) + divider_gap_extra_mm,
-                        ),
-                    )
-
-                layout, fallback_lines = compute_layout(
-                    inputs,
-                    spec,
-                    pdf,
-                    key_lines=key_lines,
-                    include_keys=False,
-                    include_instructions=True,
-                )
-                self.assertEqual(layout.cols, 0)
-                self.assertEqual(layout.rows, 0)
-                self.assertEqual(layout.per_page, 0)
-                self.assertGreater(layout.fallback_lines_per_page, 0)
-                self.assertGreaterEqual(layout.total_pages, 1)
-                self.assertGreater(len(fallback_lines), 0)
-                divider_y = (
-                    layout.margin + layout.header_height - float(spec.header.divider_thickness_mm)
-                )
-                self.assertGreaterEqual(divider_y, layout.margin)
-                self.assertLessEqual(divider_y, layout.instructions_y)
-                self.assertLess(layout.instructions_y, layout.content_start_y)
-                self.assertGreater(layout.content_start_y, layout.margin)
-                self.assertLess(layout.content_start_y, layout.page_h - layout.margin)
-
     def test_gap_override_when_max_rows_exceeds_fit(self) -> None:
         frames = [
             Frame(
@@ -313,18 +204,10 @@ class TestPdfLayout(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "ledger"
-            / "main_document.html.j2"
-        )
+        design_name = "ledger"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={"doc_id": frames[0].doc_id.hex()},
             doc_type="main",
@@ -349,18 +232,10 @@ class TestPdfLayout(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "main_document.html.j2"
-        )
+        design_name = "forge"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={"doc_id": frames[0].doc_id.hex()},
             doc_type="main",
@@ -385,18 +260,10 @@ class TestPdfLayout(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "main_document.html.j2"
-        )
+        design_name = "forge"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={"doc_id": frames[0].doc_id.hex()},
             doc_type="main",
@@ -422,15 +289,7 @@ class TestPdfLayout(unittest.TestCase):
             )
             for i in range(30)
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "main_document.html.j2"
-        )
+        design_name = "forge"
         context = {
             "doc_id": frames[0].doc_id.hex(),
             "paper_size": "A4",
@@ -438,7 +297,7 @@ class TestPdfLayout(unittest.TestCase):
         }
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context=context,
             doc_type="main",
@@ -446,7 +305,7 @@ class TestPdfLayout(unittest.TestCase):
             render_fallback=False,
         )
         spec = document_spec("main", "A4", context)
-        style = load_template_style(template_path)
+        style = load_template_style(design_name)
         spec = replace(
             spec,
             header=replace(
@@ -488,18 +347,10 @@ class TestPdfLayout(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "ledger"
-            / "main_document.html.j2"
-        )
+        design_name = "ledger"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={"doc_id": frames[0].doc_id.hex()},
             doc_type="main",
@@ -523,18 +374,10 @@ class TestPdfLayout(unittest.TestCase):
             total=1,
             data=b"payload",
         )
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "recovery_document.html.j2"
-        )
+        design_name = "forge"
         inputs = RenderInputs(
             frames=[frame],
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="recovery",
@@ -559,18 +402,10 @@ class TestPdfLayout(unittest.TestCase):
             total=1,
             data=b"payload",
         )
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "recovery_document.html.j2"
-        )
+        design_name = "forge"
         inputs = RenderInputs(
             frames=[frame],
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="recovery",
@@ -612,18 +447,10 @@ class TestPdfLayout(unittest.TestCase):
             total=1,
             data=b"payload",
         )
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "sentinel"
-            / "recovery_document.html.j2"
-        )
+        design_name = "sentinel"
         inputs = RenderInputs(
             frames=[frame],
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="recovery",
@@ -660,18 +487,10 @@ class TestPdfLayout(unittest.TestCase):
             total=1,
             data=b"payload",
         )
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "sentinel"
-            / "recovery_document.html.j2"
-        )
+        design_name = "sentinel"
         inputs = RenderInputs(
             frames=[frame],
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex(), "paper_size": "A4"},
             doc_type="recovery",
@@ -720,15 +539,7 @@ class TestPdfLayout(unittest.TestCase):
 
         forge_inputs = RenderInputs(
             frames=[frame],
-            template_path=(
-                Path(__file__).resolve().parents[2]
-                / "src"
-                / "ethernity"
-                / "resources"
-                / "templates"
-                / "forge"
-                / "recovery_document.html.j2"
-            ),
+            design_name="forge",
             output_path="out.pdf",
             context=base_context,
             doc_type="recovery",
@@ -739,15 +550,7 @@ class TestPdfLayout(unittest.TestCase):
         )
         sentinel_inputs = RenderInputs(
             frames=[frame],
-            template_path=(
-                Path(__file__).resolve().parents[2]
-                / "src"
-                / "ethernity"
-                / "resources"
-                / "templates"
-                / "sentinel"
-                / "recovery_document.html.j2"
-            ),
+            design_name="sentinel",
             output_path="out.pdf",
             context=base_context,
             doc_type="recovery",
@@ -794,15 +597,7 @@ class TestPdfLayout(unittest.TestCase):
 
         sentinel_inputs = RenderInputs(
             frames=[frame],
-            template_path=(
-                Path(__file__).resolve().parents[2]
-                / "src"
-                / "ethernity"
-                / "resources"
-                / "templates"
-                / "sentinel"
-                / "recovery_document.html.j2"
-            ),
+            design_name="sentinel",
             output_path="out.pdf",
             context=base_context,
             doc_type="recovery",
@@ -855,18 +650,10 @@ class TestPdfLayout(unittest.TestCase):
             total=1,
             data=b"payload",
         )
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "sentinel"
-            / "recovery_document.html.j2"
-        )
+        design_name = "sentinel"
         inputs = RenderInputs(
             frames=[frame],
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex(), "paper_size": "A4"},
             doc_type="recovery",
@@ -950,18 +737,10 @@ class TestPdfLayout(unittest.TestCase):
             total=1,
             data=b"payload",
         )
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "recovery_document.html.j2"
-        )
+        design_name = "forge"
         inputs = RenderInputs(
             frames=[frame],
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="recovery",
@@ -1007,18 +786,10 @@ class TestPdfLayout(unittest.TestCase):
             total=1,
             data=b"payload",
         )
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "shard_document.html.j2"
-        )
+        design_name = "forge"
         inputs = RenderInputs(
             frames=[frame],
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="shard",
@@ -1045,18 +816,10 @@ class TestPdfLayout(unittest.TestCase):
         spec = _build_spec(line_count=6, line_height=3.5)
         pdf = FPDF(unit="mm", format=(100, 100))
 
-        forge_template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "shard_document.html.j2"
-        )
+        forge_design_name = "forge"
         forge_inputs = RenderInputs(
             frames=[frame],
-            template_path=forge_template_path,
+            design_name=forge_design_name,
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="shard",
@@ -1073,18 +836,10 @@ class TestPdfLayout(unittest.TestCase):
             include_instructions=True,
         )
 
-        sentinel_template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "sentinel"
-            / "shard_document.html.j2"
-        )
+        sentinel_design_name = "sentinel"
         sentinel_inputs = RenderInputs(
             frames=[frame],
-            template_path=sentinel_template_path,
+            design_name=sentinel_design_name,
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="shard",
@@ -1115,18 +870,10 @@ class TestPdfLayout(unittest.TestCase):
             total=1,
             data=b"payload",
         )
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "ledger"
-            / "shard_document.html.j2"
-        )
+        design_name = "ledger"
         inputs = RenderInputs(
             frames=[frame],
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="shard",
@@ -1160,18 +907,10 @@ class TestPdfLayout(unittest.TestCase):
             total=1,
             data=b"payload",
         )
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "shard_document.html.j2"
-        )
+        design_name = "forge"
         inputs = RenderInputs(
             frames=[frame],
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="shard",
@@ -1211,18 +950,10 @@ class TestPdfLayout(unittest.TestCase):
             total=1,
             data=b"payload",
         )
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "signing_key_shard_document.html.j2"
-        )
+        design_name = "forge"
         inputs = RenderInputs(
             frames=[frame],
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="signing_key_shard",
@@ -1249,18 +980,10 @@ class TestPdfLayout(unittest.TestCase):
         spec = _build_spec(line_count=6, line_height=3.5)
         pdf = FPDF(unit="mm", format=(100, 100))
 
-        forge_template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "signing_key_shard_document.html.j2"
-        )
+        forge_design_name = "forge"
         forge_inputs = RenderInputs(
             frames=[frame],
-            template_path=forge_template_path,
+            design_name=forge_design_name,
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="signing_key_shard",
@@ -1277,18 +1000,10 @@ class TestPdfLayout(unittest.TestCase):
             include_instructions=True,
         )
 
-        sentinel_template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "sentinel"
-            / "signing_key_shard_document.html.j2"
-        )
+        sentinel_design_name = "sentinel"
         sentinel_inputs = RenderInputs(
             frames=[frame],
-            template_path=sentinel_template_path,
+            design_name=sentinel_design_name,
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="signing_key_shard",
@@ -1319,18 +1034,10 @@ class TestPdfLayout(unittest.TestCase):
             total=1,
             data=b"payload",
         )
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "signing_key_shard_document.html.j2"
-        )
+        design_name = "forge"
         inputs = RenderInputs(
             frames=[frame],
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={"doc_id": frame.doc_id.hex()},
             doc_type="signing_key_shard",

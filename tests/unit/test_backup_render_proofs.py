@@ -47,7 +47,7 @@ class TestBackupRenderProofs(unittest.TestCase):
     def test_artifact_validation_requires_render_result(self) -> None:
         inputs = RenderInputs(
             frames=(),
-            template_path="/tmp/qr.html.j2",
+            design_name="sentinel",
             output_path="/tmp/qr.pdf",
             context={},
             doc_type="qr",
@@ -67,7 +67,7 @@ class TestBackupRenderProofs(unittest.TestCase):
     def test_artifact_validation_requires_render_artifact_proof(self) -> None:
         inputs = RenderInputs(
             frames=(),
-            template_path="/tmp/qr.html.j2",
+            design_name="sentinel",
             output_path="/tmp/qr.pdf",
             context={},
             doc_type="qr",
@@ -95,7 +95,7 @@ class TestBackupRenderProofs(unittest.TestCase):
         )
         inputs = RenderInputs(
             frames=(frame,),
-            template_path="/tmp/recovery.html.j2",
+            design_name="sentinel",
             output_path="/tmp/recovery.pdf",
             context={},
             doc_type="recovery",
@@ -132,7 +132,7 @@ class TestBackupRenderProofs(unittest.TestCase):
     def test_kit_index_artifact_validation_checks_expected_inventory_text(self) -> None:
         inputs = RenderInputs(
             frames=(),
-            template_path="/tmp/kit_index.html.j2",
+            design_name="sentinel",
             output_path="/tmp/recovery_kit_index.pdf",
             context={},
             doc_type="kit_index",

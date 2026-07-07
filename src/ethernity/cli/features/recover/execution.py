@@ -18,8 +18,16 @@
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import Iterator
+
+from rich.console import Console
+from rich.live import Live
+from rich.spinner import Spinner
+from rich.text import Text
 
 from ethernity.cli.features.recover.planning import RecoveryPlan
 from ethernity.cli.shared.events import CommandError
@@ -27,9 +35,6 @@ from ethernity.cli.shared.io.outputs import (
     _single_entry_uses_directory_output,
     _write_recovered_outputs,
 )
-from ethernity.cli.shared.ui.debug import print_recover_debug
-from ethernity.cli.shared.ui.summary import format_auth_status, print_recover_summary
-from ethernity.cli.shared.ui_api import print_completion_panel, status
 from ethernity.crypto import decrypt_bytes
 from ethernity.extensions.errors import ExtensionRecoveryError
 from ethernity.extensions.recovery import (
@@ -39,6 +44,85 @@ from ethernity.extensions.recovery import (
 )
 from ethernity.formats.envelope_codec import decode_envelope, extract_payloads
 from ethernity.formats.envelope_types import EnvelopeManifest, ManifestFile
+
+
+def _isatty(raw: object, fallback: object) -> bool:
+    if raw is not None:
+        try:
+            return bool(raw.isatty())  # type: ignore[attr-defined]
+        except (OSError, ValueError, AttributeError):
+            return False
+    return bool(getattr(fallback, "isatty", lambda: False)())
+
+
+_CONSOLE = Console(force_terminal=_isatty(sys.__stdout__, sys.stdout))
+_CONSOLE_ERR = Console(stderr=True, force_terminal=_isatty(sys.__stderr__, sys.stderr))
+
+
+@contextmanager
+def status(message: str, *, quiet: bool = False) -> Iterator[Live | None]:
+    if quiet:
+        yield None
+        return
+    if not _isatty(sys.__stdout__, sys.stdout):
+        _CONSOLE.print(message)
+        yield None
+        return
+    spinner = Spinner("dots", text=Text(message))
+    with Live(spinner, console=_CONSOLE, transient=False, refresh_per_second=12) as live:
+        yield live
+
+
+def format_auth_status(status_value: str, *, allow_unsigned: bool) -> str:
+    if status_value == "verified":
+        return "verified"
+    if status_value == "skipped":
+        return "skipped (unsigned recovery)"
+    if status_value == "ignored":
+        return "failed (ignored during unsigned recovery)"
+    if status_value == "invalid":
+        return "invalid (ignored during unsigned recovery)" if allow_unsigned else "invalid"
+    if status_value == "missing":
+        return "skipped (unsigned recovery)" if allow_unsigned else "missing"
+    return status_value
+
+
+def print_recover_summary(
+    entries: list[tuple[ManifestFile, bytes]],
+    output_path: str | None,
+    *,
+    auth_status: str | None,
+    quiet: bool,
+    **_: object,
+) -> None:
+    if quiet:
+        return
+    count = len(entries)
+    suffix = "file" if count == 1 else "files"
+    target = output_path or "stdout"
+    if auth_status:
+        _CONSOLE_ERR.print(f"Recovered {count} {suffix} to {target}. Auth: {auth_status}.")
+        return
+    _CONSOLE_ERR.print(f"Recovered {count} {suffix} to {target}.")
+
+
+def print_completion_panel(
+    title: str,
+    actions: list[str],
+    *,
+    quiet: bool,
+    use_err: bool = False,
+) -> None:
+    if quiet:
+        return
+    console = _CONSOLE_ERR if use_err else _CONSOLE
+    console.print(title)
+    for action in actions:
+        console.print(f"- {action}")
+
+
+def print_recover_debug(**_: object) -> None:
+    return
 
 
 @dataclass(frozen=True)

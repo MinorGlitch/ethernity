@@ -1,20 +1,5 @@
-[templates]
-default_name = "sentinel"
-
-[template]
-name = "sentinel"
-
-[recovery_template]
-name = "sentinel"
-
-[shard_template]
-name = "sentinel"
-
-[signing_key_shard_template]
-name = "sentinel"
-
-[kit_template]
-name = "sentinel"
+[render]
+style = "sentinel"
 
 [page]
 size = "A4" # Supported: A4, Letter

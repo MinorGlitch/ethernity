@@ -28,19 +28,27 @@ from ethernity.render.service import RenderService
 from ethernity.render.types import (
     FallbackSection,
     RenderArtifactProof,
+    RenderComponentLayoutProof,
     RenderFallbackProof,
     RenderInputs,
+    RenderLayoutProof,
     RenderLineage,
+    RenderPageLayoutProof,
+    RenderRectProof,
     RenderResult,
 )
 
 __all__ = [
     "FallbackSection",
     "RenderArtifactProof",
+    "RenderComponentLayoutProof",
     "RenderFallbackProof",
     "RenderInputs",
+    "RenderLayoutProof",
     "RenderLineage",
+    "RenderPageLayoutProof",
     "RenderProofError",
+    "RenderRectProof",
     "RenderResult",
     "RenderService",
     "build_render_artifact_proof",

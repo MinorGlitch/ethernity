@@ -105,7 +105,7 @@ def _write_template(
     folder: str,
     *,
     capabilities: dict[str, object] | None = None,
-) -> Path:
+) -> str:
     template_dir = root / folder
     template_dir.mkdir(parents=True, exist_ok=True)
     (template_dir / "style.json").write_text(
@@ -126,9 +126,7 @@ def _write_template(
         ),
         encoding="utf-8",
     )
-    template_path = template_dir / "recovery_document.html.j2"
-    template_path.write_text("", encoding="utf-8")
-    return template_path
+    return str(template_dir)
 
 
 class TestBuildPages(unittest.TestCase):
@@ -143,18 +141,10 @@ class TestBuildPages(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "kit_document.html.j2"
-        )
+        design_name = "forge"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="KIT",
@@ -188,18 +178,10 @@ class TestBuildPages(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "kit_index_document.html.j2"
-        )
+        design_name = "forge"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="kit_index",
@@ -233,18 +215,10 @@ class TestBuildPages(unittest.TestCase):
             )
             for i in range(5)
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "ledger"
-            / "main_document.html.j2"
-        )
+        design_name = "ledger"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="main",
@@ -281,18 +255,10 @@ class TestBuildPages(unittest.TestCase):
             )
             for i in range(16)
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "sentinel"
-            / "main_document.html.j2"
-        )
+        design_name = "sentinel"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="main",
@@ -337,18 +303,10 @@ class TestBuildPages(unittest.TestCase):
             )
             for i in range(20)
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "sentinel"
-            / "main_document.html.j2"
-        )
+        design_name = "sentinel"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="main",
@@ -384,18 +342,10 @@ class TestBuildPages(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "ledger"
-            / "main_document.html.j2"
-        )
+        design_name = "ledger"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="main",
@@ -445,18 +395,10 @@ class TestBuildPages(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "ledger"
-            / "main_document.html.j2"
-        )
+        design_name = "ledger"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="main",
@@ -501,18 +443,10 @@ class TestBuildPages(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "ledger"
-            / "main_document.html.j2"
-        )
+        design_name = "ledger"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="main",
@@ -564,18 +498,10 @@ class TestBuildPages(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "shard_document.html.j2"
-        )
+        design_name = "forge"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="shard",
@@ -628,18 +554,10 @@ class TestBuildPages(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "signing_key_shard_document.html.j2"
-        )
+        design_name = "forge"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="signing_key_shard",
@@ -692,18 +610,10 @@ class TestBuildPages(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "ledger"
-            / "shard_document.html.j2"
-        )
+        design_name = "ledger"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="shard",
@@ -755,18 +665,10 @@ class TestBuildPages(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "recovery_document.html.j2"
-        )
+        design_name = "forge"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="recovery",
@@ -808,18 +710,10 @@ class TestBuildPages(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "recovery_document.html.j2"
-        )
+        design_name = "forge"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="recovery",
@@ -863,18 +757,10 @@ class TestBuildPages(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "recovery_document.html.j2"
-        )
+        design_name = "forge"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="recovery",
@@ -918,18 +804,10 @@ class TestBuildPages(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "ledger"
-            / "main_document.html.j2"
-        )
+        design_name = "ledger"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="main",
@@ -966,18 +844,10 @@ class TestBuildPages(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "ledger"
-            / "main_document.html.j2"
-        )
+        design_name = "ledger"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="main",
@@ -1016,18 +886,10 @@ class TestBuildPages(unittest.TestCase):
             )
             for index in range(2)
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "ledger"
-            / "main_document.html.j2"
-        )
+        design_name = "ledger"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="main",
@@ -1064,18 +926,10 @@ class TestBuildPages(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "ledger"
-            / "main_document.html.j2"
-        )
+        design_name = "ledger"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="main",
@@ -1119,18 +973,10 @@ class TestBuildPages(unittest.TestCase):
                 data=b"payload",
             )
         ]
-        template_path = (
-            Path(__file__).resolve().parents[2]
-            / "src"
-            / "ethernity"
-            / "resources"
-            / "templates"
-            / "forge"
-            / "shard_document.html.j2"
-        )
+        design_name = "forge"
         inputs = RenderInputs(
             frames=frames,
-            template_path=template_path,
+            design_name=design_name,
             output_path="out.pdf",
             context={},
             doc_type="shard",
@@ -1177,14 +1023,14 @@ class TestBuildPages(unittest.TestCase):
             for i in range(3)
         ]
         with TemporaryDirectory() as temp_dir:
-            template_path = _write_template(
+            design_name = _write_template(
                 Path(temp_dir),
                 "maritime",
                 capabilities={"repeat_main_instructions_on_all_pages": True},
             )
             inputs = RenderInputs(
                 frames=frames,
-                template_path=template_path,
+                design_name=design_name,
                 output_path="out.pdf",
                 context={},
                 doc_type="main",
@@ -1256,7 +1102,7 @@ class TestBuildPages(unittest.TestCase):
             bonus_pages = build_pages(
                 inputs=RenderInputs(
                     frames=frames,
-                    template_path=bonus_template,
+                    design_name=bonus_template,
                     output_path="out.pdf",
                     context={},
                     doc_type="recovery",
@@ -1276,7 +1122,7 @@ class TestBuildPages(unittest.TestCase):
             baseline_pages = build_pages(
                 inputs=RenderInputs(
                     frames=frames,
-                    template_path=baseline_template,
+                    design_name=baseline_template,
                     output_path="out.pdf",
                     context={},
                     doc_type="recovery",
@@ -1341,7 +1187,7 @@ class TestBuildPages(unittest.TestCase):
             bonus_pages = build_pages(
                 inputs=RenderInputs(
                     frames=frames,
-                    template_path=bonus_template,
+                    design_name=bonus_template,
                     output_path="out.pdf",
                     context={},
                     doc_type="recovery",
@@ -1361,7 +1207,7 @@ class TestBuildPages(unittest.TestCase):
             baseline_pages = build_pages(
                 inputs=RenderInputs(
                     frames=frames,
-                    template_path=baseline_template,
+                    design_name=baseline_template,
                     output_path="out.pdf",
                     context={},
                     doc_type="recovery",
@@ -1432,7 +1278,7 @@ class TestBuildPages(unittest.TestCase):
             bonus_pages = build_pages(
                 inputs=RenderInputs(
                     frames=frames,
-                    template_path=bonus_template,
+                    design_name=bonus_template,
                     output_path="out.pdf",
                     context={},
                     doc_type="recovery",
@@ -1452,7 +1298,7 @@ class TestBuildPages(unittest.TestCase):
             baseline_pages = build_pages(
                 inputs=RenderInputs(
                     frames=frames,
-                    template_path=baseline_template,
+                    design_name=baseline_template,
                     output_path="out.pdf",
                     context={},
                     doc_type="recovery",
@@ -1518,7 +1364,7 @@ class TestBuildPages(unittest.TestCase):
             semantic_pages = build_pages(
                 inputs=RenderInputs(
                     frames=frames,
-                    template_path=semantic_template,
+                    design_name=semantic_template,
                     output_path="out.pdf",
                     context={},
                     doc_type="recovery",
@@ -1538,7 +1384,7 @@ class TestBuildPages(unittest.TestCase):
             copy_only_pages = build_pages(
                 inputs=RenderInputs(
                     frames=frames,
-                    template_path=copy_only_template,
+                    design_name=copy_only_template,
                     output_path="out.pdf",
                     context={},
                     doc_type="recovery",
@@ -1614,7 +1460,7 @@ class TestBuildPages(unittest.TestCase):
             alpha_pages = build_pages(
                 inputs=RenderInputs(
                     frames=frames,
-                    template_path=alpha_template,
+                    design_name=alpha_template,
                     output_path="out.pdf",
                     context={},
                     doc_type="recovery",
@@ -1634,7 +1480,7 @@ class TestBuildPages(unittest.TestCase):
             bravo_pages = build_pages(
                 inputs=RenderInputs(
                     frames=frames,
-                    template_path=bravo_template,
+                    design_name=bravo_template,
                     output_path="out.pdf",
                     context={},
                     doc_type="recovery",

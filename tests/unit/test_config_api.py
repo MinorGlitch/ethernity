@@ -48,26 +48,22 @@ class TestApiConfigService(unittest.TestCase):
                 installer,
                 user_config_dir_path=mock.Mock(return_value=config_root),
                 user_config_file_path=mock.Mock(side_effect=lambda name: config_root / name),
-                user_templates_root_path=mock.Mock(return_value=config_root / "templates"),
-                user_templates_design_path=mock.Mock(
-                    side_effect=lambda design: config_root / "templates" / design
-                ),
             ):
                 snapshot = api_config.get_api_config_snapshot()
 
-        templates = cast(dict[str, Any], snapshot.values["templates"])
+        render = cast(dict[str, Any], snapshot.values["render"])
         self.assertEqual(snapshot.source, "default")
         self.assertEqual(snapshot.status, "valid")
         self.assertEqual(snapshot.errors, ())
         self.assertEqual(snapshot.path, str(DEFAULT_CONFIG_PATH))
         self.assertEqual(
-            snapshot.options["template_designs"],
+            snapshot.options["render_styles"],
             ["archive", "forge", "ledger", "maritime", "sentinel"],
         )
         self.assertEqual(snapshot.options["onboarding_fields"], list(ONBOARDING_FIELDS))
         self.assertFalse(snapshot.onboarding["needed"])
         self.assertEqual(snapshot.onboarding["configured_fields"], [])
-        self.assertIn("template_name", templates)
+        self.assertEqual(render["style"], "sentinel")
 
     def test_get_api_config_snapshot_uses_user_config_target_when_present(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -81,10 +77,6 @@ class TestApiConfigService(unittest.TestCase):
                 installer,
                 user_config_dir_path=mock.Mock(return_value=config_root),
                 user_config_file_path=mock.Mock(side_effect=lambda name: config_root / name),
-                user_templates_root_path=mock.Mock(return_value=config_root / "templates"),
-                user_templates_design_path=mock.Mock(
-                    side_effect=lambda design: config_root / "templates" / design
-                ),
             ):
                 snapshot = api_config.get_api_config_snapshot()
 
@@ -99,16 +91,12 @@ class TestApiConfigService(unittest.TestCase):
                 installer,
                 user_config_dir_path=mock.Mock(return_value=config_root),
                 user_config_file_path=mock.Mock(side_effect=lambda name: config_root / name),
-                user_templates_root_path=mock.Mock(return_value=config_root / "templates"),
-                user_templates_design_path=mock.Mock(
-                    side_effect=lambda design: config_root / "templates" / design
-                ),
             ):
                 snapshot = api_config.apply_api_config_patch(
                     None,
                     {
                         "values": {
-                            "templates": {"template_name": "ledger"},
+                            "render": {"style": "ledger"},
                             "page": {"size": "LETTER"},
                             "extension": {
                                 "chunking": {
@@ -140,9 +128,9 @@ class TestApiConfigService(unittest.TestCase):
                 parsed = tomllib.loads(Path(snapshot.path).read_text(encoding="utf-8"))
 
         defaults = snapshot.values["defaults"]
-        templates = cast(dict[str, Any], snapshot.values["templates"])
+        render = cast(dict[str, Any], snapshot.values["render"])
         self.assertEqual(snapshot.values["page"], {"size": "LETTER"})
-        self.assertEqual(templates["template_name"], "ledger")
+        self.assertEqual(render["style"], "ledger")
         self.assertIsInstance(defaults, dict)
         backup = cast(dict[str, Any], defaults)["backup"]
         self.assertIsInstance(backup, dict)
@@ -163,7 +151,7 @@ class TestApiConfigService(unittest.TestCase):
             ["backup_output_dir", "page_size"],
         )
         self.assertEqual(parsed["page"]["size"], "LETTER")
-        self.assertEqual(parsed["template"]["name"], "ledger")
+        self.assertEqual(parsed["render"]["style"], "ledger")
         self.assertEqual(parsed["extension"]["chunking"]["target_size"], 16384)
         self.assertEqual(parsed["extension"]["chunking"]["min_size"], 4096)
         self.assertEqual(parsed["extension"]["chunking"]["max_size"], 65536)
@@ -260,10 +248,6 @@ class TestApiConfigService(unittest.TestCase):
                 installer,
                 user_config_dir_path=mock.Mock(return_value=config_root),
                 user_config_file_path=mock.Mock(side_effect=lambda name: config_root / name),
-                user_templates_root_path=mock.Mock(return_value=config_root / "templates"),
-                user_templates_design_path=mock.Mock(
-                    side_effect=lambda design: config_root / "templates" / design
-                ),
             ):
                 api_config.apply_api_config_patch(
                     None,
@@ -282,16 +266,11 @@ class TestApiConfigService(unittest.TestCase):
         self.assertTrue(snapshot.onboarding["needed"])
         self.assertEqual(snapshot.onboarding["configured_fields"], [])
 
-    def test_apply_api_config_patch_preserves_existing_template_overrides(self) -> None:
+    def test_apply_api_config_patch_preserves_existing_render_style(self) -> None:
         initial = DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")
         initial = initial.replace(
-            '[template]\nname = "sentinel"',
-            '[template]\nname = "ledger"',
-            1,
-        )
-        initial = initial.replace(
-            '[recovery_template]\nname = "sentinel"',
-            '[recovery_template]\nname = "forge"',
+            '[render]\nstyle = "sentinel"',
+            '[render]\nstyle = "ledger"',
             1,
         )
         with _temporary_config_path(initial) as path:
@@ -301,11 +280,9 @@ class TestApiConfigService(unittest.TestCase):
             )
             parsed = tomllib.loads(path.read_text(encoding="utf-8"))
 
-        templates = cast(dict[str, Any], snapshot.values["templates"])
-        self.assertEqual(templates["template_name"], "ledger")
-        self.assertEqual(templates["recovery_template_name"], "forge")
-        self.assertEqual(parsed["template"]["name"], "ledger")
-        self.assertEqual(parsed["recovery_template"]["name"], "forge")
+        render = cast(dict[str, Any], snapshot.values["render"])
+        self.assertEqual(render["style"], "ledger")
+        self.assertEqual(parsed["render"]["style"], "ledger")
 
     def test_apply_api_config_patch_reverts_config_when_marker_write_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -314,10 +291,6 @@ class TestApiConfigService(unittest.TestCase):
                 installer,
                 user_config_dir_path=mock.Mock(return_value=config_root),
                 user_config_file_path=mock.Mock(side_effect=lambda name: config_root / name),
-                user_templates_root_path=mock.Mock(return_value=config_root / "templates"),
-                user_templates_design_path=mock.Mock(
-                    side_effect=lambda design: config_root / "templates" / design
-                ),
             ):
                 config_path = installer.resolve_writable_config_path(None)
                 original = config_path.read_text(encoding="utf-8")
@@ -365,10 +338,6 @@ class TestApiConfigService(unittest.TestCase):
                 installer,
                 user_config_dir_path=mock.Mock(return_value=config_root),
                 user_config_file_path=mock.Mock(side_effect=lambda name: config_root / name),
-                user_templates_root_path=mock.Mock(return_value=config_root / "templates"),
-                user_templates_design_path=mock.Mock(
-                    side_effect=lambda design: config_root / "templates" / design
-                ),
             ):
                 with self.assertRaises(api_config.ConfigPatchError) as raised:
                     api_config.apply_api_config_patch(
@@ -388,10 +357,6 @@ class TestApiConfigService(unittest.TestCase):
                 installer,
                 user_config_dir_path=mock.Mock(return_value=config_root),
                 user_config_file_path=mock.Mock(side_effect=lambda name: config_root / name),
-                user_templates_root_path=mock.Mock(return_value=config_root / "templates"),
-                user_templates_design_path=mock.Mock(
-                    side_effect=lambda design: config_root / "templates" / design
-                ),
             ):
                 with self.assertRaises(api_config.ConfigPatchError) as raised:
                     api_config.apply_api_config_patch(None, {"onboarding": {}})
@@ -406,10 +371,6 @@ class TestApiConfigService(unittest.TestCase):
                 installer,
                 user_config_dir_path=mock.Mock(return_value=config_root),
                 user_config_file_path=mock.Mock(side_effect=lambda name: config_root / name),
-                user_templates_root_path=mock.Mock(return_value=config_root / "templates"),
-                user_templates_design_path=mock.Mock(
-                    side_effect=lambda design: config_root / "templates" / design
-                ),
             ):
                 with self.assertRaises(api_config.ConfigPatchError) as raised:
                     api_config.apply_api_config_patch(None, {"values": "not-an-object"})

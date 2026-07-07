@@ -96,12 +96,12 @@ class RenderService:
 
         return self._build_inputs(
             frames=frames,
-            template_path=self.config.template_path,
             output_path=output_path,
             context=context,
             qr_payloads=qr_payloads,
             render_fallback=False,
             doc_type=DOC_TYPE_MAIN,
+            design_name=self.config.design_name,
             layout_debug_json_path=layout_debug_json_path,
             lineage=lineage,
         )
@@ -122,7 +122,6 @@ class RenderService:
 
         return self._build_inputs(
             frames=frames,
-            template_path=self.config.recovery_template_path,
             output_path=output_path,
             context=context,
             render_qr=False,
@@ -130,6 +129,7 @@ class RenderService:
             recovery_meta=recovery_meta,
             fallback_sections=fallback_sections,
             doc_type=DOC_TYPE_RECOVERY,
+            design_name=self.config.design_name,
             layout_debug_json_path=layout_debug_json_path,
             lineage=lineage,
         )
@@ -143,8 +143,8 @@ class RenderService:
         shard_total: int,
         shard_threshold: int | None = None,
         qr_payloads: Sequence[bytes | str] | None = None,
-        template_path: str | Path | None = None,
         doc_type: str | None = None,
+        design_name: str | None = None,
         layout_debug_json_path: str | Path | None = None,
         lineage: RenderLineage,
     ) -> RenderInputs:
@@ -153,7 +153,6 @@ class RenderService:
         resolved_doc_type = doc_type or DOC_TYPE_SHARD
         return self._build_inputs(
             frames=[frame],
-            template_path=template_path or self.config.shard_template_path,
             output_path=output_path,
             context=self.base_context(
                 {
@@ -167,6 +166,7 @@ class RenderService:
             qr_payloads=qr_payloads,
             fallback_sections=(FallbackSection(label=None, frame=frame),),
             doc_type=resolved_doc_type,
+            design_name=design_name or self.config.design_name,
             layout_debug_json_path=layout_debug_json_path,
             lineage=lineage,
         )
@@ -178,7 +178,7 @@ class RenderService:
         *,
         qr_payloads: Sequence[bytes | str],
         context: dict[str, object] | None = None,
-        template_path: str | Path | None = None,
+        design_name: str | None = None,
         doc_type: str = DOC_TYPE_KIT,
         layout_debug_json_path: str | Path | None = None,
         lineage: RenderLineage,
@@ -187,12 +187,12 @@ class RenderService:
 
         return self._build_inputs(
             frames=frames,
-            template_path=template_path or self.config.kit_template_path,
             output_path=output_path,
             context=context,
             qr_payloads=qr_payloads,
             render_fallback=False,
             doc_type=doc_type,
+            design_name=design_name or self.config.design_name,
             layout_debug_json_path=layout_debug_json_path,
             lineage=lineage,
         )
@@ -202,7 +202,7 @@ class RenderService:
         output_path: str | Path,
         *,
         context: dict[str, object] | None = None,
-        template_path: str | Path | None = None,
+        design_name: str | None = None,
         qr_page_count: int | None = None,
         qr_chunk_count: int = 0,
         layout_debug_json_path: str | Path | None = None,
@@ -216,13 +216,13 @@ class RenderService:
         index_context.setdefault("kit_qr_chunk_count", qr_chunk_count)
         return self._build_inputs(
             frames=(),
-            template_path=template_path or self.config.kit_template_path,
             output_path=output_path,
             context=index_context,
             qr_payloads=(),
             render_qr=False,
             render_fallback=False,
             doc_type=DOC_TYPE_KIT_INDEX,
+            design_name=design_name or self.config.design_name,
             layout_debug_json_path=layout_debug_json_path,
             lineage=lineage,
         )
@@ -231,7 +231,6 @@ class RenderService:
         self,
         *,
         frames: Sequence[Frame],
-        template_path: str | Path,
         output_path: str | Path,
         context: dict[str, object] | None,
         qr_payloads: Sequence[bytes | str] | None = None,
@@ -241,6 +240,7 @@ class RenderService:
         recovery_meta: RecoveryMeta | None = None,
         fallback_sections: Sequence[FallbackSection] | None = None,
         doc_type: str,
+        design_name: str,
         layout_debug_json_path: str | Path | None = None,
         lineage: RenderLineage,
     ) -> RenderInputs:
@@ -251,10 +251,10 @@ class RenderService:
         resolved_context = self.base_context(context)
         return RenderInputs(
             frames=frames,
-            template_path=template_path,
             output_path=output_path,
             context=resolved_context,
             doc_type=doc_type,
+            design_name=design_name,
             qr_config=self.config.qr_config,
             qr_payloads=qr_payloads,
             render_qr=render_qr,

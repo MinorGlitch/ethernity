@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import replace
-from pathlib import Path
 
 from fpdf import FPDF
 
@@ -73,15 +72,6 @@ class TestLayoutSnapshots(unittest.TestCase):
             "sentinel",
         ):
             for doc_type in ("main", "recovery", "shard", "signing_key_shard"):
-                template = (
-                    Path(__file__).resolve().parents[2]
-                    / "src"
-                    / "ethernity"
-                    / "resources"
-                    / "templates"
-                    / design
-                    / f"{doc_type}_document.html.j2"
-                )
                 key = f"{design}.{doc_type}"
                 with self.subTest(key=key):
                     context = {
@@ -94,7 +84,7 @@ class TestLayoutSnapshots(unittest.TestCase):
                     }
                     inputs = RenderInputs(
                         frames=[frame],
-                        template_path=template,
+                        design_name=design,
                         output_path="out.pdf",
                         context=context,
                         doc_type=doc_type,
@@ -105,7 +95,7 @@ class TestLayoutSnapshots(unittest.TestCase):
                         key_lines=["Passphrase:", "one two three four five six"],
                     )
                     spec = document_spec(doc_type, "A4", context)
-                    style = load_template_style(template)
+                    style = load_template_style(design)
                     spec = replace(
                         spec,
                         header=replace(

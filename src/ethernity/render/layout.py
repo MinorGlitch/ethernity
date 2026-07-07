@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import math
-from typing import Sequence
+from typing import Sequence, cast
 
 from fpdf import FPDF
 
@@ -87,7 +87,7 @@ def _calculate_content_positions(
     if include_keys and key_lines:
         keys_font = keys_cfg.font_family
         keys_size = float(keys_cfg.font_size)
-        pdf.set_font(keys_font, size=keys_size)
+        pdf.set_font(keys_font, size=cast(int, keys_size))
         max_text_width = text_block_width(keys_cfg, usable_w)
         wrapped_key_lines = wrap_lines_to_width(pdf, key_lines, max_text_width)
     if include_keys and wrapped_key_lines:
@@ -126,7 +126,7 @@ def _calculate_fallback_line_length(
     fallback_font = fallback_cfg.font_family
     fallback_size = float(fallback_cfg.font_size)
 
-    pdf.set_font(fallback_font, size=fallback_size)
+    pdf.set_font(fallback_font, size=cast(int, fallback_size))
     original_cell_margin = pdf.c_margin
     pdf.c_margin = 0
     fallback_width = page_w - 2 * margin

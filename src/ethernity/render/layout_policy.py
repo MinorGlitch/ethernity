@@ -48,9 +48,9 @@ _SHARD_CARD_PADDING_MM = 8.0
 
 
 def resolve_layout_capabilities(inputs: RenderInputs) -> TemplateCapabilities:
-    """Load template capabilities for a render input template path."""
+    """Load template capabilities for the render input design."""
 
-    return load_template_style(inputs.template_path).capabilities
+    return load_template_style(inputs.design_name).capabilities
 
 
 def fallback_text_width_override_mm(
@@ -258,7 +258,7 @@ def extra_main_first_page_qr_slots(
     doc_type: str,
     page_idx: int,
 ) -> int:
-    """Return extra QR slots on the first main-document page for capable templates."""
+    """Return extra QR slots on the first main-document page for capable styles."""
 
     if not capabilities.extra_main_first_page_qr_slot:
         return 0
