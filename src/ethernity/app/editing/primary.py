@@ -22,8 +22,8 @@ class PrimaryEditingActions(BaseEditingActions):
             )
         elif self.active_task == "restore":
             await self._pick_paths(
-                title="Backup source",
-                prompt="Choose backup scans, PDFs, images, or folders.",
+                title="Backup to restore",
+                prompt="Load scanned backup pages, PDFs, images, or folders.",
                 selected_paths=self.restore_state.source_paths,
                 callback=self._apply_restore_sources_picked,
             )
@@ -46,15 +46,15 @@ class PrimaryEditingActions(BaseEditingActions):
                 else tuple(self.rebuild_state.source_paths)
             )
             await self._pick_paths(
-                title="Backup source",
-                prompt="Choose a generated backup folder or backup scans.",
+                title="Existing backup",
+                prompt="Choose a generated backup folder or load scanned pages.",
                 selected_paths=rebuild_selection,
                 callback=self._apply_rebuild_source_picked,
             )
         elif self.active_task == "replace_recovery_docs":
             await self._pick_paths(
-                title="Latest backup source",
-                prompt="Choose latest backup scans, PDFs, images, or folders.",
+                title="Existing backup",
+                prompt="Load newest backup scans, PDFs, images, or folders.",
                 selected_paths=self.replace_recovery_docs_state.source_paths,
                 callback=self._apply_replace_recovery_sources_picked,
             )
@@ -77,7 +77,7 @@ class PrimaryEditingActions(BaseEditingActions):
         elif self.active_task == "restore":
             root, name = save_picker_parts(self.restore_state.output_path)
             await self._pick_paths(
-                title="Restore output",
+                title="Restore destination",
                 prompt="Choose where recovered files will be written.",
                 selected_paths=(root,),
                 callback=self._apply_restore_output_picked,
@@ -88,7 +88,7 @@ class PrimaryEditingActions(BaseEditingActions):
         elif self.active_task == "kit":
             root, name = save_picker_parts(self.kit_state.output_path)
             await self._pick_paths(
-                title="Recovery kit output",
+                title="Recovery kit PDF",
                 prompt="Choose where the printable recovery kit PDF will be saved.",
                 selected_paths=(root,),
                 callback=self._apply_kit_output_picked,
@@ -114,7 +114,7 @@ class PrimaryEditingActions(BaseEditingActions):
         elif self.active_task == "rebuild":
             root, name = save_picker_parts(self.rebuild_state.output_dir)
             await self._pick_paths(
-                title="Rebuild output",
+                title="Rebuilt backup output",
                 prompt="Choose where rebuilt backup documents will be saved.",
                 selected_paths=(root,),
                 callback=self._apply_rebuild_output_picked,
@@ -126,8 +126,8 @@ class PrimaryEditingActions(BaseEditingActions):
         elif self.active_task == "replace_recovery_docs":
             root, name = save_picker_parts(self.replace_recovery_docs_state.output_dir)
             await self._pick_paths(
-                title="Replacement document output",
-                prompt="Choose where replacement recovery documents will be saved.",
+                title="Replacement sheet output",
+                prompt="Choose where replacement recovery sheets will be saved.",
                 selected_paths=(root,),
                 callback=self._apply_replace_recovery_output_picked,
                 allow_files=False,
@@ -219,8 +219,8 @@ class PrimaryEditingActions(BaseEditingActions):
             return
         if choice == "recovery_documents":
             await self._pick_paths(
-                title="Recovery documents",
-                prompt="Choose recovery document scans, PDFs, images, or folders.",
+                title="Recovery sheets",
+                prompt="Choose recovery sheet scans, PDFs, images, or folders.",
                 selected_paths=state.recovery_documents,
                 callback=self._apply_unlock_recovery_documents_picked,
             )

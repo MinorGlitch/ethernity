@@ -199,8 +199,26 @@ ReviewTaskScreen {
     background: $background;
 }
 
-#doctor-checks-table {
-    height: 12;
+.workspace-path-list {
+    height: auto;
+    margin-bottom: 1;
+}
+
+.workspace-empty-state {
+    height: auto;
+    min-height: 3;
+    margin-bottom: 1;
+    padding: 1;
+    border: dashed $border-blurred;
+    color: $text-muted;
+    background: $surface;
+}
+
+#doctor-checks {
+    height: auto;
+    min-height: 12;
+    border: none;
+    background: $surface;
 }
 
 .workspace-button-row {
@@ -224,7 +242,7 @@ ReviewTaskScreen {
 }
 
 .workspace-field-label {
-    width: 18;
+    width: 24;
     content-align: left middle;
     color: $text;
 }
@@ -236,14 +254,14 @@ ReviewTaskScreen {
 }
 
 .workspace-field-row Button {
-    width: 14;
+    width: 24;
     height: 1;
     border: none;
     background: $panel;
 }
 
 Select.workspace-select {
-    width: 24;
+    width: 28;
     height: 1;
     background: $surface;
     color: $text;
@@ -282,7 +300,8 @@ RadioSet.workspace-control RadioButton {
 .workspace-table:focus,
 .workspace-field-row Button:focus,
 .workspace-button-row Button:focus,
-RadioSet.workspace-control:focus {
+RadioSet.workspace-control:focus,
+#doctor-checks:focus {
     background: $surface-active;
 }
 
@@ -321,7 +340,7 @@ Select.workspace-select:focus > SelectCurrent {
 }
 
 #canvas-action-row #canvas-primary {
-    width: 24;
+    width: 32;
     margin-right: 0;
 }
 

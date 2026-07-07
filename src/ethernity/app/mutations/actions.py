@@ -401,7 +401,7 @@ class TaskMutationActions(TaskPathMutationActions):
             self.replace_recovery_docs_state.allow_stale_head = True
             self.replace_recovery_docs_state.expected_head_doc_hash = None
             self.refresh_task_view()
-            self.notify("Backup source accepted for replacement recovery documents.")
+            self.notify("Backup source accepted for replacement recovery sheets.")
         else:
             self.notify("Choose backup scans before confirming freshness.", severity="warning")
 

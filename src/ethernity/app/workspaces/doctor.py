@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from textual.content import Content
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
-from textual.widgets import DataTable, Static
+from textual.widgets import OptionList
+from textual.widgets.option_list import Option
 
 from ethernity.app.workspaces.common import (
     BaseWorkspace,
@@ -21,20 +23,35 @@ class DoctorWorkspace(BaseWorkspace):
         with VerticalScroll(classes="task-workspace"):
             with section():
                 yield group_label("Setup checks")
-                yield DataTable(
-                    id="doctor-checks-table", classes="workspace-table workspace-control"
+                yield OptionList(
+                    id="doctor-checks",
+                    compact=True,
+                    classes="workspace-control doctor-checklist",
                 )
-                yield Static("", id="doctor-check-detail", classes="workspace-field-note")
 
     def update_presentation(self, presentation: TaskPresentation) -> None:
         super().update_presentation(presentation)
         checks = group(presentation, "checks")
-        table = self.query_one("#doctor-checks-table", DataTable)
-        table.clear(columns=True)
-        table.cursor_type = "row"
-        table.add_columns("Check", "Status", "Detail")
-        for value in checks.values:
-            table.add_row(value.label, status_label(value.status), value.value, key=value.key)
-        self.query_one("#doctor-check-detail", Static).update(
-            checks.values[0].value if checks.values else ""
+        self.query_one("#doctor-checks", OptionList).set_options(
+            [
+                Option(
+                    Content.assemble(
+                        (status_label(value.status), _status_style(value.status)),
+                        " ",
+                        (value.label, "bold"),
+                        "\n",
+                        (value.value, "dim"),
+                    ),
+                    id=value.key,
+                )
+                for value in checks.values
+            ]
         )
+
+
+def _status_style(status: str) -> str:
+    if status == "ready":
+        return "$text-success"
+    if status == "warning":
+        return "$text-warning"
+    return "$text-error"

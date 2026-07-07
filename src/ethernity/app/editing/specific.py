@@ -10,8 +10,8 @@ QUORUM_PROMPT = f"threshold/count from 1 to {MAX_SHARDS}, such as 2/3"
 class TaskSpecificEditingActions(PrimaryEditingActions):
     async def _edit_add_files_current_source(self) -> None:
         await self._pick_paths(
-            title="Current backup source",
-            prompt="Choose latest backup scans, PDFs, images, or folders.",
+            title="Loaded backup source",
+            prompt="Load newest backup scans, PDFs, images, or folders.",
             selected_paths=self.add_files_state.source_paths,
             callback=self._apply_add_files_sources_picked,
         )
@@ -42,7 +42,7 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
             value = "none"
         await self.push_screen(
             EditFieldScreen(
-                title="Update recovery documents",
+                title="Update recovery sheets",
                 prompt=f"Use default, none, or {QUORUM_PROMPT}",
                 value=value,
                 placeholder="default",
@@ -62,7 +62,7 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
             )
         await self.push_screen(
             EditFieldScreen(
-                title="Update signing key shards",
+                title="Update signing-key sheets",
                 prompt=f"Use default or {QUORUM_PROMPT}",
                 value=value,
                 placeholder="default",
@@ -87,7 +87,7 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
         count = self.backup_state.signing_key_shard_count or self.backup_state.shard_count
         await self.push_screen(
             EditFieldScreen(
-                title="Signing key shards",
+                title="Signing-key sheets",
                 prompt=f"Signing key {QUORUM_PROMPT}",
                 value=f"{threshold}/{count}",
                 placeholder="2/3",
@@ -105,11 +105,11 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
         elif self.active_task == "kit":
             value = self.kit_state.chunk_size
         else:
-            self.notify("This workflow uses the saved QR chunk size.")
+            self.notify("This workflow uses the saved QR density.")
             return
         await self.push_screen(
             EditFieldScreen(
-                title="QR chunk size",
+                title="QR density",
                 prompt="Payload bytes per QR chunk. Leave blank for saved default.",
                 value=str(value) if value is not None else "",
                 placeholder="saved default",
@@ -133,7 +133,7 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
 
     async def _edit_restore_payloads_source(self) -> None:
         await self._pick_paths(
-            title="Payload source",
+            title="Payload file source",
             prompt="Choose the payload file to restore from.",
             selected_paths=(
                 (self.restore_state.payloads_file,)
@@ -147,8 +147,8 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
 
     async def _edit_restore_auth_text_source(self) -> None:
         await self._pick_paths(
-            title="Authentication text",
-            prompt="Choose the authentication recovery text file.",
+            title="Trust text",
+            prompt="Choose the trusted recovery text file.",
             selected_paths=(
                 (self.restore_state.auth_text_file,)
                 if self.restore_state.auth_text_file is not None
@@ -161,8 +161,8 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
 
     async def _edit_restore_auth_payloads_source(self) -> None:
         await self._pick_paths(
-            title="Authentication payloads",
-            prompt="Choose the authentication payload file.",
+            title="Trust payload files",
+            prompt="Choose the trust payload file.",
             selected_paths=(
                 (self.restore_state.auth_payloads_file,)
                 if self.restore_state.auth_payloads_file is not None
@@ -175,8 +175,8 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
 
     async def _edit_rebuild_auth_text_source(self) -> None:
         await self._pick_paths(
-            title="Authentication text",
-            prompt="Choose the authentication recovery text file.",
+            title="Trust text",
+            prompt="Choose the trusted recovery text file.",
             selected_paths=(
                 (self.rebuild_state.auth_text_file,)
                 if self.rebuild_state.auth_text_file is not None
@@ -189,8 +189,8 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
 
     async def _edit_rebuild_auth_payloads_source(self) -> None:
         await self._pick_paths(
-            title="Authentication payloads",
-            prompt="Choose the authentication payload file.",
+            title="Trust payload files",
+            prompt="Choose the trust payload file.",
             selected_paths=(
                 (self.rebuild_state.auth_payloads_file,)
                 if self.rebuild_state.auth_payloads_file is not None
@@ -217,7 +217,7 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
 
     async def _edit_replace_payloads_source(self) -> None:
         await self._pick_paths(
-            title="Payload source",
+            title="Payload file source",
             prompt="Choose the existing backup payload file.",
             selected_paths=(
                 (self.replace_recovery_docs_state.payloads_file,)
@@ -231,7 +231,7 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
 
     async def _edit_replace_signing_key_payloads(self) -> None:
         await self._pick_paths(
-            title="Signing key recovery payloads",
+            title="Signing-key recovery payload files",
             prompt="Choose existing signing-key recovery payload files.",
             selected_paths=self.replace_recovery_docs_state.signing_key_recovery_payload_files,
             callback=self._apply_replace_signing_key_payloads_picked,
@@ -242,8 +242,8 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
         value = self.replace_recovery_docs_state.passphrase_replacement_count
         await self.push_screen(
             EditFieldScreen(
-                title="Passphrase replacement count",
-                prompt="How many existing passphrase recovery documents to replace.",
+                title="Passphrase sheet replacement count",
+                prompt="How many existing passphrase recovery sheets to replace.",
                 value=str(value) if value is not None else "",
                 placeholder="1",
             ),
@@ -254,8 +254,8 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
         value = self.replace_recovery_docs_state.signing_key_replacement_count
         await self.push_screen(
             EditFieldScreen(
-                title="Signing key replacement count",
-                prompt="How many existing signing-key recovery documents to replace.",
+                title="Signing-key sheet replacement count",
+                prompt="How many existing signing-key recovery sheets to replace.",
                 value=str(value) if value is not None else "",
                 placeholder="1",
             ),
@@ -280,7 +280,7 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
         elif self.active_task == "replace_recovery_docs":
             await self.push_screen(
                 EditFieldScreen(
-                    title="New recovery set",
+                    title="New recovery method",
                     prompt=f"Recovery {QUORUM_PROMPT}",
                     value=(
                         f"{self.replace_recovery_docs_state.recovery_threshold}/"
@@ -297,7 +297,7 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
         count = state.signing_key_recovery_count or state.recovery_document_count
         await self.push_screen(
             EditFieldScreen(
-                title="Signing key recovery",
+                title="Signing-key recovery",
                 prompt=f"Signing key recovery {QUORUM_PROMPT}",
                 value=f"{threshold}/{count}",
                 placeholder="2/3",
@@ -326,8 +326,8 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
             value = f"update {self.restore_state.extension_index}"
         await self.push_screen(
             EditFieldScreen(
-                title="Restore target",
-                prompt="Restore latest, original, or update number",
+                title="Version to restore",
+                prompt="Restore newest, initial, or a version/update number.",
                 value=value,
                 placeholder="latest",
             ),
@@ -340,8 +340,8 @@ class TaskSpecificEditingActions(PrimaryEditingActions):
             return
         await self.push_screen(
             EditFieldScreen(
-                title="Restore target fingerprint",
-                prompt="Paste the backup update fingerprint to restore.",
+                title="Version/update fingerprint",
+                prompt="Paste the backup version/update fingerprint to restore.",
                 value=self.restore_state.extension_doc_hash or "",
                 placeholder="doc fingerprint",
             ),

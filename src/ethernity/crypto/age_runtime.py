@@ -19,11 +19,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 import pyrage
 from pyrage import passphrase as pyrage_passphrase
 
 from ethernity.crypto.passphrases import DEFAULT_PASSPHRASE_WORDS, generate_passphrase
+
+_PYRAGE_DECRYPT_ERROR = cast(type[Exception], getattr(pyrage, "DecryptError", RuntimeError))
 
 
 @dataclass
@@ -60,7 +63,7 @@ def _decrypt_with_pyrage(data: bytes, passphrase: str) -> bytes:
 
     try:
         return pyrage_passphrase.decrypt(data, passphrase)
-    except (ValueError, TypeError, RuntimeError, OSError, pyrage.DecryptError) as exc:
+    except (ValueError, TypeError, RuntimeError, OSError, _PYRAGE_DECRYPT_ERROR) as exc:
         # pyrage raises DecryptError for wrong passphrase, other exceptions for corrupted data
         raise _wrap_pyrage_error(exc) from exc
 

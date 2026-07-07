@@ -185,7 +185,7 @@ class ExtensionChunkRef:
         if len(fields) != 2:
             raise ValueError("extension chunk_ref must contain exactly 2 items")
         return cls(
-            chunk_id=fields[0] if isinstance(fields[0], (bytes, bytearray)) else fields[0],
+            chunk_id=require_bytes(fields[0], 32, label="extension chunk_ref chunk_id"),
             uncompressed_len=require_int(fields[1], label="extension chunk_ref uncompressed_len"),
         )
 
@@ -242,7 +242,7 @@ class ExtensionFile:
         return cls(
             path=require_non_empty_str(fields[0], label="extension file path"),
             size=require_int(fields[1], label="extension file size"),
-            sha256=fields[2] if isinstance(fields[2], (bytes, bytearray)) else fields[2],
+            sha256=require_bytes(fields[2], 32, label="extension file sha256"),
             mtime=(
                 None if fields[3] is None else require_int(fields[3], label="extension file mtime")
             ),
@@ -296,10 +296,10 @@ class ExtensionChunkRecord:
         if len(fields) != 4:
             raise ValueError("extension chunk must contain exactly 4 items")
         record = cls(
-            chunk_id=fields[0] if isinstance(fields[0], (bytes, bytearray)) else fields[0],
+            chunk_id=require_bytes(fields[0], 32, label="extension chunk chunk_id"),
             codec=require_int(fields[1], label="extension chunk codec"),
             raw_len=require_int(fields[2], label="extension chunk raw_len"),
-            data=fields[3] if isinstance(fields[3], (bytes, bytearray)) else fields[3],
+            data=require_non_empty_bytes(fields[3], label="extension chunk data"),
         )
         record.decode_data()
         return record

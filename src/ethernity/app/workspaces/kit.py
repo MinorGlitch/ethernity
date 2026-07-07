@@ -27,21 +27,23 @@ class KitWorkspace(BaseWorkspace):
     def compose(self) -> ComposeResult:
         with VerticalScroll(classes="task-workspace"):
             with section():
-                yield group_label("Print")
-                yield select_row("Variant", "workspace-kit-variant-select", KIT_VARIANTS)
-                yield select_row("Paper", "workspace-kit-paper", PAPER_OPTIONS)
-                yield select_row("Design", "workspace-kit-design", DESIGN_OPTIONS)
+                yield group_label("Kit type")
+                yield select_row("Kit type", "workspace-kit-variant-select", KIT_VARIANTS)
+            with section():
+                yield group_label("Print layout")
+                yield select_row("Paper size", "workspace-kit-paper", PAPER_OPTIONS)
+                yield select_row("Print design", "workspace-kit-design", DESIGN_OPTIONS)
                 yield field_row(
                     "QR sizing",
                     "kit-chunk-size-value",
-                    WorkspaceAction("workspace-kit-chunk-size", "Set"),
+                    WorkspaceAction("workspace-kit-chunk-size", "Set QR sizing..."),
                 )
             with section():
-                yield group_label("Output")
+                yield group_label("Save PDF as")
                 yield field_row(
-                    "Output PDF",
+                    "Save PDF as",
                     "kit-output-value",
-                    WorkspaceAction("workspace-kit-output", "Choose"),
+                    WorkspaceAction("workspace-kit-output", "Choose PDF path..."),
                 )
 
     def update_presentation(self, presentation: TaskPresentation) -> None:
