@@ -33,7 +33,6 @@ from ethernity.qr.scan import scan_qr_payloads
 from tests.test_support import (
     build_cli_env,
     cli_subprocess_timeout_seconds,
-    ensure_playwright_browsers,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -55,10 +54,6 @@ _MIXED_EXPECTED = [
 
 
 class TestStableV1Baseline(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        ensure_playwright_browsers()
-
     def test_file_mode_no_sharding_backup_and_restore(self) -> None:
         with self._workspace() as workspace:
             output_dir = workspace / "backup-file"
@@ -72,9 +67,10 @@ class TestStableV1Baseline(unittest.TestCase):
                     str(output_dir),
                     "--passphrase",
                     _TEST_PASSPHRASE,
+                    "--recovery-count",
+                    "0",
                     "--design",
                     "forge",
-                    "--quiet",
                 ],
                 workspace,
             )
@@ -83,14 +79,13 @@ class TestStableV1Baseline(unittest.TestCase):
             restored_path = workspace / "restored-file.bin"
             self._run_cli(
                 [
-                    "recover",
+                    "restore",
                     "--scan",
                     str(output_dir / "qr_document.pdf"),
                     "--passphrase",
                     _TEST_PASSPHRASE,
                     "--output",
                     str(restored_path),
-                    "--quiet",
                 ],
                 workspace,
             )
@@ -110,9 +105,10 @@ class TestStableV1Baseline(unittest.TestCase):
                     str(output_dir),
                     "--passphrase",
                     _TEST_PASSPHRASE,
+                    "--recovery-count",
+                    "0",
                     "--design",
                     "forge",
-                    "--quiet",
                 ],
                 workspace,
             )
@@ -121,14 +117,13 @@ class TestStableV1Baseline(unittest.TestCase):
             restored_dir = workspace / "restored-directory"
             self._run_cli(
                 [
-                    "recover",
+                    "restore",
                     "--scan",
                     str(output_dir / "qr_document.pdf"),
                     "--passphrase",
                     _TEST_PASSPHRASE,
                     "--output",
                     str(restored_dir),
-                    "--quiet",
                 ],
                 workspace,
             )
@@ -156,9 +151,10 @@ class TestStableV1Baseline(unittest.TestCase):
                     str(output_dir),
                     "--passphrase",
                     _TEST_PASSPHRASE,
+                    "--recovery-count",
+                    "0",
                     "--design",
                     "forge",
-                    "--quiet",
                 ],
                 workspace,
             )
@@ -167,14 +163,13 @@ class TestStableV1Baseline(unittest.TestCase):
             restored_dir = workspace / "restored-mixed"
             self._run_cli(
                 [
-                    "recover",
+                    "restore",
                     "--scan",
                     str(output_dir / "qr_document.pdf"),
                     "--passphrase",
                     _TEST_PASSPHRASE,
                     "--output",
                     str(restored_dir),
-                    "--quiet",
                 ],
                 workspace,
             )
@@ -198,15 +193,14 @@ class TestStableV1Baseline(unittest.TestCase):
                     str(output_dir),
                     "--passphrase",
                     _TEST_PASSPHRASE,
-                    "--shard-threshold",
+                    "--recovery-threshold",
                     "2",
-                    "--shard-count",
+                    "--recovery-count",
                     "3",
                     "--signing-key-mode",
                     "embedded",
                     "--design",
                     "forge",
-                    "--quiet",
                 ],
                 workspace,
             )
@@ -223,14 +217,13 @@ class TestStableV1Baseline(unittest.TestCase):
             restored_dir = workspace / "restored-sharded-embedded"
             self._run_cli(
                 [
-                    "recover",
+                    "restore",
                     "--scan",
                     str(output_dir / "qr_document.pdf"),
-                    "--shard-payloads-file",
+                    "--recovery-payloads-file",
                     str(shard_payloads_file),
                     "--output",
                     str(restored_dir),
-                    "--quiet",
                 ],
                 workspace,
             )
@@ -258,19 +251,18 @@ class TestStableV1Baseline(unittest.TestCase):
                     str(output_dir),
                     "--passphrase",
                     _TEST_PASSPHRASE,
-                    "--shard-threshold",
+                    "--recovery-threshold",
                     "2",
-                    "--shard-count",
+                    "--recovery-count",
                     "3",
                     "--signing-key-mode",
                     "sharded",
-                    "--signing-key-shard-threshold",
+                    "--signing-key-threshold",
                     "1",
-                    "--signing-key-shard-count",
+                    "--signing-key-count",
                     "2",
                     "--design",
                     "forge",
-                    "--quiet",
                 ],
                 workspace,
             )
@@ -298,14 +290,13 @@ class TestStableV1Baseline(unittest.TestCase):
             restored_dir = workspace / "restored-sharded-signing-key"
             self._run_cli(
                 [
-                    "recover",
+                    "restore",
                     "--scan",
                     str(output_dir / "qr_document.pdf"),
-                    "--shard-payloads-file",
+                    "--recovery-payloads-file",
                     str(shard_payloads_file),
                     "--output",
                     str(restored_dir),
-                    "--quiet",
                 ],
                 workspace,
             )
@@ -333,14 +324,18 @@ class TestStableV1Baseline(unittest.TestCase):
 
     def _run_cli(self, cli_args: list[str], workspace: Path) -> subprocess.CompletedProcess[str]:
         env = build_cli_env(overrides={"XDG_CONFIG_HOME": str(workspace / "xdg")})
+        command_args = [*cli_args]
+        if "--yes" not in command_args:
+            command_args.append("--yes")
         result = subprocess.run(
             [
                 sys.executable,
                 "-m",
-                "ethernity.cli",
+                "ethernity",
+                "run",
                 "--config",
                 str(_CONFIG_PATH),
-                *cli_args,
+                *command_args,
             ],
             cwd=_REPO_ROOT,
             env=env,

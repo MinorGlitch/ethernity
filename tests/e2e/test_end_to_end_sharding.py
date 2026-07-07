@@ -18,7 +18,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ethernity.cli import run_recover_command
+from ethernity.cli.features.recover.service import execute_recover_plan, prepare_recover_plan
 from ethernity.cli.shared.types import RecoverArgs
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.crypto import encrypt_bytes_with_passphrase
@@ -46,6 +46,11 @@ def _auth_frame(*, doc_id: bytes, doc_hash: bytes, sign_priv: bytes, sign_pub: b
         total=1,
         data=encode_auth_payload(doc_hash, sign_pub=sign_pub, signature=signature),
     )
+
+
+def _run_recover(args: RecoverArgs) -> None:
+    plan = prepare_recover_plan(args)
+    execute_recover_plan(plan, quiet=args.quiet)
 
 
 class TestEndToEndSharding(unittest.TestCase):
@@ -126,7 +131,7 @@ class TestEndToEndSharding(unittest.TestCase):
                 quiet=True,
             )
             with suppress_output():
-                run_recover_command(args)
+                _run_recover(args)
             self.assertEqual(output_path.read_bytes(), payload)
 
     def test_recover_with_shard_fallback(self) -> None:
@@ -209,7 +214,7 @@ class TestEndToEndSharding(unittest.TestCase):
                 quiet=True,
             )
             with suppress_output():
-                run_recover_command(args)
+                _run_recover(args)
             self.assertEqual(output_path.read_bytes(), payload)
 
 

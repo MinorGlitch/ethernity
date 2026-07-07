@@ -20,39 +20,39 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "cbor2>=5.9.0",
-    "click>=8.3.1",
-    "typer>=0.24.1",
-    "rich>=14.3.3",
-    "questionary>=2.1.1",
-    "prompt-toolkit>=3.0.52,<4.0.0",
-    "platformdirs>=4.9.2",
-    "fpdf2>=2.8.6",
-    "jinja2>=3.1.6",
+    "cbor2>=6.1.3",
+    "click>=8.4.2",
+    "pydantic>=2.13.4",
+    "rich>=15.0.0",
+    "textual>=6.0.0",
+    "platformdirs>=4.10.0",
+    "fpdf2>=2.8.7",
     "pycryptodome>=3.23.0,<3.24.0",
-    "pillow>=12.1.1",
-    "pypdf>=6.9.2",
+    "pillow>=12.3.0",
+    "pypdf>=6.14.2",
     "segno>=1.6.6",
     "zxing-cpp>=3.0.0",
-    "playwright>=1.58.0",
     "pyrage>=1.3.0",
     "python-docx>=1.2.0",
+    "pytest==9.1.1",
+    "typos==1.48.0",
+    "coverage==7.15.0",
+    "debugpy==1.8.21",
+    "hypothesis==6.156.1",
 ]
 
 [project.scripts]
-ethernity = "ethernity.cli:main"
+ethernity = "ethernity.main:main"
 
 [project.optional-dependencies]
 build = ["pyinstaller>=6.19.0"]
 dev = [
-    "check-jsonschema>=0.37.0",
     "coverage>=7.13.4",
     "hypothesis>=6.151.9",
     "jsonschema>=4.25.1",
-    "mypy>=1.19.1",
     "pip-audit>=2.10.0",
     "pre-commit>=4.5.1",
-    "pyright>=1.1.408",
+    "pyrefly>=1.1.1",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
     "ruff>=0.15.2",
@@ -73,14 +73,12 @@ include = ["ethernity", "ethernity.*"]
 
 [tool.setuptools.package-data]
 ethernity = [
-    "resources/templates/*/*.html.j2",
-    "resources/templates/_shared/*.html.j2",
-    "resources/templates/_shared/*.j2",
-    "resources/templates/_shared/partials/*.j2",
-    "resources/templates/_shared/assets/*.js",
     "resources/templates/_shared/assets/*.ttf",
+    "resources/templates/_shared/assets/fonts/*.otf",
+    "resources/templates/_shared/assets/fonts/*.ttf",
+    "resources/templates/*/design.json",
     "resources/templates/*/style.json",
-    "resources/storage/*.html.j2",
+    "app/*.tcss",
     "resources/storage/*.png",
     "resources/config/*.toml",
     "resources/kit/*.html",
@@ -99,12 +97,26 @@ select = ["E", "F", "I"]
 [tool.ruff.lint.isort]
 combine-as-imports = true
 
-[tool.mypy]
-python_version = "3.11"
-mypy_path = "src"
-ignore_missing_imports = true
-warn_redundant_casts = true
-warn_unused_ignores = true
+[tool.pyrefly]
+project-includes = ["src", "tooling"]
+project-excludes = [
+    "**/__pycache__",
+    ".venv",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "build",
+    "dist",
+    "kit/node_modules",
+    "kit/dist",
+    "src/ethernity.egg-info",
+    "src/ethernity_paper.egg-info",
+    "src/.claude",
+]
+search-path = ["src", "tooling"]
+python-version = "3.11.0"
+preset = "default"
+ignore-missing-imports = ["*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

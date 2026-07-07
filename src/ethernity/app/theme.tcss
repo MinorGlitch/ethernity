@@ -1,0 +1,960 @@
+Screen {
+    background: $background;
+    color: $text;
+}
+
+Footer {
+    background: $footer-background;
+    color: $footer-foreground;
+}
+
+EditFieldScreen,
+FilePickerScreen,
+HelpScreen,
+DiagnosticsScreen,
+ReviewTaskScreen {
+    align: center middle;
+    background: $background 80%;
+}
+
+#shell {
+    height: 1fr;
+}
+
+#app-header {
+    height: 1;
+    width: 1fr;
+    background: $panel;
+    color: $text;
+}
+
+#app-header-brand {
+    width: 18;
+    padding-left: 2;
+    content-align: left middle;
+    color: $text;
+    text-style: bold;
+}
+
+#app-header-title {
+    width: 1fr;
+    content-align: center middle;
+    color: $text-muted;
+}
+
+#app-header-status {
+    width: 18;
+    padding-right: 2;
+    content-align: right middle;
+    color: $text-primary;
+}
+
+#nav {
+    width: 24;
+    padding: 1;
+    border-right: solid $border-blurred;
+    background: $surface;
+}
+
+#workspace {
+    width: 1fr;
+    padding: 0;
+    background: $background;
+}
+
+#preview {
+    width: 32;
+    padding: 0;
+    border-left: solid $border-blurred;
+    background: $surface;
+}
+
+#nav-title,
+#preview-eyebrow {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#nav-list {
+    height: 1fr;
+    border: none;
+    background: $surface;
+}
+
+#nav-list:focus {
+    border: none;
+}
+
+#nav-list > .option-list--option {
+    height: 1;
+}
+
+#nav-list > .option-list--option-disabled {
+    color: $text-primary;
+    text-style: bold;
+}
+
+#nav-list > .option-list--option-highlighted {
+    background: $surface-active;
+    color: $text;
+    text-style: bold;
+}
+
+#task-canvas {
+    height: 1fr;
+}
+
+#task-canvas-shell {
+    height: 1fr;
+    padding: 1 3;
+    layout: grid;
+    grid-size: 1 3;
+    grid-columns: 1fr;
+    grid-rows: 3 1fr 3;
+}
+
+#task-canvas-shell.settings-mode {
+    grid-size: 1 1;
+    grid-rows: 1fr;
+}
+
+#canvas-hero {
+    height: 3;
+    width: 1fr;
+}
+
+#canvas-hero.settings-mode {
+    height: 3;
+}
+
+#canvas-heading {
+    width: 1fr;
+}
+
+#canvas-readiness {
+    width: 28;
+    padding-left: 2;
+}
+
+#canvas-title {
+    color: $text;
+    text-style: bold;
+    margin-top: 0;
+}
+
+#canvas-progress-label {
+    height: 1;
+    color: $text;
+    text-align: right;
+}
+
+#canvas-progress {
+    width: 1fr;
+}
+
+#canvas-task-workspaces,
+#canvas-settings-workspace {
+    height: 1fr;
+    width: 1fr;
+    overflow-y: hidden;
+}
+
+#task-workspaces,
+#task-workspace-switcher,
+#settings-form-widget {
+    height: 1fr;
+    width: 1fr;
+    overflow-y: hidden;
+}
+
+.task-workspace {
+    height: 1fr;
+    width: 1fr;
+    overflow-y: auto;
+    background: $surface;
+    padding: 1 2 0 2;
+}
+
+.workspace-section {
+    height: auto;
+    width: 1fr;
+    margin-bottom: 0;
+    padding: 0 0 0 1;
+    border-left: solid $border-blurred;
+}
+
+.workspace-group-title {
+    height: 1;
+    margin-top: 0;
+    margin-bottom: 0;
+    color: $text-primary;
+    text-style: bold;
+}
+
+.workspace-table {
+    height: 4;
+    margin-bottom: 1;
+    border: none;
+    background: $background;
+}
+
+#doctor-checks-table {
+    height: 12;
+}
+
+.workspace-button-row {
+    height: 1;
+    margin-bottom: 0;
+}
+
+.workspace-button-row Button {
+    width: 1fr;
+    min-width: 8;
+    height: 1;
+    margin-right: 1;
+    border: none;
+    background: $panel;
+}
+
+.workspace-field-row {
+    height: 1;
+    width: 1fr;
+    margin-bottom: 1;
+}
+
+.workspace-field-label {
+    width: 18;
+    content-align: left middle;
+    color: $text;
+}
+
+.workspace-field-value {
+    width: 1fr;
+    content-align: left middle;
+    color: $text-muted;
+}
+
+.workspace-field-row Button {
+    width: 14;
+    height: 1;
+    border: none;
+    background: $panel;
+}
+
+Select.workspace-select {
+    width: 24;
+    height: 1;
+    background: $surface;
+    color: $text;
+}
+
+Select.workspace-select > SelectCurrent {
+    height: 1;
+    padding: 0 1;
+    border: none;
+    background: $panel;
+    color: $text;
+}
+
+Select.workspace-select > SelectOverlay {
+    border: none;
+    background: $surface;
+}
+
+.workspace-field-note {
+    height: auto;
+    min-height: 1;
+    margin-bottom: 1;
+    color: $text-muted;
+}
+
+RadioSet.workspace-control {
+    height: auto;
+    margin-bottom: 1;
+    background: $surface;
+}
+
+RadioSet.workspace-control RadioButton {
+    height: 1;
+}
+
+.workspace-table:focus,
+.workspace-field-row Button:focus,
+.workspace-button-row Button:focus,
+RadioSet.workspace-control:focus {
+    background: $surface-active;
+}
+
+Select.workspace-select:focus > SelectCurrent {
+    border: none;
+    background: $surface-active;
+}
+
+#canvas-action-row {
+    height: 3;
+    width: 1fr;
+    margin-top: 0;
+    background: $background;
+}
+
+#canvas-action-row.settings-mode {
+    height: 3;
+}
+
+#canvas-action-row Button {
+    width: 18;
+    margin-right: 0;
+}
+
+#canvas-action-spacer {
+    width: 1fr;
+}
+
+#canvas-action-row.settings-mode Button {
+    width: 12;
+    margin-right: 0;
+}
+
+#canvas-action-row.settings-mode #canvas-primary {
+    width: 12;
+}
+
+#canvas-action-row #canvas-primary {
+    width: 24;
+    margin-right: 0;
+}
+
+#settings-form {
+    height: 1fr;
+    border: none;
+    background: $background;
+}
+
+.settings-section-title {
+    height: 1;
+    margin-top: 1;
+    margin-bottom: 1;
+    color: $text-primary;
+    text-style: bold;
+}
+
+.settings-row {
+    height: 2;
+    width: 1fr;
+    padding: 0 1;
+    background: $background;
+}
+
+.settings-row-bool {
+    height: 3;
+}
+
+.settings-row-warning {
+    border-left: thick $warning;
+}
+
+.settings-row-blocked {
+    border-left: thick $error;
+}
+
+.setting-label {
+    width: 30;
+    content-align: left middle;
+    color: $text;
+}
+
+.setting-value {
+    width: 1fr;
+    content-align: left middle;
+    color: $text-muted;
+}
+
+.setting-select {
+    width: 34;
+    height: 1;
+}
+
+.setting-input {
+    width: 34;
+    height: 1;
+}
+
+.setting-switch {
+    width: 12;
+    height: 3;
+}
+
+.setting-path-control {
+    width: 1fr;
+    height: 1;
+}
+
+.setting-path-button {
+    width: 14;
+    height: 1;
+    margin-left: 1;
+}
+
+#settings-form Select {
+    height: 1;
+    background: $background;
+    color: $text;
+}
+
+#settings-form Select > SelectCurrent {
+    height: 1;
+    padding: 0 1;
+    border: none;
+    background: $panel;
+    color: $text;
+}
+
+#settings-form Select > SelectOverlay {
+    border: none;
+    background: $surface;
+}
+
+#settings-form Input {
+    height: 1;
+    padding: 0 1;
+    border: none;
+    background: $panel;
+    color: $text;
+}
+
+#settings-form Select:focus > SelectCurrent,
+#settings-form Input:focus {
+    border: none;
+    background: $surface-active;
+}
+
+#settings-form Switch.setting-switch {
+    border: tall $border-blurred;
+    background: $panel;
+    padding: 0 2;
+}
+
+#settings-form Switch.setting-switch > .switch--slider {
+    background: $background;
+    color: $text-muted;
+}
+
+#settings-form Switch.setting-switch.-on > .switch--slider {
+    color: $success;
+}
+
+#settings-form Switch.setting-switch:focus {
+    border: tall $text-primary;
+    background: $panel;
+}
+
+#settings-form Button.setting-path-button {
+    height: 1;
+    border: none;
+    background: $panel;
+}
+
+#settings-form Button.setting-path-button:focus {
+    background: $surface-active;
+}
+
+#preview-panel {
+    height: 1fr;
+}
+
+#preview-panel-shell {
+    height: 1fr;
+    padding: 1 2;
+}
+
+#preview-title {
+    color: $text;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#preview-items {
+    height: 1fr;
+    border: none;
+    background: $surface;
+}
+
+#preview-issues-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-top: 1;
+}
+
+#preview-issues {
+    height: 8;
+    border: none;
+    background: $surface;
+}
+
+#preview-result {
+    min-height: 3;
+    color: $text-success;
+    margin-top: 1;
+}
+
+#preview-actions {
+    height: 3;
+    margin-top: 1;
+}
+
+#preview-actions Button {
+    width: 12;
+    margin-right: 1;
+}
+
+#preview-diagnostics {
+    width: 14;
+    margin-right: 0;
+}
+
+.option-list--option {
+    padding: 0 1;
+}
+
+.option-list--option-highlighted {
+    background: $primary-background;
+    color: $text;
+}
+
+.option-list--option-disabled {
+    color: $text-disabled;
+}
+
+.ready {
+    color: $text-success;
+}
+
+.missing {
+    color: $text-warning;
+}
+
+.warning {
+    color: $text-warning;
+    border: tall $warning-muted;
+    padding: 0 1;
+    margin-top: 1;
+}
+
+#edit-field-modal {
+    width: 68;
+    height: auto;
+    padding: 1 2;
+    border: solid $border;
+    background: $surface;
+}
+
+#edit-field-title {
+    color: $text;
+    text-style: bold;
+}
+
+#edit-field-prompt {
+    color: $text-muted;
+    margin-top: 1;
+}
+
+#edit-field-input {
+    margin-top: 1;
+}
+
+#edit-field-actions {
+    margin-top: 1;
+    height: auto;
+}
+
+#file-picker-modal {
+    width: 92%;
+    height: 88%;
+    padding: 1 2;
+    border: solid $border;
+    background: $surface;
+}
+
+#file-picker-title {
+    color: $text;
+    text-style: bold;
+}
+
+#file-picker-prompt {
+    color: $text-muted;
+    margin-top: 1;
+}
+
+#file-picker-body {
+    height: 1fr;
+    margin-top: 1;
+}
+
+#file-picker-browser {
+    width: 2fr;
+    height: 1fr;
+}
+
+#file-picker-location-row {
+    height: 3;
+    margin-bottom: 1;
+}
+
+#file-picker-up {
+    width: 10;
+    margin-right: 1;
+}
+
+#file-picker-location {
+    width: 1fr;
+    padding: 0 1;
+    content-align: left middle;
+    color: $text-muted;
+    background: $background;
+}
+
+#file-picker-tree {
+    width: 1fr;
+    height: 1fr;
+    border: solid $border-blurred;
+    background: $background;
+}
+
+#file-picker-tree:focus {
+    border: solid $border;
+}
+
+#file-picker-side {
+    width: 1fr;
+    height: 1fr;
+    margin-left: 1;
+}
+
+#file-picker-selected-title,
+#file-picker-name-title {
+    color: $text-primary;
+    text-style: bold;
+}
+
+#file-picker-selected {
+    height: 1fr;
+    margin-top: 1;
+    border: solid $border-blurred;
+    background: $surface;
+}
+
+#file-picker-name-title {
+    margin-top: 1;
+}
+
+#file-picker-name {
+    margin-top: 1;
+}
+
+#file-picker-actions {
+    height: 3;
+    margin-top: 1;
+}
+
+#file-picker-actions Button {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#review-modal {
+    width: 98;
+    max-width: 92%;
+    max-height: 94%;
+    padding: 0;
+    border: solid $border;
+    background: $background;
+}
+
+#review-header {
+    height: 4;
+    padding: 1 2;
+    border-bottom: solid $border-blurred;
+    background: $surface;
+}
+
+#review-heading {
+    width: 1fr;
+    height: 2;
+}
+
+#review-kicker {
+    height: 1;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#review-title {
+    height: 1;
+    color: $text;
+    text-style: bold;
+}
+
+#review-status-card {
+    width: 32;
+    height: 2;
+}
+
+#review-summary {
+    height: 1;
+    width: 32;
+    content-align: right middle;
+    color: $text-muted;
+}
+
+#review-status {
+    width: 32;
+    height: 1;
+    content-align: right middle;
+    text-style: bold;
+}
+
+#review-status.ready {
+    color: $text-success;
+}
+
+#review-status.missing {
+    color: $text-warning;
+}
+
+#review-body {
+    height: 1fr;
+    padding: 1 2;
+    color: $text;
+}
+
+#review-attention {
+    width: 1fr;
+    margin-bottom: 1;
+    background: $panel;
+}
+
+#review-columns {
+    width: 1fr;
+    height: auto;
+}
+
+.review-panel {
+    width: 1fr;
+    height: auto;
+    margin-bottom: 1;
+    padding: 1;
+    background: $surface;
+}
+
+#review-checklist {
+    width: 4fr;
+    margin-right: 1;
+}
+
+#review-details {
+    width: 5fr;
+    height: auto;
+}
+
+.review-section-title {
+    height: 1;
+    margin-bottom: 1;
+    color: $text-primary;
+    text-style: bold;
+}
+
+.review-row {
+    height: auto;
+    min-height: 1;
+    margin-bottom: 0;
+}
+
+.review-chip {
+    width: 9;
+    content-align: left middle;
+    text-style: bold;
+}
+
+.review-ready,
+.review-info {
+    color: $text-success;
+}
+
+.review-missing,
+.review-blocked,
+.review-error {
+    color: $text-error;
+}
+
+.review-warning {
+    color: $text-warning;
+}
+
+.review-row-title {
+    width: 19;
+    color: $text;
+}
+
+.review-row-summary,
+.review-item-detail,
+.review-output-line,
+.review-muted {
+    width: 1fr;
+    color: $text-muted;
+}
+
+.review-item-label {
+    width: 22;
+    color: $text;
+}
+
+.review-output-panel,
+.review-preview-panel {
+    width: 1fr;
+}
+
+.review-output-intent {
+    color: $text;
+    margin-bottom: 1;
+}
+
+.review-issue-message {
+    width: 1fr;
+    color: $text;
+}
+
+#review-actions {
+    height: 3;
+    padding: 1 2 0 2;
+    border-top: solid $border-blurred;
+    background: $surface;
+}
+
+#review-action-spacer {
+    width: 1fr;
+}
+
+#review-actions Button {
+    width: 16;
+    height: 1;
+    margin-left: 1;
+    border: none;
+    background: $panel;
+}
+
+#review-actions Button:focus {
+    background: $surface-active;
+}
+
+#review-actions #review-execute {
+    width: 22;
+    background: $primary;
+    color: $button-color-foreground;
+}
+
+#review-actions #review-execute:disabled {
+    background: $panel;
+    color: $text-muted;
+}
+
+#help-modal {
+    width: 88;
+    max-height: 88%;
+    padding: 1 2;
+    border: solid $border;
+    background: $surface;
+}
+
+#help-title {
+    color: $text;
+    text-style: bold;
+}
+
+#help-intro {
+    margin-top: 1;
+    color: $text-muted;
+}
+
+#help-body {
+    height: auto;
+    margin-top: 1;
+}
+
+.help-section-title {
+    height: 1;
+    margin-top: 1;
+    margin-bottom: 1;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#help-description,
+#help-use-when,
+#help-avoid-when,
+#help-needs {
+    color: $text;
+}
+
+#help-actions {
+    height: auto;
+    margin-top: 1;
+}
+
+#help-action-spacer {
+    width: 1fr;
+}
+
+#diagnostics-modal {
+    width: 92%;
+    height: 86%;
+    padding: 1 2;
+    border: solid $border;
+    background: $surface;
+}
+
+#diagnostics-title {
+    height: 1;
+    color: $text;
+    text-style: bold;
+}
+
+#diagnostics-toolbar {
+    height: 3;
+    margin-top: 1;
+}
+
+#diagnostics-reveal-label {
+    width: 16;
+    content-align: left middle;
+    color: $text;
+}
+
+#diagnostics-reveal {
+    width: 10;
+    height: 3;
+}
+
+#diagnostics-internals {
+    height: 1fr;
+    margin-top: 1;
+    border: solid $border-blurred;
+    background: $background;
+}
+
+#diagnostics-internals:focus {
+    border: solid $border;
+}
+
+#diagnostics-actions {
+    height: 3;
+    margin-top: 1;
+}
+
+#diagnostics-action-spacer {
+    width: 1fr;
+}
+
+#diagnostics-close {
+    width: 12;
+}

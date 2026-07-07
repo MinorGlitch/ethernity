@@ -3262,19 +3262,18 @@ class TestExtendService(unittest.TestCase):
                 ExtendArgs(root_dir="/tmp/root", input=["/tmp/root/example.txt"], shard_count=0)
             )
 
-        kit_index_template_path = Path("/tmp/kit_index_document.html.j2")
         with (
             mock.patch(
-                "ethernity.cli.features.extend.runtime.resolve_recovery_kit_index_template_path",
-                return_value=kit_index_template_path,
+                "ethernity.cli.features.extend.runtime.resolve_recovery_kit_index_style",
+                return_value="forge",
             ),
         ):
             runtime = resolve_extend_runtime(prepared)
 
         self.assertTrue(runtime.to_publish_policy().require_recovery_kit_index)
-        self.assertEqual(runtime.kit_index_template_path, kit_index_template_path)
+        self.assertEqual(runtime.kit_index_style, "forge")
 
-    def test_resolve_extend_runtime_omits_kit_index_when_design_lacks_template(self) -> None:
+    def test_resolve_extend_runtime_omits_kit_index_when_style_lacks_support(self) -> None:
         resolved = _resolved_state(
             diff_summary={
                 "new_paths": ["new.txt"],
@@ -3293,14 +3292,14 @@ class TestExtendService(unittest.TestCase):
 
         with (
             mock.patch(
-                "ethernity.cli.features.extend.runtime.resolve_recovery_kit_index_template_path",
+                "ethernity.cli.features.extend.runtime.resolve_recovery_kit_index_style",
                 return_value=None,
             ),
         ):
             runtime = resolve_extend_runtime(prepared)
 
         self.assertFalse(runtime.to_publish_policy().require_recovery_kit_index)
-        self.assertIsNone(runtime.kit_index_template_path)
+        self.assertIsNone(runtime.kit_index_style)
 
     def test_resolve_extend_runtime_reuse_root_rejects_explicit_zero_qr_chunk_size(self) -> None:
         resolved = _resolved_state(

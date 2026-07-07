@@ -232,7 +232,7 @@ class ConfigSetArgs:
 
 @dataclass
 class CliContextState:
-    """Typed shared CLI state stored on `typer.Context.obj`."""
+    """Typed shared CLI state for legacy service adapters."""
 
     config: str | None = None
     config_explicit: bool = False

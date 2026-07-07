@@ -18,9 +18,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from rich.console import Console
+
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.events import active_event_sink, emit_warning
-from ethernity.cli.shared.ui.runtime import console_err
+
+console_err = Console(stderr=True)
 
 
 def _warn(

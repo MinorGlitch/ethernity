@@ -18,10 +18,6 @@ import os
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from unittest import mock
 
-from ethernity.cli.bootstrap.startup import (
-    ensure_playwright_browsers as _ensure_playwright_browsers,
-)
-
 # =============================================================================
 # Environment Helpers
 # =============================================================================
@@ -33,12 +29,8 @@ def temp_env(overrides: dict[str, str], *, clear: bool = False):
         yield
 
 
-def build_cli_env(
-    *, overrides: dict[str, str] | None = None, skip_playwright: bool = True
-) -> dict[str, str]:
+def build_cli_env(*, overrides: dict[str, str] | None = None) -> dict[str, str]:
     env = os.environ.copy()
-    if skip_playwright:
-        env["ETHERNITY_SKIP_PLAYWRIGHT_INSTALL"] = "1"
     if overrides:
         env.update(overrides)
     return env
@@ -53,11 +45,6 @@ def cli_subprocess_timeout_seconds() -> float:
     except ValueError:
         return 300.0
     return timeout if timeout > 0 else 300.0
-
-
-def ensure_playwright_browsers() -> None:
-    os.environ.pop("ETHERNITY_SKIP_PLAYWRIGHT_INSTALL", None)
-    _ensure_playwright_browsers(quiet=True)
 
 
 @contextmanager

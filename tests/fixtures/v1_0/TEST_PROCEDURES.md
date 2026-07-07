@@ -31,7 +31,7 @@ This fixture and procedure set defines the release baseline for backup/recovery 
 
 ## Restore Procedure Rules
 
-- Main/auth frames are recovered from generated `qr_document.pdf` via `recover --scan`.
+- Main/auth frames are recovered from generated `qr_document.pdf` via `run restore --scan`.
 - Shard recovery uses payloads scanned from generated shard PDFs and passed via
-  `--shard-payloads-file`.
+  `--recovery-payloads-file`.
 - Restored bytes and relative paths MUST exactly match source fixture inputs for each scenario.

@@ -21,9 +21,11 @@ fixtures where applicable, and a semantic `snapshot.json`. The tests compare
 committed artifact hashes and semantic projections; freshly generated encrypted
 PDFs are not compared byte-for-byte.
 
-The top-level `index.json` records the SHA-256 of `build_golden.py`. If the
-builder changes, regenerate the fixtures so the committed generator and fixture
-matrix cannot drift silently.
+The committed fixtures are historical compatibility artifacts. Do not regenerate
+them just because the current builder, CLI surface, or renderer implementation
+changed. The builder is only a reproduction tool for intentional fixture-version
+work, and any regeneration must review the committed artifact hashes and prove
+that older recovery behavior is still covered.
 
 Regenerate with:
 
@@ -31,5 +33,6 @@ Regenerate with:
 uv run python tests/fixtures/v1_2/extension_golden/build_golden.py
 ```
 
-Generated PDFs and payload files are intentionally committed. Edit the builder and regenerate
-instead of hand-editing fixture artifacts.
+Generated PDFs and payload files are intentionally committed. If a fixture
+version is intentionally replaced, edit the builder and regenerate instead of
+hand-editing fixture artifacts.

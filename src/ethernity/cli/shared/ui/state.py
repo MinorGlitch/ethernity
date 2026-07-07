@@ -18,10 +18,8 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from typing import Literal
 
 from rich.console import Console
-from rich.text import Text
 from rich.theme import Theme
 
 
@@ -50,35 +48,12 @@ THEME = Theme(
 )
 
 
-StageDensity = Literal["minimal", "dense"]
-
-
-@dataclass
-class WizardState:
-    name: str
-    total_steps: int
-    step: int = 0
-    quiet: bool = False
-
-
 @dataclass
 class UIContext:
     theme: Theme
     console: Console
     console_err: Console
     animations_enabled: bool = True
-    wizard_state: WizardState | None = None
-    screen_mode: bool = False
-    compact_prompt_headers: bool = False
-    stage_prompt_count: int = 0
-    current_stage_title: str | None = None
-    current_stage_help_text: str | None = None
-    current_stage_density: StageDensity = "minimal"
-    current_substep_title: str | None = None
-    current_substep_help_text: str | None = None
-    choice_navigation_hint_seen: bool = False
-    last_picker_dir: str = "."
-    picker_dirs: dict[str, str] | None = None
 
 
 def _build_console(*, stderr: bool) -> Console:
@@ -100,7 +75,3 @@ DEFAULT_CONTEXT = create_default_context()
 
 def get_context() -> UIContext:
     return DEFAULT_CONTEXT
-
-
-def format_hint(help_text: str) -> Text:
-    return Text(help_text, style="hint")

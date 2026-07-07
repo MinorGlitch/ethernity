@@ -24,10 +24,17 @@ Top-level `index.json` maps profile names to profile index paths.
 
 ## Regeneration
 
-Regenerate all frozen sets from `tests/fixtures/v1_0/source`:
+These committed outputs are historical compatibility artifacts. Do not
+regenerate them for routine implementation, CLI, or renderer migrations. Only
+replace them as an intentional fixture-version change after reviewing artifact
+hash diffs and proving that old backups still restore.
+
+Regenerate all frozen sets from `tests/fixtures/v1_0/source` only for that
+intentional fixture-version work:
 
 ```sh
 uv run python tests/fixtures/v1_0/golden/build_golden.py
 ```
 
-This is intentional and destructive for this folder: existing scenario outputs are replaced.
+This command is destructive for this folder: existing scenario outputs are
+replaced.

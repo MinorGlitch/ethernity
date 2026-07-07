@@ -28,7 +28,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from ethernity.cli.bootstrap.startup import ensure_playwright_browsers
 from ethernity.config.paths import DEFAULT_CONFIG_PATH
 from ethernity.crypto import decrypt_bytes
 from ethernity.crypto.sharding import decode_shard_payload
@@ -111,7 +110,7 @@ def _run_cli(repo_root: Path, args: list[str], *, config_path: Path, xdg_home: P
     env = os.environ.copy()
     env["XDG_CONFIG_HOME"] = str(xdg_home)
     result = subprocess.run(
-        [sys.executable, "-m", "ethernity.cli", "--config", str(config_path), *args],
+        [sys.executable, "-m", "ethernity", "run", "--config", str(config_path), *args],
         cwd=repo_root,
         env=env,
         capture_output=True,
@@ -188,10 +187,12 @@ def _backup(
         design,
         "--output-dir",
         str(chain_dir),
-        "--quiet",
+        "--yes",
     ]
     if shards is not None:
-        args.extend(["--shard-threshold", str(shards[0]), "--shard-count", str(shards[1])])
+        args.extend(["--recovery-threshold", str(shards[0]), "--recovery-count", str(shards[1])])
+    else:
+        args.extend(["--recovery-count", "0"])
     _run_cli(repo_root, args, config_path=config_path, xdg_home=xdg_home)
 
 
@@ -212,8 +213,8 @@ def _extend(
     extra_args: tuple[str, ...] = (),
 ) -> None:
     args = [
-        "extend",
-        "--root-dir",
+        "add-files",
+        "--backup-folder",
         str(root_dir),
         "--input-dir",
         str(source_dir),
@@ -221,7 +222,7 @@ def _extend(
         str(source_dir),
         "--design",
         design,
-        "--quiet",
+        "--yes",
     ]
     for scan in scans:
         args.extend(["--scan", str(scan)])
@@ -230,17 +231,17 @@ def _extend(
     if unlock_policy is not None:
         args.extend(["--unlock-policy", unlock_policy])
     if shard_threshold is not None:
-        args.extend(["--shard-threshold", str(shard_threshold)])
+        args.extend(["--recovery-threshold", str(shard_threshold)])
     if shard_count is not None:
-        args.extend(["--shard-count", str(shard_count)])
+        args.extend(["--recovery-count", str(shard_count)])
     if signing_key_shards:
         args.extend(
             [
                 "--signing-key-mode",
                 "sharded",
-                "--signing-key-shard-threshold",
+                "--signing-key-threshold",
                 "1",
-                "--signing-key-shard-count",
+                "--signing-key-count",
                 "2",
             ]
         )
@@ -643,20 +644,20 @@ def _shard_projection(pdfs: list[Path]) -> dict[str, Any]:
             set_id = None if payload.shard_set_id is None else payload.shard_set_id.hex()
             if set_id is not None:
                 set_id = labels.setdefault(set_id, f"set-{len(labels) + 1}")
-            rows.append(
-                {
-                    "doc_id": frame.doc_id.hex(),
-                    "version": payload.version,
-                    "share_index": payload.share_index,
-                    "threshold": payload.threshold,
-                    "share_count": payload.share_count,
-                    "key_type": payload.key_type,
-                    "secret_len": payload.secret_len,
-                    "doc_hash": payload.doc_hash.hex(),
-                    "sign_pub": payload.sign_pub.hex(),
-                    "set_id": set_id,
-                }
-            )
+            row = {
+                "doc_id": frame.doc_id.hex(),
+                "version": payload.version,
+                "share_index": payload.share_index,
+                "threshold": payload.threshold,
+                "share_count": payload.share_count,
+                "key_type": payload.key_type,
+                "secret_len": payload.secret_len,
+                "doc_hash": payload.doc_hash.hex(),
+                "sign_pub": payload.sign_pub.hex(),
+                "set_id": set_id,
+            }
+            if row not in rows:
+                rows.append(row)
         out[pdf.name] = rows
     return out
 
@@ -841,8 +842,6 @@ def _generate_scenario(
 def main() -> None:
     repo_root = Path(__file__).resolve().parents[4]
     golden_root = repo_root / "tests" / "fixtures" / "v1_2" / "extension_golden"
-    builder_sha256 = _sha256_file(Path(__file__).resolve())
-    ensure_playwright_browsers(quiet=True)
     for child in golden_root.iterdir():
         if child.name in {"README.md", "build_golden.py"}:
             continue
@@ -854,7 +853,6 @@ def main() -> None:
     base_config = DEFAULT_CONFIG_PATH.read_text(encoding="utf-8")
     index: dict[str, Any] = {
         "version": "1.2.0",
-        "builder_sha256": builder_sha256,
         "passphrase": PASS_PHRASE,
         "profiles": {},
     }

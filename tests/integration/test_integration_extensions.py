@@ -21,22 +21,23 @@ from pathlib import Path
 
 from pypdf import PdfReader, PdfWriter
 
-from ethernity.cli import run_compact, run_extend
-from ethernity.cli.features.backup.orchestrator import run_backup_command
+from ethernity.cli.features.backup.service import execute_prepared_backup, prepare_backup_run
+from ethernity.cli.features.compact.service import run_compact
+from ethernity.cli.features.extend.service import run_extend
 from ethernity.cli.features.mint.workflow import execute_mint
-from ethernity.cli.features.recover.orchestrator import run_recover_command
+from ethernity.cli.features.recover.service import execute_recover_plan, prepare_recover_plan
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
 from ethernity.cli.shared.io.frames import recovery_frames_from_scan
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import BackupArgs, CompactArgs, ExtendArgs, MintArgs, RecoverArgs
-from ethernity.config.paths import DEFAULT_CONFIG_PATH, SUPPORTED_TEMPLATE_DESIGNS
+from ethernity.config.paths import DEFAULT_CONFIG_PATH, SUPPORTED_RENDER_STYLES
 from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import VERSION, Frame, FrameType, encode_frame
 from ethernity.encoding.qr_payloads import encode_qr_payload
 from ethernity.render import FallbackSection
 from ethernity.render.fallback import fallback_lines_from_sections
-from tests.test_support import ensure_playwright_browsers, suppress_output, temp_env
+from tests.test_support import suppress_output, temp_env
 
 TEST_PASSPHRASE = "extension-integration-passphrase"
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -48,10 +49,6 @@ _V1_0_PASSPHRASE = "stable-v1-baseline-passphrase"
 
 
 class TestIntegrationExtensions(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        ensure_playwright_browsers()
-
     def test_extend_recover_latest_and_select_prior_extension(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
@@ -330,19 +327,17 @@ class TestIntegrationExtensions(unittest.TestCase):
 
                 self.assertEqual(len(extension.shard_paths), 3)
                 with suppress_output():
-                    exit_code = run_recover_command(
-                        RecoverArgs(
-                            config=str(DEFAULT_CONFIG_PATH),
-                            scan=[str(root_dir)],
-                            shard_scan=[str(path) for path in extension.shard_paths[:2]],
-                            output=str(recovered_dir),
-                            allow_unsigned=False,
-                            assume_yes=True,
-                            quiet=True,
-                        )
+                    args = RecoverArgs(
+                        config=str(DEFAULT_CONFIG_PATH),
+                        scan=[str(root_dir)],
+                        shard_scan=[str(path) for path in extension.shard_paths[:2]],
+                        output=str(recovered_dir),
+                        allow_unsigned=False,
+                        assume_yes=True,
+                        quiet=True,
                     )
+                    execute_recover_plan(prepare_recover_plan(args), quiet=args.quiet)
 
-            self.assertEqual(exit_code, 0)
             self.assertEqual(
                 self._snapshot_tree(recovered_dir),
                 {
@@ -523,7 +518,7 @@ class TestIntegrationExtensions(unittest.TestCase):
             )
 
     def test_extension_recovery_document_renders_for_supported_designs(self) -> None:
-        for design in SUPPORTED_TEMPLATE_DESIGNS:
+        for design in SUPPORTED_RENDER_STYLES:
             with self.subTest(design=design):
                 with tempfile.TemporaryDirectory() as tmpdir:
                     tmp_path = Path(tmpdir)
@@ -1109,21 +1104,21 @@ class TestIntegrationExtensions(unittest.TestCase):
         shard_count: int | None = None,
     ) -> None:
         with suppress_output():
-            exit_code = run_backup_command(
-                BackupArgs(
-                    config=str(DEFAULT_CONFIG_PATH),
-                    input_dir=[str(source_dir)],
-                    base_dir=str(source_dir),
-                    output_dir=str(root_dir),
-                    passphrase=TEST_PASSPHRASE,
-                    design=design,
-                    sealed=sealed,
-                    shard_threshold=shard_threshold,
-                    shard_count=shard_count,
-                    quiet=True,
-                )
+            args = BackupArgs(
+                config=str(DEFAULT_CONFIG_PATH),
+                input_dir=[str(source_dir)],
+                base_dir=str(source_dir),
+                output_dir=str(root_dir),
+                passphrase=TEST_PASSPHRASE,
+                design=design,
+                sealed=sealed,
+                shard_threshold=shard_threshold,
+                shard_count=shard_count,
+                quiet=True,
             )
-        self.assertEqual(exit_code, 0)
+            result = execute_prepared_backup(prepare_backup_run(args))
+        self.assertTrue(Path(result.qr_path).exists())
+        self.assertTrue(Path(result.recovery_path).exists())
 
     def _run_compact(
         self,
@@ -1242,24 +1237,22 @@ class TestIntegrationExtensions(unittest.TestCase):
         auth_payloads_file: str | None = None,
     ) -> None:
         with suppress_output():
-            exit_code = run_recover_command(
-                RecoverArgs(
-                    config=str(DEFAULT_CONFIG_PATH),
-                    fallback_file=fallback_file,
-                    payloads_file=payloads_file,
-                    scan=[str(root_dir)] if scan is None else scan,
-                    passphrase=passphrase,
-                    shard_scan=shard_scan,
-                    auth_payloads_file=auth_payloads_file,
-                    extension_index=extension_index,
-                    extension_doc_hash=extension_doc_hash,
-                    output=str(output_dir),
-                    allow_unsigned=False,
-                    assume_yes=True,
-                    quiet=True,
-                )
+            args = RecoverArgs(
+                config=str(DEFAULT_CONFIG_PATH),
+                fallback_file=fallback_file,
+                payloads_file=payloads_file,
+                scan=[str(root_dir)] if scan is None else scan,
+                passphrase=passphrase,
+                shard_scan=shard_scan,
+                auth_payloads_file=auth_payloads_file,
+                extension_index=extension_index,
+                extension_doc_hash=extension_doc_hash,
+                output=str(output_dir),
+                allow_unsigned=False,
+                assume_yes=True,
+                quiet=True,
             )
-        self.assertEqual(exit_code, 0)
+            execute_recover_plan(prepare_recover_plan(args), quiet=args.quiet)
 
     def _write_split_payload_files(
         self,

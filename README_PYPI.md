@@ -24,8 +24,8 @@ pip install ethernity-paper
 
 ```bash
 ethernity --help
-ethernity backup --help
-ethernity recover --help
+ethernity run backup --help
+ethernity run restore --help
 ```
 
 ## First Drill
@@ -33,39 +33,39 @@ ethernity recover --help
 ```bash
 printf "ethernity test payload\n" > payload.txt
 
-ethernity backup \
+ethernity run backup \
   --input ./payload.txt \
   --output-dir ./backup-demo \
-  --passphrase "ethernity test passphrase"
+  --passphrase "ethernity test passphrase" \
+  --yes
 
-ethernity recover \
+ethernity run restore \
   --scan ./backup-demo \
   --passphrase "ethernity test passphrase" \
-  --output ./restored.txt
+  --output ./restored.txt \
+  --yes
 
 cmp ./payload.txt ./restored.txt
 ```
 
 ## Main Workflows
 
-- `backup`: create a standalone backup set
-- `recover`: restore from scans, payload files, or fallback text
-- `extend`: append changes to an existing unsealed backup root
-- `compact`: flatten a root plus extensions into a fresh standalone backup
-- `mint`: issue new shard PDFs
-- `kit`: generate a printable QR document for the browser recovery kit
-- `config`: open or onboard the active TOML config
-- `render`: generate helper envelopes as PDF or DOCX
-- `api`: stream NDJSON for GUI clients and automation
+- `ethernity`: open the terminal app
+- `ethernity run backup`: create a standalone backup set
+- `ethernity run restore`: restore from scans, payload files, or fallback text
+- `ethernity run add-files`: append files to an existing backup
+- `ethernity run rebuild`: rebuild a backup from its latest recoverable state
+- `ethernity run replace-recovery-docs`: create replacement recovery documents
+- `ethernity run print-kit`: generate a printable QR document for the recovery kit
+- `ethernity run doctor`: check local setup
 
 ## Useful Commands
 
 ```bash
-ethernity --init-config
-ethernity config --onboard
-ethernity kit --variant scanner --output ./recovery_kit_scanner_qr.pdf
-ethernity render envelope-c6 --format pdf --output ./envelope_c6.pdf
-ethernity api inspect recover --scan ./backup-demo --passphrase "ethernity test passphrase"
+ethernity
+ethernity run doctor
+ethernity run print-kit --variant scanner --output ./recovery_kit_scanner_qr.pdf --yes
+ethernity run restore --scan ./backup-demo --passphrase "ethernity test passphrase" --preview
 ```
 
 ## Links
@@ -78,7 +78,6 @@ ethernity api inspect recover --scan ./backup-demo --passphrase "ethernity test 
 - Recovery kit: https://github.com/MinorGlitch/ethernity/wiki/Recovery-Kit
 - Helper rendering: https://github.com/MinorGlitch/ethernity/wiki/Helper-Rendering
 - Configuration: https://github.com/MinorGlitch/ethernity/wiki/Configuration-and-Defaults
-- CLI API: https://github.com/MinorGlitch/ethernity/wiki/CLI-API
 - Troubleshooting: https://github.com/MinorGlitch/ethernity/wiki/Troubleshooting
 - Release artifacts: https://github.com/MinorGlitch/ethernity/wiki/Release-Artifacts
 - Format spec: https://github.com/MinorGlitch/ethernity/blob/master/docs/format.md

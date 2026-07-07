@@ -48,7 +48,7 @@ def _is_valid_zbase32_line(line: str) -> bool:
 
 
 def _strip_rendered_line_prefix(line: str) -> str:
-    """Remove the visible line label emitted by recovery templates."""
+    """Remove the visible line label emitted by recovery documents."""
 
     return _FALLBACK_RENDERED_LINE_PREFIX_RE.sub("", line, count=1)
 

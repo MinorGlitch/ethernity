@@ -78,15 +78,17 @@ Run this with test data before you protect anything real:
 ```sh
 printf "ethernity test payload\n" > payload.txt
 
-ethernity backup \
+ethernity run backup \
   --input ./payload.txt \
   --output-dir ./backup-demo \
-  --passphrase "ethernity test passphrase"
+  --passphrase "ethernity test passphrase" \
+  --yes
 
-ethernity recover \
+ethernity run restore \
   --scan ./backup-demo \
   --passphrase "ethernity test passphrase" \
-  --output ./restored.txt
+  --output ./restored.txt \
+  --yes
 
 cmp ./payload.txt ./restored.txt
 ```
@@ -101,76 +103,75 @@ fc.exe /b .\payload.txt .\restored.txt
 
 | Need | Command | Result |
 | --- | --- | --- |
-| Create a backup set | `backup` | writes QR, fallback, and optional shard PDFs |
-| Restore data | `recover` | restores from scans, payload text, or fallback text |
-| Add changes to an unsealed backup | `extend` | writes a new generation under `extensions/` |
-| Flatten root plus extensions | `compact` | writes a fresh standalone backup |
-| Issue new shard PDFs | `mint` | writes replacement or fresh shard documents |
-| Print the browser recovery kit | `kit` | writes a QR PDF for the offline kit |
+| Guided terminal app | `ethernity` | opens the full-screen terminal UI |
+| Create a backup set | `ethernity run backup` | writes QR, fallback, and optional shard PDFs |
+| Restore data | `ethernity run restore` | restores from scans or recovery text |
+| Add files to a backup | `ethernity run add-files` | creates the next backup generation |
+| Rebuild a backup | `ethernity run rebuild` | writes a fresh standalone backup |
+| Replace recovery docs | `ethernity run replace-recovery-docs` | writes new recovery documents |
+| Print the browser recovery kit | `ethernity run print-kit` | writes a QR PDF for the offline kit |
+| Check setup | `ethernity run doctor` | reports local runtime readiness |
 
 Other useful commands:
 
 ```sh
-ethernity config --onboard
-ethernity render envelope-c6 --format pdf --output ./envelope_c6.pdf
-ethernity api inspect recover --scan ./backup-demo --passphrase "ethernity test passphrase"
+ethernity run backup --preview --input ./payload.txt --output-dir ./backup-demo
+ethernity run restore --preview --scan ./backup-demo --passphrase "ethernity test passphrase" --output ./restored.txt
+ethernity run backup --json --preview --input ./payload.txt --output-dir ./backup-demo
 ```
 
-Use `ethernity <command> --help` for flags.
+Use `ethernity run <task> --help` for scriptable flags.
 
 ## When Files Change
 
 Create the root backup once:
 
 ```sh
-ethernity backup \
-  --input-dir ./docs \
+ethernity run backup \
+  --input ./docs \
   --output-dir ./backup-root \
-  --passphrase "example passphrase"
+  --passphrase "example passphrase" \
+  --yes
 ```
 
-Preview an extension:
+Preview adding files:
 
 ```sh
-ethernity extend \
-  --root-dir ./backup-root \
-  --input-dir ./docs \
-  --base-dir ./docs \
+ethernity run add-files \
+  --backup-folder ./backup-root \
+  --input ./docs/new-note.txt \
   --passphrase "example passphrase" \
-  --dry-run
+  --preview
 ```
 
-Publish the extension:
+Write the update:
 
 ```sh
-ethernity extend \
-  --root-dir ./backup-root \
-  --input-dir ./docs \
-  --base-dir ./docs \
+ethernity run add-files \
+  --backup-folder ./backup-root \
+  --input ./docs/new-note.txt \
   --passphrase "example passphrase" \
-  --shard-count 0
+  --yes
 ```
-
-`extend` needs an explicit recovery policy. Choose extension shards with
-`--shard-threshold N --shard-count K`, reuse root shards with `--unlock-policy reuse-root`, or use
-`--shard-count 0` when your policy allows plaintext passphrase fallback text.
 
 Recover the latest state:
 
 ```sh
-ethernity recover \
+ethernity run restore \
   --scan ./backup-root \
   --passphrase "example passphrase" \
-  --output ./restored-docs
+  --output ./restored-docs \
+  --yes
 ```
 
-Compact the chain when you want a new standalone set:
+Rebuild when you want a new standalone set:
 
 ```sh
-ethernity compact \
-  --root-dir ./backup-root \
-  --output-dir ./backup-compacted \
-  --passphrase "example passphrase"
+ethernity run rebuild \
+  --backup-folder ./backup-root \
+  --output-dir ./backup-rebuilt \
+  --passphrase "example passphrase" \
+  --yes
 ```
 
 For the full operator flow, read
@@ -192,8 +193,8 @@ pages, shard holders, and recovery environment.
 The browser recovery kit gives you an offline HTML recovery surface.
 
 ```sh
-ethernity kit --output ./recovery_kit_qr.pdf
-ethernity kit --variant scanner --output ./recovery_kit_scanner_qr.pdf
+ethernity run print-kit --output ./recovery_kit_qr.pdf --yes
+ethernity run print-kit --variant scanner --output ./recovery_kit_scanner_qr.pdf --yes
 ```
 
 Use the default kit for file and paste workflows. Use the scanner variant when the browser should
@@ -232,7 +233,6 @@ Reference docs:
 - [docs/format.md](docs/format.md): backup format specification
 - [docs/format_notes.md](docs/format_notes.md): rationale and operations notes
 - [docs/format_changes.md](docs/format_changes.md): compatibility ledger
-- [docs/cli_api.md](docs/cli_api.md): NDJSON API contract
 - [SECURITY.md](SECURITY.md): security policy
 
 ## Development
@@ -241,7 +241,6 @@ Reference docs:
 git clone https://github.com/MinorGlitch/ethernity.git
 cd ethernity
 uv sync --extra dev --extra build
-uv run playwright install chromium
 uv run ethernity --help
 ```
 
@@ -250,7 +249,7 @@ Core checks:
 ```sh
 uv run ruff check src tests
 uv run ruff format --check src tests
-uv run mypy src
+uv run pyrefly check
 uv run pytest tests/unit tests/integration -q
 cd kit
 npm ci
@@ -271,10 +270,10 @@ Ethernity uses these libraries:
 
 - [age](https://github.com/FiloSottile/age) via [pyrage](https://github.com/str4d/rage)
 - [PyCryptodome](https://github.com/Legrandin/pycryptodome)
-- [Typer](https://github.com/fastapi/typer)
+- [Click](https://github.com/pallets/click)
+- [Textual](https://github.com/Textualize/textual)
 - [Rich](https://github.com/Textualize/rich)
-- [Questionary](https://github.com/tmbo/questionary)
-- [Playwright](https://playwright.dev/python/)
+- [fpdf2](https://github.com/py-pdf/fpdf2)
 
 ## License
 

@@ -219,7 +219,7 @@ class TestCompactService(unittest.TestCase):
                 return_value=SimpleNamespace(),
             ),
             mock.patch(
-                "ethernity.cli.features.compact.service.apply_template_design",
+                "ethernity.cli.features.compact.service.apply_render_style",
                 side_effect=lambda config, _design: config,
             ),
             mock.patch(
@@ -574,7 +574,7 @@ class TestCompactService(unittest.TestCase):
                     return_value=SimpleNamespace(),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.compact.service.apply_template_design",
+                    "ethernity.cli.features.compact.service.apply_render_style",
                     side_effect=lambda config, _design: config,
                 ),
                 mock.patch(
@@ -666,7 +666,7 @@ class TestCompactService(unittest.TestCase):
                     return_value=SimpleNamespace(),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.compact.service.apply_template_design",
+                    "ethernity.cli.features.compact.service.apply_render_style",
                     side_effect=lambda config, _design: config,
                 ),
                 mock.patch(
@@ -832,7 +832,7 @@ class TestCompactService(unittest.TestCase):
                     return_value=SimpleNamespace(),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.compact.service.apply_template_design",
+                    "ethernity.cli.features.compact.service.apply_render_style",
                     side_effect=lambda config, _design: config,
                 ),
                 mock.patch(
@@ -1012,7 +1012,7 @@ class TestCompactService(unittest.TestCase):
         side_effect=lambda config, _size: config,
     )
     @mock.patch(
-        "ethernity.cli.features.compact.service.apply_template_design",
+        "ethernity.cli.features.compact.service.apply_render_style",
         side_effect=lambda config, _design: config,
     )
     @mock.patch(
@@ -1066,7 +1066,7 @@ class TestCompactService(unittest.TestCase):
         recover_chain_entries: mock.MagicMock,
         _infer_root_publish_policy: mock.MagicMock,
         load_app_config: mock.MagicMock,
-        apply_template_design: mock.MagicMock,
+        apply_render_style: mock.MagicMock,
         apply_qr_chunk_size_override: mock.MagicMock,
         plan_backup_from_args: mock.MagicMock,
         run_backup_mock: mock.MagicMock,
@@ -1191,7 +1191,7 @@ class TestCompactService(unittest.TestCase):
                     return_value=SimpleNamespace(),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.compact.service.apply_template_design",
+                    "ethernity.cli.features.compact.service.apply_render_style",
                     side_effect=lambda config, _design: config,
                 ),
                 mock.patch(
@@ -1248,7 +1248,7 @@ class TestCompactService(unittest.TestCase):
         side_effect=lambda config, _size: config,
     )
     @mock.patch(
-        "ethernity.cli.features.compact.service.apply_template_design",
+        "ethernity.cli.features.compact.service.apply_render_style",
         side_effect=lambda config, _design: config,
     )
     @mock.patch(
@@ -1302,7 +1302,7 @@ class TestCompactService(unittest.TestCase):
         _recover_chain_entries: mock.MagicMock,
         infer_root_publish_policy: mock.MagicMock,
         _load_app_config: mock.MagicMock,
-        _apply_template_design: mock.MagicMock,
+        _apply_render_style: mock.MagicMock,
         _apply_qr_chunk_size_override: mock.MagicMock,
         _plan_backup_from_args: mock.MagicMock,
         _run_backup_mock: mock.MagicMock,
@@ -1338,7 +1338,7 @@ class TestCompactService(unittest.TestCase):
         side_effect=lambda config, _size: config,
     )
     @mock.patch(
-        "ethernity.cli.features.compact.service.apply_template_design",
+        "ethernity.cli.features.compact.service.apply_render_style",
         side_effect=lambda config, _design: config,
     )
     @mock.patch(
@@ -1392,7 +1392,7 @@ class TestCompactService(unittest.TestCase):
         _recover_chain_entries: mock.MagicMock,
         infer_root_publish_policy: mock.MagicMock,
         _load_app_config: mock.MagicMock,
-        _apply_template_design: mock.MagicMock,
+        _apply_render_style: mock.MagicMock,
         _apply_qr_chunk_size_override: mock.MagicMock,
         _plan_backup_from_args: mock.MagicMock,
         run_backup_mock: mock.MagicMock,

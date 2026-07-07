@@ -85,7 +85,7 @@ provided. This is a convenience behavior and not part of the on-disk format.
 `FRAME_TYPE=MAIN_DOCUMENT` only. `AUTH` and `KEY_DOCUMENT` payloads are single-frame units and
 should be decoded directly from their frame `data` bytes.
 
-The current CLI/API recovery surface does not expose an unsigned-recovery override. Internal
+The current restore surface does not expose an unsigned-recovery override. Internal
 recovery code still models unsigned recovery as a fail-closed implementation state for legacy tests
 and controlled callers, but shipped commands require authenticated recovery inputs. Structural,
 binding, and consistency checks still apply to all recovery modes.
