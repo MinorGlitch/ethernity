@@ -69,6 +69,14 @@ def group_label(label: str) -> Widget:
     return Label(label, classes="workspace-group-title")
 
 
+def status_note(note_id: str) -> Widget:
+    return Static(
+        "",
+        id=note_id,
+        classes="workspace-section-status workspace-status-ready",
+    )
+
+
 def section() -> VerticalGroup:
     return VerticalGroup(classes="workspace-section")
 
@@ -91,16 +99,43 @@ def button_row(*actions: WorkspaceAction) -> Widget:
     )
 
 
-def field_row(label: str, value_id: str, action: WorkspaceAction) -> Widget:
+def field_row(
+    label: str,
+    value_id: str,
+    action: WorkspaceAction,
+    *,
+    row_id: str | None = None,
+) -> Widget:
     return HorizontalGroup(
         Label(label, classes="workspace-field-label"),
         Static("", id=value_id, classes="workspace-field-value"),
         Button(action.label, id=action.key, compact=True, classes="workspace-control"),
+        id=row_id,
         classes="workspace-field-row",
     )
 
 
-def select_row(label: str, select_id: str, options: Iterable[str]) -> Widget:
+def value_row(
+    label: str,
+    value_id: str,
+    *,
+    row_id: str | None = None,
+) -> Widget:
+    return HorizontalGroup(
+        Label(label, classes="workspace-field-label"),
+        Static("", id=value_id, classes="workspace-field-value"),
+        id=row_id,
+        classes="workspace-field-row",
+    )
+
+
+def select_row(
+    label: str,
+    select_id: str,
+    options: Iterable[str],
+    *,
+    row_id: str | None = None,
+) -> Widget:
     return HorizontalGroup(
         Label(label, classes="workspace-field-label"),
         Select(
@@ -110,6 +145,7 @@ def select_row(label: str, select_id: str, options: Iterable[str]) -> Widget:
             compact=True,
             classes="workspace-select workspace-control",
         ),
+        id=row_id,
         classes="workspace-field-row",
     )
 
@@ -118,6 +154,8 @@ def labeled_select_row(
     label: str,
     select_id: str,
     options: Iterable[tuple[str, str]],
+    *,
+    row_id: str | None = None,
 ) -> Widget:
     return HorizontalGroup(
         Label(label, classes="workspace-field-label"),
@@ -128,6 +166,7 @@ def labeled_select_row(
             compact=True,
             classes="workspace-select workspace-control",
         ),
+        id=row_id,
         classes="workspace-field-row",
     )
 
@@ -137,6 +176,8 @@ def select_summary_row(
     select_id: str,
     options: Iterable[tuple[str, str]],
     value_id: str,
+    *,
+    row_id: str | None = None,
 ) -> Widget:
     return HorizontalGroup(
         Label(label, classes="workspace-field-label"),
@@ -148,6 +189,7 @@ def select_summary_row(
             classes="workspace-select workspace-control",
         ),
         Static("", id=value_id, classes="workspace-field-value"),
+        id=row_id,
         classes="workspace-field-row",
     )
 
@@ -206,7 +248,7 @@ def add_files_recovery_select_value(summary: str) -> str:
     lowered = summary.lower()
     if lowered.startswith("no "):
         return "none"
-    if lowered.startswith("custom"):
+    if lowered.startswith("custom") or "recovery sheets; any" in lowered:
         return "custom"
     return "default"
 
@@ -249,6 +291,16 @@ def update_buttons(widget: Widget, actions: tuple[WorkspaceAction, ...]) -> None
     for action in actions:
         button = widget.query_one(f"#{action.key}", Button)
         button.disabled = not action.enabled
+
+
+def update_status_note(widget: Widget, note_id: str, group: WorkspaceGroup) -> None:
+    note = widget.query_one(f"#{note_id}", Static)
+    summary = group.status_summary or group.empty_label
+    note.update(
+        f"{status_label(group.status)}: {summary}" if summary else status_label(group.status)
+    )
+    for status in ("ready", "missing", "warning", "blocked"):
+        note.set_class(group.status == status, f"workspace-status-{status}")
 
 
 def status_label(status: str) -> str:

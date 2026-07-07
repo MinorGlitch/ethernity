@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from textual.content import Content
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
+from textual.content import Content
 from textual.widgets import OptionList
 from textual.widgets.option_list import Option
 

@@ -132,8 +132,12 @@ class ReviewTaskScreen(ModalScreen[bool]):
 
     def _readiness_text(self) -> str:
         total = max(len(self._validation.sections), 1)
-        ready = sum(1 for section in self._validation.sections if section.status == "ready")
-        return f"{ready}/{total} ready"
+        ready = sum(
+            1 for section in self._validation.sections if section.status in {"ready", "warning"}
+        )
+        if ready >= total:
+            return "All required items complete"
+        return f"Required: {ready} of {total} complete"
 
     def _status_text(self, ready: bool) -> str:
         if not ready:
@@ -170,12 +174,12 @@ def _issue_row(issue: TaskIssue) -> HorizontalGroup:
 
 def _status_label(status: str) -> str:
     if status == "ready":
-        return "Ready"
+        return "Complete"
     if status == "warning":
-        return "Check"
+        return "Warning"
     if status == "blocked":
-        return "Blocked"
-    return "Missing"
+        return "Invalid"
+    return "Required"
 
 
 def _severity_label(severity: str) -> str:

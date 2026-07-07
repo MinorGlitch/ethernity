@@ -121,7 +121,10 @@ class TaskViewActions(EthernityAppContext):
 
     def _focus_first_blocker(self) -> None:
         validation = self._current_state().validate_task()
-        first_issue = next((issue for issue in validation.issues if issue.severity == "error"), None)
+        first_issue = next(
+            (issue for issue in validation.issues if issue.severity == "error"),
+            None,
+        )
         self._focus_issue(first_issue.section if first_issue is not None else None)
 
     def _focus_issue_by_index(self, index: int) -> None:

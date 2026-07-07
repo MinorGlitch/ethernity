@@ -37,6 +37,18 @@ class SettingsController:
         self._app.settings_state.clear_setting(key)
         self.save_after_change()
 
+    def reset_group(self, group: str) -> None:
+        if not self._app.settings_state.reset_group(group):
+            self._app.notify("That settings section was not found.", severity="warning")
+            return
+        self.save_after_change()
+        self._app.notify(f"{group} defaults restored.")
+
+    def reset_all(self) -> None:
+        self._app.settings_state.reset_all()
+        self.save_after_change()
+        self._app.notify("All settings restored to defaults.")
+
     def selected_key(self) -> str | None:
         focused = self._app.screen.focused
         if focused is None or focused.id is None:
@@ -129,12 +141,16 @@ class SettingsController:
     def save_after_change(self) -> None:
         validation = self._app.settings_state.validate_task()
         if not validation.ready:
+            self._app.settings_state.save_status = "Unsaved changes"
             self._app._last_execution_result = None
             self._app.refresh_task_view()
             return
         try:
+            self._app.settings_state.save_status = "Saving..."
             self._app._last_execution_result = self._app.settings_state.execute()
+            self._app.settings_state.save_status = "Saved just now"
         except Exception as exc:
+            self._app.settings_state.save_status = "Save failed"
             self._app._last_execution_result = None
             self._app.notify(str(exc), severity="error")
         self._app.refresh_task_view()

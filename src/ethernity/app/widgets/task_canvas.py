@@ -72,12 +72,10 @@ class TaskCanvas(Widget):
         self.query_one("#canvas-settings-workspace", Vertical).display = is_settings
         self.query_one("#canvas-readiness", Vertical).display = not is_settings
 
-        ready_count = sum(1 for section in validation.sections if section.status == "ready")
-        total_count = max(len(validation.sections), 1)
         self.query_one("#canvas-progress-label", Static).update(presentation.readiness_label)
         self.query_one("#canvas-progress", ProgressBar).update(
-            total=total_count,
-            progress=ready_count,
+            total=presentation.total_count,
+            progress=presentation.ready_count,
         )
         if not is_settings:
             self.query_one(TaskWorkspaces).update_presentation(presentation)

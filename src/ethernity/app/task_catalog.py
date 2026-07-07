@@ -6,7 +6,7 @@ TASK_TITLES: dict[ActiveTask, str] = {
     "backup": "Create backup",
     "restore": "Restore files",
     "add_files": "Add files to backup",
-    "rebuild": "Rebuild a backup",
+    "rebuild": "Rebuild backup",
     "replace_recovery_docs": "Create replacement recovery sheets",
     "kit": "Create recovery kit PDF",
     "doctor": "Setup check",

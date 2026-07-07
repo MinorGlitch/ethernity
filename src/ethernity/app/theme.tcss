@@ -192,6 +192,28 @@ ReviewTaskScreen {
     text-style: bold;
 }
 
+.workspace-section-status {
+    height: auto;
+    min-height: 1;
+    margin-bottom: 1;
+    color: $text-muted;
+}
+
+.workspace-status-missing,
+.workspace-status-blocked {
+    color: $error;
+    text-style: bold;
+}
+
+.workspace-status-warning {
+    color: $warning;
+    text-style: bold;
+}
+
+.workspace-status-ready {
+    color: $text-muted;
+}
+
 .workspace-table {
     height: 4;
     margin-bottom: 1;
@@ -365,6 +387,18 @@ Select.workspace-select:focus > SelectCurrent {
     background: $background;
 }
 
+.settings-summary-row {
+    height: 1;
+}
+
+.settings-reset-row {
+    height: 1;
+}
+
+.settings-config-row {
+    height: 1;
+}
+
 .settings-row-bool {
     height: 3;
 }
@@ -387,6 +421,24 @@ Select.workspace-select:focus > SelectCurrent {
     width: 1fr;
     content-align: left middle;
     color: $text-muted;
+}
+
+.setting-help {
+    height: auto;
+    min-height: 1;
+    padding: 0 1 0 31;
+    color: $text-muted;
+}
+
+.setting-marker {
+    width: 10;
+    content-align: center middle;
+    color: $text-muted;
+}
+
+.setting-marker-changed {
+    color: $warning;
+    text-style: bold;
 }
 
 .setting-select {
@@ -413,6 +465,10 @@ Select.workspace-select:focus > SelectCurrent {
     width: 14;
     height: 1;
     margin-left: 1;
+}
+
+.settings-reset-button {
+    width: 22;
 }
 
 #settings-form Select {

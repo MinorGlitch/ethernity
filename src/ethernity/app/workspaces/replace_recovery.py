@@ -23,10 +23,13 @@ from ethernity.app.workspaces.common import (
     select_summary_row,
     selected_choice,
     set_select,
+    status_note,
     update_buttons,
     update_radio,
+    update_status_note,
     update_table,
     value,
+    value_row,
 )
 from ethernity.tasks.presentation.models import TaskPresentation, WorkspaceAction
 
@@ -38,18 +41,26 @@ class ReplaceRecoveryWorkspace(BaseWorkspace):
         with VerticalScroll(classes="task-workspace"):
             with section():
                 yield group_label("Existing backup")
+                yield status_note("replace-source-status")
                 yield path_table("replace-source-table")
                 yield button_row(
                     WorkspaceAction("workspace-replace-source", "Load scanned pages..."),
+                )
+                yield button_row(
                     WorkspaceAction("workspace-replace-recovery-text", "Paste recovery text..."),
+                )
+                yield button_row(
                     WorkspaceAction("workspace-replace-payloads", "Load payload files..."),
                 )
                 yield button_row(
                     WorkspaceAction("workspace-replace-freshness", "Use this backup"),
+                )
+                yield button_row(
                     WorkspaceAction("workspace-replace-fingerprint", "Show fingerprint..."),
                 )
             with section():
                 yield group_label("Unlock existing backup")
+                yield status_note("replace-unlock-status")
                 with RadioSet(
                     id="workspace-replace-unlock-method",
                     classes="workspace-control",
@@ -73,6 +84,7 @@ class ReplaceRecoveryWorkspace(BaseWorkspace):
                 )
             with section():
                 yield group_label("New recovery method")
+                yield status_note("replace-recovery-status")
                 with RadioSet(
                     id="workspace-replace-recovery-method",
                     classes="workspace-control",
@@ -101,8 +113,25 @@ class ReplaceRecoveryWorkspace(BaseWorkspace):
                     "replace-passphrase-count-value",
                     WorkspaceAction("workspace-replace-passphrase-count", "Set sheets..."),
                 )
+            with section():
+                yield group_label("Save replacement sheets to")
+                yield status_note("replace-output-status")
+                yield field_row(
+                    "Save documents to",
+                    "replace-output-value",
+                    WorkspaceAction("workspace-replace-output", "Choose output folder..."),
+                )
+                yield value_row("Safety", "replace-safety-value")
+            with section():
+                yield group_label("Print options")
+                yield status_note("replace-layout-status")
+                yield select_row("Paper size", "workspace-replace-paper", PAPER_OPTIONS)
+                yield select_row("Print design", "workspace-replace-design", DESIGN_OPTIONS)
+            with section():
+                yield group_label("Signature")
+                yield status_note("replace-signing-key-status")
                 yield labeled_select_row(
-                    "Signature",
+                    "Signing key recovery",
                     "workspace-replace-signing-key-select",
                     SIGNING_KEY_RECOVERY_OPTIONS,
                 )
@@ -114,27 +143,24 @@ class ReplaceRecoveryWorkspace(BaseWorkspace):
                 yield field_row(
                     "Key payload files",
                     "replace-signing-key-payloads-value",
-                    WorkspaceAction("workspace-replace-signing-key-payloads", "Load key payloads..."),
+                    WorkspaceAction(
+                        "workspace-replace-signing-key-payloads",
+                        "Load key payloads...",
+                    ),
                 )
-            with section():
-                yield group_label("Save replacement sheets to")
-                yield field_row(
-                    "Save documents to",
-                    "replace-output-value",
-                    WorkspaceAction("workspace-replace-output", "Choose output folder..."),
-                )
-                yield select_row("Paper size", "workspace-replace-paper", PAPER_OPTIONS)
-                yield select_row("Print design", "workspace-replace-design", DESIGN_OPTIONS)
 
     def update_presentation(self, presentation: TaskPresentation) -> None:
         super().update_presentation(presentation)
         source = group(presentation, "source")
+        update_status_note(self, "replace-source-status", source)
         update_table(self.query_one("#replace-source-table", DataTable), source)
         update_buttons(self, source.actions)
         unlock = group(presentation, "unlock")
+        update_status_note(self, "replace-unlock-status", unlock)
         update_radio(self, "workspace-replace-unlock", unlock.choices)
         self.query_one("#replace-unlock-summary", Static).update(first_value(unlock))
         recovery = group(presentation, "recovery")
+        update_status_note(self, "replace-recovery-status", recovery)
         update_radio(self, "workspace-replace-recovery", recovery.choices)
         self.query_one("#replace-recovery-summary", Static).update(first_value(recovery))
         self.query_one("#replace-passphrase-value", Static).update(
@@ -147,7 +173,16 @@ class ReplaceRecoveryWorkspace(BaseWorkspace):
             self.query_one("#workspace-replace-passphrase-select", Select),
             replace_passphrase_recovery_select_value(value(recovery, "passphrase-recovery")),
         )
+        output = group(presentation, "output")
+        update_status_note(self, "replace-output-status", output)
+        self.query_one("#replace-output-value", Static).update(value(output, "output"))
+        self.query_one("#replace-safety-value", Static).update(value(output, "safety"))
+        layout = group(presentation, "layout")
+        update_status_note(self, "replace-layout-status", layout)
+        set_select(self.query_one("#workspace-replace-paper", Select), value(layout, "paper"))
+        set_select(self.query_one("#workspace-replace-design", Select), value(layout, "design"))
         signing_key = group(presentation, "signing-key-recovery")
+        update_status_note(self, "replace-signing-key-status", signing_key)
         set_select(
             self.query_one("#workspace-replace-signing-key-select", Select),
             selected_choice(signing_key.choices),
@@ -158,7 +193,3 @@ class ReplaceRecoveryWorkspace(BaseWorkspace):
         self.query_one("#replace-signing-key-payloads-value", Static).update(
             value(signing_key, "signing-key-payloads")
         )
-        output = group(presentation, "output")
-        self.query_one("#replace-output-value", Static).update(value(output, "output"))
-        set_select(self.query_one("#workspace-replace-paper", Select), value(output, "paper"))
-        set_select(self.query_one("#workspace-replace-design", Select), value(output, "design"))

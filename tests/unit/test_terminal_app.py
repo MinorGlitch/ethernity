@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import cast
 
 from rich.text import Text
 from textual.widgets import (
@@ -73,6 +74,8 @@ def _workspace_text(app: EthernityApp) -> str:
         lines.append(str(static.content))
     for table in workspace.query(DataTable):
         lines.append(_data_table_text(table))
+    for option_list in workspace.query(OptionList):
+        lines.append(_option_list_text_from_widget(option_list))
     return "\n".join(line for line in lines if line)
 
 
@@ -105,7 +108,10 @@ def _button_label(app: EthernityApp, selector: str) -> str:
 
 
 def _option_list_text(app: EthernityApp, selector: str) -> str:
-    option_list = app.screen.query_one(selector, OptionList)
+    return _option_list_text_from_widget(app.screen.query_one(selector, OptionList))
+
+
+def _option_list_text_from_widget(option_list: OptionList) -> str:
     lines: list[str] = []
     for option in option_list.options:
         prompt = option.prompt
@@ -131,14 +137,14 @@ def test_textual_app_switches_between_backup_and_restore() -> None:
             assert "TOOLS" in nav_text
             assert nav.options[0].disabled
             assert nav.options[1].id == "backup"
-            assert "Create a backup" in _static_text(app, "#canvas-title")
+            assert "Create backup" in _static_text(app, "#canvas-title")
 
             await pilot.press("2")
             await pilot.pause()
 
             assert app.active_task == "restore"
             assert "Restore files" in _static_text(app, "#canvas-title")
-            assert "Backup source" in _checklist_text(app)
+            assert "Backup to restore" in _checklist_text(app)
 
     asyncio.run(run())
 
@@ -169,14 +175,18 @@ def test_textual_app_workspace_shows_real_flow_controls() -> None:
             assert "No files selected" in _checklist_text(app)
             assert not list(app.screen.query("#canvas-checklist"))
             assert not list(app.screen.query("#canvas-next-row"))
-            assert app.query_one("#backup-files-table", DataTable).region.height >= 4
+            assert not app.query_one("#backup-files-table", DataTable).display
+            assert "Choose at least one file or folder" in _static_text(
+                app,
+                "#backup-files-table-empty",
+            )
             assert not list(app.screen.query("#preview-review"))
-            assert _button_label(app, "#workspace-backup-files") == "Choose files"
+            assert _button_label(app, "#workspace-backup-files") == "Choose files..."
             assert not list(app.screen.query("#canvas-input"))
             assert not list(app.screen.query("#canvas-passphrase"))
             assert not list(app.screen.query("#canvas-output"))
-            assert _button_label(app, "#canvas-primary") == "Review backup"
-            assert app.query_one("#canvas-primary").region.width <= 24
+            assert _button_label(app, "#canvas-primary") == "Fix: Choose files..."
+            assert app.query_one("#canvas-primary").region.width <= 32
 
             await pilot.click("#workspace-backup-files")
             await pilot.pause()
@@ -211,9 +221,14 @@ def test_textual_app_workspace_shows_real_flow_controls() -> None:
             assert app.active_task == "add_files"
             assert app.screen.query_one("#canvas-task-workspaces").display
             assert not app.screen.query_one("#canvas-settings-workspace").display
-            assert _static_text(app, "#add-files-backup-value") == "Choose backup"
+            assert "No existing backup selected" in _static_text(app, "#add-files-backup-value")
+            assert "Save updated backup documents to" in _checklist_text(app)
+            assert "Required: No destination selected" in _static_text(
+                app,
+                "#add-files-output-status",
+            )
             assert "Files to add" in _checklist_text(app)
-            assert _button_label(app, "#canvas-primary") == "Review update"
+            assert _button_label(app, "#canvas-primary") == "Fix: Choose backup folder..."
 
     asyncio.run(run())
 
@@ -238,6 +253,9 @@ def test_textual_app_modals_open_centered() -> None:
 
             await pilot.press("escape")
             await pilot.pause()
+            app.backup_state.input_paths = [Path("README.md")]
+            app.backup_state.output_dir = Path("backup-out")
+            app.refresh_task_view()
             await pilot.press("ctrl+r")
             await pilot.pause()
             review_region = app.screen.query_one("#review-modal").region
@@ -256,10 +274,14 @@ def test_textual_app_workspace_buttons_do_not_overlap_primary_action() -> None:
                 await pilot.pause()
 
                 action_bar = app.query_one("#task-action-bar").region
+                active_workspace = app.screen.query_one(f"#{app.active_task}-workspace")
+                visible_workspace = active_workspace.query_one(".task-workspace").region
                 for button in app.screen.query(Button):
                     if button.id is None or not button.id.startswith("workspace-"):
                         continue
                     if not button.display:
+                        continue
+                    if not button.region.overlaps(visible_workspace):
                         continue
                     assert not button.region.overlaps(action_bar)
 
@@ -271,12 +293,12 @@ def test_textual_app_workspaces_are_grouped_into_sections() -> None:
         app = EthernityApp()
         async with app.run_test(size=(120, 48)) as pilot:
             expected_sections = {
-                "backup": 4,
+                "backup": 5,
                 "restore": 5,
-                "add_files": 4,
-                "rebuild": 4,
-                "replace_recovery_docs": 4,
-                "kit": 2,
+                "add_files": 6,
+                "rebuild": 6,
+                "replace_recovery_docs": 6,
+                "kit": 4,
                 "doctor": 1,
             }
             for task_key in ("1", "2", "3", "4", "5", "6", "7"):
@@ -385,20 +407,42 @@ def test_textual_app_workspace_controls_have_event_paths() -> None:
     asyncio.run(run())
 
 
-def test_textual_app_does_not_duplicate_blockers_in_workspace_and_outcome() -> None:
+def test_textual_app_shows_requirement_status_inline_and_in_summary() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(120, 48)) as pilot:
-            for task_key in ("1", "2", "3", "4", "5", "6", "7"):
-                await pilot.press(task_key)
-                await pilot.pause()
+            assert "Required: No files selected yet" in _static_text(
+                app,
+                "#backup-files-status",
+            )
+            assert "Required: No output folder selected" in _static_text(
+                app,
+                "#backup-destination-status",
+            )
+            assert "Choose at least one file or folder to back up" in _preview_text(app)
 
-                workspace_text = _workspace_text(app)
-                blockers = _option_list_text(app, "#preview-issues")
-                for line in blockers.splitlines():
-                    message = line.removeprefix("Required ").removeprefix("Check ")
-                    if message:
-                        assert message not in workspace_text
+            await pilot.press("i")
+            await _choose_picker_paths(app, pilot, Path("README.md"))
+
+            assert "Complete: 1 path(s) selected" in _static_text(
+                app,
+                "#backup-files-status",
+            )
+            assert "Required: No output folder selected" in _static_text(
+                app,
+                "#backup-destination-status",
+            )
+            assert "Choose where backup documents will be saved" in _preview_text(app)
+
+            await pilot.press("o")
+            await _save_picker_name(app, pilot, "backup-out")
+
+            assert "Complete: 1 path(s) selected" in _static_text(
+                app,
+                "#backup-files-status",
+            )
+            assert "Complete:" in _static_text(app, "#backup-destination-status")
+            assert _button_label(app, "#canvas-primary") == "Review backup"
 
     asyncio.run(run())
 
@@ -457,7 +501,7 @@ def test_textual_app_help_is_contextual_to_current_workflow() -> None:
             assert "Make a new printable paper backup" in _static_text(app, "#help-description")
             assert "starting a new backup set" in _static_text(app, "#help-use-when")
             assert "only want to add files" in _static_text(app, "#help-avoid-when")
-            assert "Files or folders to protect" in _static_text(app, "#help-needs")
+            assert "Files to back up" in _static_text(app, "#help-needs")
             assert not list(app.screen.query("#help-mode-index"))
 
             await pilot.press("escape")
@@ -504,7 +548,9 @@ def test_file_picker_deselects_paths_and_can_go_up() -> None:
             assert picker._selected_paths == (Path("docs"),)
 
             tree_event = PickerEvent(Path("docs"))
-            picker.on_directory_tree_directory_selected(tree_event)
+            picker.on_directory_tree_directory_selected(
+                cast(DirectoryTree.DirectorySelected, tree_event)
+            )
 
             assert tree_event.stopped
             assert picker._selected_paths == (Path("docs"),)
@@ -606,7 +652,7 @@ def test_textual_app_switches_to_kit_and_doctor() -> None:
             await pilot.pause()
 
             assert app.active_task == "kit"
-            assert "Print a recovery kit" in _static_text(app, "#canvas-title")
+            assert "Create recovery kit PDF" in _static_text(app, "#canvas-title")
             assert "Built-in kit" not in _checklist_text(app)
             assert "recovery_kit_qr.pdf" in _checklist_text(app)
 
@@ -614,7 +660,7 @@ def test_textual_app_switches_to_kit_and_doctor() -> None:
             await pilot.pause()
 
             assert app.active_task == "doctor"
-            assert "Check setup" in _static_text(app, "#canvas-title")
+            assert "Setup check" in _static_text(app, "#canvas-title")
             assert "Python runtime" in _checklist_text(app)
 
             await pilot.press("8")
@@ -637,22 +683,22 @@ def test_textual_app_switches_to_maintenance_tasks() -> None:
             await pilot.pause()
 
             assert app.active_task == "add_files"
-            assert "Add files to a backup" in _static_text(app, "#canvas-title")
+            assert "Add files to backup" in _static_text(app, "#canvas-title")
             assert "Files to add" in _checklist_text(app)
 
             await pilot.press("4")
             await pilot.pause()
 
             assert app.active_task == "rebuild"
-            assert "Rebuild a backup" in _static_text(app, "#canvas-title")
-            assert "No backup source selected" in _checklist_text(app)
+            assert "Rebuild backup" in _static_text(app, "#canvas-title")
+            assert "No backup loaded yet" in _checklist_text(app)
 
             await pilot.press("5")
             await pilot.pause()
 
             assert app.active_task == "replace_recovery_docs"
-            assert "Replace recovery documents" in _static_text(app, "#canvas-title")
-            assert "New recovery set" in _checklist_text(app)
+            assert "Create replacement recovery sheets" in _static_text(app, "#canvas-title")
+            assert "New recovery method" in _checklist_text(app)
 
     asyncio.run(run())
 
@@ -738,7 +784,7 @@ def test_textual_app_restore_source_modes_are_real_pickers() -> None:
             assert app.restore_state.payloads_file == Path("payloads.json")
             assert app.restore_state.recovery_text_file is None
             assert not app.restore_state.source_paths
-            assert "Payloads" in _checklist_text(app)
+            assert "Payload files" in _checklist_text(app)
 
     asyncio.run(run())
 
@@ -803,7 +849,7 @@ def test_textual_app_restore_target_fingerprint_is_real_control() -> None:
             assert app.restore_state.target == "specific_update"
             assert app.restore_state.extension_index is None
             assert app.restore_state.extension_doc_hash == "feedface"
-            assert "Backup update by fingerprint" in _checklist_text(app)
+            assert "Specific version/update by fingerprint" in _checklist_text(app)
 
     asyncio.run(run())
 
@@ -844,7 +890,7 @@ def test_textual_app_restore_auth_material_control_is_real() -> None:
             assert app.restore_state.auth_text_file == Path("auth.txt")
             assert app.restore_state.auth_payloads_file is None
             assert app.restore_state.to_recover_args().auth_fallback_file == "auth.txt"
-            assert "Authentication text: auth.txt" in _preview_text(app)
+            assert "Trust text: auth.txt" in _preview_text(app)
 
             app.query_one("#workspace-restore-auth-material", Select).value = "payloads"
             await pilot.pause()
@@ -881,6 +927,10 @@ def test_textual_app_edit_add_files_state() -> None:
             workspace = _checklist_text(app)
             assert "README.md" in workspace
             assert "docs" in workspace
+            assert "Save updated backup documents to" in workspace
+            assert "Updates will be saved in docs" in workspace
+            assert "Output location" in _preview_text(app)
+            assert "Updates will be saved in docs" in _preview_text(app)
 
     asyncio.run(run())
 
@@ -903,9 +953,26 @@ def test_textual_app_edit_rebuild_state() -> None:
             workspace = _checklist_text(app)
             assert "docs" in workspace
             assert "rebuilt" in workspace
+            assert "Rebuild options" in workspace
+            assert "Print options" in workspace
+            assert "Existing backup files are not deleted or modified." in _static_text(
+                app,
+                "#rebuild-safety-value",
+            )
+            assert "Existing files" in _preview_text(app)
+            assert "Existing backup files are not deleted or modified." in _preview_text(app)
+            assert not app.query_one("#rebuild-advanced-auth-row").display
+            assert not app.query_one("#rebuild-advanced-qr-row").display
 
-            await pilot.click("#workspace-rebuild-qr-chunk-size")
+            app.query_one("#rebuild-advanced-toggle", Button).focus()
+            await pilot.press("enter")
             await pilot.pause()
+
+            assert app.query_one("#rebuild-advanced-auth-row").display
+            assert app.query_one("#rebuild-advanced-qr-row").display
+
+            app.query_one("#workspace-rebuild-qr-chunk-size", Button).focus()
+            await pilot.press("enter")
             qr_chunk = app.screen.query_one("#edit-field-input", Input)
             qr_chunk.value = ""
             qr_chunk.focus()
@@ -926,6 +993,10 @@ def test_textual_app_rebuild_auth_material_control_is_real() -> None:
             await pilot.press("4")
             await pilot.pause()
 
+            app.query_one("#rebuild-advanced-toggle", Button).focus()
+            await pilot.press("enter")
+            await pilot.pause()
+
             app.query_one("#workspace-rebuild-auth-material", Select).value = "payloads"
             await pilot.pause()
             await _choose_picker_paths(app, pilot, Path("auth-payloads.json"))
@@ -933,7 +1004,7 @@ def test_textual_app_rebuild_auth_material_control_is_real() -> None:
             assert app.rebuild_state.auth_text_file is None
             assert app.rebuild_state.auth_payloads_file == Path("auth-payloads.json")
             assert app.rebuild_state.to_compact_args().auth_payloads_file == "auth-payloads.json"
-            assert "Authentication payloads: auth-payloads.json" in _preview_text(app)
+            assert "Trust payload files: auth-payloads.json" in _preview_text(app)
 
             app.query_one("#workspace-rebuild-auth-material", Select).value = "auto"
             await pilot.pause()
@@ -964,7 +1035,15 @@ def test_textual_app_edit_replace_recovery_docs_state() -> None:
             assert app.replace_recovery_docs_state.allow_stale_head
             workspace = _checklist_text(app)
             assert "README.md" in workspace
-            assert "Any 2 of 3 recovery documents" in workspace
+            assert "3 new recovery sheets; any 2 can restore" in workspace
+            assert "Save replacement sheets to" in workspace
+            assert "Print options" in workspace
+            assert "Existing backup files are not deleted or modified." in _static_text(
+                app,
+                "#replace-safety-value",
+            )
+            assert "Existing files" in _preview_text(app)
+            assert "Existing backup files are not deleted or modified." in _preview_text(app)
 
     asyncio.run(run())
 
@@ -976,7 +1055,11 @@ def test_textual_app_replace_recovery_signing_key_controls_are_real() -> None:
             await pilot.press("5")
             await pilot.pause()
 
-            assert "Signing key" in _checklist_text(app)
+            assert "Signature" in _checklist_text(app)
+            assert "Warning: signing-key recovery sheets will not be created" in _static_text(
+                app,
+                "#replace-signing-key-status",
+            )
             assert not app.replace_recovery_docs_state.mint_signing_key_recovery
 
             app.query_one("#workspace-replace-signing-key-select", Select).value = "same"
@@ -1039,7 +1122,7 @@ def test_textual_app_replace_recovery_passphrase_replacement_count_is_real() -> 
             assert state.passphrase_replacement_count == 2
             assert state.to_mint_args().passphrase_replacement_count == 2
             assert app.query_one("#workspace-replace-passphrase-select", Select).value == "replace"
-            assert "Replace 2 existing document(s)" in _checklist_text(app)
+            assert "Replace 2 existing sheet(s)" in _checklist_text(app)
 
     asyncio.run(run())
 
@@ -1047,9 +1130,10 @@ def test_textual_app_replace_recovery_passphrase_replacement_count_is_real() -> 
 def test_textual_app_replace_recovery_signing_key_payloads_are_real_picker() -> None:
     async def run() -> None:
         app = EthernityApp()
-        async with app.run_test(size=(120, 48)) as pilot:
+        async with app.run_test(size=(120, 72)) as pilot:
             await pilot.press("5")
-            await pilot.click("#workspace-replace-signing-key-payloads")
+            app.query_one("#workspace-replace-signing-key-payloads", Button).focus()
+            await pilot.press("enter")
             await _choose_picker_paths(app, pilot, Path("signing-payloads.txt"))
 
             assert app.replace_recovery_docs_state.signing_key_recovery_payload_files == [
@@ -1057,7 +1141,7 @@ def test_textual_app_replace_recovery_signing_key_payloads_are_real_picker() -> 
             ]
             args = app.replace_recovery_docs_state.to_mint_args()
             assert args.signing_key_shard_payloads_file == ["signing-payloads.txt"]
-            assert "1 signing key payload file(s)" in _checklist_text(app)
+            assert "1 signing-key payload file(s)" in _checklist_text(app)
 
             app.query_one("#workspace-replace-signing-key-select", Select).value = "replace"
             await pilot.pause()
@@ -1072,7 +1156,7 @@ def test_textual_app_replace_recovery_signing_key_payloads_are_real_picker() -> 
             args = app.replace_recovery_docs_state.to_mint_args()
             assert args.mint_signing_key_shards
             assert args.signing_key_replacement_count == 1
-            assert "1 replacement document(s)" in _checklist_text(app)
+            assert "1 replacement sheet(s)" in _checklist_text(app)
 
     asyncio.run(run())
 
@@ -1102,6 +1186,23 @@ def test_textual_app_backup_advanced_controls_are_real(tmp_path) -> None:
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(140, 72)) as pilot:
+            await pilot.pause()
+
+            assert "Advanced: using saved defaults" in _static_text(
+                app,
+                "#backup-advanced-summary",
+            )
+            assert not app.query_one("#backup-advanced-passphrase-row").display
+            assert not app.query_one("#backup-advanced-qr-row").display
+
+            app.query_one("#backup-advanced-toggle", Button).focus()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.query_one("#backup-advanced-passphrase-row").display
+            assert app.query_one("#backup-advanced-qr-row").display
+            assert _button_label(app, "#backup-advanced-toggle") == "Hide advanced"
+
             words_select = app.query_one("#workspace-backup-passphrase-words", Select)
             words_select.value = "18"
             await pilot.pause()
@@ -1172,6 +1273,21 @@ def test_textual_app_add_files_advanced_controls_are_real(tmp_path) -> None:
         async with app.run_test(size=(140, 72)) as pilot:
             await pilot.press("3")
             await pilot.pause()
+
+            assert "Advanced: using saved defaults" in _static_text(
+                app,
+                "#add-files-advanced-summary",
+            )
+            assert not app.query_one("#add-files-advanced-base-row").display
+            assert not app.query_one("#add-files-advanced-recovery-row").display
+
+            app.query_one("#add-files-advanced-toggle", Button).focus()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.query_one("#add-files-advanced-base-row").display
+            assert app.query_one("#add-files-advanced-recovery-row").display
+            assert _button_label(app, "#add-files-advanced-toggle") == "Hide advanced"
 
             app.query_one("#workspace-add-files-unlock-policy", Select).value = "reuse-root"
             await pilot.pause()
@@ -1309,6 +1425,95 @@ def test_textual_app_edit_settings_state(tmp_path) -> None:
     asyncio.run(run())
 
 
+def test_textual_app_settings_collapses_advanced_and_shows_config_actions() -> None:
+    async def run() -> None:
+        app = EthernityApp()
+        async with app.run_test(size=(120, 72)) as pilot:
+            await pilot.press("8")
+            await pilot.pause()
+
+            assert "Advanced: using saved defaults" in _static_text(
+                app,
+                "#settings-advanced-summary",
+            )
+            assert not app.query_one("#setting-row-qr_chunk_size").display
+            assert not app.query_one("#setting-help-qr_chunk_size").display
+            assert _button_label(app, "#settings-reset-group-printing") == "Restore defaults"
+            assert _button_label(app, "#settings-reset-all") == "Restore all defaults"
+            assert _button_label(app, "#settings-copy-config") == "Copy path"
+            assert _button_label(app, "#settings-open-config") == "Open folder"
+            assert _static_text(app, "#settings-save-status") == "Saved just now"
+
+            app.query_one("#settings-advanced-toggle", Button).focus()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.query_one("#setting-row-qr_chunk_size").display
+            assert app.query_one("#setting-help-qr_chunk_size").display
+            assert _button_label(app, "#settings-advanced-toggle") == "Hide advanced"
+            assert "Bytes per QR code" in _static_text(app, "#setting-help-qr_chunk_size")
+
+    asyncio.run(run())
+
+
+def test_textual_app_settings_restores_section_and_all_defaults(tmp_path) -> None:
+    async def run() -> None:
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(
+            Path("src/ethernity/resources/config/config.toml").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        app = EthernityApp(settings_state=SettingsTaskState.from_current(config_path))
+        async with app.run_test(size=(120, 72)) as pilot:
+            await pilot.press("8")
+
+            app.query_one("#setting-control-render_style", Select).value = "forge"
+            await pilot.pause()
+            app.query_one("#setting-control-page_size", Select).value = "LETTER"
+            await pilot.pause()
+
+            assert app.settings_state.design == "forge"
+            assert app.settings_state.paper_size == "LETTER"
+            assert _static_text(app, "#setting-marker-render_style") == "Changed"
+            assert _static_text(app, "#setting-marker-page_size") == "Changed"
+
+            app.query_one("#settings-reset-group-printing", Button).focus()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.settings_state.design == "sentinel"
+            assert app.settings_state.paper_size == "A4"
+            assert _static_text(app, "#setting-marker-render_style") == ""
+            assert _static_text(app, "#setting-marker-page_size") == ""
+
+            app.query_one("#setting-control-render_style", Select).value = "forge"
+            await pilot.pause()
+            qr_chunk = app.query_one("#setting-control-qr_chunk_size", Input)
+            qr_chunk.value = ""
+            qr_chunk.focus()
+            await _type_text(pilot, "1024")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.settings_state.design == "forge"
+            assert app.settings_state.setting_value("qr_chunk_size") == 1024
+            assert _static_text(app, "#setting-marker-qr_chunk_size") == "Changed"
+
+            app.query_one("#settings-reset-all", Button).focus()
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.settings_state.design == "sentinel"
+            assert app.settings_state.setting_value("qr_chunk_size") == 512
+            assert _static_text(app, "#setting-marker-render_style") == ""
+            assert _static_text(app, "#setting-marker-qr_chunk_size") == ""
+            saved = SettingsTaskState.from_current(config_path)
+            assert saved.design == "sentinel"
+            assert saved.setting_value("qr_chunk_size") == 512
+
+    asyncio.run(run())
+
+
 def test_textual_app_edit_restore_fields_updates_readiness() -> None:
     async def run() -> None:
         app = EthernityApp()
@@ -1355,15 +1560,32 @@ def test_textual_app_edit_and_clear_backup_state() -> None:
     asyncio.run(run())
 
 
-def test_textual_app_review_shows_missing_state() -> None:
+def test_textual_app_blocked_review_focuses_first_requirement() -> None:
     async def run() -> None:
         app = EthernityApp()
         async with app.run_test(size=(120, 32)) as pilot:
             await pilot.press("ctrl+r")
             await pilot.pause()
 
-            assert "Needs attention before writing" in _static_text(app, "#review-status")
-            assert "Choose at least one file or folder" in _review_text(app)
+            assert not list(app.screen.query("#review-modal"))
+            assert app.screen.focused is app.query_one("#workspace-backup-files", Button)
+            assert "Next required action" in _preview_text(app)
+            assert "Choose at least one file or folder" in _preview_text(app)
+
+    asyncio.run(run())
+
+
+def test_textual_app_summary_blocker_selection_focuses_matching_field() -> None:
+    async def run() -> None:
+        app = EthernityApp()
+        async with app.run_test(size=(120, 48)) as pilot:
+            issues = app.query_one("#preview-issues", OptionList)
+            issues.focus()
+            issues.highlighted = 1
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert app.screen.focused is app.query_one("#workspace-backup-output", Button)
 
     asyncio.run(run())
 
@@ -1393,6 +1615,8 @@ def test_textual_app_review_can_execute_ready_backup(monkeypatch) -> None:
             await pilot.pause()
 
             assert "Ready to write files" in _static_text(app, "#review-status")
+            assert _static_text(app, "#review-summary") == "All required items complete"
+            assert "Complete" in _review_text(app)
 
             await pilot.click("#review-execute")
             for _ in range(10):
@@ -1427,6 +1651,8 @@ def test_textual_app_review_can_execute_print_kit(monkeypatch) -> None:
             await pilot.pause()
 
             assert "Ready to write files" in _static_text(app, "#review-status")
+            assert _static_text(app, "#review-summary") == "All required items complete"
+            assert "Complete" in _review_text(app)
 
             await pilot.click("#review-execute")
             for _ in range(10):

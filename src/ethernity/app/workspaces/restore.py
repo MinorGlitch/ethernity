@@ -18,7 +18,9 @@ from ethernity.app.workspaces.common import (
     path_table,
     section,
     set_select,
+    status_note,
     update_radio,
+    update_status_note,
     update_table,
     value,
 )
@@ -32,15 +34,23 @@ class RestoreWorkspace(BaseWorkspace):
         with VerticalScroll(classes="task-workspace"):
             with section():
                 yield group_label("Backup to restore")
+                yield status_note("restore-source-status")
                 yield path_table("restore-source-table")
                 yield button_row(
                     WorkspaceAction("workspace-restore-source", "Load scanned pages..."),
+                )
+                yield button_row(
                     WorkspaceAction("workspace-restore-recovery-text", "Paste recovery text..."),
+                )
+                yield button_row(
                     WorkspaceAction("workspace-restore-payloads", "Load payload files..."),
+                )
+                yield button_row(
                     WorkspaceAction("workspace-restore-expected-head", "Show fingerprint..."),
                 )
             with section():
                 yield group_label("Unlock backup")
+                yield status_note("restore-unlock-status")
                 with RadioSet(
                     id="workspace-restore-unlock-method",
                     classes="workspace-control",
@@ -64,6 +74,7 @@ class RestoreWorkspace(BaseWorkspace):
                 )
             with section():
                 yield group_label("Choose version to restore")
+                yield status_note("restore-target-status")
                 with RadioSet(
                     id="workspace-restore-target-method",
                     classes="workspace-control",
@@ -88,6 +99,7 @@ class RestoreWorkspace(BaseWorkspace):
                 )
             with section():
                 yield group_label("Signature check")
+                yield status_note("restore-authentication-status")
                 yield labeled_select_row(
                     "Signature check",
                     "workspace-restore-auth-policy",
@@ -100,6 +112,7 @@ class RestoreWorkspace(BaseWorkspace):
                 )
             with section():
                 yield group_label("Choose restore destination")
+                yield status_note("restore-output-status")
                 yield field_row(
                     "Restore files to",
                     "restore-output-value",
@@ -108,17 +121,22 @@ class RestoreWorkspace(BaseWorkspace):
 
     def update_presentation(self, presentation: TaskPresentation) -> None:
         super().update_presentation(presentation)
+        source = group(presentation, "source")
+        update_status_note(self, "restore-source-status", source)
         update_table(
             self.query_one("#restore-source-table", DataTable),
-            group(presentation, "source"),
+            source,
         )
         unlock = group(presentation, "unlock")
+        update_status_note(self, "restore-unlock-status", unlock)
         update_radio(self, "workspace-restore-unlock", unlock.choices)
         self.query_one("#restore-unlock-summary", Static).update(first_value(unlock))
         target = group(presentation, "target")
+        update_status_note(self, "restore-target-status", target)
         update_radio(self, "workspace-restore-target", target.choices)
         self.query_one("#restore-target-summary", Static).update(first_value(target))
         auth = group(presentation, "authentication")
+        update_status_note(self, "restore-authentication-status", auth)
         set_select(
             self.query_one("#workspace-restore-auth-policy", Select),
             "allow-unsigned"
@@ -129,6 +147,6 @@ class RestoreWorkspace(BaseWorkspace):
             self.query_one("#workspace-restore-auth-material", Select),
             auth_material_select_value(value(auth, "auth-material")),
         )
-        self.query_one("#restore-output-value", Static).update(
-            first_value(group(presentation, "output"))
-        )
+        output = group(presentation, "output")
+        update_status_note(self, "restore-output-status", output)
+        self.query_one("#restore-output-value", Static).update(first_value(output))

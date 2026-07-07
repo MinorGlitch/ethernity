@@ -26,7 +26,12 @@ HELP_MODES: tuple[HelpMode, ...] = (
         description="Append new files to an existing generated backup folder.",
         use_when="The old backup is valid and you only want to add more data.",
         avoid_when="You want to recreate the same backup without adding new files.",
-        needs=("Existing backup", "Files to add", "Passphrase or recovery sheets"),
+        needs=(
+            "Existing backup",
+            "Files to add",
+            "Passphrase or recovery sheets",
+            "Update destination",
+        ),
     ),
     HelpMode(
         key="rebuild",
@@ -34,7 +39,12 @@ HELP_MODES: tuple[HelpMode, ...] = (
         description="Create a clean new printable set from an existing backup state.",
         use_when="Papers were lost, layout changed, or you want a fresh printed copy.",
         avoid_when="You want to add new source files to the backup.",
-        needs=("Backup folder or scans", "Passphrase or recovery sheets", "Output folder"),
+        needs=(
+            "Existing backup",
+            "Passphrase or recovery sheets",
+            "Rebuild destination",
+            "Print options",
+        ),
     ),
     HelpMode(
         key="replace_recovery_docs",
