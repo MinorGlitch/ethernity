@@ -31,7 +31,7 @@ dependencies = [
     "pillow>=12.3.0",
     "pypdf>=6.14.2",
     "segno>=1.6.6",
-    "zxing-cpp>=3.0.0",
+    "zxing-cpp==3.1.0",
     "pyrage>=1.3.0",
     "python-docx>=1.2.0",
     "pytest==9.1.1",
@@ -39,6 +39,11 @@ dependencies = [
     "coverage==7.15.0",
     "debugpy==1.8.21",
     "hypothesis==6.156.1",
+    "pip-audit==2.10.1",
+    "pre-commit==4.6.0",
+    "pytest-cov==7.1.0",
+    "ruff==0.15.20",
+    "tkinterdnd2==0.6.2",
 ]
 
 [project.scripts]
