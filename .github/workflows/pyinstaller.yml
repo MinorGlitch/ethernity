@@ -233,8 +233,52 @@ jobs:
               time.sleep(poll_seconds)
           PY
 
-  build:
+  kit-bundles:
     needs: precheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ needs.precheck.outputs.commit_sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: kit/package-lock.json
+
+      - name: Install kit dependencies
+        working-directory: kit
+        run: npm ci
+
+      - name: Generate kit bundles
+        working-directory: kit
+        run: node build_kit.mjs
+
+      - name: Prepare kit bundle artifact
+        run: |
+          set -euo pipefail
+          mkdir -p release-kit-bundles
+          cp \
+            src/ethernity/resources/kit/recovery_kit.bundle.html \
+            src/ethernity/resources/kit/recovery_kit.scanner.bundle.html \
+            release-kit-bundles/
+          ls -la release-kit-bundles/
+
+      - name: Upload kit bundle artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v6
+        with:
+          name: release-kit-bundles
+          if-no-files-found: error
+          path: release-kit-bundles/*.html
+
+  build:
+    needs: [precheck, kit-bundles]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
@@ -283,6 +327,29 @@ jobs:
       - name: Install build dependencies
         run: uv sync --extra build --frozen
 
+      - name: Download generated kit bundles
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-kit-bundles
+          path: src/ethernity/resources/kit
+
+      - name: Verify generated kit bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          for BUNDLE in \
+            src/ethernity/resources/kit/recovery_kit.bundle.html \
+            src/ethernity/resources/kit/recovery_kit.scanner.bundle.html
+          do
+            test -s "$BUNDLE"
+            SIZE=$(wc -c < "$BUNDLE")
+            echo "Generated bundle size ($BUNDLE): $SIZE bytes"
+            if [ "$SIZE" -lt 1000 ]; then
+              echo "ERROR: Generated bundle seems too small, may be corrupted: $BUNDLE"
+              exit 1
+            fi
+          done
+
       - name: Build with PyInstaller (onedir)
         run: uv run pyinstaller --clean --noconfirm ethernity.spec
 
@@ -300,12 +367,12 @@ jobs:
           SMOKE_OUT="${RUNNER_TEMP:-/tmp}/ethernity-pyinstaller-smoke"
           rm -rf "$SMOKE_OUT"
           mkdir -p "$SMOKE_OUT"
-          "$BIN" recover \
+          "$BIN" run restore \
             --scan tests/fixtures/v1_2/extension_golden/raw/gzip_replacement_chain/chain/qr_document.pdf \
             --scan tests/fixtures/v1_2/extension_golden/raw/gzip_replacement_chain/chain/extensions/01/qr_document-01-*.pdf \
             --passphrase stable-v1_2-extension-passphrase \
             --output "$SMOKE_OUT/recovered" \
-            --quiet
+            --yes
           test -d "$SMOKE_OUT/recovered"
 
       - name: Package release archive

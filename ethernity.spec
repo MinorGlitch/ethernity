@@ -2,13 +2,10 @@
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
 hiddenimports = (
-    collect_submodules("playwright")
-    + collect_submodules("questionary")
-    + collect_submodules("prompt_toolkit")
-    + collect_submodules("rich._unicode_data")
+    collect_submodules("rich._unicode_data")
     + collect_submodules("zxingcpp")
 )
-datas = collect_data_files("ethernity") + collect_data_files("playwright") + copy_metadata("ethernity-paper")
+datas = collect_data_files("ethernity") + copy_metadata("ethernity-paper")
 
 
 a = Analysis(

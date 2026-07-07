@@ -21,9 +21,11 @@ For releases that include the v1.2 extension profile, CI must pass the frozen ex
 
 - `uv run pytest tests/e2e/test_end_to_end_v1_2_extension_golden.py -v`
 - `cd kit && node --test tests/v1_2_extension_frozen_e2e.test.mjs`
+- `cd kit && node build_kit.mjs`
 - `cd kit && node --test tests/loader_html.test.mjs`
 
-The committed recovery kit bundles must also decode to an extension-capable UI before release.
+The generated recovery kit bundles must decode to an extension-capable UI before release. Recovery
+kit bundles are release artifacts, not committed source files.
 
 ## Quick Verification Example
 

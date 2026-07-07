@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import argparse
 import sys
+import tarfile
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 def parse_args() -> argparse.Namespace:
@@ -12,7 +13,7 @@ def parse_args() -> argparse.Namespace:
             "Reject wheel/package tree drift by checking for both unexpected and missing entries."
         )
     )
-    parser.add_argument("wheels", nargs="+", type=Path, help="Wheel files to inspect")
+    parser.add_argument("packages", nargs="+", type=Path, help="Wheel/sdist files to inspect")
     parser.add_argument(
         "--package-root",
         type=Path,
@@ -43,20 +44,45 @@ def wheel_package_entries(wheel_path: Path) -> set[str]:
     return entries
 
 
+def sdist_package_entries(sdist_path: Path) -> set[str]:
+    entries: set[str] = set()
+    with tarfile.open(sdist_path, "r:gz") as archive:
+        for member in archive.getmembers():
+            if not member.isfile():
+                continue
+            parts = PurePosixPath(member.name).parts
+            for index in range(len(parts) - 1):
+                if parts[index : index + 2] != ("src", "ethernity"):
+                    continue
+                relative_parts = parts[index + 2 :]
+                if relative_parts:
+                    entries.add(PurePosixPath(*relative_parts).as_posix())
+                break
+    return entries
+
+
+def package_entries(package_path: Path) -> set[str]:
+    if package_path.suffix == ".whl":
+        return wheel_package_entries(package_path)
+    if package_path.name.endswith(".tar.gz"):
+        return sdist_package_entries(package_path)
+    raise ValueError(f"unsupported package type: {package_path}")
+
+
 def main() -> int:
     args = parse_args()
     expected_entries = expected_source_entries(args.package_root)
     failures = False
 
-    for wheel_path in args.wheels:
-        wheel_entries = wheel_package_entries(wheel_path)
-        unexpected = sorted(wheel_entries - expected_entries)
-        missing = sorted(expected_entries - wheel_entries)
+    for package_path in args.packages:
+        actual_entries = package_entries(package_path)
+        unexpected = sorted(actual_entries - expected_entries)
+        missing = sorted(expected_entries - actual_entries)
         if not unexpected and not missing:
-            print(f"{wheel_path}: ok")
+            print(f"{package_path}: ok")
             continue
         failures = True
-        print(f"{wheel_path}: wheel/package tree drift detected", file=sys.stderr)
+        print(f"{package_path}: package tree drift detected", file=sys.stderr)
         for entry in unexpected:
             print(f"  - unexpected: ethernity/{entry}", file=sys.stderr)
         for entry in missing:

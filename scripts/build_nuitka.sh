@@ -71,12 +71,7 @@ nuitka_cmd+=(
     --remove-output
     --output-dir="${OUTPUT_DIR}"
     --output-filename=ethernity
-    --include-package=playwright
-    --include-package=questionary
-    --include-package=prompt_toolkit
     --include-package-data=ethernity
-    --noinclude-data-files=playwright/driver/node
-    --noinclude-data-files=playwright/driver/node.exe
 )
 nuitka_cmd+=("$@")
 nuitka_cmd+=("${PROJECT_ROOT}/src/ethernity")

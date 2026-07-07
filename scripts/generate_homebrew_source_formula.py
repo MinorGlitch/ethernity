@@ -238,24 +238,33 @@ def _compare_marker_values(left: str, right: str, op: ast.cmpop, *, left_name: s
         and _is_version_string(left)
         and _is_version_string(right)
     ):
-        left_value: tuple[int, ...] | str = _version_key(left)
-        right_value: tuple[int, ...] | str = _version_key(right)
-    else:
-        left_value = left
-        right_value = right
+        left_version = _version_key(left)
+        right_version = _version_key(right)
+        if isinstance(op, ast.Eq):
+            return left_version == right_version
+        if isinstance(op, ast.NotEq):
+            return left_version != right_version
+        if isinstance(op, ast.Lt):
+            return left_version < right_version
+        if isinstance(op, ast.LtE):
+            return left_version <= right_version
+        if isinstance(op, ast.Gt):
+            return left_version > right_version
+        if isinstance(op, ast.GtE):
+            return left_version >= right_version
 
     if isinstance(op, ast.Eq):
-        return left_value == right_value
+        return left == right
     if isinstance(op, ast.NotEq):
-        return left_value != right_value
+        return left != right
     if isinstance(op, ast.Lt):
-        return left_value < right_value
+        return left < right
     if isinstance(op, ast.LtE):
-        return left_value <= right_value
+        return left <= right
     if isinstance(op, ast.Gt):
-        return left_value > right_value
+        return left > right
     if isinstance(op, ast.GtE):
-        return left_value >= right_value
+        return left >= right
     if isinstance(op, ast.In):
         return left in right
     if isinstance(op, ast.NotIn):

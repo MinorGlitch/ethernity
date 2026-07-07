@@ -1,6 +1,8 @@
 import importlib.util
+import tarfile
 import tempfile
 import unittest
+import unittest.mock
 import zipfile
 from pathlib import Path
 
@@ -37,6 +39,26 @@ class TestCheckWheelContents(unittest.TestCase):
 
             self.assertEqual(
                 _MODULE.wheel_package_entries(wheel_path),
+                {"module.py", "resources/config.toml"},
+            )
+
+    def test_sdist_package_entries_returns_relative_package_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            source_root = temp_path / "sample-1.0.0" / "src" / "ethernity"
+            source_root.mkdir(parents=True)
+            (source_root / "module.py").write_text("x = 1\n", encoding="utf-8")
+            (source_root / "resources").mkdir()
+            (source_root / "resources" / "config.toml").write_text(
+                "name='x'\n",
+                encoding="utf-8",
+            )
+            sdist_path = temp_path / "sample-1.0.0.tar.gz"
+            with tarfile.open(sdist_path, "w:gz") as archive:
+                archive.add(temp_path / "sample-1.0.0", arcname="sample-1.0.0")
+
+            self.assertEqual(
+                _MODULE.sdist_package_entries(sdist_path),
                 {"module.py", "resources/config.toml"},
             )
 
