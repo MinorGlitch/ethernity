@@ -18,7 +18,7 @@ Create backup shows the same idea repeated in several places:
 - The center workspace says Files is missing.
 - The next-action strip says Files is missing.
 - The checklist says Files is missing.
-- The right rail says Required choose files.
+- The old side summary says Required choose files.
 - The bottom bar also offers Choose files.
 - Preview and Needs attention compete with the main workspace instead of helping it.
 
@@ -44,18 +44,18 @@ One region owns one job:
 
 - Left rail: task navigation and task-level readiness only.
 - Center workspace: inputs and decisions the user can change now.
-- Right rail: outcome, write consequences, and blockers that are not already visible as controls.
+- Review/result modals: write consequences, final confirmation, and execution output.
 - Bottom bar: global shortcuts and one primary action.
 - Modal screens: file picking, final review, and internals.
 
 No duplicate text:
 
-- A missing file choice should appear as an empty file selector in the workspace and as one blocker
-  in the right rail, not as three separate "Missing Files" rows.
+- A missing file choice should appear as an empty file selector in the workspace and as the primary
+  fix action, not as three separate "Missing Files" rows.
 - "Nothing will be written until final review" belongs in final review and, if needed, as a short
-  right-rail safety note. It should not be repeated on every screen as filler.
+  workspace safety note. It should not be repeated on every screen as filler.
 - "Review" should appear once as the primary action. Do not keep a second Review button in the
-  right rail unless the bottom action bar is hidden at a narrow width.
+  workspace.
 
 Use controls, not prose:
 
@@ -63,7 +63,7 @@ Use controls, not prose:
 - Use radio choices for recovery strategy and restore target.
 - Use select controls for paper/design/variant choices.
 - Use switches for binary advanced options.
-- Use tables or compact lists for selected files and documents.
+- Use compact selection lists for selected files and documents.
 - Use collapsible details for advanced controls.
 
 Use empty states that are actions:
@@ -81,29 +81,32 @@ Use these Textual widgets deliberately:
 
 - `ContentSwitcher`: switch between task-specific center workspaces without leaving old content
   mounted or visible.
-- `DataTable`: selected files, output documents, setup checks, and recovery document sets.
-- `SelectionList`: multi-select options where the choices are known.
+- `ListView`: workflow navigation with structured rows.
+- `SelectionList`: selected files, selected recovery material, and multi-select options where the
+  choices are known.
 - `DirectoryTree`: file picker and folder browsing.
-- `Tree`: detected backup contents, update chains, and document groups.
 - `RadioSet` / `RadioButton`: mutually exclusive choices such as recovery method or restore
   target.
 - `Select`: compact option sets such as paper size, design, kit variant, or known presets.
-- `Input`: short explicit values such as thresholds, document hashes, or save names.
+- `MaskedInput`: structured numeric values such as thresholds, QR density, and shard counts.
 - `Switch`: binary advanced settings such as allow stale source or reveal secrets.
-- `ProgressBar`: readiness only where progress is meaningful; not as decoration.
+- `ProgressBar`: readiness only with adjacent explanatory text; not as decoration.
 - `RichLog`: internals and execution logs only, never the beginner workspace.
-- `TabbedContent`: advanced subviews only when one task genuinely has separate modes.
+- `MarkdownViewer`: help, review, and result summaries.
+- `TabbedContent`: dense settings and internals subviews.
+- `Collapsible`: advanced sections and secondary result details.
+- `LoadingIndicator`: mounted only while long-running work is actually running.
 
-Keep `OptionList` for the left rail and small command menus. Do not use it as the main workspace
-for every task.
+Do not use `OptionList` or generic checklist renderers for primary workspaces.
 
 ## Shell Layout Contract
 
-The shell keeps a stable three-column shape, but changes what each column owns.
+The shell keeps a stable task-rail plus workspace shape. The old right summary rail is intentionally
+absent; consequences live in the focused workspace, review modal, result modal, and internals modal.
 
 ```text
 Header
-Task rail | Task-specific workspace | Outcome rail
+Task rail | Task-specific workspace
 Footer shortcuts
 ```
 
@@ -128,26 +131,10 @@ The center column owns editing. It should have:
 - No "documents to create" copy.
 - No repeated "needs attention" list.
 
-### Right Outcome Rail
-
-Rename the mental model from Preview to Outcome.
-
-The rail shows:
-
-- What will be written or read.
-- The output target.
-- Document/file counts.
-- Security-sensitive consequences.
-- Current blockers only if they are not already visible in the focused workspace group.
-- Last execution result.
-
-When there are no blockers, do not show "No blockers" as a permanent block. Hide the section or
-show a single muted Ready line near the primary action.
-
 ### Bottom Bar
 
 The bottom bar shows global navigation and the one primary action. It should not duplicate the
-right rail.
+workspace.
 
 Primary action rules:
 
@@ -169,7 +156,7 @@ Workspace structure:
 Create backup                                      2/4 ready
 
 Files to protect
-  [selected paths table or empty state]
+  [selected paths list or empty state]
   Add files  Add folder  Remove selected
 
 Recovery
@@ -184,7 +171,7 @@ Destination and print
   Design         [sentinel v]
 ```
 
-Outcome rail:
+Review/result summary:
 
 - Documents to create: main backup document, recovery guide, recovery documents, kit index if
   supported.
@@ -196,7 +183,7 @@ Remove from this workspace:
 
 - The generic section checklist.
 - The separate next-action strip.
-- The duplicate Review button in the right rail.
+- The duplicate Review button.
 - Repeated "Missing Files" lines.
 
 ### Restore Files
@@ -209,7 +196,7 @@ Workspace structure:
 Restore files
 
 Backup source
-  [source table or empty state]
+  [source list or empty state]
   Choose scans  Choose recovery text  Choose payload file
 
 Unlock
@@ -227,7 +214,7 @@ Output
   Restore into [path field] [Choose]
 ```
 
-Outcome rail:
+Review/result summary:
 
 - Restore target.
 - Output path.
@@ -235,8 +222,8 @@ Outcome rail:
 - Authentication/signature warning when relevant.
 - Blockers: source, unlock, output, target only when missing.
 
-Use a `Tree` for detected backup contents once source parsing exists. Until then, show a concise
-source table, not empty space.
+Use a compact list for detected backup contents once source parsing exists. Until then, show a
+concise source list, not empty space.
 
 ### Add Files To Backup
 
@@ -253,7 +240,7 @@ Backup to update
   Source freshness [verified / needs confirmation]
 
 Files to add
-  [selected paths table]
+  [selected paths list]
   Add files  Add folder  Remove selected
 
 Unlock
@@ -264,7 +251,7 @@ Update options
   Print layout [A4] [sentinel]
 ```
 
-Outcome rail:
+Review/result summary:
 
 - Backup folder being updated.
 - New update documents to write.
@@ -282,7 +269,7 @@ Rebuild backup
 
 Source
   Choose backup folder or scans
-  [source summary table]
+  [source summary list]
 
 Unlock
   Passphrase or recovery documents
@@ -292,7 +279,7 @@ Rebuild output
   Paper/design controls
 ```
 
-Outcome rail:
+Review/result summary:
 
 - Documents that will be rebuilt.
 - Output target.
@@ -322,7 +309,7 @@ Output
   Output folder [path field] [Choose]
 ```
 
-Outcome rail:
+Review/result summary:
 
 - New recovery document count.
 - Threshold rule.
@@ -347,37 +334,11 @@ Output
   Output PDF [path field] [Choose]
 ```
 
-Outcome rail:
+Review/result summary:
 
 - Kit variant.
 - Paper/design.
 - Output PDF.
-
-### Setup Check
-
-Goal: show environment health and actionable failures.
-
-Workspace structure:
-
-```text
-Setup check
-
-[DataTable]
-Check                 Status      Fix
-Python runtime        Ready       -
-Config file           Ready       Open settings
-Render backend        Warning     Show details
-Kit assets            Ready       -
-
-Details for selected check
-  [RichLog or Static details]
-```
-
-Outcome rail:
-
-- Overall status.
-- Required fixes.
-- Optional diagnostics action.
 
 ### Settings
 
@@ -387,7 +348,7 @@ Settings can keep the current direction, with these refinements:
 - Keep direct controls.
 - Keep advanced settings visible but not noisy.
 - Remove generic task title/explainer copy.
-- Outcome rail only shows config file target, unsaved changes, and validation errors.
+- Settings shows config file target, unsaved changes, and validation errors inline.
 
 ## Copy Ownership Rules
 
@@ -395,15 +356,15 @@ Use this table when implementing. If a sentence does not have an owner, delete i
 
 | Information | Owner |
 | --- | --- |
-| Selected files/folders | Center workspace file table |
-| Missing selected files/folders | Empty state inside file table plus one right-rail blocker |
-| Recovery threshold | Center recovery controls and right-rail outcome |
-| Output path | Center output field and right-rail outcome |
-| Documents to create | Right outcome rail only |
-| "Nothing written until review" | Final review modal; optional one-line safety note in outcome rail |
+| Selected files/folders | Center workspace selection list |
+| Missing selected files/folders | Empty state inside selection list plus primary fix action |
+| Recovery threshold | Center recovery controls and final review |
+| Output path | Center output field, final review, and result modal |
+| Documents to create | Final review and result modal |
+| "Nothing written until review" | Final review modal; optional one-line workspace safety note |
 | Keyboard shortcuts | Footer and help modal only |
 | Debug/internal backup payload | Internals modal only |
-| Execution result paths | Right outcome rail after execution |
+| Execution result paths | Result modal after execution |
 
 ## Interaction Model
 
@@ -422,8 +383,8 @@ Navigation:
 Mouse:
 
 - Every visible button is clickable.
-- Tables support row selection.
-- File rows expose remove actions through keyboard and mouse.
+- Selection lists support row focus without pretending empty states are selected rows.
+- File rows expose clear/remove actions through keyboard and mouse.
 
 Focus:
 
@@ -445,7 +406,7 @@ TaskPresentation
   title
   readiness
   workspace_groups
-  outcome_items
+  summary
   blockers
   primary_action
   diagnostics_available
@@ -454,7 +415,7 @@ TaskPresentation
 Workspace groups should be typed:
 
 - path picker group
-- selected paths table
+- selected paths list
 - radio choice group
 - option select group
 - numeric threshold group
@@ -471,7 +432,7 @@ presentation objects; they should not infer task semantics from preview strings.
 
 - Add a small presentation model.
 - Add tests that assert non-settings tasks produce task-specific groups, not only generic sections.
-- Add tests that enforce copy ownership: no duplicate blocker strings across center and right rail.
+- Add tests that enforce copy ownership: no duplicate blocker strings across visible regions.
 - Add viewport tests for at least wide desktop, medium terminal, and narrow terminal.
 
 ### Phase 2: Replace The Generic Workspace Router
@@ -484,22 +445,22 @@ presentation objects; they should not infer task semantics from preview strings.
 ### Phase 3: Create Backup Vertical Slice
 
 - Build the backup workspace completely first.
-- Replace section list with selected-files table, recovery controls, output control, and layout
+- Replace section list with selected-files list, recovery controls, output control, and layout
   controls.
-- Move documents-to-create entirely to the right rail.
-- Remove duplicate Review in the right rail.
+- Move documents-to-create into review/result surfaces.
+- Remove duplicate Review surfaces.
 - Verify file picker, passphrase/recovery editing, output picker, final review, and internals.
 
 ### Phase 4: Restore Vertical Slice
 
 - Build source, unlock, target, and output groups.
 - Make the unlock method explicit instead of hidden behind a text edit.
-- Add source summary and output consequences to the right rail.
+- Add source summary and output consequences to the workspace and review/result surfaces.
 - Verify restore review and execution still use the same task state.
 
 ### Phase 5: Maintenance Tasks
 
-- Build Add files, Rebuild backup, Replace recovery docs, Recovery kit, and Setup check.
+- Build Add files, Rebuild backup, Replace recovery docs, and Recovery kit.
 - Use shared typed group widgets, not shared prose.
 - Keep task-specific language and controls in each workspace.
 
@@ -515,9 +476,9 @@ presentation objects; they should not infer task semantics from preview strings.
 
 - Non-settings task workspaces no longer render as a generic checklist.
 - Every non-settings task has direct controls that match the task.
-- The same blocker sentence does not appear in the center workspace and the right rail at the same
-  time.
-- The right rail shows outcome and blockers only; it does not duplicate editable controls.
+- The same blocker sentence does not appear multiple times in visible workflow chrome.
+- The old side summary rail is absent; review/result modals carry consequences and execution
+  details.
 - The primary write/review action appears once in the normal layout.
 - File, folder, and output choices use the proper file picker.
 - Internals remain on demand and redacted by default.

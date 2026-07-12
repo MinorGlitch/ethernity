@@ -273,7 +273,7 @@ rebuild still expose the real authentication material support.
 Evidence:
 
 - Every user-facing task state now uses Pydantic `extra="forbid"` in its model config:
-  backup, restore, add-files, rebuild, replace-recovery-docs, print-kit, doctor, and settings.
+  backup, restore, add-files, rebuild, replace-recovery-docs, print-kit, and settings.
 - This closes the failure mode where a CLI, workspace, or future shim could pass an unsupported
   keyword and have Pydantic silently ignore it.
 - `test_user_facing_task_states_reject_unknown_fields` verifies all task states reject
@@ -388,15 +388,15 @@ Evidence:
 Evidence:
 
 - `TaskWorkspaces` uses a `ContentSwitcher` with separate workspace widgets for backup, restore,
-  add-files, rebuild, replace-recovery-docs, kit, and doctor.
+  add-files, rebuild, replace-recovery-docs, and kit.
 - Every non-settings workspace is composed from direct `.workspace-section` children instead of a
   flat checklist dump.
 - `test_textual_app_workspace_shows_real_flow_controls` verifies the center workspace exposes real
   flow controls instead of the old checklist placeholder surface.
 - `test_textual_app_workspaces_are_grouped_into_sections` verifies each rendered workspace is
   grouped into the expected section count at a 120x48 terminal size.
-- `test_textual_app_does_not_duplicate_blockers_in_workspace_and_outcome` verifies right-rail
-  blockers do not repeat exact blocker copy in the center workspace.
+- `test_textual_app_blocked_workflows_show_inline_summary_and_fix_action` verifies blocked
+  workflows use inline status plus one primary fix action instead of duplicate side-panel blockers.
 - `test_textual_app_workspace_buttons_do_not_overlap_primary_action` verifies visible workspace
   buttons do not collide with the sticky primary action across all non-settings workflows.
 - `test_textual_app_palette_changes_shell_colors` verifies Textual theme changes still affect the

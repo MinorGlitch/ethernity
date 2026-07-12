@@ -169,7 +169,7 @@ Its role should stay behind the PDF surface adapter rather than leaking into lay
 - [x] Updated direct Forge recovery pagination to honor the Forge
   `recovery_first_page_single_section` style capability, matching the intended two-page AUTH/MAIN
   section split for the synthetic fixture.
-- [x] Extended the visual harness to emit per-page diff PNGs and named header/body/footer region
+- [x] Extended the visual harness to emit per-page PNG diff images and named header/body/footer region
   deltas. The current Forge manifest shows recovery and kit-index mismatches are header-heavy,
   while main, shard, and kit page 1 are body-heavy.
 - [x] Added shared direct-PDF page-plan bounds validation so component rectangles and measured text

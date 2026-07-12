@@ -32,7 +32,6 @@ Primary tasks:
 - Rebuild backup
 - Replace recovery documents
 - Recovery kit
-- Setup check
 - Settings
 
 ## New Scriptable Surface
@@ -46,7 +45,6 @@ ethernity run add-files --backup-folder backup-out --input new-file.txt --passph
 ethernity run rebuild --scan scans --output-dir rebuilt --passphrase "$PASSPHRASE" --yes
 ethernity run replace-recovery-docs --scan scans --output-dir replacement-docs --passphrase "$PASSPHRASE" --yes
 ethernity run print-kit --output recovery_kit_qr.pdf --yes
-ethernity run doctor
 ```
 
 Machine-readable output is available with `--json` on `ethernity run` commands.

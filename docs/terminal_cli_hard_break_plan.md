@@ -105,7 +105,6 @@ ethernity run add-files
 ethernity run rebuild
 ethernity run replace-recovery-docs
 ethernity run print-kit
-ethernity run doctor
 ```
 
 The old `ethernity api` command group is removed. Machine-readable output is folded into
@@ -119,7 +118,6 @@ Primary human actions:
 - Restore files
 - Work on an existing backup
 - Print a recovery kit
-- Check setup
 - Settings
 
 Maintenance actions:
@@ -151,7 +149,6 @@ src/ethernity/app/
     restore.py
     maintain.py
     kit.py
-    doctor.py
     settings.py
   widgets/
     action_bar.py
@@ -170,7 +167,6 @@ src/ethernity/tasks/
   rebuild.py
   replace_recovery_docs.py
   print_kit.py
-  doctor.py
 
 src/ethernity/run/
   cli.py
@@ -296,7 +292,6 @@ Home:
 - Restore files
 - Work on an existing backup
 - Print a recovery kit
-- Check setup
 - Settings
 
 Create backup:
@@ -383,7 +378,6 @@ ethernity run add-files --backup-folder backup-out --input new-file.txt
 ethernity run rebuild --scan scans --output-dir rebuilt
 ethernity run replace-recovery-docs --scan scans --output-dir replacement-docs
 ethernity run print-kit --output recovery-kit.pdf
-ethernity run doctor
 ```
 
 Runner behavior:
@@ -450,9 +444,8 @@ This is a hard break, so migration here means implementation sequencing, not com
 - Implement print-kit task.
 - Add corresponding Textual screens and Click runner commands.
 
-### Phase 7: Doctor and Settings
+### Phase 7: Settings
 
-- Implement `doctor` checks.
 - Implement settings screen.
 - Persist settings through existing config infrastructure.
 
@@ -518,9 +511,9 @@ The first implementation slice has started on this branch:
 - Textual, Rich, Click, and Pydantic are wired into the new layer.
 - `BackupTaskState` and `RestoreTaskState` expose shared validation, preview, planning, and
   execution adapters.
-- The Textual shell can switch between backup, restore, recovery kit, and setup check tasks,
-  edit task fields where implemented, show final review, and execute ready tasks through
-  shared task state.
+- The Textual shell can switch between backup, restore, recovery kit, and settings tasks, edit
+  task fields where implemented, show final review, and execute ready tasks through shared task
+  state.
 - The center task area, left navigation, and right preview rail are Textual widgets rather than
   static text dumps.
 - The center task renderer has been split into reusable Textual widgets for section lists,
@@ -549,8 +542,6 @@ The first implementation slice has started on this branch:
 - The Textual app has real integration coverage for the same write path through final review:
   it executes backup creation from the app, executes restore from the generated backup folder
   from the app, and verifies the recovered file contents.
-- `ethernity run doctor` uses the shared setup-check task model and reports local runtime,
-  rendering, scanning, resource, and write-access status.
 - `ethernity run ... --json` emits one machine-readable JSON object backed by the same task
   validation, preview, execution plan, and result models used by Rich output.
 - JSON runner errors for not-ready and confirmation-required states are emitted as JSON payloads
@@ -633,7 +624,7 @@ Post-release follow-up:
   - Result: `1577 passed, 4 skipped`.
 - `python -m ethernity --help` shows only the terminal app entry point and `run` group.
 - `python -m ethernity run --help` shows the scriptable task commands:
-  `backup`, `restore`, `add-files`, `rebuild`, `replace-recovery-docs`, `print-kit`, and `doctor`.
+  `backup`, `restore`, `add-files`, `rebuild`, `replace-recovery-docs`, and `print-kit`.
 - Final source/dependency search found no Typer, Questionary, or prompt-toolkit imports in
   production code and no stale top-level command examples outside intentional removal notes.
 
