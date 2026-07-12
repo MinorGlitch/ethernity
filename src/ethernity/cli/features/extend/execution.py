@@ -24,7 +24,7 @@ import shutil
 import stat
 import tempfile
 from contextlib import suppress
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from ethernity import render as render_module
@@ -43,10 +43,12 @@ from ethernity.cli.features.extend.models import (
     PreparedExtensionPublishPlan,
     PublishedExtensionResult,
     RenderedExtensionArtifacts,
+    ResolvedExtendRuntime,
     ReuseRootPassphraseShards,
 )
 from ethernity.cli.features.extend.planning import resolve_extend_state
 from ethernity.cli.features.extend.prepare import (
+    encrypt_prepared_extension_document,
     prepare_extend_run,
     prepare_staged_extension_publish,
 )
@@ -67,6 +69,20 @@ from ethernity.extensions.staging import (
 from ethernity.render.layout_debug import layout_debug_json_path
 
 DirectoryIdentity = tuple[int, int]
+
+
+@dataclass(frozen=True)
+class AssessedExtendRun:
+    """Fully validated, non-publishing extension state approved for execution."""
+
+    prepared: PreparedExtendRun
+    runtime: ResolvedExtendRuntime
+    encrypted: EncryptedPreparedExtension
+
+    def __deepcopy__(self, _memo: dict[int, object]) -> AssessedExtendRun:
+        """Keep one immutable reviewed payload across task snapshot copies."""
+
+        return self
 
 
 def execute_staged_extension_publish(
@@ -290,6 +306,78 @@ def execute_prepared_extend(
 
     runtime = _runtime_impl.resolve_extend_runtime(prepared, include_layout_debug_dir=False)
     _preflight_prepared_extension_publish_target(prepared)
+    return _execute_resolved_extend(
+        prepared,
+        runtime=runtime,
+        encrypted=None,
+        chunker=chunker,
+        nonce=nonce,
+    )
+
+
+def assess_prepared_extend(
+    prepared: PreparedExtendRun,
+    *,
+    chunker: Chunker | None = None,
+) -> AssessedExtendRun:
+    """Assemble and validate an extension without publishing user-visible artifacts."""
+
+    selected_chunker = default_extension_chunker if chunker is None else chunker
+    runtime = _runtime_impl.resolve_extend_runtime(
+        prepared,
+        create_layout_debug_dir=False,
+        include_layout_debug_dir=False,
+    )
+    _preflight_prepared_extension_publish_target(prepared)
+    encrypted = encrypt_prepared_extension_document(prepared, chunker=selected_chunker)
+    validate_prepared_extend_render(
+        prepared,
+        runtime=runtime,
+        encrypted=encrypted,
+    )
+    return AssessedExtendRun(
+        prepared=prepared,
+        runtime=runtime,
+        encrypted=encrypted,
+    )
+
+
+def execute_assessed_extend(
+    assessed: AssessedExtendRun,
+    *,
+    config_path: str | None = None,
+    nonce: str | None = None,
+) -> ExecutedExtendRun:
+    """Publish the exact payload and runtime settings approved by assessment."""
+
+    prepared = (
+        assessed.prepared
+        if config_path is None
+        else replace(
+            assessed.prepared,
+            args=replace(assessed.prepared.args, config=config_path),
+        )
+    )
+    _preflight_prepared_extension_publish_target(prepared)
+    return _execute_resolved_extend(
+        prepared,
+        runtime=assessed.runtime,
+        encrypted=assessed.encrypted,
+        chunker=None,
+        nonce=nonce,
+    )
+
+
+def _execute_resolved_extend(
+    prepared: PreparedExtendRun,
+    *,
+    runtime: ResolvedExtendRuntime,
+    encrypted: EncryptedPreparedExtension | None,
+    chunker: Chunker | None,
+    nonce: str | None,
+) -> ExecutedExtendRun:
+    """Render and publish a resolved extension, optionally using an assessed payload."""
+
     runtime = replace(
         runtime,
         layout_debug_dir=_runtime_impl.resolve_extend_layout_debug_dir(
@@ -299,11 +387,20 @@ def execute_prepared_extend(
         ),
     )
     nonce_value = nonce or secrets.token_hex(4)
-    publish = prepare_staged_extension_publish(
-        prepared,
-        chunker=default_extension_chunker if chunker is None else chunker,
-        nonce=nonce_value,
-        publish_policy=runtime.to_publish_policy(),
+    publish = (
+        prepare_staged_extension_publish(
+            prepared,
+            chunker=default_extension_chunker if chunker is None else chunker,
+            nonce=nonce_value,
+            publish_policy=runtime.to_publish_policy(),
+        )
+        if encrypted is None
+        else _prepare_assessed_extension_publish(
+            prepared,
+            encrypted=encrypted,
+            runtime=runtime,
+            nonce=nonce_value,
+        )
     )
     try:
         (
@@ -368,10 +465,42 @@ def execute_prepared_extend(
     )
 
 
+def _prepare_assessed_extension_publish(
+    prepared: PreparedExtendRun,
+    *,
+    encrypted: EncryptedPreparedExtension,
+    runtime: ResolvedExtendRuntime,
+    nonce: str,
+) -> PreparedExtensionPublishPlan:
+    root_dir = prepared.args.root_dir
+    if not root_dir:
+        raise ApiCommandError(
+            code=api_codes.RUNTIME_ERROR,
+            message="extend execution requires a root_dir for staged publish planning",
+        )
+    publish_policy = runtime.to_publish_policy()
+    artifacts = create_staged_extension_artifact_plan(
+        root_dir,
+        index=prepared.next_index,
+        doc_id_hex=encrypted.doc_id.hex(),
+        nonce=nonce,
+        publish_policy=publish_policy,
+        publish_layout="loose" if prepared.args.scan else "canonical",
+        allow_missing_root=bool(prepared.args.scan),
+        require_empty_root=bool(prepared.args.scan),
+    )
+    return PreparedExtensionPublishPlan(
+        prepared=prepared,
+        encrypted=encrypted,
+        publish_policy=publish_policy,
+        artifacts=artifacts,
+    )
+
+
 def validate_prepared_extend_render(
     prepared: PreparedExtendRun,
     *,
-    runtime,
+    runtime: ResolvedExtendRuntime,
     encrypted: EncryptedPreparedExtension,
     nonce: str | None = None,
 ) -> RenderedExtensionArtifacts:
@@ -596,6 +725,9 @@ def _result_root_passphrase_shard_count(
 
 
 __all__ = [
+    "AssessedExtendRun",
+    "assess_prepared_extend",
+    "execute_assessed_extend",
     "execute_prepared_extend",
     "execute_staged_extension_publish",
     "run_extend",

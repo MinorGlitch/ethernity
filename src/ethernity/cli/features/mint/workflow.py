@@ -1213,6 +1213,7 @@ def _recover_args_from_mint_args(args: MintArgs) -> RecoverArgs:
         fallback_file=args.fallback_file,
         payloads_file=args.payloads_file,
         scan=list(args.scan or []),
+        frames=list(args.frames or []),
         passphrase=args.passphrase,
         shard_fallback_file=list(args.shard_fallback_file or []),
         shard_payloads_file=list(args.shard_payloads_file or []),

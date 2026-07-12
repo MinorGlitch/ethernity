@@ -434,8 +434,11 @@ def _require_complete_shard_carrier_sets(
             )
         expected_count = next(iter(share_counts))
         actual_indexes = {carrier.share_index for carrier in carriers}
-        expected_indexes = set(range(1, expected_count + 1))
-        if actual_indexes != expected_indexes:
+        if (
+            len(actual_indexes) != expected_count
+            or min(actual_indexes) != 1
+            or max(actual_indexes) != expected_count
+        ):
             raise ValueError(
                 f"extension directory {path.name} {doc_type} carriers must include shares "
                 f"1 through {expected_count}"

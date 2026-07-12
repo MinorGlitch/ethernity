@@ -23,6 +23,7 @@ from pathlib import Path
 from pypdf import PdfReader
 
 from ethernity.cli.features.recover.key_recovery import resolve_auth_payload
+from ethernity.cli.shared.constants import AUTH_FALLBACK_LABEL, MAIN_FALLBACK_LABEL
 from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext
 from ethernity.cli.shared.io.frames import (
     _dedupe_frames,
@@ -40,7 +41,7 @@ from ethernity.render.proofs import (
     validate_pdf_has_pages,
     validate_text_in_pdf,
 )
-from ethernity.render.types import RenderFallbackProof
+from ethernity.render.types import FallbackSection, RenderFallbackProof
 
 from .models import (
     EXTENSION_MAIN_CARRIER_INVALID,
@@ -120,6 +121,7 @@ def validate_single_recovery_document_carrier(
         validate_fallback_text_in_pdf(
             artifact_label=f"rendered recovery document {path.name}",
             reader=reader,
+            fallback_sections=_recovery_fallback_sections(frames),
             fallback_proof=fallback_proof,
         )
         _validate_main_carrier_frames(
@@ -162,6 +164,27 @@ def _validate_recovery_document_fallback_proof(
         )
     except RenderProofError as exc:
         raise _render_proof_api_error(exc) from exc
+
+
+def _recovery_fallback_sections(frames: tuple[Frame, ...]) -> tuple[FallbackSection, ...]:
+    labels = {
+        FrameType.AUTH: AUTH_FALLBACK_LABEL,
+        FrameType.MAIN_DOCUMENT: MAIN_FALLBACK_LABEL,
+    }
+    try:
+        sections = tuple(
+            FallbackSection(label=labels[FrameType(frame.frame_type)], frame=frame)
+            for frame in frames
+        )
+    except KeyError as exc:
+        raise RenderProofError("recovery fallback contains an unexpected frame role") from exc
+    expected_roles = (FrameType.AUTH, FrameType.MAIN_DOCUMENT)
+    if tuple(section.frame.frame_type for section in sections) != expected_roles:
+        raise RenderProofError(
+            "recovery fallback must contain AUTH then MAIN sections",
+            details={"frame_roles": tuple(int(section.frame.frame_type) for section in sections)},
+        )
+    return sections
 
 
 def _render_proof_api_error(exc: RenderProofError) -> ApiCommandError:

@@ -18,8 +18,10 @@ import unittest
 from pathlib import Path
 
 from ethernity.cli.shared import api_codes
+from ethernity.crypto import sharding as sharding_module
 from ethernity.crypto.signing import derive_public_key, encode_auth_payload, sign_auth
 from ethernity.encoding.framing import Frame, FrameType
+from ethernity.extensions.identity import doc_id_and_hash_from_ciphertext
 from ethernity.extensions.published import (
     inspect_published_extension_chain,
     inspect_published_extension_inventory,
@@ -56,24 +58,83 @@ def _imported_document(
     doc_hash: bytes,
     signing_seed: bytes,
 ) -> ImportedRecoveryDocument:
+    ciphertext = b"ciphertext"
     return ImportedRecoveryDocument(
         doc_id=doc_id,
         doc_hash=doc_hash,
-        ciphertext=b"ciphertext",
+        ciphertext=ciphertext,
         auth_frames=(_auth_frame(doc_id, doc_hash, signing_seed=signing_seed),),
         source_label="qr",
     )
 
 
 class TestPublishedExtensionInventory(unittest.TestCase):
+    def test_inventory_validates_published_shard_carrier_contents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            extension_dir = root_dir / "extensions" / "01"
+            extension_dir.mkdir(parents=True)
+            doc_id, doc_hash = doc_id_and_hash_from_ciphertext(b"ciphertext")
+            doc_id_hex = doc_id.hex()
+            signing_seed = b"\x33" * 32
+            sign_pub = derive_public_key(signing_seed)
+            (extension_dir / f"qr_document-01-{doc_id_hex}.pdf").write_bytes(b"qr")
+            (extension_dir / f"recovery_document-01-{doc_id_hex}.pdf").write_bytes(b"recovery")
+            payloads = sharding_module.split_passphrase(
+                "secret",
+                threshold=2,
+                shares=2,
+                doc_hash=doc_hash,
+                sign_priv=signing_seed,
+                sign_pub=sign_pub,
+            )
+            frames_by_index: dict[int, Frame] = {}
+            for payload in payloads:
+                (
+                    extension_dir / (f"shard-01-{doc_id_hex}-{payload.share_index}-of-2.pdf")
+                ).write_bytes(b"shard")
+                frames_by_index[payload.share_index] = Frame(
+                    version=1,
+                    frame_type=FrameType.KEY_DOCUMENT,
+                    doc_id=doc_id,
+                    index=0,
+                    total=1,
+                    data=sharding_module.encode_shard_payload(payload),
+                )
+
+            inventory = inspect_published_extension_inventory(
+                root_dir,
+                read_carrier_document=lambda _carrier: _imported_document(
+                    doc_id=doc_id,
+                    doc_hash=doc_hash,
+                    signing_seed=signing_seed,
+                ),
+                read_shard_frames=lambda carrier: [frames_by_index[carrier.share_index]],
+                validate_recovery_document_carrier=lambda _carrier, _document, _sign_pub: None,
+            )
+            corrupted = inspect_published_extension_inventory(
+                root_dir,
+                read_carrier_document=lambda _carrier: _imported_document(
+                    doc_id=doc_id,
+                    doc_hash=doc_hash,
+                    signing_seed=signing_seed,
+                ),
+                read_shard_frames=lambda _carrier: [],
+                validate_recovery_document_carrier=lambda _carrier, _document, _sign_pub: None,
+            )
+
+        self.assertIsNone(inventory.failure)
+        self.assertIsNotNone(corrupted.failure)
+        assert corrupted.failure is not None
+        self.assertIn("must contain exactly one shard payload", corrupted.failure.message)
+
     def test_inventory_identity_comes_from_carrier_content_not_filename(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root_dir = Path(tmpdir)
             extension_dir = root_dir / "extensions" / "01"
             extension_dir.mkdir(parents=True)
             stale_doc_id_hex = "deadbeefcafebabe"
-            content_doc_id = bytes.fromhex("cafebabedeadbeef")
-            content_doc_hash = b"\x44" * 32
+            content_doc_id, content_doc_hash = doc_id_and_hash_from_ciphertext(b"ciphertext")
             (extension_dir / f"qr_document-01-{stale_doc_id_hex}.pdf").write_bytes(b"qr")
             (extension_dir / f"recovery_document-01-{stale_doc_id_hex}.pdf").write_bytes(
                 b"recovery"
@@ -88,6 +149,7 @@ class TestPublishedExtensionInventory(unittest.TestCase):
                     doc_hash=content_doc_hash,
                     signing_seed=signing_seed,
                 ),
+                read_shard_frames=lambda _carrier: [],
                 validate_recovery_document_carrier=lambda _carrier, _document, _sign_pub: None,
             )
 
@@ -101,8 +163,7 @@ class TestPublishedExtensionInventory(unittest.TestCase):
             root_dir = Path(tmpdir)
             extension_dir = root_dir / "extensions" / "01"
             extension_dir.mkdir(parents=True)
-            doc_id = bytes.fromhex("cafebabedeadbeef")
-            doc_hash = b"\x44" * 32
+            doc_id, doc_hash = doc_id_and_hash_from_ciphertext(b"ciphertext")
             signing_seed = b"\x33" * 32
             (extension_dir / "qr_document-01-cafebabedeadbeef.pdf").write_bytes(b"qr")
             recovery_path = extension_dir / "recovery_document-01-cafebabedeadbeef.pdf"
@@ -126,6 +187,7 @@ class TestPublishedExtensionInventory(unittest.TestCase):
                     doc_hash=doc_hash,
                     signing_seed=signing_seed,
                 ),
+                read_shard_frames=lambda _carrier: [],
                 validate_recovery_document_carrier=_validate,
             )
 
@@ -147,8 +209,7 @@ class TestPublishedExtensionInventory(unittest.TestCase):
             root_dir = Path(tmpdir)
             extension_dir = root_dir / "extensions" / "01"
             extension_dir.mkdir(parents=True)
-            doc_id = bytes.fromhex("cafebabedeadbeef")
-            doc_hash = b"\x44" * 32
+            doc_id, doc_hash = doc_id_and_hash_from_ciphertext(b"ciphertext")
             signing_seed = b"\x33" * 32
             (extension_dir / "qr_document-01-cafebabedeadbeef.pdf").write_bytes(b"qr")
             (extension_dir / "recovery_document-01-cafebabedeadbeef.pdf").write_bytes(b"recovery")
@@ -163,6 +224,7 @@ class TestPublishedExtensionInventory(unittest.TestCase):
                     doc_hash=doc_hash,
                     signing_seed=signing_seed,
                 ),
+                read_shard_frames=lambda _carrier: [],
                 validate_recovery_document_carrier=_reject,
             )
 
@@ -178,9 +240,7 @@ class TestPublishedExtensionInventory(unittest.TestCase):
             input_origin="file",
             input_roots=(),
         )
-        extension = ImportedRecoveryDocument(
-            doc_id=b"\x77" * 8,
-            doc_hash=b"\x88" * 32,
+        extension = ImportedRecoveryDocument.from_ciphertext(
             ciphertext=b"not decoded when root auth is missing",
             auth_frames=(),
             source_label="01",

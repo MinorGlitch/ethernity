@@ -23,6 +23,7 @@ from unittest import mock
 from ethernity.cli.features.extend.planning import (
     ExtendInspection,
     _apply_expected_head_guard,
+    _audit_published_root_fallback_carriers,
     _inspect_root_recovery,
     _RootRecoveryInspection,
     _shard_frames_from_extend_args,
@@ -35,9 +36,11 @@ from ethernity.cli.features.recover.planning import RecoveryInspection, Recovery
 from ethernity.cli.shared import api_codes
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import ExtendArgs
-from ethernity.crypto.signing import AuthPayload
+from ethernity.crypto import sharding as sharding_module
+from ethernity.crypto.signing import AuthPayload, derive_public_key
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions import LogicalFileState
+from ethernity.extensions.identity import doc_id_and_hash_from_ciphertext
 from ethernity.extensions.recovery import (
     ImportedRecoveryDocument,
     RecoveryChainInspection,
@@ -181,10 +184,8 @@ def _discovered_extension(
     doc_id_hex: str = "deadbeefcafebabe",
     doc_hash: bytes = b"\xca\xfe\xba\xbe" * 8,
 ) -> ImportedRecoveryDocument:
-    return ImportedRecoveryDocument(
-        doc_id=bytes.fromhex(doc_id_hex),
-        doc_hash=doc_hash,
-        ciphertext=b"extension",
+    return ImportedRecoveryDocument.from_ciphertext(
+        ciphertext=b"extension:" + bytes.fromhex(doc_id_hex) + doc_hash,
         auth_frames=(),
         source_label=dir_name,
         extension_index=index,
@@ -192,7 +193,414 @@ def _discovered_extension(
     )
 
 
+def _authenticated_root_audit_inspection() -> tuple[RecoveryInspection, bytes]:
+    ciphertext = b"authenticated published root ciphertext"
+    doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
+    signing_seed = b"\x33" * 32
+    sign_pub = derive_public_key(signing_seed)
+    auth_frame = Frame(
+        version=1,
+        frame_type=FrameType.AUTH,
+        doc_id=doc_id,
+        index=0,
+        total=1,
+        data=b"auth",
+    )
+    inspection = replace(
+        _root_inspection(passphrase="secret"),
+        ciphertext=ciphertext,
+        doc_id=doc_id,
+        doc_hash=doc_hash,
+        auth_payload=AuthPayload(
+            version=1,
+            doc_hash=doc_hash,
+            sign_pub=sign_pub,
+            signature=b"\x55" * 64,
+        ),
+        auth_frames=(auth_frame,),
+    )
+    return inspection, signing_seed
+
+
+def _signed_root_shard_frames(
+    inspection: RecoveryInspection,
+    signing_seed: bytes,
+    *,
+    key_type: str = sharding_module.KEY_TYPE_PASSPHRASE,
+    share_count: int = 2,
+) -> tuple[Frame, ...]:
+    auth_payload = inspection.auth_payload
+    assert auth_payload is not None
+    if key_type == sharding_module.KEY_TYPE_PASSPHRASE:
+        payloads = sharding_module.split_passphrase(
+            "secret",
+            threshold=min(2, share_count),
+            shares=share_count,
+            doc_hash=inspection.doc_hash,
+            sign_priv=signing_seed,
+            sign_pub=auth_payload.sign_pub,
+        )
+    else:
+        payloads = sharding_module.split_signing_seed(
+            b"\x77" * 32,
+            threshold=min(2, share_count),
+            shares=share_count,
+            doc_hash=inspection.doc_hash,
+            sign_priv=signing_seed,
+            sign_pub=auth_payload.sign_pub,
+        )
+    return tuple(
+        Frame(
+            version=1,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=inspection.doc_id,
+            index=0,
+            total=1,
+            data=sharding_module.encode_shard_payload(payload),
+        )
+        for payload in payloads
+    )
+
+
 class TestExtendInspection(unittest.TestCase):
+    def test_published_root_recovery_fallback_is_audited_against_qr_document(self) -> None:
+        ciphertext = b"authenticated root ciphertext"
+        doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
+        auth_frame = Frame(
+            version=1,
+            frame_type=FrameType.AUTH,
+            doc_id=doc_id,
+            index=0,
+            total=1,
+            data=b"auth",
+        )
+        inspection = replace(
+            _root_inspection(passphrase="secret"),
+            ciphertext=ciphertext,
+            doc_id=doc_id,
+            doc_hash=doc_hash,
+            auth_payload=AuthPayload(
+                version=1,
+                doc_hash=doc_hash,
+                sign_pub=b"\x44" * 32,
+                signature=b"\x55" * 64,
+            ),
+            auth_frames=(auth_frame,),
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            recovery_path = root_dir / "recovery_document.pdf"
+            recovery_path.write_bytes(b"pdf")
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "validate_published_recovery_document_carrier"
+                ) as validate_recovery,
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "root_level_key_frame_carriers_from_scan",
+                    return_value=(),
+                ),
+            ):
+                _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+        validate_recovery.assert_called_once()
+        self.assertEqual(validate_recovery.call_args.kwargs["path"], recovery_path)
+        self.assertEqual(validate_recovery.call_args.kwargs["document"].ciphertext, ciphertext)
+
+    def test_published_root_audit_requires_recovery_document(self) -> None:
+        inspection, _signing_seed = _authenticated_root_audit_inspection()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaisesRegex(ValueError, "missing required recovery_document.pdf"):
+                _audit_published_root_fallback_carriers(Path(tmpdir), inspection, quiet=True)
+
+    def test_published_root_audit_rejects_invalid_recovery_document(self) -> None:
+        inspection, _signing_seed = _authenticated_root_audit_inspection()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            (root_dir / "recovery_document.pdf").write_bytes(b"%PDF-1.4\ninvalid")
+            with self.assertRaises(ApiCommandError) as ctx:
+                _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+        self.assertEqual(ctx.exception.code, api_codes.EXTENSION_MAIN_CARRIER_INVALID)
+        self.assertIn("published recovery document", str(ctx.exception))
+
+    def test_complete_canonical_root_shard_set_is_bound_and_fallback_audited(self) -> None:
+        inspection, signing_seed = _authenticated_root_audit_inspection()
+        frames = _signed_root_shard_frames(inspection, signing_seed)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            (root_dir / "recovery_document.pdf").write_bytes(b"%PDF-1.4\n")
+            carriers: list[tuple[Path, tuple[Frame, ...]]] = []
+            for index, frame in enumerate(frames, start=1):
+                path = root_dir / f"shard-{inspection.doc_id.hex()}-{index}-of-2.pdf"
+                path.write_bytes(b"%PDF-1.4\n")
+                carriers.append((path, (frame,)))
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "validate_published_recovery_document_carrier"
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "root_level_key_frame_carriers_from_scan",
+                    return_value=tuple(carriers),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "validate_published_shard_fallback_carrier"
+                ) as validate_shard,
+            ):
+                _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+        self.assertEqual(validate_shard.call_count, 2)
+        self.assertEqual(
+            {call.kwargs["path"].name for call in validate_shard.call_args_list},
+            {path.name for path, _frames in carriers},
+        )
+
+    def test_incomplete_canonical_root_shard_set_is_rejected(self) -> None:
+        inspection, signing_seed = _authenticated_root_audit_inspection()
+        frame = _signed_root_shard_frames(inspection, signing_seed)[0]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            (root_dir / "recovery_document.pdf").write_bytes(b"%PDF-1.4\n")
+            shard_path = root_dir / f"shard-{inspection.doc_id.hex()}-1-of-2.pdf"
+            shard_path.write_bytes(b"%PDF-1.4\n")
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "validate_published_recovery_document_carrier"
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "root_level_key_frame_carriers_from_scan",
+                    return_value=((shard_path, (frame,)),),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "validate_published_shard_fallback_carrier"
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "must contain shares 1 through 2"):
+                    _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+    def test_canonical_root_shard_filename_metadata_is_bound_to_payload(self) -> None:
+        inspection, signing_seed = _authenticated_root_audit_inspection()
+        frame = _signed_root_shard_frames(inspection, signing_seed)[0]
+        cases = (
+            (
+                f"signing-key-shard-{inspection.doc_id.hex()}-1-of-2.pdf",
+                "filename role does not match payload",
+            ),
+            ("shard-9999999999999999-1-of-2.pdf", "filename doc_id does not match root"),
+            (
+                f"shard-{inspection.doc_id.hex()}-2-of-2.pdf",
+                "filename share metadata is invalid",
+            ),
+        )
+        for filename, error in cases:
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory() as tmpdir:
+                root_dir = Path(tmpdir)
+                (root_dir / "recovery_document.pdf").write_bytes(b"%PDF-1.4\n")
+                shard_path = root_dir / filename
+                shard_path.write_bytes(b"%PDF-1.4\n")
+                with (
+                    mock.patch(
+                        "ethernity.cli.features.extend.planning."
+                        "validate_published_recovery_document_carrier"
+                    ),
+                    mock.patch(
+                        "ethernity.cli.features.extend.planning."
+                        "root_level_key_frame_carriers_from_scan",
+                        return_value=((shard_path, (frame,)),),
+                    ),
+                ):
+                    with self.assertRaisesRegex(ValueError, error):
+                        _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+    def test_canonical_root_shard_without_key_qr_is_rejected(self) -> None:
+        inspection, _signing_seed = _authenticated_root_audit_inspection()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            (root_dir / "recovery_document.pdf").write_bytes(b"%PDF-1.4\n")
+            shard_path = root_dir / f"shard-{inspection.doc_id.hex()}-1-of-1.pdf"
+            shard_path.write_bytes(b"%PDF-1.4\n")
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "validate_published_recovery_document_carrier"
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "root_level_key_frame_carriers_from_scan",
+                    return_value=(),
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "contains no KEY frame"):
+                    _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+    def test_canonical_root_shard_requires_root_hash_authority_and_signature(self) -> None:
+        inspection, signing_seed = _authenticated_root_audit_inspection()
+        auth_payload = inspection.auth_payload
+        assert auth_payload is not None
+        valid_frame = _signed_root_shard_frames(
+            inspection,
+            signing_seed,
+            share_count=1,
+        )[0]
+        valid_payload = sharding_module.decode_shard_payload(valid_frame.data)
+        wrong_hash_payload = sharding_module.split_passphrase(
+            "secret",
+            threshold=1,
+            shares=1,
+            doc_hash=b"\x99" * 32,
+            sign_priv=signing_seed,
+            sign_pub=auth_payload.sign_pub,
+        )[0]
+        other_seed = b"\x88" * 32
+        wrong_authority_payload = sharding_module.split_passphrase(
+            "secret",
+            threshold=1,
+            shares=1,
+            doc_hash=inspection.doc_hash,
+            sign_priv=other_seed,
+            sign_pub=derive_public_key(other_seed),
+        )[0]
+        cases = (
+            (wrong_hash_payload, "not bound to the root"),
+            (wrong_authority_payload, "signing authority does not match root"),
+            (replace(valid_payload, signature=b"\x00" * 64), "signature verification failed"),
+        )
+        for payload, error in cases:
+            frame = replace(valid_frame, data=sharding_module.encode_shard_payload(payload))
+            with self.subTest(error=error), tempfile.TemporaryDirectory() as tmpdir:
+                root_dir = Path(tmpdir)
+                (root_dir / "recovery_document.pdf").write_bytes(b"%PDF-1.4\n")
+                shard_path = root_dir / f"shard-{inspection.doc_id.hex()}-1-of-1.pdf"
+                shard_path.write_bytes(b"%PDF-1.4\n")
+                with (
+                    mock.patch(
+                        "ethernity.cli.features.extend.planning."
+                        "validate_published_recovery_document_carrier"
+                    ),
+                    mock.patch(
+                        "ethernity.cli.features.extend.planning."
+                        "root_level_key_frame_carriers_from_scan",
+                        return_value=((shard_path, (frame,)),),
+                    ),
+                ):
+                    with self.assertRaisesRegex(ValueError, error):
+                        _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+    def test_canonical_root_shard_rejects_mixed_root_and_foreign_key_frames(self) -> None:
+        inspection = replace(
+            _root_inspection(passphrase="secret"),
+            doc_id=b"\x11" * 8,
+            auth_payload=AuthPayload(
+                version=1,
+                doc_hash=b"\x22" * 32,
+                sign_pub=b"\x44" * 32,
+                signature=b"\x55" * 64,
+            ),
+        )
+        root_frame = Frame(
+            version=1,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=inspection.doc_id,
+            index=0,
+            total=1,
+            data=b"root",
+        )
+        foreign_frame = replace(root_frame, doc_id=b"\x99" * 8, data=b"foreign")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            (root_dir / "recovery_document.pdf").write_bytes(b"pdf")
+            shard_path = root_dir / "shard-1111111111111111-1-of-1.pdf"
+            shard_path.write_bytes(b"pdf")
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "validate_published_recovery_document_carrier"
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "root_level_key_frame_carriers_from_scan",
+                    return_value=((shard_path, (root_frame, foreign_frame)),),
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "exactly one distinct KEY frame"):
+                    _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+    def test_canonical_root_shard_rejects_foreign_only_key_frame(self) -> None:
+        inspection, signing_seed = _authenticated_root_audit_inspection()
+        root_frame = _signed_root_shard_frames(
+            inspection,
+            signing_seed,
+            share_count=1,
+        )[0]
+        foreign_frame = replace(root_frame, doc_id=b"\x99" * len(inspection.doc_id))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            (root_dir / "recovery_document.pdf").write_bytes(b"%PDF-1.4\n")
+            shard_path = root_dir / f"shard-{inspection.doc_id.hex()}-1-of-1.pdf"
+            shard_path.write_bytes(b"%PDF-1.4\n")
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "validate_published_recovery_document_carrier"
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "root_level_key_frame_carriers_from_scan",
+                    return_value=((shard_path, (foreign_frame,)),),
+                ),
+            ):
+                with self.assertRaisesRegex(ValueError, "not bound to the root"):
+                    _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+    def test_noncanonical_root_shard_pdf_is_audited_but_image_and_foreign_pdf_are_not(
+        self,
+    ) -> None:
+        inspection, signing_seed = _authenticated_root_audit_inspection()
+        matching_frame = _signed_root_shard_frames(
+            inspection,
+            signing_seed,
+            share_count=1,
+        )[0]
+        foreign_frame = replace(matching_frame, doc_id=b"\x99" * len(inspection.doc_id))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir)
+            (root_dir / "recovery_document.pdf").write_bytes(b"%PDF-1.4\n")
+            renamed_pdf = root_dir / "renamed-custody-copy.pdf"
+            renamed_pdf.write_bytes(b"%PDF-1.4\n")
+            image_path = root_dir / "root-shard.png"
+            image_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+            foreign_pdf = root_dir / "foreign.pdf"
+            foreign_pdf.write_bytes(b"%PDF-1.4\n")
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "validate_published_recovery_document_carrier"
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "root_level_key_frame_carriers_from_scan",
+                    return_value=(
+                        (renamed_pdf, (matching_frame,)),
+                        (image_path, (matching_frame,)),
+                        (foreign_pdf, (foreign_frame,)),
+                    ),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "validate_published_shard_fallback_carrier"
+                ) as validate_shard,
+            ):
+                _audit_published_root_fallback_carriers(root_dir, inspection, quiet=True)
+
+        validate_shard.assert_called_once_with(path=renamed_pdf, frames=(matching_frame,))
+
     def test_inspect_from_args_requires_root_dir(self) -> None:
         with self.assertRaises(ApiCommandError):
             inspect_from_args(ExtendArgs())
@@ -463,7 +871,7 @@ class TestExtendInspection(unittest.TestCase):
                     return_value=(SimpleNamespace(sign_pub=b"\x44" * 32), "verified"),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.doc_id_and_hash_from_ciphertext",
+                    "ethernity.extensions.recovery.doc_id_and_hash_from_ciphertext",
                     return_value=(b"\x11" * 8, b"\x22" * 32),
                 ),
                 mock.patch(
@@ -517,7 +925,7 @@ class TestExtendInspection(unittest.TestCase):
                     return_value=(SimpleNamespace(sign_pub=b"\x44" * 32), "verified"),
                 ),
                 mock.patch(
-                    "ethernity.cli.features.extend.planning.doc_id_and_hash_from_ciphertext",
+                    "ethernity.extensions.recovery.doc_id_and_hash_from_ciphertext",
                     return_value=(b"\x11" * 8, b"\x22" * 32),
                 ),
             ):
@@ -687,6 +1095,65 @@ class TestExtendInspection(unittest.TestCase):
             },
         )
 
+    def test_scanned_chain_resolution_reuses_root_selection_decrypt_session(self) -> None:
+        manifest, payload = build_manifest_and_payload(
+            (PayloadPart(path="alpha.txt", data=b"alpha", mtime=1),),
+            sealed=False,
+            signing_seed=b"\x33" * 32,
+            created_at=1.0,
+            input_origin="file",
+            input_roots=(),
+        )
+        base_root = _root_inspection(passphrase="secret")
+        unlocked_root = replace(
+            base_root,
+            unlock=replace(base_root.unlock, satisfied=True),
+        )
+        imported_document = _discovered_extension()
+        decoded_import_session = SimpleNamespace(root_document=mock.sentinel.root_document)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = Path(tmpdir) / "backup-root"
+            root_dir.mkdir()
+            with (
+                mock.patch(
+                    "ethernity.cli.features.extend.planning._inspect_root_recovery",
+                    return_value=_RootRecoveryInspection(
+                        unlocked_root,
+                        "none",
+                        (imported_document,),
+                        decoded_import_session,
+                    ),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.planning._decode_root_manifest",
+                    side_effect=AssertionError("root ciphertext was decrypted twice"),
+                ) as decode_root_manifest,
+                mock.patch(
+                    "ethernity.cli.features.extend.planning.decode_imported_root_manifest",
+                    return_value=(manifest, payload),
+                ) as decode_imported_root_manifest,
+                mock.patch(
+                    "ethernity.cli.features.extend.planning."
+                    "_scan_extension_inventory_from_imported_documents",
+                    return_value=_extension_inventory(),
+                ) as scan_extension_inventory,
+            ):
+                resolved = resolve_extend_state(
+                    ExtendArgs(root_dir=str(root_dir), passphrase="secret")
+                )
+
+        self.assertEqual(resolved.inspection.validated_head_index, 0)
+        decode_root_manifest.assert_not_called()
+        decode_imported_root_manifest.assert_called_once_with(
+            mock.sentinel.root_document,
+            decoded_import_session=decoded_import_session,
+        )
+        self.assertIs(
+            scan_extension_inventory.call_args.kwargs["decoded_import_session"],
+            decoded_import_session,
+        )
+
     def test_inspect_from_args_reports_unlock_unsatisfied_when_decrypt_fails(self) -> None:
         base_root = _root_inspection(passphrase="wrong-passphrase")
         unlocked_root = replace(
@@ -797,7 +1264,9 @@ class TestExtendInspection(unittest.TestCase):
             {
                 "code": api_codes.DELETE_NOT_SUPPORTED,
                 "message": (
-                    "selected scope omits previously backed paths; delete/rename is unsupported"
+                    "selected scope omits previously backed paths; Add Files cannot delete or "
+                    "rename paths. Create a New Backup from the desired files and retire the "
+                    "superseded carriers"
                 ),
                 "details": {"missing_paths": ["beta.txt"]},
             },
@@ -1098,6 +1567,60 @@ class TestExtendInspection(unittest.TestCase):
         )
         self.assertEqual(issue["details"], {"stage": "extension_shard_unlock"})
         self.assertEqual(recovery.inspection.shard_payloads_file, ("/tmp/shards.txt",))
+
+    def test_published_append_resource_admission_precedes_extension_shard_unlock(self) -> None:
+        root_inspection = replace(_root_inspection(), doc_id=b"\x11" * 8)
+        shard_frame = Frame(
+            version=1,
+            frame_type=FrameType.KEY_DOCUMENT,
+            doc_id=b"\x33" * 8,
+            index=0,
+            total=1,
+            data=b"shard",
+        )
+        extension = _discovered_extension(doc_hash=b"\x44" * 32)
+        inventory = _recovery_chain_inspection(extensions=(extension,)).inventory
+
+        with (
+            mock.patch(
+                "ethernity.cli.features.extend.planning._published_root_scan_paths",
+                return_value=[Path("/tmp/root/recovery.pdf")],
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.planning.recovery_frames_from_scan",
+                return_value=[Frame(1, FrameType.MAIN_DOCUMENT, b"\x11" * 8, 0, 1, b"root")],
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.planning._shard_frames_from_extend_args",
+                return_value=([shard_frame], [], ["/tmp/shards.txt"], []),
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.planning.inspect_recovery_inputs",
+                return_value=root_inspection,
+            ) as inspect_recovery_inputs,
+            mock.patch(
+                "ethernity.cli.features.extend.planning.require_chain_resource_limits",
+                side_effect=ValueError("extension append exceeds resource limit"),
+            ) as require_resource_limits,
+            mock.patch(
+                "ethernity.cli.features.extend.planning."
+                "select_root_import_document_from_passphrase_shards",
+            ) as select_root,
+            self.assertRaisesRegex(ValueError, "exceeds resource limit"),
+        ):
+            _inspect_root_recovery(
+                Path("/tmp/root"),
+                ExtendArgs(root_dir="/tmp/root", shard_payloads_file=["/tmp/shards.txt"]),
+                extension_inventory=inventory,
+            )
+
+        require_resource_limits.assert_called_once_with(
+            document_count=3,
+            total_ciphertext_bytes=(len(b"root") + len(extension.ciphertext) + 1),
+            operation="extension append",
+        )
+        inspect_recovery_inputs.assert_not_called()
+        select_root.assert_not_called()
 
     def test_inspect_root_recovery_blocks_extension_shards_for_wrong_root(self) -> None:
         root_inspection = replace(_root_inspection(), doc_id=b"\x11" * 8)
@@ -1659,9 +2182,7 @@ max_size = 65536
                 "explicit_selection": False,
             },
         )
-        extension = ImportedRecoveryDocument(
-            doc_id=bytes.fromhex("de" * 8),
-            doc_hash=b"\xaa" * 32,
+        extension = ImportedRecoveryDocument.from_ciphertext(
             ciphertext=b"extension-01",
             auth_frames=(),
             source_label="01",
@@ -1791,9 +2312,7 @@ max_size = 65536
                 ),
             }
         )
-        extension = ImportedRecoveryDocument(
-            doc_id=bytes.fromhex("de" * 8),
-            doc_hash=b"\xaa" * 32,
+        extension = ImportedRecoveryDocument.from_ciphertext(
             ciphertext=b"extension-01",
             auth_frames=(),
             source_label="01",
@@ -1803,10 +2322,11 @@ max_size = 65536
         decoded_link = mock.Mock(
             auth_status="verified",
             root_authority_verified=True,
-            link=mock.Mock(doc_hash=b"\xaa" * 32),
+            link=mock.Mock(doc_hash=extension.doc_hash),
         )
         decoded_link.link.document.header.index = 1
         decoded_link.link.document.chunks = ()
+        decoded_link.link.document.inline_chunk_raw_bytes = 0
         chain_inspection = _recovery_chain_inspection(
             extensions=(extension,),
             links=(decoded_link,),
@@ -1878,8 +2398,8 @@ max_size = 65536
                 {
                     "index": 1,
                     "dir_name": "01",
-                    "doc_id": "de" * 8,
-                    "doc_hash": "aa" * 32,
+                    "doc_id": extension.doc_id_hex,
+                    "doc_hash": extension.doc_hash.hex(),
                     "auth_status": "verified",
                     "root_authority_verified": True,
                 },

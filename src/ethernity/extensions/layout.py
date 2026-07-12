@@ -21,6 +21,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from ethernity.core.bounds import MAX_EXTENSION_INDEX
+from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.encoding.framing import DOC_ID_LEN
 
 _DOC_ID_HEX_RE = re.compile(rf"^[0-9a-f]{{{DOC_ID_LEN * 2}}}$")
@@ -67,11 +69,13 @@ def loose_extension_dir_name(index: int, doc_id_hex: str) -> str:
 def parse_extension_dir_name(name: str) -> int:
     if not is_canonical_extension_dir_name(name):
         raise ValueError(f"invalid extension directory name: {name}")
-    return int(name, 10)
+    return _require_extension_index(int(name, 10))
 
 
 def is_canonical_extension_dir_name(name: str) -> bool:
-    return bool(_CANONICAL_EXTENSION_DIR_RE.fullmatch(name))
+    if _CANONICAL_EXTENSION_DIR_RE.fullmatch(name) is None:
+        return False
+    return int(name, 10) <= MAX_EXTENSION_INDEX
 
 
 def build_staging_dir_name(index: int, nonce: str) -> str:
@@ -97,7 +101,7 @@ def parse_extension_main_filename(filename: str) -> ExtensionMainArtifactName:
         raise ValueError(f"invalid extension main artifact filename: {filename}")
     return ExtensionMainArtifactName(
         doc_type=match.group("doc_type"),
-        index=int(match.group("index"), 10),
+        index=_require_extension_index(int(match.group("index"), 10)),
         doc_id_hex=match.group("doc_id"),
     )
 
@@ -113,8 +117,8 @@ def build_extension_shard_filename(
     doc_type_value = _require_shard_doc_type(doc_type)
     index_value = canonical_extension_dir_name(index)
     doc_id_value = _require_doc_id_hex(doc_id_hex)
-    share_index_value = _require_positive_int(share_index, label="share_index")
-    share_count_value = _require_positive_int(share_count, label="share_count")
+    share_index_value = _require_share_number(share_index, label="share_index")
+    share_count_value = _require_share_number(share_count, label="share_count")
     if share_index_value > share_count_value:
         raise ValueError("share_index must be less than or equal to share_count")
     return (
@@ -129,11 +133,13 @@ def parse_extension_shard_filename(filename: str) -> ExtensionShardArtifactName:
         raise ValueError(f"invalid extension shard artifact filename: {filename}")
     share_index = int(match.group("share_index"), 10)
     share_count = int(match.group("share_count"), 10)
+    _require_share_number(share_index, label="share_index")
+    _require_share_number(share_count, label="share_count")
     if share_index > share_count:
         raise ValueError("share_index must be less than or equal to share_count")
     return ExtensionShardArtifactName(
         doc_type=match.group("doc_type"),
-        index=int(match.group("index"), 10),
+        index=_require_extension_index(int(match.group("index"), 10)),
         doc_id_hex=match.group("doc_id"),
         share_index=share_index,
         share_count=share_count,
@@ -142,9 +148,16 @@ def parse_extension_shard_filename(filename: str) -> ExtensionShardArtifactName:
 
 def _require_extension_index(value: int) -> int:
     index_value = _require_positive_int(value, label="index")
-    if index_value <= 0:
-        raise ValueError("index must be greater than 0")
+    if index_value > MAX_EXTENSION_INDEX:
+        raise ValueError(f"index must be <= MAX_EXTENSION_INDEX ({MAX_EXTENSION_INDEX})")
     return index_value
+
+
+def _require_share_number(value: int, *, label: str) -> int:
+    share_number = _require_positive_int(value, label=label)
+    if share_number > MAX_SHARES:
+        raise ValueError(f"{label} must be <= MAX_SHARES ({MAX_SHARES})")
+    return share_number
 
 
 def _require_positive_int(value: int, *, label: str) -> int:

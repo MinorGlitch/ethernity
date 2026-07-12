@@ -64,10 +64,12 @@ from ethernity.encoding.chunking import reassemble_payload
 from ethernity.encoding.framing import Frame, FrameType
 from ethernity.extensions.recovery import (
     DecodedExtensionLink,
+    DecodedImportSession,
     ImportedRecoveryDocument,
     decode_imported_extension_link,
     imported_documents_from_recovery_frames,
     select_root_import_document,
+    select_root_import_session,
 )
 
 
@@ -96,6 +98,7 @@ class RecoveryPlan:
     extension_doc_hash: str | None = None
     expected_head_doc_hash: str | None = None
     import_documents: tuple[ImportedRecoveryDocument, ...] = ()
+    decoded_import_session: DecodedImportSession | None = None
 
 
 @dataclass(frozen=True)
@@ -142,6 +145,7 @@ class PassphraseShardRootSelection:
     target_document: ImportedRecoveryDocument
     target_shard_frames: tuple[Frame, ...]
     unlock: RecoveryUnlockStatus
+    decoded_import_session: DecodedImportSession | None = None
 
 
 def resolve_recover_config(args: RecoverArgs) -> object:
@@ -494,14 +498,16 @@ def build_recovery_plan(
     if len(import_documents) > 1:
         import_shard_unlock: RecoveryUnlockStatus | None = None
         import_passphrase: str | None = None
+        decoded_import_session: DecodedImportSession | None = None
         if passphrase:
             import_passphrase = normalize_bip39_mnemonic(passphrase)
             validate_mnemonic_checksum_if_bip39(import_passphrase)
-            root_document = select_root_import_document(
+            decoded_import_session = select_root_import_session(
                 import_documents,
                 passphrase=import_passphrase,
                 debug=False,
             )
+            root_document = decoded_import_session.root_document
         elif shard_frames:
             selection = select_root_import_document_from_passphrase_shards(
                 import_documents,
@@ -511,13 +517,15 @@ def build_recovery_plan(
             )
             root_document = selection.root_document
             import_shard_unlock = selection.unlock
+            decoded_import_session = getattr(selection, "decoded_import_session", None)
         elif args is not None:
             import_passphrase = _resolve_recovery_passphrase_from_args(args)
-            root_document = select_root_import_document(
+            decoded_import_session = select_root_import_session(
                 import_documents,
                 passphrase=import_passphrase,
                 debug=False,
             )
+            root_document = decoded_import_session.root_document
         else:
             raise ValueError(
                 "passphrase is required when recovery input contains multiple MAIN documents"
@@ -551,10 +559,15 @@ def build_recovery_plan(
             quiet=quiet,
         )
         if import_shard_unlock is None:
-            return replace(root_plan, import_documents=import_documents)
+            return replace(
+                root_plan,
+                import_documents=import_documents,
+                decoded_import_session=decoded_import_session,
+            )
         return replace(
             root_plan,
             import_documents=import_documents,
+            decoded_import_session=decoded_import_session,
             shard_frames=tuple(shard_frames),
             shard_fallback_files=tuple(shard_fallback_files),
             shard_payloads_file=tuple(shard_payloads_file),
@@ -668,11 +681,12 @@ def select_root_import_document_from_passphrase_shards(
         if not unlock.satisfied or unlock.resolved_passphrase is None:
             last_unlock_failure = _unlock_failure_message(unlock)
             continue
-        root_document = select_root_import_document(
+        decoded_import_session = select_root_import_session(
             documents,
             passphrase=unlock.resolved_passphrase,
             debug=False,
         )
+        root_document = decoded_import_session.root_document
         root_auth_payload, _root_auth_status = resolve_auth_payload(
             list(root_document.auth_frames),
             doc_id=root_document.doc_id,
@@ -686,6 +700,7 @@ def select_root_import_document_from_passphrase_shards(
             root_document=root_document,
             passphrase=unlock.resolved_passphrase,
             root_auth_payload=root_auth_payload,
+            decoded_import_session=decoded_import_session,
             allow_unsigned=allow_unsigned,
             quiet=quiet,
         )
@@ -694,6 +709,7 @@ def select_root_import_document_from_passphrase_shards(
             target_document=target_document,
             target_shard_frames=target_shard_frames,
             unlock=unlock,
+            decoded_import_session=decoded_import_session,
         )
     raise ValueError(
         last_unlock_failure or "shard payloads do not match any imported recovery document"
@@ -736,6 +752,7 @@ def _verify_shard_target_belongs_to_selected_root(
     root_document: ImportedRecoveryDocument,
     passphrase: str,
     root_auth_payload: AuthPayload | None,
+    decoded_import_session: DecodedImportSession,
     allow_unsigned: bool,
     quiet: bool,
 ) -> None:
@@ -755,6 +772,7 @@ def _verify_shard_target_belongs_to_selected_root(
             expected_sign_pub=root_auth_payload.sign_pub,
             quiet=quiet,
             debug=False,
+            decoded_import_session=decoded_import_session,
         )
     except ValueError as exc:
         raise ValueError(
@@ -1252,6 +1270,14 @@ def _frames_from_args(
     scan = expanduser_cli_paths(list(args.scan or []))
     sources: list[tuple[str, str, list[Frame]]] = []
 
+    if args.frames:
+        sources.append(
+            (
+                "Pasted recovery text",
+                "in memory",
+                list(args.frames),
+            )
+        )
     if fallback_file:
         try:
             sources.append(

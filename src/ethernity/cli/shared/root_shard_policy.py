@@ -46,17 +46,40 @@ _SCAN_FILE_SUFFIXES = {
 def root_level_key_frames_from_scan(root_dir: Path, *, quiet: bool) -> tuple[Frame, ...]:
     """Return KEY frames from immediate root-level scan carriers only."""
 
+    return tuple(
+        frame
+        for _path, carrier_frames in root_level_key_frame_carriers_from_scan(
+            root_dir,
+            quiet=quiet,
+        )
+        for frame in carrier_frames
+    )
+
+
+def root_level_key_frame_carriers_from_scan(
+    root_dir: Path,
+    *,
+    quiet: bool,
+) -> tuple[tuple[Path, tuple[Frame, ...]], ...]:
+    """Return each immediate root-level carrier together with its KEY frames."""
+
     _ = quiet
     candidates = _root_level_scan_candidates(root_dir)
-    frames: list[Frame] = []
+    carriers: list[tuple[Path, tuple[Frame, ...]]] = []
     for path in candidates:
         try:
-            frames.extend(frames_from_scan([str(path)]))
+            frames = tuple(
+                frame
+                for frame in frames_from_scan([str(path)])
+                if frame.frame_type == FrameType.KEY_DOCUMENT
+            )
         except ValueError as exc:
             if _is_no_qr_scan_error(exc):
                 continue
             raise ValueError(f"root shard policy scan failed: {exc}") from exc
-    return tuple(frame for frame in frames if frame.frame_type == FrameType.KEY_DOCUMENT)
+        if frames:
+            carriers.append((path, frames))
+    return tuple(carriers)
 
 
 def root_shard_quorum_from_frames(
@@ -177,6 +200,7 @@ def _select_root_shard_frames(
 
 __all__ = [
     "has_potential_root_shard_frames",
+    "root_level_key_frame_carriers_from_scan",
     "root_level_key_frames_from_scan",
     "root_shard_quorum_from_frames",
 ]

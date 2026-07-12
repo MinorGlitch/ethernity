@@ -34,6 +34,10 @@ from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.crypto import encrypt_bytes_with_passphrase
 from ethernity.extensions.build import Chunker, build_extension_document
+from ethernity.extensions.resources import (
+    require_chain_resource_limits,
+    require_decoded_chunk_resource_limit,
+)
 from ethernity.extensions.staging import (
     ExtensionPublishPolicy,
     create_staged_extension_artifact_plan,
@@ -105,7 +109,11 @@ def prepare_extend_run_from_state(
     if missing_paths:
         raise ApiCommandError(
             code=api_codes.DELETE_NOT_SUPPORTED,
-            message="selected scope omits previously backed paths; delete/rename is unsupported",
+            message=(
+                "selected scope omits previously backed paths; Add Files cannot delete or "
+                "rename paths. Create a New Backup from the desired files and retire the "
+                "superseded carriers"
+            ),
             details={"missing_paths": list(missing_paths)},
         )
 
@@ -147,6 +155,10 @@ def prepare_extend_run_from_state(
         loaded_scope=loaded_scope,
         current_state=current_state,
         available_chunks=resolved.available_chunks,
+        historical_chunk_ids=resolved.historical_chunk_ids,
+        chain_document_count=resolved.chain_document_count,
+        chain_ciphertext_bytes=resolved.chain_ciphertext_bytes,
+        chain_decoded_chunk_bytes=resolved.chain_decoded_chunk_bytes,
         encryption_passphrase=resolved.resolved_passphrase,
         root_doc_hash=resolved.root_doc_hash,
         parent_doc_hash=resolved.parent_doc_hash,
@@ -199,6 +211,11 @@ def assemble_prepared_extension_document(
             message="extend assembly found no changed input files to encode",
         )
 
+    require_chain_resource_limits(
+        document_count=prepared.chain_document_count + 1,
+        total_ciphertext_bytes=prepared.chain_ciphertext_bytes,
+        operation="extension append",
+    )
     existing_file_sizes = {item.path: item.size for item in prepared.current_state}
     return build_extension_document(
         index=prepared.next_index,
@@ -210,6 +227,7 @@ def assemble_prepared_extension_document(
         input_roots=prepared.input_roots,
         chunker=chunker,
         existing_chunks=dict(prepared.available_chunks),
+        existing_chunk_ids=prepared.historical_chunk_ids,
         existing_logical_bytes=sum(item.size for item in prepared.current_state),
         existing_file_sizes=existing_file_sizes,
     )
@@ -223,10 +241,21 @@ def encrypt_prepared_extension_document(
     """Build and encrypt an extension document using the resolved chain passphrase."""
 
     built = assemble_prepared_extension_document(prepared, chunker=chunker)
+    require_decoded_chunk_resource_limit(
+        decoded_chunk_bytes=(
+            prepared.chain_decoded_chunk_bytes + built.document.inline_chunk_raw_bytes
+        ),
+        operation="extension append",
+    )
     plaintext = built.document.encode()
     ciphertext, _passphrase = encrypt_bytes_with_passphrase(
         plaintext,
         passphrase=prepared.encryption_passphrase,
+    )
+    require_chain_resource_limits(
+        document_count=prepared.chain_document_count + 1,
+        total_ciphertext_bytes=prepared.chain_ciphertext_bytes + len(ciphertext),
+        operation="extension append",
     )
     doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
     return EncryptedPreparedExtension(

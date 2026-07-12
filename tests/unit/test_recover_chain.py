@@ -31,6 +31,7 @@ from ethernity.extensions.recovery import (
     imported_documents_from_recovery_frames,
     recover_chain_entries,
     select_root_import_document,
+    select_root_import_session,
 )
 from ethernity.formats.envelope_codec import (
     build_manifest_and_payload,
@@ -170,6 +171,22 @@ def _recovery_plan(
 
 
 class TestRecoverChain(unittest.TestCase):
+    def test_import_rejects_more_than_128_documents_before_reassembly(self) -> None:
+        frames = [
+            Frame(
+                version=VERSION,
+                frame_type=FrameType.MAIN_DOCUMENT,
+                doc_id=index.to_bytes(8, "big"),
+                index=0,
+                total=1,
+                data=b"ciphertext",
+            )
+            for index in range(1, 130)
+        ]
+
+        with self.assertRaisesRegex(ValueError, "MAX_RECOVERY_DOCUMENTS"):
+            imported_documents_from_recovery_frames(frames)
+
     def test_recover_chain_entries_replays_content_import_without_directory_layout(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
         extension_ciphertext = _extension_ciphertext(root_doc_hash)
@@ -200,6 +217,41 @@ class TestRecoverChain(unittest.TestCase):
         )
         self.assertEqual(result.manifest.input_origin, "directory")
         self.assertEqual(result.manifest.input_roots, ("reconstructed-state",))
+
+    def test_recover_chain_entries_reuses_root_selection_decrypt_session(self) -> None:
+        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+        extension_ciphertext = _extension_ciphertext(root_doc_hash)
+        extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(extension_ciphertext)
+        documents = (
+            _imported_document(root_ciphertext, source_label="scan0001.pdf"),
+            _imported_document(
+                extension_ciphertext,
+                auth_frames=(_extension_auth_frame(extension_doc_id, extension_doc_hash),),
+                source_label="scan0002.pdf",
+            ),
+        )
+
+        with mock.patch(
+            "ethernity.extensions.recovery.decrypt_bytes",
+            side_effect=lambda data, *, passphrase, debug=False: data,
+        ) as decrypt_bytes:
+            decoded_import_session = select_root_import_session(
+                documents,
+                passphrase="secret",
+                debug=False,
+            )
+            plan = dataclasses.replace(
+                _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
+                import_documents=documents,
+                decoded_import_session=decoded_import_session,
+            )
+            result = recover_chain_entries(plan, quiet=True)
+
+        self.assertEqual(result.selected_extension_index, 1)
+        self.assertEqual(
+            [call.args[0] for call in decrypt_bytes.call_args_list],
+            [root_ciphertext, extension_ciphertext],
+        )
 
     def test_recover_chain_entries_reverifies_root_auth_signature_at_replay_boundary(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
@@ -270,40 +322,33 @@ class TestRecoverChain(unittest.TestCase):
         )
         self.assertEqual(caught.exception.details["freshness_scope"], "supplied_carriers_only")
 
-    def test_recover_chain_entries_rejects_imported_doc_id_collision(self) -> None:
-        root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()
+    def test_imported_document_rejects_doc_id_not_derived_from_ciphertext(self) -> None:
+        _root_ciphertext_bytes, root_doc_id, root_doc_hash = _root_ciphertext()
         extension_ciphertext = _extension_ciphertext(root_doc_hash)
         _extension_doc_id, extension_doc_hash = doc_id_and_hash_from_ciphertext(
             extension_ciphertext
         )
-        plan = dataclasses.replace(
-            _recovery_plan(root_ciphertext, root_doc_id, root_doc_hash),
-            import_documents=(
-                _imported_document(root_ciphertext, source_label="scan0001.pdf"),
-                ImportedRecoveryDocument(
-                    doc_id=root_doc_id,
-                    doc_hash=extension_doc_hash,
-                    ciphertext=extension_ciphertext,
-                    auth_frames=(_extension_auth_frame(root_doc_id, extension_doc_hash),),
-                    source_label="colliding-extension.pdf",
-                ),
-            ),
-        )
+        with self.assertRaisesRegex(ValueError, "doc_id does not match ciphertext"):
+            ImportedRecoveryDocument(
+                doc_id=root_doc_id,
+                doc_hash=extension_doc_hash,
+                ciphertext=extension_ciphertext,
+                auth_frames=(_extension_auth_frame(root_doc_id, extension_doc_hash),),
+                source_label="colliding-extension.pdf",
+            )
 
-        with (
-            mock.patch(
-                "ethernity.extensions.recovery.decrypt_bytes",
-                side_effect=lambda data, *, passphrase, debug=False: data,
-            ),
-            self.assertRaises(ExtensionRecoveryError) as caught,
-        ):
-            recover_chain_entries(plan, quiet=True)
+    def test_imported_document_rejects_doc_hash_not_derived_from_ciphertext(self) -> None:
+        ciphertext = b"extension-ciphertext"
+        doc_id, _doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
 
-        self.assertEqual(caught.exception.code, api_codes.RECOVERY_HEAD_UNTRUSTED)
-        self.assertIn("doc_id collides", str(caught.exception))
-        self.assertEqual(caught.exception.details["stage"], "selection")
-        self.assertEqual(caught.exception.details["root_doc_id"], root_doc_id.hex())
-        self.assertEqual(caught.exception.details["colliding_doc_hash"], extension_doc_hash.hex())
+        with self.assertRaisesRegex(ValueError, "doc_hash does not match ciphertext"):
+            ImportedRecoveryDocument(
+                doc_id=doc_id,
+                doc_hash=b"\xff" * 32,
+                ciphertext=ciphertext,
+                auth_frames=(),
+                source_label="spoofed-extension.pdf",
+            )
 
     def test_imported_documents_reject_raw_main_frame_doc_id_collision(self) -> None:
         root_ciphertext, root_doc_id, root_doc_hash = _root_ciphertext()

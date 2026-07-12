@@ -51,6 +51,10 @@ class PreparedExtendRun:
     loaded_scope: SelectedExtendScope
     current_state: tuple[LogicalFileState, ...]
     available_chunks: tuple[tuple[bytes, bytes], ...]
+    historical_chunk_ids: tuple[bytes, ...]
+    chain_document_count: int
+    chain_ciphertext_bytes: int
+    chain_decoded_chunk_bytes: int
     encryption_passphrase: str
     root_doc_hash: bytes
     parent_doc_hash: bytes

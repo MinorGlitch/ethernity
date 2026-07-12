@@ -31,6 +31,7 @@ from ethernity.extensions.chain import (
     _reconstruct_structural_latest_logical_state as reconstruct_latest_logical_state,
     _StructuralExtensionChainLink,
     _validate_structural_extension_chain as validate_extension_chain,
+    build_chain_known_chunk_ids,
 )
 from ethernity.formats.envelope_codec import build_manifest_and_payload
 from ethernity.formats.envelope_types import PayloadPart
@@ -122,6 +123,50 @@ class TestExtensionChain(unittest.TestCase):
         self.assertEqual([item.path for item in state], ["alpha.txt", "beta.txt"])
         self.assertEqual(state[0].data, b"alpha")
         self.assertEqual(state[1].data, b"beta")
+
+    def test_known_chunk_ids_include_virtual_root_and_extension_history(self) -> None:
+        root_bytes = b"root A"
+        extension_bytes = b"extension A"
+        root_chunk_id = hashlib.sha256(root_bytes).digest()
+        extension_chunk_id, extension_chunk = _raw_chunk(extension_bytes)
+        root_state = (
+            chain_module.LogicalFileState(
+                path="state.txt",
+                size=len(root_bytes),
+                sha256=root_chunk_id,
+                mtime=1,
+                data=root_bytes,
+            ),
+        )
+        extension = ExtensionEnvelope(
+            header=build_extension_header(
+                index=1,
+                parent_doc_hash=ROOT_DOC_HASH,
+                root_doc_hash=ROOT_DOC_HASH,
+                chunking=_profile(),
+                input_origin="file",
+                input_roots=(),
+                created_at=2,
+            ),
+            files=(
+                ExtensionFile(
+                    path="state.txt",
+                    size=len(extension_bytes),
+                    sha256=extension_chunk_id,
+                    mtime=2,
+                    chunk_refs=(ExtensionChunkRef(extension_chunk_id, len(extension_bytes)),),
+                ),
+            ),
+            chunks=(extension_chunk,),
+        )
+
+        known_ids = build_chain_known_chunk_ids(
+            root_state,
+            _profile(),
+            extensions=(_StructuralExtensionChainLink(EXT1_DOC_HASH, extension),),
+        )
+
+        self.assertEqual(known_ids, {root_chunk_id, extension_chunk_id})
 
     def test_authenticated_chain_link_verifies_root_authority_auth(self) -> None:
         sign_priv, sign_pub = generate_signing_keypair()

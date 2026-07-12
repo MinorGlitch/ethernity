@@ -23,6 +23,7 @@ from pypdf import PdfReader, PdfWriter
 
 from ethernity.cli.features.backup.service import execute_prepared_backup, prepare_backup_run
 from ethernity.cli.features.compact.service import run_compact
+from ethernity.cli.features.extend.planning import _inspect_root_recovery
 from ethernity.cli.features.extend.service import run_extend
 from ethernity.cli.features.mint.workflow import execute_mint
 from ethernity.cli.features.recover.service import execute_recover_plan, prepare_recover_plan
@@ -49,6 +50,38 @@ _V1_0_PASSPHRASE = "stable-v1-baseline-passphrase"
 
 
 class TestIntegrationExtensions(unittest.TestCase):
+    def test_strict_root_fallback_audit_accepts_frozen_v1_profiles(self) -> None:
+        cases = (
+            ("v1_0", "raw", "stable-v1-baseline-passphrase"),
+            ("v1_0", "base64", "stable-v1-baseline-passphrase"),
+            ("v1_1", "raw", "stable-v1_1-golden-passphrase"),
+            ("v1_1", "base64", "stable-v1_1-golden-passphrase"),
+        )
+        for version, profile, passphrase in cases:
+            with self.subTest(version=version, profile=profile):
+                root_dir = (
+                    _REPO_ROOT
+                    / "tests"
+                    / "fixtures"
+                    / version
+                    / "golden"
+                    / profile
+                    / "sharded_signing_sharded"
+                    / "backup"
+                )
+                recovery = _inspect_root_recovery(
+                    root_dir,
+                    ExtendArgs(
+                        root_dir=str(root_dir),
+                        passphrase=passphrase,
+                        quiet=True,
+                    ),
+                    extension_inventory=None,
+                )
+
+                self.assertEqual(recovery.inspection.auth_status, "verified")
+                self.assertTrue(recovery.inspection.unlock.satisfied)
+
     def test_extend_recover_latest_and_select_prior_extension(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp_path = Path(tmpdir)
@@ -914,6 +947,35 @@ class TestIntegrationExtensions(unittest.TestCase):
                     self._run_extend(source_dir=source_dir, root_dir=root_dir)
                 self.assertEqual(ctx.exception.code, "EXTENSION_LAYOUT_INVALID")
                 self.assertFalse(blocked_extension_dir.exists())
+
+    def test_corrupt_published_extension_shards_block_later_append(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            source_dir = tmp_path / "source"
+            root_dir = tmp_path / "backup-root"
+            source_dir.mkdir()
+            (source_dir / "alpha.txt").write_text("root-alpha", encoding="utf-8")
+
+            with temp_env({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}):
+                self._run_backup(source_dir=source_dir, root_dir=root_dir)
+                (source_dir / "alpha.txt").write_text("extension-alpha", encoding="utf-8")
+                extension = self._run_extend(
+                    source_dir=source_dir,
+                    root_dir=root_dir,
+                    shard_threshold=2,
+                    shard_count=3,
+                )
+                self.assertTrue(extension.shard_paths)
+                for shard_path in extension.shard_paths:
+                    Path(shard_path).write_bytes(b"not a PDF")
+
+                (source_dir / "alpha.txt").write_text("blocked-alpha", encoding="utf-8")
+                with self.assertRaises(ApiCommandError) as ctx:
+                    self._run_extend(source_dir=source_dir, root_dir=root_dir)
+
+                self.assertEqual(ctx.exception.code, "EXTENSION_LAYOUT_INVALID")
+                self.assertIn("shard", str(ctx.exception).lower())
+                self.assertFalse((root_dir / "extensions" / "02").exists())
 
     def test_blank_present_extension_carrier_fails_closed_across_flows(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -23,7 +23,11 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from ethernity.core.bounds import MAX_DECOMPRESSED_PAYLOAD_BYTES, MAX_MANIFEST_FILES
+from ethernity.core.bounds import (
+    MAX_DECOMPRESSED_PAYLOAD_BYTES,
+    MAX_MANIFEST_FILES,
+    MAX_RECOVERY_DECODED_CHUNK_BYTES,
+)
 from ethernity.core.validation import require_bytes
 from ethernity.crypto.signing import (
     AUTH_VERSION,
@@ -287,6 +291,25 @@ def build_chain_available_chunks(
     return available_chunks
 
 
+def build_chain_known_chunk_ids(
+    root_state: Sequence[LogicalFileState],
+    chunking: ExtensionChunkingProfile,
+    *,
+    extensions: Sequence[_StructuralExtensionChainLink] = (),
+) -> frozenset[bytes]:
+    """Return every virtual-root or extension chunk identity without retaining raw history."""
+
+    known_chunk_ids: set[bytes] = set()
+    for item in root_state:
+        known_chunk_ids.update(
+            hashlib.sha256(chunk_bytes).digest()
+            for chunk_bytes in default_extension_chunker(item.data, chunking)
+        )
+    for link in extensions:
+        known_chunk_ids.update(chunk.chunk_id for chunk in link.document.chunks)
+    return frozenset(known_chunk_ids)
+
+
 def _validate_structural_extension_chain(
     *,
     root_doc_hash: bytes,
@@ -303,6 +326,7 @@ def _validate_structural_extension_chain(
     expected_parent_doc_hash = expected_root_doc_hash
     expected_index = 1
     locked_chunking: ExtensionChunkingProfile | None = None
+    decoded_chunk_bytes = 0
 
     for link in extensions:
         header = link.document.header
@@ -319,6 +343,14 @@ def _validate_structural_extension_chain(
             locked_chunking = header.chunking
         elif header.chunking != locked_chunking:
             raise ValueError("extension chunking profile must match the locked chain profile")
+        decoded_chunk_bytes += link.document.inline_chunk_raw_bytes
+        if decoded_chunk_bytes > MAX_RECOVERY_DECODED_CHUNK_BYTES:
+            raise ValueError(
+                "extension chain inline chunk bytes exceed "
+                "MAX_RECOVERY_DECODED_CHUNK_BYTES "
+                f"({MAX_RECOVERY_DECODED_CHUNK_BYTES}); rebuild the latest logical state as a "
+                "fresh standalone backup before adding more files"
+            )
         expected_parent_doc_hash = link.doc_hash
         expected_index += 1
 
@@ -350,6 +382,7 @@ __all__ = [
     "AuthenticatedExtensionChainLink",
     "LogicalFileState",
     "build_chain_available_chunks",
+    "build_chain_known_chunk_ids",
     "extract_root_logical_state",
     "reconstruct_authenticated_latest_logical_state",
     "validate_authenticated_extension_chain",

@@ -80,6 +80,7 @@ from ethernity.crypto.sharding import ShardPayload, encode_shard_payload
 from ethernity.crypto.signing import AuthPayload, derive_public_key
 from ethernity.encoding.framing import VERSION, Frame, FrameType, encode_frame
 from ethernity.extensions.chain import LogicalFileState
+from ethernity.extensions.recovery import ImportedRecoveryDocument
 from ethernity.extensions.staging import (
     ExtensionPublishPolicy,
     create_staged_extension_artifact_plan as _create_staged_extension_artifact_plan,
@@ -129,6 +130,24 @@ def _inspection(
     )
 
 
+def _published_recovery_document() -> ImportedRecoveryDocument:
+    ciphertext = b"published extension ciphertext"
+    doc_id, _doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
+    auth_frame = Frame(
+        version=VERSION,
+        frame_type=FrameType.AUTH,
+        doc_id=doc_id,
+        index=0,
+        total=1,
+        data=b"auth",
+    )
+    return ImportedRecoveryDocument.from_ciphertext(
+        ciphertext=ciphertext,
+        auth_frames=(auth_frame,),
+        source_label="published recovery test",
+    )
+
+
 def _resolved_state(
     *,
     diff_summary: dict[str, object] | None,
@@ -138,6 +157,10 @@ def _resolved_state(
     input_files: tuple[InputFile, ...] | None = None,
     current_state: tuple[LogicalFileState, ...] = (),
     available_chunks: tuple[tuple[bytes, bytes], ...] = (),
+    historical_chunk_ids: tuple[bytes, ...] = (),
+    chain_document_count: int = 1,
+    chain_ciphertext_bytes: int = 0,
+    chain_decoded_chunk_bytes: int = 0,
 ) -> ResolvedExtendState:
     scope = SelectedExtendScope(
         raw_files=("/tmp/root/example.txt",),
@@ -169,6 +192,10 @@ def _resolved_state(
         loaded_scope=scope,
         current_state=current_state,
         available_chunks=available_chunks,
+        historical_chunk_ids=historical_chunk_ids,
+        chain_document_count=chain_document_count,
+        chain_ciphertext_bytes=chain_ciphertext_bytes,
+        chain_decoded_chunk_bytes=chain_decoded_chunk_bytes,
         resolved_passphrase="secret",
         root_doc_hash=b"\x22" * 32,
         parent_doc_hash=b"\x11" * 32,
@@ -896,6 +923,27 @@ class TestExtendService(unittest.TestCase):
         self.assertFalse(hasattr(built.document.header, "signing_seed"))
         self.assertEqual([item.path for item in built.document.files], ["new.txt", "updated.txt"])
 
+    def test_assemble_rejects_append_past_complete_chain_document_limit(self) -> None:
+        resolved = _resolved_state(
+            diff_summary={
+                "new_paths": ["new.txt"],
+                "changed_paths": ["updated.txt"],
+                "unchanged_paths": [],
+                "missing_paths": [],
+            },
+            chain_document_count=128,
+        )
+        prepared = prepare_extend_run_from_state(
+            ExtendArgs(root_dir="/tmp/root", input=["/tmp/root/example.txt"]),
+            resolved,
+        )
+
+        with self.assertRaisesRegex(ValueError, "Rebuild the latest logical state"):
+            assemble_prepared_extension_document(
+                prepared,
+                chunker=lambda data, _profile: (data,),
+            )
+
     def test_assemble_prepared_extension_document_reuses_superseded_chain_chunks(self) -> None:
         superseded_bytes = b"root version"
         latest_bytes = b"latest version"
@@ -925,10 +973,8 @@ class TestExtendService(unittest.TestCase):
                     data=latest_bytes,
                 ),
             ),
-            available_chunks=(
-                (superseded_chunk_id, superseded_bytes),
-                (latest_chunk_id, latest_bytes),
-            ),
+            available_chunks=((latest_chunk_id, latest_bytes),),
+            historical_chunk_ids=(superseded_chunk_id,),
         )
         with mock.patch(
             "ethernity.cli.features.extend.prepare.resolve_extend_state",
@@ -1197,6 +1243,13 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
+                    "ethernity.cli.features.extend.rendering._validate_rendered_extension_fallback"
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.shard_rendering."
+                    "_validate_rendered_extension_shard"
+                ),
+                mock.patch(
                     "ethernity.cli.features.extend.execution.validate_staged_main_carrier"
                 ) as validate_main,
                 mock.patch(
@@ -1274,6 +1327,13 @@ class TestExtendService(unittest.TestCase):
                     "ethernity.cli.features.extend.execution.render_module.render_frames_to_pdf",
                     side_effect=_fake_render,
                 ),
+                mock.patch(
+                    "ethernity.cli.features.extend.rendering._validate_rendered_extension_fallback"
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.shard_rendering."
+                    "_validate_rendered_extension_shard"
+                ),
                 mock.patch("ethernity.cli.features.extend.execution.validate_staged_main_carrier"),
                 mock.patch(
                     "ethernity.cli.features.extend.execution.validate_staged_shard_carriers"
@@ -1343,6 +1403,13 @@ class TestExtendService(unittest.TestCase):
                 mock.patch(
                     "ethernity.cli.features.extend.execution.render_module.render_frames_to_pdf",
                     side_effect=_fake_render,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.rendering._validate_rendered_extension_fallback"
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.shard_rendering."
+                    "_validate_rendered_extension_shard"
                 ),
                 mock.patch("ethernity.cli.features.extend.execution.validate_staged_main_carrier"),
                 mock.patch(
@@ -2413,8 +2480,22 @@ class TestExtendService(unittest.TestCase):
                     side_effect=lambda paths, **_kwargs: shard_frames_by_path[str(paths[0])],
                 ),
                 mock.patch(
+                    "ethernity.cli.features.extend.shard_validation.validate_pdf_has_pages",
+                    return_value=object(),
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.shard_validation.validate_fallback_text_in_pdf"
+                ),
+                mock.patch(
                     "ethernity.cli.features.extend.execution.render_module.render_frames_to_pdf",
                     side_effect=_fake_render,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.rendering._validate_rendered_extension_fallback"
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.shard_rendering."
+                    "_validate_rendered_extension_shard"
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",
@@ -2528,6 +2609,13 @@ class TestExtendService(unittest.TestCase):
                 mock.patch(
                     "ethernity.cli.features.extend.execution.render_module.render_frames_to_pdf",
                     side_effect=_fake_render,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.rendering._validate_rendered_extension_fallback"
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.shard_rendering."
+                    "_validate_rendered_extension_shard"
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",
@@ -2742,6 +2830,13 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
+                    "ethernity.cli.features.extend.rendering._validate_rendered_extension_fallback"
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.shard_rendering."
+                    "_validate_rendered_extension_shard"
+                ),
+                mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",
                     side_effect=lambda *_args, **_kwargs: list(captured["frames"]),
                 ),
@@ -2815,6 +2910,13 @@ class TestExtendService(unittest.TestCase):
             mock.patch(
                 "ethernity.cli.features.extend.shard_validation.verify_shard",
                 return_value=True,
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.shard_validation.validate_pdf_has_pages",
+                return_value=object(),
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.shard_validation.validate_fallback_text_in_pdf"
             ),
         ):
             _validate_rendered_shard_carrier(
@@ -2922,6 +3024,13 @@ class TestExtendService(unittest.TestCase):
                 mock.patch(
                     "ethernity.cli.features.extend.execution.render_module.render_frames_to_pdf",
                     side_effect=_fake_render,
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.rendering._validate_rendered_extension_fallback"
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.shard_rendering."
+                    "_validate_rendered_extension_shard"
                 ),
                 mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",
@@ -3402,6 +3511,13 @@ class TestExtendService(unittest.TestCase):
                     side_effect=_fake_render,
                 ),
                 mock.patch(
+                    "ethernity.cli.features.extend.rendering._validate_rendered_extension_fallback"
+                ),
+                mock.patch(
+                    "ethernity.cli.features.extend.shard_rendering."
+                    "_validate_rendered_extension_shard"
+                ),
+                mock.patch(
                     "ethernity.cli.features.extend.main_carrier_validation.recovery_frames_from_scan",
                     side_effect=lambda *_args, **_kwargs: list(captured["frames"]),
                 ),
@@ -3594,6 +3710,7 @@ class TestExtendService(unittest.TestCase):
         validate_fallback_text_in_pdf.assert_called_once_with(
             artifact_label="rendered recovery document recovery_document-01-deadbeefcafebabe.pdf",
             reader=reader,
+            fallback_sections=mock.ANY,
             fallback_proof=fallback_proof,
         )
 
@@ -3628,26 +3745,40 @@ class TestExtendService(unittest.TestCase):
         self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
         self.assertIn("missing fallback render proof", str(ctx.exception))
 
-    def test_validate_published_recovery_document_carrier_checks_pdf_only(
+    def test_validate_published_recovery_document_carrier_checks_pdf_and_fallback(
         self,
     ) -> None:
         path = Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf")
+        document = _published_recovery_document()
 
-        with mock.patch(
-            "ethernity.cli.features.extend.published_recovery_validation.validate_pdf_has_pages",
-            return_value=object(),
-        ) as validate_pdf_has_pages:
-            _validate_published_recovery_document_carrier(path=path)
+        with (
+            mock.patch(
+                "ethernity.cli.features.extend.published_recovery_validation."
+                "validate_pdf_has_pages",
+                return_value=object(),
+            ) as validate_pdf_has_pages,
+            mock.patch(
+                "ethernity.cli.features.extend.published_recovery_validation."
+                "validate_fallback_text_in_pdf"
+            ) as validate_fallback_text,
+        ):
+            _validate_published_recovery_document_carrier(path=path, document=document)
 
         validate_pdf_has_pages.assert_called_once_with(
             path,
             artifact_label="published recovery document recovery_document-01-deadbeefcafebabe.pdf",
+        )
+        validate_fallback_text.assert_called_once_with(
+            artifact_label="published recovery document recovery_document-01-deadbeefcafebabe.pdf",
+            reader=mock.ANY,
+            fallback_sections=mock.ANY,
         )
 
     def test_validate_published_recovery_document_carrier_wraps_pdf_errors(
         self,
     ) -> None:
         path = Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf")
+        document = _published_recovery_document()
 
         with (
             mock.patch(
@@ -3657,26 +3788,34 @@ class TestExtendService(unittest.TestCase):
             ),
             self.assertRaises(ApiCommandError) as ctx,
         ):
-            _validate_published_recovery_document_carrier(path=path)
+            _validate_published_recovery_document_carrier(path=path, document=document)
 
         self.assertEqual(ctx.exception.code, EXTENSION_MAIN_CARRIER_INVALID)
         self.assertIn("published recovery document is invalid", str(ctx.exception))
 
-    def test_validate_published_recovery_document_carrier_does_not_parse_fallback_text(
+    def test_validate_published_recovery_document_carrier_wraps_fallback_errors(
         self,
     ) -> None:
-        class PoisonReader:
-            @property
-            def pages(self) -> list[object]:
-                raise AssertionError("published recovery validation must not parse PDF text")
-
-        with mock.patch(
-            "ethernity.cli.features.extend.published_recovery_validation.validate_pdf_has_pages",
-            return_value=PoisonReader(),
+        path = Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf")
+        with (
+            mock.patch(
+                "ethernity.cli.features.extend.published_recovery_validation."
+                "validate_pdf_has_pages",
+                return_value=object(),
+            ),
+            mock.patch(
+                "ethernity.cli.features.extend.published_recovery_validation."
+                "validate_fallback_text_in_pdf",
+                side_effect=RenderProofError("fallback mismatch"),
+            ),
+            self.assertRaises(ApiCommandError) as ctx,
         ):
             _validate_published_recovery_document_carrier(
-                path=Path("/tmp/recovery_document-01-deadbeefcafebabe.pdf"),
+                path=path,
+                document=_published_recovery_document(),
             )
+
+        self.assertIn("fallback mismatch", str(ctx.exception))
 
     def test_validate_single_main_carrier_rejects_mismatched_auth_for_recovery_document_scan(
         self,

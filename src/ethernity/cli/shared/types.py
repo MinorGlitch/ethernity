@@ -86,6 +86,7 @@ class RecoverArgs:
     fallback_file: str | None = None
     payloads_file: str | None = None
     scan: list[str] | None = None
+    frames: list[Frame] | None = None
     passphrase: str | None = None
     shard_fallback_file: list[str] | None = None
     shard_payloads_file: list[str] | None = None

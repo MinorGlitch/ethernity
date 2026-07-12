@@ -19,12 +19,14 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
 
 from ethernity.cli.features.extend.published_recovery_validation import (
     validate_published_recovery_document_carrier,
+    validate_published_shard_fallback_carrier,
 )
 from ethernity.cli.features.extend.scope import (
     SelectedExtendScope,
@@ -38,7 +40,7 @@ from ethernity.cli.features.recover.planning import (
     select_root_import_document_from_passphrase_shards,
 )
 from ethernity.cli.shared import api_codes
-from ethernity.cli.shared.crypto import doc_id_and_hash_from_ciphertext, normalize_doc_hash_hex
+from ethernity.cli.shared.crypto import normalize_doc_hash_hex
 from ethernity.cli.shared.io.fallback_parser import format_fallback_error
 from ethernity.cli.shared.io.frames import (
     _frame_from_fallback,
@@ -49,20 +51,27 @@ from ethernity.cli.shared.io.frames import (
 )
 from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.cli.shared.paths import expanduser_cli_paths
+from ethernity.cli.shared.root_shard_policy import root_level_key_frame_carriers_from_scan
 from ethernity.cli.shared.types import ExtendArgs
 from ethernity.config.load import load_app_config
+from ethernity.core.bounds import MAX_RECOVERY_DECODED_CHUNK_BYTES
+from ethernity.crypto import sharding as sharding_module
 from ethernity.crypto.passphrases import (
     normalize_bip39_mnemonic,
     validate_mnemonic_checksum_if_bip39,
 )
-from ethernity.encoding.framing import Frame
+from ethernity.crypto.signing import verify_shard
+from ethernity.encoding.chunking import reassemble_payload
+from ethernity.encoding.framing import Frame, FrameType, encode_frame
 from ethernity.extensions.chain import (
     LogicalFileState,
     build_chain_available_chunks,
+    build_chain_known_chunk_ids,
     extract_root_logical_state,
 )
 from ethernity.extensions.discovery import (
     DiscoveredExtensionMainCarrier,
+    DiscoveredExtensionShardCarrier,
     require_backup_root_dir,
 )
 from ethernity.extensions.published import (
@@ -75,23 +84,41 @@ from ethernity.extensions.published import (
     sorted_chunk_items,
 )
 from ethernity.extensions.recovery import (
+    DecodedImportSession,
     ImportedRecoveryDocument,
     RecoveryChainInspection,
     RecoveryExtensionInventory,
     RecoveryReplayFailure,
     decode_imported_extension_link,
+    decode_imported_root_manifest,
     decode_root_manifest as _decode_root_manifest_shared,
     imported_document_from_recovery_frames,
     imported_documents_from_recovery_frames,
     resolve_root_manifest_authority,
-    select_root_import_document,
+    select_root_import_session,
 )
+from ethernity.extensions.resources import require_chain_resource_limits
 from ethernity.formats import EnvelopeManifest
 from ethernity.formats.extension_envelope import (
     ExtensionChunkingProfile,
     derive_chain_id,
 )
 from ethernity.formats.extension_envelope_constants import CHUNK_ALGORITHM_FASTCDC
+from ethernity.qr.scan import looks_like_pdf
+
+_CANONICAL_ROOT_SHARD_RE = re.compile(
+    r"^(?P<role>shard|signing-key-shard)-(?P<doc_id>[0-9a-f]{16})-"
+    r"(?P<share_index>[1-9][0-9]*)-of-(?P<share_count>[1-9][0-9]*)\.pdf$"
+)
+
+
+@dataclass(frozen=True)
+class _CanonicalRootShardName:
+    path: Path
+    role: str
+    doc_id_hex: str
+    share_index: int
+    share_count: int
 
 
 @dataclass(frozen=True)
@@ -127,6 +154,10 @@ class ResolvedExtendState:
     loaded_scope: SelectedExtendScope | None
     current_state: tuple[LogicalFileState, ...] | None
     available_chunks: tuple[tuple[bytes, bytes], ...]
+    historical_chunk_ids: tuple[bytes, ...]
+    chain_document_count: int
+    chain_ciphertext_bytes: int
+    chain_decoded_chunk_bytes: int
     resolved_passphrase: str | None
     root_doc_hash: bytes | None
     parent_doc_hash: bytes | None
@@ -144,6 +175,7 @@ class _RootRecoveryInspection:
     inspection: RecoveryInspection
     shard_unlock_target: Literal["none", "root", "extension"]
     import_documents: tuple[ImportedRecoveryDocument, ...] = ()
+    decoded_import_session: DecodedImportSession | None = None
 
 
 def inspect_from_args(args: ExtendArgs) -> ExtendInspection:
@@ -340,13 +372,23 @@ def _resolve_extend_state_after_root_inspection(
 
     current_state: tuple[LogicalFileState, ...] | None = None
     available_chunks: tuple[tuple[bytes, bytes], ...] = ()
+    historical_chunk_ids: tuple[bytes, ...] = ()
+    chain_document_count = 1
+    chain_ciphertext_bytes = len(root_inspection.ciphertext)
+    chain_decoded_chunk_bytes = 0
     root_decrypt_succeeded = False
     if root_inspection.unlock.satisfied and root_inspection.unlock.resolved_passphrase is not None:
         try:
-            manifest, payload = _decode_root_manifest(
-                root_inspection.ciphertext,
-                passphrase=root_inspection.unlock.resolved_passphrase,
-            )
+            if root_recovery.decoded_import_session is None:
+                manifest, payload = _decode_root_manifest(
+                    root_inspection.ciphertext,
+                    passphrase=root_inspection.unlock.resolved_passphrase,
+                )
+            else:
+                manifest, payload = decode_imported_root_manifest(
+                    root_recovery.decoded_import_session.root_document,
+                    decoded_import_session=root_recovery.decoded_import_session,
+                )
         except ValueError as exc:
             blocking_issues.append(
                 _blocking_issue(
@@ -405,6 +447,7 @@ def _resolve_extend_state_after_root_inspection(
                                 passphrase=root_inspection.unlock.resolved_passphrase,
                                 expected_sign_pub=authority.embedded_sign_pub,
                                 quiet=args.quiet,
+                                decoded_import_session=root_recovery.decoded_import_session,
                             )
                             discovered_extension_dirs = _discovered_extension_indices(
                                 chain_inventory
@@ -436,6 +479,10 @@ def _resolve_extend_state_after_root_inspection(
                             and extension_chain_present(chain_inventory)
                             and not manifest.sealed
                         ):
+                            chain_document_count = 1 + len(chain_inventory.extensions)
+                            chain_ciphertext_bytes = len(root_inspection.ciphertext) + sum(
+                                len(document.ciphertext) for document in chain_inventory.extensions
+                            )
                             (
                                 current_state,
                                 validated_head_index,
@@ -444,6 +491,8 @@ def _resolve_extend_state_after_root_inspection(
                                 parent_doc_hash,
                                 next_index,
                                 chunking,
+                                historical_chunk_ids,
+                                chain_decoded_chunk_bytes,
                                 available_chunks,
                                 available_extensions,
                                 validated_head_auth_status,
@@ -511,8 +560,9 @@ def _resolve_extend_state_after_root_inspection(
                             _blocking_issue(
                                 "DELETE_NOT_SUPPORTED",
                                 (
-                                    "selected scope omits previously backed paths; "
-                                    "delete/rename is unsupported"
+                                    "selected scope omits previously backed paths; Add Files "
+                                    "cannot delete or rename paths. Create a New Backup from the "
+                                    "desired files and retire the superseded carriers"
                                 ),
                                 details={"missing_paths": list(diff.missing_paths)},
                             )
@@ -569,6 +619,10 @@ def _resolve_extend_state_after_root_inspection(
         loaded_scope=loaded_scope,
         current_state=current_state,
         available_chunks=available_chunks,
+        historical_chunk_ids=historical_chunk_ids,
+        chain_document_count=chain_document_count,
+        chain_ciphertext_bytes=chain_ciphertext_bytes,
+        chain_decoded_chunk_bytes=chain_decoded_chunk_bytes,
         resolved_passphrase=root_inspection.unlock.resolved_passphrase,
         root_doc_hash=root_doc_hash_bytes,
         parent_doc_hash=parent_doc_hash,
@@ -651,6 +705,7 @@ def _inspect_root_recovery(
             details={"root_dir": str(root_dir)},
         )
     frames = _recovery_frames_from_published_root_scan_paths(scan_paths, quiet=args.quiet)
+    _require_published_append_resource_admission(frames, extension_inventory)
     shard_frames, shard_fallback_files, shard_payloads_file, shard_scan = (
         _shard_frames_from_extend_args(args, quiet=args.quiet)
     )
@@ -667,6 +722,7 @@ def _inspect_root_recovery(
         shard_scan=shard_scan,
         quiet=args.quiet,
     )
+    _audit_published_root_fallback_carriers(root_dir, root_inspection, quiet=args.quiet)
     if (
         args.passphrase
         or root_inspection.unlock.satisfied
@@ -678,7 +734,7 @@ def _inspect_root_recovery(
             "root" if root_inspection.unlock.mode == "shards" else "none"
         )
         return _RootRecoveryInspection(root_inspection, shard_target)
-    extension_inspection = _inspect_root_recovery_with_extension_shards(
+    extension_inspection, decoded_import_session = _inspect_root_recovery_with_extension_shards(
         root_inspection,
         frames=frames,
         shard_frames=shard_frames,
@@ -689,7 +745,30 @@ def _inspect_root_recovery(
         input_detail=str(root_dir.resolve()),
         quiet=args.quiet,
     )
-    return _RootRecoveryInspection(extension_inspection, "extension")
+    return _RootRecoveryInspection(
+        extension_inspection,
+        "extension",
+        decoded_import_session=decoded_import_session,
+    )
+
+
+def _require_published_append_resource_admission(
+    root_frames: list[Frame],
+    extension_inventory: RecoveryExtensionInventory | None,
+) -> None:
+    root_ciphertext = reassemble_payload(
+        [frame for frame in root_frames if frame.frame_type == FrameType.MAIN_DOCUMENT],
+        expected_frame_type=FrameType.MAIN_DOCUMENT,
+    )
+    extensions = () if extension_inventory is None else extension_inventory.extensions
+    chain_ciphertext_bytes = len(root_ciphertext) + sum(
+        len(document.ciphertext) for document in extensions
+    )
+    require_chain_resource_limits(
+        document_count=2 + len(extensions),
+        total_ciphertext_bytes=chain_ciphertext_bytes + 1,
+        operation="extension append",
+    )
 
 
 def _uses_scanned_chain_source(args: ExtendArgs) -> bool:
@@ -740,11 +819,12 @@ def _inspect_scanned_chain_recovery(args: ExtendArgs) -> _RootRecoveryInspection
                 details={"stage": "scan_root_selection"},
             ) from exc
         try:
-            root_document = select_root_import_document(
+            decoded_import_session = select_root_import_session(
                 import_documents,
                 passphrase=normalized_passphrase,
                 debug=False,
             )
+            root_document = decoded_import_session.root_document
         except ValueError as exc:
             raise ApiCommandError(
                 code=api_codes.INVALID_INPUT,
@@ -762,7 +842,12 @@ def _inspect_scanned_chain_recovery(args: ExtendArgs) -> _RootRecoveryInspection
             input_detail=", ".join(scan_paths),
             quiet=args.quiet,
         )
-        return _RootRecoveryInspection(root_inspection, "none", import_documents)
+        return _RootRecoveryInspection(
+            root_inspection,
+            "none",
+            import_documents,
+            decoded_import_session,
+        )
 
     if shard_frames:
         try:
@@ -808,7 +893,12 @@ def _inspect_scanned_chain_recovery(args: ExtendArgs) -> _RootRecoveryInspection
             if selection.target_document.doc_hash == selection.root_document.doc_hash
             else "extension"
         )
-        return _RootRecoveryInspection(root_inspection, selected_shard_target, import_documents)
+        return _RootRecoveryInspection(
+            root_inspection,
+            selected_shard_target,
+            import_documents,
+            getattr(selection, "decoded_import_session", None),
+        )
 
     raise ApiCommandError(
         code=api_codes.PASSPHRASE_REQUIRED,
@@ -862,6 +952,7 @@ def _scan_extension_inventory_from_imported_documents(
     passphrase: str | None,
     expected_sign_pub: bytes | None,
     quiet: bool,
+    decoded_import_session: DecodedImportSession | None = None,
 ) -> RecoveryExtensionInventory:
     if passphrase is None:
         raise ValueError("scanned extension replay requires a resolved passphrase")
@@ -870,6 +961,7 @@ def _scan_extension_inventory_from_imported_documents(
 
     extensions: list[ImportedRecoveryDocument] = []
     seen_indexes: set[int] = set()
+    remaining_inline_chunk_bytes = MAX_RECOVERY_DECODED_CHUNK_BYTES
     for document in documents:
         if document.doc_hash == root_doc_hash:
             continue
@@ -891,6 +983,8 @@ def _scan_extension_inventory_from_imported_documents(
                 expected_sign_pub=expected_sign_pub,
                 quiet=quiet,
                 debug=False,
+                max_inline_chunk_bytes=remaining_inline_chunk_bytes,
+                decoded_import_session=decoded_import_session,
             )
         except (ApiCommandError, ValueError) as exc:
             failure = RecoveryReplayFailure(
@@ -900,6 +994,7 @@ def _scan_extension_inventory_from_imported_documents(
                 head_dir_name=document.source_label,
             )
             return RecoveryExtensionInventory(extensions=tuple(extensions), failure=failure)
+        remaining_inline_chunk_bytes -= decoded.link.document.inline_chunk_raw_bytes
         index = decoded.link.document.header.index
         if index in seen_indexes:
             failure = RecoveryReplayFailure(
@@ -940,10 +1035,8 @@ def _inspect_root_recovery_with_extension_shards(
     extension_inventory: RecoveryExtensionInventory,
     input_detail: str,
     quiet: bool,
-) -> RecoveryInspection:
-    root_document = ImportedRecoveryDocument(
-        doc_id=root_inspection.doc_id,
-        doc_hash=root_inspection.doc_hash,
+) -> tuple[RecoveryInspection, DecodedImportSession | None]:
+    root_document = ImportedRecoveryDocument.from_ciphertext(
         ciphertext=root_inspection.ciphertext,
         auth_frames=root_inspection.auth_frames,
         source_label="published root",
@@ -957,43 +1050,52 @@ def _inspect_root_recovery_with_extension_shards(
             quiet=quiet,
         )
     except ValueError as exc:
-        return _extension_shard_unlock_failure_inspection(
-            root_inspection,
-            shard_frames=shard_frames,
-            shard_fallback_files=shard_fallback_files,
-            shard_payloads_file=shard_payloads_file,
-            shard_scan=shard_scan,
-            message=str(exc),
-            details={"stage": "extension_shard_unlock"},
+        return (
+            _extension_shard_unlock_failure_inspection(
+                root_inspection,
+                shard_frames=shard_frames,
+                shard_fallback_files=shard_fallback_files,
+                shard_payloads_file=shard_payloads_file,
+                shard_scan=shard_scan,
+                message=str(exc),
+                details={"stage": "extension_shard_unlock"},
+            ),
+            None,
         )
     if (
         selection.root_document.doc_id != root_inspection.doc_id
         or selection.root_document.doc_hash != root_inspection.doc_hash
     ):
-        return _extension_shard_unlock_failure_inspection(
-            root_inspection,
-            shard_frames=shard_frames,
-            shard_fallback_files=shard_fallback_files,
-            shard_payloads_file=shard_payloads_file,
-            shard_scan=shard_scan,
-            message="extension passphrase shard inputs resolved a different root document",
-            details={
-                "stage": "extension_shard_unlock",
-                "expected_root_doc_id": root_inspection.doc_id.hex(),
-                "expected_root_doc_hash": root_inspection.doc_hash.hex(),
-                "selected_root_doc_id": selection.root_document.doc_id.hex(),
-                "selected_root_doc_hash": selection.root_document.doc_hash.hex(),
-            },
+        return (
+            _extension_shard_unlock_failure_inspection(
+                root_inspection,
+                shard_frames=shard_frames,
+                shard_fallback_files=shard_fallback_files,
+                shard_payloads_file=shard_payloads_file,
+                shard_scan=shard_scan,
+                message="extension passphrase shard inputs resolved a different root document",
+                details={
+                    "stage": "extension_shard_unlock",
+                    "expected_root_doc_id": root_inspection.doc_id.hex(),
+                    "expected_root_doc_hash": root_inspection.doc_hash.hex(),
+                    "selected_root_doc_id": selection.root_document.doc_id.hex(),
+                    "selected_root_doc_hash": selection.root_document.doc_hash.hex(),
+                },
+            ),
+            None,
         )
     if selection.unlock.resolved_passphrase is None:
-        return _extension_shard_unlock_failure_inspection(
-            root_inspection,
-            shard_frames=shard_frames,
-            shard_fallback_files=shard_fallback_files,
-            shard_payloads_file=shard_payloads_file,
-            shard_scan=shard_scan,
-            message="extension passphrase shard inputs did not recover a passphrase",
-            details={"stage": "extension_shard_unlock"},
+        return (
+            _extension_shard_unlock_failure_inspection(
+                root_inspection,
+                shard_frames=shard_frames,
+                shard_fallback_files=shard_fallback_files,
+                shard_payloads_file=shard_payloads_file,
+                shard_scan=shard_scan,
+                message="extension passphrase shard inputs did not recover a passphrase",
+                details={"stage": "extension_shard_unlock"},
+            ),
+            None,
         )
 
     unlocked = inspect_recovery_inputs(
@@ -1009,13 +1111,16 @@ def _inspect_root_recovery_with_extension_shards(
         shard_scan=[],
         quiet=quiet,
     )
-    return replace(
-        unlocked,
-        unlock=selection.unlock,
-        shard_frames=tuple(shard_frames),
-        shard_fallback_files=tuple(shard_fallback_files),
-        shard_payloads_file=tuple(shard_payloads_file),
-        shard_scan=tuple(shard_scan),
+    return (
+        replace(
+            unlocked,
+            unlock=selection.unlock,
+            shard_frames=tuple(shard_frames),
+            shard_fallback_files=tuple(shard_fallback_files),
+            shard_payloads_file=tuple(shard_payloads_file),
+            shard_scan=tuple(shard_scan),
+        ),
+        getattr(selection, "decoded_import_session", None),
     )
 
 
@@ -1098,6 +1203,188 @@ def _published_root_scan_paths(root_dir: Path) -> list[str]:
     return paths
 
 
+def _audit_published_root_fallback_carriers(
+    root_dir: Path,
+    inspection: RecoveryInspection,
+    *,
+    quiet: bool,
+) -> None:
+    """Audit published root fallback text against authenticated machine-readable frames."""
+
+    auth_payload = inspection.auth_payload
+    if inspection.auth_status != "verified" or auth_payload is None:
+        return
+    document = ImportedRecoveryDocument.from_ciphertext(
+        ciphertext=inspection.ciphertext,
+        auth_frames=inspection.auth_frames,
+        source_label="published root QR document",
+    )
+    recovery_path = root_dir / "recovery_document.pdf"
+    if recovery_path.is_symlink() or not recovery_path.is_file():
+        raise ValueError("published backup root is missing required recovery_document.pdf")
+    validate_published_recovery_document_carrier(
+        path=recovery_path,
+        document=document,
+    )
+
+    canonical_names = _canonical_root_shard_names(root_dir)
+    carrier_frames_by_path = dict(
+        root_level_key_frame_carriers_from_scan(
+            root_dir,
+            quiet=quiet,
+        )
+    )
+    audited_paths: set[Path] = set()
+    canonical_payloads_by_role: dict[str, list[sharding_module.ShardPayload]] = {}
+    for name in canonical_names:
+        carrier_frames = carrier_frames_by_path.get(name.path)
+        if carrier_frames is None:
+            raise ValueError(f"canonical root shard carrier contains no KEY frame: {name.path}")
+        validated = _validated_matching_root_shard(
+            path=name.path,
+            carrier_frames=carrier_frames,
+            inspection=inspection,
+            expected_sign_pub=auth_payload.sign_pub,
+            require_single_key_frame=True,
+        )
+        if validated is None:
+            raise ValueError(f"canonical root shard carrier is not bound to the root: {name.path}")
+        frame, payload = validated
+        expected_key_type = (
+            sharding_module.KEY_TYPE_PASSPHRASE
+            if name.role == "shard"
+            else sharding_module.KEY_TYPE_SIGNING_SEED
+        )
+        if name.doc_id_hex != inspection.doc_id.hex():
+            raise ValueError(
+                f"canonical root shard filename doc_id does not match root: {name.path}"
+            )
+        if payload.key_type != expected_key_type:
+            raise ValueError(
+                f"canonical root shard filename role does not match payload: {name.path}"
+            )
+        if payload.share_index != name.share_index or payload.share_count != name.share_count:
+            raise ValueError(
+                f"canonical root shard filename share metadata is invalid: {name.path}"
+            )
+        if not looks_like_pdf(name.path):
+            raise ValueError(f"canonical root shard carrier is not a valid PDF: {name.path}")
+        validate_published_shard_fallback_carrier(path=name.path, frames=(frame,))
+        audited_paths.add(name.path)
+        canonical_payloads_by_role.setdefault(name.role, []).append(payload)
+    _validate_canonical_root_shard_sets(canonical_names, canonical_payloads_by_role)
+
+    for path, carrier_frames in carrier_frames_by_path.items():
+        if path in audited_paths or not looks_like_pdf(path):
+            continue
+        validated = _validated_matching_root_shard(
+            path=path,
+            carrier_frames=carrier_frames,
+            inspection=inspection,
+            expected_sign_pub=auth_payload.sign_pub,
+        )
+        if validated is None:
+            continue
+        frame, _payload = validated
+        validate_published_shard_fallback_carrier(path=path, frames=(frame,))
+
+
+def _canonical_root_shard_names(root_dir: Path) -> tuple[_CanonicalRootShardName, ...]:
+    names: list[_CanonicalRootShardName] = []
+    for path in sorted(root_dir.iterdir()):
+        match = _CANONICAL_ROOT_SHARD_RE.fullmatch(path.name)
+        if match is None:
+            continue
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"canonical root shard carrier must be a regular file: {path}")
+        names.append(
+            _CanonicalRootShardName(
+                path=path,
+                role=match.group("role"),
+                doc_id_hex=match.group("doc_id"),
+                share_index=int(match.group("share_index")),
+                share_count=int(match.group("share_count")),
+            )
+        )
+    return tuple(names)
+
+
+def _validated_matching_root_shard(
+    *,
+    path: Path,
+    carrier_frames: tuple[Frame, ...],
+    inspection: RecoveryInspection,
+    expected_sign_pub: bytes,
+    require_single_key_frame: bool = False,
+) -> tuple[Frame, sharding_module.ShardPayload] | None:
+    distinct_key_frames = {
+        encode_frame(frame): frame
+        for frame in carrier_frames
+        if frame.frame_type == FrameType.KEY_DOCUMENT
+    }
+    if require_single_key_frame and len(distinct_key_frames) != 1:
+        raise ValueError(
+            f"canonical root shard carrier must contain exactly one distinct KEY frame: {path}"
+        )
+    matching_frames: dict[bytes, tuple[Frame, sharding_module.ShardPayload]] = {}
+    for frame in distinct_key_frames.values():
+        try:
+            payload = sharding_module.decode_shard_payload(frame.data)
+        except ValueError:
+            continue
+        if frame.doc_id != inspection.doc_id or payload.doc_hash != inspection.doc_hash:
+            continue
+        matching_frames.setdefault(encode_frame(frame), (frame, payload))
+    if not matching_frames:
+        return None
+    if len(matching_frames) != 1:
+        raise ValueError(f"published root shard carrier contains multiple root payloads: {path}")
+    frame, payload = next(iter(matching_frames.values()))
+    if payload.sign_pub != expected_sign_pub:
+        raise ValueError(f"published root shard signing authority does not match root: {path}")
+    if payload.key_type not in {
+        sharding_module.KEY_TYPE_PASSPHRASE,
+        sharding_module.KEY_TYPE_SIGNING_SEED,
+    }:
+        raise ValueError(f"published root shard has unsupported key type: {path}")
+    if not verify_shard(
+        payload.doc_hash,
+        shard_version=payload.version,
+        key_type=payload.key_type,
+        threshold=payload.threshold,
+        share_count=payload.share_count,
+        share_index=payload.share_index,
+        secret_len=payload.secret_len,
+        share=payload.share,
+        shard_set_id=payload.shard_set_id,
+        sign_pub=payload.sign_pub,
+        signature=payload.signature,
+    ):
+        raise ValueError(f"published root shard signature verification failed: {path}")
+    return frame, payload
+
+
+def _validate_canonical_root_shard_sets(
+    names: tuple[_CanonicalRootShardName, ...],
+    payloads_by_role: dict[str, list[sharding_module.ShardPayload]],
+) -> None:
+    for role, payloads in payloads_by_role.items():
+        role_names = [name for name in names if name.role == role]
+        share_counts = {name.share_count for name in role_names}
+        if len(share_counts) != 1:
+            raise ValueError(f"canonical root {role} filenames disagree on share count")
+        share_count = next(iter(share_counts))
+        actual_indexes = sorted(name.share_index for name in role_names)
+        if actual_indexes != list(range(1, share_count + 1)):
+            raise ValueError(
+                f"canonical root {role} set must contain shares 1 through {share_count}"
+            )
+        try:
+            sharding_module.validate_shard_set_consistency(payloads)
+        except ValueError as exc:
+            raise ValueError(f"canonical root {role} shard set is inconsistent: {exc}") from exc
+
+
 def _recovery_frames_from_published_root_scan_paths(
     scan_paths: list[str],
     *,
@@ -1133,10 +1420,10 @@ def _inspect_published_extension_inventory(
 ) -> RecoveryExtensionInventory:
     def validate_recovery_document(
         carrier: DiscoveredExtensionMainCarrier,
-        _document: ImportedRecoveryDocument,
+        document: ImportedRecoveryDocument,
         _sign_pub: bytes,
     ) -> None:
-        validate_published_recovery_document_carrier(path=carrier.path)
+        validate_published_recovery_document_carrier(path=carrier.path, document=document)
 
     return inspect_published_extension_inventory(
         root_dir,
@@ -1144,8 +1431,22 @@ def _inspect_published_extension_inventory(
             carrier,
             quiet=quiet,
         ),
+        read_shard_frames=lambda carrier: _read_published_extension_shard_frames(
+            carrier,
+            quiet=quiet,
+        ),
         validate_recovery_document_carrier=validate_recovery_document,
     )
+
+
+def _read_published_extension_shard_frames(
+    carrier: DiscoveredExtensionShardCarrier,
+    *,
+    quiet: bool,
+) -> list[Frame]:
+    frames = shard_frames_from_scan([str(carrier.path)], quiet=quiet)
+    validate_published_shard_fallback_carrier(path=carrier.path, frames=frames)
+    return frames
 
 
 def _read_published_extension_carrier_document(
@@ -1154,10 +1455,7 @@ def _read_published_extension_carrier_document(
     quiet: bool,
 ) -> ImportedRecoveryDocument:
     ciphertext, auth_frames = scan_extension_carriers([str(carrier.path)], quiet=quiet)
-    doc_id, doc_hash = doc_id_and_hash_from_ciphertext(ciphertext)
-    return ImportedRecoveryDocument(
-        doc_id=doc_id,
-        doc_hash=doc_hash,
+    return ImportedRecoveryDocument.from_ciphertext(
         ciphertext=ciphertext,
         auth_frames=tuple(auth_frames),
         source_label=str(carrier.path),
@@ -1231,6 +1529,8 @@ def _reconstruct_extension_state(
     bytes | None,
     int | None,
     ExtensionChunkingProfile | None,
+    tuple[bytes, ...],
+    int,
     tuple[tuple[bytes, bytes], ...],
     tuple[dict[str, object], ...],
     str | None,
@@ -1298,6 +1598,8 @@ def _reconstruct_extension_state(
             None,
             None,
             (),
+            0,
+            (),
             available_extensions,
             validated_head_auth_status,
             validated_head_root_authority_verified,
@@ -1314,6 +1616,8 @@ def _reconstruct_extension_state(
             root_doc_hash,
             1,
             new_chain_chunking,
+            (),
+            0,
             _sorted_chunk_items(build_chain_available_chunks(root_state, new_chain_chunking)),
             available_extensions,
             chain_inspection.validated_head_auth_status,
@@ -1334,11 +1638,20 @@ def _reconstruct_extension_state(
         chain_inspection.links[-1].link.doc_hash,
         chain_inspection.validated_head_index + 1,
         locked_chunking,
+        tuple(
+            sorted(
+                build_chain_known_chunk_ids(
+                    root_state,
+                    locked_chunking,
+                    extensions=tuple(item.link for item in chain_inspection.links),
+                )
+            )
+        ),
+        sum(item.link.document.inline_chunk_raw_bytes for item in chain_inspection.links),
         _sorted_chunk_items(
             build_chain_available_chunks(
-                root_state,
+                chain_inspection.latest_state,
                 locked_chunking,
-                extensions=tuple(item.link for item in chain_inspection.links),
             )
         ),
         available_extensions,

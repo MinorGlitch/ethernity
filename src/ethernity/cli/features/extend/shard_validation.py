@@ -25,6 +25,12 @@ from ethernity.cli.shared.ndjson import ApiCommandError
 from ethernity.crypto import sharding as sharding_module
 from ethernity.crypto.signing import verify_shard
 from ethernity.encoding.framing import Frame
+from ethernity.render.proofs import (
+    RenderProofError,
+    validate_fallback_text_in_pdf,
+    validate_pdf_has_pages,
+)
+from ethernity.render.types import FallbackSection
 
 from .models import (
     EXTENSION_SHARD_CARRIER_INVALID,
@@ -123,6 +129,19 @@ def validate_rendered_shard_carrier(
             message=f"rendered {secret_label} signature verification failed",
             details={"path": str(path)},
         )
+    try:
+        reader = validate_pdf_has_pages(path, artifact_label=f"rendered {secret_label} PDF")
+        validate_fallback_text_in_pdf(
+            artifact_label=f"rendered {secret_label} PDF",
+            reader=reader,
+            fallback_sections=(FallbackSection(label=None, frame=frame),),
+        )
+    except RenderProofError as exc:
+        raise ApiCommandError(
+            code=EXTENSION_SHARD_CARRIER_INVALID,
+            message=str(exc),
+            details={"path": str(path), **exc.details},
+        ) from exc
 
 
 def _dedupe_identical_frames(frames: list[Frame]) -> list[Frame]:

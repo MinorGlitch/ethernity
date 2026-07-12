@@ -126,14 +126,21 @@ def _imported_document(
     doc_hash: bytes,
     ciphertext: bytes,
     source_label: str,
+    auth_frames: tuple[Frame, ...] = (),
 ) -> ImportedRecoveryDocument:
-    return ImportedRecoveryDocument(
-        doc_id=doc_id,
-        doc_hash=doc_hash,
-        ciphertext=ciphertext,
-        auth_frames=(),
-        source_label=source_label,
-    )
+    # These mint tests isolate selection behavior with synthetic identities. The recovery boundary
+    # itself has dedicated tests proving that production identities are derived from ciphertext.
+    with mock.patch(
+        "ethernity.extensions.recovery.doc_id_and_hash_from_ciphertext",
+        return_value=(doc_id, doc_hash),
+    ):
+        return ImportedRecoveryDocument(
+            doc_id=doc_id,
+            doc_hash=doc_hash,
+            ciphertext=ciphertext,
+            auth_frames=auth_frames,
+            source_label=source_label,
+        )
 
 
 def _mint_recovery_plan(
@@ -736,14 +743,14 @@ class TestMintInspection(unittest.TestCase):
             shard_scan=(),
             root_dir=None,
             import_documents=(
-                ImportedRecoveryDocument(
+                _imported_document(
                     doc_id=b"\x66" * 8,
                     doc_hash=b"\x77" * 32,
                     ciphertext=b"root-ciphertext",
                     auth_frames=(),
                     source_label="root",
                 ),
-                ImportedRecoveryDocument(
+                _imported_document(
                     doc_id=b"\x88" * 8,
                     doc_hash=b"\x44" * 32,
                     ciphertext=b"extension-ciphertext",
@@ -875,7 +882,7 @@ class TestMintInspection(unittest.TestCase):
         self,
     ) -> None:
         plan = _mint_recovery_plan()
-        unsigned_document = ImportedRecoveryDocument(
+        unsigned_document = _imported_document(
             doc_id=b"\x88" * 8,
             doc_hash=b"\x44" * 32,
             ciphertext=b"extension-ciphertext",
@@ -902,7 +909,7 @@ class TestMintInspection(unittest.TestCase):
     ) -> None:
         plan = _mint_recovery_plan()
         selected_doc_hash = b"\x44" * 32
-        selected_document = ImportedRecoveryDocument(
+        selected_document = _imported_document(
             doc_id=b"\x88" * 8,
             doc_hash=selected_doc_hash,
             ciphertext=b"extension-ciphertext",
@@ -936,7 +943,7 @@ class TestMintInspection(unittest.TestCase):
     ) -> None:
         plan = _mint_recovery_plan()
         selected_doc_hash = b"\x44" * 32
-        selected_document = ImportedRecoveryDocument(
+        selected_document = _imported_document(
             doc_id=b"\x88" * 8,
             doc_hash=selected_doc_hash,
             ciphertext=b"extension-ciphertext",
@@ -972,7 +979,7 @@ class TestMintInspection(unittest.TestCase):
     ) -> None:
         plan = _mint_recovery_plan()
         selected_doc_hash = b"\x44" * 32
-        selected_document = ImportedRecoveryDocument(
+        selected_document = _imported_document(
             doc_id=b"\x88" * 8,
             doc_hash=selected_doc_hash,
             ciphertext=b"extension-ciphertext",
@@ -1288,14 +1295,14 @@ class TestMintInspection(unittest.TestCase):
             shard_scan=(),
             root_dir=None,
             import_documents=(
-                ImportedRecoveryDocument(
+                _imported_document(
                     doc_id=b"\x66" * 8,
                     doc_hash=b"\x77" * 32,
                     ciphertext=b"root-ciphertext",
                     auth_frames=(),
                     source_label="root",
                 ),
-                ImportedRecoveryDocument(
+                _imported_document(
                     doc_id=b"\x88" * 8,
                     doc_hash=b"\x44" * 32,
                     ciphertext=b"extension-ciphertext",
@@ -1342,14 +1349,14 @@ class TestMintInspection(unittest.TestCase):
             shard_scan=(),
             root_dir=None,
             import_documents=(
-                ImportedRecoveryDocument(
+                _imported_document(
                     doc_id=b"\x66" * 8,
                     doc_hash=b"\x77" * 32,
                     ciphertext=b"root-ciphertext",
                     auth_frames=(),
                     source_label="root",
                 ),
-                ImportedRecoveryDocument(
+                _imported_document(
                     doc_id=b"\x66" * 8,
                     doc_hash=b"\x44" * 32,
                     ciphertext=b"extension-ciphertext",
@@ -1389,14 +1396,14 @@ class TestMintInspection(unittest.TestCase):
             shard_scan=(),
             root_dir=None,
             import_documents=(
-                ImportedRecoveryDocument(
+                _imported_document(
                     doc_id=b"\x66" * 8,
                     doc_hash=b"\x77" * 32,
                     ciphertext=b"root-ciphertext",
                     auth_frames=(),
                     source_label="root",
                 ),
-                ImportedRecoveryDocument(
+                _imported_document(
                     doc_id=b"\x88" * 8,
                     doc_hash=b"\x44" * 32,
                     ciphertext=b"extension-ciphertext",
@@ -1464,14 +1471,14 @@ class TestMintInspection(unittest.TestCase):
             shard_scan=(),
             root_dir=None,
             import_documents=(
-                ImportedRecoveryDocument(
+                _imported_document(
                     doc_id=b"\x66" * 8,
                     doc_hash=b"\x77" * 32,
                     ciphertext=b"root-ciphertext",
                     auth_frames=(),
                     source_label="root",
                 ),
-                ImportedRecoveryDocument(
+                _imported_document(
                     doc_id=b"\x88" * 8,
                     doc_hash=b"\x44" * 32,
                     ciphertext=b"extension-ciphertext",
@@ -1530,14 +1537,14 @@ class TestMintInspection(unittest.TestCase):
             shard_scan=(),
             root_dir=None,
             import_documents=(
-                ImportedRecoveryDocument(
+                _imported_document(
                     doc_id=b"\x66" * 8,
                     doc_hash=b"\x77" * 32,
                     ciphertext=b"root-ciphertext",
                     auth_frames=(),
                     source_label="root",
                 ),
-                ImportedRecoveryDocument(
+                _imported_document(
                     doc_id=b"\x88" * 8,
                     doc_hash=b"\x44" * 32,
                     ciphertext=b"extension-ciphertext",
@@ -1633,14 +1640,14 @@ class TestMintInspection(unittest.TestCase):
             shard_scan=(),
             root_dir=None,
             import_documents=(
-                ImportedRecoveryDocument(
+                _imported_document(
                     doc_id=b"\x66" * 8,
                     doc_hash=b"\x77" * 32,
                     ciphertext=b"root-ciphertext",
                     auth_frames=(),
                     source_label="root",
                 ),
-                ImportedRecoveryDocument(
+                _imported_document(
                     doc_id=bad_doc_id,
                     doc_hash=bad_doc_hash,
                     ciphertext=b"not-an-extension-envelope",
@@ -1686,14 +1693,14 @@ class TestMintInspection(unittest.TestCase):
             shard_scan=(),
             root_dir=None,
             import_documents=(
-                ImportedRecoveryDocument(
+                _imported_document(
                     doc_id=b"\x66" * 8,
                     doc_hash=b"\x77" * 32,
                     ciphertext=b"root-ciphertext",
                     auth_frames=(),
                     source_label="root",
                 ),
-                ImportedRecoveryDocument(
+                _imported_document(
                     doc_id=b"\x88" * 8,
                     doc_hash=b"\x44" * 32,
                     ciphertext=b"extension-ciphertext",

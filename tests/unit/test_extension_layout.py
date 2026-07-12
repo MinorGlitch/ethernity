@@ -35,6 +35,9 @@ class TestExtensionLayout(unittest.TestCase):
         self.assertEqual(canonical_extension_dir_name(1), "01")
         self.assertEqual(canonical_extension_dir_name(12), "12")
         self.assertEqual(canonical_extension_dir_name(100), "100")
+        self.assertEqual(canonical_extension_dir_name(127), "127")
+        with self.assertRaisesRegex(ValueError, "MAX_EXTENSION_INDEX"):
+            canonical_extension_dir_name(128)
 
     def test_parse_extension_dir_name_rejects_non_canonical_values(self) -> None:
         for value in ("001", "00", "0", "abc", ".staging-1-x"):
@@ -46,6 +49,8 @@ class TestExtensionLayout(unittest.TestCase):
         self.assertTrue(is_canonical_extension_dir_name("01"))
         self.assertTrue(is_canonical_extension_dir_name("10"))
         self.assertTrue(is_canonical_extension_dir_name("100"))
+        self.assertTrue(is_canonical_extension_dir_name("127"))
+        self.assertFalse(is_canonical_extension_dir_name("128"))
         self.assertFalse(is_canonical_extension_dir_name("001"))
 
     def test_build_staging_dir_name(self) -> None:
@@ -104,4 +109,18 @@ class TestExtensionLayout(unittest.TestCase):
                 "deadbeefcafebabe",
                 share_index=4,
                 share_count=3,
+            )
+
+    def test_extension_shard_filename_rejects_share_values_above_255(self) -> None:
+        with self.assertRaisesRegex(ValueError, "MAX_SHARES"):
+            build_extension_shard_filename(
+                "shard",
+                2,
+                "deadbeefcafebabe",
+                share_index=1,
+                share_count=256,
+            )
+        with self.assertRaisesRegex(ValueError, "MAX_SHARES"):
+            parse_extension_shard_filename(
+                "shard-02-deadbeefcafebabe-1-of-999999999999999999999999.pdf"
             )

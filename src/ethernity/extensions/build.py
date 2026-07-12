@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -79,6 +79,7 @@ def build_extension_document(
     chunker: Chunker,
     existing_file_sizes: Mapping[str, int],
     existing_chunks: Mapping[bytes, bytes] | None = None,
+    existing_chunk_ids: Collection[bytes] | None = None,
     existing_logical_bytes: int = 0,
 ) -> BuiltExtensionDocument:
     """Build a validated extension envelope from changed/new input files."""
@@ -97,6 +98,8 @@ def build_extension_document(
 
     files: list[ExtensionFile] = []
     known_chunks = _normalize_chunk_map(existing_chunks)
+    known_chunk_ids = _normalize_chunk_ids(existing_chunk_ids)
+    known_chunk_ids.update(known_chunks)
     chunk_payloads: dict[bytes, bytes] = {}
     logical_bytes = 0
     total_logical_bytes = require_non_negative_int(
@@ -137,6 +140,7 @@ def build_extension_document(
             chunking=chunking,
             chunker=chunker,
             known_chunks=known_chunks,
+            known_chunk_ids=known_chunk_ids,
             emitted_chunks=chunk_payloads,
         )
         new_chunks += item_new_chunks
@@ -185,6 +189,7 @@ def _chunk_refs_for_file(
     chunking: ExtensionChunkingProfile,
     chunker: Chunker,
     known_chunks: dict[bytes, bytes],
+    known_chunk_ids: set[bytes],
     emitted_chunks: dict[bytes, bytes],
 ) -> tuple[tuple[ExtensionChunkRef, ...], int, int]:
     raw_chunks = tuple(bytes(chunk) for chunk in chunker(data, chunking))
@@ -209,13 +214,15 @@ def _chunk_refs_for_file(
             raise ValueError("chunker output must preserve the original input bytes")
         total += len(chunk_bytes)
         existing = known_chunks.get(chunk_id)
-        if existing is None:
+        if existing is None and chunk_id not in known_chunk_ids:
+            known_chunk_ids.add(chunk_id)
             known_chunks[chunk_id] = chunk_bytes
             emitted_chunks[chunk_id] = chunk_bytes
             new_chunks += 1
-        elif existing != chunk_bytes:
+        elif existing is not None and existing != chunk_bytes:
             raise ValueError("chunk payload collision for identical sha256 chunk_id")
         else:
+            known_chunks[chunk_id] = chunk_bytes
             reused_chunks += 1
         refs.append(
             ExtensionChunkRef(
@@ -241,6 +248,7 @@ def build_virtual_chunk_source(
     chunker: Chunker,
 ) -> dict[bytes, bytes]:
     known_chunks: dict[bytes, bytes] = {}
+    known_chunk_ids: set[bytes] = set()
     emitted_chunks: dict[bytes, bytes] = {}
     for payload in file_payloads:
         _chunk_refs_for_file(
@@ -248,6 +256,7 @@ def build_virtual_chunk_source(
             chunking=chunking,
             chunker=chunker,
             known_chunks=known_chunks,
+            known_chunk_ids=known_chunk_ids,
             emitted_chunks=emitted_chunks,
         )
     return known_chunks
@@ -286,6 +295,18 @@ def _normalize_chunk_map(chunk_map: Mapping[bytes, bytes] | None) -> dict[bytes,
         if hashlib.sha256(raw_chunk_bytes).digest() != raw_chunk_id:
             raise ValueError("existing chunk bytes do not hash to chunk_id")
         normalized[raw_chunk_id] = raw_chunk_bytes
+    return normalized
+
+
+def _normalize_chunk_ids(chunk_ids: Collection[bytes] | None) -> set[bytes]:
+    if chunk_ids is None:
+        return set()
+    normalized: set[bytes] = set()
+    for chunk_id in chunk_ids:
+        raw_chunk_id = bytes(chunk_id)
+        if len(raw_chunk_id) != 32:
+            raise ValueError("existing chunk_id must be 32 bytes")
+        normalized.add(raw_chunk_id)
     return normalized
 
 

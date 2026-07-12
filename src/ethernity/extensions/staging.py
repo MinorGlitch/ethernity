@@ -29,6 +29,7 @@ from ethernity.artifacts.publish import (
     promote_staged_artifact_dir,
     snapshot_artifact_dir,
 )
+from ethernity.crypto.sharding import MAX_SHARES
 from ethernity.extensions.discovery import EXTENSIONS_DIR_NAME
 from ethernity.extensions.layout import (
     build_extension_main_filename,
@@ -60,6 +61,8 @@ class ExtensionPublishPolicy:
         ):
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{label} must be a non-negative integer")
+            if value > MAX_SHARES:
+                raise ValueError(f"{label} must be <= MAX_SHARES ({MAX_SHARES})")
 
 
 @dataclass(frozen=True)
@@ -702,7 +705,12 @@ def _require_complete_shards(
         return
     if not shares:
         raise ValueError(f"staged extension is missing required {doc_type} artifacts")
-    if set(shares) != set(range(1, expected_count + 1)):
+    share_indexes = set(shares)
+    if (
+        len(share_indexes) != expected_count
+        or min(share_indexes) != 1
+        or max(share_indexes) != expected_count
+    ):
         raise ValueError(
             f"staged extension {doc_type} artifacts must include shares 1 through {expected_count}"
         )

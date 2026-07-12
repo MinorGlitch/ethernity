@@ -33,6 +33,17 @@ Regenerate with:
 uv run python tests/fixtures/v1_2/extension_golden/build_golden.py
 ```
 
+When only a rendered shard carrier is invalid but its frozen QR frame and semantic payload must
+remain unchanged, refresh the carrier from that exact frame instead of rebuilding the encrypted
+scenario:
+
+```bash
+uv run python tests/fixtures/v1_2/extension_golden/build_golden.py \
+  --refresh-shard-carriers \
+  raw/extension_local_sharded_chain/chain/extensions/01/signing-key-shard-01-275c2fd427ea034a-1-of-2.pdf \
+  raw/extension_local_sharded_chain/chain/extensions/01/signing-key-shard-01-275c2fd427ea034a-2-of-2.pdf
+```
+
 Generated PDFs and payload files are intentionally committed. If a fixture
 version is intentionally replaced, edit the builder and regenerate instead of
 hand-editing fixture artifacts.

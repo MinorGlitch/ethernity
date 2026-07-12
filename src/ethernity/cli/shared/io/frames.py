@@ -48,6 +48,7 @@ from ethernity.qr.scan import (
 __all__ = [
     "format_recovery_input_error",
     "format_shard_input_error",
+    "frames_from_fallback_text",
     "frames_from_scan",
     "recovery_frames_from_scan",
     "shard_frames_from_scan",
@@ -301,6 +302,21 @@ def _frames_from_fallback(path: str, *, allow_invalid_auth: bool, quiet: bool) -
 
     lines = _read_text_lines(path)
     return _frames_from_fallback_lines(lines, allow_invalid_auth=allow_invalid_auth, quiet=quiet)
+
+
+def frames_from_fallback_text(
+    text: str,
+    *,
+    allow_invalid_auth: bool = False,
+    quiet: bool = True,
+) -> list[Frame]:
+    """Decode pasted recovery text into MAIN and optional AUTH frames."""
+
+    return _frames_from_fallback_lines(
+        text.splitlines(),
+        allow_invalid_auth=allow_invalid_auth,
+        quiet=quiet,
+    )
 
 
 def _non_empty_lines(lines: list[str]) -> list[str]:
